@@ -129,9 +129,10 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
       // The page became the chat; its first message carries the text and the image.
       const bubble = page.locator(".cv-user__bubble", { hasText: "what is this" });
       await bubble.waitFor({ timeout: 30_000 });
-      // A sent message draws its attachments in one block above its text (#45755; Leo, 2026-11-17:
-      // "Put them in a block above the text."), never inside the bubble or in the legacy band.
-      const image = page.locator("[data-inline-attachment-strip] .cv-user__inline-image img");
+      // A sent message draws its attachments where the composer placed them, inline in its text
+      // (Leo, 2026-11-22: "the inline attachments being sent as they were when sent"), never in the
+      // legacy band.
+      const image = page.locator("[data-inline-content] .cv-user__inline-image img");
       await image.waitFor({ timeout: 30_000 });
       expect(await image.getAttribute("src")).toStartWith("data:image/png");
       expect(await page.locator(".cv-user__images img").count()).toBe(0);
@@ -335,7 +336,7 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
       await page.keyboard.press("Enter");
       const bubble = page.locator(".cv-user__bubble", { hasText: "example.com" });
       await bubble.waitFor({ timeout: 30_000 });
-      await page.locator("[data-inline-attachment-strip] .cv-user__inline-image img").waitFor({ timeout: 30_000 });
+      await page.locator("[data-inline-content] .cv-user__inline-image img").waitFor({ timeout: 30_000 });
       await page.close();
     },
   );

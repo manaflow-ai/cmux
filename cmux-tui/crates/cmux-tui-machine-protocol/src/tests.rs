@@ -144,6 +144,7 @@ fn client_capability_negotiation_matches_the_v1_golden_document() {
 #[test]
 fn targeted_actions_are_removed_until_the_client_capability_is_negotiated() {
     #[derive(Deserialize)]
+    // skew: strict test oracle: models a shipped strict v1 client
     #[serde(deny_unknown_fields)]
     struct LegacyProviderAction {
         id: OpaqueId,
@@ -335,7 +336,10 @@ fn external_machine_specifiers_are_bounded_and_unambiguous() {
             "shell": "ssh"
         }
     });
-    assert!(serde_json::from_value::<RequestEnvelope>(unknown).is_err());
+    assert!(
+        serde_json::from_value::<RequestEnvelope>(unknown).is_ok(),
+        "an unknown params field from a newer client is ignored"
+    );
 }
 
 #[test]
@@ -595,11 +599,25 @@ fn durable_notice_metadata_is_strict_while_event_metadata_remains_additive() {
     });
     assert!(serde_json::from_value::<EventEnvelope>(future_metadata).is_ok());
 
-    for invalid_delivery in [
-        json!({ "notice_id": "usage-warning-80" }),
-        json!({ "notice_id": "usage-warning-80", "sequence": 42, "future": true }),
-        json!({ "notice_id": "", "sequence": 42 }),
-    ] {
+    let future_delivery = json!({
+        "protocol": "cmux.machine-provider",
+        "version": 1,
+        "delivery": { "notice_id": "usage-warning-80", "sequence": 42, "future": true },
+        "event": "notice",
+        "params": {
+            "level": "warning",
+            "message": "Trial compute is almost exhausted",
+            "future": true
+        }
+    });
+    assert!(
+        serde_json::from_value::<EventEnvelope>(future_delivery).is_ok(),
+        "unknown delivery and event fields from a newer provider are ignored"
+    );
+
+    for invalid_delivery in
+        [json!({ "notice_id": "usage-warning-80" }), json!({ "notice_id": "", "sequence": 42 })]
+    {
         let document = json!({
             "protocol": "cmux.machine-provider",
             "version": 1,
@@ -899,7 +917,7 @@ fn envelopes_allow_future_metadata_but_params_and_results_stay_strict() {
         "method": "snapshot",
         "params": { "surprise": true }
     });
-    assert!(serde_json::from_value::<RequestEnvelope>(unknown_param).is_err());
+    assert!(serde_json::from_value::<RequestEnvelope>(unknown_param).is_ok());
 
     let unknown_result = json!({
         "protocol": "cmux.machine-provider",
@@ -915,7 +933,10 @@ fn envelopes_allow_future_metadata_but_params_and_results_stay_strict() {
             "surprise": true
         }
     });
-    assert!(serde_json::from_value::<ResponseEnvelope<OpenMachineResult>>(unknown_result).is_err());
+    assert!(
+        serde_json::from_value::<ResponseEnvelope<OpenMachineResult>>(unknown_result).is_ok(),
+        "an unknown result field from a newer provider is ignored"
+    );
 }
 
 #[test]

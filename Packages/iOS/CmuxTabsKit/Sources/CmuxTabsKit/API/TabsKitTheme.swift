@@ -141,14 +141,6 @@ public struct TabsKitTheme: Sendable {
     }
 }
 
-/// Where the page toolbar sits (`TabsKitTheme.Metrics.barEdge`).
-public enum TabsKitBarEdge: Sendable, Equatable {
-    /// Safari's bottom toolbar; it hides behind a software keyboard.
-    case bottom
-    /// Under the status bar; a page's accessory (a composer) owns the bottom edge.
-    case top
-}
-
 extension EnvironmentValues {
     /// The kit's theme (`.tabsKitTheme(_:)`).
     @Entry public var tabsKitTheme = TabsKitTheme()

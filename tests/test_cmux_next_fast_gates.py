@@ -48,6 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
+NOT_POOL = "!startsWith(runner.name, 'cmux-runner-pool-')"
 WORKFLOW = ROOT / ".github/workflows/cmux-next-fast-gates.yml"
 GUARDS = ROOT / ".github/workflows/cmux-next-guards.yml"
 SCRIPT = ROOT / "scripts/ci/cmux_next_fast_gates.py"
@@ -57,6 +58,8 @@ GATE_SCRIPTS = {
     "prepush gate": "scripts/cmux-next/prepush-gate.py",
     "crash-class rules": "scripts/ci/crash_class_fast_gate.py",
     "webviews checks": "scripts/ci/fast_gate_webviews_checks.py",
+    "protocol skew": "scripts/ci/protocol_skew_check.py",
+    "entry logs": "scripts/ci/entry_logs.py",
 }
 CI_WEB = ROOT / ".github/workflows/ci-web.yml"
 WEBVIEWS_CHECKS = ROOT / "scripts/ci/fast_gate_webviews_checks.py"
@@ -140,6 +143,67 @@ class WorkflowShape(unittest.TestCase):
                 for runner in cells:
                     self.assertNotIn("macos", runner.lower())
 
+    def test_pool_checkouts_fetch_unfiltered_from_the_mirror(self):
+        # 2026-11-25: actions/checkout adds --filter=blob:none to any sparse checkout, and on a pool VM a partial fetch
+        # borrowing the mirror made git copy ~3 GB of promisor objects (60-75 s a checkout, resolve p90 107 s against a
+        # 30 s budget). A pool VM runs its own unfiltered fetch into a fresh .git that borrows the mirror; the same
+        # sparse paths; every other runner keeps the action with blob:none.
+        doc = workflow()
+        for key, name in (("resolve", "Checkout the merge ref"),
+                          ("fast-check-route", "Checkout the merge commit's router (trees only)"),
+                          ("fast-gates", "Checkout")):
+            with self.subTest(job=key):
+                steps = doc["jobs"][key]["steps"]
+                action, pool = step_named(steps, name), step_named(steps, "Pool mirror: c" + name[1:])
+                self.assertEqual(steps.index(pool), steps.index(action) + 1)
+                self.assertEqual(action["with"]["filter"], "blob:none")
+                self.assertIn(NOT_POOL, action["if"])
+                self.assertIn(NOT_POOL[1:], pool["if"])
+                self.assertNotIn(NOT_POOL, pool["if"])
+                self.assertEqual(pool["env"]["SPARSE"], action["with"]["sparse-checkout"])
+                self.assertEqual(pool["env"]["SHA"], "${{ github.sha }}")
+                self.assertEqual(pool.get("timeout-minutes"), action.get("timeout-minutes"))
+                run = pool["run"]
+                self.assertIn('echo "$mirror" > .git/objects/info/alternates', run)
+                self.assertIn("find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +", run)
+                fetch = next(line for line in run.splitlines() if "git fetch" in line)
+                self.assertNotIn("--filter", fetch)
+                self.assertIn("--depth=2", fetch)
+                self.assertNotIn("$TOKEN", fetch)
+
+    def test_pool_checkout_script_checks_out_the_sparse_paths_from_a_borrowed_mirror(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            step = step_named(job(workflow())["steps"], "Pool mirror: checkout")
+            seed = tmp / "seed"
+            git(tmp, "init", "-q", "-b", "main", str(seed))
+            for rel in ("scripts/ci/a.py", "Packages/p/b.swift", "outside/c.txt", "top.txt"):
+                (seed / rel).parent.mkdir(parents=True, exist_ok=True)
+                (seed / rel).write_text(rel)
+            git(seed, "add", "-A")
+            git(seed, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "one")
+            (seed / "scripts/ci/d.py").write_text("d")
+            git(seed, "add", "-A")
+            git(seed, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "two")
+            sha = git(seed, "rev-parse", "HEAD").strip()
+            git(tmp, "clone", "-q", "--bare", str(seed), str(tmp / "mirror.git"))
+            run = step["run"].replace("/var/lib/cmux-git/cmux.git/objects", str(tmp / "mirror.git/objects")).replace(
+                "https://github.com/$GITHUB_REPOSITORY", "file://" + str(seed))
+            ws = tmp / "ws"
+            (ws / ".git").mkdir(parents=True)
+            (ws / "stale.txt").write_text("from an earlier job")
+            env = {**os.environ, "GITHUB_WORKSPACE": str(ws), "SHA": sha, "TOKEN": "t", "SPARSE": step["env"]["SPARSE"]}
+            subprocess.run(["bash", "-c", run], env=env, check=True, capture_output=True, text=True)
+            self.assertEqual(git(ws, "rev-parse", "HEAD").strip(), sha)
+            git(ws, "rev-parse", "HEAD^1")
+            self.assertTrue((ws / "scripts/ci/d.py").exists() and (ws / "Packages/p/b.swift").exists())
+            self.assertTrue((ws / "top.txt").exists())
+            self.assertFalse((ws / "outside").exists())
+            self.assertFalse((ws / "stale.txt").exists())
+            promisor = subprocess.run(["git", "-C", str(ws), "config", "--get", "remote.origin.promisor"],
+                                      capture_output=True, text=True)
+            self.assertEqual(promisor.stdout.strip(), "")
+
     def test_checkout_holds_every_gate_input_and_walks_commits_only(self):
         inputs = json.loads((ROOT / "scripts/ci/fast-check-inputs.json").read_text())[
             "workflows"][".github/workflows/cmux-next-fast-gates.yml"]["fast-gates"]["inputs"]
@@ -180,8 +244,9 @@ class WorkflowShape(unittest.TestCase):
         resolve = job(doc, "resolve")
         # resolve runs no checked-out code: on dispatch it checks nothing out at all.
         for step in resolve["steps"]:
-            if step.get("uses", "").startswith("actions/checkout@"):
-                self.assertEqual(step["if"].replace(" ", ""), "${{github.event_name=='pull_request'}}")
+            if step.get("uses", "").startswith("actions/checkout@") or step.get("name", "").startswith("Pool mirror:"):
+                self.assertTrue(step["if"].replace(" ", "").startswith("${{github.event_name=='pull_request'&&"),
+                                step.get("name"))
             self.assertNotIn("scripts/", step.get("run", ""), step.get("name"))
         body = step_named(resolve["steps"], "Resolve")["run"]
         self.assertIn('"$head_repo" != "$GITHUB_REPOSITORY"', body)
@@ -353,6 +418,14 @@ class WorkflowShape(unittest.TestCase):
             # The R2 cache reads (#51750) are best-effort: a miss or an error falls through to the GitHub store's
             # restore step, so they are the one kind of step allowed to keep going; no gate is.
             if step.get("uses") == "./.github/actions/cache-restore" and step.get("with", {}).get("backend") == "r2":
+                continue
+            # The GitHub store's Bun restore is bounded and best-effort too: past its bound the gates install cold,
+            # and the next step drops what it half extracted.
+            if step.get("id") == "bun-cache" and step.get("uses", "").startswith("actions/cache/restore@"):
+                continue
+            # The pinned Node and Bun restores (scripts/ci/toolchain-r2.sh) are best-effort: a miss leaves the setup
+            # step after it to download as before, so they never decide the job.
+            if "toolchain-r2.sh\" restore " in step.get("run", ""):
                 continue
             self.assertNotIn("continue-on-error", step, step.get("name"))
         run = step_named(gates["steps"], "Fast gates")
@@ -565,12 +638,63 @@ class WorkflowShape(unittest.TestCase):
         for step in steps:
             self.assertFalse(step.get("uses", "").startswith("actions/cache@"), step.get("name"))
         # #51750 reads R2 first (./.github/actions/cache-restore, backend r2), then the GitHub store's restore step.
+        restore = step_named([s for s in steps if not s["name"].endswith(" from R2")], "Restore the Bun package cache")
+        self.assertTrue(restore["uses"].startswith("actions/cache/restore@"))
         for name in ("Restore the Bun package cache", "Restore the pinned lint tools"):
-            restore = step_named([s for s in steps if not s["name"].endswith(" from R2")], name)
-            self.assertTrue(restore["uses"].startswith("actions/cache/restore@"), name)
             r2 = step_named(steps, f"{name} from R2")
             self.assertEqual(r2["uses"], "./.github/actions/cache-restore", name)
             self.assertEqual(r2["with"]["backend"], "r2", name)
+        # The lint tools never change per PR and are off the GitHub store (RFD 0148 row 19): R2 only, and a miss
+        # is prepush-gate.py's sha256-checked download.
+        self.assertEqual([s["name"] for s in steps if s["name"].startswith("Restore the pinned lint tools")],
+                         ["Restore the pinned lint tools from R2"])
+
+    def test_the_bun_cache_restore_is_bounded_and_never_left_half_done(self):
+        # 2026-11-23: on a Freestyle VM the 710 MB restore ran at about 1 MB/s, and at 600 s its link expired.
+        # It failed every time, adding 605 s (median) to a job whose gates then installed cold anyway.
+        steps = job(workflow())["steps"]
+        restore = next(s for s in steps if s.get("id") == "bun-cache")
+        self.assertTrue(restore["uses"].startswith("actions/cache/restore@"))
+        self.assertLessEqual(restore["timeout-minutes"], 3)
+        self.assertIs(restore["continue-on-error"], True)
+        drop = step_named(steps, "Drop a partly restored Bun package cache")
+        self.assertIn(f"steps.{restore['id']}.outcome == 'failure'", drop["if"])
+        self.assertIn(f"steps.{restore['id']}.outcome == 'cancelled'", drop["if"])
+        self.assertIn("steps.bun-r2.outcome == 'failure'", drop["if"])
+        self.assertIn("~/.bun/install/cache", drop["run"])
+        self.assertEqual(steps.index(drop), steps.index(restore) + 1)
+        gates = step_named(steps, "Fast gates on the merge")
+        self.assertLess(steps.index(drop), steps.index(gates))
+
+    def test_every_step_before_the_gates_is_bounded(self):
+        # 2026-11-23: 255 fast gates jobs sat to the 25-minute limit (about 6.3k runner minutes), each in one setup
+        # step with no bound of its own: a checkout fetch, the base deepen, a cache restore or setup-node's download
+        # from GitHub at Freestyle's ~0.9 MB/s. Each step before the gates ends on its own bound, so the job fails
+        # then, naming the step, and the bounds together leave the gates room inside the job limit.
+        gates_job = job(workflow())
+        steps = gates_job["steps"]
+        gates = steps.index(step_named(steps, "Fast gates on the merge"))
+        # A step that runs only on a pool VM and one that runs only off it are alternatives (the pool mirror's
+        # checkout replaces actions/checkout, cmux#55973): a job pays one side's bounds, never both.
+        pool = "${{ startsWith(runner.name, 'cmux-runner-pool-') }}"
+        off_pool = "${{ !startsWith(runner.name, 'cmux-runner-pool-') }}"
+        common = on_pool = not_pool = 0
+        for step in steps[:gates]:
+            with self.subTest(step=step["name"]):
+                self.assertIn("timeout-minutes", step)
+                minutes = int(step["timeout-minutes"])
+                if step.get("if") == pool:
+                    on_pool += minutes
+                elif step.get("if") == off_pool:
+                    not_pool += minutes
+                else:
+                    common += minutes
+        self.assertLessEqual(common + max(on_pool, not_pool), 40)
+        # Node never comes from GitHub's node-versions releases (setup-node's download): the tool cache or nodejs.org.
+        node = step_named(steps, "Setup Node")
+        self.assertNotIn("uses", node)
+        self.assertEqual(node["run"], "scripts/ci/ensure-setup-node.sh 24.22.1")
+        self.assertLessEqual(int(node["timeout-minutes"]), 3)
 
     def test_the_webviews_checks_are_ci_webs_fail_mode_checks(self):
         # The gate reruns what a pull request's ci-web fails on, so a check that landed after the PR's CI
@@ -619,6 +743,12 @@ class WorkflowShape(unittest.TestCase):
         # in full) and the last two run after the gate, so none of them is a verdict.
         receipt_steps = ("same-input receipt", "the receipt's results")
         for step in steps:
+            # The pinned toolchain restores (scripts/ci/toolchain-r2.sh) are best-effort too: a miss is setup's download.
+            if "toolchain-r2.sh\" restore " in str(step.get("run", "")):
+                continue
+            # So are the bounded package cache restores (cmux#55346): a miss or a timeout is a cold install, not a verdict.
+            if str(step.get("uses", "")).startswith(("actions/cache@", "actions/cache/restore@")):
+                continue
             if step.get("continue-on-error") is True and not any(r in step["name"] for r in receipt_steps):
                 with self.subTest(gated=step["name"]):
                     self.assertIn("id", step)
@@ -753,7 +883,7 @@ class ScriptBehavior(unittest.TestCase):
                "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
                "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
         if barrier is not None:
-            env.update({"FAKE_BARRIER": str(barrier), "FAKE_BARRIER_COUNT": "4"})
+            env.update({"FAKE_BARRIER": str(barrier), "FAKE_BARRIER_COUNT": "6"})
         extra = []
         if budget is not None:
             extra += ["--budget-seconds", str(budget)]
@@ -1062,6 +1192,68 @@ class ScriptBehavior(unittest.TestCase):
         # A gate that does read it gets it on demand: the fetch marked origin as the promisor.
         self.assertEqual(git(work, "show", f"{old_commit}:old.txt"), "newer 20")
 
+    def pool_merge(self, pr: str) -> tuple[str, str, list[str]]:
+        """A base 60 commits deep, a pull request of 5 commits off it, and its merge ref; returns (base, head, own)."""
+        seed = self.seed
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        commits(seed, [({"old.txt": f"old {n}\n"}, f"old base {n}") for n in range(60)])
+        fork = git(seed, "rev-parse", "HEAD")
+        git(seed, "checkout", "-q", "-b", f"pr{pr}", fork)
+        own = [commit(seed, {f"pr{pr}.txt": f"{n}\n"}, f"the pull request's change {n}") for n in range(5)]
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        base = commit(seed, {"tip.txt": "moved\n"}, "the base moves on")
+        git(seed, "checkout", "-q", "--detach", base)
+        git(seed, "-c", "user.name=t", "-c", "user.email=t@example.com", "merge", "-q", "--no-ff", "--no-edit", own[-1])
+        git(seed, "push", "-q", "-f", str(self.remote), f"{base}:refs/heads/feat-cmux-next",
+            f"{own[-1]}:refs/pull/{pr}/head", f"HEAD:refs/pull/{pr}/merge")
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        for key in ("uploadpack.allowReachableSHA1InWant", "uploadpack.allowFilter"):  # as GitHub allows
+            git(self.remote, "config", key, "true")
+        return base, own[-1], own
+
+    def pool_checkout(self, pr: str, mirror: Path) -> Path:
+        """What the pool checkout does: a fresh repo borrowing the mirror, the merge ref at depth 2."""
+        work = self.tmp / f"pool{pr}"
+        work.mkdir()
+        git(work, "init", "-q")
+        (work / ".git" / "objects" / "info" / "alternates").write_text(f"{mirror / 'objects'}\n")
+        git(work, "remote", "add", "origin", f"file://{self.remote}")
+        git(work, "fetch", "-q", "--depth=2", "origin", f"refs/pull/{pr}/merge")
+        git(work, "checkout", "-q", "--detach", "FETCH_HEAD")
+        self.assertTrue((work / ".git" / "shallow").exists(), "the fixture must start shallow")
+        return work
+
+    def test_pull_request_on_a_pool_mirror_unshallows_locally_without_a_deepen_fetch(self):
+        base, head, own = self.pool_merge("11")
+        mirror = self.tmp / "mirror.git"
+        subprocess.run(["git", "clone", "-q", "--mirror", str(self.remote), str(mirror)], check=True)
+        work = self.pool_checkout("11", mirror)
+
+        result = self.script(work, "prepare", "--event", "pull_request", "--head", head, "--base", base,
+                             "--output", str(self.tmp / "out.txt"))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("unshallowed locally", result.stderr)
+        self.assertNotIn("deepened by", result.stderr)
+        self.assertEqual(git(work, "rev-parse", "--is-shallow-repository"), "false")
+        merge = git(work, "rev-parse", "HEAD")
+        self.assertEqual(git(work, "rev-list", "--reverse", "--no-merges", f"{base}..{merge}").split(), own)
+
+    def test_pull_request_on_a_stale_pool_mirror_deepens_from_the_remote(self):
+        mirror = self.tmp / "mirror.git"
+        subprocess.run(["git", "clone", "-q", "--mirror", str(self.remote), str(mirror)], check=True)
+        base, head, own = self.pool_merge("12")  # all of it newer than the mirror's sync
+        work = self.pool_checkout("12", mirror)
+
+        result = self.script(work, "prepare", "--event", "pull_request", "--head", head, "--base", base,
+                             "--output", str(self.tmp / "out.txt"))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("lacks some history", result.stderr)
+        self.assertIn("deepened by", result.stderr)
+        merge = git(work, "rev-parse", "HEAD")
+        self.assertEqual(git(work, "rev-list", "--reverse", "--no-merges", f"{base}..{merge}").split(), own)
+
     def test_pull_request_deepens_until_the_base_reaches_below_the_pull_requests_fork(self):
         # #37015 at 5f689d98 (run 42236372118): the PR forked from an old base commit and later merged a newer tip
         # M. Deepening stopped once both sides met at M with no cut ahead of it, but the base's cut sat above the
@@ -1192,6 +1384,8 @@ class ScriptBehavior(unittest.TestCase):
         self.assertIn("--new-only", calls["web lint"]["argv"])  # per error over the base, not per job
         self.assertEqual(calls["prepush gate"]["argv"][:4], ["--base", base, "--head", merge])
         self.assertEqual(calls["webviews checks"]["argv"], ["--base", base])
+        self.assertEqual(calls["protocol skew"]["argv"], ["--base", base, "--head", merge])
+        self.assertEqual(calls["entry logs"]["argv"], ["check", "--base", base, "--head", merge])
         ratchet = calls["crash ratchet"]["argv"]
         self.assertEqual(ratchet[:2], ["--script", "scripts/cmux-next/crash_ratchet.py"])
         self.assertEqual(Path(ratchet[ratchet.index("--head") + 1]).resolve(), work.resolve())
@@ -1225,9 +1419,9 @@ class ScriptBehavior(unittest.TestCase):
         result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "true",
                              sleep=0.2, barrier=barrier)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        # The first batch cannot finish until all four markers exist. A serial implementation therefore fails
+        # The first batch cannot finish until all six markers exist. A serial implementation therefore fails
         # deterministically at the barrier instead of relying on a wall-clock threshold that flakes on loaded hosts.
-        self.assertEqual(len(list(barrier.glob("started-*"))), 4)
+        self.assertEqual(len(list(barrier.glob("started-*"))), 6)
         self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
 
     def test_a_zero_budget_stops_every_started_gate_and_still_names_a_critical_path_gate(self):
@@ -1768,6 +1962,15 @@ class WebviewsChecksGate(unittest.TestCase):
         self.findings({"typecheck": red + red.replace(":350:", ":351:")}, "the merge")
         self.assertEqual(self.gate(base).returncode, 1)
 
+    def test_a_vite_config_stack_frame_matches_the_base_across_temp_names(self):
+        merge = ("error: Failed to resolve vite config\n"
+                 "    at markdownHost (file:///r/webviews/node_modules/.vite-temp/"
+                 "vite.config.ts.timestamp-1795525836293-8f8fc7091050a8.mjs:3240:23)\n")
+        base = merge.replace("1795525836293-8f8fc7091050a8", "1795525901234-0a1b2c3d4e5f60")
+        new, old = self.module.compare(merge, base)
+        self.assertEqual(new, [])
+        self.assertTrue(old)
+
     def test_a_type_error_keys_on_file_code_and_message_not_line_or_frame(self):
         output = ("\x1b[31m  x typescript(TS2339): Property 'muted' does not exist on type 'Row'.\x1b[0m\n"
                   "     ,-[test/composer-row-layout.test.ts:350:22]\n"
@@ -1778,6 +1981,22 @@ class WebviewsChecksGate(unittest.TestCase):
         self.assertEqual([key for key, _ in self.module.findings(output)],
                          ["test/composer-row-layout.test.ts: typescript(TS2339): "
                           "Property 'muted' does not exist on type 'Row'."])
+
+    def test_a_vite_config_stack_names_no_new_finding_on_the_merge(self):
+        def crash(stamp: str, line: int) -> str:
+            return (f"    at markdownHost (file:///r/webviews/node_modules/.vite-temp/"
+                    f"vite.config.ts.timestamp-{stamp}.mjs:{line}:23)\n")
+        merge, base = crash("1795526354921-166d4b4b7bbf6", 3240), crash("1795526301002-0a1b2c3d4e5f", 3238)
+        self.assertEqual(self.module.added(merge, base), [])
+        self.assertEqual(len(self.module.added(merge + "    at other (x.mjs:1:1)\n", base)), 1)
+
+    def test_a_base_frame_in_the_shared_node_modules_is_the_merges(self):
+        # The base's webviews/node_modules links to the merge's, so the base's stack names the merge's root.
+        frame = "    at async resolveConfig (file:///m/webviews/node_modules/vite/dist/node.js:42734:22)\n"
+        own = "    at x (file:///b/base/webviews/src/a.ts:1:1)\n"
+        merge = frame + own.replace("/b/base", "/m")
+        self.assertEqual(self.module.added(merge, frame + own, "/m", "/b/base"), [])
+        self.assertEqual(len(self.module.added(merge, own, "/m", "/b/base")), 1)
 
     def test_a_push_with_no_base_charges_every_red(self):
         self.findings({"typecheck": type_error("TS2307", "Cannot find module './x.json'.", "src/a.ts:4:21")}, "red")
@@ -1822,6 +2041,14 @@ class WebviewsChecksGate(unittest.TestCase):
         known = type_error("TS2307", "Cannot find module './x.json'.", "src/a.ts:4:21")
         new = self.module.added(known + "error: Failed to resolve vite config: ENOENT\n", known)
         self.assertEqual(new, ["error: Failed to resolve vite config: ENOENT"])
+
+    def test_a_vite_config_stack_frame_keys_without_its_temp_stamp(self):
+        def frames(stamp: str) -> str:
+            return ("error: Failed to resolve vite config: ENOENT\n"
+                    f"    at markdownHost (file:///r/webviews/node_modules/.vite-temp/vite.config.ts.timestamp-{stamp}.mjs"
+                    ":3176:23)\n")
+        self.assertEqual(self.module.added(frames("1795522394672-bd727a4797f8c8"), frames("1795522301234-0a1b2c3d4e5f60")),
+                         [])
 
     def test_a_wrapped_message_compares_whole(self):
         def wrapped(detail: str) -> str:
@@ -1873,6 +2100,14 @@ class WebviewsChecksGate(unittest.TestCase):
     UNUSED = ("::warning file=src/agent-session/acpmux/ModelPicker.tsx,line={line},endLine={line},col=34,"
               "endColumn=52,title=eslint(no-unused-expressions)::Expected expression to be used\n")
 
+    def test_a_vite_config_stack_differing_only_by_its_temp_bundle_name_is_the_base_one(self):
+        def stack(stamp: str) -> str:
+            return ("failed to load config from /w/webviews/vite.config.ts\n"
+                    f"    at markdownHost (file:///w/webviews/node_modules/.vite-temp/vite.config.ts.timestamp-{stamp}.mjs:3240:23)\n")
+        new, old = self.module.compare(stack("1795534024051-bd9bea275ee978"), stack("1795533990112-0a1b2c3d4e5f60"))
+        self.assertEqual(new, [])
+        self.assertEqual(len(old), 2)
+
     def test_an_annotation_finding_that_only_moved_lines_is_the_base_one(self):
         merge = self.UNUSED.format(line=803) + "Found 1 warning and 0 errors.\n"
         base = self.UNUSED.format(line=791) + "Found 1 warning and 0 errors.\n"
@@ -1893,6 +2128,40 @@ class WebviewsChecksGate(unittest.TestCase):
         self.findings({"check:fixed-waits": "  x\n"}, "red")
         self.gate(base)
         self.assertEqual(len(git(self.repo, "worktree", "list").splitlines()), 1)
+
+
+class DeepenFallbackTests(unittest.TestCase):
+    """GitHub's pack-objects aborted a tree:0 deepen on #52583 twice (jobs 138890366419, 138894346038)."""
+
+    def run_deepen_fetch(self, failures: dict[str, str]):
+        module = load(SCRIPT)
+        calls = []
+
+        def fake_git(repo, *args, check=True):
+            calls.append(args)
+            stderr = next((err for flag, err in failures.items() if flag in args), "")
+            code = 128 if stderr else 0
+            if check and code:
+                raise SystemExit(f"fast-gates: git {' '.join(args)} failed: {stderr}")
+            return subprocess.CompletedProcess(args, code, "", stderr)
+
+        module.git = fake_git
+        module.log = lambda message: None
+        module.deepen_fetch(Path("."), "origin", "--deepen=32", ["a", "b"])
+        return calls
+
+    def test_a_pack_objects_abort_retries_with_blob_none(self):
+        bug = "BUG: builtin/pack-objects.c:5098: should_include_obj\nerror: pack-objects died of signal 6"
+        calls = self.run_deepen_fetch({"--filter=tree:0": bug})
+        self.assertEqual([c[3] for c in calls], ["--filter=tree:0", "--filter=blob:none"])
+        self.assertTrue(all("--deepen=32" in c for c in calls))
+
+    def test_a_clean_deepen_fetches_once(self):
+        self.assertEqual(len(self.run_deepen_fetch({})), 1)
+
+    def test_any_other_failure_still_fails(self):
+        with self.assertRaises(SystemExit):
+            self.run_deepen_fetch({"--filter=tree:0": "fatal: could not read from remote repository"})
 
 
 if __name__ == "__main__":

@@ -178,7 +178,7 @@ pub fn repositories(roots: &[PathBuf], extra: &[PathBuf], guarded: &Guarded) -> 
             continue;
         }
         let Some(common) = common_dir(&folder) else { continue };
-        if guarded(&common) || cmux_git::main_root(&common).is_some_and(|main| guarded(main)) {
+        if guarded(&common) || cmux_git::main_root(&common).is_some_and(guarded) {
             continue;
         }
         if seen.insert(common.clone()) {
