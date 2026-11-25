@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45700822159",
+  "recorded_at": "2026-11-25T21:38:39Z",
+  "reason": "image inputs changed in 88949de90430691db96ce51935c7048df7f4d100..2bfc873ce20ccf458ab14cf400792e675fe38d90",
+  "dry_run": false,
+  "cmux_tui": "67d01201b152cf703af3a9adab5bba27544acf99",
+  "fixes": [
+    {
+      "sha": "2bfc873ce20ccf458ab14cf400792e675fe38d90",
+      "mergedAt": "2026-11-25T13:03:36-08:00",
+      "subject": "qcow2 export: probe the R2 key from the runner first and show R2's 403 body (roll 45690843632 failed with a bare curl 22) (#57041)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-25T21:38:39Z",
+    "snapshot_id": "sh-a8bb57161cbb49989dc9679db59522a3",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 45700822159): 32 checks passed"
+  },
+  "promotion": {
+    "result": "failed",
+    "job": "failure",
+    "commit": "",
+    "image": "",
+    "revision": "ci-45700822159-1",
+    "at": null
+  },
+  "rolled_back": false
+}
