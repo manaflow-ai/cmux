@@ -2,6 +2,7 @@
 // header, transcript, side panels, asks, composer slot and dialogs), moved out of App.tsx as it was.
 // A plain render function AcpmuxPane calls inline for its `pane`, so React sees the same element
 // tree (no component boundary of its own); every hook stays in AcpmuxPane, and this holds no state.
+import type { HatPillPlace } from "../hatPillPlace.experiment";
 import type React from "react";
 import type { createCloudPlanSubscribe } from "../cloudPlanSubscribe";
 import type { sideChatRow } from "../header/sideChatRow";
@@ -97,6 +98,8 @@ import { sandboxRetryable, type SandboxTab, type RunModeRows, type SandboxRun } 
 import { SandboxRunView } from "../lazyScreens";
 import { PaneFeatureTips } from "../featureTips";
 import { callNative } from "../callNative";
+import type { EvacuateState } from "../place/placeModel";
+import type { EvacuateActions } from "../place/usePlace";
 import { openOfferChat } from "../rows/rowActions";
 import { VirtualTranscript } from "../VirtualTranscript";
 import { LiveTreePill } from "../header/LiveTreePill";
@@ -195,6 +198,8 @@ export type PaneBodyDeps = NewTabShown &
     previewBeside: boolean;
     jumpPlaceArm: "center" | "end" | "start" | "corner";
     trayHandle: TrayHandleSide;
+    /** The hat-pill-place arm while the tucked hat's pill shows (jumpPlace.css), else undefined. */
+    hatPill: HatPillPlace | undefined;
     chatMinimapBeside: boolean;
     hasBottomAsk: boolean;
     setPaneMain: (element: HTMLDivElement | null) => void;
@@ -411,12 +416,18 @@ export type PaneBodyDeps = NewTabShown &
     tourHere: boolean;
     startTourTask: (task: TourTask) => Promise<string>;
     transcript: React.JSX.Element;
+    /// The floating preview window of the chat's newest frame (liveFrames/FramesDock.tsx).
+    framesDock?: React.JSX.Element;
     displayAnchor: HTMLElement | null;
     setDisplayAnchor: React.Dispatch<React.SetStateAction<HTMLElement | null>>;
     closeInspector: () => void;
     sendPerf: PerfSend;
     setDock: React.Dispatch<React.SetStateAction<HTMLElement | null>>;
     paneToasts: NoticeQueue;
+    /// The chat list's place and Evacuate calls (place/usePlace.ts).
+    chatListPlace: EvacuateActions;
+    /// The running Evacuate, for the chat list (`pane.tabState.evacuate`).
+    chatListEvacuate: EvacuateState | undefined;
     toastTop: HTMLDivElement | null;
     asks: React.JSX.Element | null;
     hostLine: React.JSX.Element;
@@ -505,6 +516,7 @@ export function drawPaneBody({
   previewBeside,
   jumpPlaceArm,
   trayHandle,
+  hatPill,
   chatMinimapBeside,
   hasBottomAsk,
   setPaneMain,
@@ -687,12 +699,15 @@ export function drawPaneBody({
   tourHere,
   startTourTask,
   transcript,
+  framesDock,
   displayAnchor,
   setDisplayAnchor,
   closeInspector,
   sendPerf,
   setDock,
   paneToasts,
+  chatListPlace,
+  chatListEvacuate,
   toastTop,
   asks,
   hostLine,
@@ -817,6 +832,8 @@ export function drawPaneBody({
           // The jump stack's place and side (jumpPlace.css): the whole stack moves together.
           data-jump-place={jumpPlaceArm}
           data-jump-side={jumpSide(jumpPlaceArm, trayHandle)}
+          // The tucked hat's pill and how it shares the center line with the disc (jumpPlace.css).
+          data-hat-pill={hatPill}
           data-vscode-minimap={chatMinimapBeside ? "" : undefined}
           // A question or permission card in the bottom stack (conversation.css). An attribute, not a
           // `:has()` over the pane: that would be checked again for every node a streamed chunk inserts
@@ -826,6 +843,7 @@ export function drawPaneBody({
           ref={setPaneMain}
         >
           <div ref={setToastTop} className="acpmux-toasts-top" />
+          {framesDock}
           {!harnessesOpen && showNewTab && !newTab.history && pageStyle(shownTemplate(newTab)) !== "minimal" && (
             <StyleSwitch
               current={pageStyle(shownTemplate(newTab))}
@@ -1139,6 +1157,16 @@ export function drawPaneBody({
                         onColdArchive: (sessionId: string, archived: boolean) =>
                           directClient.current?.coldArchive(sessionId, archived) ??
                           Promise.reject(new Error(translate("error.notOpen"))),
+                      }
+                    : {})}
+                  // A chat card's place and Evacuate rows: the app moves the chats (chatPlace.set, cloudEvacuate).
+                  {...(snapshot.origin !== "remote" && snapshot.origin !== "peer"
+                    ? {
+                        onPlace: chatListPlace.setMode,
+                        onEvacuate: chatListPlace.evacuate,
+                        onCancelEvacuate: chatListPlace.cancelEvacuate,
+                        onBringBack: chatListPlace.bringBack,
+                        ...(chatListEvacuate ? { evacuate: chatListEvacuate } : {}),
                       }
                     : {})}
                 />
@@ -1497,6 +1525,10 @@ export function drawPaneBody({
                 <ComputerUsePreviewCard
                   preview={previewShown ? computerUsePreview : null}
                   onClose={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "close" }))}
+                  onMove={(_session, move) =>
+                    ignoreFailure(callNative("chat.computerUsePreview", { action: "place", ...move }))
+                  }
+                  onShow={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "show" }))}
                 />
                 {environmentCardNode}
                 {underHeader.watching &&
