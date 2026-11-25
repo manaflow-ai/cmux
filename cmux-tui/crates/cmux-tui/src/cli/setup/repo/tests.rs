@@ -14,8 +14,8 @@ use serde_json::{Value, json};
 use super::super::super::OutputMode;
 use super::{
     Apps, Checkout, Failure, Request, card_text, fetch_from, gallery, inert, install_as,
-    install_link, order, parse, preview, reload, remove, set_on, stepped, swap, undo_redo,
-    update, variant,
+    install_link, order, parse, preview, reload, remove, set_on, stepped, swap, undo_redo, update,
+    variant,
 };
 
 /// Installs `text` under its own id, as `cmux setup install TEXT` does.
