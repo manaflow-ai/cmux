@@ -39,6 +39,8 @@ const ALLOWED: &[&str] = &[
     method::MUX_WAIT,
     method::MUX_SCHEMA,
     method::MUX_RESOLVE,
+    // Who is on the machine now (`hub/here.rs`); a beat is a write and stays out.
+    method::MUX_HERE,
 ];
 
 /// Whether a read-only connection may call `m`.
