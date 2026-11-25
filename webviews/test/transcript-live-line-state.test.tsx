@@ -170,7 +170,7 @@ test("a call in flight still names the call, over any subagent wait", () => {
     row("g", SUBAGENTS, { subagents: [agent("fg", "running")] }),
     row("run", "activity", { items: [call("bun test", "in_progress")] }),
   ]).at(-1)!;
-  expect(line).toMatchObject({ doing: "bun test", doingShell: true });
+  expect(line).toMatchObject({ doing: "Running tests", doingShell: false });
   expect(line.liveState).toBeUndefined();
 });
 

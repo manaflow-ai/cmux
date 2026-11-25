@@ -112,6 +112,22 @@ print({word!r})
                 self.assertNotIn("verdict=pass", out)
                 self.assertIn("title=fleet fallback", r.stdout)
 
+    def test_a_mac_compile_without_a_fleet_app_is_always_logged(self):
+        # The take step runs on every non-DEV-daily run, so a skipped or red fleet job still logs why the Mac compiles.
+        take = self.step(self.mac, "Take the app the build fleet built")
+        self.assertEqual(take["if"], "${{ inputs.dev_daily != true }}")
+        self.assertIn("needs.cmux-scheme-compile-fleet.result", take["env"]["FLEET_RESULT"])
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            env = {"PATH": os.environ["PATH"], "RUNNER_TEMP": tmp, "GITHUB_OUTPUT": str(out), "PARITY": "false",
+                   "CMUX_SCHEME_FLEET_JOB": "", "FLEET_RESULT": "skipped", "FLEET_VERDICT": "", "FLEET_SWITCH": "0"}
+            r = subprocess.run(["bash", str(ROOT / "scripts/cmux-next/scheme-fleet.sh"), "take"], env=env, cwd=tmp,
+                               capture_output=True, text=True, timeout=60)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(out.read_text(), "ok=false\n")
+            self.assertIn("title=fleet fallback", r.stdout)
+            self.assertIn("fleet job: skipped, verdict: none, CI_SCHEME_COMPILE_FLEET: 0", r.stdout)
+
 
 class Reader(unittest.TestCase):
     def test_scheme_debug_reads_its_own_record_and_its_job(self):
