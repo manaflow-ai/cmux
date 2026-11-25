@@ -216,7 +216,7 @@ async fn task_and_offer_results_name_their_sender_and_join_the_window() {
             interrupt: false,
             interrupt_turn: None,
             provenance: Some(provenance),
-            agent: agent.map(str::to_owned),
+            agent,
             class: Some(PromptClass::Result),
             supersede: None,
             full_access_device: None,
