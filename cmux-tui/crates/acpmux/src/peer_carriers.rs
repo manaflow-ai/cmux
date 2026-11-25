@@ -894,9 +894,6 @@ impl Peer {
             Via::Hub if via.streams() => {
                 self.open_direct(via, ssh_tokens.as_ref(), For::Link).await
             }
-            Via::Hub if via.streams() => {
-                self.open_direct(via, ssh_tokens.as_ref(), For::Link).await
-            }
             Via::Hub => Err("the hub relay carries no live link yet".to_owned().into()),
         }?;
         // Unproven until the daemon's `initialize` answer on this connection says it is the
