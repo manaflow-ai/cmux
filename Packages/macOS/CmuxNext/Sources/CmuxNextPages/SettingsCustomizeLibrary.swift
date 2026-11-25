@@ -11,7 +11,8 @@ import CmuxNextWakeups
 /// is kept, the stack's order and the rule that the higher entry that is on wins, so the card and
 /// the CLI never differ, and this type keeps no state.
 ///
-/// `list` only reads, so the page may ask for it; `on`, `off`, `order` and `remove` rewrite the
+/// `list` and `standup` (one line per entry, to read out at standup) only read, so the page may ask
+/// for them; `on`, `off`, `order` and `remove` rewrite the
 /// person's settings and files, so they run only on the person's click or key in the page
 /// (`context.userGesture`, the host's record) or a call they approved, as Agent integrations'
 /// installs do: a page script alone gets `cmux.app.user_only`.
@@ -147,8 +148,8 @@ public final class SettingsCustomizeLibrary: PageProvider {
             return doctor + ["dismiss", try findingID()]
         case "doctor-recover":
             return doctor + ["recover"]
-        case "list":
-            return base + ["list"]
+        case "list", "standup":
+            return base + [verb]
         case "reset":
             // Every entry off (`cmux customize library reset`), the palette's Reset Customization Library.
             return base + ["reset"]
@@ -162,7 +163,7 @@ public final class SettingsCustomizeLibrary: PageProvider {
             }
             return base + [verb, name, position]
         default:
-            throw PageError.invalidParams("verb is list, on, off, order, remove, reset, doctor, doctor-fix, doctor-dismiss, doctor-open or doctor-recover")
+            throw PageError.invalidParams("verb is list, standup, on, off, order, remove, reset, doctor, doctor-fix, doctor-dismiss, doctor-open or doctor-recover")
         }
     }
 
