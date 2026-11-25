@@ -179,11 +179,8 @@ impl PtySurface {
     pub(super) fn park_dead_mirror(&self) -> bool {
         let Some(mux) = self.mux.upgrade() else { return false };
         let defaults = mux.default_colors();
-        let scrollback = mux
-            .surface_options
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .scrollback;
+        let scrollback =
+            mux.surface_options.lock().unwrap_or_else(PoisonError::into_inner).scrollback;
         let title_changed = Arc::new(AtomicBool::new(false));
         let Ok(geometry) = self.geometry.lock() else { return false };
         self.term.park(ParkMirror {
