@@ -1105,8 +1105,18 @@ async fn blackout_cost_of_an_idle_minute() {
         "BLACKOUT idle minute: before phone={:?} mac={:?} | after phone={:?} mac={:?} (datagrams, wakeups)",
         before.0, before.1, after.0, after.1
     );
-    // One keepalive exchange of slack for where the minute's edges fall.
-    assert!(after.0.0 <= before.0.0 + 2 && after.1.0 <= before.1.0 + 2, "before {before:?} after {after:?}");
+    // Slack for two minutes of real time on a loaded machine: counted per
+    // message type, only the path probes and their answers on the chosen
+    // path (75 and 74 bytes) differ between minutes of the same config, 24
+    // to 32 a minute each (probes follow the link's own traffic and the
+    // quiet-path watch, so scheduling moves them). Over 66 measured pairs
+    // with no repair on, the difference ran from -11 to +7. A link whose
+    // repair turned on sends about 110 more.
+    const SLACK: usize = 12;
+    assert!(
+        after.0.0 <= before.0.0 + SLACK && after.1.0 <= before.1.0 + SLACK,
+        "before {before:?} after {after:?}"
+    );
 }
 
 /// What Align Keepalives (Settings, off by default) would cost if the
