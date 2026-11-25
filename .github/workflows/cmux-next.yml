@@ -6260,10 +6260,13 @@ jobs:
       # Why: note-scheme-fleet
       - name: Take the app the build fleet built
         id: fleet-app
-        if: ${{ inputs.dev_daily != true && env.CMUX_SCHEME_FLEET_JOB != '' }}
+        if: ${{ inputs.dev_daily != true }}
         timeout-minutes: 15
         env:
           CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+          FLEET_RESULT: ${{ needs.cmux-scheme-compile-fleet.result }}
+          FLEET_VERDICT: ${{ needs.cmux-scheme-compile-fleet.outputs.verdict }}
+          FLEET_SWITCH: ${{ vars.CI_SCHEME_COMPILE_FLEET }}
           PARITY: ${{ vars.CI_SCHEME_FLEET_PARITY == 'always' || endsWith(github.event.pull_request.head.sha || github.sha, '0') }}
         run: scripts/cmux-next/scheme-fleet.sh take
       # Why: 2026-11-24-cmux-scheme-compile-3.md, note-310
