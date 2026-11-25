@@ -1,5 +1,9 @@
 public import CMUXMobileCore
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 public import Foundation
 
 /// Resolves fresh same-account reachability and a locally verified pair grant per dial.

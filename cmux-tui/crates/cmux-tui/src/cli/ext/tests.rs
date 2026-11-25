@@ -1119,7 +1119,7 @@ fn a_record_that_cannot_be_written_fails_the_shot() {
     assert_eq!(json["exitCode"], exit::RECORD_FAILED);
     assert!(json["recorded"]["error"].as_str().unwrap().starts_with("cannot create"));
     // Nothing drawn to record is a failed record too, not a quiet success.
-    let mut nothing = outcome.clone();
+    let mut nothing = outcome;
     nothing.recorded.clear();
     let recorded = shot::record(&dir, &nothing);
     assert!(recorded.as_ref().unwrap_err().starts_with("nothing to record"), "{recorded:?}");
@@ -1226,8 +1226,14 @@ fn parses_add_share_and_search() {
         parse(&words("add ./x --no-install")),
         Ok(Request::Add(share::AddOptions { source: "./x".into(), install: false }))
     );
-    assert_eq!(parse(&words("share")), Ok(Request::Share { dir: None }));
-    assert_eq!(parse(&words("share ext/x")), Ok(Request::Share { dir: Some("ext/x".into()) }));
+    assert_eq!(
+        parse(&words("share")),
+        Ok(Request::Share { dir: ".".into(), name: None, private: false })
+    );
+    assert_eq!(
+        parse(&words("share ext/x")),
+        Ok(Request::Share { dir: "ext/x".into(), name: None, private: false })
+    );
     assert_eq!(parse(&words("search")), Ok(Request::Search { query: None }));
     assert_eq!(
         parse(&words("search pull requests")),

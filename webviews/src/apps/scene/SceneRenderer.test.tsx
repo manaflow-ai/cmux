@@ -11,7 +11,7 @@ import type { ReactNode } from "react";
 import { SceneFailure, sceneFailureCopy } from "./SceneFailure";
 import { SceneRenderer, sliderSnap, type SceneAssetResolver, type SceneDispatch } from "./SceneRenderer";
 import { translate } from "../../agent-session/acpmux/i18n";
-import { appSceneIcon } from "./SceneSymbol";
+import { SCENE_FALLBACK_ICON, appSceneIcon } from "./SceneSymbol";
 import { SceneStore, type SceneOp } from "./store";
 import { formatSceneDate, sceneClockRunning } from "./sceneDate";
 import { settleReact } from "../../../test/support/domTeardown";
@@ -215,8 +215,51 @@ test("TextField edit, submit and cancel dispatch synchronously and submit the ed
   expect(calls).toEqual([
     ["field", "edit", { text: "recent" }],
     ["field", "submit", { text: "recent" }],
-    ["field", "cancel"],
+    ["field", "cancel", { text: "recent" }],
   ]);
+});
+
+// The To Do "New item" field: the app's draft was "" while the person typed (its edits never reached
+// it, or the host no longer echoes them), so its "" after Return looked like no change and the field
+// kept "Buy milk"; the next item was typed after it ("Buy milkBook flights").
+test("TextField: the app's value after a submit replaces the typed text even when the app's value never changed", () => {
+  const { container, store } = render([
+    { op: "create", id: "field", type: "TextField", props: { text: "", placeholder: "New item", onEdit: true } },
+    { op: "root", id: "field" },
+  ]);
+  const field = container.querySelector<HTMLInputElement>("input")!;
+  const type = (value: string) =>
+    act(() => {
+      Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!.call(field, value);
+      field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+    });
+  for (const [typed, item] of [
+    ["Buy milk", "first"],
+    ["Book flights", "second"],
+  ]) {
+    type(typed);
+    expect(field.value).toBe(typed);
+    act(() => {
+      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+    // The host answers the submit with the app's value, "" (the same "" it sent at create).
+    act(() => store.apply([{ op: "update", id: "field", props: { text: "" } }]));
+    expect([item, field.value]).toEqual([item, ""]);
+  }
+});
+
+test("TextField: an unrelated update while typing keeps the typed text", () => {
+  const { container, store } = render([
+    { op: "create", id: "field", type: "TextField", props: { text: "", placeholder: "New item", onEdit: true } },
+    { op: "root", id: "field" },
+  ]);
+  const field = container.querySelector<HTMLInputElement>("input")!;
+  act(() => {
+    Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!.call(field, "Buy m");
+    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  act(() => store.apply([{ op: "update", id: "field", props: { placeholder: "Next item" } }]));
+  expect(field.value).toBe("Buy m");
 });
 
 test("unknown node types render nothing; null deletion and reset update the mounted scene", () => {
@@ -246,8 +289,10 @@ test("a disabled container suppresses descendant row input; unknown symbols use 
   expect(button.disabled).toBe(true);
   act(() => button.click());
   expect(calls).toEqual([]);
-  expect(button.querySelector("svg")?.getAttribute("data-icon")).toBe("icon.missing");
-  expect(appSceneIcon("not.a.real.sf.symbol")).toBe("icon.missing");
+  expect(button.querySelector("svg")?.getAttribute("data-icon")).toBe(SCENE_FALLBACK_ICON);
+  // Unfitted: the dot keeps its small authored size instead of being scaled to the shared glyph box.
+  expect(button.querySelector("svg")?.getAttribute("viewBox")).toBe("2.5 2.5 19 19");
+  expect(appSceneIcon("not.a.real.sf.symbol")).toBe(SCENE_FALLBACK_ICON);
 });
 
 test("a context menu leaf dispatches its real nested index path, including dividers", async () => {

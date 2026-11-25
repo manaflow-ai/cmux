@@ -34,6 +34,13 @@ public final class ChiefPetController {
     var sending = false
     /// Ordering the reply box out takes its keys, which would close it again.
     var closingReply = false
+    /// The reply box is up because the pointer is on the pet (the hover dock), not from a click:
+    /// leaving closes it after `ChiefPetHoverDock.closeDelay` unless it is in use.
+    var replyByHover = false
+    /// The hover dock's close, `ChiefPetHoverDock.closeDelay` after the pointer leaves the pet and the box.
+    let hoverClose: DemandTimer
+    /// The pointer in screen points (the hover dock's check when its close fires); tests pin their own.
+    var pointer: () -> CGPoint = { NSEvent.mouseLocation }
     /// Finished notices' leave timers, by notification id (one-shot `DemandTimer`s).
     private var expiries: [UInt64: DemandTimer] = [:]
     /// Folds the card away `toastSeconds` after the newest arrival.
@@ -93,6 +100,7 @@ public final class ChiefPetController {
         self.appIsActive = appIsActive
         toast = DemandTimer(owner: "chiefPet.toast", clock: clock)
         doneTimer = DemandTimer(owner: "chiefPet.done", clock: clock)
+        hoverClose = DemandTimer(owner: "chiefPet.hoverClose", clock: clock)
         motionSubscription = Motion.changes.subscribe { [weak self] _ in self?.drawCharacter() }
         // Switching to another app takes the card down at once; coming back shows it if its time is not up.
         activationObservers = [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification].map {
@@ -355,6 +363,7 @@ public final class ChiefPetController {
         made.pet.name(ChiefPetReply.title(home.target))
         made.onVisibilityChange = { [weak self] in self?.drawCharacter() }
         made.onClick = { [weak self] in self?.toggleReply() }
+        made.onHover = { [weak self] inside in self?.hover(inside, onPet: true) }
         // The right-click menu: the settings close the reply box first, so they come up alone.
         made.onSettings = { [weak self] in
             self?.closeReply()
