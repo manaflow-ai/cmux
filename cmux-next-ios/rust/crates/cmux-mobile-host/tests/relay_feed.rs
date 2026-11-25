@@ -281,7 +281,7 @@ async fn off_or_unpaired_sends_no_relay_request() {
     let flushed = feed.flush(&[], Instant::now(), &timing).await;
     assert_eq!((flushed.deltas, flushed.snapshots), (0, 0), "no paired phone, nothing to seal to");
 
-    let total: usize = ["snapshot PUT", "delta POST", "snapshot GET", "delta GET"]
+    let total: u64 = ["snapshot PUT", "delta POST", "snapshot GET", "delta GET"]
         .iter()
         .map(|kind| server.relay_cache_hits(kind))
         .sum();
