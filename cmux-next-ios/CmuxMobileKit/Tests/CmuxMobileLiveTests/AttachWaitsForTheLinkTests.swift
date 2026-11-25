@@ -45,8 +45,12 @@ import Testing
         var held: [Int] { events.compactMap { if case .inputHeld(let n) = $0 { n } else { nil } } }
     }
 
-    static func waitUntil(attempts: Int = 300, _ condition: @MainActor () -> Bool) async throws {
+    /// Polls `condition` up to 30 s. The kit's tests run in parallel: on 2026-11-25 (job
+    /// 139327571649) the synchronous `onlyAMissingLinkWaits` took 8 s there, and a 3 s bound
+    /// ran out before the reattach sent the held key. A path that never finishes still fails here.
+    static func waitUntil(_ what: String, attempts: Int = 3000, _ condition: @MainActor () -> Bool) async throws {
         for _ in 0..<attempts where !condition() { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(condition(), "\(what) within \(attempts / 100) s")
     }
 
     @Test func anAttachWithNoLinkWaitsForItInsteadOfGivingUp() async throws {
@@ -54,11 +58,11 @@ import Testing
         defer { rig.session.stop() }
         rig.session.reattachBackoff = [0.02, 0.02]
         rig.session.start { [weak rig] in rig?.events.append($0) }
-        try await Self.waitUntil { rig.session.isAttached }
+        try await Self.waitUntil("the first attach") { rig.session.isAttached }
         // Backgrounded: the link goes; the channel ends with it.
         rig.linkUp = false
         await rig.channels.last?.close(code: "link_closed", reason: "link dropped")
-        try await Self.waitUntil { !rig.session.isAttached }
+        try await Self.waitUntil("the channel's end detaches") { !rig.session.isAttached }
         // The channel's own self-reattach (first backoff step) finds no link and stops.
         try await Task.sleep(for: .milliseconds(100)) // test: let the self-reattach settle first
         // In front again: the tab's attach runs while the link still redials.
@@ -77,8 +81,8 @@ import Testing
         // The link is back: its return reattaches the session, and the held key goes.
         rig.linkUp = true
         rig.session.reconnect()
-        try await Self.waitUntil { rig.session.isAttached }
-        try await Self.waitUntil { rig.typed == Data("ls\r".utf8) }
+        try await Self.waitUntil("the reattach") { rig.session.isAttached }
+        try await Self.waitUntil("the held key goes") { rig.typed == Data("ls\r".utf8) }
         #expect(rig.typed == Data("ls\r".utf8))
         #expect(rig.notSent.isEmpty)
     }
