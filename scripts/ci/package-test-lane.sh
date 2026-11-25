@@ -127,14 +127,16 @@ case "${1:-}" in
     done
     ;;
   suite)
-    phase="$1"; suite_package="${2:-}"
+    phase="$1"; suite_package="${2:-}"; kit_package=cmux-next-ios/CmuxMobileKit
     if [ "$#" -lt 3 ]; then
       echo "usage: package-test-lane.sh suite PACKAGE_DIR FILTER[,FILTER...] [FILTER...]" >&2; exit 2
     fi
-    # A Packages/ path inside the checkout, and filters that are not options.
-    if ! [[ "$suite_package" =~ ^Packages/[A-Za-z0-9_][A-Za-z0-9_./-]*$ ]] || [[ "$suite_package" == *..* ]] \
-      || [ ! -f "$suite_package/Package.swift" ]; then
-      echo "package-test-lane.sh: suite needs a package directory under Packages/ (got '$suite_package')" >&2; exit 2
+    # A Packages/ path inside the checkout (or the iPhone app's kit, cmux-next-ios/CmuxMobileKit), and filters that
+    # are not options. The kit had no Mac route but the simulator class (one Mac, a queue of 200 on 2026-11-24) and
+    # its GitHub job's macOS runner label, so its PRs' new tests waited hours; its macOS suites run here.
+    if { ! [[ "$suite_package" =~ ^Packages/[A-Za-z0-9_][A-Za-z0-9_./-]*$ ]] && [ "$suite_package" != "$kit_package" ]; } \
+      || [[ "$suite_package" == *..* ]] || [ ! -f "$suite_package/Package.swift" ]; then
+      echo "package-test-lane.sh: suite needs a package directory under Packages/, or $kit_package (got '$suite_package')" >&2; exit 2
     fi
     shift 2
     suite_filters=()
@@ -292,28 +294,19 @@ PY
 # target no pull request check runs is listed with its reason in the swift-test-targets.json
 # registry, which the Swift test coverage check reads (hq#11644); the rows after CmuxPhonePush
 # passed `suite` on an owned Mac at ccc9958672bf before they joined (CmuxChiefList at 777eb5a7d77f).
+# Mac-only: a package whose tests pass on Linux runs in swift-linux-packages.yml (the list or a whole-package
+# matrix group), never here as well.
 select_packages() {
   PACKAGES=(
-    CMUXAuthCore
     CmuxAuthRuntime
-    CmuxChiefList
     CmuxIrohTransport
     CmuxIrxTransport
     CmuxUpdater
     CmuxPhonePush
-    CmuxConnectivityTelemetry
-    CmuxDeviceHub
-    CmuxEgress
-    CmuxHomeCore
     CmuxHomeRender
-    CmuxMobileBilling
-    CmuxMobileSupport
-    CmuxMobileTunnel
     CmuxRemote
     CmuxScreenKit
-    CmuxTabsKit
     CmuxVNCWebRTC
-    CmuxVisibleRows
     GlassHost
   )
 
@@ -900,6 +893,31 @@ require_display_screen() {
   exit 1
 }
 
+# CmuxMobileKit's binary target, Frameworks/CmuxMobileLinkFFI.xcframework, is gitignored and built from
+# cmux-next-ios/rust; SwiftPM loads no part of the package without it (macOS links none of it: its
+# dependents name it for iOS only). The worker's source-keyed cache (scripts/ci/ios_ffi_cache.py, the
+# simulator steps fill it) gives it in seconds; a miss builds it, as cmux-next-ios-kit.yml does.
+ensure_mobile_link_ffi() {
+  local xcf=cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+  local work key rc=0
+  [ ! -f "$xcf/Info.plist" ] || { echo "CmuxMobileLinkFFI.xcframework: present"; return 0; }
+  export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:$HOME/.cargo/bin"
+  work="$(mktemp -d "${TMPDIR:-/tmp}/kit-ffi.XXXXXX")"
+  key="$(python3 -I scripts/ci/ios_ffi_cache.py key "$PWD" "$work/inputs.json" 2>"$work/key.log")" || rc=$?
+  if [ "$rc" -eq 0 ] && [[ "$key" =~ ^[0-9a-f]{64}$ ]] \
+    && python3 -I scripts/ci/ios_ffi_cache.py restore "$PWD" "$key" >"$work/restore.log" 2>&1 && [ -f "$xcf/Info.plist" ]; then
+    echo "CmuxMobileLinkFFI.xcframework: cache hit ${key:0:12}"
+    return 0
+  fi
+  echo "::group::CmuxMobileLinkFFI.xcframework build (no cache entry)"
+  if ! JOBS="${JOBS:-8}" bash cmux-next-ios/rust/scripts/build-xcframework.sh; then
+    echo "::endgroup::"
+    echo "::error title=CmuxMobileLinkFFI build failed::package-test-lane.sh: build-xcframework.sh failed; no kit test ran" >&2
+    exit 1
+  fi
+  echo "::endgroup::"
+}
+
 run_suite() {
   if [ "$lane_os" = Linux ]; then
     linux_suite_setup
@@ -910,6 +928,9 @@ run_suite() {
   require_display_screen
   if grep -q 'GhosttyKit\.xcframework' "$suite_package/Package.swift"; then
     ensure_ghosttykit
+  fi
+  if [ "$suite_package" = cmux-next-ios/CmuxMobileKit ] && [ "$lane_os" != Linux ]; then
+    ensure_mobile_link_ffi
   fi
   # CMUX_SWIFT_SUITE_CONFIGURATION=release builds the suites optimized (measurements of what the
   # user runs); @testable imports then need -enable-testing. The default stays debug.
@@ -926,12 +947,16 @@ run_suite() {
     configuration+=(--sanitize="$CMUX_SWIFT_SANITIZE" --scratch-path "$suite_package/.build-sanitize-$CMUX_SWIFT_SANITIZE"
       "${sanitize_link_flags[@]}")
   fi
-  case "$suite_package" in
-    Packages/macOS/CmuxNext|Packages/macOS/CmuxNativeSidebarGallery)
-      ensure_web_bundles ;;
-  esac
-  if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
-    ensure_cmux_tui_tree
+  # On Linux, CmuxNext builds only its Linux shape (CMUX_SWIFTPM_TARGET_LINUX: three targets that
+  # read neither the web bundles nor cmux-tui), and the swift container has no curl to fetch bun.
+  if [ "$lane_os" != Linux ]; then
+    case "$suite_package" in
+      Packages/macOS/CmuxNext|Packages/macOS/CmuxNativeSidebarGallery)
+        ensure_web_bundles ;;
+    esac
+    if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
+      ensure_cmux_tui_tree
+    fi
   fi
   local scratch="$suite_package/.build${CMUX_SWIFT_SANITIZE:+-sanitize-$CMUX_SWIFT_SANITIZE}"
   swiftpm_binary_module_guard "$suite_package" "$scratch" || exit $? # 75: fetch failed, no test ran
