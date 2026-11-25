@@ -437,7 +437,7 @@ final class KeyRouter: BrowserKeyRouting, ParkedTypingRouter {
         case .dismissed:
             // A window or navigation shortcut after the leader runs as itself (Cmd-W closes the tab); a stray key
             // and Escape are consumed, as before.
-            return LeaderLayer.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event)) ? nil : true
+            return LeaderLayer.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event), qwerty: registry.matchesQwertyPositions) ? nil : true
         case .run(let id, let argument, let arguments):
             lastInterception = (id, controller.state.id, true)
             let ran = RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: id, argument: argument, arguments: arguments), keyContext: bits)
@@ -446,7 +446,7 @@ final class KeyRouter: BrowserKeyRouting, ParkedTypingRouter {
         case .mismatch:
             // A window or navigation shortcut after a prefix it does not complete runs as itself: Cmd-W after an
             // armed chord prefix went to the page (or terminal) instead of closing the tab.
-            if LeaderLayer.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event)) { return nil }
+            if LeaderLayer.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event), qwerty: registry.matchesQwertyPositions) { return nil }
             if !Self.isChord(event.modifierFlags) { onTyping?(window) }
             return false
         }

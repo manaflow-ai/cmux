@@ -31,13 +31,12 @@ public final class BackdropVideoView: NSView {
     /// Tests: the windows above this one, in place of the screen's.
     public var windowsAboveOverride: (() -> [BackdropCoverage.Window])?
     private let players: BackdropVideoPlayers
-    private var observers: [(NotificationCenter, NSObjectProtocol)] = []
-    /// The app's Low Power Mode (``LowPowerMode/system``, the `debug.low_power_mode` override included), watched while in a window.
-    private var powerObservation: LowPowerModeObservation?
     private var readyObservation: NSKeyValueObservation?
+    /// The window's and the app's events, watched while in a window (Low Power Mode included).
+    private lazy var signals = BackdropPlaybackSignals { [weak self] signal in self?.signalled(signal) }
     /// The screens are asleep, or the login session is not the active one (watched while in a window).
-    public private(set) var screensAsleep = false
-    public private(set) var sessionInactive = false
+    public var screensAsleep: Bool { signals.screensAsleep }
+    public var sessionInactive: Bool { signals.sessionInactive }
     /// Told after each change this view watches (visibility, power, heat, motion settings, closing),
     /// so the living wallpaper in the same backdrop (``BackdropShaderView``) follows the same
     /// observers instead of registering its own.
@@ -160,16 +159,13 @@ public final class BackdropVideoView: NSView {
     private var onScreen: Bool {
         guard url != nil, !isHidden, let window else { return false }
         let visible = visibleOverride ?? (window.occlusionState.contains(.visible) && !window.isMiniaturized && !NSApp.isHidden)
-        return visible && !screensAsleep && !sessionInactive
+        return visible && !signals.screensAsleep && !signals.sessionInactive
     }
 
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        for (center, observer) in observers { center.removeObserver(observer) }
-        observers = []
-        powerObservation = nil
+        signals.watch(window)
         guard window != nil else { return detach() }
-        observe()
         attach()
     }
 
@@ -254,46 +250,15 @@ public final class BackdropVideoView: NSView {
         coverage.reset()
     }
 
-    private func observe() {
-        powerObservation = LowPowerMode.system.observe { [weak self] _ in
-            self?.update()
-            self?.onSightChange?(false)
-        }
-        let app = NotificationCenter.default, workspace = NSWorkspace.shared.notificationCenter
-        var names: [(NotificationCenter, Notification.Name, AnyObject?)] = [
-            (app, NSWindow.didChangeOcclusionStateNotification, window), (app, NSWindow.didMiniaturizeNotification, window),
-            (app, NSWindow.didDeminiaturizeNotification, window), (app, NSWindow.didBecomeMainNotification, window),
-            (app, NSWindow.didBecomeKeyNotification, window), (app, NSApplication.didHideNotification, nil),
-            (app, NSApplication.didUnhideNotification, nil),
-            (app, ProcessInfo.thermalStateDidChangeNotification, nil), (app, Motion.reduceMotionDidChange, nil),
-            (app, Motion.speedDidChange, nil),
-            (workspace, NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, nil),
-        ]
-        names.append((app, NSWindow.willCloseNotification, window))
-        names += [NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification,
-                  NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.sessionDidBecomeActiveNotification].map { (workspace, $0, nil) }
-        observers = names.map { center, name, object in
-            (center, center.addObserver(forName: name, object: object, queue: .main) { [weak self] note in
-                let name = note.name
-                // main-proof: the observer runs on the main queue (queue: .main)
-                MainActor.assumeIsolated { self?.note(name) }
-            })
-        }
-    }
-
-    private func note(_ name: Notification.Name) {
-        switch name {
+    private func signalled(_ signal: BackdropPlaybackSignals.Signal) {
+        switch signal {
         // A closed window keeps its views: hand the shared player back now, not when the view goes.
-        case NSWindow.willCloseNotification:
+        case .closing:
             detach()
             return onSightChange?(true) ?? ()
         // A window brought to the front shows: play now; the next samples rest it again if needed.
-        case NSWindow.didBecomeMainNotification, NSWindow.didBecomeKeyNotification: coverage.reset()
-        case NSWorkspace.screensDidSleepNotification: screensAsleep = true
-        case NSWorkspace.screensDidWakeNotification: screensAsleep = false
-        case NSWorkspace.sessionDidResignActiveNotification: sessionInactive = true
-        case NSWorkspace.sessionDidBecomeActiveNotification: sessionInactive = false
-        default: break
+        case .raised: coverage.reset()
+        case .changed: break
         }
         update()
         onSightChange?(false)
