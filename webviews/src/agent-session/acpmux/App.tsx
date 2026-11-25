@@ -241,6 +241,7 @@ import {
 } from "./cloudMachines";
 import {
   AUTO_LOOK,
+  autoAddingMachineLine,
   autoTargets,
   decideAuto,
   landingMove,
@@ -460,7 +461,7 @@ import { ImageViewer } from "./conversation/ImageViewer";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { useStreamAppendDeclaration } from "./devMotionAudit";
 import { HEADER_ACTIONS, type ChatMenuItem } from "./header/chatHeaderToolsModel";
-import { setHeaderState, useHeaderState } from "./header/headerState";
+import { headerBreadcrumb, setHeaderState, useHeaderState } from "./header/headerState";
 import { useTabRow, useTabRowRoot, useTabRowTools } from "./header/tabRow";
 import {
   draftMessage as subagentDraftMessage,
@@ -478,6 +479,8 @@ import {
   workflowAgentTarget,
 } from "./subagents/subagentMessage";
 import { runsUnderTabRow, type UnderHeaderLines } from "./header/underHeader";
+import { AutoSessionBanner } from "./autoSession/AutoSessionBanner";
+import { autoUnderHeader } from "./autoSession/autoSession";
 import type { LocalCommand } from "./localCommands";
 import {
   composerAgentLocal,
@@ -517,6 +520,7 @@ import {
   useChatPinnedPlan,
   useEnvironmentCardOn,
   useFeatureTipsOn,
+  useHeaderBreadcrumb,
   useTrayHandle,
   useTrayTucked,
   useUnreadBannerMode,
@@ -2283,6 +2287,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The chat's name as the chat list says it: never acpmux's generated name (`claude-2`), and
   // "New chat" before it has a title, never nothing.
   const chatName = snapshot.summary ? sessionTitle(snapshot.summary, t) : t("sidebar.newChat");
+  // Header Path (Settings > Agent Chat, agentPane.display.headerBreadcrumb; off by default): the header's
+  // title leads with the chat's repository and branch as one slash path (header/ThreadTitle.tsx).
+  const headerBreadcrumbOn = useHeaderBreadcrumb();
+  const titleCwd = snapshot.summary?.cwd;
+  const titleWorktree = snapshot.summary?.worktree;
+  const titleBranch = snapshot.summary?.branch;
+  const titleOnCloud = snapshot.summary?.hostKind === "cloud";
+  const titleTrail = useMemo(
+    () =>
+      headerBreadcrumbOn
+        ? headerBreadcrumb({ cwd: titleCwd, worktree: titleWorktree, branch: titleBranch, cloud: titleOnCloud })
+        : undefined,
+    [headerBreadcrumbOn, titleCwd, titleWorktree, titleBranch, titleOnCloud],
+  );
   // Running subagents sit in the tray above the composer, and one that ended leaves a line where it
   // ended (subagents/runningTray.ts).
   const trayPlacement = useSubagentTrayPlacement();
@@ -5022,11 +5040,30 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The tab's chat is not listed yet and its last-read rows are drawn (direct.ts `drawMissingTail`):
   /// why it is not here is a line under the header, over the transcript, not the centered state.
   const missingRows = !!snapshot.unavailable && snapshot.missingSession !== undefined && snapshot.rows.length > 0;
+  // An Auto chat's line and its kept-changes notice (autoSession/AutoSessionBanner.tsx): where the
+  // chat runs when that is not this Mac. A chat nobody runs says Resuming only once the person sent.
+  const autoSession = snapshot.summary?.autoSession;
+  const autoSending = snapshot.isWorking === true || snapshot.queue.length > 0;
+  const autoChat = snapshot.sessionId;
+  const autoBanner =
+    autoSession && autoChat && autoUnderHeader(autoSession, autoSending) ? (
+      <AutoSessionBanner
+        key={autoChat}
+        auto={autoSession}
+        sending={autoSending}
+        onSetUpCloud={() => connectMachine("cloud")}
+        onLeftover={(action) =>
+          directClient.current?.autoLeftover(autoChat, action) ?? Promise.reject(new Error(t("error.notOpen")))
+        }
+        onFailed={notices.failed}
+      />
+    ) : null;
   const underHeader: UnderHeaderLines = {
     checkpointReview: checkpoints.review != null,
     unavailable: missingRows && snapshot.unavailable?.reason !== "connecting",
     liveChat: !!snapshot.liveChat,
     peerCopy: !!snapshot.peerCopy?.offline,
+    autoSession: autoBanner !== null,
     watching: !!snapshot.summary?.watching,
     handoffError: !reviewing && !!snapshot.handoff?.error,
   };
@@ -7132,6 +7169,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       enabledCmuxActions.add("status");
       enabledCmuxActions.add("mcp");
     }
+    // /rename is the header's Rename on a chat's own tab; Quick Chat's panel is no tab to rename.
+    if (snapshot.sessionId && !quick) enabledCmuxActions.add("rename");
     if (!quick) enabledCmuxActions.add("cd");
     if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
     // A working chat offers /side too: its fork is of the chat as it is now (#38042).
@@ -7848,6 +7887,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         healthLocal,
         ignoreFailure,
         openCloudChatWith,
+        // /rename opens the tab's name editor, as ⌘R and the header's Rename do; Quick Chat has no tab.
+        openRename: quick ? undefined : () => runHeaderAction(HEADER_ACTIONS.rename),
         openSummarySection,
         sessionAuth,
         sessionInfo,
@@ -7958,6 +7999,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     autoArrivalShown !== undefined &&
     autoArrivalShown !== "deciding" &&
     offloads.includes(landingMove(autoArrivalShown));
+  const autoAddingMachine =
+    snapshot.startupAdmission &&
+    (snapshot.startupAdmission.sessionId === snapshot.sessionId || (newSession && !snapshot.sessionId))
+      ? autoAddingMachineLine(snapshot.startupAdmission)
+      : undefined;
   useEffect(() => {
     if (cloudRouteHostKind !== "cloud" || !snapshot.sessionId) return;
     const landing = takeCloudLanding(autoCloudStartKey);
@@ -9954,6 +10000,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     showNewTab,
     composerModeRows,
     autoArrival: autoArrivalShown,
+    autoAddingMachine,
     autoArrivalMove,
     onAutoArrivalDismiss: () => setAutoArrival(undefined),
     autoSendGate,
@@ -10606,6 +10653,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     parkedVisible,
     chatName,
     renameFromTitle,
+    titleTrail,
     heading,
     tabRowTools,
     liveTreeEnabled,
@@ -10637,6 +10685,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     turnWorking,
     summaryPanel,
     underHeader,
+    autoBanner,
     checkpoints,
     cloudUnavailable,
     cloudRecovery,
