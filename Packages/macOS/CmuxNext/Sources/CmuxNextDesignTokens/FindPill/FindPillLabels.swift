@@ -12,6 +12,10 @@ public struct FindPillLabels: Sendable {
     /// The match-case toggle's tooltip, or nil where the search cannot match case (the
     /// terminal: Ghostty matches case-insensitively), which leaves the toggle out.
     public var matchCase: String?
+    /// The whole-word toggle's tooltip, or nil where the search has none.
+    public var wholeWord: String?
+    /// The regular-expression toggle's tooltip, or nil where the search has none.
+    public var regex: String?
 
     /// - Parameters:
     ///   - placeholder: The field's placeholder.
@@ -19,11 +23,16 @@ public struct FindPillLabels: Sendable {
     ///   - next: The next-match button's label.
     ///   - close: The close button's label.
     ///   - matchCase: The match-case toggle's label; nil leaves the toggle out.
-    public init(placeholder: String, previous: String, next: String, close: String, matchCase: String? = nil) {
+    ///   - wholeWord: The whole-word toggle's label; nil leaves the toggle out.
+    ///   - regex: The regular-expression toggle's label; nil leaves the toggle out.
+    public init(placeholder: String, previous: String, next: String, close: String, matchCase: String? = nil,
+                wholeWord: String? = nil, regex: String? = nil) {
         self.placeholder = placeholder
         self.previous = previous
         self.next = next
         self.close = close
         self.matchCase = matchCase
+        self.wholeWord = wholeWord
+        self.regex = regex
     }
 }

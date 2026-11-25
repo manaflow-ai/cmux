@@ -77,7 +77,7 @@ final class HomeChiefFormGroup: NSStackView {
     }
 
     private func applyTheme() {
-        performWithTheme { layer?.backgroundColor = Palette.hoverFill.cgColor }
+        performWithTheme { layer?.backgroundColor = Palette.groupFill.cgColor }
         needsLayout = true
     }
 }

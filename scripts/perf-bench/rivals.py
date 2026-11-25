@@ -17,10 +17,25 @@ Every app runs the same session on one Mac, one app at a time, each launch in an
             step gets to a reboot without one), opened again. With no passwordless sudo the row is null and
             says so. A real reboot for cmux alone: scripts/measure/launch-reboot.sh.
   warm      quit and opened again at once, --warm times (the everyday relaunch).
+  quarantined  (opt-in, --quarantined) another new copy with an empty home, the `com.apple.quarantine` xattr set on
+            every item as a browser download leaves it (RFD 0131 option G: the launch a new user gets from a DMG
+            or zip in Downloads), opened for the first time. macOS shows its first-open prompt ("downloaded from
+            the Internet") and runs the full Gatekeeper and XProtect check; the copy is opened where it lies, so
+            it is also translocated (the window and processes are found under the AppTranslocation folder).
+            The prompt waits for a click: on a Mac that does not approve it on its own the row is null ("no window
+            within 60 s") and the prompt stays up until someone answers it. Run it on a fleet Mac set to approve
+            first-open prompts; with an approver, its click latency is in the number. Nothing here clears the
+            quarantine or approves the prompt (no policy is changed or skipped). Safari has no download: null.
 
 Per launch: ms from the open request to the first on-screen window >= 300x200 (benchhelper wait-window,
 as xbench's launch-window), then every second for --after s the instance's physical footprint (its peak),
 and the CPU seconds every process of the instance spent from its start to the end of that window.
+Per app, once: `bundle-size` (du) and `signed-items` (RFD 0131 option F), the code items `codesign --verify --deep`
+and the first-exec Gatekeeper check walk: every Mach-O file (thin or fat; executables, dylibs, helpers) and every
+sealed nested bundle (a folder holding `_CodeSignature`: frameworks, helper apps, XPC services, plug-ins), the app
+itself included; symlinks are not followed (a framework's Versions/Current counts once). The breakdown is kept in
+the sample's `machos`, `bundles` and `kinds`.
+
 After the last warm launch, an idle soak: --soak s in --sample s windows of footprint, CPU % (of one core),
 wakeups/s, threads, processes and disk writes. Rows: start, end and peak footprint (the ceiling), growth
 (MB per minute, least squares over the soak), mean and peak CPU, mean wakeups.
@@ -55,9 +70,10 @@ More rows, each its own idle soak after the signed-out session (row ids prefixed
 
 Usage (on a fleet Mac with a console user; scripts/measure/rivals.sh is the fleet entry):
   rivals.py run --out DIR --app NAME=BUNDLE ... [--rounds 1] [--warm 3] [--after 20] [--soak 300] [--sample 10]
+                [--quarantined]
   rivals.py report --out DIR [--md RIVALS.md] [--json results.json]
 
-App names: cmux (cmux NEXT), claude, codex, t3code, rex, slack, chrome, edge, helium, safari; any other name is
+App names: cmux (cmux NEXT), rex, zed, claude, codex, t3code, slack, chrome, edge, helium, safari; any other name is
 launched the same generic way.
 """
 from __future__ import annotations
@@ -72,6 +88,7 @@ import statistics
 import subprocess
 import sys
 import time
+import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -87,7 +104,11 @@ ROWS = [
     ("fresh-memory-peak", "First launch: peak footprint", "MB", False),
     ("restart-memory-peak", "After purge: peak footprint", "MB", False),
     ("warm-memory-peak", "Warm relaunch: peak footprint", "MB", False),
+    ("quarantined-window", "First launch of a quarantined download, window up (prompt included)", "ms", True),
+    ("quarantined-cpu", "Quarantined first launch: CPU spent to window + after", "s", False),
+    ("quarantined-memory-peak", "Quarantined first launch: peak footprint", "MB", False),
     ("bundle-size", "Bundle on disk", "MB", True),
+    ("signed-items", "Signed code items in the bundle (Mach-O files + sealed bundles)", "n", True),
 ]
 SOAK_ROWS = [
     ("memory-start", "footprint at start", "MB", True),
@@ -116,10 +137,12 @@ for _kind, _kind_label in (("signed-in", "Signed in"), ("tabs", "Background tabs
              (f"{_kind}-memory-peak", f"{_kind_label}: peak footprint", "MB", False)]
 UNITS = {row: unit for row, _label, unit, _summary in ROWS}
 LABELS = {"cmux": "cmux NEXT", "claude": "Claude", "codex": "Codex", "t3code": "T3 Code", "rex": "Rex",
-          "slack": "Slack", "chrome": "Chrome", "edge": "Microsoft Edge", "helium": "Helium", "safari": "Safari"}
-ORDER = ["cmux", "rex", "claude", "codex", "t3code", "slack", "chrome", "edge", "helium", "safari"]
+          "slack": "Slack", "chrome": "Chrome", "edge": "Microsoft Edge", "helium": "Helium", "safari": "Safari",
+          "zed": "Zed"}
+ORDER = ["cmux", "rex", "zed", "claude", "codex", "t3code", "slack", "chrome", "edge", "helium", "safari"]
 CHROMIUM = {"chrome", "edge", "helium"}
 ELECTRON = {"claude", "codex", "t3code", "slack"}
+NATIVE = {"zed"}  # native UI, no webview (Zed: Rust and its own GPU UI): launched with no extra switches
 SYSTEM = {"safari"}  # sealed system apps: no fresh copy
 BROWSERS = CHROMIUM | SYSTEM
 GROUPS = ["app", "renderer", "gpu", "acpmux", "terminals", "other"]
@@ -217,6 +240,76 @@ def bundle_mb(bundle: str) -> float | None:
     return int(out[0]) / 1024 if out else None
 
 
+# The first bytes of a Mach-O file: thin 32/64-bit in either byte order, and the fat (universal) headers.
+MACHO_THIN = {b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe"}
+MACHO_FAT = {b"\xca\xfe\xba\xbe", b"\xca\xfe\xba\xbf"}  # FAT_MAGIC, FAT_MAGIC_64 (big-endian on disk)
+
+
+def is_macho(path: str) -> bool:
+    """Whether PATH is a Mach-O file. 0xcafebabe is also a Java class file's magic: a fat header's next word is
+    its slice count (a handful), a class file's is its version (45 and up), as `file` tells them apart."""
+    try:
+        with open(path, "rb") as handle:
+            head = handle.read(8)
+    except OSError:
+        return False
+    if head[:4] in MACHO_THIN:
+        return True
+    return head[:4] in MACHO_FAT and len(head) == 8 and 0 < int.from_bytes(head[4:], "big") < 30
+
+
+def bundle_kind(name: str) -> str:
+    ext = os.path.splitext(name)[1].lstrip(".")
+    return ext or "bundle"
+
+
+def signed_items(bundle: str) -> dict:
+    """The code items a first-exec check walks in BUNDLE: Mach-O files and sealed bundles (folders with a
+    _CodeSignature), the app itself included. Symlinks are not followed or counted (Versions/Current)."""
+    machos = 0
+    kinds: dict[str, int] = {}
+    root = os.path.abspath(bundle)
+    for folder, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(folder, d))]
+        if "_CodeSignature" in dirs:
+            # A framework seals Versions/A, an app Contents: the bundle is the folder named NAME.EXT above it.
+            owner = folder
+            while owner != root and not os.path.splitext(os.path.basename(owner))[1]:
+                owner = os.path.dirname(owner)
+            if os.path.basename(os.path.dirname(owner)) == "Versions":  # a version folder with a dot (C.1)
+                owner = os.path.dirname(os.path.dirname(owner))
+            kind = bundle_kind(os.path.basename(owner))
+            kinds[kind] = kinds.get(kind, 0) + 1
+        for name in files:
+            path = os.path.join(folder, name)
+            if not os.path.islink(path) and is_macho(path):
+                machos += 1
+    bundles = sum(kinds.values())
+    return {"count": machos + bundles, "machos": machos, "bundles": bundles, "kinds": kinds}
+
+
+def quarantine_value(now: float | None = None, agent: str = "Safari") -> str:
+    """A `com.apple.quarantine` value as a browser download writes it: flags;hex seconds;agent;event UUID.
+    0083 is the flags field Safari writes on a download the person has not opened yet."""
+    stamp = int(time.time() if now is None else now)
+    return f"0083;{stamp:08x};{agent};{str(uuid.uuid4()).upper()}"
+
+
+def quarantine(bundle: str, value: str | None = None):
+    """Set the quarantine xattr on every item of BUNDLE, as an unzip or a copy out of a downloaded DMG leaves it.
+    The copy is made writable first (setxattr needs it; modes are not part of a signature)."""
+    subprocess.run(["chmod", "-R", "u+w", bundle], check=True, timeout=300)
+    subprocess.run(["xattr", "-r", "-w", "com.apple.quarantine", value or quarantine_value(), bundle],
+                   check=True, timeout=300)
+
+
+def translocation_root() -> str | None:
+    """The folder macOS translocates a quarantined app into when it is opened where it lies:
+    $(getconf DARWIN_USER_TEMP_DIR)AppTranslocation/."""
+    out = subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip()
+    return os.path.join(os.path.realpath(out), "AppTranslocation") + "/" if out else None
+
+
 def can_purge() -> bool:
     return subprocess.run(["sudo", "-n", "/usr/sbin/purge"], capture_output=True, timeout=180).returncode == 0
 
@@ -224,6 +317,20 @@ def can_purge() -> bool:
 def make_writable_and_remove(path: str):
     subprocess.run(["chmod", "-R", "u+w", path], capture_output=True)
     shutil.rmtree(path, ignore_errors=True)
+
+
+def translocated_bundle(name: str) -> str | None:
+    """The translocated copy of the app named NAME (Zed.app) that is running now, or None."""
+    import procs
+    root = translocation_root()
+    if not root:
+        return None
+    marker = "/" + name + "/Contents/MacOS/"
+    for _pid, _ppid, cmd in procs.process_table():
+        for path in (cmd, "/private" + cmd):
+            if path.startswith(root) and marker in path:
+                return path.split(marker, 1)[0] + "/" + name
+    return None
 
 
 # ---------------------------------------------------------------- one app
@@ -236,6 +343,7 @@ class App:
         self.bundle = self.source
         self.helper = helper
         self.instance = None
+        self.translocated = False  # quarantined launch: look for the app under AppTranslocation too
 
     def launch(self, profile: str, urls: list[str] | None = None):
         import procs
@@ -272,6 +380,11 @@ class App:
         deadline = time.monotonic() + 60
         while time.monotonic() < deadline:
             pid = procs.main_pid(self.bundle)
+            if not pid and self.translocated:
+                moved = translocated_bundle(os.path.basename(self.bundle))
+                if moved:
+                    self.bundle = moved
+                    pid = procs.main_pid(moved)
             if pid:
                 self.instance = procs.Instance(self.bundle, pid)
                 return
@@ -331,12 +444,18 @@ class Run:
     def launch(self, app: App, round_no: int, kind: str, profile: str, urls: list[str] | None = None) -> bool:
         """One measured launch: window ms, then peak footprint and CPU over --after s. Leaves the app running."""
         load = self.quiet()
-        watch = self.helper.wait_window(os.path.join(os.path.realpath(app.bundle), "Contents/MacOS/"), 60)
+        prefixes = [os.path.join(os.path.realpath(app.bundle), "Contents/MacOS/")]
+        if app.translocated and translocation_root():
+            prefixes.append(translocation_root())  # only quarantined apps opened in place run from there
+        watches = [self.helper.wait_window(prefix, 60) for prefix in prefixes]
         t0 = now_ms()
         try:
             app.launch(profile, urls)
-            line = (watch.communicate(timeout=70)[0] or "").split()
+            line = first_line(watches, 70)
             note = {} if line else {"note": "no window within 60 s"}
+            if not line and kind == "quarantined":
+                note = {"note": "no window within 60 s: the first-open prompt waits for a click "
+                                "(needs a fleet Mac that approves it)"}
             if line and kind == "fresh" and app.name in SYSTEM:
                 note = {"scope": "empty home only: a sealed system app has no new copy"}
             self.record(app.name, round_no, f"{kind}-window", float(line[0]) - t0 if line else None, load=load, **note)
@@ -355,8 +474,9 @@ class Run:
             self.record(app.name, round_no, f"{kind}-window", None, note=f"error: {error}"[:300])
             return False
         finally:
-            if watch.poll() is None:
-                watch.kill()
+            for watch in watches:
+                if watch.poll() is None:
+                    watch.kill()
 
     def soak(self, app: App, round_no: int, prefix: str = "soak"):
         a = self.args
@@ -472,6 +592,9 @@ class Run:
                 subprocess.run(["cp", "-R", app.source, app.bundle], check=True, timeout=900)
             if round_no == 1:
                 self.record(app.name, round_no, "bundle-size", bundle_mb(app.bundle))
+                items = signed_items(app.bundle)
+                self.record(app.name, round_no, "signed-items", items["count"], machos=items["machos"],
+                            bundles=items["bundles"], kinds=items["kinds"])
             if not self.launch(app, round_no, "fresh", profile):
                 app.quit()
                 return
@@ -498,6 +621,30 @@ class Run:
             app.quit()
             if app.name not in SYSTEM:
                 make_writable_and_remove(copy_dir)  # best effort: App Management may keep a launched copy
+        if self.args.quarantined:
+            self.quarantined(app, round_no)
+
+    def quarantined(self, app: App, round_no: int):
+        """RFD 0131 G: the first launch of a new copy that carries a browser download's quarantine."""
+        if app.name in SYSTEM:
+            self.record(app.name, round_no, "quarantined-window", None, note="a sealed system app is never downloaded")
+            return
+        copy_dir = os.path.join(self.args.cache, "rivals-copies", f"{app.name}-q{round_no}-{os.getpid()}")
+        profile = os.path.join(self.work, "runs", f"{app.name}-q{round_no}")
+        make_writable_and_remove(profile)
+        try:
+            os.makedirs(copy_dir, exist_ok=True)
+            app.bundle = os.path.join(copy_dir, os.path.basename(app.source))
+            subprocess.run(["cp", "-R", app.source, app.bundle], check=True, timeout=900)
+            quarantine(app.bundle)
+            app.translocated = True
+            self.launch(app, round_no, "quarantined", profile)
+        except Exception as error:  # noqa: BLE001 - the row is null with its reason, the run goes on
+            self.record(app.name, round_no, "quarantined-window", None, note=f"error: {error}"[:300])
+        finally:
+            app.quit()
+            app.translocated = False
+            make_writable_and_remove(copy_dir)
 
     def main(self):
         a = self.args
@@ -595,6 +742,23 @@ def ratio(cmux_value, other) -> str:
     return f" (cmux {cmux_value / other:.1f}x more)" if cmux_value >= other else f" (cmux {other / cmux_value:.1f}x less)"
 
 
+def first_line(watches: list, timeout: float) -> list[str]:
+    """The first window line any of the wait-window helpers prints, split; [] if none does within TIMEOUT s."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        running = False
+        for watch in watches:
+            code = watch.poll()
+            if code is None:
+                running = True
+            elif code == 0:
+                return (watch.stdout.read() or "").split()
+        if not running:
+            return []
+        time.sleep(0.005)  # bench: the helpers poll windows every 2 ms; this only collects their answer
+    return []
+
+
 def report(out: str, md_path: str | None, json_path: str | None) -> int:
     path = os.path.join(out, "samples.jsonl")
     samples = [json.loads(line) for line in open(path) if line.strip()] if os.path.exists(path) else []
@@ -624,6 +788,8 @@ def report(out: str, md_path: str | None, json_path: str | None) -> int:
     sections = [
         ("Launch to window (ms, median [min–max]; in brackets, cmux against that app)",
          ["fresh-window", "restart-window", "warm-window"]),
+        ("First launch of a quarantined download (--quarantined; the first-open prompt is in the number)",
+         ["quarantined-window", "quarantined-cpu", "quarantined-memory-peak"]),
         ("What a launch costs (to window + the after-launch window)",
          ["fresh-cpu", "restart-cpu", "warm-cpu", "fresh-memory-peak", "restart-memory-peak", "warm-memory-peak"]),
         ("Idle: RAM ceiling and growth, CPU, wakeups", pass_rows(rows, "soak")),
@@ -635,7 +801,7 @@ def report(out: str, md_path: str | None, json_path: str | None) -> int:
         (f"Background tabs: {meta['args'].get('tabs') or 0} local idle pages, idle (--tabs)",
          [r for r in ("tabs-window", "tabs-cpu", "tabs-memory-peak") if r in rows]
          + pass_rows(rows, "tabs-soak") + group_rows(rows, "tabs-soak")),
-        ("On disk", ["bundle-size"]),
+        ("On disk", ["bundle-size", "signed-items"]),
     ]
     labels = {row: (label, unit) for row, label, unit, _summary in ROWS}
     for title, ids in sections:
@@ -709,6 +875,8 @@ def main():
     run.add_argument("--max-load", type=float, default=4)
     run.add_argument("--quiet-wait", type=float, default=120)
     run.add_argument("--cmux-ref", default=None)
+    run.add_argument("--quarantined", action="store_true",
+                     help="also a first launch of a quarantined copy (needs a Mac that approves the first-open prompt)")
     rep = sub.add_parser("report")
     rep.add_argument("--out", required=True)
     rep.add_argument("--md")
