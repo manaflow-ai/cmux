@@ -61,13 +61,15 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
   mobile: () =>
     import("./MobileCard").then(({ MobileCard }) => () => <MobileCard />),
   devices: () =>
-    import("./DevicesCard").then(({ DevicesCard }) => () => <DevicesCard />),
+    import("./DevicesCard").then(({ DevicesCard }) => (focus) => <DevicesCard focus={focus} />),
   chiefPet: () =>
     import("./ChiefPetCard").then(({ ChiefPetCard }) => (focus) => <ChiefPetCard focus={focus} />),
   density: () =>
     import("./DensityCard").then(({ DensityCard }) => (focus) => <DensityCard focus={focus} />),
   textSize: () =>
     import("./TextSizeCard").then(({ TextSizeCard }) => () => <TextSizeCard />),
+  replayIntro: () =>
+    import("./ReplayIntroCard").then(({ ReplayIntroCard }) => () => <ReplayIntroCard />),
   importSuggestions: () =>
     import("./ImportSuggestionsCard").then(({ ImportSuggestionsCard }) => () => <ImportSuggestionsCard />),
   channels: () =>
@@ -90,6 +92,10 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./SharedLinksCard").then(({ SharedLinksCard }) => (_focus, _workspace, reveal) => (
       <SharedLinksCard reveal={reveal} />
     )),
+  archivedWorkspaces: () =>
+    import("./ArchivedWorkspacesCard").then(({ ArchivedWorkspacesCard }) => (_focus, _workspace, reveal) => (
+      <ArchivedWorkspacesCard reveal={reveal} />
+    )),
   // Customization Problems draws above the library in its slot; `focus=card.customizeDoctor` opens on it.
   customizeLibrary: () =>
     Promise.all([import("./CustomizeLibraryCard"), import("./CustomizeDoctorCard")]).then(
@@ -101,6 +107,12 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
           </>
         ),
     ),
+  looksGallery: () =>
+    import("./LooksGalleryCard").then(({ LooksGalleryCard }) => (_focus, _workspace, reveal) => (
+      <LooksGalleryCard reveal={reveal} />
+    )),
+  customizeProgress: () =>
+    import("./CustomizeProgressCard").then(({ CustomizeProgressCard }) => () => <CustomizeProgressCard />),
   customizeChecklist: () =>
     import("./CustomizeChecklist").then(({ CustomizeChecklistCard }) => () => <CustomizeChecklistCard />),
   keys: () =>
@@ -109,6 +121,8 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./McpServersCard").then(({ McpServersCard }) => () => <McpServersCard />),
   integrationsHub: () =>
     import("./IntegrationsHubCard").then(({ IntegrationsHubCard }) => () => <IntegrationsHubCard />),
+  automationsCloud: () =>
+    import("./AutomationsCard").then(({ AutomationsCard }) => () => <AutomationsCard />),
   tailnet: () =>
     import("./TailnetCard").then(({ TailnetCard }) => () => <TailnetCard />),
   models: () =>

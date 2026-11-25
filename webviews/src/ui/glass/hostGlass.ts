@@ -55,6 +55,15 @@
 // keeps the page's glass (HOST_GLASS_OWN_ATTRIBUTE) until the App answers a report that has it, so the
 // swap to the App's never shows its content on no glass.
 //
+// One glass per place (Leo, 2026-11-22: "our shitty multi layer glass + web view. we need to properly do
+// that once and for all"). The rule above kept one surface from having two glasses; two surfaces could
+// still each have the App's, one over the other (a hover card, a menu or a tooltip over Session Info, a
+// tooltip over a menu), and the App's glasses all lie under the page: two native glasses stacked, their
+// tints, rims and shadows added up. No report has two boxes that overlap (`stackedHostGlass`): the
+// lowest surface keeps the App's glass, and each surface over it keeps the page's own from its first
+// frame, exactly as one over the composer does. It is decided in the reporter, for every marked
+// surface, so a new surface needs no rule of its own.
+//
 // One coordinate conversion, and it is the page's (Leo, 2026-11-20: "we have glass project / i add
 // background / it refract / boom done"; cmux#42413 switched host glass off for this drift). A box is
 // in CSS px; the App needs view points, and CSS px times the page zoom is points. The App used to
@@ -211,6 +220,63 @@ export function keepsPageGlass(element: Element): boolean {
   return element.hasAttribute(HOST_GLASS_COVER_ATTRIBUTE) && !element.hasAttribute(OVER_ATTRIBUTE);
 }
 
+/** How far (CSS px, on both axes) two surfaces' boxes may share before one counts as over the other: a
+ * submenu beside its menu or a card flush against Session Info meets it along an edge, a rounding apart. */
+export const HOST_GLASS_SEAM = 1;
+
+type Box = Pick<HostGlassSurface, "left" | "top" | "right" | "bottom">;
+const stacks = (a: Box, b: Box) =>
+  Math.min(a.right, b.right) - Math.max(a.left, b.left) > HOST_GLASS_SEAM &&
+  Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > HOST_GLASS_SEAM;
+
+/** Which of two overlapping surfaces paints over the other. One that holds the other is under it.
+ * Else the page's hit test at the middle of what they share names the upper one when it reaches both
+ * (a popup portaled anywhere in the page still paints over what it covers). With either one out of its
+ * reach (a tooltip takes no pointer) or no hit test to ask (a test page), the later one in the document
+ * is the upper: a popup is portaled after what it covers. */
+function upper(a: Element, b: Element): Element {
+  if (a.contains(b)) return b;
+  if (b.contains(a)) return a;
+  const [boxA, boxB] = [a.getBoundingClientRect(), b.getBoundingClientRect()];
+  const x = (Math.max(boxA.left, boxB.left) + Math.min(boxA.right, boxB.right)) / 2;
+  const y = (Math.max(boxA.top, boxB.top) + Math.min(boxA.bottom, boxB.bottom)) / 2;
+  const hits = a.ownerDocument.elementsFromPoint?.(x, y) ?? [];
+  const atA = hits.findIndex((hit) => a.contains(hit));
+  const atB = hits.findIndex((hit) => b.contains(hit));
+  if (atA >= 0 && atB >= 0) return atA < atB ? a : b;
+  return a.compareDocumentPosition(b) & 4 /* DOCUMENT_POSITION_FOLLOWING */ ? b : a;
+}
+
+/** The surfaces that lie over another surface the App draws glass under (Leo, 2026-11-22: "our shitty
+ * multi layer glass + web view. we need to properly do that once and for all"). The App's glasses all
+ * sit under the page, one per reported box, so two boxes that overlap were two native glasses on top
+ * of each other, whichever surfaces they were: a hover card, a menu or a tooltip over Session Info, a
+ * tooltip over a menu, a popover over a card. One glass per place: the lowest surface keeps the App's
+ * glass and each one over it keeps the page's own, as one over the composer does (`keepsPageGlass`).
+ * A surface over one that itself keeps the page's glass has no App glass under it there, so it takes
+ * the App's. */
+export function stackedHostGlass(candidates: readonly { element: Element; box: Box }[]): Set<Element> {
+  // For each surface, the ones it paints over.
+  const under = new Map<Element, Element[]>(candidates.map(({ element }) => [element, []]));
+  for (let i = 0; i < candidates.length; i += 1)
+    for (let j = i + 1; j < candidates.length; j += 1) {
+      const [a, b] = [candidates[i]!, candidates[j]!];
+      if (!stacks(a.box, b.box)) continue;
+      const top = upper(a.element, b.element);
+      under.get(top)!.push(top === a.element ? b.element : a.element);
+    }
+  // Settled from the bottom up: a surface is decided once every surface under it is.
+  const stacked = new Set<Element>();
+  const decided = new Set<Element>();
+  for (let left = candidates.length; left > 0; left -= 1)
+    for (const { element } of candidates) {
+      if (decided.has(element) || !under.get(element)!.every((below) => decided.has(below))) continue;
+      if (under.get(element)!.some((below) => !stacked.has(below))) stacked.add(element);
+      decided.add(element);
+    }
+  return stacked;
+}
+
 /**
  * Keeps the App told where the page's marked surfaces are (`post`, whose promise settles once the App
  * drew that report; `zoom` is the page zoom its boxes were measured at, `hostGlassPageZoom`), and marks each surface drawn when it has. A refused report means the App draws no
@@ -289,6 +355,10 @@ export function reportHostGlass(
   const answered = new WeakSet<Element>();
   // Surfaces closing (data-ending-style): never reported, on the page's glass until they go.
   const leaving = new WeakSet<Element>();
+  // Surfaces over another surface's App glass at the last measure (stackedHostGlass): never reported.
+  let stacked: ReadonlySet<Element> = new Set();
+  /** Whether the surface shows the page's own glass and no App glass: `keepsPageGlass`, or stacked. */
+  const ownsGlass = (element: Element) => keepsPageGlass(element) || stacked.has(element);
   const forget = (element: Element) => {
     timedOut.delete(element);
     answered.delete(element);
@@ -341,7 +411,7 @@ export function reportHostGlass(
           answered.add(element);
           mark(element, "1");
           // The App's glass is under it again: the page's own glass goes (unless it keeps it again now).
-          if (!keepsPageGlass(element)) element.removeAttribute(HOST_GLASS_OWN_ATTRIBUTE);
+          if (!ownsGlass(element)) element.removeAttribute(HOST_GLASS_OWN_ATTRIBUTE);
         }
     }, end);
   };
@@ -376,6 +446,19 @@ export function reportHostGlass(
     root.toggleAttribute(HOST_GLASS_ROOT_ATTRIBUTE, applies);
     const surfaces: HostGlassSurface[] = [];
     const elements: Element[] = [];
+    // Every surface that would have the App's glass under it now, and of those the ones over another:
+    // found before any is reported or held, so one that mounts over Session Info is on the page's glass
+    // in its first frame and the two glasses never paint together.
+    const boxes = new Map<Element, HostGlassSurface>();
+    if (applies)
+      for (const [element, id] of ids) {
+        if (!element.isConnected || !element.hasAttribute(HOST_GLASS_ATTRIBUTE)) continue;
+        if (element.hasAttribute(HOST_GLASS_ENDING_ATTRIBUTE) || pageDrawsHover(element)) continue;
+        if (fellBack(element) || keepsPageGlass(element)) continue;
+        const box = hostGlassSurface(element, id);
+        if (box) boxes.set(element, box);
+      }
+    stacked = stackedHostGlass([...boxes].map(([element, box]) => ({ element, box })));
     for (const [element, id] of ids) {
       if (!element.isConnected || !element.hasAttribute(HOST_GLASS_ATTRIBUTE)) {
         forget(element);
@@ -405,12 +488,16 @@ export function reportHostGlass(
         // Its content shows from its first frame (marked at adopt); the App hears of it once that
         // content has been on screen for the hold, and its deadline starts then.
         mark(element, "1");
+        // Over another surface's App glass: the page's own glass from this frame on, before the hold
+        // (glass.css keeps the page's glass on data-host-glass-own).
+        if (stacked.has(element)) element.setAttribute(HOST_GLASS_OWN_ATTRIBUTE, "");
         if (!firstShown.has(element)) firstShown.set(element, paints);
         if (!reported.has(element) && paints - firstShown.get(element)! < HOST_GLASS_HOLD_FRAMES) continue;
-        // It keeps the page's own glass (over the composer, or nothing under it to blur): no App glass
-        // under it, or the two draw a double glass. It holds the page's glass until the App answers a
-        // report that has it, so the swap to the App's never shows its content on no glass.
-        if (keepsPageGlass(element)) {
+        // It keeps the page's own glass (over the composer, nothing under it to blur, or over another
+        // surface's App glass): no App glass under it, or the two draw a double glass. It holds the
+        // page's glass until the App answers a report that has it, so the swap to the App's never shows
+        // its content on no glass.
+        if (ownsGlass(element)) {
           element.setAttribute(HOST_GLASS_OWN_ATTRIBUTE, "");
           continue;
         }
@@ -432,7 +519,7 @@ export function reportHostGlass(
   let last = "";
   // One that keeps the page's glass waits for no report: it is not held (no frame loop while it stays).
   const holding = () =>
-    [...ids.keys()].some((element) => firstShown.has(element) && !reported.has(element) && !keepsPageGlass(element));
+    [...ids.keys()].some((element) => firstShown.has(element) && !reported.has(element) && !ownsGlass(element));
   const tick = () => {
     frame = 0;
     paints += 1;

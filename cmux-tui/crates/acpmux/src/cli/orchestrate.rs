@@ -60,6 +60,10 @@ pub(crate) fn terminal_notify(title: &str, body: &str) {
     let _ = out.flush();
 }
 
+/// `acpmux wait`'s default bound (Leo, 2026-11-25 ~04:15Z: "can't ci sometimes go indefinitely? or is
+/// there a timeout where it can always check again at some point"): an hour, as `pr-wait`'s.
+pub(crate) const WAIT_BOUND_S: u64 = 3600;
+
 pub(crate) struct WaitOpts {
     pub sessions: Vec<String>,
     pub until: Vec<String>,
@@ -269,7 +273,10 @@ async fn wait_inner(client: Arc<Client>, opts: WaitOpts, json_out: bool) -> Resu
 /// `wait` reports instead of a reply.
 fn failed_turn(s: &Value) -> Option<String> {
     let last = &s["lastTurn"];
-    if last["status"] != "failed" || s.get("turn").is_some_and(|t| !t.is_null()) {
+    // A turn held for capacity (`capacity`) failed too, and its retry waits.
+    if !(last["status"] == "failed" || last["status"] == "capacity")
+        || s.get("turn").is_some_and(|t| !t.is_null())
+    {
         return None;
     }
     let text = ["errorText", "error", "detail"]
