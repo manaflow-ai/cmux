@@ -257,12 +257,11 @@ pub(super) fn run(
         .enable_all()
         .build()
         .map_err(|e| local("cloud.unreachable", e.to_string()))?;
-    let answer = if name == GcpGetOp::NAME {
-        runtime.block_on(call::<GcpGetOp>(&http, &base, params, None, None))?
+    if name == GcpGetOp::NAME {
+        runtime.block_on(call::<GcpGetOp>(&http, &base, params, None, None))?.into_result()
     } else {
-        runtime.block_on(call::<GcpSetOp>(&http, &base, params, Some(key), None))?
-    };
-    answer.into_result()
+        runtime.block_on(call::<GcpSetOp>(&http, &base, params, Some(key), None))?.into_result()
+    }
 }
 
 #[cfg(test)]
