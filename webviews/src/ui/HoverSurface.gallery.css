@@ -48,11 +48,12 @@
   --glass-tint: color-mix(in srgb, var(--surface-popup) 30%, transparent);
   --glass-elevation: var(--elevation-2);
 }
-/* MENU: the menu level's veil (design-scale.json glass "menu": 80% light, 72% dark). */
-.hover-surface-gallery[data-look="menu"] :is(.ui-tooltip, .ui-title-tooltip).ui-glass {
+/* MENU and DENSE try other veils over the One arm (the doubled attribute outranks ui/hoverLook.css).
+   MENU: the menu level's veil (design-scale.json glass "menu": 80% light, 72% dark). */
+:root[data-hover-look][data-hover-look] .hover-surface-gallery[data-look="menu"] :is(.ui-tooltip, .ui-title-tooltip).ui-glass {
   --glass-tint: color-mix(in srgb, var(--surface-popup) var(--ds-transient-web-tint), transparent);
 }
 /* DENSE: 86%, the content cards' veil (design-scale.json glassContent), under the 90% cap. */
-.hover-surface-gallery[data-look="dense"] :is(.ui-tooltip, .ui-title-tooltip).ui-glass {
+:root[data-hover-look][data-hover-look] .hover-surface-gallery[data-look="dense"] :is(.ui-tooltip, .ui-title-tooltip).ui-glass {
   --glass-tint: color-mix(in srgb, var(--surface-popup) 86%, transparent);
 }

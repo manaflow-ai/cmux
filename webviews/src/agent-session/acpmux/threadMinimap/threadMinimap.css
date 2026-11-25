@@ -373,15 +373,15 @@
   isolation: isolate;
   will-change: transform;
   box-sizing: border-box;
-  /* A hover card (PreviewCard.tsx: .ui-card.ui-glass) in the one hover material of every tooltip and
-     hover card (ui/glass/glass.css HOVER SURFACES): the tooltip's veil over the transient frost and
-     the tooltip's corner, with the hover card glass's rim and elevation 2, never a fill, blur or
-     shadow of its own. It drew the popover level by hand before, a look of its own (Leo, 2026-11-22:
-     "multiple styles for hover previews"). appearance.borders none clears the glass rim; Reduce
-     Transparency makes the fill the solid popup surface (--glass-opaque). */
+  /* A hover card (PreviewCard.tsx: .ui-card.ui-glass): the one hover card glass of every other card
+     in the chat (the link preview, a session's card; glass.css GLASS LEVELS), its fill, frost, rim,
+     elevation and its text floor, never a recipe of its own (Leo, 2026-11-20: "WHERE IS THE GLASS
+     EVERYWHERE ALL THESE STUPID F***ING HOVER TOOLTIPS AND HOVER PREVIEW SHIT"). It drew the older
+     popover level by hand before. appearance.borders none clears the glass rim; Reduce Transparency
+     makes the fill the solid popup surface (--glass-opaque). */
   /* glass-opaque-allow: Reduce Transparency's fill only (glass.css applies it under that setting) */
   --glass-opaque: var(--surface-popup, var(--acpmux-minimap-card));
-  border-radius: calc(var(--role-tooltip-radius) * var(--cmux-interface-scale, 1)); /* concentric-allow: a hover card takes the one hover material's radius, like every tooltip and hover card */
+  border-radius: var(--ds-radius-xl);
   color: var(--agent-text);
   font: var(--text-body) / var(--text-body--line-height) var(--font-ui);
   letter-spacing: var(--text-body--letter-spacing);
@@ -396,12 +396,6 @@
   .acpmux-minimap__card {
     background: var(--surface-popup, var(--acpmux-minimap-card));
   }
-}
-/* The one hover material's veil and frost (glass.css HOVER SURFACES), over glass.css's hover card
-   level (.ui-card.ui-glass) whichever sheet loads last. */
-.acpmux-minimap__card.ui-card.ui-glass {
-  --glass-tint: var(--tooltip-tint);
-  --glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
 }
 /* Its insets over desktop.css's .ui-card ones, whichever sheet loads last. */
 .acpmux-minimap__card.ui-card {

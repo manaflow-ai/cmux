@@ -68,6 +68,7 @@ webviews/src/agent-session/acpmux/summary/WorkflowCard.css: .acpmux-workflow-car
 webviews/src/agent-session/acpmux/summary/summary.css: .acpmux-summary-card { border-radius: var(--ui-popup-radius) }
 webviews/src/agent-session/acpmux/summary/summary.css: .acpmux-summary-card[data-placement=popover] { border-radius: var(--ui-popup-radius) }
 webviews/src/agent-session/acpmux/summary/summary.css: .acpmux-summary-tab__close { border-radius: 4px }
+webviews/src/agent-session/acpmux/threadMinimap/threadMinimap.css: .acpmux-minimap__card { border-radius: var(--ds-radius-xl) }
 webviews/src/agent-session/acpmux/threadMinimap/threadMinimap.css: .acpmux-minimap__prompt[data-pending] { border-radius: var(--ds-radius-sm) }
 webviews/src/agent-session/acpmux/uiPointer/uiPointer.css: .cmux-ui-pointer-kbd { border-radius: 4px }
 webviews/src/agent-session/acpmux/uiPointer/uiPointer.css: .cmux-ui-pointer-label, .cmux-ui-pointer-hint { border-radius: 6px }

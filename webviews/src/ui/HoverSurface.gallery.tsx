@@ -1,17 +1,18 @@
-// One hover material for every tooltip and hover card (glass.css HOVER SURFACES; Leo, 2026-11-22:
-// "the humongous bullshit fucking terrible multiple styles for hover previews plus ass-looking
-// fucking translucency blur unacceptable"; and 2026-11-05: "if we're doing glass, we're doing glass,
-// period."). A transcript with a "Subagent disconnected" row, the subagent chip's hover card open
+// The One hover look (experiments.hoverLook = one, off by default; ui/hoverLook.css ONE; Leo,
+// 2026-11-22, softened: "multiple styles for hover previews plus bad-looking translucency blur,
+// unacceptable"): one material for every tooltip and hover card. A transcript with a "Subagent disconnected" row, the subagent chip's hover card open
 // over the rows above it, a keyed label over the composer and a title tooltip over a row: each look
 // draws them all at once, in their real classes, over real text, so what reads through each veil is
-// what the chat would show. `now` is the look before: the card a clear veil over the blurred rows (the
+// what the chat would show. `now` is today's look (the switch off): the card a clear veil over the blurred rows (the
 // App's popover glass), the labels the tooltip veil over unblurred text. The others are one material,
-// every surface blurring what it covers in place, at three veils.
+// every surface blurring what it covers in place, at three veils: `one` is the arm as it ships,
+// `menu` and `dense` try a clearer and a denser veil over it.
 // l10n-allow-file: gallery fixture labels, not shipped UI.
 import { useLayoutEffect, useRef } from "react";
 import { componentEntry } from "../gallery/format";
 import { attachSeeThroughBlur } from "./glass/seeThroughBlur";
 import { hoverCardGlass } from "./glass/hoverCardGlass";
+import { HOVER_LOOK_ATTRIBUTE, HOVER_LOOK_ONE } from "./hoverLook.experiment";
 
 type Look = "now" | "one" | "menu" | "dense";
 type Props = { look?: Look };
@@ -28,6 +29,10 @@ function HoverSurfaceGallery({ look = "one" }: Props) {
   useLayoutEffect(() => {
     const root = stage.current;
     if (!root) return;
+    // Every look but today's runs the One arm on the page's root, as the switch does.
+    const html = document.documentElement;
+    if (look === "now") html.removeAttribute(HOVER_LOOK_ATTRIBUTE);
+    else html.setAttribute(HOVER_LOOK_ATTRIBUTE, HOVER_LOOK_ONE);
     const under = () => root.querySelectorAll(".hover-surface-gallery-rows > *");
     const surfaces = [...root.querySelectorAll<HTMLElement>("[data-gallery-hover]")];
     // Each surface sits where the app puts it: centered on its target, 4 px above (or below) it,
@@ -51,7 +56,10 @@ function HoverSurfaceGallery({ look = "one" }: Props) {
     // Before, only a hover card blurred what it covered; now every hover surface does.
     const blurred = look === "now" ? surfaces.filter((surface) => surface.classList.contains("ui-card")) : surfaces;
     const stops = blurred.map((surface) => attachSeeThroughBlur(surface, under, hoverCardGlass));
-    return () => stops.forEach((stop) => stop());
+    return () => {
+      stops.forEach((stop) => stop());
+      html.removeAttribute(HOVER_LOOK_ATTRIBUTE);
+    };
   }, [look]);
   return (
     <div className="hover-surface-gallery" data-look={look} ref={stage} data-hover-surface-static="">
@@ -104,14 +112,20 @@ function HoverSurfaceGallery({ look = "one" }: Props) {
 
 export default componentEntry<Props>({
   id: "ui.hover-surface",
-  title: "Hover surfaces: one material",
+  title: "Hover surfaces: one material (experiments.hoverLook = one)",
   area: "UI primitives",
   height: 300,
   widths: { narrow: 520, normal: 760, wide: 960 },
   checks: {
     layoutShiftMax: { value: 0, reason: "The looks are paint only: no surface changes size." },
   },
-  covers: ["ui/glass/glass.css", "ui/Tooltip.tsx#Tooltip", "ui/titleTooltips.ts#installTooltips", "ui/hoverSurface.ts"],
+  covers: [
+    "ui/hoverLook.css",
+    "ui/glass/glass.css",
+    "ui/Tooltip.tsx#Tooltip",
+    "ui/titleTooltips.ts#installTooltips",
+    "ui/hoverSurface.ts",
+  ],
   load: async () => HoverSurfaceGallery,
   styles: () => import("./HoverSurface.gallery.css"),
   variants: {

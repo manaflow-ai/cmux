@@ -1,8 +1,8 @@
-// The thread minimap's preview card (hovering a mark) is the one hover material of every tooltip and
-// hover card (glass.css HOVER SURFACES): .ui-card.ui-glass with the tooltip's veil over the transient
-// frost, never a fill of its own (Leo, 2026-10-21: "a SOLID tooltip card"; 2026-11-22: "multiple
-// styles for hover previews"). Reduce Transparency makes the glass the solid popup surface
-// (--glass-opaque, glass.css).
+// The thread minimap's preview card (hovering a mark) is the one hover card glass of the chat's other
+// hover cards (the link preview, a session's card): .ui-card.ui-glass, never a fill of its own (Leo,
+// 2026-10-21: "a SOLID tooltip card"; 2026-11-20: "WHERE IS THE GLASS EVERYWHERE ALL THESE STUPID
+// F***ING HOVER TOOLTIPS AND HOVER PREVIEW SHIT"). Reduce Transparency makes the glass the solid
+// popup surface (--glass-opaque, glass.css).
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
@@ -29,15 +29,6 @@ test("the minimap card is the shared hover card glass, with no fill, blur or sha
   expect(card).not.toMatch(/(^|[;\s])background(-color)?\s*:/);
   expect(card).not.toMatch(/backdrop-filter\s*:/);
   expect(card).not.toMatch(/box-shadow\s*:/);
-});
-
-test("the minimap card is the one hover material: the tooltip's veil over the transient frost, its corner", () => {
-  const tokens = rule(".acpmux-minimap__card.ui-card.ui-glass");
-  expect(tokens).toMatch(/--glass-tint:\s*var\(--tooltip-tint\)/);
-  expect(tokens).toMatch(
-    /--glass-backdrop:\s*blur\(var\(--ds-transient-web-blur\)\) saturate\(var\(--ds-transient-web-saturation\)\)/,
-  );
-  expect(rule(".acpmux-minimap__card")).toMatch(/border-radius:\s*calc\(var\(--role-tooltip-radius\)/);
 });
 
 test("Reduce Transparency makes it the solid popup surface", () => {

@@ -8,7 +8,6 @@ import { useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { hoverCardGlass, hoverCardUnder } from "../../../ui/glass/hoverCardGlass";
 import { attachSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
-import { announceHoverSurface } from "../../../ui/hoverSurface";
 import { HOVER_INTENT } from "../../../ui/hoverIntent";
 import { interfaceScale } from "../../../ui/interfaceScale";
 import { HeaderIcon } from "./HeaderIcon";
@@ -50,13 +49,13 @@ export function headerToolPreviewPlacement(
 }
 
 export function HeaderToolPreview({ target }: { target: HeaderToolPreviewTarget }) {
-  // The one hover material (ui/glass/glass.css HOVER SURFACES), as every tooltip and hover card: the
-  // chat it covers blurred in place under the tooltip's veil. It drew the solid elevated surface
-  // before, a third hover look (Leo, 2026-11-22: "multiple styles for hover previews").
+  // The one hover card material (ui/glass/hoverCardGlass.ts), as every hover card: the App's popover
+  // glass under the page and the chat it covers blurred in place. It drew the solid elevated surface
+  // before (Leo, 2026-11-20: "WHERE IS THE GLASS EVERYWHERE ALL THESE STUPID F***ING HOVER TOOLTIPS
+  // AND HOVER PREVIEW SHIT").
   const [card, setCard] = useState<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
     if (!card) return;
-    announceHoverSurface(card);
     return attachSeeThroughBlur(card, hoverCardUnder, hoverCardGlass);
   }, [card]);
   const doc = typeof document === "undefined" ? undefined : document;
@@ -69,7 +68,8 @@ export function HeaderToolPreview({ target }: { target: HeaderToolPreviewTarget 
   return createPortal(
     <div
       ref={setCard}
-      className="ui-tooltip ui-card ui-glass acpmux-header-preview"
+      className="ui-card ui-glass acpmux-header-preview"
+      data-host-glass="popover"
       role="tooltip"
       data-closes={target.pressed ? "" : undefined}
       style={{ top: target.box.bottom + PREVIEW_GAP * scale, right, width }}

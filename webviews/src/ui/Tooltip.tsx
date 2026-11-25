@@ -28,6 +28,7 @@ import { UI_TOOLTIP_EDGE, UI_TOOLTIP_GAP, UI_TOOLTIP_MAX_WIDTH, tooltipGap, tool
 import { usePopupPadding } from "./popupInset";
 import { fitTooltipWidth } from "./tooltipFit";
 import { announceHoverSurface } from "./hoverSurface";
+import { oneHoverSurface } from "./hoverLook";
 
 /**
  * A page's tooltips wait the hover delay before the first shows, then show at once while the group
@@ -108,17 +109,16 @@ export function Tooltip({
   // Chromium's see-through page draws no underlay under it. Before, a Tooltip card kept that
   // underlay and read solid (Leo, 2026-11-14: "this has no transparency at all + is not
   // scrollable"). The popup mounts only while it shows.
-  // A label blurs what it covers too (glass.css HOVER SURFACES): under its veil the chat reads as
-  // an even wash, never as words smeared through it (Leo, 2026-11-22: "ass-looking fucking
-  // translucency blur unacceptable").
+  // Under the One hover look (experiments.hoverLook = one, ui/hoverLook.css) a label blurs what it
+  // covers too, as a card does, and says it opened so a title tooltip beside it goes
+  // (ui/hoverSurface.ts). Off, a label is as before.
   useLayoutEffect(() => {
     if (!popup) return;
+    const one = oneHoverSurface(popup.ownerDocument);
+    if (one) announceHoverSurface(popup);
+    if (!wraps && !one) return;
     return attachSeeThroughBlur(popup, hoverCardUnder, hoverCardGlass);
-  }, [popup]);
-  // One hover surface at a time (ui/hoverSurface.ts): a title tooltip open beside it goes.
-  useLayoutEffect(() => {
-    if (popup) announceHoverSurface(popup);
-  }, [popup]);
+  }, [popup, wraps]);
   // A card taller than the window scrolls (desktop.css .ui-tooltip.ui-card); from the keyboard, its
   // trigger focused, Page Down and Page Up scroll it, and the transcript under it stays.
   const scrollCard = (event: KeyboardEvent<HTMLElement>) => {
@@ -152,9 +152,11 @@ export function Tooltip({
               ref={setPopup}
               className={cx("ui-tooltip ui-glass", className)}
               data-surface-role={wraps ? "hoverCard" : "tooltip"}
-              // One hover material (glass.css HOVER SURFACES): the page draws it, a label and a card
-              // alike, never the App's glass under one and the page's under the other.
-              {...(wraps && { "data-tooltip-card": "" })}
+              // On the App's glass under the page (glass/hostGlass.ts): a card at the popover level, a
+              // label at the chip level, the native tooltip's glass, blurring what it covers in place.
+              {...(wraps
+                ? { "data-host-glass": "popover", "data-tooltip-card": "" }
+                : { "data-host-glass": "chip", "data-host-glass-cover": "" })}
             >
               {shortcut && <span className="ui-tooltip-hint">{keycapLegend(shortcut)}</span>}
               {typeof label === "string" || typeof label === "number" ? (
@@ -197,8 +199,7 @@ export interface AnchoredCardProps {
   /** Identifies this portal to a shared hover bridge. */
   hoverBridgeId?: number;
   /** What the card covers on its page, blurred in place while it shows (glass/seeThroughBlur.ts):
-   * Chromium's backdrop leaves the text under a card reading through its tint. A module constant;
-   * by default the chat and Session Info (glass/hoverCardGlass.ts), as every hover surface. */
+   * Chromium's backdrop leaves the text under a card reading through its tint. A module constant. */
   under?: CoveredCandidates;
   /** The in-place blur's options (a module constant): its owner word and what keeps the underlay. */
   underOptions?: SeeThroughOptions;
@@ -230,8 +231,8 @@ export function AnchoredCard({
   onPointerLeave,
   popupRef,
   hoverBridgeId,
-  under = hoverCardUnder,
-  underOptions = hoverCardGlass,
+  under,
+  underOptions,
   children,
 }: AnchoredCardProps) {
   const container = usePortalContainer();
@@ -249,12 +250,16 @@ export function AnchoredCard({
   );
   const shown = open ?? anchor !== null;
   useLayoutEffect(() => {
-    if (!popup || !under || !shown) return;
-    return attachSeeThroughBlur(popup, under, underOptions);
+    if (!popup || !shown) return;
+    // Under the One hover look every card blurs what it covers (the chat and Session Info by
+    // default, glass/hoverCardGlass.ts) and says it opened (ui/hoverSurface.ts); off, only a card
+    // given `under` blurs, as before.
+    const one = oneHoverSurface(popup.ownerDocument);
+    if (one) announceHoverSurface(popup);
+    const covered = under ?? (one ? hoverCardUnder : undefined);
+    if (!covered) return;
+    return attachSeeThroughBlur(popup, covered, under ? underOptions : hoverCardGlass);
   }, [popup, under, underOptions, shown]);
-  useLayoutEffect(() => {
-    if (popup && shown) announceHoverSurface(popup);
-  }, [popup, shown]);
   return (
     <BaseTooltip.Root open={open ?? anchor !== null}>
       <BaseTooltip.Portal container={container}>
@@ -271,8 +276,10 @@ export function AnchoredCard({
             id={id}
             className={cx("ui-tooltip ui-card ui-glass", className)}
             data-surface-role="hoverCard"
-            // The one hover material (glass.css HOVER SURFACES), drawn by the page; a card given
-            // `under` blurs what it covers itself.
+            // The App's popover glass under the page (glass/hostGlass.ts); a card given `under` blurs
+            // what it covers itself.
+            data-host-glass="popover"
+            data-host-glass-cover={under ? undefined : ""}
             data-state={state}
             data-instant={instant ? "" : undefined}
             role={interactive ? "dialog" : "tooltip"}
