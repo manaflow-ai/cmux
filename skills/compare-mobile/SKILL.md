@@ -51,6 +51,15 @@ Use the same flow ID, stimulus and end state from `scripts/mobile-bench/flows.js
 Keep comparison recordings in the private reference checkout. Screenshots can document layout.
 Timing a transition needs the original recording and the time of the input on its timeline.
 
+For layout references, save the publisher's current iPhone screenshots from the App Store:
+
+```sh
+python3 scripts/mobile-bench/storefront.py "$OUT/iphone-screenshots.zip" APP_STORE_ID [APP_STORE_ID ...]
+```
+
+The ZIP includes the images in listing order and a manifest with each version, storefront link,
+image URL and retrieval time. Keep these publisher-selected screens alongside the device captures.
+
 - For an iPhone app installed on a test Mac, run `scripts/measure/mobile-bench-mac-capture.sh` via
   the fleet. Its header gives the command and the `profile=` argument for the app's private input
   profile. Check the returned recorder rate and input timestamps.
