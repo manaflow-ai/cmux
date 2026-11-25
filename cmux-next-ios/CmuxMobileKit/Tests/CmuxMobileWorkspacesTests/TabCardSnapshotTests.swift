@@ -50,9 +50,13 @@ import UIKit
         }
     }
 
+    /// Polls until `done`, up to 30 s. The simulator leg runs the kit's ~2900 tests in parallel
+    /// (`cmux-next-ios-sim.sh test`), and this store's encodes, reads and writes run off the main
+    /// thread at utility priority: on 2026-11-25 a save and a Mac thumbnail read each missed a
+    /// 5 s bound there while passing alone. A path that never finishes still fails.
     static func wait(_ what: String, until done: @MainActor () -> Bool) async throws {
-        for _ in 0..<500 where !done() { try await Task.sleep(for: .milliseconds(10)) }
-        try #require(done(), "\(what) within 5 s")
+        for _ in 0..<3000 where !done() { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(done(), "\(what) within 30 s")
     }
 
     @Test func aPictureIsStoredOnceByItsHashAndReadBack() {
@@ -324,7 +328,9 @@ import UIKit
         rasterizer.setIdle(true)
         rasterizer.frame()
         rasterizer.setIdle(false)
-        try #require(feed.raster != nil)
+        let raster = try #require(feed.raster)
+        // A raster the gate calls a placeholder is never saved: say so rather than time out below.
+        #expect(!CardPictureGate.isPlaceholder(raster.image), "the agent card's picture reads as a placeholder")
         #expect(snapshots.entry(Self.key("agent")).image != nil)
         try await Self.wait("the picture is written") { snapshots.saves == 1 }
         #expect(snapshots.store.record(Self.key("agent"))?.pixelWidth == 402)
