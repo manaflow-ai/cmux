@@ -4,7 +4,7 @@ import Testing
 
 /// The tab bar's empty-area menu, the strip's or the vertical list's (Leo 2026-10-20, from Edge's
 /// and Chrome's vertical-tab menus): New Tab, Reopen Closed Tab, Bookmark All Tabs, Move All Tabs to
-/// a New Workspace; the vertical tabs rows; Task Manager.
+/// a New Workspace; the vertical tabs rows.
 @MainActor
 struct TabStripMenuTests {
     @Test func theTabBarMenuListsEdgesAndChromesRowsInOrder() {
@@ -17,8 +17,7 @@ struct TabStripMenuTests {
         }
         #expect(rows == [
             "newTab.default", "reopenClosedBrowserPanel", "bookmark.addAllTabs", "pane.moveToNewWorkspace", "—",
-            "tabs.verticalTabs.toggle", "tabs.verticalTabs.allWorkspaces", "tabs.verticalTabs.collapse", "tabs.verticalTabs.expandOnHover", "—",
-            "palette.openTaskManager",
+            "tabs.verticalTabs.toggle", "tabs.verticalTabs.allWorkspaces", "tabs.verticalTabs.collapse", "tabs.verticalTabs.expandOnHover",
         ])
     }
 
@@ -28,8 +27,7 @@ struct TabStripMenuTests {
         let menu = registry.makeContextMenu(for: .tabStrip, target: ActionTargetRef(kind: .pane, id: "p1"))
         #expect(menu.items.map { $0.isSeparatorItem ? "—" : $0.title } == [
             "New Tab", "Reopen Closed Tab", "Bookmark All Tabs…", "Move All Tabs to a New Workspace", "—",
-            "Turn On Vertical Tabs", "Use Vertical Tabs for All Workspaces", "Collapse Tabs", "Auto-Expand Tabs on Hover", "—",
-            "Task Manager",
+            "Turn On Vertical Tabs", "Use Vertical Tabs for All Workspaces", "Collapse Tabs", "Auto-Expand Tabs on Hover",
         ])
     }
 

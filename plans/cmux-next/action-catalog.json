@@ -2566,17 +2566,9 @@
         "cli" : {
           "exempt" : "guiOnly"
         },
-        "contextMenuExemption" : null,
+        "contextMenuExemption" : "noObject",
         "contextMenus" : [
-          {
-            "context" : "tabStrip",
-            "folder" : null,
-            "group" : "view",
-            "label" : null,
-            "parent" : null,
-            "rank" : 100,
-            "style" : "item"
-          }
+
         ],
         "mcpExemption" : null,
         "palette" : "offered"

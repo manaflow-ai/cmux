@@ -3,7 +3,7 @@ public import AppKit
 extension ActionRegistry {
     /// The tab bar's empty-area menu (`ActionMenuContext.tabStrip`; the strip's or the vertical list's;
     /// Edge's and Chrome's vertical-tab menus): New Tab, Reopen Closed Tab, Bookmark All Tabs, Move All
-    /// Tabs to a New Workspace; the vertical tabs rows; Task Manager. Then More: the kinds of new tab
+    /// Tabs to a New Workspace; the vertical tabs rows. Then More: the kinds of new tab
     /// (New) and the pane's menu with its own More inlined, titled as the pane's menu titles them, so
     /// nothing the strip's empty area offered before is lost.
     public func makeTabStripMenu(target: ActionTargetRef, machineID: String? = nil) -> NSMenu {
