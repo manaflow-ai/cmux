@@ -2049,6 +2049,7 @@ dependencies = [
 name = "cmux-extension-sdk"
 version = "1.0.0"
 dependencies = [
+ "cmux-app-host",
  "cmux-app-manifest",
  "cmux-customize",
  "serde_json",
