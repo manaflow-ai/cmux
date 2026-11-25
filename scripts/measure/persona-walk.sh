@@ -2,8 +2,9 @@
 # Persona dogfood walk (cmuxterm-hq docs/dogfood/personas): a fresh NEXT NIGHTLY on a fleet Mac, driven the way a
 # person would, with timings and screenshots returned as one artifact.
 #
-#   cmux-ci run --class exclusive --display --label measure --script scripts/measure/persona-walk.sh \
+#   cmux-ci run --class exclusive --display --measurement --pin-strict --label measure --script scripts/measure/persona-walk.sh \
 #     --ref SHA --target-worker HOST --artifact artifacts/persona-walk/report.tgz --arg=mode=probe
+#   (SHA on feat-cmux-next or main; the job needs an open PR for the branch it runs from.)
 #
 # mode=probe   what the step can see: user, console session, displays, cmux CLI, Computer Use readiness.
 # mode=p0      P0 task 1: download the newest NIGHTLY, install a scratch copy, launch it, time to first window.
