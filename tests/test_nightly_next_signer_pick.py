@@ -13,6 +13,7 @@ import datetime as dt
 import gzip
 import importlib.util
 import json
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -201,6 +202,24 @@ class EvaluateTests(unittest.TestCase):
                 host, pin, why = pick_mod.evaluate(environment, api, now=NOW)
                 self.assertEqual((host, pin), ("cmux15", LABEL_ONLY), why)
 
+    def test_the_spare_token_reads_first_and_a_403_moves_to_github_token(self):
+        import io
+        import urllib.error
+        from unittest import mock
+        seen = []
+
+        def fake(request, timeout, follow_redirects=False, raise_errors=False):
+            token = request.headers["Authorization"].split()[-1]
+            seen.append(token)
+            if token == "spare":
+                raise urllib.error.HTTPError(request.full_url, 403, "Forbidden", {}, io.BytesIO(b""))
+            return 200, json.dumps({"workflow_runs": []}).encode(), {}
+        with mock.patch.object(pick_mod.deadline_http, "request", side_effect=fake):
+            host, pin, why = pick_mod.evaluate(env(SPARE_READ_TOKEN="spare", GITHUB_TOKEN="gh"), now=NOW)
+        self.assertEqual(seen, ["spare", "gh"])
+        self.assertEqual(host, "cmux15")
+        self.assertNotIn("pick failed", why)
+
     def test_main_writes_host_and_pin(self):
         import os
         import tempfile
@@ -232,7 +251,9 @@ class WorkflowTests(unittest.TestCase):
     def test_the_pick_reads_no_secret_and_runs_before_the_build(self):
         import yaml
         text = yaml.safe_dump(self.pick)
-        self.assertNotIn("secrets.", text)
+        # One secret: the glaeda-route App key for a read-only (contents, actions) token, as decide mints on the same
+        # runner, so the pick has its own API budget (run 45575194160's pick 403d on github.token's).
+        self.assertEqual(set(re.findall(r"secrets\.\w+", text)), {"secrets.GLAEDA_ROUTE_APP_KEY"})
         self.assertNotIn("environment", self.pick)
         self.assertEqual(self.pick.get("permissions"), {"actions": "read", "contents": "read"})
         self.assertIn("pick-nightly-next-signer", self.one["needs"])
