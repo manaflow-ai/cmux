@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.themeFileExceptions.help" : {
+      "comment" : "Settings row help for the list of settings changed over the active theme file.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "إعدادات غيّرتها بينما يحددها ملف سمة. تُطبَّق قيمتك فوق قيمة الملف؛ وإعادة تعيين الصف تعيد قيمة الملف. اختيار ملف سمة آخر يمسح القائمة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Postavke koje ste promijenili dok ih datoteka teme postavlja. Vaša vrijednost važi preko vrijednosti datoteke; vraćanje reda vraća vrijednost datoteke. Odabir druge datoteke teme briše listu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Indstillinger, du har ændret, mens en temafil angiver dem. Din værdi gælder over filens; nulstilling af rækken vender tilbage til filens. Valg af en anden temafil rydder listen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Einstellungen, die du geändert hast, während eine Theme-Datei sie setzt. Dein Wert gilt über dem der Datei; Zurücksetzen der Zeile stellt den Wert der Datei wieder her. Eine andere Theme-Datei leert die Liste."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ajustes que cambiaste mientras un archivo de tema los define. Tu valor se aplica sobre el del archivo; restablecer la fila vuelve al del archivo. Elegir otro archivo de tema vacía la lista."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Réglages que vous avez modifiés alors qu'un fichier de thème les définit. Votre valeur s'applique par-dessus celle du fichier ; réinitialiser la ligne revient à celle du fichier. Choisir un autre fichier de thème vide la liste."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Impostazioni che hai modificato mentre un file del tema le imposta. Il tuo valore si applica sopra quello del file; reimpostare la riga torna a quello del file. Scegliere un altro file del tema svuota l'elenco."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "テーマファイルが設定している項目のうち、あなたが変更したもの。あなたの値がファイルの値より優先され、行をリセットするとファイルの値に戻ります。別のテーマファイルを選ぶとリストは消去されます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការកំណត់ដែលអ្នកបានផ្លាស់ប្ដូរ ខណៈឯកសាររូបរាងកំណត់វា។ តម្លៃរបស់អ្នកអនុវត្តលើតម្លៃឯកសារ។ ការកំណត់ជួរឡើងវិញ ត្រឡប់ទៅតម្លៃឯកសារ។ ការជ្រើសឯកសាររូបរាងផ្សេង សម្អាតបញ្ជី។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "테마 파일이 설정하는 항목 중 내가 변경한 설정입니다. 내 값이 파일의 값보다 우선하며, 행을 재설정하면 파일의 값으로 돌아갑니다. 다른 테마 파일을 선택하면 목록이 비워집니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Innstillinger du endret mens en temafil angir dem. Verdien din gjelder over filens; tilbakestilling av raden går tilbake til filens. Å velge en annen temafil tømmer listen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ustawienia zmienione przez Ciebie, gdy ustawia je plik motywu. Twoja wartość obowiązuje ponad wartością pliku; zresetowanie wiersza przywraca wartość pliku. Wybranie innego pliku motywu czyści listę."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ajustes que você alterou enquanto um arquivo de tema os define. Seu valor se aplica sobre o do arquivo; redefinir a linha volta ao do arquivo. Escolher outro arquivo de tema limpa a lista."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Настройки, которые вы изменили, пока их задаёт файл темы. Ваше значение действует поверх значения файла; сброс строки возвращает значение файла. Выбор другого файла темы очищает список."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "การตั้งค่าที่คุณเปลี่ยนขณะที่ไฟล์ธีมกำหนดไว้ ค่าของคุณจะใช้แทนค่าของไฟล์ การรีเซ็ตแถวจะกลับไปใช้ค่าของไฟล์ การเลือกไฟล์ธีมอื่นจะล้างรายการ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir tema dosyası belirlerken değiştirdiğiniz ayarlar. Değeriniz dosyanınkinin üzerine uygulanır; satırı sıfırlamak dosyanınkine döner. Başka bir tema dosyası seçmek listeyi temizler."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Налаштування, які ви змінили, поки їх задає файл теми. Ваше значення діє поверх значення файлу; скидання рядка повертає значення файлу. Вибір іншого файлу теми очищує список."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các cài đặt bạn đã thay đổi trong khi tệp chủ đề đặt chúng. Giá trị của bạn được áp dụng đè lên giá trị của tệp; đặt lại hàng sẽ quay về giá trị của tệp. Chọn tệp chủ đề khác sẽ xóa danh sách."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在主题文件设置它们时你更改过的设置。你的值优先于文件的值；重置该行会恢复文件的值。选择其他主题文件会清空此列表。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在主題檔案設定它們時你變更過的設定。你的值優先於檔案的值；重設該列會恢復檔案的值。選擇其他主題檔案會清空此列表。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
