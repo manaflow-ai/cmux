@@ -179,7 +179,7 @@ test("a chat on another machine, whose paths the host does not place, draws its 
   expect(container.querySelector("button.cv-filematches__line, button.cv-filematches__path")).toBeNull();
 });
 
-test("a long search mounts only its preview rows, cuts inside a big file, and says when the harness cut it", async () => {
+test("a search mounts every row up to its cap, cuts inside a big file past it, and says when the harness cut it", async () => {
   const many = Array.from({ length: 500 }, (_, index) => `/w/src/big.ts:${index + 1}:match ${index + 1}`).join("\n");
   const container = await render(
     <ToolRow
@@ -190,12 +190,21 @@ test("a long search mounts only its preview rows, cuts inside a big file, and sa
     />,
   );
   await open(container);
-  expect(container.querySelectorAll(".cv-filematches__line").length).toBe(15);
+  // The box scrolls its own rows (outputScrollBox.css): no Show more, every row is mounted.
+  expect(container.querySelectorAll(".cv-filematches__line").length).toBe(501);
   expect(container.querySelector(".cv-filematches__summary")?.textContent).toBe(
     "501 matches · 2 files · more were left out",
   );
-  await act(async () => container.querySelector<HTMLButtonElement>(".cv-filematches .cv-output-more")!.click());
-  expect(container.querySelectorAll(".cv-filematches__line").length).toBe(501);
+  expect(container.querySelector(".cv-output-more")).toBeNull();
+});
+
+test("a search of thousands of matches mounts no more than its row cap, the summary counting all", async () => {
+  const many = Array.from({ length: 2_500 }, (_, index) => `/w/src/big.ts:${index + 1}:match ${index + 1}`).join("\n");
+  const container = await render(<ToolRow item={item(HARNESS_CALLS.claude.search, `${many}\n/w/src/small.ts:1:x`)} />);
+  await open(container);
+  // The file's own row and 1,999 matches: 2,000 rows, and the second file is left out.
+  expect(container.querySelectorAll(".cv-filematches__line").length).toBe(1_999);
+  expect(container.querySelector(".cv-filematches__summary")?.textContent).toBe("2501 matches · 2 files");
 });
 
 test("in a read-only chat a search's files draw as text, never opening the owner's files", async () => {

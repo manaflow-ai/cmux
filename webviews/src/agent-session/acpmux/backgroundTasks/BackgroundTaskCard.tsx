@@ -14,7 +14,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useFold } from "../conversation/fold";
 import { tailLines, useLiveBackgroundTaskOutput } from "../conversation/backgroundTaskOutput";
 import { OUTPUT_SCROLL_BOX } from "../conversation/blockPartsModel";
-import { useMoreBelowOn } from "../conversation/moreBelow";
+import { useMoreBelowOn, useStickToEnd } from "../conversation/moreBelow";
 import "../conversation/outputScrollBox.css";
 import { TerminalSquare } from "../conversation/icons";
 import { useT } from "../i18n";
@@ -54,10 +54,8 @@ export function BackgroundTaskBody({
   const empty = readOutput && !output && !read.unavailable;
   const outputRef = useRef<HTMLPreElement>(null);
   useMoreBelowOn(outputRef, output);
-  // New output keeps the newest line in view.
-  useLayoutEffect(() => {
-    if (open && outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
-  }, [open, output]);
+  // New output keeps the newest line in view, unless the reader scrolled up from the end.
+  useStickToEnd(outputRef, output, open);
   return (
     <div className="acpmux-bg-card__body-inner" data-running={read.running || undefined}>
       <code className="acpmux-bg-card__command">

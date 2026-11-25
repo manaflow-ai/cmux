@@ -45,6 +45,9 @@ export function useOutput(output: string | undefined, reveal = 0) {
     text,
     /// Find in Chat opened it whole: every line is drawn, none windowed (BlockParts.tsx `Lines`).
     all,
+    /// The leading "…" of a cut output draws all of it: the start is otherwise out of reach (the box
+    /// scrolls only the drawn tail), short of Copy or a Find match.
+    showAll: () => setAll(true),
     shown: all || tail === undefined ? text : tail,
     cut: !all && tail !== undefined,
   };

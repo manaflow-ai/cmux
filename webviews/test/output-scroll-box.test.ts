@@ -25,8 +25,18 @@ const HIDDEN_LINES =
   /^(show|view|see) (all|more|the rest of|full)( \{n\}| \d+)? (lines?|output|files?|rows?)\b|^(show|view) (\{n\}|\d+) more (lines?|rows?)\b/i;
 
 test("the pane's table has no Show all N lines style label", () => {
-  const table = JSON.parse(readFileSync(path.join(PANE, "Localizable.xcstrings"), "utf8")) as {
-    strings: Record<string, Entry>;
+  // The table is one file per key (Localizable.xcstrings.d/), as the base keeps it.
+  const dir = path.join(PANE, "Localizable.xcstrings.d");
+  const table = {
+    strings: Object.assign(
+      {},
+      ...readdirSync(dir)
+        .filter((name) => name.endsWith(".xcstrings"))
+        .map(
+          (name) =>
+            (JSON.parse(readFileSync(path.join(dir, name), "utf8")) as { strings: Record<string, Entry> }).strings,
+        ),
+    ) as Record<string, Entry>,
   };
   const found = Object.entries(table.strings).flatMap(([key, entry]) =>
     values(entry.localizations?.en)

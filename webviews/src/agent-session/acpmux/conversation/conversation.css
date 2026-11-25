@@ -2285,7 +2285,7 @@
 /* Its rows scroll sideways in Pierre's own box (`[data-code]`); the body only cuts the preview.
    Unwrapped, Pierre keeps a lane for that box's scrollbar under the rows at all times, `--cv-lane`
    tall, inside the box's own bottom gap (its padding is the gap less the lane), so the box is as
-   tall with a scrollbar as without one. A cut preview shows eight rows and the lane under them,
+   tall with a scrollbar as without one. A cut preview shows `OUTPUT_BOX_LINES` rows and the lane under them,
    Pierre's box cut with it (`--cv-block-cut`, sideways.ts PIERRE_BLOCK_CSS), and its bottom fade
    stops above the lane. Wrapped rows never scroll sideways: no lane. */
 .cv-edit-diff__body {
@@ -6134,6 +6134,18 @@ a.cv-sha:focus-visible {
 /* The mark where a long output's shown end begins, and the button that shows all of it. */
 .cv-output-cut {
   color: var(--cv-text-muted);
+}
+/* On a cut that can be undone (toolOutputModel.ts `showAll`) the mark is a button that looks like it. */
+.cv-output-cut--button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.cv-output-cut--button:hover,
+.cv-output-cut--button:focus-visible {
+  color: var(--cv-text);
 }
 /* Show more / Show less under every cut block (ExpandRow.tsx): one button, its block's full width
    and its whole bottom row, so a click anywhere along that edge toggles it (Leo, 2026-11-07: "what

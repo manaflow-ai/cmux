@@ -53,3 +53,21 @@ export function useMoreBelowOn(ref: RefObject<HTMLElement | null>, content: unkn
     };
   }, [ref, content]);
 }
+
+/// Keeps the newest line of a streaming `ref` box in view each time `content` changes, unless the
+/// reader scrolled up from the end; scrolling back to the end follows again. The listener goes on
+/// whenever the box exists, so a box that appears after the first chunk (a run that starts with no
+/// output) is followed or left alone like any other, and a reader's place is never taken from them.
+export function useStickToEnd(ref: RefObject<HTMLElement | null>, content: unknown, active: boolean) {
+  const away = useRef(false);
+  useLayoutEffect(() => {
+    const box = ref.current;
+    if (!box || !active) return;
+    const onScroll = () => {
+      away.current = moreBelow(box);
+    };
+    box.addEventListener("scroll", onScroll, { passive: true });
+    if (!away.current) box.scrollTop = box.scrollHeight;
+    return () => box.removeEventListener("scroll", onScroll);
+  }, [ref, content, active]);
+}

@@ -71,6 +71,22 @@ type EditDiffProps = {
   flat?: boolean;
 };
 
+/// What a callback ref returns: it holds `node` in `held` and watches its viewport unless `whole`.
+/// React 19 runs the cleanup a ref returns in place of calling the ref again with null, so the cleanup
+/// lets go of the node: else `held` keeps the removed body element after unmount.
+export function heldNode(
+  held: { current: HTMLDivElement | null },
+  node: HTMLDivElement | null,
+  whole: boolean | undefined,
+) {
+  held.current = node;
+  const stop = node && !whole ? watchOutputViewport(node) : undefined;
+  return () => {
+    stop?.();
+    held.current = null;
+  };
+}
+
 export function EditDiff(props: EditDiffProps) {
   return <EditDiffFrame {...props} hunks={EditDiffHunks} />;
 }
@@ -95,13 +111,7 @@ export function EditDiffFrame({
   useFindInFile(file);
   const body = useRef<HTMLDivElement>(null);
   useSidewaysEdge(body);
-  const edges = useCallback(
-    (node: HTMLDivElement | null) => {
-      body.current = node;
-      return node && !whole ? watchOutputViewport(node) : undefined;
-    },
-    [body, whole],
-  );
+  const edges = useCallback((node: HTMLDivElement | null) => heldNode(body, node, whole), [body, whole]);
   const hunks = useRef<HTMLDivElement>(null);
   const painted = useDiffPainted(hunks);
   return (
