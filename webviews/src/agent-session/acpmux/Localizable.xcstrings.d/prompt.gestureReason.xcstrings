@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "prompt.gestureReason" : {
+      "comment" : "Agent pane: why a prompt was not sent, after \"Not sent: \" (prompt.notSent) or \"Still not sent: \" (prompt.stillNotSent): the app saw no key press or click of the person's own behind the send (a script or another app's posted input does not count)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يحتاج إلى ضغطة مفتاح أو نقرة منك."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "potreban je vaš pritisak tipke ili klik."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "det kræver dit eget tastetryk eller klik."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "dafür ist dein eigener Tastendruck oder Klick nötig."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "it needs your own key press or click."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "necesita que pulses una tecla o hagas clic tú."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "il faut que vous appuyiez sur une touche ou cliquiez."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "serve che tu prema un tasto o faccia clic."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ご自身のキー操作またはクリックが必要です。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ត្រូវការការចុចគ្រាប់ចុច ឬការចុចរបស់អ្នកផ្ទាល់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "직접 키를 누르거나 클릭해야 합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "det krever ditt eget tastetrykk eller klikk."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "wymaga Twojego naciśnięcia klawisza lub kliknięcia."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "é preciso que você pressione uma tecla ou clique."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "нужно ваше собственное нажатие клавиши или щелчок."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ต้องให้คุณกดแป้นหรือคลิกเอง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "kendi tuş basışınız veya tıklamanız gerekiyor."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "потрібне ваше власне натискання клавіші або клацання."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cần chính bạn nhấn phím hoặc bấm chuột."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "需要你亲自按键或点按。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "需要你親自按鍵或點按。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
