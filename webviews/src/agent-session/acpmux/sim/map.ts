@@ -202,6 +202,14 @@ export const MAP: MapEntry[] = [
     scenario: "received-sent-as-activity",
   },
   {
+    id: "messages-steer-mid-turn",
+    when: "Other agents' messages steer into a running turn between its commands, two back to back.",
+    wrong:
+      'Leo, 2026-11-22: "sometimes you get these way-too-big gaps. i think it\'s the message recieving not properly getting treated like the tool call ish thing it should be".',
+    expected: "Rule d: each received line sits on the tool rows' pitch, at most a step's gap from its neighbours.",
+    scenario: "messages-mid-turn",
+  },
+  {
     id: "background-shell",
     when: "A turn leaves a shell running; it ends later and the agent works on its own.",
     wrong: "The agent's own turn drew no head, or its line pinned under the turn before.",
