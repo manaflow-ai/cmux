@@ -28,11 +28,15 @@ const retryOf = (child: StartedSession) => {
 export const sessionStatus = (child: StartedSession): SubagentStatus =>
   retryOf(child) ? "running" : stateOf(child).status;
 
-/// A started chat's state in words ("Running", "Done", "Retrying (2/4) after a capacity error"), as
-/// its row says it, and whether it works (the turning ring) while acpmux retries it.
+/// A started chat's state in words ("Done", "Retrying (2/4) after a capacity error"), as its row says
+/// it, and whether it works (the turning ring): while it runs (no word) or acpmux retries it.
 export function sessionStateText(t: Translate, child: StartedSession): { text: string; working: boolean } {
   const retry = retryOf(child);
-  return retry ? { text: retryLabel(t, retry), working: true } : { text: t(stateOf(child).word), working: false };
+  if (retry) return { text: retryLabel(t, retry), working: true };
+  // Running is the turning ring, never a word (Leo, 2026-11-23: "\"running\" doesn't need text. it can
+  // usually just be. you can put symbols for state.").
+  if (stateOf(child).status === "running") return { text: "", working: true };
+  return { text: t(stateOf(child).word), working: false };
 }
 
 /// The started chats in list order: waiting on the person first, then running, failed and idle,
