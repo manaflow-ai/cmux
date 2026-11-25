@@ -128,6 +128,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
+import { parseRepoSeed, REPO_SEED_STEP, repoSeedDetail, repoSeedRuns, repoSeedScripts } from "./cloud-journey-repo-seed.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
 import { awaitPaused, runWakeEcho, setupProbe, startWithRetry, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
 import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, resumeRouteCall, type ResumeSample, type ResumeStop, runProviderArm, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
@@ -5191,6 +5192,30 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
         return { value: null, detail: r.stdout.trim().split("\n").join(" ") };
       });
+      // A chat opened with a folder: how long git_seed takes to ready the repository on this machine, cloned from
+      // GitHub and borrowed from a warm mirror (cloud-journey-repo-seed.ts). Opt-in: each run pulls the repo once.
+      const seedRuns = repoSeedRuns(process.env.CMUX_JOURNEY_REPO_SEED_RUNS);
+      for (let run = 1; run <= seedRuns; run++) {
+        await J.step(seedRuns > 1 ? `${REPO_SEED_STEP} ${run}/${seedRuns}` : REPO_SEED_STEP, async () => {
+          // Clone and borrow as two execs, each with the exec route's whole 300 s (cloud-journey-repo-seed.ts).
+          const s = repoSeedScripts(`/tmp/cmux-seed-probe-${process.pid}-${run}`);
+          const c = await exec(s.clone, 300_000);
+          let r = c;
+          let out = c.stdout;
+          try {
+            if (parseRepoSeed(c.stdout).clone?.code === "0") {
+              r = await exec(s.borrow, 300_000);
+              out += `\n${r.stdout}`;
+            }
+          } finally {
+            await exec(s.cleanup, 60_000).catch(() => undefined);
+          }
+          console.log(out.split("\n").filter((l) => l.startsWith("@@seed")).join("\n"));
+          const { ok, detail } = repoSeedDetail(parseRepoSeed(out));
+          if (!ok) throw new Error(`exit ${r.code} ${detail} ${r.stderr.slice(-200)}`);
+          return { value: null, detail };
+        });
+      }
       // A person's own create that no spare serves: the create above asks the chat start size and claims a ready spare,
       // so without this cell no run shows that a cold create boots at the size it asked for (cmux-platform#1513: every
       // image create asks the VM API for the size it was admitted at). One machine at COLD_CREATE_SIZE, its size read on
