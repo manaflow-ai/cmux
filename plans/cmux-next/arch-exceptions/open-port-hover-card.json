@@ -6,5 +6,6 @@
   "author": "next-open-port (claude opus)",
   "owner": "next-open-port",
   "receipt": "Review (claude opus review subagent): SHIP at 4608fd1b1811add41484222b8c542384043e0573",
-  "expiry": "2026-12-14"
+  "expiry": "2026-12-14",
+  "applied_sha": "542d7b9af81b685c4e8d1a8d9dd4e9dfa26dbc20"
 }

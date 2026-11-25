@@ -84,11 +84,14 @@ import Testing
         #expect(ComputerDots.team(Team(id: "e", name: "E")) == nil)
     }
 
+    // Rust's reachability rules link on iOS only.
+    #if os(iOS)
     @Test func filterMenuRowsCarryAGreenOrRedDot() {
         let entries = MacFilterMemo().entries(MacFilterMemo.Input(
             macs: Self.macs, connection: ["mac-office": .connected], linkStatus: [:], live: true,
             failure: ["mac-studio": .hostUnreachable]))
-        let dots = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0.isUp) })
+        let dots = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0.isOnline) })
         #expect(dots == ["mac-office": true, "mac-studio": false, "vm-cloud": false])
     }
+    #endif
 }

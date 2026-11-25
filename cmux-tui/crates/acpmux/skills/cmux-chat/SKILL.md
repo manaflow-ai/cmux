@@ -1,32 +1,13 @@
 ---
 name: cmux-chat
-description: "How a cmux chat shows your work: the plan list it draws, side sessions and offered sessions, links to other sessions, the closing recap, and editing cmux itself live. Load it once per chat, with your first reads, when a task has more than one step, may start or suggest another session, or will change files."
+description: "How a cmux chat shows your work: side and offered sessions, session links, the closing recap, editing cmux live. Load with your first reads when a task may start a session or change files."
 ---
 
 # Working in a cmux chat
 
-cmux NEXT draws your chat as a pane: your plan as a checklist, your sub-sessions in a
+cmux NEXT draws your chat as a pane: your sub-sessions in a
 tray under the chat, session links as chips, offers as cards. These rules say when to
 use each. They are cmux's defaults; the person's own instructions win.
-
-## Plan list
-
-Use it when the task has more than one step (edits plus a test, an investigation then a
-fix, anything the person listed). Skip it for a one-command answer or plain talk.
-
-- Claude Code: `TodoWrite`. Codex: `update_plan`. Other agents: their plan tool.
-  cmux draws the newest list as a checklist and keeps earlier lists as history.
-- Write the whole plan in the first tool step, short imperative items (at most about
-  7 words), one item in progress, the rest pending.
-- Mark an item done when it is done, in the same step that starts the next one.
-  Rewrite the whole list when the plan changes, so it never shows abandoned work.
-- Keep it current, as Claude Code expects: delete an item you drop, and when the person's
-  new message changes the work, rewrite the list for it or clear it. A list with steps
-  left stays in sight for one message only ("From before your last message"); after
-  that it folds into the turn that wrote it. A list whose items are all done clears.
-- It is this task's plan, never a standing to-do list: a coordinator's duties, other
-  sessions' work and things to check later go in notes, goals or issues, not here.
-- Never also write the plan as a numbered list in your reply: the checklist is the plan.
 
 ## Side sessions, sub-sessions and subagents
 
@@ -36,12 +17,13 @@ chat outside the cmux app shows no offers); skip what you do not have.
 A sub-session is a new agent chat the person can open, steer and stop. Use one only for
 work with its own result (a branch, a PR, a separate investigation) that can run while
 you go on, never for a step you need the answer to right now: do that yourself or in your
-harness's own subagent (Claude Code's Task/Agent tool), whose result comes back to you.
+harness's own subagent, whose result comes back to you. Fork it by default (Claude Code
+Agent with `subagent_type: "fork"`, Codex with inherited turns).
 
 - `start_session` (`cmux.subsessions_start_session` in cmux_exec): starts a child now. Use it when the person
   asked for parallel or background work. Pass `worktree: true` when it edits files that
-  yours may also touch. Its prompt carries the whole task: it starts with none of your
-  context. Read results with `wait_for_sessions` or `get_session`; steer with
+  yours may also touch. A child normally forks your chat. Give it the assignment and
+  expected result. Include the context it needs for a separate worktree or a fresh session. Read results with `wait_for_sessions` or `get_session`; steer with
   `send_message`.
 - `offer_session` (`cmux.sessions_offer_session`): one suggestion mid-turn for work you noticed
   outside the task (a bug, a cleanup). The person starts it or not; do not do that work here.
@@ -74,6 +56,20 @@ short recap, the last thing you write:
 Skip it for a short answer or plain conversation. Do not restate the plan or the diff.
 When the cmux tools list `acpmux_wrap_up`, pass the recap to it (it draws the box under
 your answer) instead of also writing it in prose.
+
+## Asking for a connection
+
+When you need the person to connect GitHub (for a repository or an org), call
+`settings_ask` (`acpmux_settings_ask` on the cmux server) with `target`
+`connection:github`, `connection:github:ORG` or `connection:github:OWNER/REPO` and a
+short `why`, then end your turn. The chat shows a small Needs you card with a working
+Connect GitHub button under your answer; when they connect, the chat goes on. Never tell
+them to open Settings and hunt for it.
+
+For any other setting, call `settings_ask` with `target` `setting:SECTION` or
+`setting:SECTION/KEY` (for example `setting:terminal/terminal.fontSize`) and write the
+`cmux://settings/...` link it returns in your answer: the chat draws it as a link, and a
+click opens that exact setting in Settings.
 
 ## Editing cmux live
 

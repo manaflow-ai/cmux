@@ -20,6 +20,14 @@
 // `crossfade`, `morph`, `cascade`, `glide`, `spring`, `wait` and `dissolve` (turnEndFold.ts `TurnEndLook`),
 // each short and `-long`; the motion-path looks `sheet`, `capped`, `viscous`, `water`, `edge` and `anchored` the same way. The dev setting `turn-end-fold-look` picks one in the running pane;
 // scripts/fold-variants-record.ts records and measures each in the big Claude turn.
+// The `steer-*` states end a turn whose reply the person steered just before it ended (Leo, 2026-11-25:
+// "worked for above my message and then yours and then boom that's it", then "the final ultra fold
+// simply... takes it all away. we simply need to make sure it looks good while doing so. aka fast fades and
+// comfy (maybe eased) and fast and snappy and satisfying transition animations"): the fold pulls the work
+// across the steer into the one Worked for, and the reply lands under the steer. The arms are its timing
+// (`data-turn-end-cross`, turnEndFold.ts `CROSS_TIMING`): `steer-snap`, before, draws the end at once;
+// `steer-quick`, shipped, fades in 120 ms and moves in 180; `steer-even` 140/200; `steer-eased` 160/220 on
+// an in-out curve.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
@@ -27,7 +35,7 @@ import { VirtualTranscript } from "../App";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { turnView } from "./turns";
 import type { ExitLeadLook } from "./exitLead";
-import type { TurnEndLook } from "./turnEndFold";
+import type { TurnEndCross, TurnEndLook } from "./turnEndFold";
 
 type Variant = TurnEndLook | "live";
 
@@ -96,7 +104,7 @@ const HISTORY: AcpmuxRow[] = Array.from({ length: 4 }, (_, index) => [
 ]).flat();
 
 /// The turn after `steps` of its calls, and whether it ended.
-function turnRows(steps: number, ended: boolean, long = false): AcpmuxRow[] {
+function turnRows(steps: number, ended: boolean, long = false, steered = false): AcpmuxRow[] {
   const rows: AcpmuxRow[] = [
     ...HISTORY,
     { id: "fold-user", kind: "user", version: 1, at: at(60), text: "Fix the flaky retry test" },
@@ -139,7 +147,29 @@ function turnRows(steps: number, ended: boolean, long = false): AcpmuxRow[] {
       items: third,
       toolCount: third.length,
     });
-  if (ended)
+  // A steered turn's reply streams under its work, and the person's steer lands under it as it ends.
+  if (steered && steps >= FIRST.length + SECOND.length)
+    rows.push(
+      {
+        id: "fold-answer",
+        kind: "assistant",
+        version: 1,
+        at: at(88),
+        text: "Fixed: the jitter now stays inside the backoff's cap, and the suite passes.",
+      },
+      { id: "fold-steer", kind: "user", version: 1, at: at(89), text: "also run it 50 times", steer: "landed" },
+    );
+  if (ended && steered)
+    rows.push({
+      id: "fold-summary",
+      kind: "turnSummary",
+      version: 1,
+      at: at(91),
+      status: "completed",
+      durationMs: 31_000,
+      toolCount: 7,
+    });
+  else if (ended)
     rows.push(
       {
         id: "fold-answer",
@@ -167,10 +197,14 @@ function TurnEndFoldGallery({
   variant,
   long = false,
   lead,
+  steered = false,
+  cross,
 }: {
   variant: Variant;
   long?: boolean;
   lead?: ExitLeadLook;
+  steered?: boolean;
+  cross?: TurnEndCross;
 }) {
   const turnSteps = long ? STEPS + THIRD.length : STEPS;
   const [steps, setSteps] = useState(0);
@@ -180,12 +214,12 @@ function TurnEndFoldGallery({
   useEffect(() => () => timers.current.forEach((timer) => window.clearTimeout(timer)), []);
   const rows = useMemo(
     () =>
-      turnView(turnRows(steps, ended, long), new Set(), {
+      turnView(turnRows(steps, ended, long, steered), new Set(), {
         working: state === "running" && !ended,
         agentFamily: "claude",
         now: at(95),
       }),
-    [steps, ended, state, long],
+    [steps, ended, state, long, steered],
   );
   // gallery-capture: runs only from Run the turn, which each arm's play clicks and then waits for its end state.
   const start = () => {
@@ -209,6 +243,7 @@ function TurnEndFoldGallery({
       className="acpmux-shell"
       data-turn-end-fold={variant === "live" ? undefined : variant}
       data-exit-lead={lead}
+      data-turn-end-cross={cross}
       style={{ height: "100%" }}
     >
       <div className="acpmux-main" data-dock="float">
@@ -246,7 +281,13 @@ const runLive: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.find({ testId: "turn-end-state" }).textContent === `Step ${STEPS}`, { capMs: 4_000 });
 };
 
-export default componentEntry<{ variant: Variant; long?: boolean; lead?: ExitLeadLook }>({
+export default componentEntry<{
+  variant: Variant;
+  long?: boolean;
+  lead?: ExitLeadLook;
+  steered?: boolean;
+  cross?: TurnEndCross;
+}>({
   id: "agent-pane.turn-end-fold",
   title: "Turn end fold",
   area: "Agent pane",
@@ -309,5 +350,9 @@ export default componentEntry<{ variant: Variant; long?: boolean; lead?: ExitLea
     "wipe-long": { props: { variant: "wipe", long: true }, play: runToFold },
     snapshot: { props: { variant: "snapshot" }, play: runToFold },
     "snapshot-long": { props: { variant: "snapshot", long: true }, play: runToFold },
+    "steer-snap": { props: { variant: "fade", steered: true, cross: "snap" }, play: runToFold },
+    "steer-quick": { props: { variant: "fade", steered: true, cross: "quick" }, play: runToFold },
+    "steer-even": { props: { variant: "fade", steered: true, cross: "even" }, play: runToFold },
+    "steer-eased": { props: { variant: "fade", steered: true, cross: "eased" }, play: runToFold },
   },
 });

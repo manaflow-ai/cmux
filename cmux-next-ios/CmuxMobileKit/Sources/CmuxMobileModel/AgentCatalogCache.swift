@@ -32,12 +32,21 @@ public final class AgentCatalogCache {
 
     public func save(_ catalog: AgentCatalog, for macID: String) {
         guard !macID.isEmpty, let data = try? JSONEncoder().encode(catalog), let url = file(macID) else { return }
-        queue.async { [directory] in
-            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+        queue.async {
+            // The account's own folder (directory/account-ID), not just `directory`: a write into a
+            // folder that does not exist fails, so no catalog was ever kept.
+            let folder = url.deletingLastPathComponent()
+            #if canImport(Darwin)
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true,
                                                      attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
+            let options: Data.WritingOptions = [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+            #else
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let options: Data.WritingOptions = [.atomic]
+            #endif
             let temporary = url.appendingPathExtension("tmp")
             do {
-                try data.write(to: temporary, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                try data.write(to: temporary, options: options)
                 try? FileManager.default.removeItem(at: url)
                 try FileManager.default.moveItem(at: temporary, to: url)
             } catch {

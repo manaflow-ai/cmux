@@ -28,10 +28,13 @@
 //! [`chat::PromptOutbox`] is its twin for the agent chat's prompts (keyed by `promptId`).
 
 pub mod chat;
+pub mod progress;
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
 use serde_json::{Value, json};
 
 /// How long the daemon remembers a key it applied (`send_once::TTL` in cmux-tui-core). A hold
@@ -124,8 +127,12 @@ pub struct Done {
 struct Entry {
     seq: u64,
     key: String,
+    /// What goes: the draft (with its Return when `submit`) or raw keys (`keys`).
     text: String,
     submit: bool,
+    /// Raw terminal bytes (`push_keys`), sent as `{bytes, key}`; `text` then holds them lossily,
+    /// for the outcome only.
+    keys: Option<Vec<u8>>,
     /// Typed, not pasted (a one-line draft for a full-screen program: vim takes a bracketed
     /// paste as text even in normal mode).
     typed: bool,
@@ -184,11 +191,25 @@ impl Outbox {
             key: format!("{}-{seq}", self.nonce),
             text,
             submit,
+            keys: None,
             typed,
             queued: now,
             tried: false,
             in_flight: false,
         });
+        seq
+    }
+
+    /// Typed keys: raw terminal `bytes` as one keyed `send {bytes, key}`, in the same queue, so
+    /// order holds across keys and composer Sends. The same hold, resend-under-the-key and
+    /// outcome rules apply; an outcome's `text` is the bytes read lossily as UTF-8 (the caller
+    /// knows by `seq` that it was keys). Returns the entry's number.
+    pub fn push_keys(&mut self, bytes: impl Into<Vec<u8>>, now: Instant) -> u64 {
+        let bytes: Vec<u8> = bytes.into();
+        let seq = self.push(String::from_utf8_lossy(&bytes).into_owned(), false, now);
+        if let Some(entry) = self.entries.back_mut() {
+            entry.keys = Some(bytes);
+        }
         seq
     }
 
@@ -201,6 +222,10 @@ impl Outbox {
         let entry = self.entries.iter_mut().find(|e| !e.in_flight)?;
         entry.in_flight = true;
         entry.tried = true;
+        if let Some(keys) = &entry.keys {
+            let params = json!({"bytes": STANDARD.encode(keys), "key": entry.key});
+            return Some((entry.seq, params));
+        }
         let params = match (form, entry.submit) {
             (Form::TypedSubmit, true) if entry.typed => {
                 json!({"text": entry.text, "submit": true, "key": entry.key})
@@ -454,6 +479,74 @@ mod tests {
             Some(Done { seq: a, outcome: Outcome::MaybeSent { text: "a".into() } })
         );
         assert!(outbox.is_empty());
+    }
+
+    #[test]
+    fn typed_keys_go_as_bytes_under_a_key_in_order_with_composer_sends() {
+        let mut outbox = Outbox::new("phone", DEFAULT_HOLD);
+        let now = Instant::now();
+        let a = outbox.push_keys(b"\x1b[A".to_vec(), now);
+        let b = outbox.push("ls", true, now);
+        let c = outbox.push_keys(b"y".to_vec(), now);
+        let sent: Vec<_> = std::iter::from_fn(|| outbox.next_request(Form::TextReturn)).collect();
+        assert_eq!(sent.iter().map(|(s, _)| *s).collect::<Vec<_>>(), vec![a, b, c]);
+        assert_eq!(sent[0].1["bytes"], STANDARD.encode(b"\x1b[A"));
+        assert!(sent[0].1.get("text").is_none());
+        assert_eq!(sent[1].1["text"], "ls\r");
+        assert_eq!(sent[2].1["bytes"], STANDARD.encode(b"y"));
+    }
+
+    #[test]
+    fn keys_held_across_a_lost_link_go_again_in_order_under_the_same_keys_once_answered() {
+        let mut outbox = Outbox::new("phone", Duration::from_secs(10));
+        let now = Instant::now();
+        let a = outbox.push_keys(b"a".to_vec(), now);
+        let b = outbox.push_keys(b"b".to_vec(), now);
+        let first: Vec<_> = std::iter::from_fn(|| outbox.next_request(Form::PasteSubmit)).collect();
+        outbox.link_lost();
+        assert!(outbox.expire(now + Duration::from_secs(5)).is_empty());
+        let again: Vec<_> = std::iter::from_fn(|| outbox.next_request(Form::PasteSubmit)).collect();
+        assert_eq!(first, again, "same bytes, same keys, same order: the daemon applies each once");
+        assert_eq!(key(&again[0].1), format!("phone-{a}"));
+        assert_eq!(
+            outbox.answer(a, Answer::Applied),
+            Some(Done { seq: a, outcome: Outcome::Sent })
+        );
+        assert_eq!(
+            outbox.answer(b, Answer::Applied),
+            Some(Done { seq: b, outcome: Outcome::Sent })
+        );
+        assert!(outbox.is_empty());
+    }
+
+    #[test]
+    fn keys_past_the_hold_are_not_sent_or_maybe_sent_never_dropped() {
+        let mut outbox = Outbox::new("phone", Duration::from_secs(10));
+        let now = Instant::now();
+        let tried = outbox.push_keys(b"x".to_vec(), now);
+        let untried = outbox.push_keys(b"z".to_vec(), now);
+        outbox.next_request(Form::PasteSubmit);
+        outbox.link_lost();
+        assert_eq!(
+            outbox.expire(now + Duration::from_secs(10)),
+            vec![
+                Done { seq: tried, outcome: Outcome::MaybeSent { text: "x".into() } },
+                Done { seq: untried, outcome: Outcome::NotSent { text: "z".into() } },
+            ]
+        );
+        assert!(outbox.is_empty());
+    }
+
+    #[test]
+    fn a_refused_key_is_not_sent_and_not_resent() {
+        let mut outbox = Outbox::new("phone", DEFAULT_HOLD);
+        let seq = outbox.push_keys(b"y".to_vec(), Instant::now());
+        outbox.next_request(Form::PasteSubmit);
+        assert_eq!(
+            outbox.answer(seq, Answer::Refused),
+            Some(Done { seq, outcome: Outcome::NotSent { text: "y".into() } })
+        );
+        assert!(outbox.next_request(Form::PasteSubmit).is_none());
     }
 
     #[test]

@@ -22,7 +22,6 @@ import { setTabRow } from "./header/tabRow";
 import { receiveNativeRowToolInvocation } from "./header/nativeRowTools";
 import { setFloatingState } from "./floatingState";
 import { configureNativeSidebarPreviewVariant } from "./sidebarPreview";
-import { setSessionStatus } from "./sessionStatus";
 import { setExperimentSwitches } from "../../experiments/switches";
 import { receivePromptUploadState } from "./promptUploadState";
 import { setComputerUsePreview } from "./computerUse/computerUsePreview";
@@ -35,8 +34,7 @@ import { addCloudPreviewPort, seedCloudPreviewPorts } from "./cloudPreviewPorts"
 import { noteChatTheme, SNAPSHOT_WRITE_EVENT } from "./chatSnapshot/live";
 
 import { scopedPageClient } from "./paneView";
-
-export { agentPageOp, callPageHost, pageHostClient, resetPageHostClientForTests } from "./pageHostClient";
+import { bridgeFor } from "./pane/viewBridges";export { agentPageOp, callPageHost, pageHostClient, resetPageHostClientForTests } from "./pageHostClient";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
@@ -48,9 +46,16 @@ export type HostEvent = { kind: string; value?: unknown };
 /// in a shared pane document each view subscribes with its `view` filter and these land in that
 /// view's store (paneViewStore.ts), so two chats never draw each other's header, row or cards. Every
 /// other kind is the app's (theme, settings, catalogs) and applies to the whole document. Not yet
-/// per view, so still the document's: transport, the bridge commands, uploads, Session Info and the
-/// Cloud preview ports (they go through window.cmuxAcpmuxBridge, which is one a document).
+/// per view, so still the document's: transport, uploads, Session Info and the Cloud preview ports.
+/// The chat's bridge commands go to its view's bridge (viewBridges.ts).
 export const VIEW_EVENT_KINDS: ReadonlySet<string> = new Set([
+  "command",
+  "stopTurn",
+  "sideQuestion",
+  "revealTurn",
+  "dictation",
+  "designSelection",
+  "cloudStartProgress",
   "headerState",
   "tabRow",
   "floatingState",
@@ -65,6 +70,8 @@ export const VIEW_EVENT_KINDS: ReadonlySet<string> = new Set([
 /// subscription brought it (null: the page's own); only VIEW_EVENT_KINDS read it.
 export function applyHostEvent(event: HostEvent, view: string | null = null): void {
   const bridge = window.cmuxAcpmuxBridge;
+  // The chat's own bridge: its view's in a shared document, the document's on a page of its own.
+  const chat = bridgeFor(view);
   const value = event.value as never;
   switch (event.kind) {
     case "imessage.changed":
@@ -101,11 +108,8 @@ export function applyHostEvent(event: HostEvent, view: string | null = null): vo
       return bridge?.applyWorkflowLabs?.(event.value === true);
     case "sidebarPreviewVariant":
       return configureNativeSidebarPreviewVariant(event.value);
-    case "sessionStatus":
-      // Direct, like editedFiles: a push before the chat mounts is kept.
-      return setSessionStatus(event.value);
     case "experiments":
-      // Direct, like sessionStatus: a push before a component mounts is kept.
+      // Direct: a push before a component mounts is kept.
       return setExperimentSwitches(event.value);
     case "machineLink":
       return setMachineLink(event.value);
@@ -170,22 +174,22 @@ export function applyHostEvent(event: HostEvent, view: string | null = null): vo
     case "floatingState":
       return setFloatingState(event.value, view);
     case "dictation":
-      return bridge?.dictation?.(value);
+      return chat?.dictation?.(value);
     case "dictationHandoff":
       return deliverHandoffFailure(event.value);
     case "designSelection":
-      return bridge?.designSelection?.(value);
+      return chat?.designSelection?.(value);
     case "cloudStartProgress":
       // How a Cloud start goes (cloudStartProgress.ts): the page checks every field.
-      return bridge?.cloudStartProgress?.(event.value);
+      return chat?.cloudStartProgress?.(event.value);
     case "revealTurn":
-      return bridge?.revealTurn?.(String(event.value));
+      return chat?.revealTurn?.(String(event.value));
     case "command":
-      return bridge?.command?.(String(event.value));
+      return chat?.command?.(String(event.value));
     case "stopTurn":
-      return bridge?.command?.("stopTurn", String(event.value));
+      return chat?.command?.("stopTurn", String(event.value));
     case "sideQuestion":
-      return bridge?.command?.("sideQuestion", String(event.value));
+      return chat?.command?.("sideQuestion", String(event.value));
     case "focusLocation":
       window.dispatchEvent(new Event(FOCUS_LOCATION));
       return;

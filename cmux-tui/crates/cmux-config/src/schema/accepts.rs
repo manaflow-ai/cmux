@@ -142,6 +142,10 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         Accepted::Shape(
             "a listed painting, desktop, system:<absolute path>, file:<absolute path> or youtube:<video id> (or a YouTube video address)",
         )
+    } else if row.validation == super::Validation::Domain(DomainKind::BackdropPictures) {
+        Accepted::Shape(
+            "a list of pictures: listed paintings, desktop, system:<absolute path> or file:<absolute path>",
+        )
     } else if row.validation == super::Validation::Domain(DomainKind::BackdropSchedule) {
         Accepted::Shape(
             "an object of HH:MM or dawn, sunrise, noon, sunset, dusk (with +Nm, -Nm, +Nh or -Nh) to fixed backgrounds",
@@ -184,6 +188,8 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         Accepted::Shape("an app id, publisher/name in lowercase letters, digits and -")
     } else if row.validation == super::Validation::Domain(DomainKind::SidebarSectionIds) {
         Accepted::Shape("an array of at most 256 distinct section ids of 1 to 128 characters")
+    } else if row.validation == super::Validation::Domain(DomainKind::UiFontFamily) {
+        Accepted::Domain { name: domain_name(DomainKind::UiFontFamily), values: None }
     } else {
         accepted(&row.kind, domains)
     };
@@ -196,14 +202,12 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
 }
 
 /// The stored value when valid, else the default (what the app applies).
-/// An unset row that replaced a retired key reads that key through the
-/// retired-keys table (`super::retired`), as the app does, and an old choice
-/// value reads as its replacement (`super::aliases`).
+/// An unset row that replaced retired keys reads the first of them whose value
+/// the retired-keys table lists (`super::retired`), as the app does, and an old
+/// choice value reads as its replacement (`super::aliases`).
 pub fn effective_value(row: &Row, root: &Value, domains: &Domains) -> Option<Value> {
-    let stored = crate::value::value_at(root, &row.path).or_else(|| {
-        let replaced = super::replaced_by_row(&row.path)?;
-        replaced.read(crate::value::value_at(root, &replaced.old)?)
-    });
+    let stored =
+        crate::value::value_at(root, &row.path).or_else(|| super::replaced_value(&row.path, root));
     let stored = stored.map(|stored| aliased(row, stored));
     match stored {
         Some(stored) if row_accepts(row, &stored, domains) => Some(stored),
@@ -263,8 +267,16 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         super::Validation::Domain(DomainKind::SearchTemplate) => {
             return value.as_str().is_some_and(is_search_template);
         }
+        super::Validation::Domain(DomainKind::UiFontFamily) => {
+            return value.as_str().is_some_and(|text| font_ok(text, None));
+        }
         super::Validation::Domain(DomainKind::BackdropPicture) => {
             return value.as_str().is_some_and(super::backdrop::is_picture);
+        }
+        super::Validation::Domain(DomainKind::BackdropPictures) => {
+            return value.as_array().is_some_and(|items| {
+                items.iter().all(|item| item.as_str().is_some_and(super::backdrop::is_picture))
+            });
         }
         super::Validation::Domain(DomainKind::BackdropSchedule) => {
             return super::backdrop::is_schedule(value);
@@ -580,9 +592,11 @@ fn domain_name(kind: DomainKind) -> &'static str {
     match kind {
         DomainKind::Theme => "theme",
         DomainKind::FontFamily => "font_family",
+        DomainKind::UiFontFamily => "ui_font_family",
         DomainKind::Sound => "sound",
         DomainKind::BackdropSelection => "backdrop_selection",
         DomainKind::BackdropPicture => "backdrop_picture",
+        DomainKind::BackdropPictures => "backdrop_pictures",
         DomainKind::BackdropSchedule => "backdrop_schedule",
         DomainKind::BackdropLocation => "backdrop_location",
         DomainKind::BackdropMemory => "backdrop_memory",
@@ -631,5 +645,32 @@ mod tests {
             accepts(row, &Value::String("__not_a_choice__".to_owned()), &Default::default())
                 .is_err()
         );
+    }
+
+    #[test]
+    fn profile_menu_style_takes_app_or_account_and_defaults_to_app() {
+        // ask-aad661801e: the Claude Code and Codex looks set the account-first profile menu;
+        // cmux's own app menu stays the default.
+        let row = super::super::Schema::embedded()
+            .row("sidebar.profileMenu.style")
+            .expect("profile menu style row");
+        assert_eq!(row.default, Some(json!("app")));
+        let domains = Domains::default();
+        for value in ["app", "account"] {
+            assert!(accepts(row, &json!(value), &domains).is_ok(), "{value}");
+        }
+        for value in [json!("accounts"), json!(""), json!(true), json!(1)] {
+            assert!(accepts(row, &value, &domains).is_err(), "{value}");
+        }
+    }
+
+    #[test]
+    fn app_font_takes_any_family_not_only_the_fixed_pitch_domain() {
+        let row = super::super::Schema::embedded().row("appearance.appFont").expect("app font row");
+        assert_eq!(row.validation, super::super::Validation::Domain(DomainKind::UiFontFamily));
+        let mono = Domains::published(Vec::new(), vec!["Menlo".to_owned()], Vec::new());
+        assert!(accepts(row, &json!("Avenir Next"), &mono).is_ok());
+        assert!(accepts(row, &json!("Bad#Name"), &mono).is_err());
+        assert!(accepts(row, &json!(3), &mono).is_err());
     }
 }

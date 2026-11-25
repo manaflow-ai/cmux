@@ -10,7 +10,9 @@
 #   cmux-ci run --class exclusive --measurement --label measure \
 #     --script scripts/measure/perf-10x-idle.sh --ref SHA [--arg=counts=1,10,50] [--arg=measure=60] \
 #     [--arg=agents=20,100] [--arg=purge=1] [--arg=release=MINUTES] [--arg=attribute=1] [--arg=infinite=10,100]
-#     [--arg=chat_renderer_crash=1] [--arg=vmmap=tui-daemon,app]
+#     [--arg=chat_renderer_crash=1] [--arg=vmmap=tui-daemon,app] [--arg=app=nightly|https://...dmg] [--arg=adblock=off]
+# app=nightly: measure the newest published NIGHTLY (nightly-next appcast DMG) instead of building this checkout;
+# app=URL: that DMG. Nothing is built, so a run starts in minutes and measures what people run.
 # agents: also measure that many idle agent chats (one workspace each, on the
 # acpmux test agent cmux-tui/crates/acpmux/tests/fake_agent.py, its first turn
 # answered), as PERF-IDLE app-agents lines (resource-efficiency-DESIGN.md).
@@ -34,6 +36,11 @@
 # soak-Nm sample), the JS heaps and the growth by kind. Artifact: .build/perf-idle/soak.json and soak.log.
 # vmmap=KIND,KIND: after each app sample, vmmap --summary of every process of those kinds (bench_memory.py
 # --vmmap-kinds): where its footprint is, MALLOC against frameworks and stacks.
+# settings=JSON: cmux settings the app launches with (bench_memory.py --config), e.g.
+# settings={"appearance":{"wallpaperLighting":true}} for a before/after of one setting on the same build.
+# adblock=off: browser.builtInAdBlocker false on top of settings= (merged, either order), for a controller that
+# refuses JSON in an arg. print_settings=1: print the --config JSON the app would launch with, then exit.
+# (an A/B of the built-in uBlock Origin's writes; the app's default is unchanged).
 # axes=AXIS,AXIS (chat-hidden, chat-visible, terminal-hidden, terminal-visible, page-hidden, page-visible;
 # axes=all for the first four, axes=pages for the two page axes): what one
 # more idle item costs, per process (bench_memory.py --axis, one fresh app each): idle CPU %, footprint, RSS,
@@ -60,10 +67,12 @@ measure=60
 agents=""
 infinite="" days=3 soak="" soak_every=10 soak_agents=3
 axes="" items="1,10,100" visible_items="1,4,10" settled=90
-reload_config=() purge=() release=() attribute=() crash_env=() vmmap=()
+settings_json="" adblock_off="" print_settings=""
+published_app="" reload_config=() purge=() release=() attribute=() crash_env=() vmmap=() settings=()
 for arg in "$@"; do
   case "$arg" in
     --config=*) reload_config=(--config "${arg#--config=}") ;;
+    app=nightly|app=https://*) published_app="${arg#app=}" ;;
     counts=*) counts="${arg#counts=}" ;;
     measure=*) measure="${arg#measure=}" ;;
     agents=*) agents="${arg#agents=}" ;;
@@ -78,6 +87,9 @@ for arg in "$@"; do
     attribute=*) attribute=(--attribute --attribute-kinds "${arg#attribute=}") ;;
     chat_renderer_crash=1) crash_env=(CMUX_BENCH_CHAT_RENDERER_CRASH=1) ;;
     vmmap=*) vmmap=(--vmmap-kinds "${arg#vmmap=}") ;;
+    settings=*) settings_json="${arg#settings=}" ;;
+    adblock=off) adblock_off=1 ;;
+    print_settings=1) print_settings=1 ;;
     axes=all) axes="chat-hidden,chat-visible,terminal-hidden,terminal-visible" ;;
     axes=pages) axes="page-hidden,page-visible" ;;
     axes=*) axes="${arg#axes=}" ;;
@@ -87,12 +99,37 @@ for arg in "$@"; do
     *) echo "perf-10x-idle.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
+if [[ -n "$adblock_off" ]]; then
+  settings_json="$(python3 -I -c 'import json, sys
+c = json.loads(sys.argv[1] or "{}")
+c.setdefault("browser", {})["builtInAdBlocker"] = False
+print(json.dumps(c, separators=(",", ":")))' "$settings_json")"
+fi
+[[ -n "$settings_json" ]] && settings=(--config "$settings_json")
+if [[ -n "$print_settings" ]]; then echo "${settings_json:-{\}}"; exit 0; fi
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 work="$root/.build/perf-idle"
 rm -rf "$work"
 mkdir -p "$work"
 echo "PERF-IDLE-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) sha=$(git rev-parse HEAD) cores=$(sysctl -n hw.ncpu) ram_gb=$(( $(sysctl -n hw.memsize) / 1073741824 )) macos=$(sw_vers -productVersion) load=\"$(uptime | sed 's/.*load averages*: //')\""
+if [[ -n "$published_app" ]]; then
+  if [[ "$published_app" == nightly ]]; then
+    published_app="$(curl -fsSL --retry 3 --retry-all-errors -H 'Cache-Control: no-cache' https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
+      | grep -o -E 'enclosure url="https://[^"]+\.dmg"' | head -n 1 | cut -d'"' -f2)"
+    [[ -n "$published_app" ]] || { echo "perf-10x-idle: no DMG in the nightly-next appcast" >&2; exit 3; }
+  fi
+  echo "PERF-IDLE-APP dmg $published_app"
+  curl -fsSL --proto '=https' --retry 3 --retry-all-errors -o "$work/app.dmg" "$published_app" || { echo "perf-10x-idle: download failed" >&2; exit 3; }
+  mkdir -p "$work/mnt" "$work/published"
+  hdiutil attach -nobrowse -readonly -noverify -mountpoint "$work/mnt" "$work/app.dmg" >/dev/null
+  dmg_app="$(ls -d "$work"/mnt/*.app | head -n 1)"
+  ditto "$dmg_app" "$work/published/${dmg_app##*/}"
+  hdiutil detach "$work/mnt" >/dev/null 2>&1 || hdiutil detach -force "$work/mnt" >/dev/null 2>&1 || true
+  rm -f "$work/app.dmg"
+  app="$work/published/${dmg_app##*/}"
+  echo "PERF-IDLE-APP version $(defaults read "$app/Contents/Info" CFBundleShortVersionString 2>/dev/null) build $(defaults read "$app/Contents/Info" CFBundleVersion 2>/dev/null)"
+else
 # A fleet step checks out no submodules (only their empty gitlink directories): the app build needs
 # Ghostty's headers and the ghostty-next tree, and GhosttyKit.xcframework (a prebuilt download).
 for sub in ghostty ghostty-next; do
@@ -109,6 +146,7 @@ tag="perfidle"
 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$work/reload.log" || { tail -n 80 "$work/reload.log"; exit 1; }
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$work/reload.log" | tail -n 1)"
 [[ -n "$app" && -d "$app" ]] || { echo "perf-10x-idle: reload printed no app path" >&2; tail -n 40 "$work/reload.log"; exit 1; }
+fi
 tui="$app/Contents/Resources/bin/cmux-tui"
 [ -x "$tui" ] || { echo "perf-10x-idle: no bundled cmux-tui at $tui" >&2; exit 1; }
 status=0
@@ -156,7 +194,7 @@ PY
 
 echo "PERF-IDLE-LOAD app $(uptime | sed 's/.*load averages*: //')"
 logged "$work/app.log" python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$counts" --mix terminal \
-  --settle 20 --measure "$measure" --top 8 ${attribute[@]+"${attribute[@]}"} ${vmmap[@]+"${vmmap[@]}"} \
+  --settle 20 --measure "$measure" --top 8 ${attribute[@]+"${attribute[@]}"} ${vmmap[@]+"${vmmap[@]}"} ${settings[@]+"${settings[@]}"} \
   --out "$work/app.json" || { status=$?; tail -n 60 "$work/app.log"; }
 # Which process is which (the top list names each command) and, with vmmap=, where each one's footprint is.
 grep -E '^ +[0-9.]+ MB  RSS|^VMMAP ' "$work/app.log" | sed 's/^ */PERF-IDLE-PROC app /' || true
@@ -206,7 +244,7 @@ if [[ -n "$axes" ]]; then
       chat-*) axis_args+=(--fake-agent cmux-tui/crates/acpmux/tests/fake_agent.py) ;;
     esac
     python3 scripts/cmux-next/bench_memory.py --app "$app" "${axis_args[@]}" --gpu \
-      --settle 20 --measure "$measure" --top 8 \
+      --settle 20 --measure "$measure" --top 8 ${settings[@]+"${settings[@]}"} \
       --out "$work/axis-$axis.json" > "$work/axis-$axis.log" 2>&1 || { status=$?; tail -n 60 "$work/axis-$axis.log"; }
     [ -f "$work/axis-$axis.json" ] && axis_reports+=("$work/axis-$axis.json")
     # What an earlier run left of this bundle (ended before the launch, so not counted as this app's).
@@ -226,8 +264,9 @@ if [[ -n "$agents" ]]; then
   logged "$work/agents.log" env ${crash_env[@]+"${crash_env[@]}"} python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$agents" --mix terminal+chat \
     --fake-agent cmux-tui/crates/acpmux/tests/fake_agent.py \
     --settle 20 --measure "$measure" --top 8 --gpu ${purge[@]+"${purge[@]}"} ${release[@]+"${release[@]}"} \
-    ${attribute[@]+"${attribute[@]}"} --out "$work/agents.json" || { status=$?; tail -n 60 "$work/agents.log"; }
+    ${attribute[@]+"${attribute[@]}"} ${settings[@]+"${settings[@]}"} --out "$work/agents.json" || { status=$?; tail -n 60 "$work/agents.log"; }
   grep '^PERF-ATTR ' "$work/agents.log" | sed 's/^PERF-ATTR /PERF-ATTR app-agents /' || true
+  grep '^PERF-IDLE-WAKES ' "$work/agents.log" | sed 's/^PERF-IDLE-WAKES /PERF-IDLE-WAKES app-agents /' || true
   python3 - "$work/agents.json" <<'PY' || status=$?
 import json, sys
 data = json.load(open(sys.argv[1]))
@@ -238,6 +277,15 @@ for s in data.get("samples", []):
               f"disk_write_mb_per_h={e.get('disk_write_mb_per_h')} logical_write_mb_per_h={e.get('logical_write_mb_per_h')}")
     if s.get("gpu"):
         print(f"PERF-IDLE-GPU app-agents {s['label']} {json.dumps(s['gpu'])}")
+    # Each process that wrote in the window, by pid: which of a kind's processes (two acpmux daemons and a host
+    # share kind acpmux-daemon) holds the bytes, when no file's mtime moved to name it (goal idle-gpu-disk).
+    for p in s.get("processes", []):
+        if (p.get("disk_write_mb_per_h") or 0) >= 0.1 or (p.get("logical_write_mb_per_h") or 0) >= 0.1:
+            print(f"PERF-IDLE-WRITER app-agents {s['label']} kind={p['kind']} pid={p['pid']} "
+                  f"disk_write_mb_per_h={p.get('disk_write_mb_per_h')} logical_write_mb_per_h={p.get('logical_write_mb_per_h')} "
+                  f"command={json.dumps(p.get('command', ''))}")
+    if s.get("files_written"):
+        print(f"PERF-IDLE-FILES app-agents {s['label']} {json.dumps(s['files_written'])}")
     if "chat_renderers" in s:
         print(f"CHAT-RENDERERS {s['label']} agents={s['workspaces']} {json.dumps(s['chat_renderers'])}")
     if "cef_pages" in s:

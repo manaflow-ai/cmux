@@ -238,6 +238,8 @@ extension SidebarMapping {
             folder: facts.bucket
         )
         row.focusedTab = focused.map { TabID($0.id) }
+        // The row's agent chat's acpmux session, whose dot glyph `appearance.agentSignature` draws.
+        row.agentSessionID = agentTab?.agentSession?.session.flatMap { $0.isEmpty ? nil : $0 }
         // Who the row's agent is (acpmux `displayName`, `formerNames`): its hover card's agent line.
         if let ref = agentTab?.agentSession {
             row.agentDisplayName = AgentTurnStateStore.shared.displayName(for: ref)
@@ -247,7 +249,6 @@ extension SidebarMapping {
         row.iconFromShownTab = ownIcon == nil && row.icon != nil
         row.activityFromProgram = indicator.primary?.source == .program
         row.presence = presence(tabs)
-        row.startsInCloud = page?.startsInCloud ?? false
         row.audio = SidebarWorkspaceAudio.merge(tabs.lazy.map { browserFaces[$0.id]?.audio })
         row.lastMessage = at(facts.chat)?.agentSession.flatMap(AgentTurnStateStore.shared.lastMessage(for:))
         // The chat the face picked: when it last changed what it does, its row's age (`SidebarWorkspace.rowAge`).
@@ -266,12 +267,14 @@ extension SidebarMapping {
         row.reported = Self.reported(workspace.status, asset: options.iconAsset)
         row.workspaceDescription = workspace.workspaceDescription
         row.taskStatus = workspace.taskStatus.map(Self.taskStatus)
-        row.createdBy = Self.creator(workspace.createdBy)
         row.checklist = workspace.checklist.map(Self.checklistItem)
         row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agentTab, front: front,
                             notification: row.notificationText)
         row.detail.origin = Self.origin(workspace.createdBy)
-        row.subagents = Self.subagents(tabs)
+        // Only the row's own chat lists its subagents: another chat open in this workspace has a row of its own,
+        // often nested under this one, which lists its own. Gathering every chat's here showed a nested chat's
+        // subagents twice, once under its parent and once under itself (Leo, 2026-11-25 screenshot).
+        row.subagents = Self.subagents(agentTab.map { [$0] } ?? [])
         return row
     }
 

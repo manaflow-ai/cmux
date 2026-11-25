@@ -10,13 +10,22 @@
 // No DOM is needed: this runs under plain `bun` and scales to 10k+ rows (a long run's trace holds
 // the probes, not every row, past `rowsInTraceUpTo`).
 import { AcpmuxDirectClient, type EventRecord } from "../direct";
+import { preserveScrollAnchorTop } from "../conversation/scrollAnchor";
 import { turnViewFrom, type TurnView } from "../conversation/turns";
 import { layoutConversation, type AcpmuxRow, type AcpmuxSnapshot, type ConversationLayout } from "../model";
 import { acpmuxSendCall } from "../conversation/acpmuxSends";
-import { MARK_STEP, ROW_GAP_LOOKS, TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_TURN_GAP, transcriptGap } from "../transcriptGrid";
+import {
+  MARK_STEP,
+  ROW_GAP_LOOKS,
+  TRANSCRIPT_BLOCK_GAP,
+  TRANSCRIPT_TURN_GAP,
+  transcriptGap,
+  TRANSCRIPT_RUN_GAP,
+} from "../transcriptGrid";
 import { STARTED_LINE_NAMES, withSubagentLines, type DoneLineCache } from "../subagents/runningTray";
 import { SUBAGENT_STARTED } from "../subagents/subagentRows";
 import { subagentNamed } from "../subagents/subsessions";
+import { checkIntegrity, opensTurn as integrityTurnOpens, type IntegrityRule } from "./integrity";
 import type { SimScenario, SimStep } from "./script";
 
 /** One drawn row as a probe sees it. */
@@ -35,6 +44,8 @@ export type RowProbe = {
   opens?: boolean;
   /** The opening row is another agent's line (a notice or message), not the person's prompt. */
   received?: boolean;
+  /** Another agent's line this row draws (its `incoming` kind, or `offer` for a received offer's result), wherever it falls. */
+  incoming?: string;
   /** Another agent's message the turn received after its opening row (`received`), or a send to one (`sent`): an
    *  activity row, which stands `toolGap` (ST-02). */
   message?: "received" | "sent";
@@ -65,7 +76,7 @@ export type FoldEvent = {
   turn: number;
   /** `hidden`: the row left the drawn rows (folded under a line); `closed`: its fold went from open to closed. */
   how: "hidden" | "closed";
-  /** ms of virtual time from the fold to its turn's end event (`turn_result`): > 0 means mid-turn. */
+  /** ms of virtual time from the fold to its turn's first end record: > 0 means mid-turn. */
   beforeTurnEndMs?: number;
   /** `turn-end`: at or after its turn's end; `sibling`: a later row of the same running turn closed a finished run
    *  (the `runs` arm of live-turn-work, by design); `final-answer`: the turn's final answer (Codex's
@@ -78,6 +89,7 @@ export type Violation = {
   rule:
     | "a-turn-gap"
     | "a-head-gap"
+    | "d-received-gap"
     | "b-mid-turn-fold"
     | "b-mid-turn-shrink"
     | "c-rerender"
@@ -86,7 +98,8 @@ export type Violation = {
     | "d-started-pill"
     | "d-started-lines"
     | "d-action-only"
-    | "d-steer-order";
+    | "d-steer-order"
+    | IntegrityRule;
   step: number;
   at: number;
   label: string;
@@ -163,6 +176,8 @@ export type SimOptions = {
     rows: readonly AcpmuxRow[],
     step: SimStep,
   ) => readonly ({ top: number; bottom: number } | undefined)[] | undefined;
+  /** Integrity rules (integrity.ts) the scenario does not hold by design (a cancelled reply may stop inside `**`). */
+  exemptIntegrity?: readonly IntegrityRule[];
 };
 
 export type SimResult = {
@@ -182,7 +197,12 @@ export type SimResult = {
   traces: StepTrace[];
 };
 
-const LIVE_KINDS = new Set(["typing", "working", "thinking", "activityLine"]);
+/** The most room another agent's line may have against a tool row beside it (rule d): the step pitch's 0,
+ *  with the 8 a row stands under a status line to spare. */
+const RECEIVED_STEP_GAP = 8;
+/** Rows drawn on the tool rows' line (model.ts isStepRow, the one-line kinds). */
+const STEP_KINDS = new Set(["activity", "subagent", "messageRun", "laneNoticeBatch", "pendingMessages"]);
+const LIVE_KINDS = new Set(["typing", "working", "thinking"]);
 const isLive = (row: AcpmuxRow) => row.below === true || row.kind === "typing" || row.id.endsWith("-live");
 const foldOf = (row: AcpmuxRow): string => {
   if (row.foldOpen !== undefined) return row.foldOpen ? "open" : "closed";
@@ -211,8 +231,9 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
   let snapshot: AcpmuxSnapshot | undefined;
   const client = AcpmuxDirectClient.replay(scenario.sessionId, [...scenario.events], (next) => (snapshot = next));
   const bySeq = new Map<number, EventRecord>(scenario.events.map((event) => [event.seq, event]));
-  // Each turn's end (`turn_result`) time, known ahead from the script, so a fold can say how long before it it came.
-  const turnEnds = new Map<number, number>();
+  // The reducer settles a turn at turn_end; turn_result replaces that summary, or settles it when
+  // the end was absent. Sequence determines order even when adjacent records share a timestamp.
+  const turnEnds = new Map<number, EventRecord>();
   {
     let turn = 0;
     let ended = true;
@@ -221,15 +242,16 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         turn += 1;
         ended = false;
       }
-      if (event.kind === "turn_result") {
-        if (!turnEnds.has(turn)) turnEnds.set(turn, event.at);
-        ended = true;
-      }
+      if ((event.kind === "turn_end" || event.kind === "turn_result") && !turnEnds.has(turn)) turnEnds.set(turn, event);
+      if (event.kind === "turn_result" || endsTurn(event)) ended = true;
     }
   }
   const first = scenario.steps[0]?.at ?? 0;
   let turn = 0;
   let turnEnded = true;
+  let throughSeq = -Infinity;
+  const settledForFolding = (own: number) =>
+    own < turn || turnEnded || throughSeq >= (turnEnds.get(own)?.seq ?? Infinity);
   // Session replay never reports working (workingNow() is false while replayThrough is set), so the
   // runner tracks it from the records as the live pane would see it: running from `status running` or
   // `turn_started` to `status ready` or `turn_result`.
@@ -244,6 +266,9 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
   const traces: StepTrace[] = [];
   const violations: Violation[] = [];
   const allFolds: FoldEvent[] = [];
+  // The message ids streamed since the last turn ended (the integrity check's `messageOf`).
+  const turnMessages = new Set<string>();
+  const exempt = new Set<string>(options.exemptIntegrity ?? []);
   const cache = new Map();
   // The subagent lines the running tray puts in the transcript (App.tsx `withSubagentLines`, on by
   // default): each turn's "started working" line and each subagent's end line.
@@ -268,6 +293,7 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
   const advance = (index: number): readonly AcpmuxRow[] | undefined => {
     const step = scenario.steps[index]!;
     if (step.type === "event") {
+      throughSeq = step.seq;
       const event = bySeq.get(step.seq);
       // A message that comes in while the turn runs steers it (turns.ts draws it inside that turn's
       // work); only one after the turn ended opens a turn.
@@ -275,7 +301,9 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         turn += 1;
         turnEnded = false;
       }
-      if (event?.kind === "turn_result") turnEnded = true;
+      if (event?.kind === "turn_result" || (event && endsTurn(event))) turnEnded = true;
+      const messageId = event?.kind === "agent_message_chunk" ? event.msg?.params?.update?.messageId : undefined;
+      if (typeof messageId === "string") turnMessages.add(messageId);
       const status = event?.kind === "status" ? event.msg?.status : undefined;
       if (event?.kind === "turn_started" || status === "running") {
         if (!working) workingSince = event!.at;
@@ -345,6 +373,7 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       if (isLive(row)) probe.live = true;
       if (opensTurn(row)) probe.opens = true;
       if (opensTurn(row) && (row.incoming || row.received)) probe.received = true;
+      if (row.incoming || row.received) probe.incoming = row.incoming?.kind ?? "offer";
       // Another agent's line under a row of its own turn (a message steered in mid-turn, or the message that opened a
       // finished turn drawn under that turn's "Worked for"), or a send: an activity row (ST-02).
       const message =
@@ -399,18 +428,26 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       if (!probe || !above) continue;
       const gap = probe.drawnGap ?? probe.gap;
       // A person's prompt takes the turn gap; another agent's line (a notice, a message) the block gap
-      // under the turn before (transcriptSpacing.ts footer-to-received, by design).
-      const want = probe.received ? TRANSCRIPT_BLOCK_GAP : TRANSCRIPT_TURN_GAP;
+      // under the turn before's reply, the run gap under its footer row (transcriptSpacing.ts
+      // footer-to-received; transcriptGrid.ts FOOTER_WORKING_GAP_LOOKS), by design.
+      const wantUnder = (row: RowProbe | undefined) =>
+        probe.received
+          ? row?.kind === "turnSummary"
+            ? TRANSCRIPT_RUN_GAP
+            : TRANSCRIPT_BLOCK_GAP
+          : TRANSCRIPT_TURN_GAP;
+      const want = wantUnder(above);
       // The turn's "Working for" (or "Worked for") line drawn over the message that opened it (turns.ts
       // `shapeLiveTurn`): that line is the turn's top, so it stands the gap under the turn before.
       if (probe.opens && (above.id === `working-${probe.id}` || above.id === `worked-${probe.id}`)) {
         const before = (above as RowProbe & { above?: RowProbe }).above;
         const headGap = above.drawnGap ?? above.gap;
-        if (before && headGap < want - 0.5)
+        const headWant = wantUnder(before);
+        if (before && headGap < headWant - 0.5)
           flag(
             "a-turn-gap",
             above.id,
-            `${above.kind} over ${probe.kind} opens turn ${probe.turn} ${headGap}px under ${before.kind} ${before.id} (want >= ${want})`,
+            `${above.kind} over ${probe.kind} opens turn ${probe.turn} ${headGap}px under ${before.kind} ${before.id} (want >= ${headWant})`,
           );
         continue;
       }
@@ -432,6 +469,44 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         );
     }
 
+    // (d) another agent's line among tool rows sits on their pitch, as a tool row does, never with a
+    // message's room over or under it (Leo, 2026-11-22: "sometimes you get these way-too-big gaps. i
+    // think it's the message recieving not properly getting treated like the tool call ish thing it
+    // should be and instead as if it were a message?").
+    for (let at = stable; at < rows.length; at += 1) {
+      const probe = probeAt[at] as (RowProbe & { above?: RowProbe }) | undefined;
+      const above = probe?.above;
+      if (!probe || !above) continue;
+      const gap = probe.drawnGap ?? probe.gap;
+      const lineAbove = above.incoming !== undefined && above.incoming !== "offer";
+      const lineHere = probe.incoming !== undefined && probe.incoming !== "offer";
+      if (!(lineAbove || lineHere)) continue;
+      // Under its own turn's "Working for" / "Worked for" the line is that turn's first step: flush,
+      // as a tool row is under it; the live line under it stands a step's gap, not a head's.
+      const ownHead = (line: RowProbe | undefined, user: RowProbe) => line?.id === `worked-${user.id}`;
+      if (lineHere && ownHead(above, probe) && gap > 0.5) {
+        flag(
+          "d-received-gap",
+          probe.id,
+          `user (${probe.incoming}) ${gap}px under its own turn's ${above.kind} (want 0)`,
+        );
+        continue;
+      }
+      if (gap <= RECEIVED_STEP_GAP + 0.5) continue;
+      const step = (row: RowProbe) =>
+        STEP_KINDS.has(row.kind) || (row.incoming !== undefined && row.incoming !== "offer");
+      const underOwnHead = (row: RowProbe & { above?: RowProbe }) => ownHead(row.above, row);
+      if (
+        (lineHere && step(above)) ||
+        (lineAbove && (step(probe) || probe.live) && (!probe.live || underOwnHead(above)))
+      )
+        flag(
+          "d-received-gap",
+          probe.id,
+          `${probe.kind}${lineHere ? ` (${probe.incoming})` : ""} ${gap}px under ${above.kind}${lineAbove ? ` (${above.incoming})` : ""} among tool rows (want <= ${RECEIVED_STEP_GAP})`,
+        );
+    }
+
     // (b) folds: a row that left the drawn rows, or whose fold closed.
     const folds: FoldEvent[] = [];
     for (let at = stable; at < prevRows.length; at += 1) {
@@ -445,7 +520,7 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       if (hidden && (isLive(was.row) || LIVE_KINDS.has(was.row.kind))) continue;
       const own = rowTurn.get(id) ?? 0;
       const end = turnEnds.get(own);
-      const ended = own < turn || turnEnded;
+      const ended = settledForFolding(own);
       let verdict: FoldEvent["verdict"] = "turn-end";
       if (!ended) {
         // A finished run that the agent's next paragraph closed (live-turn-work's `runs` arm, by design; #48597:
@@ -465,7 +540,9 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         // The turn's final answer is streaming: its commentary folds under "Worked for" as the answer
         // starts, not at turn_result (turns.ts "The final answer starts the folded presentation").
         const answering = rows.some((row) => rowTurn.get(row.id) === own && row.assistantPhase === "final_answer");
-        if (remapped) verdict = "remapped";
+        // acpmux replaced the message (`message_superseded`, a harness retry): its rows go by design.
+        const superseded = step.type === "event" && bySeq.get(step.seq)?.kind === "message_superseded";
+        if (remapped || superseded) verdict = "remapped";
         else if (answering) verdict = "final-answer";
         else if (was.row.kind !== "assistant" && laterSibling) verdict = "sibling";
         else verdict = "violation";
@@ -475,7 +552,7 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         kind: was.row.kind,
         turn: own,
         how: hidden ? "hidden" : "closed",
-        ...(end !== undefined ? { beforeTurnEndMs: end - step.at } : {}),
+        ...(end !== undefined ? { beforeTurnEndMs: end.at - step.at } : {}),
         verdict,
       };
       folds.push(event);
@@ -483,7 +560,7 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         flag(
           "b-mid-turn-fold",
           id,
-          `${was.row.kind} of turn ${own} ${event.how} ${end !== undefined ? `${end - step.at} ms before its turn_result` : "in a turn that never ends"}${was.row.text ? `: "${was.row.text.slice(0, 50)}"` : ""}`,
+          `${was.row.kind} of turn ${own} ${event.how} ${end !== undefined ? `${end.at - step.at} ms before its ${end.kind}` : "in a turn that never ends"}${was.row.text ? `: "${was.row.text.slice(0, 50)}"` : ""}`,
         );
     }
 
@@ -499,13 +576,13 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         drawnHeights.set(row.id, height);
         const own = rowTurn.get(row.id) ?? 0;
         if (was === undefined || was - height < 12 || isLive(row) || LIVE_KINDS.has(row.kind)) continue;
-        if (own < turn || turnEnded) continue;
+        if (settledForFolding(own)) continue;
         const before = prevRows.find((old) => old.id === row.id);
         if (before && foldOf(before) !== foldOf(row)) continue;
         flag(
           "b-mid-turn-shrink",
           row.id,
-          `${row.kind} of turn ${own} drawn ${Math.round(was)}px -> ${Math.round(height)}px before its turn_result`,
+          `${row.kind} of turn ${own} drawn ${Math.round(was)}px -> ${Math.round(height)}px before its turn ended`,
         );
       }
     }
@@ -516,13 +593,27 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
     // MY STEER WENT UNDER IT".
     if (rows.length > 0) drewRows = true;
     else if (drewRows) flag("d-blank", "", "the chat drew no row after it drew some");
+    // A prepend (including the first turn's date line appearing after an hour) moves document
+    // coordinates. VirtualTranscript holds the first visible row at its old viewport position.
+    // Probe from the top so a change below that row still registers as movement.
+    const scrollCorrection =
+      prevLayout && rows[0]?.id !== prevRows[0]?.id
+        ? (preserveScrollAnchorTop({
+            oldLayout: prevLayout,
+            newLayout: layout,
+            oldRows: prevRows,
+            newRows: rows,
+            liveTop: 0,
+            anchorTop: 0,
+          }) ?? 0)
+        : 0;
     const ownTurn = (row: AcpmuxRow) => rowTurn.get(row.id) ?? 0;
     const lines = new Map<string, string>();
     for (let at = 0; at < rows.length; at += 1) {
       const row = rows[at]!;
       const live = isLive(row) || LIVE_KINDS.has(row.kind);
       // A settled row (two or more turns back, not live) stands where it stood: nothing above it moved.
-      const top = layout.tops[at]!;
+      const top = layout.tops[at]! - scrollCorrection;
       const was = tops.get(row.id);
       if (!live && was !== undefined && Math.abs(was - top) > 0.5 && ownTurn(row) < turn - 1)
         flag("d-shift", row.id, `${row.kind} of turn ${ownTurn(row)} moved ${Math.round(top - was)}px`);
@@ -583,6 +674,25 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         rerendered.push(row.id);
     }
     for (const id of rerendered) flag("c-rerender", id, "rebuilt above the newest change, two or more turns back");
+
+    // (i) bubble integrity (integrity.ts) on the turn that ended, at its end and at the run's last step: one
+    // message is one bubble, no paragraph drawn twice, no settled reply cut inside a Markdown span. Only the
+    // newest turn's rows are read, so a long run pays per turn, not per row it holds.
+    const ends = step.type === "event" && bySeq.get(step.seq)?.kind === "turn_result";
+    if (ends || index === scenario.steps.length - 1) {
+      let from = rows.length;
+      while (from > 0 && !integrityTurnOpens(rows[from - 1]!)) from -= 1;
+      const byRow = new Map<string, string>();
+      for (const id of turnMessages) for (const row of client.rowsOfMessage(id)) byRow.set(row, id);
+      const turnRows = rows.slice(Math.max(0, from - 1));
+      for (const finding of checkIntegrity({
+        rows: turnRows,
+        turnEnded: ends || turnEnded,
+        messageOf: (id) => byRow.get(id),
+      }))
+        if (!exempt.has(finding.rule)) flag(finding.rule, finding.rowId, finding.detail);
+      if (ends) turnMessages.clear();
+    }
     // (d) churn: layout shifts of drawn rows and rows drawn under a second (ShiftEvent, FlashEvent).
     {
       const phase: ShiftEvent["phase"] = /^(turn_end|turn_result|status ready)$/.test(step.label)
@@ -711,7 +821,9 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
   });
   /** Whether the agent is working at the step `advance` last made (the browser lane draws it). */
   const state = () => ({ working, turn, turnEnded });
-  return { advance, check, result, state };
+  /** The reducer's client and its newest snapshot (the scenario checks read rows of a message, raw rows). */
+  const reducer = () => ({ client, snapshot });
+  return { advance, check, result, state, reducer };
 }
 
 /// Runs `scenario` and checks the three rules at every step (sim/README.md "Rules").
@@ -744,13 +856,20 @@ export async function runSimulationAsync(
   return sim.result();
 }
 
-/// A prompt that starts a turn: the person's, or another agent's message; not the inbox's notice of threads, nor a
-/// message steered into the running turn.
+/// acpmux's `turn_end` of a named turn: the pane draws the turn's end there, as its `turn_result` (logged a moment
+/// later, with the turn's git stats) will (direct.ts `endTurnId`), so the turn has ended for the reader. Rule b
+/// counts from it: a fold the end draws is the turn's end fold, not one before it.
+function endsTurn(event: EventRecord): boolean {
+  return event.kind === "turn_end" && typeof event.msg?.turnId === "string" && event.msg.turnId !== "";
+}
+
+/// A prompt that starts a turn: the person's, or another agent's message; not the inbox's notice of threads.
+/// A steer (`steer: true`) or a harness prompt into the running turn (a Stop hook's feedback) goes into the turn
+/// that runs and opens none.
 function isTurnPrompt(event: EventRecord): boolean {
-  // A message steered into the running turn (`steer: true`) joins that turn (direct.ts startsTurn).
-  if (event.msg?.steer === true) return false;
   const kind = event.msg?._meta?.provenance?.kind;
-  return kind !== "inbox_notice" && kind !== "agent_digest";
+  if (kind === "inbox_notice" || kind === "agent_digest" || event.msg?.steer === true) return false;
+  return event.msg?._meta?.origin?.actor !== "harness";
 }
 
 /// A short summary of a result's violations by rule, for a CLI or a test's message.

@@ -12,6 +12,20 @@
 // opening or closing Session Info never reflows the chat; Settings Push always's column keeps the
 // chat clear of both instead.
 //
+// The person drags the card anywhere in the pane, enlarges it or fills the pane with it, hides it and
+// brings it back from a small chip (Leo, 2026-11-22, asked where the preview of the running situation
+// was, and for "the ability to drag it around and" hide it). Where it sits and whether
+// it shows is the daemon's (cmux-tui remote_host/computer_use_preview_place.rs): each push carries
+// `place {x, y, size}` and `hidden`, and the page sends a move back as `chat.computerUsePreview
+// {action: "place", x?, y?, size?}` (`close` hides, `show` brings it back). Until the host's push agrees,
+// the page shows the person's move at once (`moveComputerUsePreview`); a host that sends no place
+// keeps the page's.
+//
+// Moving, full size and the chip are behind Settings > Advanced > Labs > Show Preview Features
+// (`labs.previewFeatures`, off by default; `setComputerUsePreviewControls`). Off, the card stays the
+// top right one it was: a click enlarges it, the close button hides it for the session, and a place or
+// hidden flag the daemon keeps is not drawn.
+//
 // The agent's cursor and the person's pointer reach the card as telepointers: fractions of the
 // previewed window with a visible flag and an age, metadata beside the frame and never drawn into
 // it. That model is ported from Petal's telepointers (kiruna-labs/petal @ 7ac436a,
@@ -44,7 +58,21 @@ export type ComputerUsePreview = {
   /// The agent's cursor and the person's pointer over the window, each when the host knows it.
   /// Running cards only.
   telepointers?: ComputerUsePreviewTelepointers;
+  /// Where the card sits in the pane and how large it is (the daemon's, or the person's move the
+  /// daemon has not echoed yet); absent from a host that keeps no place.
+  place?: ComputerUsePreviewPlace;
+  /// The person hid it: the pane shows the "Show Preview" chip instead.
+  hidden?: boolean;
 };
+
+export type ComputerUsePreviewSize = "small" | "large" | "full";
+/// Two fractions of the room the pane leaves around the card (0 the left or top edge, 1 the right or
+/// bottom), so the card stays inside the pane at any size; and its size.
+export type ComputerUsePreviewPlace = { x: number; y: number; size: ComputerUsePreviewSize };
+/// Where a new session's card sits: the top right, small (where it always sat).
+export const DEFAULT_COMPUTER_USE_PREVIEW_PLACE: ComputerUsePreviewPlace = { x: 1, y: 0, size: "small" };
+/// What the person changed: the page's own until the host's push says the same.
+export type ComputerUsePreviewMove = Partial<ComputerUsePreviewPlace> & { hidden?: boolean };
 
 export type ComputerUsePreviewPointer = { x: number; y: number; click: number; windowWidth?: number };
 
@@ -98,6 +126,22 @@ function readTelepointers(value: unknown): ComputerUsePreviewTelepointers | unde
   return { ...(agent ? { agent } : {}), ...(person ? { person } : {}) };
 }
 
+const SIZES: readonly ComputerUsePreviewSize[] = ["small", "large", "full"];
+const isSize = (value: unknown): value is ComputerUsePreviewSize => SIZES.includes(value as ComputerUsePreviewSize);
+const clampFraction = (value: number) => Math.min(1, Math.max(0, value));
+
+/// The place of a host push, or undefined (none, or a malformed one).
+function readPlace(value: unknown): ComputerUsePreviewPlace | undefined {
+  const raw = value as Partial<ComputerUsePreviewPlace> | null | undefined;
+  if (!raw || typeof raw !== "object") return undefined;
+  const { x, y, size } = raw;
+  if (typeof x !== "number" || !Number.isFinite(x) || typeof y !== "number" || !Number.isFinite(y)) return undefined;
+  return { x: clampFraction(x), y: clampFraction(y), size: isSize(size) ? size : "small" };
+}
+
+const samePlace = (a?: ComputerUsePreviewPlace, b?: ComputerUsePreviewPlace) =>
+  a?.x === b?.x && a?.y === b?.y && a?.size === b?.size;
+
 /// The age is not compared: a push that only re-ages a pointer changes nothing on screen.
 const sameTelepointer = (a?: ComputerUsePreviewTelepointer, b?: ComputerUsePreviewTelepointer) =>
   a?.x === b?.x && a?.y === b?.y && a?.visible === b?.visible && a?.idle === b?.idle;
@@ -106,8 +150,71 @@ const sameTelepointers = (a?: ComputerUsePreviewTelepointers, b?: ComputerUsePre
 
 // One card a pane view (paneViewStore.ts); the page itself is the null view.
 const cards = viewStore<ComputerUsePreview | null>(null);
+/// Moving, full size and the chip (Labs > Show Preview Features); off, the card is the top right one.
+let controls = false;
 /// The session the person closed in a view: hidden at once, before the host's push that takes it away.
 const closedBy = viewStore<string | undefined>(undefined);
+/// The person's moves the host has not echoed yet, by view and session (a few per view): a move made in
+/// one view is drawn there until the host's push to that view agrees.
+const movesByView = new Map<string | null, Map<string, ComputerUsePreviewMove>>();
+function movesOf(view: string | null): Map<string, ComputerUsePreviewMove> {
+  let moves = movesByView.get(view);
+  if (!moves) {
+    moves = new Map();
+    movesByView.set(view, moves);
+  }
+  return moves;
+}
+/// What a view draws: its host card with the person's moves over it.
+const shownBy = viewStore<ComputerUsePreview | null>(null);
+/// The moves and the Labs controls' readers (every view).
+const listeners = new Set<() => void>();
+
+/// Redraws `view`'s card, or every view's (a move or the Labs controls touch them all).
+function notify(view?: string | null): void {
+  const views = view === undefined ? new Set([...cards.views(), ...shownBy.views()]) : [view];
+  for (const each of views) shownBy.set(withMoves(each), each);
+  for (const listener of listeners) listener();
+}
+
+function withMoves(view: string | null): ComputerUsePreview | null {
+  const card = cards.get(view);
+  return card && withMove(card, movesOf(view).get(card.session), card.session === closedBy.get(view), controls);
+}
+
+/// `card` with the person's `move` over it; `closedHere`: the person closed it on this page;
+/// `movable`: the Labs controls are on.
+function withMove(
+  card: ComputerUsePreview,
+  move: ComputerUsePreviewMove | undefined,
+  closedHere: boolean,
+  movable: boolean,
+): ComputerUsePreview | null {
+  if (!movable) {
+    // The top right card: closed or hidden, gone; only its size (small or large) follows the person.
+    if (closedHere || card.hidden === true || move?.hidden === true) return null;
+    const size = move?.size ?? card.place?.size;
+    return { ...card, place: { ...DEFAULT_COMPUTER_USE_PREVIEW_PLACE, size: size === "large" ? "large" : "small" } };
+  }
+  // Closed here and the host does not keep a hidden card (an older host): gone, as before.
+  if (closedHere && card.hidden !== true && move?.hidden !== true) return null;
+  if (!move) return card;
+  const { hidden, ...place } = move;
+  const merged: ComputerUsePreview = {
+    ...card,
+    place: { ...(card.place ?? DEFAULT_COMPUTER_USE_PREVIEW_PLACE), ...place },
+  };
+  if (hidden !== undefined) merged.hidden = hidden;
+  return merged;
+}
+
+/// Whether the host's card already says what the person's move asked for.
+function echoes(card: ComputerUsePreview, move: ComputerUsePreviewMove): boolean {
+  if (!card.place) return false;
+  const { hidden, ...place } = move;
+  if (hidden !== undefined && (card.hidden === true) !== hidden) return false;
+  return samePlace(card.place, { ...card.place, ...place });
+}
 
 /// Only an image `data:` URL draws: the page's CSP allows `img-src data:`, and nothing else is
 /// taken from the push.
@@ -121,6 +228,7 @@ export function readComputerUsePreview(value: unknown): ComputerUsePreview | nul
   const done = raw.done === true;
   const pointer = done ? undefined : readPointer(raw.pointer);
   const telepointers = done ? undefined : readTelepointers(raw.telepointers);
+  const place = readPlace(raw.place);
   return {
     session: raw.session,
     app: typeof raw.app === "string" ? raw.app : "",
@@ -129,6 +237,8 @@ export function readComputerUsePreview(value: unknown): ComputerUsePreview | nul
     ...(isImage(raw.icon) ? { icon: raw.icon } : {}),
     ...(pointer ? { pointer } : {}),
     ...(telepointers ? { telepointers } : {}),
+    ...(place ? { place } : {}),
+    ...(raw.hidden === true ? { hidden: true } : {}),
   };
 }
 
@@ -143,20 +253,81 @@ export function setComputerUsePreview(value: unknown, view: string | null = null
     next?.app === current?.app &&
     next?.icon === current?.icon &&
     samePointer(next?.pointer, current?.pointer) &&
-    sameTelepointers(next?.telepointers, current?.telepointers)
+    sameTelepointers(next?.telepointers, current?.telepointers) &&
+    samePlace(next?.place, current?.place) &&
+    next?.hidden === current?.hidden
   )
     return;
+  // The host had this card hidden, as asked here, and now shows it with nothing pending here: another
+  // surface brought it back, so the close made on this page is over.
+  if (
+    next &&
+    closedBy.get(view) === next.session &&
+    current?.session === next.session &&
+    current.hidden === true &&
+    next.hidden !== true &&
+    !movesOf(view).has(next.session)
+  )
+    closedBy.set(undefined, view);
   cards.set(next, view);
+  // The host speaks for the place once its push says what the person asked for.
+  const moves = movesOf(view);
+  const move = next ? moves.get(next.session) : undefined;
+  if (next && move && echoes(next, move)) moves.delete(next.session);
+  notify(view);
 }
 
 export function currentComputerUsePreview(view: string | null = null): ComputerUsePreview | null {
-  const current = cards.get(view);
-  return current && current.session !== closedBy.get(view) ? current : null;
+  return shownBy.get(view);
 }
 
 /// Hides the card of `session` here at once (the close button); the host's next push agrees.
 export function closeComputerUsePreview(session: string, view: string | null = null): void {
+  if (closedBy.get(view) === session && movesOf(view).get(session)?.hidden === true) return;
   closedBy.set(session, view);
+  moveComputerUsePreview(session, { hidden: true }, view);
+}
+
+/// Brings back the card of `session` the person hid (the chip).
+export function showComputerUsePreview(session: string, view: string | null = null): void {
+  if (closedBy.get(view) === session) closedBy.set(undefined, view);
+  moveComputerUsePreview(session, { hidden: false }, view);
+}
+
+/// The person moved, resized, hid or showed the card of `session`: drawn at once, until the host's push
+/// agrees.
+export function moveComputerUsePreview(
+  session: string,
+  move: ComputerUsePreviewMove,
+  view: string | null = null,
+): void {
+  const moves = movesOf(view);
+  if (moves.size >= 16 && !moves.has(session)) moves.clear();
+  moves.set(session, { ...moves.get(session), ...move });
+  notify(view);
+}
+
+/// The place the card draws at.
+export const computerUsePreviewPlace = (preview: ComputerUsePreview): ComputerUsePreviewPlace =>
+  preview.place ?? DEFAULT_COMPUTER_USE_PREVIEW_PLACE;
+
+/// Whether the card sits where the column keeps its room (the top right, small, shown): moved, larger or
+/// hidden, the column takes its room back. With the Labs controls off (`movable` false) the column keeps
+/// its room for the top right card at either size, as it always did.
+export function computerUsePreviewDocked(preview: ComputerUsePreview, movable = true): boolean {
+  if (preview.hidden) return false;
+  if (!movable) return true;
+  return samePlace(computerUsePreviewPlace(preview), DEFAULT_COMPUTER_USE_PREVIEW_PLACE);
+}
+
+/// How far a press may move before it is a drag, not a click (CSS pixels).
+export const COMPUTER_USE_PREVIEW_DRAG_SLOP = 4;
+
+/// A drag of `delta` pixels from `from` (a fraction), in a room `room` pixels long (the pane's side less
+/// the card's and its margins): the new fraction, kept inside the room.
+export function dragFraction(from: number, delta: number, room: number): number {
+  if (!(room > 0)) return clampFraction(from);
+  return clampFraction(from + delta / room);
 }
 
 /// The app's name the card's label says: trimmed, or none.
@@ -177,21 +348,44 @@ export function useComputerUsePreviewRoom(): boolean {
   return useSyncExternalStore(subscribeRoom, hasRoom, hasRoom);
 }
 
+/// Turns the card's moving, full size and chip on or off (Labs > Show Preview Features, paneSnapshot.ts
+/// applyPreview).
+export function setComputerUsePreviewControls(on: boolean): void {
+  if (controls === on) return;
+  controls = on;
+  notify();
+}
+
+export const computerUsePreviewControls = (): boolean => controls;
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
 export function useComputerUsePreview(): ComputerUsePreview | null {
+  return shownBy.use();
+}
+
+/// Whether the card can be moved, made full size and hidden to a chip (Labs > Show Preview Features).
+export function useComputerUsePreviewControls(): boolean {
+  return useSyncExternalStore(subscribe, computerUsePreviewControls, computerUsePreviewControls);
+}
+
+/// `card` with the person's moves over it, redrawn on each move: the card draws a move at once
+/// whoever gave it the card (the app's store already has them; this adds nothing then).
+export function useComputerUsePreviewMoves(card: ComputerUsePreview | null): ComputerUsePreview | null {
+  // The session's own move and closed flag are the snapshots (a move stores a new object), so a
+  // memoized render (React Compiler) keys on them: a store read whose result went unused let
+  // the compiler keep the card drawn before the move.
   const view = usePaneView();
-  const read = () => currentComputerUsePreview(view);
-  return useSyncExternalStore(
-    (listener) => {
-      const offCard = cards.subscribe(listener, view);
-      const offClosed = closedBy.subscribe(listener, view);
-      return () => {
-        offCard();
-        offClosed();
-      };
-    },
-    read,
-    read,
-  );
+  const session = card?.session;
+  const moveOf = () => (session === undefined ? undefined : movesOf(view).get(session));
+  const closedOf = () => session !== undefined && session === closedBy.get(view);
+  const move = useSyncExternalStore(subscribe, moveOf, moveOf);
+  const closedHere = useSyncExternalStore(subscribe, closedOf, closedOf);
+  const movable = useComputerUsePreviewControls();
+  return card && withMove(card, move, closedHere, movable);
 }
 
 declare global {

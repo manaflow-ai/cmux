@@ -206,20 +206,30 @@ import Testing
     }
 }
 
-/// The dock: key row always, composer open by default, Hide Toolbar folds both.
+/// The dock: the key row only over the soft keyboard (Leo, 2026-11-23: "why
+/// are those things always showing?"), composer open by default, Hide Toolbar
+/// folds both.
 @Suite struct TerminalDockVisibilityTests {
-    @Test func theKeyRowShowsWithTheKeyboardUpOrDown() {
+    @Test func theKeyRowShowsOnlyWithTheSoftKeyboardUp() {
         var dock = TerminalDockVisibility()
-        #expect(dock.showsKeyRow && dock.showsComposer)
+        // Keyboard down: the composer, no key row.
+        #expect(!dock.showsKeyRow && dock.showsComposer)
         dock.keyboardWillShow(visibleHeight: 336)
         #expect(dock.softKeyboard == .shown)
         #expect(dock.showsKeyRow)
+        // It leaves with the keyboard, from the will-hide on.
         dock.keyboardWillHide()
+        #expect(!dock.showsKeyRow)
         dock.keyboardDidHide()
-        #expect(dock.showsKeyRow)
-        // A hardware keyboard's bar is no soft keyboard.
+        #expect(!dock.showsKeyRow)
+        // A hardware keyboard's bar is no soft keyboard: its keys are real.
         dock.keyboardWillShow(visibleHeight: 44)
         #expect(dock.softKeyboard == .none)
+        #expect(!dock.showsKeyRow)
+        // Hide Toolbar wins over the keyboard.
+        dock.keyboardWillShow(visibleHeight: 336)
+        dock.chromeHidden = true
+        #expect(!dock.showsKeyRow)
     }
 
     @Test func hideToolbarFoldsBothAndKeepsTheComposerOpen() {
@@ -234,13 +244,16 @@ import Testing
     @Test func restingHeightFollowsWhatShows() {
         let metrics = TerminalDockMetrics()
         let line: CGFloat = 20.29
-        // SF body: 20.29 + 2 x (3 + 6) = 38.3 -> the 40 pt circles win.
-        #expect(metrics.restingComposerHeight(lineHeight: line) == 40)
-        #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility()) == CGFloat(28 + 8 + 40))
-        #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility(composerPresented: false)) == 28)
+        // SF body: 20.29 + 2 x 2 = 24.3 -> the chat card's 48 pt (a 44 pt row) wins.
+        #expect(metrics.restingComposerHeight(lineHeight: line) == 48)
+        // At rest the keyboard is down, so the key row is never counted: the
+        // PTY keeps its rows when the keyboard and the row come and go.
+        #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility()) == 48)
+        #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility(softKeyboard: .shown)) == 48)
+        #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility(composerPresented: false)) == 0)
         #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility(chromeHidden: true)) == 0)
         // Larger text: taller, but still fixed for that size.
-        #expect(metrics.restingComposerHeight(lineHeight: 40) == 58)
+        #expect(metrics.restingComposerHeight(lineHeight: 50) == 54)
     }
 }
 
@@ -252,7 +265,6 @@ import Testing
         #expect(JoystickGeometry.travel == 14)
         #expect(geometry.thumbOffset(for: CGSize(width: 4, height: -3)) == CGSize(width: 4, height: -3))
         // The screenshot's case: a long drag up moves the dot 14 pt.
-        // (Scaling rounds: 200 x 14 / 200 is 14.000000000000002.)
         let up = geometry.thumbOffset(for: CGSize(width: 0, height: -120))
         #expect(abs(up.width) < 0.001 && abs(up.height + 14) < 0.001)
         let right = geometry.thumbOffset(for: CGSize(width: 200, height: 0))

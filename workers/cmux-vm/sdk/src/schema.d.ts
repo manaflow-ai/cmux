@@ -1593,10 +1593,10 @@ export interface components {
         Conflict: {
             message: string;
             /**
-             * @description mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again.
+             * @description mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again. creation.intent_refused: this Idempotency-Key's recorded create refuses this attempt (its intent changed, it was cancelled or completed, or its reservation expired); retrying the same key never creates it.
              * @enum {string}
              */
-            code?: "mesh.device.intent_revoked";
+            code?: "mesh.device.intent_revoked" | "creation.intent_refused";
             creationKey?: components["schemas"]["VmCreationKey"];
             /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
             pendingSnapshotId?: string;
@@ -1684,6 +1684,7 @@ export interface components {
              * @description an array of at most 8 item(s)
              */
             httpsProxies?: components["schemas"]["VmHttpsProxy"][];
+            egress?: components["schemas"]["VmEgressAllowlist"];
         };
         VmHttpsProxy: {
             /**
@@ -1701,6 +1702,21 @@ export interface components {
         };
         VmProxyHeaders: {
             [key: string]: string;
+        };
+        /** @description The VM reaches no public address: only these exact HTTPS names (plus the names every cmux VM needs: its CLI downloads and GitHub releases), and its HTTPS proxies. Conflicts with publicEgress true. */
+        VmEgressAllowlist: {
+            /** @enum {string} */
+            mode: "allowlist";
+            /**
+             * maxItems(16)
+             * @description Named groups of exact host names: anthropic, openai, openrouter, opencode, github, npm, pypi, rust.
+             */
+            presets?: string[];
+            /**
+             * maxItems(48)
+             * @description Exact host names (no wildcard, no address), reached over HTTPS on 443 only.
+             */
+            domains?: string[];
         };
         /** @description Size of the new VM. Omitted axes keep the base image's size. The VM boots from the largest base size that fits within the request on every axis, then grows to the exact request. Growing is a second step after the create and is not atomic. A failed or unconfirmed grow retains the allocation and quota; inspect or retry the same creation intent, or cancel it. The error is 503, or 429 for capacity. Sizes can only grow, so a VM booted from a snapshot cannot be made smaller than the snapshot. */
         RequestedResources: {
@@ -1753,6 +1769,8 @@ export interface components {
         InitialVmNetworkReceipt: {
             publicEgress: boolean;
             httpsProxyHosts: string[];
+            /** @description Present for an allowlist create: every exact HTTPS name the VM may reach besides its proxies. */
+            allowedDomains?: string[];
         };
         VmList: {
             items: components["schemas"]["Vm"][];

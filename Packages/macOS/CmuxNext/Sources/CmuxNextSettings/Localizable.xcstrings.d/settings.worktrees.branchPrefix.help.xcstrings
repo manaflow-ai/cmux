@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.worktrees.branchPrefix.help" : {
+      "comment" : "Settings > General > Storage: help for the Worktree Branch Prefix field. cmux/ is literal text and stays as is.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "بداية اسم فرع كل worktree جديد، مثل cmux/."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Početak naziva grane svakog novog worktreeja, npr. cmux/."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Starten af navnet på hver ny worktrees gren, f.eks. cmux/."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Der Anfang des Branch-Namens jedes neuen Worktrees, etwa cmux/."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The start of each new worktree's branch name, such as cmux/."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El comienzo del nombre de la rama de cada worktree nuevo, como cmux/."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le début du nom de branche de chaque nouveau worktree, par exemple cmux/."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "L'inizio del nome del branch di ogni nuovo worktree, ad esempio cmux/."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "新しい worktree のブランチ名の先頭。例: cmux/"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្នែកដើមនៃឈ្មោះសាខារបស់ worktree ថ្មីនីមួយៗ ដូចជា cmux/។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "새 worktree 브랜치 이름의 앞부분입니다(예: cmux/)."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Starten på grennavnet til hver nye worktree, for eksempel cmux/."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Początek nazwy gałęzi każdego nowego worktree, np. cmux/."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O início do nome do branch de cada novo worktree, como cmux/."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Начало имени ветки каждого нового worktree, например cmux/."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ส่วนต้นของชื่อแบรนช์ของ worktree ใหม่แต่ละอัน เช่น cmux/"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Her yeni worktree'nin dal adının başı, örneğin cmux/."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Початок назви гілки кожного нового worktree, наприклад cmux/."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Phần đầu tên nhánh của mỗi worktree mới, ví dụ cmux/."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每个新工作树分支名的开头，例如 cmux/。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每個新工作樹分支名稱的開頭，例如 cmux/。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

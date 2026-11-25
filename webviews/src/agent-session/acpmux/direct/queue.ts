@@ -59,6 +59,32 @@ export function queuedEntry(
   };
 }
 
+/// The provenance kinds acpmux sets on its own prompts to the chat's agent (acpmux
+/// hub/queue_origin.rs `ACPMUX_KINDS`, which lists them as `origin: "acpmux"`): a record the pane reads
+/// before a listing says so draws as one already.
+const ACPMUX_KINDS: ReadonlySet<string> = new Set([
+  "surge_digest",
+  "subagent_retry",
+  "subagent_resume",
+  "turn_cap",
+  "announcement",
+  "auto_resume",
+  "offer_result",
+]);
+
+/// Which of acpmux's own prompts a `queued` record is (its `_meta.provenance` kind), or undefined
+/// for the person's prompt and another agent's message.
+export function systemKindOf(msg: { _meta?: { provenance?: unknown } } | undefined): string | undefined {
+  const kind = (msg?._meta?.provenance as { kind?: unknown } | undefined)?.kind;
+  return typeof kind === "string" && ACPMUX_KINDS.has(kind) ? kind : undefined;
+}
+
+/// `entry` as acpmux's own prompt of `kind` (model.ts `system`), or as it is without one.
+export function withSystem(entry: QueuedPrompt, kind: string | undefined): QueuedPrompt {
+  if (!kind || entry.message || entry.inbox || entry.author) return entry;
+  return { ...entry, system: kind };
+}
+
 /// `entry` with `from`'s Stop hold (`heldByStop`): an entry rebuilt from a record or a list keeps it
 /// while it is still another agent's message. An edit makes it the person's (hub/queue_edit.rs), and
 /// a person's Stop holds only other agents' messages.
@@ -229,14 +255,16 @@ function withKnownBytes(images: QueuedPromptImage[], known: readonly QueuedPromp
 /// (sendWhenReady.ts): with no end, as long as its chat is shown and its client open. A machine
 /// that rebooted comes back in minutes, and the prompt goes then by itself, never "Not sent" and
 /// Retry (Leo, 2026-11-12: "try what? no, it should just automatically do stuff"). Tests shorten it.
-/// `resendShowMs`: how long a connection waits for a prompt the host's journal sends again on it
-/// to show, before its row says "Not sent" again (direct.ts `awaitHostResend`).
+/// `resendShowMs`: how long a connection waits with no word at all of a prompt the host's outbox
+/// sends again on it before its row says "Not sent" again (direct.ts `awaitResent`): a quiet
+/// window each outbox word (`_cmux/prompt_resend`) opens again, never a deadline on a send that
+/// progresses; one on the wire waits up to `localFailMs`.
 export const deliveryTiming = {
   slowMs: 10_000,
   failMs: 60_000,
   localFailMs: 300_000,
   hostWaitMs: Number.POSITIVE_INFINITY,
-  resendShowMs: 10_000,
+  resendShowMs: 30_000,
 };
 
 export const DELIVERY_RANK: Record<PromptDelivery["state"], number> = {
@@ -394,14 +422,26 @@ export function mergeQueue(
         hold,
         inbox,
       );
+      // acpmux's own prompt (its listed `origin`, hub/queue_origin.rs); an acpmux that lists no
+      // origin reads its listed provenance, else leaves what the `queued` record said while the
+      // text is the same. An edit makes it the
+      // person's.
+      const system = edited?.has(id)
+        ? undefined
+        : entry && typeof entry === "object" && "origin" in entry
+          ? entry.origin === "acpmux"
+            ? (had?.system ?? (entry.subagentRetry ? "subagent_retry" : "acpmux"))
+            : undefined
+          : (systemKindOf({ _meta: { provenance: entry?.provenance } }) ?? (whole ? had.system : undefined));
+      const classified = withSystem(built, system);
       // Whether a person's Stop holds it, as acpmux lists it (`heldByStop`); listed unheld, it was
       // let go. A list without the field (an older acpmux) keeps what the records said.
       const next =
         entry?.heldByStop === true && entry?.held !== false
-          ? { ...built, heldByStop: true as const }
+          ? { ...classified, heldByStop: true as const }
           : entry?.held === false || entry?.heldByStop === false
-            ? built
-            : keepStopHold(built, had);
+            ? classified
+            : keepStopHold(classified, had);
       // An entry the list left as it was stays the same object: the transcript keys a waiting message's
       // card by its entry (queuedMessages.ts), so an unchanged one draws nothing again.
       return had && sameQueuedEntry(had, next) ? had : next;
@@ -428,6 +468,7 @@ function sameQueuedEntry(a: QueuedPrompt, b: QueuedPrompt): boolean {
     JSON.stringify(a.author) === JSON.stringify(b.author) &&
     JSON.stringify(a.inlineParts) === JSON.stringify(b.inlineParts) &&
     JSON.stringify(a.retry) === JSON.stringify(b.retry) &&
+    a.system === b.system &&
     a.awaitingOwner === b.awaitingOwner &&
     a.revision === b.revision &&
     a.updating === b.updating &&
