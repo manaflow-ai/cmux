@@ -12,6 +12,15 @@ extension NSView {
         return nil
     }
 
+    /// The theme of the menu panel this view sits on (``Glass/makeMenuPanel(content:cornerRadius:interactive:)``): the
+    /// nearest overlay surface above it is at the menu level (``GlassMenuMaterial/level``). Nil off a menu panel. The ink
+    /// fit to its glass also reads on the panel's opaque Reduce Transparency surface
+    /// (``GlassMenuMaterial/ink(_:tokens:minimum:)``), so the material does not matter.
+    var menuGlassTokens: ThemeTokens? {
+        guard enclosingOverlaySurface?.tintLevel == GlassMenuMaterial.level else { return nil }
+        return performWithTheme { ThemeContext.active ?? ThemeScope.app.tokens }
+    }
+
     /// What a button at this place in the view tree sits on, as ``CmuxDialogButtonLook`` takes it (`card:`):
     /// an overlay's opaque popup surface (Reduce Transparency) exactly, a menu or popover's glass over any page,
     /// a dialog card under its scrim, or else the window, over the worst desktop when the window is see-through.
@@ -29,6 +38,7 @@ extension NSView {
             let popup = tokens.opaqueOverlayFill(lift: lift)
             return [popup, popup, popup]
         }
+        if surface.tone.style == .prompt { return CmuxDialogButtonLook.promptCardSurfaces(tokens, lift: lift) }
         return surface.tintLevel == .menu
             ? CmuxDialogButtonLook.menuCardSurfaces(tokens, lift: lift)
             : CmuxDialogButtonLook.cardSurfaces(tokens, lift: lift)

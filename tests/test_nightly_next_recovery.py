@@ -893,6 +893,8 @@ def run_gate(variables: dict, *, token: str = "app-token", track: str = "nightly
             # (tests/test_nightly_publish_guard.py drives both checks).
             WEBVIEW_CHECK="success",
             WEBVIEW_CHECK_SHA="a" * 40,
+            SHELF_CHECK="success",
+            SHELF_CHECK_SHA="a" * 40,
             NIGHTLY_KNOWN_BAD_LIST_FILE=str(work / "known-bad.json"),
         )
         (work / "known-bad.json").write_text('{"pairs": []}')

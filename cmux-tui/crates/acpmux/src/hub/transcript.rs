@@ -27,8 +27,9 @@ impl Hub {
         prompt_id: &str,
     ) -> Option<String> {
         let mut transcript = TranscriptBuilder::new(max_chars);
-        self.store
-            .scan_kinds(&session.id, KINDS, &mut |e: EventRecord| {
+        // Unindexed kinds: the whole log, off the runtime's workers (`qos::off_worker`).
+        crate::qos::off_worker(|| {
+            self.store.scan_kinds(&session.id, KINDS, &mut |e: EventRecord| {
                 // The turn's own prompt goes to the agent right after the transcript.
                 if e.kind == "user_message"
                     && e.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id)
@@ -37,7 +38,8 @@ impl Hub {
                 }
                 transcript.read(&e)
             })
-            .ok()?;
+        })
+        .ok()?;
         transcript.finish()
     }
 
@@ -50,11 +52,14 @@ impl Hub {
             session.meta.lock().unwrap_or_else(|e| e.into_inner()).agent_behind_seq.take()?;
         self.save_meta(session);
         let mut transcript = TranscriptBuilder::new(max_chars);
-        let read = self.store.scan(&session.id, after, &mut |e| {
-            if KINDS.contains(&e.kind.as_str()) {
+        // Only the records past the mark, and of those only the transcript's kinds are parsed:
+        // the agent output's tool updates and the mux's own records are passed on their heads.
+        // Off the runtime's workers (`qos::off_worker`).
+        let read = crate::qos::off_worker(|| {
+            self.store.scan_kinds_after(&session.id, after, KINDS, &mut |e| {
                 transcript.read(&e);
-            }
-            true
+                true
+            })
         });
         read.ok()?;
         let text = transcript.finish()?;
