@@ -98,6 +98,7 @@ pub mod desktop_bridge;
 pub mod desktop_link;
 pub mod directory_input;
 pub mod disk_usage;
+pub(crate) mod disk_writer;
 pub mod folder_instructions;
 pub mod fork_place;
 #[cfg(all(test, unix))]
@@ -161,6 +162,7 @@ pub(crate) mod home_fs;
 mod home_writers_by_path_tests;
 pub(crate) mod host_fingerprint;
 pub mod host_load;
+pub mod host_load_watch;
 pub mod host_overload;
 pub mod host_pressure;
 pub mod hosted_mcp;
@@ -192,6 +194,7 @@ pub mod login_env;
 pub mod lossy_lines;
 #[cfg(test)]
 mod lost_home_race_tests;
+pub mod mac_lock;
 /// Calls this machine runs for the person's other machines, over the hub carrier
 /// (`machine_call_service.rs`).
 #[cfg(feature = "hub-carrier")]
@@ -282,6 +285,7 @@ pub(crate) mod questions;
 mod quiet_dirs;
 pub mod race_records;
 pub mod range_fetch;
+pub(crate) mod rebalance;
 pub mod recovery;
 pub mod registry;
 pub(crate) mod remote_chain_profile;
@@ -376,6 +380,7 @@ pub mod suggestion_gate;
 pub(crate) mod supervise;
 pub mod surge_triage;
 pub mod tailnet;
+pub mod tailnet_carrier;
 pub mod task_list;
 #[cfg(unix)]
 #[path = "daemon/term_sender.rs"]
@@ -397,10 +402,8 @@ pub mod touched_files;
 pub mod transcript;
 pub mod trust;
 pub mod trust_auto;
-/// The ratatui terminal UI (feature `tui`, off by default: acpmux is headless; the `cmux` multicall
-/// binary turns it on). Its entry for the CLI is `tui_entry`.
-#[cfg(feature = "tui")]
-pub mod tui;
+/// Where the CLI opens a session in a terminal UI: one the process installed (acpmux-tui, in the
+/// `cmux` binary), else a handoff to `cmux` (acpmux itself is headless).
 pub mod tui_entry;
 pub mod turn_attestation;
 pub(crate) mod turn_errors;

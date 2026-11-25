@@ -4,6 +4,8 @@
 # Scenarios:
 #   v6-blackhole  the name resolves to IPv6 and IPv4; IPv6 SYNs are dropped
 #   tuple-25      IPv4 only; 1 in 4 source ports (5-tuples) black-holed by a hash
+# LEGACY=1 adds a third arm, BENCH_ARM=legacy: the bench's dial before Braid (cmux-mobile-link's
+# braid_signal_dial_bench takes it; cmux-remote's bench ignores it).
 # Usage: sudo bench/netns-dial.sh BENCH_BINARY [N]. Makes and removes only its own namespaces
 # (braid-c, braid-s) and /etc/netns/braid-c. For a VM or CI host, never a person's machine.
 set -euo pipefail
@@ -31,13 +33,13 @@ while True:
 srv=$!
 trap 'kill $srv 2>/dev/null || true; cleanup' EXIT
 sleep 0.3
-run() { # scenario arm
-  echo "== $1 last_good=$2"
-  ip netns exec "$c" env CMUX_BRAID_LAST_GOOD="$2" "$bin" braid-peer 7443 "$n" | tail -1
+run() { # scenario last_good [bench_arm]
+  echo "== $1 last_good=$2${3:+ arm=$3}"
+  ip netns exec "$c" env CMUX_BRAID_LAST_GOOD="$2" BENCH_ARM="${3:-}" "$bin" braid-peer 7443 "$n" | tail -1
 }
 printf 'fd77::2 braid-peer\n10.77.0.2 braid-peer\n' > /etc/netns/$c/hosts
 ip netns exec "$s" ip6tables -A INPUT -p tcp --dport 7443 -j DROP
-[ "${SKIP_V6:-0}" = 1 ] || { run v6-blackhole 0; run v6-blackhole 1; }
+[ "${SKIP_V6:-0}" = 1 ] || { [ "${LEGACY:-0}" != 1 ] || run v6-blackhole 1 legacy; run v6-blackhole 0; run v6-blackhole 1; }
 ip netns exec "$s" ip6tables -F INPUT
 printf '10.77.0.2 braid-peer\n' > /etc/netns/$c/hosts
 ip netns exec "$s" nft -f - <<'NFT'
@@ -48,4 +50,5 @@ table ip braid {
   }
 }
 NFT
+[ "${LEGACY:-0}" != 1 ] || run tuple-25 1 legacy
 run tuple-25 0; run tuple-25 1
