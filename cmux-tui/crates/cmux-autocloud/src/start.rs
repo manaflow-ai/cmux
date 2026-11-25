@@ -177,7 +177,7 @@ where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<T, cmux_cloud_client::ApiError>>,
 {
-    let mut attempt = 0;
+    let mut attempt: u32 = 0;
     loop {
         attempt = attempt.saturating_add(1);
         match send().await {
