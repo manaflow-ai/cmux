@@ -136,6 +136,7 @@ members = [
     "crates/cmux-transport",
     "crates/cmux-braid-carrier",
     "crates/cmux-braid-path",
+    "crates/cmux-braid-class",
     "crates/cmux-tasks-core",
     "crates/cmux-bookmarks-core",
     "crates/cmux-bookmarks-ops",
@@ -301,6 +302,7 @@ default-members = [
     "crates/cmux-transport",
     "crates/cmux-braid-carrier",
     "crates/cmux-braid-path",
+    "crates/cmux-braid-class",
     "crates/cmux-tasks-core",
     "crates/cmux-bookmarks-core",
     "crates/cmux-bookmarks-ops",
@@ -525,6 +527,7 @@ cmux-remote = { path = "crates/cmux-remote", default-features = false, features 
 cmux-wg = { path = "crates/cmux-wg" }
 cmux-braid-carrier = { path = "crates/cmux-braid-carrier" }
 cmux-braid-path = { path = "crates/cmux-braid-path" }
+cmux-braid-class = { path = "crates/cmux-braid-class" }
 cmux-server = { path = "crates/cmux-server" }
 cmux-server-core = { path = "crates/cmux-server-core" }
 cmux-host = { path = "crates/cmux-host" }

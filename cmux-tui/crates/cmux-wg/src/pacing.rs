@@ -366,6 +366,18 @@ pub enum Priority {
     Bulk,
 }
 
+impl Priority {
+    /// The Braid class this priority schedules (RFD 0164 B5).
+    pub const fn braid_class(self) -> cmux_braid_class::Class {
+        use cmux_braid_class::Class;
+        match self {
+            Self::Screen | Self::Media => Class::State,
+            Self::Interactive => Class::Input,
+            Self::Bulk => Class::Bulk,
+        }
+    }
+}
+
 /// Datagrams the datagram service dropped, by reason, since the tunnel
 /// started. Shared between the driver and [`crate::WgNet::datagram_drops`].
 #[derive(Debug, Default)]
