@@ -60,23 +60,12 @@ nonisolated struct HTTPSUpgradeFallback {
     }
 
     /// Failures of the TLS connection, not of the name: refused, reset,
-    /// timed out, unreachable, and every TLS or certificate error.
+    /// timed out, unreachable, and every TLS or certificate error
+    /// (cmux-browser-rules `https_upgrade_falls_back`).
     static func fallsBack(_ error: BrowserLoadError) -> Bool {
-        if error.isCertificateError { return true }
-        switch error.domain {
-        case NSURLErrorDomain:
-            return [NSURLErrorCannotConnectToHost, NSURLErrorNetworkConnectionLost, NSURLErrorTimedOut,
-                    NSURLErrorSecureConnectionFailed, NSURLErrorClientCertificateRejected, NSURLErrorClientCertificateRequired,
-                    NSURLErrorBadServerResponse].contains(error.code)
-        case ChromiumNetError.domain:
-            // net_error_list.h: connection (-100 to -199, without the name
-            // errors -105 and -137 and being offline, -106) and certificate
-            // (-200 to -299) errors.
-            return (-199 ... -100).contains(error.code) && ![-105, -106, -137].contains(error.code)
-                || ChromiumNetError.certificateCodes.contains(error.code) || error.code == -7
-        default:
-            return false
-        }
+        struct Request: Encodable { let domain: String; let code: Int }
+        return BrowserRules.call("browser_rules_https_upgrade_falls_back",
+                                 Request(domain: error.domain, code: error.code), as: Bool.self) ?? false
     }
 }
 
