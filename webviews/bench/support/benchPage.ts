@@ -159,6 +159,12 @@ export async function serveBenchPage(
     }
     return undefined;
   };
+  // The page is served at the root, as the app serves its pages. The build writes the page's own
+  // `<link>`s relative to it (`./assets/x.css`) while a lazy chunk's preload asks for its CSS from
+  // the root (`/assets/x.css`); under `test/browser/` those are two URLs, so the preload added every
+  // sheet a second time and each restyle matched the whole stylesheet twice (17,092 rules for
+  // 8,546): the transcript fling's forced row measures read about 30% slower than the app's.
+  const servedAt = path.basename(emitted);
   const statics = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -172,13 +178,13 @@ export async function serveBenchPage(
         // A malformed escape is read as itself.
       }
       const asked = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
-      const found = resolveEmitted(asked);
+      const found = asked === servedAt ? emitted : resolveEmitted(asked);
       if (found === undefined) return new Response("not found", { status: 404 });
       return new Response(Bun.file(path.join(outDir, found)));
     },
   });
   return {
-    url: `http://127.0.0.1:${statics.port}/${emitted}${query}`,
+    url: `http://127.0.0.1:${statics.port}/${servedAt}${query}`,
     dev: false,
     close: async () => {
       await statics.stop(true);

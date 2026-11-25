@@ -333,7 +333,7 @@ mod tests {
         .unwrap();
         assert_eq!(note["downReason"], "pathChanged");
         note.as_object_mut().unwrap().remove("downReason");
-        let older: PeerStateChanged = serde_json::from_value(note).unwrap();
+        let older: PeerStateChanged = serde_json::from_value(note.clone()).unwrap();
         assert_eq!(older.down_reason, None);
         // A newer daemon's word this build does not know: the note still parses.
         note["downReason"] = "proxyBlocked".into();
