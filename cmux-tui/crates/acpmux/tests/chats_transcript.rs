@@ -9,6 +9,7 @@ mod daemon_env;
 const HERMETIC: daemon_env::Process = daemon_env::Process::deny().keep(&[
     "CMUX_HISTORY_BROWSER_BUN",
     "CMUX_HISTORY_PACKED_PAGES",
+    "CMUX_HISTORY_WEBVIEWS", // The script passes webviews/ so no "../" literal makes it an input of acpmux's jobs.
     "CMUX_CHROME_HEADLESS_SHELL",
     "FAST_CHECKS_OUT", // Optional CI artifact directory for the two synthetic transcript screenshots.
 ]);
@@ -837,7 +838,7 @@ async fn packed_history_visible_600mib() {
         hub,
         tokio::net::UnixListener::bind(&socket).unwrap(),
     ));
-    let webviews = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../webviews");
+    let webviews = std::env::var_os("CMUX_HISTORY_WEBVIEWS").expect("run the acceptance script");
     let mut command = tokio::process::Command::new(bin);
     command
         .current_dir(webviews)

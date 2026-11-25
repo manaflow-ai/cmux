@@ -8,6 +8,7 @@ bash "$root/scripts/ci/ensure-bun.sh" 1.4.4 "$work/bin"
 export PATH="$work/bin:$PATH"
 export CMUX_HISTORY_BROWSER_BUN="$work/bin/bun"
 export CMUX_HISTORY_PACKED_PAGES="$work/pages"
+export CMUX_HISTORY_WEBVIEWS="$root/webviews"
 bash "$root/scripts/cmux-next/build-pages-web.sh" --out "$CMUX_HISTORY_PACKED_PAGES"
 cd "$root/webviews"
 bash "$root/scripts/ci/ensure-system-chrome.sh" > "$work/chrome.log" || { cat "$work/chrome.log"; exit 1; }
