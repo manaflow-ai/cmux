@@ -319,6 +319,7 @@ mod elevation;
 mod git_watch;
 mod github_owner;
 mod harness_sandbox;
+mod key_store;
 mod lane_report_reads;
 mod lane_report_subagents;
 mod lane_report_text;
@@ -334,6 +335,7 @@ mod offer_results;
 mod offers;
 mod question_replies;
 mod resume;
+pub use key_store::{CliKeyStore, KeepAsk, KeyStore};
 mod secrets;
 mod seen;
 // Mask old tool output instead of summarizing it (harness magic).
@@ -1513,6 +1515,9 @@ pub struct Hub {
     /// Messages `send --no-wait` handed over, and forwarded prompts waiting for a peer's
     /// acceptance (`outbox.rs`).
     pub(crate) outbox: outbox::Outbox,
+    /// Per host, how long no ssh carry goes to it after one was not taken
+    /// (`server/ssh_carry.rs`): this daemon's alone, so two hubs (or two tests) never share it.
+    pub(crate) ssh_carry_cooldown: std::sync::Mutex<crate::server::ssh_carry::Cooldown>,
     /// The team hub a send to a name nobody here resolves goes through, while a mesh relay
     /// runs (`server/mesh_relay.rs`); unset without one, or in a hub a test builds. A sign-out's
     /// leave clears it and a later enroll sets the new hub's (`server/machine_enroll.rs`).
@@ -1899,6 +1904,7 @@ impl Hub {
             mcp_connects: Default::default(),
             trust_waits: Default::default(),
             outbox: Default::default(),
+            ssh_carry_cooldown: Default::default(),
             mesh: Default::default(),
             mesh_relay: Default::default(),
             join_transition: Default::default(),
