@@ -51,6 +51,21 @@ struct AppsStoreChangeTests {
         #expect(call.params["idempotency_key"]?.stringValue == "k1")
     }
 
+    @Test func anApprovedGitInstallCarriesTheCommitItsCardShowed() async throws {
+        let owner = Owner(), presenter = Presenter(answer: true)
+        let provider = ConfirmingPageProvider(inner: owner, presenter: presenter) { op, params in
+            AppsPageConfirmations().confirmation(op: op, params: params, detail: [
+                "name": "Hello", "scopes": [],
+                "repository": "https://github.com/octo/hello",
+                "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            ])
+        }
+        let change = AppsStoreChange(kind: .install, app: "github.com/octo/hello", idempotencyKey: "k")
+        #expect(await change.send(through: provider) == .done)
+        let call = try #require(owner.calls.first)
+        #expect(call.params["commit"]?.stringValue == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+    }
+
     @Test func aDeclinedCardChangesNothing() async {
         let owner = Owner(), presenter = Presenter(answer: false)
         #expect(await AppsStoreChange(kind: .remove, app: "manaflow-ai/standup").send(through: store(owner, presenter)) == .declined)

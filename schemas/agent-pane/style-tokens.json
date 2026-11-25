@@ -15,7 +15,13 @@
       "name": "--cv-text-muted",
       "kind": "color",
       "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
-      "about": "Secondary transcript text: tool rows, Worked for, meta lines."
+      "about": "Secondary transcript text: meta lines, the live run's words. Tool rows and Worked for draw --cv-activity-text."
+    },
+    {
+      "name": "--cv-activity-text",
+      "kind": "color",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "Background activity: tool rows and Worked for (58% of the text by default). A look on a light paper of its own sets it, often to its --cv-text-muted, to hold 4.5:1."
     },
     {
       "name": "--cv-text-dim",
@@ -40,7 +46,7 @@
       "name": "--agent-link",
       "kind": "color",
       "owner": "webviews/src/agent-session/shared/styles.css",
-      "alsoScopedIn": ["webviews/src/pages/changelog/styles.css"],
+      "alsoScopedIn": ["webviews/src/pages/changelog/styles.css", "webviews/src/ui/glass/glass.css"],
       "about": "Links in the rest of the pane (chips, cards, the composer)."
     },
     {

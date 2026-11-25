@@ -9,7 +9,8 @@ import { defineExperiment } from "../../experiments/experiment";
 /// pill moves aside, to a fixed place on the composer's top edge: it never moves while a reply streams
 /// or the disc fades in and out. Only the middle handle (`agentPane.display.trayHandle`, the default)
 /// moves; a handle the person put at the left or right stays there. The open hat's tuck chevron
-/// takes the same side, so tucking and untucking keep the handle in one place.
+/// stays on the hat's middle (Leo, 2026-11-24: "actually this looks bad. tuck and its appearnace...
+/// maybe in the middle again?"): at the side it hung over the header's split icon and chevron.
 /// Compare the arms in the gallery's `agent-pane.jump-place` (view Compare arms), or set
 /// `cmux.experiments` to `{"hat-pill-place":"start"}` in the pane's web inspector and reload.
 export const hatPillPlace = defineExperiment({

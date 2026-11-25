@@ -399,6 +399,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// (a Cloud VM chat's sub-sessions on the Mac). Without it the chat shows no children.
     case agentSessionChildren = "agent-session-children-v1"
     case agentSessionPresence = "agent-session-presence-v1"
+    /// `attending` and `seen_seq` on `agent-session-view`, so a chat shown while the person is
+    /// away keeps its unread cutover on the owning daemon.
+    case agentSessionAttention = "agent-session-attention-v1"
     /// `agent-session-set-model`, `-set-mode` and `-set-config`: the person's model, mode and
     /// option picks in a chat on that machine. Without it those picks say to update its cmux-tui.
     case agentSessionSettings = "agent-session-settings-v1"
@@ -613,6 +616,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `diff.comments.send`: the session host hands a diff tab's review comments to an acpmux
     /// session of its own machine as one prompt and clears them (DiffPageProvider+Comments.swift).
     case diffCommentsSend = "diff-comments-send-v1"
+    /// `diff.comments.thread` and a threaded `diff.comments.send`: review threads (replies,
+    /// resolve) the agent answers in place.
+    case diffCommentsThreads = "diff-comments-threads-v1"
     /// `git.fingerprint`: digits that stay while one scope's diff stays, made from the changed
     /// files with no patch. The diff tab asks them every few seconds; a session host without the
     /// read gets no request for it (DiffPageProvider+Git.swift).
@@ -664,7 +670,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .agentSessionFork, .agentSessionSide, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
              .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionStartPermissionMode, .agentSessionStartMode, .agentSessionTrustVMKind, .agentSessionFolders,
-             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionShareEvents, .agentSessionLoginMachine, .agentSessionContext, .agentSessionBtw, .agentSessionPageBytes, .agentSessionSteer, .agentSessionQueueDecision, .agentSessionMember, .pageTabs, .pageTabRoute, .appScreens,
+             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionAttention, .agentSessionSettings, .agentSessionLogin, .agentSessionShareEvents, .agentSessionLoginMachine, .agentSessionContext, .agentSessionBtw, .agentSessionPageBytes, .agentSessionSteer, .agentSessionQueueDecision, .agentSessionMember, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,
              .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins, .personalMixedOrder,
@@ -677,7 +683,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation, .appProviderChanged,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare,
-             .browserImport, .classicImport, .diffCommentsSend, .gitFingerprint, .layoutSizesBatch, .languagePacks,
+             .browserImport, .classicImport, .diffCommentsSend, .diffCommentsThreads, .gitFingerprint, .layoutSizesBatch, .languagePacks,
              .workspaceOpenURL:
             return .optional
         }

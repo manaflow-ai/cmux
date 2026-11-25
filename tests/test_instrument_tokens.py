@@ -61,16 +61,9 @@ class InstrumentTokenTests(unittest.TestCase):
         self.assertIn('corner.card', found[0])
         self.assertIn('A default moved', found[0])
 
-    def test_stylesheet_default_is_read_and_moved_default_is_drift(self):
-        # ink.activity reads its :root default from conversation.css; moving it there is drift.
-        sheet = ':root {\n  /* a comment: --cv-activity-text: red; */\n  --cv-x: 1px;\n' \
-                '  --cv-activity-text: color-mix(in srgb, var(--cv-fg) 58%,\n    transparent);\n}\n' \
-                '.row { --cv-activity-text: blue; }\n'
-        self.assertEqual('color-mix(in srgb, var(--cv-fg) 58%, transparent)',
-                         tokens.css_root_value(sheet, '--cv-activity-text'))
-        with self.assertRaises(tokens.TokenError):
-            tokens.css_root_value(sheet, '--cv-missing')
-        token = next(t for t in self.data['tokens'] if t['name'] == 'ink.activity')
+    def test_look_token_default_moved_in_the_stylesheet_is_drift(self):
+        # ink.activity is the fallback conversation.css gives --cv-activity-text; moving it there is drift.
+        token = self.token('ink.activity')
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             for t in self.data['tokens']:
@@ -80,8 +73,11 @@ class InstrumentTokenTests(unittest.TestCase):
                     if not dest.exists():
                         dest.write_text((ROOT / t['today']['file']).read_text())
             css_path = root / token['today']['file']
-            css_path.write_text(css_path.read_text().replace('--cv-activity-text: var(--agent-muted);',
-                                                             '--cv-activity-text: var(--agent-soft);', 1))
+            before = css_path.read_text()
+            after = before.replace('var(--instrument-ink-activity, var(--agent-muted))',
+                                   'var(--instrument-ink-activity, var(--agent-soft))')
+            self.assertNotEqual(before, after)
+            css_path.write_text(after)
             found = tokens.drift(self.data, root)
         self.assertEqual(1, len(found))
         self.assertIn('ink.activity', found[0])
@@ -138,6 +134,25 @@ class InstrumentTokenTests(unittest.TestCase):
             self.assertEqual([], tokens.stale_off_token(data, Path(tmp)))
             data['tokens'][0]['offToken'][0]['line'] = 3
             self.assertIn('refresh the entry', tokens.stale_off_token(data, Path(tmp))[0])
+
+    def test_stylesheet_source_reads_every_fallback(self):
+        # A value only a stylesheet sets: the token reads the fallback of each var(--instrument-*, X).
+        token = {'name': 'result.size', 'instrument': '12 / 14', 'unit': 'prose', 'drawnOn': 'x',
+                 'today': {'file': 'a.css', 'path': '--instrument-result-size', 'value': '12 / 14'}}
+        data = {'tokens': [token]}
+        with tempfile.TemporaryDirectory() as tmp:
+            sheet = Path(tmp) / 'a.css'
+            sheet.write_text('.x { font-size: calc(1px * var(--instrument-result-size, 12 / 14)); }\n'
+                             '.y { --s: var(--a, var(--instrument-result-size, 12  /  14)); }\n')
+            self.assertEqual([], tokens.drift(data, Path(tmp)))
+            sheet.write_text(sheet.read_text() + '.z { font-size: calc(1px * var(--instrument-result-size, 13 / 14)); }\n')
+            self.assertIn('A default moved', tokens.drift(data, Path(tmp))[0])
+            sheet.write_text('.x {}\n')
+            self.assertIn('no declaration', tokens.drift(data, Path(tmp))[0])
+        self.assertIn('--instrument-result-size: 12 / 14;', tokens.css(data | {'version': '0'}))
+        token['today']['path'] = '--instrument-other'
+        with self.assertRaisesRegex(tokens.TokenError, "token's own property"):
+            tokens.validate({'system': 'Instrument', 'version': '0.0.1', 'questions': {}, 'tokens': [token]})
 
     def test_off_token_entry_shape(self):
         self.token('corner.card')['offToken'].append({'file': 'x.css', 'value': '8px'})

@@ -17,16 +17,48 @@ A minor: one default moves.
   on every fill. In the default theme the rows move from about #6b6b6b to #616161 on white and from about
   #a1a1a1 to #aaaaaa on #1e1e1e.
 
-## 0.1.1 (2026-11-24)
+## 0.1.3 (2026-11-24)
 
 A patch: one token added at the value the app draws, no pixel moves.
 
 - `ink.activity`: the ink of tool-call rows, "Worked for", notices and background activity lines, the
   transcript's text at 58% over clear. It was a fixed mix no look could reach (RFD 0116, strict fix 9);
   it is now the public look token `--cv-activity-text` (`schemas/agent-pane/style-tokens.json`), so a
-  look on a tinted page sets it to hold 4.5:1. Its `today` reads the `:root` default in
-  `conversation.css`: `today.file` may now be a stylesheet, `today.path` a custom property on its first
-  `:root` block.
+  look on a tinted page sets it to hold 4.5:1. `conversation.css` sets that look token's default through
+  `var(--instrument-ink-activity, ...)`, the stylesheet source 0.1.1 added.
+
+## 0.1.2 (2026-11-24)
+
+The second half of RFD 0116 section 9's type tokens, each at the value the app draws today. A patch: no pixel
+moves.
+
+- Faces: `type.chrome.family` (the system stack in `type-scale.json`, drawn as `--font-ui`) and
+  `type.chat.family` (`var(--font-ui)`, the transcript's `--cv-font`).
+- Tracking: `type.chat.tracking` 0px behind `--cv-tracking`; `type.<step>.tracking` for each chrome step as a
+  rule, 0em, because `check-ui-font.py` pins `--text-<step>--letter-spacing` to 0em and a token there would
+  change that pin.
+- `type.numerals`: tabular numerals as a role (`tabular-nums`), read by the 26 declarations in
+  `conversation.css` that draw them; the places that draw proportional numerals keep them.
+- `link.underline`: `underline`, the transcript link's decoration.
+
+## 0.1.1 (2026-11-24)
+
+Type tokens from RFD 0116 section 9 ("What it cannot do yet"), each at the value the app draws today. A patch:
+no pixel moves.
+
+- A size and line height per chat voice, as a multiple of `prose.size` where the stylesheet draws one:
+  `tool-row.size` now records today (1, the prose size) beside its pending Instrument value,
+  `tool-row.line-height` 20px, `command.size` and `command.line-height` 12/14 and 18/14, `meta.size`
+  12/14, `result.size` and `result.line-height` 12/14 and 18/14, `thinking.line-height` 20px,
+  `heading-1` to `heading-4` (1.5 on 2, 1.25 on 24/14, 1.125 on 22/14, 1).
+- Code: `code.line-height` 20px and `code.measure` 100% (of the prose column), apart from the prose tokens.
+- The chrome type scale: `type.<step>.font-size` and `type.<step>.line-height` for caption, detail, body (its
+  size is `seed.text`), field, title and heading, read from `schemas/type-scale/type-scale.json`, which the
+  webviews already draw as `--text-<step>`.
+- A token only a stylesheet sets names that stylesheet as its source: `today.path` is its own
+  `--instrument-*` property, and `today.value` is the fallback every `var(--instrument-*, FALLBACK)` in the
+  file carries. The generated sheet is not imported, so the fallback is what draws; `--check` fails when a
+  fallback moves without this file. `conversation.css` now reads each chat voice through its token.
 
 ## 0.1.0 (2026-11-22)
 

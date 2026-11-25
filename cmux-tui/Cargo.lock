@@ -29,6 +29,7 @@ dependencies = [
  "cmux-cloud-api",
  "cmux-cloud-client",
  "cmux-cloud-environment",
+ "cmux-cloud-start-core",
  "cmux-cloud-wire",
  "cmux-coderouter",
  "cmux-codex-acp",
@@ -36,8 +37,10 @@ dependencies = [
  "cmux-computer-use",
  "cmux-config",
  "cmux-device-kind",
+ "cmux-egress",
  "cmux-embed",
  "cmux-fault",
+ "cmux-felt",
  "cmux-file-lock",
  "cmux-git",
  "cmux-host",
@@ -79,7 +82,6 @@ dependencies = [
  "cmux-vault-egress",
  "cmux-wg",
  "cmux-worktree-care",
- "crossterm",
  "dhat",
  "diffy",
  "dirs",
@@ -94,13 +96,12 @@ dependencies = [
  "jsonschema",
  "libc",
  "memchr",
+ "mimalloc",
  "notify",
  "plist",
  "png",
  "proc-macro2",
  "proptest",
- "pulldown-cmark",
- "ratatui",
  "rcgen",
  "regex",
  "reqwest",
@@ -110,10 +111,10 @@ dependencies = [
  "schemars 1.2.2",
  "serde",
  "serde_json",
+ "sha1",
  "sha2 0.10.9",
  "signal-hook-registry",
  "syn 2.0.119",
- "syntect",
  "tar",
  "tempfile",
  "thiserror 2.0.21",
@@ -128,7 +129,6 @@ dependencies = [
  "tracing-subscriber",
  "turmoil",
  "unicode-normalization",
- "unicode-width",
  "url",
  "uuid",
  "wait-timeout",
@@ -209,6 +209,37 @@ dependencies = [
  "acpmux",
  "acpmux-build-id",
  "anyhow",
+ "mimalloc",
+]
+
+[[package]]
+name = "acpmux-team-space"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "acpmux-tui"
+version = "1.0.0"
+dependencies = [
+ "acpmux",
+ "anyhow",
+ "base64",
+ "cmux-json",
+ "cmux-scope",
+ "crossterm",
+ "dirs",
+ "futures-util",
+ "libc",
+ "pulldown-cmark",
+ "ratatui",
+ "serde_json",
+ "syntect",
+ "tokio",
+ "unicode-width",
+ "uuid",
 ]
 
 [[package]]
@@ -1161,6 +1192,7 @@ dependencies = [
  "async-trait",
  "base64",
  "bytes",
+ "cmux-egress",
  "cmux-json",
  "cmux-pty",
  "cmux-unix-socket",
@@ -1384,6 +1416,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-autocloud"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "cmux-cloud-config",
+ "cmux-process",
+ "cmux-scope",
+ "crossterm",
+ "futures-util",
+ "ratatui",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-automations"
 version = "0.1.0"
 dependencies = [
@@ -1418,6 +1469,26 @@ dependencies = [
  "cmux-bookmarks-core",
  "serde",
  "unicode-normalization",
+]
+
+[[package]]
+name = "cmux-braid-carrier"
+version = "0.1.0"
+
+[[package]]
+name = "cmux-braid-path"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "tokio",
+]
+
+[[package]]
+name = "cmux-braid-session"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1465,6 +1536,18 @@ dependencies = [
  "cmux-scope",
  "http",
  "tokio",
+]
+
+[[package]]
+name = "cmux-bundle"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "chacha20poly1305",
+ "cmux-fault",
+ "flate2",
+ "tokio",
+ "zstd",
 ]
 
 [[package]]
@@ -1534,6 +1617,7 @@ dependencies = [
  "cmux-cloud-environment",
  "cmux-cloud-machine",
  "cmux-cloud-wire",
+ "cmux-egress",
  "cmux-lifeline",
  "futures",
  "getrandom 0.3.4",
@@ -1566,6 +1650,7 @@ name = "cmux-cloud-environment"
 version = "0.1.0"
 dependencies = [
  "cmux-build-space",
+ "cmux-egress",
  "reqwest",
  "rustls",
  "serde",
@@ -1624,6 +1709,7 @@ dependencies = [
  "anyhow",
  "axum",
  "base64",
+ "cmux-egress",
  "cmux-json",
  "cmux-link",
  "cmux-local-auth",
@@ -1840,6 +1926,7 @@ dependencies = [
  "base64",
  "cmux-agent-cli-render",
  "cmux-fault",
+ "cmux-output-paint",
  "ghostty-vt",
  "hex",
  "serde",
@@ -1853,9 +1940,18 @@ dependencies = [
 name = "cmux-egress"
 version = "1.0.0"
 dependencies = [
+ "bytes",
+ "cmux-egress",
+ "cmux-scope",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "rcgen",
  "reqwest",
  "rustls",
  "tokio",
+ "tokio-rustls",
+ "tokio-tungstenite",
 ]
 
 [[package]]
@@ -1915,6 +2011,13 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+]
+
+[[package]]
+name = "cmux-felt"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
@@ -2233,6 +2336,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-output-paint"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-palette-eval"
 version = "0.1.0"
 dependencies = [
@@ -2251,6 +2358,10 @@ dependencies = [
  "unicode-general-category",
  "unicode-normalization",
 ]
+
+[[package]]
+name = "cmux-pane-pictures"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-pane-protocol"
@@ -2280,6 +2391,7 @@ dependencies = [
 name = "cmux-panic-log"
 version = "0.1.0"
 dependencies = [
+ "cmux-flow-trace",
  "flate2",
  "libc",
  "rustc-demangle",
@@ -2299,12 +2411,16 @@ name = "cmux-projection"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "bincode",
+ "cmux-egress",
  "cmux-file-lock",
  "cmux-process",
  "flate2",
  "fuser",
+ "ignore",
  "libc",
+ "nfsserve",
  "reqwest",
  "rustls",
  "serde",
@@ -2313,6 +2429,7 @@ dependencies = [
  "sha1collisiondetection",
  "sha2 0.10.9",
  "tempfile",
+ "tokio",
  "zstd",
 ]
 
@@ -2355,12 +2472,17 @@ dependencies = [
  "cmux-rd-engine",
  "cmux-rd-link",
  "cmux-rd-proto",
+ "cmux-wg",
+ "getrandom 0.3.4",
  "libc",
  "serde",
  "serde_json",
+ "tokio",
  "windows",
  "windows-sys 0.61.2",
  "x11rb",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]
@@ -2382,6 +2504,14 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-redact"
+version = "0.1.0"
+dependencies = [
+ "acpmux",
  "serde_json",
 ]
 
@@ -2413,6 +2543,8 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-braid-path",
+ "cmux-braid-session",
  "cmux-build-identity",
  "cmux-deadline",
  "cmux-fault",
@@ -2423,7 +2555,8 @@ dependencies = [
  "cmux-relay",
  "cmux-remote-protocol",
  "cmux-signed-envelope",
- "cmux-tui-core",
+ "cmux-terminal-host-protocol",
+ "cmux-tui-util",
  "cmux-unix-socket",
  "cmux-wg",
  "diffy",
@@ -2508,6 +2641,7 @@ dependencies = [
  "base64",
  "cmux-build-space",
  "cmux-cloud-environment",
+ "cmux-egress",
  "cmux-json",
  "cmux-link",
  "cmux-server-core",
@@ -2552,6 +2686,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chacha20poly1305",
+ "cmux-egress",
+ "cmux-session-pack",
  "getrandom 0.3.4",
  "hex",
  "reqwest",
@@ -2634,6 +2770,7 @@ name = "cmux-stack-auth"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-egress",
  "getrandom 0.3.4",
  "httpdate",
  "reqwest",
@@ -2683,9 +2820,28 @@ name = "cmux-tailnet"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-egress",
  "libc",
  "reqwest",
  "rustls",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-tailnet-join"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-tailnet-local"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cmux-process",
  "serde",
  "serde_json",
 ]
@@ -2736,6 +2892,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-terminal-find"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-terminal-host-protocol"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cmux-pty",
+ "getrandom 0.3.4",
+ "serde",
+ "socket2",
+]
+
+[[package]]
 name = "cmux-terminal-iface"
 version = "0.1.0"
 dependencies = [
@@ -2745,6 +2921,9 @@ dependencies = [
 [[package]]
 name = "cmux-terminal-prediction"
 version = "0.1.0"
+dependencies = [
+ "cmux-felt",
+]
 
 [[package]]
 name = "cmux-terminal-projection"
@@ -2785,6 +2964,8 @@ dependencies = [
 name = "cmux-transport"
 version = "0.1.0"
 dependencies = [
+ "blake3",
+ "chacha20poly1305",
  "libc",
  "proptest",
 ]
@@ -2795,6 +2976,7 @@ version = "1.0.0"
 dependencies = [
  "acpmux",
  "acpmux-build-id",
+ "acpmux-tui",
  "anyhow",
  "async-trait",
  "axum",
@@ -2828,6 +3010,7 @@ dependencies = [
  "cmux-customize-recipes",
  "cmux-daemon-launch-core",
  "cmux-device-kind",
+ "cmux-egress",
  "cmux-fault",
  "cmux-file-lock",
  "cmux-focus-core",
@@ -2856,6 +3039,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-signed-bundle",
  "cmux-stack-auth",
+ "cmux-tailnet-join",
  "cmux-terminal-client",
  "cmux-theme-pack",
  "cmux-theme-tokens",
@@ -2974,6 +3158,7 @@ dependencies = [
  "cmux-config",
  "cmux-conversation",
  "cmux-device-kind",
+ "cmux-egress",
  "cmux-embed",
  "cmux-feed-core",
  "cmux-file-lock",
@@ -2998,8 +3183,11 @@ dependencies = [
  "cmux-signed-bundle",
  "cmux-signed-envelope",
  "cmux-supervise-core",
+ "cmux-tag-cache",
  "cmux-tasks",
  "cmux-tasks-core",
+ "cmux-terminal-find",
+ "cmux-terminal-host-protocol",
  "cmux-terminal-iface",
  "cmux-terminal-sizing",
  "cmux-theme-tokens",
@@ -3248,6 +3436,7 @@ dependencies = [
 name = "cmux-vm-pool"
 version = "0.1.0"
 dependencies = [
+ "cmux-egress",
  "futures-util",
  "reqwest",
  "rustls",
@@ -3291,6 +3480,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-egress",
  "cmux-wg",
  "futures-util",
  "getrandom 0.3.4",
@@ -4009,19 +4199,6 @@ dependencies = [
  "rustc_version",
  "syn 2.0.119",
  "unicode-xid",
-]
-
-[[package]]
-name = "desktop-lease"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64",
- "cmux-process",
- "cmux-scope",
- "serde",
- "serde_json",
- "tokio",
 ]
 
 [[package]]
@@ -5866,6 +6043,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
+name = "libmimalloc-sys"
+version = "0.1.49"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a45a52f43e1c16f667ccfe4dd8c85b7f7c204fd5e3bf46c5b0db9a5c3c0b8e9"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "libredox"
 version = "0.1.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6051,6 +6237,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "mimalloc"
+version = "0.1.52"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d4139bb28d14ad1facf21d5eb8825051b326e172d216b39f6d31df53cc97862"
+dependencies = [
+ "libmimalloc-sys",
 ]
 
 [[package]]
@@ -6342,6 +6537,22 @@ dependencies = [
  "windows",
  "windows-result",
  "wmi",
+]
+
+[[package]]
+name = "nfsserve"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef1424b6d88c60a091931392970999ea3ceab132d968e6a5545c770fad5b97d7"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "byteorder",
+ "filetime",
+ "num-derive",
+ "num-traits",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
