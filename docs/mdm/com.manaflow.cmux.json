@@ -91,6 +91,12 @@
       "title" : "Command Labels",
       "type" : "string"
     },
+    "agentPane.display.compactShortTurns" : {
+      "default" : false,
+      "description" : "A short turn shows a one-line summary of what it did, instead of folding under Worked for.",
+      "title" : "Compact Summary for Short Turns",
+      "type" : "boolean"
+    },
     "agentPane.display.environment.placement" : {
       "default" : "left",
       "description" : "Where the chip sits: under the tabs (Left) or in the header (Right).",
@@ -381,6 +387,12 @@
       ],
       "title" : "Working Status Verbs",
       "type" : "string"
+    },
+    "agentPane.display.subagentOf" : {
+      "default" : false,
+      "description" : "In a subagent's own pane, show which chat it belongs to beside its name in the header.",
+      "title" : "Subagent Of in Header",
+      "type" : "boolean"
     },
     "agentPane.display.thinking.glyph" : {
       "description" : "Dots a look plays while the agent works, as a cmux.particles/1 document.",
@@ -2199,6 +2211,17 @@
       "title" : "Glass Transparency",
       "type" : "number"
     },
+    "appearance.gooeyTabs" : {
+      "default" : "off",
+      "description" : "Lets the selected tab flow into the content like a liquid, with springy motion when tabs are selected, opened, closed or dragged. Subtle keeps it gentle; Full stretches and wobbles more.",
+      "enum" : [
+        "off",
+        "subtle",
+        "full"
+      ],
+      "title" : "Gooey Tabs",
+      "type" : "string"
+    },
     "appearance.highlightColor" : {
       "description" : "The color of selected text everywhere. Unset uses the terminal theme's.",
       "title" : "Highlight Color",
@@ -3501,6 +3524,12 @@
       "title" : "Auto Places Chats in Cloud",
       "type" : "boolean"
     },
+    "cloud.defaultImage" : {
+      "default" : "auto",
+      "description" : "The Cloud environment new Cloud chats start from. Auto picks one from the chat's repository. Any other environment gives each new chat its own machine.",
+      "title" : "Default Image",
+      "type" : "string"
+    },
     "cloud.newWorkspaceFolder" : {
       "default" : "inherit",
       "description" : "Current Folder copies your git working copy to the new machine.",
@@ -4315,6 +4344,12 @@
       "title" : "Tooltip Refresh",
       "type" : "boolean"
     },
+    "experiments.introWalk" : {
+      "default" : false,
+      "description" : "Make cmux Yours becomes four short screens: a whole look, how you work, trust and notifications, then density and background.",
+      "title" : "Intro Walk",
+      "type" : "boolean"
+    },
     "experiments.menuRowStates" : {
       "default" : false,
       "description" : "Menu rows that are unavailable say why, and rows that start work show their progress.",
@@ -4370,7 +4405,7 @@
       "type" : "boolean"
     },
     "experiments.terminalHistoryFind" : {
-      "default" : false,
+      "default" : true,
       "description" : "Cmd-F in a terminal searches its whole history, with case, whole-word and regex options.",
       "title" : "Terminal History Find",
       "type" : "boolean"
@@ -4714,6 +4749,12 @@
       "default" : false,
       "description" : "New Codex chats use the app server bundled with cmux when it checks out, else your installed Codex.",
       "title" : "Use Bundled Codex App Server",
+      "type" : "boolean"
+    },
+    "labs.chatMultiplayer" : {
+      "default" : false,
+      "description" : "Teammates you share a chat with show when they view it and when they type.",
+      "title" : "Chat Multiplayer",
       "type" : "boolean"
     },
     "labs.commentThreads" : {
@@ -6394,6 +6435,12 @@
       "default" : false,
       "description" : "A chat whose answer you have read folds into Settled at the end of its list until its next turn.",
       "title" : "Settle Finished Chats",
+      "type" : "boolean"
+    },
+    "sidebar.showAgentSessions" : {
+      "default" : false,
+      "description" : "Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows.",
+      "title" : "Show Sessions Started by Agents",
       "type" : "boolean"
     },
     "sidebar.showAutomaticSessions" : {
