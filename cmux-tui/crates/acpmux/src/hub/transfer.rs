@@ -385,10 +385,8 @@ impl Hub {
                 crate::qos::off_worker(|| crate::native::restore_replacing(bundle, &meta))
                     .unwrap_or_default()
             }
-            None if live => {
-                crate::qos::off_worker(|| crate::native::restore_linked(bundle, &meta))
-                    .unwrap_or_default()
-            }
+            None if live => crate::qos::off_worker(|| crate::native::restore_linked(bundle, &meta))
+                .unwrap_or_default(),
             None => {
                 crate::qos::off_worker(|| crate::native::restore(bundle, &meta)).unwrap_or_default()
             }
