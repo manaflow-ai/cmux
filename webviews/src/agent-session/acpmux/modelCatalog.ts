@@ -1,4 +1,4 @@
-import { catalogModel, harnessRefusal, normalizeCatalog } from "./direct";
+import { catalogModel, harnessRefusal, normalizeCatalog } from "./harnessCatalog";
 import type { AcpmuxSnapshot } from "./model";
 
 // The composer's model catalog. acpmux keeps its harness list (`_acpmux/harnesses`: names,

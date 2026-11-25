@@ -48,7 +48,10 @@ export async function openRealPaneLane(options: Omit<RealAcpmuxOptions, "pageOri
     logLevel: "error",
   });
   await vite.listen();
-  await warmViteServer(vite, "/");
+  // The pane's module graph (direct.ts and App.tsx each past Babel's 500 KB) warmed in 45-55 s on an
+  // idle runner and past warmDevServer's default 100 s on a busy one, which failed every file of the
+  // real-daemon job in beforeAll (cmux#52044, 2026-11-24). 180 s still fits each file's own limit.
+  await warmViteServer(vite, "/", { timeoutMs: 180_000 });
   const { port } = vite.httpServer!.address() as { port: number };
   const base = `http://127.0.0.1:${port}`;
   const daemon = await startRealAcpmux({ ...options, pageOrigin: base });

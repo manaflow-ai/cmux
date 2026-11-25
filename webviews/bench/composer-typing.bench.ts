@@ -50,7 +50,7 @@ import type { Page } from "playwright";
 import { parseArms, runArms, servePane } from "./composer-arms";
 import { reportTrace, traceWindow } from "./styleInvalidationTrace";
 import { sourceMapper } from "./sourceMapper";
-import { reportFrames, traceFrames } from "./keyFrameTrace";
+import { FRAME_CATEGORIES, reportFrames, traceFrames } from "./keyFrameTrace";
 let mapUrl: (file: string, line: number, column: number) => string = (file, line) => `${file}:${line + 1}`;
 
 const argv = process.argv.slice(2);
@@ -299,7 +299,7 @@ async function measure(
       const canonical = mode === "idle" ? "L0" : mode === "stream" ? "L1" : mode;
       // One renderer runs the focused page and L2's documents, so its profile is what every key waits behind.
       const cdp = PROFILE && engine === "chromium" ? await page.context().newCDPSession(page) : undefined;
-      const typing = cdp && {
+      const profiled = cdp && {
         start: async () => {
           await cdp.send("Profiler.enable");
           await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
@@ -310,6 +310,16 @@ async function measure(
           printProfile(length, profile);
         },
       };
+      // With --frames, the same per-key split as the legacy modes (keyFrameTrace.ts), over the typed keys under load.
+      const framed = FRAMES &&
+        engine === "chromium" && {
+          start: () => browser.startTracing(page, { categories: FRAME_CATEGORIES }),
+          stop: async () => {
+            const events = (JSON.parse((await browser.stopTracing()).toString()) as { traceEvents: any[] }).traceEvents;
+            reportFrames(`${canonical}-typing ${length}rows`, events, mapUrl);
+          },
+        };
+      const typing = profiled || framed;
       try {
         return {
           engine,
