@@ -70,10 +70,15 @@ class EnsureHelper(unittest.TestCase):
         if generation is not None:
             (self.base / "bin/.generation").write_text(f"{generation}\n")
 
-    def stop(self) -> subprocess.CompletedProcess[str]:
+    def stop(self, copies: str = "merged") -> subprocess.CompletedProcess[str]:
         # `stop` is the lightest command that runs ensure_helper before it asks the VM's helper anything.
+        # CMUX_DEV_STACK_HELPER stands in for git: whether this checkout's copies are its base's own.
         return subprocess.run(
-            ["bash", str(SCRIPT), "stop", "--tag", "helper-test"], env=self.env, capture_output=True, text=True, timeout=60
+            ["bash", str(SCRIPT), "stop", "--tag", "helper-test"],
+            env={**self.env, "CMUX_DEV_STACK_HELPER": copies},
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
 
     def test_an_older_checkout_never_puts_its_router_over_a_newer_one(self) -> None:
@@ -82,7 +87,7 @@ class EnsureHelper(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual((self.base / "bin/router.mjs").read_text(), "// a newer router\n")
         self.assertEqual((self.base / "bin/vm_stack.py").read_text(), "# a newer helper\n")
-        self.assertIn("runs a newer stack helper and router", r.stderr)
+        self.assertIn("runs newer merged stack copies", r.stderr)
         self.assertNotIn("install", self.log.read_text() if self.log.exists() else "")
 
     def test_an_older_or_unversioned_vm_copy_is_replaced_and_its_generation_recorded(self) -> None:
@@ -97,6 +102,30 @@ class EnsureHelper(unittest.TestCase):
                 self.assertIn("vm_stack.py install", self.log.read_text())
                 self.log.unlink()
 
+
+    def test_a_branchs_own_copies_install_and_never_hold_the_vm_against_merged_ones(self) -> None:
+        # A PR that changes router.mjs (and bumps HELPER_GENERATION) is tested through review.sh's `stack up`
+        # from its own checkout. Its copies install, but the VM records no generation for them: the next up from a
+        # base checkout puts the merged copies back (the review of #55907 found the first version left them
+        # stuck behind a recorded branch generation).
+        self.vm("// merged router\n", "# merged helper\n", generation() + 5)
+        r = self.stop(copies="branch")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((self.base / "bin/router.mjs").read_bytes(), ROUTER.read_bytes())
+        self.assertFalse((self.base / "bin/.generation").exists(), "a branch's install records no generation")
+        # A base checkout's up now replaces the branch's copies with its own.
+        (self.base / "bin/router.mjs").write_text("// the branch's router\n")
+        r = self.stop(copies="merged")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((self.base / "bin/router.mjs").read_bytes(), ROUTER.read_bytes())
+        self.assertEqual((self.base / "bin/.generation").read_text().strip(), str(generation()))
+
+    def test_a_leading_zero_generation_reads_as_decimal(self) -> None:
+        self.vm("// newer\n", "# newer\n", None)
+        (self.base / "bin/.generation").write_text(f"0{generation() + 7}\n")
+        r = self.stop()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((self.base / "bin/router.mjs").read_text(), "// newer\n")
 
 if __name__ == "__main__":
     unittest.main()

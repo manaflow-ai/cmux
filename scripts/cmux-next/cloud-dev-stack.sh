@@ -73,8 +73,11 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 helper="$root/scripts/cmux-next/cloud-dev-stack/vm_stack.py"
 router="$root/scripts/cmux-next/cloud-dev-stack/router.mjs"
-# The generation of cloud-dev-stack/vm_stack.py and router.mjs, together. Raise it with any change to either: an up
-# from a checkout with a lower one leaves the VM's newer copies alone (ensure_helper).
+# The generation of cloud-dev-stack/vm_stack.py and router.mjs, together: raise it with any change to either. The
+# VM records it only for merged copies, so an up from a checkout of an older base leaves the VM's newer merged
+# copies alone, while a branch that changes either file still installs its own to test them (ensure_helper).
+# CMUX_DEV_STACK_HELPER=merged|branch says which this checkout's copies are, instead of asking git.
+# An older checkout drives a newer vm_stack.py: keep its command line and JSON compatible with older callers.
 HELPER_GENERATION=2
 HOST="${CMUX_DEV_STACK_HOST:-cmux-dev-backend-1}"
 VM_USER="${CMUX_DEV_STACK_USER:-ubuntu}"
@@ -124,29 +127,46 @@ vm() { "${SSH[@]}" python3 "$BASE/bin/vm_stack.py" "$@"; }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); $1"; }
 ps() { pscale "$@" --org "$PS_ORG" --format json; }
 
+# Whether this checkout's vm_stack.py and router.mjs are its base's own (merged), or a branch's changes to them.
+# Unknown (no base ref, not a git checkout) counts as a branch: it installs, and records no generation.
+helper_copies() {
+  case "${CMUX_DEV_STACK_HELPER:-}" in merged|branch) echo "$CMUX_DEV_STACK_HELPER"; return ;; esac
+  local merge_base
+  merge_base="$(git -C "$root" merge-base HEAD "$BASE_REF" 2>/dev/null)" || { echo branch; return; }
+  if git -C "$root" diff --quiet "$merge_base" -- scripts/cmux-next/cloud-dev-stack/vm_stack.py \
+       scripts/cmux-next/cloud-dev-stack/router.mjs 2>/dev/null; then
+    echo merged
+  else
+    echo branch
+  fi
+}
+
 ensure_helper() {
   "${SSH[@]}" true 2>/dev/null || die "cannot reach $VM_USER@$HOST over SSH (tailnet). hq: scripts/dev-backend.sh vm-status wakes a stopped VM."
-  local want have theirs
+  local want have theirs copies record
   want="$(cat "$helper" "$router" | shasum -a 256 | cut -d' ' -f1)"
   have="$("${SSH[@]}" "cat $BASE/bin/vm_stack.py $BASE/bin/router.mjs 2>/dev/null | sha256sum | cut -d' ' -f1" || true)"
-  # The VM's helper generation (bin/.generation, written by the install below). A checkout whose generation is
-  # older leaves the VM's newer helper and router as they are: installing its own put an old router back and
-  # restarted it, dropping every stack's WebSockets (an older worktree's up undid #55854's router fix).
+  [ "$want" != "$have" ] || return 0
+  copies="$(helper_copies)"
+  # The generation of the merged copies the VM runs (bin/.generation; none after a branch's install). Merged copies
+  # from an older base leave newer merged ones alone: an up from an older worktree put an old router back and
+  # restarted it, dropping every stack's WebSockets (it undid #55854's router fix). A branch's own copies always
+  # install, to be tested, and clear the record: the next up from any base checkout puts merged copies back.
   theirs="$("${SSH[@]}" "cat $BASE/bin/.generation 2>/dev/null" || true)"
   [[ "$theirs" =~ ^[0-9]+$ ]] || theirs=0
-  if [ "$want" != "$have" ] && (( HELPER_GENERATION < theirs )); then
-    echo "note: the dev VM runs a newer stack helper and router (generation $theirs; this checkout's is $HELPER_GENERATION): left as they are; rebase to change them" >&2
-  elif [ "$want" != "$have" ]; then
-    "${SSH[@]}" "mkdir -p -m 700 $BASE/bin"
-    # Per-caller names: two ups at once both see an old copy and both install it. The router moves first:
-    # the new helper's install restarts it.
-    local tmp="new.$$.$RANDOM"
-    scp -q -o BatchMode=yes "$router" "$VM_USER@$HOST:$BASE/bin/router.mjs.$tmp"
-    scp -q -o BatchMode=yes "$helper" "$VM_USER@$HOST:$BASE/bin/vm_stack.py.$tmp"
-    "${SSH[@]}" "mv -f $BASE/bin/router.mjs.$tmp $BASE/bin/router.mjs && mv -f $BASE/bin/vm_stack.py.$tmp $BASE/bin/vm_stack.py"
-    vm install >/dev/null
-    "${SSH[@]}" "echo $HELPER_GENERATION > $BASE/bin/.generation"
+  if [ "$copies" = merged ] && (( 10#$HELPER_GENERATION < 10#$theirs )); then
+    echo "note: the dev VM runs newer merged stack copies (helper generation $theirs; this checkout's base has $HELPER_GENERATION): left as they are. Update this checkout's base to change them, or CMUX_DEV_STACK_HELPER=branch to install its copies anyway." >&2
+    return 0
   fi
+  if [ "$copies" = merged ]; then record="echo $HELPER_GENERATION > $BASE/bin/.generation"; else record="rm -f $BASE/bin/.generation"; fi
+  "${SSH[@]}" "mkdir -p -m 700 $BASE/bin"
+  # Per-caller names: two ups at once both see an old copy and both install it. The router moves first:
+  # the new helper's install restarts it. The record changes with the files, in one call.
+  local tmp="new.$$.$RANDOM"
+  scp -q -o BatchMode=yes "$router" "$VM_USER@$HOST:$BASE/bin/router.mjs.$tmp"
+  scp -q -o BatchMode=yes "$helper" "$VM_USER@$HOST:$BASE/bin/vm_stack.py.$tmp"
+  "${SSH[@]}" "mv -f $BASE/bin/router.mjs.$tmp $BASE/bin/router.mjs && mv -f $BASE/bin/vm_stack.py.$tmp $BASE/bin/vm_stack.py && $record"
+  vm install >/dev/null
 }
 
 # The worktree's files (tracked and untracked, not ignored), so an uncommitted edit runs too.
