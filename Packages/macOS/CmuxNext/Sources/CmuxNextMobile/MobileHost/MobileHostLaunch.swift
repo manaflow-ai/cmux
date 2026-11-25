@@ -222,9 +222,11 @@ public struct MobileHostLaunch: Sendable, Equatable {
     /// `tab_snapshots.rs`): `surface` is the tab's daemon surface id, `part` `thumb` or `favicon`,
     /// `path` a JPEG or PNG the app wrote in its own cache folder. hostd checks the file.
     public static func tabPictureLine(surface: UInt64, part: String, path: String, width: Int, height: Int,
-                                      capturedAtMs: Int64) -> Data {
-        anyLine(["type": "tab_picture", "surface": surface, "part": part, "path": path, "w": width, "h": height,
-                 "captured_at_ms": capturedAtMs])
+                                      capturedAtMs: Int64, tab: String? = nil) -> Data {
+        var object: [String: Any] = ["type": "tab_picture", "surface": surface, "part": part, "path": path,
+                                     "w": width, "h": height, "captured_at_ms": capturedAtMs]
+        if let tab, !tab.isEmpty { object["tab"] = tab }
+        return anyLine(object)
     }
 
     static func anyLine(_ object: [String: Any]) -> Data {
