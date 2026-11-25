@@ -14,7 +14,9 @@ use cmux_mobile_link::{
 };
 use tokio::runtime::Runtime;
 
+mod auto_chats;
 mod browser;
+mod chat_prompt_outbox;
 mod classic_leftovers;
 mod composer_outbox;
 mod follow_camera;
@@ -22,7 +24,10 @@ mod last_place;
 mod link_side;
 pub mod local_link;
 mod mac_screen;
+mod mailbox_client;
 mod pair_requests;
+mod read_store;
+mod row_layout;
 mod share_approval;
 mod tabs;
 mod terminal_chat;
@@ -31,7 +36,14 @@ mod terminal_prediction;
 mod terminal_projection;
 mod window_layout;
 
+pub use auto_chats::{
+    AutoChat, AutoChatError, AutoChats, AutoHttp, AutoHttpError, AutoHttpReply, AutoHttpRequest,
+};
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
+pub use chat_prompt_outbox::{
+    ChatAttachment, ChatCancelStep, ChatEditStep, ChatPromptDone, ChatPromptLook, ChatPromptOutbox,
+    ChatPromptOutcome, ChatPromptRequest, ChatPromptTaken, ChatUploadState, ChatUploadedAttachment,
+};
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
 pub use composer_outbox::{
     ComposerOutbox, ComposerSendAnswer, ComposerSendDone, ComposerSendOutcome, ComposerSendRequest,
@@ -40,6 +52,7 @@ pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};
 pub use last_place::{LastPlaceAnchor, LastPlaceRecord, LastPlaceScreen, LastPlaceStore};
 pub use link_side::{LinkOpenSide, link_open_side};
 pub use mac_screen::{MacScreenAnswer, MacScreenDisplay, MacScreenIceServer, MacScreenObserver, MacScreenRd};
+pub use read_store::{PhoneReadKey, PhoneReadStore, PhoneReadStoreError};
 pub use share_approval::{ShareApprovalDraft, ShareAsk, share_approval_draft, share_approval_signed};
 pub use tabs::{TabsEvent, TabsMirror, TabsRow, TabsViewport};
 pub use terminal_chat::{
@@ -608,6 +621,20 @@ impl LinkHandle {
         u64::try_from(self.link.traffic_ago().as_millis()).unwrap_or(u64::MAX)
     }
 
+    /// Milliseconds since the link last made progress: anything heard from
+    /// the Mac, or a write other than a keepalive taken by the transport
+    /// (`Link::progress_ago`). The one progress clock a send's hold reads:
+    /// `ChatPromptOutbox.progressed(nowMs - progressAgoMs())` is the adapter.
+    pub fn progress_ago_ms(&self) -> u64 {
+        u64::try_from(self.link.progress_ago().as_millis()).unwrap_or(u64::MAX)
+    }
+
+    /// How many times the link made progress; monotonic, so a change since
+    /// the last read means it moved in between (`Link::progress_count`).
+    pub fn progress_count(&self) -> u64 {
+        self.link.progress_count()
+    }
+
     /// Close the link and its transport. The signaling socket stays warm
     /// for the next dial (`reset_warm_state` closes it).
     pub fn close(&self) {
@@ -993,6 +1020,7 @@ async fn finish_link(
         connected.path.clone(),
         timeline.clone(),
         current_signaling(pool, &signaling),
+        connected.session_id.clone(),
     );
     Ok(Arc::new(LinkHandle {
         link: connected.link,

@@ -1171,7 +1171,8 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CmuxMobileWorkspaces/Works
 - Toolbar: leading drawer, inline title "Workspaces" with a `navigationSubtitle`: the
   filtered Mac's name; else "N need you"; else nothing. No presence, link or "2 of 3 Macs
   online" words (Leo, 2026-11-24: "red dot green dot when you switch between your computers'
-  stuff"). Trailing glass capsule: the Mac filter (only with 2+ Macs) and New Workspace.
+  stuff"). Never that a refresh runs. Trailing glass capsule: the Mac filter (only with 2+
+  Macs) and New Workspace.
 - Mac filter: a toolbar `Menu` of `Toggle`s (a checkmark on the chosen one): All Macs, then
   each Mac (online first) titled with its name and a green (online) or red (offline) dot; its
   presence words are the VoiceOver value only. Not an inline `Picker`: it drops the dots. Filtered fills the symbol
@@ -1242,7 +1243,10 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CmuxMobileWorkspaces/Works
 - States (live mode reads each Mac's `MacDataMachine` phase): team loading with no cache, or
   the linked Mac dialing with nothing known → `SkeletonList`. Last-known (snapshot) rows show
   at 55 % opacity with no agent state (never "is waiting" from a cache) until the Mac
-  answers; while the link connects the subtitle reads "Updating…" after 1.5 s. An online Mac
+  answers; while the link connects nothing says it updates (Leo, 2026-11-24: "they dont need
+  to know that it's updating before they KNOW it's updating"): no subtitle, chip or hairline
+  over rows the phone has, on Workspaces, Agent Chats, Home or an agent chat; only a fact the
+  person can act on speaks (the Offline or Mac offline chip, `ConnectionChip.Kind.paints`). An online Mac
   whose dial failed with nothing known is a "<Mac> · Can't connect" line (Retry); filtered to
   it, "Can't connect to <Mac>" + Retry. Team failed → "Couldn't load workspaces" + Retry. Filtered online Mac with none → "No workspaces on <Mac>" + New Workspace; filtered
   offline Mac → "<Mac> is offline"; live, filtered to an online Mac the phone is not linked to
