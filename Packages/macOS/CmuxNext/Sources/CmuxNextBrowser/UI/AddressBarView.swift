@@ -41,12 +41,12 @@ public final class AddressBarView: NSView {
     let chip = PageInfoChipButton()
     let field = AddressField()
     private let machineBadgeView = MachineBadgeView()
-    private let profileBadgeView = ProfileBadgeView()
     let starButton = BookmarkStarButton()
-    /// The trailing badges (browser focus mode, browser profile, machine, bookmark star); hidden ones take no room.
+    /// The trailing badges (browser focus mode, machine, bookmark star); hidden ones take no room. The tab's
+    /// browser profile is the toolbar's profile button, outside the bar (`BrowserToolbarButtonsView.profileBadge`).
     let focusModeBadgeView = FocusModeBadgeView()
     private var focusModeBadgeWanted = false
-    private lazy var badges = NSStackView(views: [focusModeBadgeView, profileBadgeView, machineBadgeView, starButton])
+    private lazy var badges = NSStackView(views: [focusModeBadgeView, machineBadgeView, starButton])
     // Built on first use in init (no IUO).
     private lazy var fieldToEdge = field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.trailingPadding)
     private lazy var fieldToBadge = field.trailingAnchor.constraint(equalTo: badges.leadingAnchor, constant: -OmnibarStyle.fieldTrailingGap)
@@ -148,8 +148,6 @@ public final class AddressBarView: NSView {
 
     /// The tab this omnibar belongs to: never offered as its own Switch to Tab row.
     public var tabKey: String?
-    /// The profile badge shown now (`setProfileBadge`).
-    private(set) var shownProfileBadge: BrowserProfileBadge?
 
     var resolver: OmniboxResolver {
         var resolver = suggestionEngine.resolver
@@ -197,7 +195,6 @@ public final class AddressBarView: NSView {
         addSubview(field)
         machineBadgeView.isHidden = true
         focusModeBadgeView.isHidden = true
-        profileBadgeView.isHidden = true
         starButton.isHidden = true
         badges.orientation = .horizontal
         badges.spacing = 4
@@ -280,31 +277,11 @@ public final class AddressBarView: NSView {
     /// The machine badge last applied (`setMachineBadge`), so an unchanged one returns at once.
     private var shownMachineBadge: (text: String?, help: String?)?
 
-    /// The tab's browser profile as a small avatar; nil hides it (one
-    /// profile, or an incognito tab).
-    public func setProfileBadge(_ badge: BrowserProfileBadge?) {
-        shownProfileBadge = badge
-        if let badge { profileBadgeView.show(badge) }
-        profileBadgeView.isHidden = badge == nil
-        updateBadgeSpace()
-    }
-
     /// The machine chip's menu (the host's machine actions, cx-2cob).
     public var machineBadgeMenu: (() -> NSMenu?)? {
         get { machineBadgeView.makeMenu }
         set { machineBadgeView.makeMenu = newValue }
     }
-
-    /// The browser profile badge's menu (the host's profile actions).
-    public var profileBadgeMenu: (() -> NSMenu?)? {
-        get { profileBadgeView.makeMenu }
-        set { profileBadgeView.makeMenu = newValue }
-    }
-
-    /// The profile badge's text color now (tests).
-    var profileBadgeTextColor: NSColor? { profileBadgeView.shownTextColor }
-    /// The badge shown now, for diagnostics (`debug.browser`).
-    public var profileBadgeName: String? { profileBadgeView.isHidden ? nil : profileBadgeView.themedToolTip }
 
     /// Browser focus mode's badge: nil hides it, else "Focus Mode" or, once
     /// the first Escape armed the exit, "Esc again to exit". It fades in and
@@ -342,7 +319,7 @@ public final class AddressBarView: NSView {
     public var focusModeBadgeText: String? { showsFocusModeBadge ? focusModeBadgeView.shownText : nil }
 
     func updateBadgeSpace() {
-        let visible = !machineBadgeView.isHidden || !profileBadgeView.isHidden || !starButton.isHidden || !focusModeBadgeView.isHidden
+        let visible = !machineBadgeView.isHidden || !starButton.isHidden || !focusModeBadgeView.isHidden
         guard fieldToBadge.isActive != visible else { return }
         fieldToEdge.isActive = !visible
         fieldToBadge.isActive = visible
@@ -659,6 +636,6 @@ public final class AddressBarView: NSView {
     func repaintInk() {
         field.repaintInk()
         chip.repaintInk()
-        for view in [starButton, profileBadgeView, machineBadgeView] as [NSView] { view.needsDisplay = true }
+        for view in [starButton, machineBadgeView] as [NSView] { view.needsDisplay = true }
     }
 }

@@ -8,7 +8,8 @@ public import Foundation
 /// cmux-platform's CloudDO makes room itself on the app-server link: a person's create at the cap pauses the least
 /// recently used of their own idle machines, then creates, and the answer names it (`made_room`). Only when every
 /// machine of theirs is busy does the create come back refused (`cloud.quota.exceeded`, `details.busy`), and the app
-/// shows one card: Pause one (each busy machine), Upgrade, or Run on This Mac. The classic link makes no room (it
+/// shows one card: Pause one (each busy machine), Upgrade, or Run on This Mac. At the team's machine-count limit
+/// (`cloud.quota.vm_limit`: paused machines count) the card offers Upgrade or Run on This Mac. The classic link makes no room (it
 /// gets no new features before the DEV cutover): it shows the same card, with Pause only where pausing frees room. A
 /// free plan has nothing to pause: Upgrade or Run on This Mac. Never another workspace's machine, never a teammate's.
 public nonisolated struct CloudMachineCap: Equatable, Sendable {
@@ -44,20 +45,56 @@ public nonisolated struct CloudMachineCap: Equatable, Sendable {
     /// The chat page's failure code for ``RunHere``: the page sends the prompt on this Mac instead (webviews cloudRun.ts).
     public static let runHereCode = "run_on_this_mac"
 
+    /// The team holds as many machines as it may keep, paused ones included (`cloud.quota.vm_limit`): pausing frees
+    /// nothing, so the card offers Upgrade and Run on This Mac, never Pause (cmux#56154).
+    public struct MachineLimit: Equatable, Sendable, Codable {
+        /// The team's limit, when the refusal names it.
+        public var limit: Int?
+        /// The machines the team holds, when the refusal names them.
+        public var used: Int?
+
+        public init(limit: Int? = nil, used: Int? = nil) {
+            self.limit = limit
+            self.used = used
+        }
+    }
+
+    /// The team made as many machines as it may in an hour (`cloud.rate_limited` with `window_ms`): the card says when
+    /// the next create fits and offers Run on This Mac; neither Pause nor Upgrade frees it (cmux#56154).
+    public struct CreateRate: Equatable, Sendable, Codable {
+        /// The creates an hour the team may make, when the refusal names it.
+        public var limit: Int?
+        /// How long until the next create fits, in ms.
+        public var retryAfterMs: Int?
+
+        public init(limit: Int? = nil, retryAfterMs: Int? = nil) {
+            self.limit = limit
+            self.retryAfterMs = retryAfterMs
+        }
+    }
+
     /// Newest activity first; empty on a free plan.
     public var busy: [Busy]
     /// The plan has no Cloud machines at all: the card offers no pause.
     public var freePlan: Bool
+    /// The team is at its machine-count limit: the card offers no pause.
+    public var machineLimit: MachineLimit?
+    /// The team is at its hourly create limit: the card offers no pause and no upgrade.
+    public var createRate: CreateRate?
 
-    public init(busy: [Busy] = [], freePlan: Bool = false) {
+    public init(busy: [Busy] = [], freePlan: Bool = false, machineLimit: MachineLimit? = nil, createRate: CreateRate? = nil) {
         self.busy = busy
         self.freePlan = freePlan
+        self.machineLimit = machineLimit
+        self.createRate = createRate
     }
 
     /// The card as cmux-cloud-machine `cap.rs` answers it.
     private struct Card: Decodable {
         var busy: [Busy]
         var freePlan: Bool
+        var machineLimit: MachineLimit?
+        var createRate: CreateRate?
     }
 
     /// The card for an app-server refusal at the cap (`cmux.cloud.quota_exceeded`, upstream `cloud.quota.exceeded`, its
@@ -67,7 +104,7 @@ public nonisolated struct CloudMachineCap: Equatable, Sendable {
         struct Request: Encodable { var code: String, details: JSONValue? }
         struct Reply: Decodable { var cap: Card? }
         let reply = CloudMachineRules().call("cloud_machine_cap_refusal", Request(code: failure.code, details: failure.details), as: Reply.self)
-        return reply?.cap.map { CloudMachineCap(busy: $0.busy, freePlan: $0.freePlan) }
+        return reply?.cap.map { CloudMachineCap(busy: $0.busy, freePlan: $0.freePlan, machineLimit: $0.machineLimit, createRate: $0.createRate) }
     }
 
     /// The card for a refusal the app read itself (its plan gate, the classic link's 402): `user`'s own live machines,

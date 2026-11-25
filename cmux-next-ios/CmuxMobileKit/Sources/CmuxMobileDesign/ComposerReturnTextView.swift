@@ -49,7 +49,9 @@ open class ComposerReturnTextView: UITextView {
 
     public init(policy: ComposerReturnPolicy) {
         returnPolicy = policy
-        super.init(frame: .zero, textContainer: nil)
+        let stack = Self.textKit1Stack()
+        ownedTextStorage = stack?.storage
+        super.init(frame: .zero, textContainer: stack?.container)
         isScrollEnabled = true
         alwaysBounceVertical = false
         showsHorizontalScrollIndicator = false
@@ -71,6 +73,61 @@ open class ComposerReturnTextView: UITextView {
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    // MARK: Text system
+
+    /// The view's text storage, held here: a text view made with its own container keeps
+    /// the container, the container only points back at its layout manager, and the layout
+    /// manager at its storage, so nothing else keeps the storage alive.
+    private let ownedTextStorage: NSTextStorage?
+
+    /// TextKit 1 with noncontiguous layout: the text storage, layout manager and container
+    /// a composer (and its measuring probes) is made with.
+    ///
+    /// TextKit 2 lays a paragraph out and draws it as one layout fragment, so a key typed
+    /// into a 10,000-character draft with no line break laid out and drew all 10,000
+    /// characters (70-100 ms per key, in stacks of `NSTextLayoutFragment _layout`,
+    /// `CTTypesetterCreateWithAttributedStringAndOptions` and `_UITextLayoutFragmentView
+    /// drawRect` with no composer code on them; Leo, 2026-11-24: "for really lo gb text
+    /// messages actually, it lags"; ComposerTypingLagUITests' one-paragraph cells).
+    /// TextKit 1 lays lines out from the edit on, only as far as the field shows
+    /// (`allowsNonContiguousLayout`), and draws only the lines that changed.
+    /// Nil (TextKit 2, the system's default) under `-cmux-mobile-composer-textkit2`, the
+    /// bench's other side.
+    static func textKit1Stack() -> (storage: NSTextStorage, container: NSTextContainer)? {
+        #if DEBUG
+        if usesTextKit2 { return nil }
+        #endif
+        let storage = NSTextStorage()
+        let manager = NSLayoutManager()
+        manager.allowsNonContiguousLayout = true
+        storage.addLayoutManager(manager)
+        let container = NSTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        container.widthTracksTextView = true
+        manager.addTextContainer(container)
+        return (storage, container)
+    }
+
+    #if DEBUG
+    /// `-cmux-mobile-composer-textkit2`: composers on TextKit 2, as before
+    /// (ComposerTypingLagUITests' `testLongTextMatrixTextKit2`).
+    public static let usesTextKit2 = CommandLine.arguments.contains("-cmux-mobile-composer-textkit2")
+    #endif
+
+    /// A plain text view on the composer's text system, for measuring: a probe on another
+    /// text system lays lines out to other heights than the field it measures.
+    final class Probe: UITextView {
+        private let ownedTextStorage: NSTextStorage?
+
+        init() {
+            let stack = ComposerReturnTextView.textKit1Stack()
+            ownedTextStorage = stack?.storage
+            super.init(frame: .zero, textContainer: stack?.container)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    }
+
     public var placeholder: String = "" {
         didSet {
             placeholderLabel.text = placeholder
@@ -80,9 +137,76 @@ open class ComposerReturnTextView: UITextView {
 
     override open var text: String! {
         didSet {
+            handedDraft = nil
             updatePlaceholder()
             unsettle()
         }
+    }
+
+    // MARK: Draft
+
+    /// The draft as last handed to the binding (`draftText()`) or taken from it
+    /// (`takeDraft(_:)`): what the view's text is, as a native Swift string. Nil after any
+    /// other change to `text`.
+    private var handedDraft: String?
+
+    /// The view's text for the binding, after an edit (the delegate's `textViewDidChange`).
+    ///
+    /// `UITextView.text` bridges as a lazy NSString (the text storage's NSBigMutableString),
+    /// so every Swift comparison of it (the binding's `didSet`, `@Observable`'s change
+    /// check, SwiftUI's diff of the views that hold it) walked it a character at a time with
+    /// Unicode normalization: hundreds of ms per key in a 10,000-character chat draft, in
+    /// stacks of `NSBigMutableString characterAtIndex` and `_NFCNormalizer` under
+    /// `AgentChatSurface.text` and `ViewBodyAccessor` (Leo, 2026-11-24; ComposerTypingLagUITests).
+    /// One native copy per key (`nativeCopy(of:)`, one bulk conversion) makes each of those a
+    /// buffer compare, and the copy kept here lets `differs(from:)` answer the binding's next
+    /// update by identity.
+    public func draftText() -> String {
+        #if DEBUG
+        if Self.measuresWholeDraft { return text ?? "" }
+        #endif
+        let draft = Self.nativeCopy(of: textStorage.string as NSString)
+        handedDraft = draft
+        return draft
+    }
+
+    /// A native Swift string of `string` in one bulk UTF-16 to UTF-8 conversion
+    /// (`CFStringGetBytes`). `makeContiguousUTF8()` on the bridged text copied it through
+    /// String's foreign-string path a scalar at a time (`_foreignSubscript` in the
+    /// long-text matrix's stacks). A string CFStringGetBytes cannot convert whole (a lone
+    /// surrogate) takes that path still.
+    static func nativeCopy(of string: NSString) -> String {
+        let length = string.length
+        guard length > 0 else { return "" }
+        let capacity = CFStringGetMaximumSizeForEncoding(length, CFStringBuiltInEncodings.UTF8.rawValue)
+        var converted = 0
+        let copy = String(unsafeUninitializedCapacity: capacity) { buffer in
+            var used = 0
+            converted = CFStringGetBytes(string, CFRange(location: 0, length: length), CFStringBuiltInEncodings.UTF8.rawValue,
+                                         0, false, buffer.baseAddress, capacity, &used)
+            return used
+        }
+        if converted == length { return copy }
+        var slow = string as String
+        slow.makeContiguousUTF8()
+        return slow
+    }
+
+    /// Whether the binding's draft differs from the view's text (`updateUIView`). The
+    /// binding hands back the string `draftText()` gave it, the same storage, which
+    /// compares in O(1); only a draft set from outside reads and compares the view's text.
+    public func differs(from draft: String) -> Bool {
+        #if DEBUG
+        if Self.measuresWholeDraft { return text != draft }
+        #endif
+        if let handedDraft, handedDraft == draft { return false }
+        return text != draft
+    }
+
+    /// Sets the view's text from the binding (`updateUIView`), remembered as handed.
+    public func takeDraft(_ draft: String) {
+        text = draft
+        handedDraft = draft
     }
 
     override open var font: UIFont? {
@@ -102,6 +226,20 @@ open class ComposerReturnTextView: UITextView {
                             maxLines: returnPolicy.maxLines)
     }
 
+    /// Shares the card with `reserved` points above the field (the attachment strip): the
+    /// field grows to `baseMaxLines` less the lines the strip takes
+    /// (``ComposerFieldHeight/maxLines(_:sharing:lineHeight:)``). True when that changed the
+    /// field's limit; its size is asked again then.
+    @discardableResult
+    public func shareCard(reserved: CGFloat, baseMaxLines: Int) -> Bool {
+        let lineHeight = Self.laidOutLineHeight(font ?? .preferredFont(forTextStyle: .body))
+        let lines = ComposerFieldHeight.maxLines(baseMaxLines, sharing: reserved, lineHeight: lineHeight)
+        guard lines != returnPolicy.maxLines else { return false }
+        returnPolicy = ComposerReturnPolicy(style: returnPolicy.style, maxLines: lines)
+        invalidateIntrinsicContentSize()
+        return true
+    }
+
     /// One line's height as a text view lays it out in `font`. It is taller
     /// than `font.lineHeight` (22 pt against 20.3 for the 17 pt body), so a
     /// maximum computed from the font cut the sixth line in half and
@@ -110,7 +248,7 @@ open class ComposerReturnTextView: UITextView {
 
     private static func laidOutLineHeight(_ font: UIFont) -> CGFloat {
         if let height = lineHeights[font] { return height }
-        let probe = UITextView(frame: .zero, textContainer: nil)
+        let probe = Probe()
         probe.font = font
         probe.textContainerInset = .zero
         probe.textContainer.lineFragmentPadding = 0
@@ -201,7 +339,7 @@ open class ComposerReturnTextView: UITextView {
     }
 
     private lazy var measureProbe: UITextView = {
-        let probe = UITextView(frame: .zero, textContainer: nil)
+        let probe = Probe()
         probe.isScrollEnabled = isScrollEnabled
         return probe
     }()
@@ -308,7 +446,7 @@ open class ComposerReturnTextView: UITextView {
     public func followCaret() {
         if !textOverflows {
             pinToTop()
-        } else if NSMaxRange(selectedRange) >= (text as NSString? ?? "").length {
+        } else if NSMaxRange(selectedRange) >= textStorage.length {
             // Typing at the end: the field's bottom inset shows below the last
             // line, as it does at rest (scrollRangeToVisible stops at the
             // caret, leaving the line flush against the field's bottom edge).
@@ -371,6 +509,7 @@ open class ComposerReturnTextView: UITextView {
         let id = accessibilityIdentifier ?? "composer"
         let start = CACurrentMediaTime()
         trace.typed()
+        trace.beginKey("\(id)_key_frame")
         let cpu = InputLatencyTrace.threadCPUms()
         let units = Self.measuredUnits
         let calls = Self.measureCalls
@@ -411,7 +550,7 @@ open class ComposerReturnTextView: UITextView {
     }
 
     public func updatePlaceholder() {
-        placeholderLabel.isHidden = !(text ?? "").isEmpty
+        placeholderLabel.isHidden = hasText
         accessibilityLabel = placeholder
     }
 
@@ -506,14 +645,20 @@ open class ComposerReturnTextView: UITextView {
     }
 
     override open var keyCommands: [UIKeyCommand]? {
+        (super.keyCommands ?? []) + returnCommands
+    }
+
+    /// Built once: UIKit reads `keyCommands` as the field becomes first
+    /// responder, before the keyboard's first frame.
+    private lazy var returnCommands: [UIKeyCommand] = {
         let commands = [
             UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(hardwareReturn)),
             UIKeyCommand(input: "\r", modifierFlags: .shift, action: #selector(hardwareShiftReturn)),
             UIKeyCommand(input: "\r", modifierFlags: .alternate, action: #selector(hardwareOptionReturn)),
         ]
         commands.forEach { $0.wantsPriorityOverSystemBehavior = true }
-        return (super.keyCommands ?? []) + commands
-    }
+        return commands
+    }()
 
     override open func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         switch action {
@@ -532,8 +677,19 @@ open class ComposerReturnTextView: UITextView {
     /// An image or a copied file leads the pasteboard, for a composer that
     /// takes attachments (`composerPastesAttachments`).
     private var pastesAttachments: Bool {
-        onPasteAttachments != nil && UIPasteboard.general.composerPastesAttachments
+        guard onPasteAttachments != nil else { return false }
+        // UIKit validates Paste as the field becomes first responder, before
+        // the keyboard's first frame; reading the pasteboard's types costs
+        // about 0.4 ms. Read them again only once the pasteboard changed.
+        let pasteboard = UIPasteboard.general
+        let change = pasteboard.changeCount
+        if let pasteCheck, pasteCheck.change == change { return pasteCheck.attaches }
+        let attaches = pasteboard.composerPastesAttachments
+        pasteCheck = (change, attaches)
+        return attaches
     }
+
+    private var pasteCheck: (change: Int, attaches: Bool)?
 
     override open func paste(_ sender: Any?) {
         if pastesAttachments, let onPasteAttachments {

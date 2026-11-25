@@ -36,7 +36,10 @@ fn a_project_value_wins_over_the_users_but_not_a_managed_one() {
 fn with_no_home_both_files_stay_relative() {
     assert_eq!(
         paths_from(|_| None, || None),
-        [PathBuf::from(".config/cmux/cmux-next.json"), PathBuf::from(".config/cmux/cmux.json")]
+        [
+            PathBuf::from(".config").join(cmux_config::NEXT_DIR).join("cmux-next.json"),
+            PathBuf::from(".config/cmux/cmux.json")
+        ]
     );
 }
 
@@ -46,7 +49,7 @@ fn home_and_override_resolve_as_cmux_config_does() {
     assert_eq!(
         paths_from(home, || None),
         [
-            PathBuf::from("/h/.config/cmux/cmux-next.json"),
+            PathBuf::from("/h/.config").join(cmux_config::NEXT_DIR).join("cmux-next.json"),
             PathBuf::from("/h/.config/cmux/cmux.json")
         ]
     );

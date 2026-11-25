@@ -141,7 +141,7 @@ nonisolated struct SignedHelperStaging: Sendable {
     /// `helperBundleID` is the bundled helper's own id (a NIGHTLY side build carries NIGHTLY's);
     /// without one, the channel's (``channelHelperBundleID(forApp:)``). The folder builds before
     /// kept it in, `cmux-next/screen-sharing/<scope>`, is removed, and so are other builds' ones.
-    static func screenSharing(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+    static func screenSharing(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app.next",
                               helperBundleID: String? = nil,
                               home: URL = FileManager.default.homeDirectoryForCurrentUser) -> SignedHelperStaging {
         let support = NextSupport(applicationSupport: home.appending(path: "Library/Application Support", directoryHint: .isDirectory))

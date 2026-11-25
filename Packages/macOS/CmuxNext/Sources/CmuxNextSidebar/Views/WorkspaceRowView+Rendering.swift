@@ -85,7 +85,7 @@ extension WorkspaceRowView {
             // Archived (archiving-DESIGN.md): the title drops to the detail ink, no opacity of its own (Leo 2026-10-27).
             [subtitle, timeLabel, metaLabel, tabCount].forEach { $0.setColor(SidebarStyle.TextInk.tertiary.color) }
             mutedMark.setTint(Palette.textTertiary)
-            cloudMark.setTint(Palette.textTertiary)
+            pinMark.setTint(Palette.textTertiary)
             usageWarningMark.setTint(Palette.attention)
             prBadge.setColor(Palette.textSecondary)
             tintSessionTree()
@@ -268,15 +268,13 @@ extension WorkspaceRowView {
             activity.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: SidebarStyle.statusGlyphSize, height: SidebarStyle.statusGlyphSize))
             trailing = columns.trailingEdge(before: activity.frame)
         }
+        if !pinMark.isHidden {
+            pinMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: ind, height: ind))
+            trailing = columns.trailingEdge(before: pinMark.frame)
+        }
         if !mutedMark.isHidden {
             mutedMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: ind, height: ind))
             trailing = columns.trailingEdge(before: mutedMark.frame)
-        }
-        // Where the row runs is a status mark like the bell-slash: a Cloud row's small muted cloud sits in the trailing
-        // cluster, never in the leading slot or against the name (Leo 2026-11-22).
-        if !cloudMark.isHidden {
-            cloudMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: ind, height: ind))
-            trailing = columns.trailingEdge(before: cloudMark.frame)
         }
         if !usageWarningMark.isHidden {
             // The triangle takes a status mark's box (the spinner's, `statusGlyphFrame`); with no spinner it is the
@@ -349,12 +347,12 @@ extension WorkspaceRowView {
         // status stack, the counts, the time and the usage warning hide in place (no layout shift). Only what a person
         // points at keeps its place: the audio button, and the Cloud mark, which belongs to the name.
         let controlsShow = !shownControls.isEmpty
-        for mark in ([activity, rowBadge, agentMark, mutedMark, cloudMark, usageWarningMark, audioSlot.made, presenceDots, timeLabel, tabCount, prBadge] as [NSView?]).compactMap(\.self) {
+        for mark in ([activity, rowBadge, agentMark, pinMark, mutedMark, usageWarningMark, audioSlot.made, presenceDots, timeLabel, tabCount, prBadge] as [NSView?]).compactMap(\.self) {
             // The column's mark gives way while the hover controls show; so does a status spinner left of it.
             // A leading status mark sits before the title, clear of the hover controls: it never gives way.
             let statusMark = mark === activity || (mark === agentMark && markReplacesStatus)
             let status = !statusLeads && statusMark
-            let keepsPlace = (statusLeads && statusMark) || mark === cloudMark || mark === audioSlot.made
+            let keepsPlace = (statusLeads && statusMark) || mark === audioSlot.made
                 || (mark === agentMark && agentMarkVariant == .besideTitle)
             let covered = mark === columnMark?.view ? markGivesWay || controlsShow
                 : (controlsShow && !keepsPlace) || (status && coverStart != nil) || coverStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true
@@ -362,6 +360,14 @@ extension WorkspaceRowView {
             fadeOpacity(mark, to: covered || underControl ? 0 : 1, fades: fades)
         }
         giveWayToControls(shownControls, fades: fades)
+        // Whatever the rules above left drawn, no two icons share a box: the ✕, the ⋮, the pin, the tree chevron, the
+        // speaker and the drive button keep theirs; a dot, spinner, chip or count meeting one of them, or an icon kept
+        // before it, clears (Leo 2026-11-22: "this too. fucking overlapping icons. over 24 hours ago.": the blue dot
+        // drew on a tree parent's ⋮ beside its chevron).
+        clearMarksMeetingIcons(keep: [closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made, driveIndicator],
+                               marks: [rowBadge, badge, activity, agentMark, keycap, pullRequests, rollUp, pinMark, mutedMark,
+                                       presenceDots, tabCount, prBadge, timeLabel],
+                               fades: fades)
         if showsNeedsYouGlow { hideMarksForNeedsYouGlow() } else { marksHiddenForGlow = false } // the mark pass showed them
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)
         layoutSubagents(textX: textX, head: b.maxY + statusHeight, full: full)
