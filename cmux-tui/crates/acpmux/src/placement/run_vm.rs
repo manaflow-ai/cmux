@@ -38,7 +38,7 @@ use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::io::AsyncWriteExt as _;
+use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _};
 
 /// The hidden subcommand a heavy shell call is rewritten into.
 pub const SUBCOMMAND: &str = "run-vm";
