@@ -1,6 +1,12 @@
 {
   "revision": 1,
   "surface": {
+    "event:_acpmux/admission_waiting": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "event:_acpmux/cancel_refused": {
       "/*untyped*": {
         "ty": "json",
@@ -1680,6 +1686,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -1977,6 +1986,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -2281,6 +2293,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -2575,6 +2590,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -2876,6 +2894,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -3167,6 +3188,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -3474,6 +3498,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -3770,6 +3797,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -4061,6 +4091,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -4362,6 +4395,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -4661,6 +4697,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -4955,6 +4994,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -5256,6 +5298,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -5552,6 +5597,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -5846,6 +5894,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -6168,6 +6219,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -6432,6 +6486,9 @@
       "/archived": {
         "ty": "json"
       },
+      "/opId": {
+        "ty": "json"
+      },
       "/sessionId": {
         "ty": "json"
       }
@@ -6529,6 +6586,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -6887,6 +6947,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -7178,6 +7241,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -7507,6 +7573,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -7854,6 +7923,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -8443,6 +8515,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -8734,6 +8809,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -9198,6 +9276,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -9542,6 +9623,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -9833,6 +9917,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -10140,6 +10227,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -10434,6 +10524,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -10736,6 +10829,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -11053,6 +11149,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -11409,6 +11508,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -11705,6 +11807,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -11970,6 +12075,88 @@
         "ty": "json"
       }
     },
+    "request:_acpmux/here": {
+      "/scope": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/here/beat": {
+      "/_meta": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/_meta/acpmux": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/_meta/acpmux/author": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/_meta/acpmux/author/approval": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "owner"
+        ]
+      },
+      "/_meta/acpmux/author/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/_meta/acpmux/author/login": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/_meta/acpmux/author/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/_meta/acpmux/author/node": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/activity": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"away\"",
+          "\"present\"",
+          "\"working\""
+        ]
+      },
+      "/device": {
+        "ty": "string",
+        "required": true
+      },
+      "/deviceKind": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "mac",
+          "other",
+          "phone",
+          "vm",
+          "web"
+        ]
+      },
+      "/idleMs": {
+        "ty": "uint64"
+      },
+      "/leave": {
+        "ty": "boolean"
+      },
+      "/scopes": {
+        "ty": "array"
+      },
+      "/scopes/*": {
+        "ty": "string"
+      },
+      "/seq": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "request:_acpmux/history": {
       "/*untyped*": {
         "ty": "json",
@@ -12068,6 +12255,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -12397,6 +12587,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -12934,6 +13127,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -13254,6 +13450,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -13565,6 +13764,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -13864,6 +14066,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -14158,6 +14363,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -14463,6 +14671,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -14833,6 +15044,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -15136,6 +15350,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -15450,6 +15667,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -16022,6 +16242,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -16352,6 +16575,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -16649,6 +16875,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -16959,6 +17188,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -17267,6 +17499,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -17569,6 +17804,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -17862,6 +18100,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -18150,6 +18391,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -18447,6 +18691,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -18751,6 +18998,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -19045,6 +19295,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -19355,6 +19608,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -19649,6 +19905,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -19995,6 +20254,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -20316,6 +20578,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -20667,6 +20932,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -21026,6 +21294,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -21525,6 +21796,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -21842,6 +22116,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -22136,6 +22413,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -22437,6 +22717,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -22731,6 +23014,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -23029,6 +23315,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -23320,6 +23609,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -23616,6 +23908,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -23926,6 +24221,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -24234,6 +24532,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -24528,6 +24829,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -24838,6 +25142,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -25144,6 +25451,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -25477,6 +25787,12 @@
         "nullable": true
       }
     },
+    "request:_acpmux/tailnet/placement": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/tailnet/start": {
       "/*untyped*": {
         "ty": "json",
@@ -25689,6 +26005,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -26143,6 +26462,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -26481,6 +26803,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -26878,6 +27203,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -27175,6 +27503,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -27521,6 +27852,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -27824,6 +28158,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -28149,6 +28486,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -28446,6 +28786,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -28753,6 +29096,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -29052,6 +29398,9 @@
       "/_meta/acpmux/author": {
         "ty": "json"
       },
+      "/_meta/acpmux/autoPlace": {
+        "ty": "json"
+      },
       "/_meta/acpmux/beforePromptId": {
         "ty": "json"
       },
@@ -29346,6 +29695,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/author": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/autoPlace": {
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
@@ -31832,6 +32184,89 @@
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
+      }
+    },
+    "response:_acpmux/here": {
+      "/data/here": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/here/*": {
+        "ty": "object"
+      },
+      "/data/here/*/devices": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/here/*/devices/*": {
+        "ty": "object"
+      },
+      "/data/here/*/devices/*/ageMs": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/here/*/devices/*/device": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/here/*/devices/*/deviceKind": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "mac",
+          "other",
+          "phone",
+          "vm",
+          "web"
+        ]
+      },
+      "/data/here/*/devices/*/status": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "active",
+          "away",
+          "idle"
+        ]
+      },
+      "/data/here/*/devices/*/working": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/here/*/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/here/*/kind": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "agent",
+          "person"
+        ]
+      },
+      "/data/here/*/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/here/*/status": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "active",
+          "away",
+          "idle"
+        ]
+      },
+      "/data/here/*/working": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
+    "response:_acpmux/here/beat": {
+      "/data/changed": {
+        "ty": "boolean",
+        "required": true
       }
     },
     "response:_acpmux/history": {
@@ -34671,6 +35106,12 @@
       }
     },
     "response:_acpmux/tailnet/logout": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/tailnet/placement": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
