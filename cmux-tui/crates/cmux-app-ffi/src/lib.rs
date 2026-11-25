@@ -48,6 +48,9 @@
 //! the validation and the defaults; include/cmux_settings.h).
 //! `layout_cache` is every window's last computed layout kept across restarts, so a launch
 //! draws it already placed (cmux-layout-cache, include/cmux_layout_cache.h).
+//! `screen_stream` is the screen stream's protocol and policy without WebRTC: data channel
+//! messages, quality settings, the viewer's demand, image paste and cursor shapes
+//! (cmux-screen-stream, include/cmux_screen_stream.h).
 //! `agent_client` is the no-I/O agent list client (acpmux-client,
 //! include/acpmux_client.h); the app owns and drives its byte connection.
 
@@ -82,5 +85,6 @@ pub use cmux_layout_reducer_ffi as layout_reducer;
 pub use cmux_palette_ranker::ffi as palette_ranker;
 pub use cmux_pane_pictures::ffi as pane_pictures;
 pub use cmux_rd_ffi as rd;
+pub use cmux_screen_stream::ffi as screen_stream;
 pub use cmux_sdk_ffi as sdk;
 pub use cmux_terminal_prediction::ffi as terminal_prediction;
