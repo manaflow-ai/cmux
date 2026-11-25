@@ -23,7 +23,7 @@ use bytes::Bytes;
 use cmux_transport::relay_frame::{FrameKind, PeerId, RELAY_FRAME_MAX_PAYLOAD, RelayFrame};
 use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{broadcast, mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::Message;
@@ -201,12 +201,56 @@ fn classify(error: tokio_tungstenite::tungstenite::Error) -> RelayFailure {
 /// into as few frames as fit; what the peer sends arrives on `inbound`.
 pub struct RelayCarrier {
     queue: Arc<ClassQueue>,
+    hold: HoldPort,
     pub(crate) inbound: mpsc::Receiver<Bytes>,
     dead: watch::Receiver<bool>,
     peer_online: watch::Receiver<bool>,
     tasks: Vec<JoinHandle<()>>,
     /// When the join answered.
     pub joined_at: Instant,
+}
+
+/// The relay socket's text side for the relay-held send queue (RFD 0142 R8,
+/// [`crate::relay_hold`]): hold frames out, the relay's hold frames in. Cheap
+/// to clone; it outlives nothing (a dead socket drops what is written).
+#[derive(Clone)]
+pub struct HoldPort {
+    text: mpsc::Sender<String>,
+    frames: broadcast::Sender<crate::relay_hold::Incoming>,
+    dead: watch::Receiver<bool>,
+}
+
+impl std::fmt::Debug for HoldPort {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HoldPort").field("dead", &*self.dead.borrow()).finish_non_exhaustive()
+    }
+}
+
+/// Hold frames a port buffers for a slow reader before the oldest go.
+const HOLD_FRAMES: usize = 256;
+/// Hold frames out the writer has not taken yet, at most.
+const HOLD_TEXT_QUEUE: usize = 128;
+
+impl HoldPort {
+    /// Write one hold frame (`hold` or `held_ack`) to the relay. `false` when the
+    /// socket is dead or the queue is full: route the send another way.
+    pub fn send_text(&self, text: String) -> bool {
+        !*self.dead.borrow() && self.text.try_send(text).is_ok()
+    }
+
+    /// The relay's hold frames from now on (`held`, `hold_refused`, `held_item`, `delivered`).
+    pub fn subscribe(&self) -> broadcast::Receiver<crate::relay_hold::Incoming> {
+        self.frames.subscribe()
+    }
+
+    pub fn is_dead(&self) -> bool {
+        *self.dead.borrow()
+    }
+
+    /// Becomes `true` when the socket fails.
+    pub fn dead(&self) -> watch::Receiver<bool> {
+        self.dead.clone()
+    }
 }
 
 impl std::fmt::Debug for RelayCarrier {
@@ -262,6 +306,9 @@ impl RelayCarrier {
         let (dead_tx, dead) = watch::channel(false);
         let dead_tx = Arc::new(dead_tx);
         let (peer_tx, peer_online) = watch::channel(false);
+        let (text_tx, mut text_rx) = mpsc::channel::<String>(HOLD_TEXT_QUEUE);
+        let (frames_tx, _) = broadcast::channel(HOLD_FRAMES);
+        let hold = HoldPort { text: text_tx, frames: frames_tx.clone(), dead: dead.clone() };
         let writer = {
             let (queue, dead_tx) = (Arc::clone(&queue), Arc::clone(&dead_tx));
             tokio::spawn(async move {
@@ -275,6 +322,13 @@ impl RelayCarrier {
                                 Some(item) => item,
                                 None => break,
                             },
+                            Some(text) = text_rx.recv() => {
+                                let sent = tokio::time::timeout(WRITE_WAIT, sink.send(Message::Text(text.into()))).await;
+                                if !matches!(sent, Ok(Ok(()))) {
+                                    break;
+                                }
+                                continue;
+                            }
                             _ = ping.tick() => {
                                 let sent = tokio::time::timeout(WRITE_WAIT, sink.send(Message::Text(APP_PING.into()))).await;
                                 if !matches!(sent, Ok(Ok(()))) {
@@ -367,6 +421,12 @@ impl RelayCarrier {
                                 Some("error") => {
                                     tracing::debug!(code = %value["code"], "relay refused a frame");
                                 }
+                                Some("held" | "hold_refused" | "held_item" | "delivered") => {
+                                    if let Some(frame) = crate::relay_hold::Incoming::parse(&text) {
+                                        // No subscriber: nobody uses the queue on this socket.
+                                        let _ = frames_tx.send(frame);
+                                    }
+                                }
                                 _ => {}
                             }
                         }
@@ -381,7 +441,15 @@ impl RelayCarrier {
                 dead_tx.send_replace(true);
             })
         };
-        Self { queue, inbound, dead, peer_online, tasks: vec![writer, reader], joined_at: Instant::now() }
+        Self {
+            queue,
+            hold,
+            inbound,
+            dead,
+            peer_online,
+            tasks: vec![writer, reader],
+            joined_at: Instant::now(),
+        }
     }
 
     /// Queue one datagram to the peer, in `class` (dropped past its class's
@@ -408,6 +476,11 @@ impl RelayCarrier {
     /// The relay's word on the peer's socket, as it changes.
     pub fn peer_online_watch(&self) -> watch::Receiver<bool> {
         self.peer_online.clone()
+    }
+
+    /// The socket's text side for relay-held sends.
+    pub fn hold_port(&self) -> HoldPort {
+        self.hold.clone()
     }
 
     /// Debug and tests: close the socket, as a proxy that resets it would.
