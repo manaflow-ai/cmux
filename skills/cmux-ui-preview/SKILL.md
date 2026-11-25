@@ -1,13 +1,13 @@
 ---
 name: cmux-ui-preview
-description: "Show UI work in the chat as it forms, at no token cost: start the surface's live mode, open the preview in a browser tab, and cmux captures frames into the chat on its own; `look` when you need to see it, then a Try it on button at turn end. Use before your first edit to any UI (webviews, Settings, chat pane, a site, the Rust daemon's UI, Swift views, iOS)."
+description: "Show UI work in the chat by default: start the surface's live mode, open the preview in a cmux browser tab you created, and cmux puts a before and after picture of that page on the turn's edited-files card on its own; `cmux browser <tab> screenshot` when you must see it yourself; end with how to try it. Use before your first edit to any UI (webviews, Settings, chat pane, a site, the Rust daemon's UI, Swift views)."
 ---
 
 # Live UI preview in the chat
 
-When you change UI, the person sees it in the chat as you build it: a strip of frames and a live
-preview window, then a Try it on button at turn end. cmux does the capturing. You only do these
-four things.
+When you change UI, the person sees it in the chat without asking: the page you preview, live,
+and a before and after picture of it on each turn's edited-files card. You do not need permission
+to do any of this; it is the default for UI work. You only do these four things.
 
 ## 1. Before your first UI edit: start live mode and open the preview
 
@@ -15,48 +15,51 @@ Start the live mode for the surface (details in the `cmux-live` skill):
 
 | Surface | Start |
 |---|---|
-| Web (`webviews/`, any Vite or React app) | `cmux live start --worktree <checkout>` (React Fast Refresh) |
+| Web (`webviews/`, any Vite or React app) | `cmux live start --worktree <checkout>` (saved edits show at once) |
 | Rust (cmux-tui, acpmux) | `cmux live start --rust --build-host HOST`; a merged commit: `scripts/cmux-next/hot-apply.py apply SHA` |
-| Swift, Debug build | `cmux live start --swift` (live code) |
-| Release NIGHTLY | `cmux app try .` |
+| Swift edits inside function bodies | `cmux live start --swift` (live code) |
+| A copy of the person's NIGHTLY with your web or daemon change | `cmux app try .` |
 
-Then open the page in a cmux browser tab from your chat:
+Then open the page in a cmux browser tab from your chat (the `cmux-browser` skill):
 
 ```bash
 cmux --json tab create browser --url http://127.0.0.1:<port>/<path>
 ```
 
-That tab is now your agent-driven tab, so cmux captures it when you edit a UI file, when a build
-finishes and at turn end. Open one tab per surface you preview; each gets its own strip.
+A tab you open or drive this way is agent-driven. Only agent-driven tabs are ever captured; a
+tab only the person used is never touched.
 
 ## 2. Just work
 
-Edit, save, build as usual. Frames show up in the chat on their own. Do not take screenshots by
-hand, and do not paste images into your replies to show progress.
+Edit, save, build as usual; the live mode swaps each save into the open page. When a turn starts,
+acpmux captures the selected agent-driven http(s) tab of the chat's workspace, and when the turn
+settles it captures that tab again (turn shots, `cmux-tui/crates/acpmux/src/hub/turn_shots.rs`).
+If the two differ, the pair shows on the turn's edited-files card. Keep the preview tab selected in
+the chat's workspace so the pair is of the page you changed. Do not paste screenshots into your
+replies to show progress; the card already shows it.
 
 ## 3. Look or drive only when you need to
 
-- `look` (acpmux MCP tool): the latest frame at 512 px, about 500 tokens, plus the tab URL and how
-  far it moved since the turn's first frame. Call it when you must judge the result yourself
-  (layout, a regression), not after every edit. The person sees that frame too.
-- To click through a flow, use the cu_* computer-use tools or `cmux browser <tab> click|fill|...`
-  on the same tab (the `cmux-browser` skill).
+- `cmux browser "$TAB" screenshot --out shot.png` (`--selector "#el"`, `--full-page`) when you
+  must judge the result yourself (layout, a regression), not after every edit. Read the file to
+  see it.
+- `cmux browser "$TAB" snapshot --interactive`, then `click`, `fill` and the rest on the same tab
+  to walk a flow (the `cmux-browser` skill).
 
-## 4. At turn end: offer Try it on
+## 4. At turn end: say how to try it
 
-Call `wrap_up` with a Try it on action that points at your work:
+End with `wrap_up` (its actions are plain strings). Put the exact command in the recap:
+`cmux app try <PR>` (a copy of the person's NIGHTLY with the change swapped in) or, for a web-only
+change, `cmux customize use pr:N` (undo: `cmux customize library off pr-N`; the `cmux-hot-loop`
+skill lists the branch, commit and working-copy forms). When you want their answer, ask:
 
 ```json
 {
-  "recap": "...",
-  "ask": "Try the new sidebar on your app?",
-  "actions": [
-    {"label": "Try it on", "run": {"customize": "try", "target": "pr:123", "minutes": 30}},
-    "Not now"
-  ]
+  "recap": "The sidebar rows are 4 px tighter; the turn's card shows before and after. Try it: cmux app try 123.",
+  "ask": "Keep the tighter sidebar?",
+  "actions": ["Keep it", "Not now"]
 }
 ```
 
-`target` is `pr:N`, `branch:B`, `sha:S`, `dir:PATH` or a customization `NAME`. The card then offers
-Keep (`{"customize":"keep"}`) and Revert (`{"customize":"revert"}`); an untouched try reverts itself
-when its minutes end. A chat that only takes string actions still shows the label.
+When you are done previewing, `cmux live stop` (`--rust`, `--swift` for those), unless the person
+wants to keep looking.
