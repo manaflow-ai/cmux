@@ -1,28 +1,36 @@
-// The Mach-O side of live code (LiveCode.swift): a patch's functions, matched by name to the app
-// executable's and repointed there. A copy of the view shell's
-// (Prototypes/ViewShell/Sources/ViewShell/LiveCode.swift), where it is proven; the two move to one
-// shared module once the app's proof holds.
+// The Mach-O side of live code (LiveEngine.swift): a patch's functions, matched by name to the app
+// executable's and repointed there. Proven first in the view shell
+// (Prototypes/ViewShell/Sources/ViewShell/LiveCode.swift), then in the macOS app; the iPhone app in
+// the iOS Simulator runs the same code (a simulator app is a macOS process).
+// Shipped iPhone builds (Release, TestFlight, App Store) compile none of it: on iOS only a DEBUG
+// build (Debug, or ios-sim.sh's Demo with DEBUG) has the engine, so a Release binary holds no
+// loader, no interposer and no private dyld symbol name. The macOS app keeps it in every build.
+#if os(macOS) || DEBUG
 import Darwin
 import Foundation
 import MachO
 
-nonisolated enum LiveCodeError: Error, CustomStringConvertible {
+public enum LiveCodeError: Error, CustomStringConvertible {
     case open(String)
     case noImage
     case noInterposer
     case nothingToReplace
     case layoutChanged([String])
+    case opaqueTypeChanged([String])
     case notOurTeam(String)
     case nothingToUndo
     case copy(String)
 
-    var description: String {
+    public var description: String {
         switch self {
         case .open(let message): "dlopen failed: \(message)"
         case .noImage: "the patch is loaded but dyld does not list it"
         case .noInterposer: "dyld_dynamic_interpose is not available"
         case .nothingToReplace: "the patch defines no function this build has (built against another build?)"
         case .layoutChanged(let types): "stored properties changed, rebuild instead: \(types.joined(separator: ", "))"
+        case .opaqueTypeChanged(let types):
+            "a `some View` (or other opaque) result's type changed, rebuild instead (a view or modifier added or removed; "
+                + "values, strings, colors and logic inside it apply live): \(types.joined(separator: "; "))"
         case .notOurTeam(let detail): "not signed by this app's team: \(detail)"
         case .nothingToUndo: "no patch is applied"
         case .copy(let detail): "cannot take a private copy: \(detail)"
@@ -32,7 +40,7 @@ nonisolated enum LiveCodeError: Error, CustomStringConvertible {
 
 /// The Mach-O side: the patch's code symbols, matched by name to this executable's. Nonisolated:
 /// LiveCode's engine actor calls it, off the main thread.
-nonisolated enum Interposer {
+enum Interposer {
     private struct Tuple {
         var replacement: UnsafeRawPointer
         var replacee: UnsafeRawPointer
@@ -64,15 +72,14 @@ nonisolated enum Interposer {
         guard let index = (0..<_dyld_image_count()).last(where: { String(cString: _dyld_get_image_name($0)) == path
             || URL(fileURLWithPath: String(cString: _dyld_get_image_name($0))).resolvingSymlinksInPath().path == URL(fileURLWithPath: path).resolvingSymlinksInPath().path
         }), let header = _dyld_get_image_header(index) else { throw LiveCodeError.noImage }
-        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "dyld_dynamic_interpose") else {
-            throw LiveCodeError.noInterposer
-        }
-        let interpose = unsafeBitCast(symbol, to: DynamicInterpose.self)
+        let interpose = dynamicInterpose()
         let mainOnly = UnsafeMutableRawPointer(bitPattern: -5) // RTLD_MAIN_ONLY
         let slide = _dyld_get_image_vmaddr_slide(index)
         let changed = layoutChanges(header: header, slide: slide, patch: handle, mainOnly: mainOnly)
         // A refused patch stays loaded (no dlclose); nothing points at it, and the next patch has a new name.
         guard changed.isEmpty else { throw LiveCodeError.layoutChanged(changed) }
+        let retyped = opaqueTypeChanges(header: header, slide: slide, mainOnly: mainOnly)
+        guard retyped.isEmpty else { throw LiveCodeError.opaqueTypeChanged(retyped) }
         var tuples: [Tuple] = []
         var replaced: [String: UnsafeRawPointer] = [:]
         var before: [String: UnsafeRawPointer] = [:]
@@ -97,25 +104,36 @@ nonisolated enum Interposer {
     /// Undoes `patch`, the newest applied: every function it replaced runs the code it replaced
     /// again. The patch's image stays loaded (no dlclose); nothing points at it.
     static func revert(_ patch: Applied, current: inout [String: UnsafeRawPointer]) throws -> Int {
-        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "dyld_dynamic_interpose") else {
-            throw LiveCodeError.noInterposer
-        }
         let tuples = patch.after.compactMap { name, now in patch.before[name].map { Tuple(replacement: $0, replacee: now) } }
         guard !tuples.isEmpty else { throw LiveCodeError.nothingToReplace }
-        try repoint(tuples, to: patch.before, interpose: unsafeBitCast(symbol, to: DynamicInterpose.self))
+        try repoint(tuples, to: patch.before, interpose: dynamicInterpose())
         current.merge(patch.before) { $1 }
         return tuples.count
     }
 
+    /// dyld's `dyld_dynamic_interpose`, when this process's dyld has it. The iOS Simulator's dyld
+    /// (dyld_sim) may not: there the rebind below alone repoints the executable's calls, which the
+    /// live code build routes through its symbol pointers.
+    private static func dynamicInterpose() -> DynamicInterpose? {
+        dlsym(UnsafeMutableRawPointer(bitPattern: -2), "dyld_dynamic_interpose").map { unsafeBitCast($0, to: DynamicInterpose.self) }
+    }
+
+    /// Whether this process's dyld has `dyld_dynamic_interpose` (the engine logs it when it starts).
+    static var hasDynamicInterpose: Bool { dynamicInterpose() != nil }
+
     /// Hands `tuples` to dyld, then repoints the executable's already bound pointers to `targets`.
-    private static func repoint(_ tuples: [Tuple], to targets: [String: UnsafeRawPointer], interpose: DynamicInterpose) throws {
+    private static func repoint(_ tuples: [Tuple], to targets: [String: UnsafeRawPointer], interpose: DynamicInterpose?) throws {
         guard let main = _dyld_get_image_header(0) else { throw LiveCodeError.noImage }
-        tuples.withUnsafeBytes { bytes in
-            if let base = bytes.baseAddress { interpose(main, base, tuples.count) }
+        if let interpose {
+            tuples.withUnsafeBytes { bytes in
+                if let base = bytes.baseAddress { interpose(main, base, tuples.count) }
+            }
         }
         // dyld_dynamic_interpose leaves a pointer that is already bound on the old code: a `body`
         // SwiftUI called before this patch kept drawing the build's view. Repoint those too.
         let rebound = rebind(header: main, slide: _dyld_get_image_vmaddr_slide(0), to: targets)
+        // Without dyld_dynamic_interpose the rebind is the whole repoint: none written, no call changed.
+        if interpose == nil, rebound.written == 0 { throw LiveCodeError.noInterposer }
         if rebound.failed > 0 {
             // Those calls still reach the old code: say so rather than report a clean patch.
             FileHandle.standardError.write(Data("cmux live code: \(rebound.failed) symbol pointers stayed on the old code (mprotect failed)\n".utf8))
@@ -219,13 +237,76 @@ nonisolated enum Interposer {
         return changed
     }
 
+    /// The opaque result types (`some View`) whose underlying type the patch changed: a `body` that
+    /// gained or lost a view or a modifier. The build's conformance still names the old type, so
+    /// SwiftUI would read the new `body`'s value as the old type (a crash or garbage). Each opaque type
+    /// descriptor (`…QOMQ`) the patch and this build both define names its underlying types by mangled
+    /// name; both are resolved and their names compared. A descriptor of a generic context (its type
+    /// needs generic arguments to resolve) or with packs or values is not compared.
+    static func opaqueTypeChanges(header: UnsafePointer<mach_header>, slide: Int, mainOnly: UnsafeMutableRawPointer?) -> [String] {
+        var changed: [String] = []
+        for (name, theirs) in symbols(header: header, slide: slide, code: false) {
+            guard name.hasPrefix("_$s"), name.hasSuffix("QOMQ"), let ours = dlsym(mainOnly, String(name.dropFirst())),
+                  UnsafeRawPointer(ours) != theirs,
+                  let old = underlyingTypeNames(UnsafeRawPointer(ours)), let new = underlyingTypeNames(theirs),
+                  old != new else { continue }
+            // The descriptor's symbol names the function or property whose result changed.
+            changed.append(String(name.dropFirst().dropLast(4)))
+        }
+        return changed
+    }
+
+    /// The names of an opaque type descriptor's underlying types, or nil when they are not compared.
+    static func underlyingTypeNames(_ descriptor: UnsafeRawPointer) -> [String]? {
+        let flags = descriptor.load(as: UInt32.self)
+        // Context descriptor kind 4 is an opaque type; its kind-specific flags count the underlying types.
+        guard flags & 0x1F == 4, flags & 0x80 != 0 else { return nil }
+        // The parent (a relative pointer, indirect when its low bit is set) must not be generic: then
+        // the opaque type's generic parameters are its own `some` types, and their underlying types
+        // resolve with no generic arguments.
+        let parentField = descriptor + 4
+        let parentOffset = Int(parentField.load(as: Int32.self))
+        let parentAddress = parentField + (parentOffset & ~1)
+        let parent = parentOffset & 1 == 0 ? parentAddress : parentAddress.load(as: UnsafeRawPointer?.self)
+        guard let parent, parent.load(as: UInt32.self) & 0x80 == 0 else { return nil }
+        // GenericContextDescriptorHeader: params, requirements, key arguments, flags (UInt16 each).
+        let params = Int(descriptor.load(fromByteOffset: 8, as: UInt16.self))
+        let requirements = Int(descriptor.load(fromByteOffset: 10, as: UInt16.self))
+        guard descriptor.load(fromByteOffset: 14, as: UInt16.self) == 0, params <= Int(flags >> 16) else { return nil } // packs or values
+        // Then a byte per parameter (padded to four), twelve per requirement, then a mangled name per
+        // underlying type (one per parameter, first) and per conformance.
+        let offset = 16 + ((params + 3) & ~3) + requirements * 12
+        var names: [String] = []
+        for index in 0..<params {
+            let field = descriptor + offset + index * 4
+            let mangled = (field + Int(field.load(as: Int32.self))).assumingMemoryBound(to: UInt8.self)
+            guard let metadata = typeByMangledName(mangled, UInt(mangledNameLength(mangled)), descriptor, nil) else { return nil }
+            // A private type prints as "(unknown context at $ADDRESS)", its context's address in
+            // its own image: the build's and the patch's differ, the type does not.
+            let printed = _typeName(unsafeBitCast(metadata, to: Any.Type.self), qualified: true)
+            names.append(printed.replacing(/\(unknown context at \$[0-9a-f]+\)/, with: "(private)"))
+        }
+        return names
+    }
+
+    /// A mangled name's length: it ends at a zero byte, and a symbolic reference's bytes (after 0x01
+    /// to 0x17: four, after 0x18 to 0x1F: eight) may hold zeros.
+    private static func mangledNameLength(_ name: UnsafePointer<UInt8>) -> Int {
+        var length = 0
+        while true {
+            let byte = name[length]
+            if byte == 0 { return length }
+            length += byte <= 0x17 ? 5 : byte <= 0x1F ? 9 : 1
+        }
+    }
+
     /// The external symbols defined in the image's `__TEXT,__text`: its functions, not its data.
     private static func codeSymbols(header: UnsafePointer<mach_header>, slide: Int) -> [(String, UnsafeRawPointer)] {
         symbols(header: header, slide: slide, code: true)
     }
 
     /// The image's external defined symbols: those in `__TEXT,__text` (`code`), or every other section's.
-    private static func symbols(header: UnsafePointer<mach_header>, slide: Int, code: Bool) -> [(String, UnsafeRawPointer)] {
+    static func symbols(header: UnsafePointer<mach_header>, slide: Int, code: Bool) -> [(String, UnsafeRawPointer)] {
         let base = UnsafeRawPointer(header)
         var command = base + MemoryLayout<mach_header_64>.size
         var sectionIndex = 0
@@ -266,3 +347,10 @@ nonisolated enum Interposer {
         return out
     }
 }
+
+/// The Swift runtime's lookup of a type by its mangled name, in the context that names it
+/// (Interposer.underlyingTypeNames).
+@_silgen_name("swift_getTypeByMangledNameInContext")
+private func typeByMangledName(_ name: UnsafePointer<UInt8>, _ length: UInt, _ context: UnsafeRawPointer?,
+                               _ arguments: UnsafeRawPointer?) -> UnsafeRawPointer?
+#endif

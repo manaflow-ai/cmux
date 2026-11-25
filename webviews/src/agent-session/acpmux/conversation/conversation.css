@@ -2233,9 +2233,11 @@
 .cv-codeblock--diagram .cv-code-plain__line {
   height: 1lh;
 }
-/* An opened edit (EditDiff.tsx): the file's name and line counts over its diff. */
+/* An opened edit (EditDiff.tsx): the file's name and line counts over its diff. Its lengths are the custom
+   properties EditDiff.tsx sets on it from editDiffBox.ts (`--cv-edit-diff-*`), which the transcript's row
+   estimate reckons with too (model.ts `editDiffHeight`): never a length of their own here. */
 .cv-edit-diff {
-  margin: var(--ds-space-1) 0 var(--ds-space-2);
+  margin: var(--cv-edit-diff-above) 0 var(--cv-edit-diff-below);
   border-radius: 12px;
   overflow: hidden;
   background: var(--cv-codeblock-bg);
@@ -2257,7 +2259,7 @@
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);
-  min-height: calc(var(--cv-font-size) * 32 / 14);
+  min-height: var(--cv-edit-diff-head);
   padding: 0 6px 0 12px;
   border-bottom: 1px solid var(--cv-codeblock-ring);
   font-size: calc(var(--cv-font-size) * 13 / 14);
@@ -2298,7 +2300,7 @@
    itself, its sideways scrollbar in view; the body scrolls on to the file's next edits. Wrapped
    rows never scroll sideways: no lane. */
 .cv-edit-diff__body {
-  --cv-lane: 6px;
+  --cv-lane: var(--cv-edit-diff-lane);
   --cv-bar: var(--cv-lane);
   --diffs-scrollbar-gutter-override: var(--cv-lane);
   overflow: hidden;
@@ -2309,20 +2311,20 @@
 /* Past eight lines the diff scrolls inside an eight-line box (the lane under them added), as a Shell
    block's output does; its bottom edge fades only while more lies under it (moreBelow.ts). */
 .cv-edit-diff__body[data-preview="cut"] {
-  --cv-block-cut: calc(8 * var(--cv-codeblock-line-height, var(--cmux-diff-line-height, 18px)) + var(--cv-lane));
+  --cv-block-cut: calc(8 * var(--cv-edit-diff-row) + var(--cv-lane));
   max-height: var(--cv-block-cut);
   overflow-y: auto;
 }
 /* An expand row is the card's whole bottom row on the card's own fill (ExpandRow.tsx), as tall as
    its header, with no strip of another colour under the lines. */
 .cv-edit-diff > .cv-expand-row {
-  min-height: calc(var(--cv-font-size) * 32 / 14);
+  min-height: var(--cv-edit-diff-head);
   margin: 0;
   padding-inline: var(--ds-space-3);
 }
 .cv-edit-diff__empty {
-  padding: var(--ds-space-2) var(--ds-space-3);
-  font-size: calc(var(--cv-font-size) * 12 / 14);
+  padding: var(--cv-edit-diff-empty-pad) var(--ds-space-3);
+  font-size: var(--cv-edit-diff-empty-size);
   color: var(--cv-text-muted);
 }
 /* EditDiff.tsx: the rendered lines and their placeholder share one cell until the lines are drawn,
@@ -2342,7 +2344,7 @@
    `cardUnsafeCSS`, sideways.ts `PIERRE_BLOCK_CSS`), the text clear and painted as bars, so the
    placeholder is as tall as the rendered diff and the swap moves nothing. */
 .cv-edit-diff__loading-lines {
-  --cv-loading-line-height: var(--cv-codeblock-line-height, var(--cmux-diff-line-height, 18px));
+  --cv-loading-line-height: var(--cv-edit-diff-row);
   /* Pierre's number column: its digits (4ch at least), 2ch leading + 1ch trailing padding, and a
      2px divider. The unnumbered diff keeps its 4px indicator lane and 2px divider. */
   padding-inline-start: calc(var(--cv-loading-digits, 4) * 1ch + 3ch + 2px);
@@ -2382,9 +2384,9 @@
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
 }
-/* Pierre's line-info separator before a hunk that skips lines (diffTheme.ts: 24px). */
+/* Pierre's line-info separator before a hunk that skips lines (EditDiffHunks.tsx `cardUnsafeCSS`). */
 .cv-edit-diff__loading-sep {
-  height: 24px;
+  height: var(--cv-edit-diff-separator);
 }
 .cv-edit-diff__loading-rest {
   height: calc(var(--cv-loading-lines) * var(--cv-loading-line-height));
