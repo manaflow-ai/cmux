@@ -704,6 +704,7 @@ impl Driver {
                 () = stack_deadline => Event::StackDeadline,
             };
             self.wakeups.fetch_add(1, Ordering::Relaxed);
+            self.tap_parity();
             self.catch_up_timers();
             self.run_watchdog();
             self.run_handshake_retry();
@@ -739,6 +740,18 @@ impl Driver {
             self.service();
             self.run_probes();
             self.underlay.flush();
+        }
+    }
+
+    /// Measurement only: reports the parity datagrams the repair layer
+    /// consumed before the driver saw them.
+    fn tap_parity(&mut self) {
+        if !crate::testing::tapping() {
+            return;
+        }
+        let local = self.config.addresses.first().map(|address| address.address);
+        for wire_bytes in self.underlay.take_tapped_parity() {
+            crate::testing::tap_received(local, crate::testing::Received::Parity, wire_bytes);
         }
     }
 
