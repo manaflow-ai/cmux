@@ -12,7 +12,8 @@ public import WebKit
 // covers the view while the new document restores itself, and the still goes once the restored
 // frame is on screen.
 @MainActor
-public enum WebViewSwap {
+public struct WebViewSwap {
+    public init() {}
     /// The longest the still stays over a view whose new document never says it is back: long enough
     /// for a cold dev server's first compile (cmux#50535's fleet run: a chat whose still went at 2.5 s
     /// showed an empty view for about 20 s, until the server's first answer).

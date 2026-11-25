@@ -5,7 +5,8 @@ import CmuxNextWakeups
 /// in a window that is visible and not fully covered (`occlusionState`, which also reads a minimized
 /// window, another Space and a hidden app as out of sight), with no hidden view above it and some of
 /// it inside its window.
-public enum WebSwapSight {
+public struct WebSwapSight {
+    public init() {}
     public static func inSight(_ view: NSView) -> Bool {
         guard let window = view.window, window.isVisible, window.occlusionState.contains(.visible),
               !view.isHiddenOrHasHiddenAncestor else { return false }
