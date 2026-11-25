@@ -29,7 +29,8 @@
  * - Model-plane env and the coderouter CLI point at the VM edge alias; no
  *   login and no token in the image.
  * - The resolver is systemd-resolved with /etc/resolv.conf its stub (dns.ts), checked by
- *   /usr/local/sbin/cmux-dns-check, so Tailscale on a machine runs in resolved mode.
+ *   /usr/local/sbin/cmux-dns-check, so Tailscale on a machine runs in resolved mode. On a clone
+ *   with a TLS rule, cmux-edge-resolver adds the edge resolver's IPv6 listener (dns.ts).
  * - cmux-machine-health.timer (machine-health.ts): a bounded pass every 60 s that checks and heals
  *   DNS, disk, RAM, acpmux and cmux-tui units and writes /run/cmux/machine-health.json; ssh and login sessions get
  *   memory and task limits, and the user's systemd manager outlives a runaway session.
@@ -97,6 +98,7 @@ import {
   setUpDevTree,
   uploadDevTreeScript,
   DEV_TREE_SCRIPT,
+  devTreePhase,
   FIRST_BUILD,
 } from "./dev-tree";
 import { gitDefaultsCommand } from "./git-defaults";
@@ -115,7 +117,7 @@ import {
   rdSetupCommand,
 } from "./agent-tools";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
-import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
+import { DNS_CHECK_PATH, dnsCheckScript, EDGE_RESOLVER_ARM_COMMAND, edgeResolverFiles, resolverBakeCommand } from "./dns";
 import { DISK_RECORD_COMMAND, parseDiskOutput } from "./disk-record";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
 import { chiefBinary, chiefHostFiles, chiefHostInstallCommand } from "./chief-host";
@@ -878,6 +880,9 @@ async function configureSystem(ctx: Ctx): Promise<void> {
   ].join(" && "));
   await writeGuestFile(vm, DNS_CHECK_PATH, dnsCheckScript(), 0o755);
   ctx.result.resolver = (await L.step(vm, "resolver", resolverBakeCommand(), 120_000)).trim();
+  // The edge resolver's IPv6 listener for clones made with a TLS rule (gateway mode; dns.ts).
+  for (const [file, contents, mode] of edgeResolverFiles()) await writeGuestFile(vm, file, contents, mode);
+  await L.step(vm, "edge-resolver", EDGE_RESOLVER_ARM_COMMAND);
   await L.step(vm, "snapshot-resume-quiet","{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && echo ok");
 }
 
@@ -1201,6 +1206,9 @@ export function syftFetchCommand(syft: { url: string; sha256: string; size: numb
   ].join(" && ");
 }
 
+/** The SBOM scan's bound, polled past the guest's 5-minute exec cap. */
+export const SBOM_SCAN_BUDGET_MS = 20 * 60_000;
+
 export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOptions, "devTree" | "outDir">, lock: InputsLock, result: Record<string, unknown>, name: string, out = "/tmp/cmux-out"): Promise<void> {
   const syft = lock.tools.syft;
   await L.step(vm, "out-dir", `mkdir -p ${out}`);
@@ -1215,12 +1223,24 @@ export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOpt
   // 45126299464 (status 124). The download is its own resumed, retried step (installStoreProgram); the scan follows.
   const scanSbom = async (): Promise<string> => {
     await installStoreProgram(L, vm, "sbom-syft", syftFetchCommand(syft, `${out}-syft`));
-    return L.step(vm, "sbom", [
-    "t=$(date +%s)",
-    `cd / && SYFT_CHECK_FOR_APP_UPDATE=false HOME=${out}-syft timeout 280 ${out}-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' ${skip.map((p) => `--exclude ${sq(`.${p}/**`)}`).join(" ")} -o cyclonedx-json=${out}/sbom.cdx.json -q`,
-    "echo syft-secs $(( $(date +%s) - t ))",
-    `gzip -9f ${out}/sbom.cdx.json`,
-  ].join(" && "));
+    // The scan runs detached (a transient unit, polled), not in one exec: the guest's exec is cut at 5 minutes, and
+    // on a slow builder the scan alone ran past it (roll 45474884363: status 124 at 281.7 s, where roll 45360379569
+    // took 73 s on the same tree). Its own bound is SBOM_SCAN_BUDGET_MS.
+    const t0 = Date.now();
+    const { out: scanOut } = await devTreePhase(vm, `sbom-${path.basename(out)}`, [
+      "t=$(date +%s)",
+      `cd / && SYFT_CHECK_FOR_APP_UPDATE=false HOME=${out}-syft timeout ${Math.floor(SBOM_SCAN_BUDGET_MS / 1000) - 30} ${out}-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' ${skip.map((p) => `--exclude ${sq(`.${p}/**`)}`).join(" ")} -o cyclonedx-json=${out}/sbom.cdx.json -q`,
+      "echo syft-secs $(( $(date +%s) - t ))",
+      `gzip -9f ${out}/sbom.cdx.json`,
+    ].join(" && "), SBOM_SCAN_BUDGET_MS).catch((error: unknown) => {
+      L.log(`STEP FAILED [sbom] ${String(error).slice(-2000)}`);
+      throw new Error("step sbom failed");
+    });
+    const secs = (Date.now() - t0) / 1000;
+    L.steps.push({ label: "sbom", secs });
+    const last = scanOut.trim().split("\n").at(-1) ?? "";
+    L.log(`ok [sbom] ${secs.toFixed(1)}s :: ${last}`);
+    return last;
   };
   const settled = await Promise.allSettled([L.step(vm, "file-manifest", `python3 ${out}/manifest.py ${out}/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9f ${out}/manifest.tsv`), scanSbom()]);
   const failed = inventoryFailure(settled);
