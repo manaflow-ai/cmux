@@ -1,7 +1,7 @@
 use super::*;
 use crate::claude_peers::Peer;
 
-fn peer(pid: u32, socket: &str) -> Peer {
+pub(super) fn peer(pid: u32, socket: &str) -> Peer {
     Peer {
         pid,
         session_id: format!("sid-{pid}"),
