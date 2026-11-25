@@ -29,6 +29,23 @@ test("thought fast path accepts an equivalent shaped transcript item", () => {
   expect(thoughtOnly(previous, next)).toEqual({ id: nextRow.id, before: beforeThought, after: afterThought });
 });
 
+test("thought fast path accepts a value-equivalent settled projection", () => {
+  const beforeThought: AcpmuxActivity = { kind: "thought", text: "Read", startedAt: 1, endedAt: 2 };
+  const afterThought: AcpmuxActivity = { ...beforeThought, text: "Read the helper", endedAt: 3 };
+  const previous = {
+    ...snapshot([row("settled-projection", beforeThought, 1)]),
+    settled: { lastSeq: 9, forkSeqs: [4, 7] },
+  };
+  const next = {
+    ...snapshot([row("settled-projection", afterThought, 2)]),
+    settled: { lastSeq: 9, forkSeqs: [4, 7] },
+  };
+  markOneRowChange(next.rows, previous.rows, 0);
+  drewThoughts([row("settled-projection", { ...beforeThought }, 9)]);
+
+  expect(thoughtOnly(previous, next)).toEqual({ id: next.rows[0]!.id, before: beforeThought, after: afterThought });
+});
+
 test("thought fast path keeps the baseline after a shaped first update", () => {
   const first: AcpmuxActivity = { kind: "thought", text: "Read", startedAt: 1, endedAt: 2 };
   const second: AcpmuxActivity = { ...first, text: "Read the helper", endedAt: 3 };
