@@ -4,8 +4,8 @@
 //! `window_update_*`, `window_editors_*`): their tables and refusals.
 
 use cmux_window_rules::{
-    appearance, browser, editors, files, history, launch, notifications, remote, restore,
-    screen_share, update_idle,
+    appearance, browser, editors, files, history, launch, notification_policy, notifications,
+    remote, restore, screen_share, update_idle,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -26,6 +26,24 @@ struct Unread {
     verb: notifications::Verb,
     #[serde(default)]
     unread: Vec<notifications::UnreadTab>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Arriving {
+    #[serde(default)]
+    prefs: notification_policy::Prefs,
+    arrival: notification_policy::Arrival,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SoundAdmit {
+    last: Option<notification_policy::LastSound>,
+    event: notification_policy::SoundEvent,
+    now_ms: i64,
+    #[serde(default)]
+    cooldown_ms: i64,
 }
 
 #[derive(Deserialize)]
@@ -193,6 +211,26 @@ pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, 
             match notifications::last_prompt(&read::<Prompts>(request)?.prompts) {
                 Ok(index) => json!({ "index": index }),
                 Err(refusal) => json!({ "refusal": refusal }),
+            }
+        }
+        // What an arriving notification does: read on sight, ring, banner, bounce, timeout, sound.
+        b"window_notifications_decide" => {
+            let request: Arriving = read(request)?;
+            value(notification_policy::decide(&request.prefs, &request.arrival))?
+        }
+        // Each dismissal mode's clearing triggers; the app asks once and keeps the table.
+        b"window_notifications_clears_table" => value(notification_policy::clears_table())?,
+        // The burst cooldown: whether a sound plays, and the new last sound when it does.
+        b"window_notifications_sound_admit" => {
+            let request: SoundAdmit = read(request)?;
+            match notification_policy::admit(
+                request.last,
+                request.event,
+                request.now_ms,
+                request.cooldown_ms,
+            ) {
+                Some(last) => json!({ "admitted": true, "last": last }),
+                None => json!({ "admitted": false }),
             }
         }
         b"window_notifications_toggle_mute" => {
