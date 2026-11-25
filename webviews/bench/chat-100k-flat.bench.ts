@@ -21,6 +21,10 @@
 // taken over a floor of CPU_FLOOR_PCT (default 1 % of a core) on both sides, so two near-idle readings are not a ratio
 // of noise. An xN ratio's empty side is the mean of two empty xN launches, one before the xN launches it is compared
 // with and one after (empty_xN_after; see the bracket below the launches).
+// HEAP_SNAPSHOT=DIR writes each launch's V8 heap snapshots (the shown page, and in an xN launch a hidden one) for
+// DevTools. HEAP_RETAINERS=1 prints, per launch, the renderers' memory-infra allocators and what holds the JS heap
+// (heapRetainers.ts: the dominator tree, and self size by class over the empty launch).
+// CASES=long runs only empty x1, long x1, empty xN and long xN.
 // HIDDEN=0 keeps every chat shown; HIDDEN_FOCUS=1 lets the hidden chats keep their composer's focus (the fake hide
 // before cmux#45531). HEAP_SNAPSHOT=DIR writes each launch's V8 heap snapshots (the shown page, and in an xN launch a
 // hidden one) for DevTools. CASES=long runs only empty x1, long x1, empty xN and long xN.
@@ -55,6 +59,8 @@ import type { CDPSession, Page } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { chromium } from "./browsers";
 import { newestPage } from "./daemonPage";
+import { takeSnapshot } from "./heapProbe";
+import { printRetainers, type Retainers } from "./heapRetainers";
 import { idleTrace, startIdleTrace } from "./idleTrace";
 import { describePaintWindow, paintWindow, runningAnimations } from "./paintWindow";
 import { sourceMapper } from "./sourceMapper";
@@ -116,6 +122,8 @@ if (!["all", "main", "grown-many", "running", "long", "long-many"].includes(CASE
 }
 const GROW_OPEN = process.env.GROW_OPEN === "1";
 const HEAP_SNAPSHOT = process.env.HEAP_SNAPSHOT;
+const HEAP_RETAINERS = process.env.HEAP_RETAINERS === "1";
+const retainerBase = new Map<number, Retainers>();
 const WAKES = process.env.WAKES === "1";
 const TRACE = process.env.TRACE;
 type Wakes = { timers: number; raf: number; posts: number; mutations: number };
@@ -234,7 +242,8 @@ try {
   const { build } = await import("vite");
   await build({
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true, sourcemap: PAINT },
+    // HEAP_RETAINERS: names as written, so a holder reads as its source's (the minified build's are two letters).
+    build: { outDir: out, emptyOutDir: true, sourcemap: PAINT, ...(HEAP_RETAINERS ? { minify: false } : {}) },
     logLevel: "error",
   });
   // The paint windows name the sites that ask for frames by their source (the build's maps; PAINT above).
@@ -1045,6 +1054,91 @@ try {
           cdp.off("HeapProfiler.addHeapSnapshotChunk", onChunk);
           fs.writeFileSync(path.join(HEAP_SNAPSHOT, `${name}-${label}.heapsnapshot`), chunks.join(""));
         }
+      }
+      if (HEAP_RETAINERS) {
+        // HEAP_RETAINERS=1: what holds the renderer's memory. Chromium's memory-infra dump of the renderers (V8, Blink's
+        // GC heap, PartitionAlloc's partitions, malloc, caches), then the JS heap's dominator tree and self size by
+        // class over the empty launch of the same count (heapRetainers.ts).
+        try {
+          const browserCdp = await browser.newBrowserCDPSession();
+          const events: { ph?: string; pid?: number; args?: { dumps?: { allocators?: Record<string, unknown> } } }[] =
+            [];
+          browserCdp.on("Tracing.dataCollected", (event: { value: typeof events }) => events.push(...event.value));
+          const complete = new Promise((resolve) => browserCdp.once("Tracing.tracingComplete", resolve));
+          await browserCdp.send("Tracing.start", {
+            traceConfig: {
+              includedCategories: ["disabled-by-default-memory-infra"],
+              memoryDumpConfig: { triggers: [] },
+            },
+            transferMode: "ReportEvents",
+          } as never);
+          await browserCdp.send("Tracing.requestMemoryDump", {
+            deterministic: true,
+            levelOfDetail: "detailed",
+          } as never);
+          await browserCdp.send("Tracing.end");
+          await complete;
+          const rendererPids = new Set(pids);
+          for (const event of events) {
+            const allocators = event.args?.dumps?.allocators as
+              | Record<string, { attrs?: Record<string, { value?: string }> }>
+              | undefined;
+            if (event.ph !== "v" || !allocators || !rendererPids.has(event.pid!)) continue;
+            const sizes = Object.entries(allocators)
+              .map(([key, value]) => {
+                const attr = value.attrs?.effective_size ?? value.attrs?.size;
+                return [key, attr?.value ? parseInt(attr.value, 16) / 1048576 : 0] as const;
+              })
+              .filter(([key, size]) => key.split("/").length <= 3 && size >= 0.5 && !key.includes("0x"))
+              .sort((a, b) => a[0].localeCompare(b[0]));
+            console.log(`heap-retainers ${name}: renderer ${event.pid} allocators (MB):`);
+            for (const [key, size] of sizes) console.log(`  ${size.toFixed(1).padStart(8)}  ${key}`);
+          }
+          await browserCdp.detach();
+        } catch (error) {
+          console.log(`heap-retainers ${name}: no memory-infra dump (${String(error).slice(0, 200)})`);
+        }
+        // Each React component on the shown page drawn from a `rows` list, with that list's length: the rows a view
+        // holds, beside the rows its chat holds.
+        const rowLists = await shownPage.page.evaluate(() => {
+          const out: string[] = [];
+          const seen = new Set<unknown>();
+          type Fiber = { child?: Fiber; sibling?: Fiber; memoizedProps?: Record<string, unknown>; type?: unknown };
+          const nameOf = (type: unknown): string =>
+            typeof type === "function"
+              ? (type as { displayName?: string; name?: string }).displayName || (type as { name: string }).name
+              : typeof type === "object" && type !== null
+                ? nameOf((type as { type?: unknown; render?: unknown }).type ?? (type as { render?: unknown }).render)
+                : String(type);
+          const roots = [document, ...document.querySelectorAll("body, body > *")];
+          for (const node of roots) {
+            const key = Object.keys(node).find(
+              (k) => k.startsWith("__reactContainer$") || k.startsWith("__reactFiber$"),
+            );
+            if (!key) continue;
+            const stack: Fiber[] = [(node as unknown as Record<string, Fiber>)[key]!];
+            while (stack.length && out.length < 40) {
+              const fiber = stack.pop()!;
+              if (!fiber || seen.has(fiber)) continue;
+              seen.add(fiber);
+              for (const [prop, value] of Object.entries(fiber.memoizedProps ?? {}))
+                if (Array.isArray(value) && value.length > 200 && !seen.has(value)) {
+                  seen.add(value);
+                  out.push(`${nameOf(fiber.type)}.${prop}=${value.length}`);
+                }
+              if (fiber.sibling) stack.push(fiber.sibling);
+              if (fiber.child) stack.push(fiber.child);
+            }
+          }
+          return out;
+        });
+        console.log(`heap-retainers ${name}: row lists ${rowLists.join(" ")}`);
+        const domCounters = (await shownPage.cdp.send("Memory.getDOMCounters")) as Record<string, number>;
+        console.log(`heap-retainers ${name}: shown page DOM counters ${JSON.stringify(domCounters)}`);
+        const snapshot = await takeSnapshot(shownPage.cdp);
+        const base = name.startsWith("empty") ? undefined : retainerBase.get(count);
+        const summary = printRetainers(name, snapshot, base);
+        if (name.startsWith("empty")) retainerBase.set(count, summary);
       }
       if (count === 1 && RESIZE) {
         const { page, cdp } = pages[0]!;
