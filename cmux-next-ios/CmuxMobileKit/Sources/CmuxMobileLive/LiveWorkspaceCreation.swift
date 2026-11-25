@@ -595,7 +595,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             if closeTabsRefusedBy != ObjectIdentifier(client) {
                 do {
                     try WorkspaceSync.check(await client.request("close-tabs", params: Self.closeTabsParams(
-                        surface: surface, endTerminals: !terminals.isEmpty, meta: PhoneTrace.meta)))
+                        surface: surface, endTerminals: !terminals.isEmpty, traceID: PhoneTrace.traceID)))
                     let sync = sync
                     Task { _ = try? await sync.listNow() }
                     return
@@ -610,9 +610,10 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     }
 
     /// `close-tabs` of one tab, with the action's trace id (`_meta`, PhoneTrace) when it has one.
-    nonisolated static func closeTabsParams(surface: Int, endTerminals: Bool, meta: [String: Any]?) -> sending [String: Any] {
+    /// Built from Sendable inputs only, so the dictionary is a fresh region the caller can send.
+    nonisolated static func closeTabsParams(surface: Int, endTerminals: Bool, traceID: String?) -> sending [String: Any] {
         var params: [String: Any] = ["surfaces": [surface], "end_terminals": endTerminals]
-        if let meta { params["_meta"] = meta }
+        if let traceID { params["_meta"] = ["traceId": traceID] }
         return params
     }
 
