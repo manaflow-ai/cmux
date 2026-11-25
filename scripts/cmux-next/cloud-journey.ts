@@ -130,7 +130,7 @@ import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
 import { awaitPaused, runWakeEcho, setupProbe, startWithRetry, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
 import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, resumeRouteCall, type ResumeSample, type ResumeStop, runProviderArm, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
-import { clientSpans, hopDurations, readStartTrace, slowestHop, traceMarkdown } from "./cloud-start-trace.ts";
+import { clientSpans, hopDurations, mintSendTrace, modelFloor, readSendTrace, readStartTrace, sendTraceRows, sendTraceTable, slowestHop, snappyReport, snappyRun, traceMarkdown } from "./cloud-start-trace.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
 
 // The shipped app's CloudMachineCreateFlow.named and the platform's CHAT_START_SHAPE (2/4/20, cmux-platform#1756).
@@ -225,14 +225,19 @@ export function readEnvFile(text: string): Record<string, string> {
 }
 
 export type Status = "pass" | "fail" | "skip";
-export type FirstTextFields = { create_marks_ms?: Record<string, number>; create_to_first_text_ms?: number };
+export type FirstTextFields = { create_marks_ms?: Record<string, number>; create_to_first_text_ms?: number; guest_ms?: Record<string, number>; reserved_hit?: boolean };
 export type Step = { step: string; status: Status; ms: number; detail: string; fields?: FirstTextFields };
 
 /** One runner monotonic clock, from the create call. Reused machines have no create measurement. */
 export class FirstTextTiming {
   private start: number | undefined;
   private marks: Record<string, number> = {};
+  private onGuest: Record<string, number> = {};
   constructor(private readonly clock = () => performance.now()) {}
+  /** A part as the guest timed it (its own clock, without the exec route's trip): `guest_ms` beside the marks. */
+  guest(part: string, ms: number | null): void {
+    if (ms !== null && Number.isFinite(ms) && ms >= 0 && !(part in this.onGuest)) this.onGuest[part] = Math.round(ms);
+  }
   mark(phase: string): void {
     if (phase === "create" && this.start === undefined) {
       this.start = this.clock();
@@ -244,13 +249,19 @@ export class FirstTextTiming {
   }
   fields(): FirstTextFields {
     if (this.start === undefined) return {};
-    return { create_marks_ms: { ...this.marks }, ...(this.marks.first_text !== undefined ? { create_to_first_text_ms: this.marks.first_text } : {}) };
+    return {
+      create_marks_ms: { ...this.marks },
+      ...(this.marks.first_text !== undefined ? { create_to_first_text_ms: this.marks.first_text } : {}),
+      ...(Object.keys(this.onGuest).length ? { guest_ms: { ...this.onGuest } } : {}),
+    };
   }
 }
 
 /** Words that may never reach the log, the JSON or a PR comment, whatever an answer holds. */
+// scrub also runs on serialized JSON, so no shape may cross a `"` or `\`: `Bearer\s+\S+` ate the `\"}` after "bearer
+// token" in a 401 and left all five 300 s wake-echo.json files unparsable (run 45510772491).
 // No word boundaries: a token glued to other characters (`prefix_<key>` in a path) is still a token.
-const SECRET_SHAPES = [/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+/g, /(cmvm|cmk|cmuxvm_sk|cmm|pck|ssk)_[A-Za-z0-9_-]{8,}/g, /[Bb]earer\s+\S+/g,
+const SECRET_SHAPES = [/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+/g, /(cmvm|cmk|cmuxvm_sk|cmm|pck|ssk)_[A-Za-z0-9_-]{8,}/g, /[Bb]earer\s+[^\s"\\]+/g,
   // Every shape in cloud-key-probe.py SHAPES, whatever text carries one: a probe answer, an error, a path. A test
   // holds one example of each probe shape and checks this list removes it, so a new shape cannot miss it.
   /sk-ant-[a-z]{3}\d\d-[A-Za-z0-9_-]{20,}/g, /sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}/g, /sk-[A-Za-z0-9]{20}T3BlbkFJ[A-Za-z0-9]{20}/g,
@@ -484,10 +495,11 @@ export class Api {
   private headers(): Record<string, string> {
     return { authorization: `Bearer ${this.bearer}`, ...(this.team ? { "x-cmux-team": this.team } : {}) };
   }
-  async op(op: string, params: unknown, key?: string): Promise<any> {
+  /** `extra`: headers for this op only (a send's trace headers, cloud-start-trace.ts mintSendTrace). */
+  async op(op: string, params: unknown, key?: string, extra: Record<string, string> = {}): Promise<any> {
     let ownerRetried = false;
     for (let attempt = 1; ; attempt++) {
-      const r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, this.headers(), 60_000, !!key);
+      const r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, { ...this.headers(), ...extra }, 60_000, !!key);
       // A provider call cut off mid-way is safe to repeat under the same key; without it a cleanup delete leaks the VM.
       if (key && attempt < OP_ATTEMPTS && opRetryable(r.body)) { await sleep(2000 * attempt); continue; }
       // An owner reset: once more, under the same key so the op cannot apply twice.
@@ -526,8 +538,8 @@ export class Api {
     if (r.status !== 200 || (r.body.ok === false)) throw new Error(`${op}: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
     return r.body.value;
   }
-  async raw(method: string, route: string, body?: unknown, timeoutMs = 60_000): Promise<Answer> {
-    return http(method, `${this.origin}${route}`, body, this.headers(), timeoutMs);
+  async raw(method: string, route: string, body?: unknown, timeoutMs = 60_000, extra: Record<string, string> = {}): Promise<Answer> {
+    return http(method, `${this.origin}${route}`, body, { ...this.headers(), ...extra }, timeoutMs);
   }
 }
 
@@ -1939,7 +1951,8 @@ export type ExecResult = { code: number; stdout: string; stderr: string };
 export type Exec = (command: string, timeoutMs?: number) => Promise<ExecResult>;
 
 /** Follow a fresh session's ACP stream on the guest and return on text, not turn end. The exec response carries
- * only a marker, never the model's text. --since 0 closes the subscribe/send race on this run's unique session.
+ * only a marker, never the model's text: `@@first-text TURN THOUGHT`, the guest's own ms from the turn's start
+ * (acpmux took the prompt) to the first text and to the first thinking (-1: none), apart from the exec route. --since 0 closes the subscribe/send race on this run's unique session.
  * The process is bounded and reaped by its own parent; no daemon or unrelated process is signalled. */
 export function firstTextCommand(session: string, budgetMs: number): string {
   return `python3 - "$c" ${shq(session)} ${Math.min(270_000, budgetMs) / 1000} <<'CMUX_FIRST_TEXT'
@@ -1952,6 +1965,8 @@ end = time.monotonic() + float(sys.argv[3])
 buf = b''
 discarding = False
 started = False
+turn_at = None
+thought_ms = -1
 try:
     while time.monotonic() < end:
         if not sel.select(max(0, end - time.monotonic())):
@@ -1977,9 +1992,11 @@ try:
                 continue
             if event.get('kind') == 'turn_started':
                 started = True
+                if turn_at is None:
+                    turn_at = time.monotonic()
             if event.get('kind') in ('turn_result', 'turn_error'):
                 sys.exit('first turn ended without assistant text')
-            if not started or event.get('kind') not in (None, 'agent_message_chunk'):
+            if not started or event.get('kind') not in (None, 'agent_message_chunk', 'agent_thought_chunk'):
                 continue
             msg = event.get('msg', event)
             params = msg.get('params', {}) if isinstance(msg, dict) else {}
@@ -1988,11 +2005,13 @@ try:
             if isinstance(acpmux, dict) and acpmux.get('subagent'):
                 continue
             update = params.get('update', {}) if isinstance(params, dict) else {}
+            if isinstance(update, dict) and update.get('sessionUpdate') == 'agent_thought_chunk' and thought_ms < 0:
+                thought_ms = int((time.monotonic() - turn_at) * 1000)
             if not isinstance(update, dict) or update.get('sessionUpdate') != 'agent_message_chunk':
                 continue
             content = update.get('content', {})
             if isinstance(content, dict) and content.get('type') == 'text' and isinstance(content.get('text'), str) and content['text']:
-                print('@@first-text', flush=True)
+                print('@@first-text %d %d' % (int((time.monotonic() - turn_at) * 1000), thought_ms), flush=True)
                 sys.exit(0)
         if len(buf) > 1048576:
             buf = b''
@@ -2013,8 +2032,11 @@ CMUX_FIRST_TEXT`;
 export async function observeFirstText(exec: Exec, session: string, budgetMs: number, timing: FirstTextTiming, record: (step: Step) => void): Promise<void> {
   try {
     const r = await exec(`${GUEST}${firstTextCommand(session, budgetMs)}`, Math.min(270_000, budgetMs) + 5000);
-    if (r.code !== 0 || r.stdout.trim() !== "@@first-text") throw new Error(`first-text observer: exit ${r.code}; ${r.stderr.slice(-300) || "no text marker"}`);
+    const m = /^@@first-text(?: (\d+) (-?\d+))?$/.exec(r.stdout.trim());
+    if (r.code !== 0 || !m) throw new Error(`first-text observer: exit ${r.code}; ${r.stderr.slice(-300) || "no text marker"}`);
     timing.mark("first_text");
+    if (m[1] !== undefined) timing.guest("first_token", Number(m[1]));
+    if (m[2] !== undefined && Number(m[2]) >= 0) timing.guest("first_thought", Number(m[2]));
     record({ step: "first text", status: "pass", ms: 0, detail: "streamed assistant text observed (parallel to send/reply; includes exec return)", fields: timing.fields() });
   } catch (error) {
     record({ step: "first text", status: "pass", ms: 0, detail: `measurement unavailable: ${String((error as Error)?.message ?? error)}`, fields: timing.fields() });
@@ -2277,6 +2299,33 @@ export function carrierTicketProblem(status: number, body: any, nowS = Date.now(
   if (!visibleSecret(v.grant)) return "grant is not 1 to 4096 visible ASCII bytes";
   if (!canonicalKey(v.daemon_key)) return "no canonical 32-byte daemon_key: the dial refuses an answer without one";
   return null;
+}
+
+/** The first text's epoch ms: the create's send plus its first_text mark; null when either was not reached. */
+export function firstTextEpoch(timing: FirstTextTiming, createSentAt: number | null): number | null {
+  const at = timing.fields().create_marks_ms?.first_text;
+  return createSentAt === null || at === undefined ? null : createSentAt + at;
+}
+
+/** How long after the first token the send's trace is read, so the platform's last spans have landed. */
+export const SEND_TRACE_SETTLE_MS = 5_000;
+
+/**
+ * The send's Chrome trace (cloud-start-trace.ts readSendTrace), ~5 s after its first token: saved as send-trace.json
+ * in the run's out dir, its hops printed with their floors, and its id printed. A 404 or any error is printed only.
+ */
+export async function saveSendTrace(api: Pick<Api, "raw">, id: string, firstTextAt: number | null, outDir: string | null, now = Date.now, wait = sleep): Promise<boolean> {
+  const left = (firstTextAt ?? now()) + SEND_TRACE_SETTLE_MS - now();
+  if (left > 0) await wait(left);
+  const got = await readSendTrace((m, r, b, t) => api.raw(m, r, b, t), id);
+  if ("missing" in got) {
+    console.log(`send trace ${id}: not read: ${got.missing}`);
+    return false;
+  }
+  if (outDir) writeFileSync(path.join(outDir, "send-trace.json"), `${JSON.stringify(got.body)}\n`);
+  console.log(`send trace ${id} (Chrome trace JSON, opens in ui.perfetto.dev)${outDir ? `: ${path.join(outDir, "send-trace.json")}` : ""}`);
+  console.log(sendTraceTable(sendTraceRows(got.body)));
+  return true;
 }
 
 /** The carrier dials still running, so a cancelled journey stops them instead of leaving them to their deadline. */
@@ -2602,7 +2651,7 @@ async function cleanupTagMode(tag: string, backend: Backend, email: string | und
   secrets.push(s.access, s.refresh);
   const api = new Api(backend.api, team);
   api.bearer = s.access;
-  const names = new Set([`cloud journey auto ${tag}`, `cloud journey auto ${tag} gateway`]);
+  const names = new Set([false, true].flatMap((long) => [autoMachineName(tag, long), `${autoMachineName(tag, long)} gateway`]));
   // --kept: also the machine a --keep run with this tag made (`cloud journey TAG`), once its operator is done with it.
   if (kept) names.add(`cloud journey ${tag}`).add(`cloud journey ${tag} gateway`);
   const rows = await listAllMachines((params) => api.read("cloud.machine.list", params));
@@ -2647,6 +2696,8 @@ export type ProbeExtra = {
   spare_fallback?: string | null;
   spare_skips?: Record<string, number> | null;
   claimed_spare?: boolean | null;
+  /** Whether the reserved first-home-chat ticket was consumed by the app-style start. */
+  reserved_hit?: boolean;
   /** The claim answer's value.claim.behind (cmux-platform#1429): the spare taken was one image roll behind; null with no claim. */
   claimed_behind?: boolean | null;
   /** How the login reached the machine: the spare's copy on spare.ready (a receipt after the claim), or a copy after bind. */
@@ -3051,9 +3102,41 @@ export const hopTimes = (out: string, n: number): { ttfb_p50: number; ttfb_p90: 
 export const JOURNEY_STUB_SCRIPT = {
   version: 1,
   steps: [{ shell: "printf '%s-%s\\n' {{nonce}} tool" }, { text: "Stub reply {{nonce}}. The tool printed {{result.0}}." }],
-  // The chaos leg's counting turn of file reads (cloud-chaos.ts), played only for a prompt that carries its marker.
-  turns: [countingTurnScript(), feltTurnScript()],
+  // The chaos leg's counting turn of file reads (cloud-chaos.ts), played only for a prompt that carries its marker,
+  // and the reserved home chat's read (journeyReadTurnScript).
+  turns: [countingTurnScript(), feltTurnScript(), journeyReadTurnScript()],
 };
+
+/**
+ * The reserved home chat's stub turn (`--home-chat reserved`): one Read of the file its prompt names
+ * (journeyReadPrompt), in the chat's own folder, whose text is `<nonce>-tool`; then the reply that repeats it, as the
+ * default turn's shell call does. A Read, not a shell call: the app's start (`agent-session-start`) runs the chat under
+ * policy `ask`, where acpmux's tool gate holds every shell call for the person (acpmux hub/policy_gate.rs) and only the
+ * person's app may answer it (hub/person.rs), so the default turn waited on a permission (prod run 45585084079). A Read
+ * in the chat's own folder asks nobody, so the turn runs as a person's would.
+ */
+export function journeyReadTurnScript(): { match: string; steps: Array<Record<string, unknown>> } {
+  return {
+    match: "\\[journey-read /\\S+\\]",
+    steps: [
+      { tool: { name: "Read", input: { file_path: "{{prompt~\\[journey-read (/\\S+)\\]}}" } } },
+      // Claude Code's Read numbers its lines: only the file's text is repeated.
+      { text: "Stub reply {{nonce}}. The tool printed {{result.0~([0-9a-f]+-tool)}}." },
+    ],
+  };
+}
+
+/** The reserved home chat's prompt: the person's words, then the file the stub's turn reads (journeyReadTurnScript). */
+export const journeyReadPrompt = (prompt: string, file: string) => `${prompt} [journey-read ${file}]`;
+
+/**
+ * The guest command that writes `<cwd>/.journey-<nonce>.txt` holding `<nonce>-tool` in the chat's own folder (`cwd`,
+ * from `acp session info`) and prints `@@file <path>`.
+ */
+export function journeyReadFileCommand(cwd: string, nonce: string): string {
+  const file = `${cwd}/.journey-${nonce}.txt`;
+  return `f=${shq(file)}; printf '%s-tool\\n' ${shq(nonce)} > "$f" && echo "@@file $f"`;
+}
 
 /**
  * The journey's own test-login installer, next to this script. The app copies no login to a Cloud machine (its agents
@@ -3301,16 +3384,19 @@ export function loginPathAfterClaim(o: { receipt: boolean; launchCredential: boo
  * `@@prompted`; the turn runs on in the daemon. Without it the journey's send was a second exec and a fresh
  * `cmux-tui acp send` process (2.4 to 3.2 s on the 11-23 stub legs), a path no person's first send takes.
  */
-export function launchCredentialStartProgram(session: string, agent: string, name: string, value: string, prompt?: string): string {
+export function launchCredentialStartProgram(session: string, agent: string, name: string, value: string, prompt?: string, traceId?: string): string {
   const slash = agent.indexOf("/");
   const meta: Record<string, unknown> = { name: session, harness: slash < 0 ? agent : agent.slice(0, slash), credentials: { env: { [name]: value } } };
   if (slash >= 0) meta.model = agent.slice(slash + 1);
   const params = JSON.stringify({ mcpServers: [], _meta: { acpmux: meta } });
   const first = prompt === undefined ? "None" : JSON.stringify(prompt);
+  // The send's W3C trace id (cmux#55505 perf_trace.rs reads params._meta.traceId); only hex, so it is safe inline.
+  const trace = traceId && /^[0-9a-f]{32}$/.test(traceId) ? JSON.stringify(traceId) : "None";
   return `python3 -I - <<'CMUX_JOURNEY_START'
 import json, os, socket, sys, uuid
 params = json.loads(${JSON.stringify(params)})
 first = ${first}
+trace = ${trace}
 params['cwd'] = os.environ.get('HOME') or '/home/cmux'
 home = params['cwd']
 paths = [p for p in (os.environ.get('ACPMUX_SOCKET'), home + '/.cmux/acpmux/acpmux.sock', home + '/.acpmux/acpmux.sock') if p]
@@ -3346,7 +3432,10 @@ for path in paths:
     # The session exists now: a failed prompt never starts a second session on another socket.
     try:
         pid = str(uuid.uuid4())
-        s.sendall((json.dumps({'jsonrpc': '2.0', 'id': 3, 'method': 'session/prompt', 'params': {'sessionId': sid, 'prompt': [{'type': 'text', 'text': first}], '_meta': {'acpmux': {'steer': False, 'promptId': pid, 'resend': False}}}}) + '\\n').encode())
+        meta = {'acpmux': {'steer': False, 'promptId': pid, 'resend': False}}
+        if trace:
+            meta['traceId'] = trace
+        s.sendall((json.dumps({'jsonrpc': '2.0', 'id': 3, 'method': 'session/prompt', 'params': {'sessionId': sid, 'prompt': [{'type': 'text', 'text': first}], '_meta': meta}}) + '\\n').encode())
         while True:
             line = f.readline()
             if not line:
@@ -3370,6 +3459,46 @@ CMUX_JOURNEY_START`;
 
 /** The guest's own cmux-tui (cloud_start_chat.rs GUEST_PRELUDE): the build the machine's acpmux runs. */
 const GUEST = 'export HOME="${HOME:-/home/cmux}"; cd "$HOME" 2>/dev/null || cd /; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; ';
+
+/** The exact command CloudMachineRoute uses to warm the reserved first home chat on a keyed spare. */
+export const WARM_HOME_COMMAND =
+  'c=/home/cmux/.cmux/bin/cmux-tui; [ -x "$c" ] || c=cmux-tui; ' +
+  'if [ "$(id -u)" = 0 ] && id cmux >/dev/null 2>&1; then ' +
+  'set -- setpriv --reuid=cmux --regid=cmux --init-groups env HOME=/home/cmux USER=cmux LOGNAME=cmux; ' +
+  'else set --; fi; ' +
+  '"$@" "$c" acp --json warm-home --wait 2>/dev/null; true';
+
+/** The guest-side read of tickets consumed by an app-style home start. */
+export const CLAIMED_MARKERS_COMMAND =
+  'for f in "$HOME"/chats/.claimed-*; do [ -f "$f" ] && basename "$f"; done | sort';
+
+/** Claimed marker names, excluding unrelated output and duplicate lines. */
+export function parseClaimedMarkers(stdout: string): string[] {
+  return [...new Set(stdout.split(/\r?\n/).map((line) => line.trim()).filter((line) => /^\.claimed-[^/\s]+$/.test(line)))].sort();
+}
+
+export type WarmHomeAnswer = { state: "ready" | "not_ready" | "unsupported"; reason: string };
+
+/** Parse warm-home's optional JSON answer. Older guest images print nothing because the command is absent. */
+export function parseWarmHomeAnswer(stdout: string): WarmHomeAnswer {
+  let answer: any;
+  for (const line of stdout.split(/\r?\n/).map((line) => line.trim()).reverse()) {
+    if (!line.startsWith("{")) continue;
+    try {
+      answer = JSON.parse(line);
+      break;
+    } catch {
+      // The command can include a non-JSON diagnostic before its answer.
+    }
+  }
+  if (!answer || typeof answer !== "object") {
+    return { state: "unsupported", reason: stdout.trim() ? "warm-home returned no JSON answer" : "warm-home is unavailable on this guest image" };
+  }
+  if (answer.accepted === true && answer.state === "ready") return { state: "ready", reason: "reserved home chat is ready" };
+  const state = typeof answer.state === "string" ? answer.state : "unknown";
+  return { state: "not_ready", reason: `warm-home answered state=${state}` };
+}
+
 /**
  * A guest command timed on the guest: its own run, apart from the exec route's trip to the machine and back, which a
  * person's app never takes (it talks to acpmux over the carrier). The time is printed on its own line after the
@@ -3474,34 +3603,49 @@ export function machineIds(rows: any[]): string[] {
 
 /**
  * How old a journey's own machine must be before a later run may sweep it: well past the longest job that runs a
- * journey (the resume matrix's 3600 s cell runs up to 330 min; cloud-journey.test.ts checks every timeout-minutes in
- * a workflow that runs it to be at most half of this), so a journey that is still running never loses its machine.
+ * journey (up to 90 min; cloud-journey.test.ts checks every timeout-minutes in a workflow that runs it to be at most
+ * half of this), so a journey that is still running never loses its machine. A long run (--resume-matrix,
+ * --wake-echo) names its machines `cloud journey auto jr-<tag> long…` and gets LONG_JOURNEY_MS instead.
  */
-export const STALE_JOURNEY_MS = 11 * 3_600_000;
+export const STALE_JOURNEY_MS = 3 * 3_600_000;
+/**
+ * The bound for a long run's machines (the resume matrix's 3600 s cell runs up to 330 min, wake-echo up to 150; the
+ * test checks those workflows against this). It applied to every journey machine from #54761, so a short run's leaks
+ * sat 11 h: the staging test team's 300-machine cap filled with 5 h old ones (cloud.quota.vm_limit, 2026-11-25,
+ * backend run 45572634999) while every sweep deleted 0. Installs keep it too (a long run still uses its install).
+ */
+export const LONG_JOURNEY_MS = 11 * 3_600_000;
+/** The machine name of a run that deletes its machine at the end: ` long` marks a run that may outlast STALE_JOURNEY_MS. */
+export function autoMachineName(tag: string, long: boolean): string {
+  return `cloud journey auto ${tag}${long ? " long" : ""}`;
+}
 /** And idle this long: a machine with activity since then is in use, whatever its age (a hand run has no timeout). */
 export const IDLE_JOURNEY_MS = 60 * 60_000;
 export interface StaleMachine { id: string; name: string; status: string; created: string }
 
 /**
  * The machines earlier journey runs meant to delete and left behind (killed or timed out before their cleanup):
- * named `cloud journey auto jr-<tag>` or `cloud journey auto jr-<tag> gateway`, a name only a run that deletes its
- * machine gives, whose tag (`Date.now().toString(36)`, the run's start) is more than `maxAgeMs` old, with no activity
+ * named `cloud journey auto jr-<tag>`, or that name with any suffix (` gateway`, ` cold`, ` move B`: every machine a
+ * run makes under its auto name; the old suffix list missed the ` move B` machines of 2026-11-23's runs, which helped fill the
+ * staging test team to its 300-machine cap, cloud.quota.vm_limit on 2026-11-25), a name only a run that deletes its
+ * machine gives, whose tag (`Date.now().toString(36)`, the run's start) is more than `maxAgeMs` old (`longMs` for a
+ * long run's `jr-<tag> long…`), with no activity
  * in the last IDLE_JOURNEY_MS (`last_active_at`, when the row has it), and not deleted.
  * Ownership is the name, never age or state: a --keep run's `cloud journey jr-<tag>`, any other name, and a tag that
  * does not read as a time are never picked.
  */
-export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STALE_JOURNEY_MS): StaleMachine[] {
+export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STALE_JOURNEY_MS, longMs = LONG_JOURNEY_MS): StaleMachine[] {
   const out: StaleMachine[] = [];
   for (const r of rows) {
     if (!r || r.status === "deleted" || r.status === "deleting") continue;
     const name = typeof r.name === "string" ? r.name : "";
     // A start bench's machines (runStartBench) are the sweep's too: only a run that deletes them names them so.
-    const m = /^cloud journey auto jr-([0-9a-z]+)( gateway| cold)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name);
+    const m = /^cloud journey auto jr-([0-9a-z]+)( long)?(?: \S.*)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name);
     if (!m) continue;
     const started = parseInt(m[1], 36);
     // A real tag is a millisecond time after 2020 and not in the future.
     if (!Number.isFinite(started) || started < Date.UTC(2020, 0, 1) || started > nowMs) continue;
-    if (nowMs - started <= maxAgeMs) continue;
+    if (nowMs - started <= (m[2] ? longMs : maxAgeMs)) continue;
     if (typeof r.last_active_at === "number" && nowMs - r.last_active_at <= IDLE_JOURNEY_MS) continue;
     const id = String(r.id ?? r.machine_id ?? "");
     const created = typeof r.created_at === "number" ? new Date(r.created_at).toISOString() : new Date(started).toISOString();
@@ -3518,7 +3662,7 @@ export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STAL
  * the staging account's state: install.register answered owner.state_full, 1500285 of 1500000 bytes (2026-11-16).
  * Ownership is the name, as for machines: any other name, and a tag that does not read as a time, are never picked.
  */
-export function staleJourneyInstalls(installs: any[], nowMs: number, maxAgeMs = STALE_JOURNEY_MS): string[] {
+export function staleJourneyInstalls(installs: any[], nowMs: number, maxAgeMs = LONG_JOURNEY_MS): string[] {
   const out: string[] = [];
   for (const i of installs) {
     if (!i || i.revoked_at !== null || i.kind !== "cli") continue;
@@ -4309,6 +4453,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const startVia = argValue("--start-via", argv) ?? "acp";
   if (startVia !== "acp" && startVia !== "app") throw new Error(`--start-via ${startVia}: acp or app`);
   if (startVia === "app" && !cmux) throw new Error("--start-via app needs --cmux PATH: the app's start goes over the carrier dial");
+  // --home-chat reserved measures the app's first home chat, after a reserved ticket was warmed on a keyed spare.
+  const homeChat = argValue("--home-chat", argv) ?? "none";
+  if (homeChat !== "none" && homeChat !== "reserved") throw new Error(`--home-chat ${homeChat}: none or reserved`);
+  if (homeChat === "reserved" && !cmux) throw new Error("--home-chat reserved needs --cmux PATH: the app-style start goes over the carrier dial");
   const only =new Set((argValue("--skip", argv) ?? "").split(",").filter(Boolean));
   if (reuse) only.add("pause");
   // --model stub: the model endpoint is the only stand-in (the shared model stub on the machine). The login the
@@ -4337,14 +4485,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const askedModel = agent.includes("/") ? agent.slice(agent.indexOf("/") + 1) : "";
   const login = provider === "codex" ? codexLogin : provider === "claude" ? claudeLogin : "";
   const loginStep = provider === "codex" ? "pass Codex login" : "pass Claude login";
-  let launchCredential = startsOnLaunchCredential({ modelStub, provider, login, gatewayAny, startVia, preclaimLogin: Boolean(preclaimLoginCmux) });
+  let launchCredential = homeChat === "reserved" ? false : startsOnLaunchCredential({ modelStub, provider, login, gatewayAny, startVia, preclaimLogin: Boolean(preclaimLoginCmux) });
   // A --preclaim-login run whose claimed machine got no login on spare.ready takes this path (loginPathAfterClaim).
-  const launchOnMiss = startsOnLaunchCredential({ modelStub, provider, login, gatewayAny, startVia, preclaimLogin: false });
+  const launchOnMiss = homeChat === "reserved" ? false : startsOnLaunchCredential({ modelStub, provider, login, gatewayAny, startVia, preclaimLogin: false });
   const tag =`jr-${Date.now().toString(36)}`;
+  // This run's send as one trace (cloud-start-trace.ts mintSendTrace): on the create, the carrier ticket and the prompt.
+  const sendTrace = mintSendTrace();
+  console.log(`send trace id ${sendTrace.id}`);
   // A run that deletes its machine at the end names it "cloud journey auto jr-...": only those names are the sweep's
   // (the run meant to delete them). A --keep run keeps the plain "cloud journey jr-..." name, as every run used before
   // the sweep existed, and the sweep never matches it, so a kept machine is never deleted.
-  const machineName = keep ? `cloud journey ${tag}` : `cloud journey auto ${tag}`;
+  const machineName = keep ? `cloud journey ${tag}` : autoMachineName(tag, resumePauses.length > 0 || wakeEchoN > 0);
   const J = new Journey(backend, outDir, { tag, team: team ?? "(personal)", agent, exec: cmux ? `cmux CLI ${cmux}` : "client session", model: modelStub ? "stub (on the machine)" : "real" }, preclaim);
   if (password) J.secrets.push(password);
   if (claudeLogin) J.secrets.push(claudeLogin);
@@ -4544,6 +4695,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       J.secrets.push(s.access, s.refresh);
       return { value: s.access, detail: `Stack project ${stack.project.slice(0, 8)}` };
     });
+    // A run longer than the Stack session (12 wake-echo cycles at a 300 s hold, the resume matrix) signs in again
+    // once the session is RESIGN_AFTER_MS old: run 45510772491's 300 s shards got 401 on cycle 10 of 12, 55 min in.
+    const resignIfOld = async (): Promise<boolean> => {
+      if (signIn !== "password" || !email || !password || Date.now() - signedInAt < RESIGN_AFTER_MS) return false;
+      const s = await passwordSignIn(STACK[backend.stack], email, password);
+      J.secrets.push(s.access, s.refresh);
+      signedInAt = Date.now();
+      api.bearer = s.access;
+      return true;
+    };
     const user = await J.step("user.ensure", async () => {
       const v = await api.op("user.ensure", {}, `${tag}-ensure`);
       return { value: v, detail: `user ${v.id ?? v.user?.id ?? "?"}` };
@@ -4737,6 +4898,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
       }
     }
+    if (homeChat === "reserved") {
+      const t0 = Date.now();
+      const name = "home chat warmed ahead (warm-home)";
+      if (!prepared?.spare) {
+        J.record({ step: name, status: "skip", ms: 0, detail: "no keyed spare was ready for the reserved home chat" });
+      } else {
+        try {
+          const warm = await directExec(api, prepared.spare, J)(WARM_HOME_COMMAND, 60_000);
+          const answer = parseWarmHomeAnswer(warm.stdout);
+          J.record({ step: name, status: answer.state === "ready" ? "pass" : "skip", ms: Date.now() - t0, detail: answer.reason });
+        } catch (error) {
+          J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `warm-home could not run: ${String((error as Error)?.message ?? error).slice(0, 300)}` });
+        }
+      }
+    }
     const created = reuse
       ? await J.step("use machine", async () => {
           afterCreate = J.steps.length;
@@ -4747,7 +4923,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       : await J.step("create machine", async () => {
           J.firstText.mark("create");
           createSentAt = Date.now();
-          const v = await api.op("cloud.machine.create", { name: machineName, size: CHAT_START_SIZE, ...(seed === "none" ? { seed: "none" } : {}) }, `${tag}-create`);
+          const v = await api.op("cloud.machine.create", { name: machineName, size: CHAT_START_SIZE, ...(seed === "none" ? { seed: "none" } : {}) }, `${tag}-create`, sendTrace.headers);
           machine = v.machine.id as string;
           createAnsweredAt = Date.now();
           afterCreate = J.steps.length;
@@ -4797,6 +4973,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           deadlineAt: wakeEchoDeadline === undefined ? undefined : Number(wakeEchoDeadline) * 1000,
           status: async () => String((await row())?.status ?? "unread"),
           pause: async () => {
+            await resignIfOld();
             const t0 = Date.now();
             await api.op("cloud.machine.pause", { machine: created.id }, `${tag}-we-pause-${k++}`);
             return awaitPaused(async () => String((await row())?.status ?? "unread"), t0, 180_000);
@@ -5267,7 +5444,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: `the shared model stub at 127.0.0.1:${port}, nonce ${nonce}, one shell tool round trip (${provider})` };
       });
     }
-    const session = `journey-${tag}`;
+    let session = `journey-${tag}`;
+    let claimedBefore: Set<string> | null = null;
     // One turn's reply: the session's last message once `acp wait` says the turn ended, or the turn's own error.
     const awaitReply = async (): Promise<string> => {
       const t0 = Date.now();
@@ -5328,10 +5506,106 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return { value: null, detail: `${last.slice(0, 120)} (model request at step ${fresh[0].step}: the earlier turns came along)` };
     };
     // An agent with no login to pass (OpenCode on its free Zen models) gets the later turns with --lifecycle.
-    const lifecycle = (provider || argv.includes("--lifecycle")) && !gatewayAny && !only.has("chat") && !only.has("lifecycle") && startVia !== "app";
+    const lifecycle = (provider || argv.includes("--lifecycle")) && !gatewayAny && !only.has("chat") && !only.has("lifecycle") && startVia !== "app" && homeChat !== "reserved";
+    if (homeChat === "reserved") {
+      try {
+        const before = await exec(`${GUEST}${CLAIMED_MARKERS_COMMAND}`);
+        if (before.code === 0) claimedBefore = new Set(parseClaimedMarkers(before.stdout));
+        else J.record({ step: "reserved home marker baseline", status: "skip", ms: 0, detail: `could not read ~/chats/.claimed-* before start (exit ${before.code})` });
+      } catch (error) {
+        J.record({ step: "reserved home marker baseline", status: "skip", ms: 0, detail: `could not read ~/chats/.claimed-* before start: ${String((error as Error)?.message ?? error).slice(0, 240)}` });
+      }
+    }
+    const recordReservedMarker = async () => {
+      const markerStarted = Date.now();
+      try {
+        if (claimedBefore === null) {
+          probeExtra.reserved_hit = false;
+          J.record({ step: "reserved home marker", status: "skip", ms: Date.now() - markerStarted, detail: "reserved_hit=false (marker baseline was unavailable)", fields: { reserved_hit: false } });
+        } else {
+          const after = await exec(`${GUEST}${CLAIMED_MARKERS_COMMAND}`);
+          if (after.code !== 0) {
+            probeExtra.reserved_hit = false;
+            J.record({ step: "reserved home marker", status: "skip", ms: Date.now() - markerStarted, detail: `reserved_hit=false (marker read exit ${after.code})`, fields: { reserved_hit: false } });
+          } else {
+            const hit = parseClaimedMarkers(after.stdout).some((marker) => !claimedBefore!.has(marker));
+            probeExtra.reserved_hit = hit;
+            J.record({ step: "reserved home marker", status: "pass", ms: Date.now() - markerStarted, detail: `reserved_hit=${hit}`, fields: { reserved_hit: hit } });
+          }
+        }
+      } catch (error) {
+        probeExtra.reserved_hit = false;
+        J.record({ step: "reserved home marker", status: "skip", ms: Date.now() - markerStarted, detail: `reserved_hit=false (marker read failed: ${String((error as Error)?.message ?? error).slice(0, 240)})`, fields: { reserved_hit: false } });
+      }
+      probeExtra.reserved_hit ??= false;
+    };
     if (only.has("chat")) {
       J.skip("start agent", "--skip chat");
       await journeyOnly();
+    } else if (homeChat === "reserved") {
+      J.firstText.mark("session_start");
+      let reservedChat: ChatClient | null = null;
+      let started = false;
+      await J.step(`start agent (${agent})`, async () => {
+        const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
+        reservedChat = new ChatClient({
+          cmux: cmux!, machine: created.id, team: api.team, exec, guest: GUEST, session, tag, harness: agent,
+          // The reserved home start deliberately carries no model credentials. The login was copied to the keyed spare.
+          env: { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer },
+          log: (line) => console.log(scrub(line, J.secrets)),
+        });
+        await reservedChat.openTab(agent);
+        // Attached before the send, as the app is: a bare start leaves the tab unattached and the send is refused.
+        const reply = await reservedChat.startAttached(agent);
+        const outcome = appStartDetail(reply);
+        if (!outcome.ok) throw new Error(outcome.detail);
+        session = String(reply?.data?.session ?? "");
+        if (!session) throw new Error(`started with no session: ${JSON.stringify(reply).slice(0, 200)}`);
+        J.firstText.mark("session_ready");
+        started = true;
+        return { value: null, detail: `${outcome.detail}; no cwd or model credential on the start` };
+      }).catch(() => undefined);
+      if (!started) {
+        reservedChat?.stop();
+        J.skip("send chat", "reserved home start did not produce a session");
+        J.skip("reply", "reserved home start did not produce a session");
+        await recordReservedMarker();
+      } else {
+        firstTextObserver = observeFirstText(exec, session, chatBudget, J.firstText, (s) => J.record(s));
+        try {
+          // The stub's turn reads a file in the chat's own folder (journeyReadTurnScript): the chat runs under policy
+          // `ask`, where a shell call waits for the person.
+          let sendText = prompt;
+          if (modelStub || gatewayStub) {
+            sendText = await J.step("stub file in the chat's folder", async () => {
+              const info = await exec(`${GUEST}"$c" acp session info ${shq(session)} --fields cwd 2>&1`, 45_000);
+              const cwd = /^cwd\t(\/\S*)$/m.exec(info.stdout)?.[1] ?? "";
+              if (!cwd) throw new Error(`no cwd for ${session}: ${info.stdout.trim().slice(-200)}`);
+              const w = await exec(journeyReadFileCommand(cwd, nonce), 45_000);
+              const file = /@@file (\S+)/.exec(w.stdout)?.[1];
+              if (!file) throw new Error(`exit ${w.code} ${w.stdout.slice(-200)} ${w.stderr.slice(-200)}`);
+              return { value: journeyReadPrompt(prompt, file), detail: `${file} (a Read asks nobody under policy ask)` };
+            });
+          }
+          await J.step("send chat", async () => {
+            J.firstText.mark("send");
+            await reservedChat!.prompt(sendText, undefined, Date.now() + chatBudget);
+            J.firstText.mark("sent");
+            return { value: null, detail: `${prompt.slice(0, 80)} (sent over the app's carrier chat)` };
+          });
+          await J.step("reply", async () => {
+            const last = await awaitReply();
+            if ((modelStub || gatewayStub) && !last.includes(`Stub reply ${nonce}. The tool printed ${nonce}-tool`)) {
+              throw new Error(`the reply does not carry the stub's read of ${nonce}-tool: ${last.slice(-200)}`);
+            }
+            return { value: last, detail: last.slice(0, 280) };
+          });
+        } finally {
+          reservedChat?.stop();
+        }
+        await firstTextObserver;
+        await recordReservedMarker();
+      }
     } else if (startVia === "app") {
       // The Cloud picker's start, as the app sends it: a chat tab on the machine, then agent-session-start with the
       // harness and the owner word. A started session passes; a refusal fails the step with its code and data.harness.
@@ -5365,7 +5639,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       await J.step(`start agent (${agent})`, async () => {
         if (launchCredential) {
           // The first prompt follows session/new on the same acpmux link, as the app's first send does.
-          const r = await exec(guestTimed(`${GUEST}${launchCredentialStartProgram(session, agent, "CLAUDE_CODE_OAUTH_TOKEN", login, prompt)}`), 120_000);
+          const r = await exec(guestTimed(`${GUEST}${launchCredentialStartProgram(session, agent, "CLAUDE_CODE_OAUTH_TOKEN", login, prompt, sendTrace.id)}`), 120_000);
           const id = /@@session (\S+)/.exec(r.stdout)?.[1];
           if (!id) throw new Error(scrub(r.stdout.slice(-400) || r.stderr.slice(-400), [login]));
           J.firstText.mark("session_ready");
@@ -5376,10 +5650,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           J.firstText.mark("sent");
           return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
         }
-        const r = await exec(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`, 120_000);
+        const r = await exec(guestTimed(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`), 120_000);
         if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
         J.firstText.mark("session_ready");
-        return { value: null, detail: `session ${session}` };
+        J.firstText.guest("harness_spawn", guestMs(r.stdout));
+        return { value: null, detail: `session ${session}${guestDetail(guestMs(r.stdout))}` };
       });
       firstTextObserver = observeFirstText(exec, session, chatBudget, J.firstText, (s) => J.record(s));
       await J.step("send chat", async () => {
@@ -5387,6 +5662,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         J.firstText.mark("send");
         const onGuest = await send(prompt);
         J.firstText.mark("sent");
+        J.firstText.guest("request_sent", onGuest);
         return { value: null, detail: `${prompt.slice(0, 80)}${guestDetail(onGuest)}` };
       });
       await J.step("reply", async () => {
@@ -5432,6 +5708,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: last, detail: last.slice(0, 280) };
       });
       await firstTextObserver;
+      if (homeChat === "reserved") await recordReservedMarker();
       await afterFirstText?.();
       await journeyOnly();
       // `--agent claude/MODEL`: the session must run the model asked for. Read from what ran: the `model` of every
@@ -5627,7 +5904,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       // Without a cmux binary (the production journeys) the dial cannot run; its platform half still can: the
       // ticket, grant and daemon key it asks for, checked by the dial's own rules.
       await J.step("connect (carrier ticket)", async () => {
-        const r = await api.raw("POST", `/v1/cloud/machines/${created.id}/carrier`, { noise_key: randomBytes(32).toString("base64url") });
+        const r = await api.raw("POST", `/v1/cloud/machines/${created.id}/carrier`, { noise_key: randomBytes(32).toString("base64url") }, 60_000, sendTrace.headers);
         const problem = carrierTicketProblem(r.status, r.body);
         if (problem) throw new Error(`carrier ticket: ${problem}`);
         return { value: null, detail: `${r.body.value.relay}, ticket until ${r.body.value.expires_at}, grant and daemon key present` };
@@ -5725,12 +6002,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             log: (line) => console.log(scrub(line, J.secrets)),
           },
           refreshAuth: async () => {
-            if (signIn !== "password" || !email || !password || Date.now() - signedInAt < RESIGN_AFTER_MS) return;
-            const s = await passwordSignIn(STACK[backend.stack], email, password);
-            J.secrets.push(s.access, s.refresh);
-            signedInAt = Date.now();
-            api.bearer = s.access;
-            matrixEnv.CMUX_CLOUD_ACCESS_TOKEN = s.access;
+            if (await resignIfOld()) matrixEnv.CMUX_CLOUD_ACCESS_TOKEN = api.bearer;
           },
           pause: async () => {
             await api.op("cloud.machine.pause", { machine: created.id }, `${tag}-rm-pause-${k++}`);
@@ -5838,7 +6110,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     // The start's waterfall (cmux-platform /v1/cloud/start-traces): the platform's own hops for this create, keyed by
     // its idempotency key, plus the agent's start and first token this run measured; then the last day's p50/p95.
     if (!reuse) await J.step("start trace", async () => {
-      const got = await readStartTrace((m, r, b, t) => api.raw(m, r, b, t), `${tag}-create`, clientSpans(J.firstText.fields().create_marks_ms, createSentAt), created.id);
+      // The create carried the send's trace id (x-cmux-start-trace); a platform that keys by the idempotency key still reads.
+      const spans = clientSpans(J.firstText.fields().create_marks_ms, createSentAt);
+      let got = await readStartTrace((m, r, b, t) => api.raw(m, r, b, t), sendTrace.id, spans, created.id);
+      if ("missing" in got) got = await readStartTrace((m, r, b, t) => api.raw(m, r, b, t), `${tag}-create`, spans, created.id);
       if ("missing" in got) return { value: null, detail: got.missing };
       if (outDir) {
         writeFileSync(path.join(outDir, "start-trace.json"), `${JSON.stringify(got, null, 2)}\n`);
@@ -5848,6 +6123,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const hops = Object.entries(hopDurations(got.trace)).map(([h, ms]) => `${h} ${ms}`).join(", ");
       return { value: null, detail: `${got.trace.trace} ${got.trace.path ?? "?"} ${got.trace.total_ms} ms: ${hops}${slow ? `; slowest 24 h p50 ${slow.hop} ${slow.p50_ms} ms (p95 ${slow.p95_ms ?? "-"})` : ""}` };
     }).catch(() => undefined);
+    // The send's Chrome trace (Perfetto): printed and saved, never a step, so tracing can never fail the journey.
+    if (!reuse) await saveSendTrace(api, sendTrace.id, firstTextEpoch(J.firstText, createSentAt), outDir).catch((e) => console.log(`send trace ${sendTrace.id}: ${String((e as Error)?.message ?? e).slice(0, 200)}`));
     // A step that failed without ending the run (the key probe, a chaos fault, the handoff record): its facts first.
     await readGuestDiagnostics("before-cleanup");
     await readFailureFacts();
@@ -5868,6 +6145,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
   const failed = J.steps.filter((s) => s.status === "fail");
   writeProbe();
+  // snappy-bench/v1 (cloud-start-trace.ts): this fresh chat's send to first token, its parts, and the same model and
+  // prompt straight through the Messages API with the same login (the floor). A real-model run that made its machine.
+  const snappy = !modelStub && !reuse ? snappyRun({ steps: J.steps, run: probeRun }) : null;
+  if (snappy) {
+    const model = agent.startsWith("claude/") ? agent.slice("claude/".length) : "claude-opus-5-5";
+    const floor = agent.startsWith("claude") ? await modelFloor(process.env, model, prompt) : null;
+    const report = snappyReport([snappy], floor, { sha: process.env.GITHUB_SHA ?? null, host: process.env.RUNNER_NAME ?? "local", platform: "linux", model, runUrl: probeRun ?? null });
+    if (outDir) writeFileSync(path.join(outDir, "snappy-bench.json"), `${JSON.stringify(report)}\n`);
+    process.on("exit", () => console.log(scrub(JSON.stringify(report), J.secrets)));
+  }
   console.log(`\n${failed.length ? "FAIL" : "PASS"} ${backend.name}: ${J.steps.filter((s) => s.status === "pass").length} passed, ${failed.length} failed, ${J.steps.filter((s) => s.status === "skip").length} skipped, ${(J.steps.reduce((n, s) => n + s.ms, 0) / 1000).toFixed(1)} s`);
   return failed.length ? 1 : 0;
 }
