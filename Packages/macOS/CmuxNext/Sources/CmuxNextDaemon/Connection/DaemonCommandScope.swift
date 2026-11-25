@@ -47,7 +47,6 @@ public final class DaemonCommandScope: Sendable {
     }
 
     public let idempotencyKey: String?
-    /// The Rust scope (cmux-daemon-conn-core src/scope.rs); its calls are thread-safe.
     // crash-allow: an immutable pointer to a Rust scope that locks its own Mutex on every call (ffi.rs cmux_daemon_scope_call)
     private struct Handle: @unchecked Sendable {
         let raw: OpaquePointer
@@ -70,7 +69,7 @@ public final class DaemonCommandScope: Sendable {
     }
 
     private func call(_ op: String, _ request: [String: Any] = [:]) -> [String: Any] {
-        Self.decoded(Self.call(op, encoded(request), on: handle))
+        Self.call(op, encoded(request), on: handle)
     }
 
     /// `at_ms` stamps the stage log.
@@ -81,12 +80,9 @@ public final class DaemonCommandScope: Sendable {
         return (try? JSONSerialization.data(withJSONObject: request)) ?? Data()
     }
 
-    private static func decoded(_ reply: Data?) -> [String: Any] {
-        reply.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] } ?? [:]
-    }
-
-    private static func call(_ op: String, _ data: Data, on handle: Handle?) -> Data? {
-        guard let handle = handle?.raw else { return nil }
+    /// The Rust scope's reply to `op`, or empty.
+    private static func call(_ op: String, _ data: Data, on handle: Handle?) -> [String: Any] {
+        guard let handle = handle?.raw else { return [:] }
         var out = CmuxDaemonConnBytes(ptr: nil, len: 0)
         let code: Int32 = data.withUnsafeBytes { raw in
             op.withCString { name in
@@ -94,8 +90,8 @@ public final class DaemonCommandScope: Sendable {
             }
         }
         defer { cmux_daemon_conn_bytes_free(out) }
-        guard code == 0, let bytes = out.ptr, out.len > 0 else { return nil }
-        return Data(bytes: bytes, count: out.len)
+        guard code == 0, let bytes = out.ptr, out.len > 0 else { return [:] }
+        return (try? JSONSerialization.jsonObject(with: Data(bytes: bytes, count: out.len))) as? [String: Any] ?? [:]
     }
 
     private func field(_ name: String) -> Any? { call("state")[name] }
@@ -137,9 +133,7 @@ public final class DaemonCommandScope: Sendable {
 
     /// Opens a ticket for a command about to be sent, or nil once closed.
     public func begin(label: String? = nil) -> Ticket? {
-        var request: [String: Any] = [:]
-        if let label { request["label"] = label }
-        return (call("begin", request)["ticket"] as? NSNumber).map { Ticket(id: $0.uint64Value) }
+        (call("begin", label.map { ["label": $0] } ?? [:])["ticket"] as? NSNumber).map { Ticket(id: $0.uint64Value) }
     }
 
     /// Closes `ticket`, recording `failure` when the command failed.
@@ -156,7 +150,7 @@ public final class DaemonCommandScope: Sendable {
         let data = encoded(request)
         let handle = handle
         let waiters = idleWaiters.withLock { waiters -> [CheckedContinuation<Void, Never>] in
-            guard Self.decoded(Self.call("end", data, on: handle))["became_idle"] as? Bool == true else { return [] }
+            guard Self.call("end", data, on: handle)["became_idle"] as? Bool == true else { return [] }
             defer { waiters.removeAll() }
             return waiters
         }
@@ -185,7 +179,7 @@ public final class DaemonCommandScope: Sendable {
             let data = encoded([:])
             let handle = handle
             let idle = idleWaiters.withLock { waiters -> Bool in
-                if Self.decoded(Self.call("state", data, on: handle))["idle"] as? Bool ?? true { return true }
+                if Self.call("state", data, on: handle)["idle"] as? Bool ?? true { return true }
                 waiters.append(continuation)
                 return false
             }
