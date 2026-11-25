@@ -30,8 +30,10 @@
 //! a session with each of several paired peers, routed by their allowed IPs.
 
 mod config;
+mod delay_window;
 mod device;
 mod error;
+mod handshake_retry;
 mod mesh;
 mod mesh_driver;
 mod mesh_paths;
@@ -42,6 +44,9 @@ mod net;
 mod pacing;
 mod probe_schedule;
 mod probing;
+mod send_gate;
+#[cfg(test)]
+mod send_gate_tests;
 mod single_path;
 mod stream;
 #[cfg(test)]
@@ -55,8 +60,10 @@ mod udp;
 mod ultra;
 mod ultra_auto;
 mod ultra_hello;
+mod ultra_period;
 mod ultra_rs;
 mod underlay;
+mod underlay_batch;
 mod watchdog;
 mod wire;
 
@@ -72,9 +79,11 @@ pub use pacing::Priority;
 pub use probe_schedule::{PathWatch, ProbeConfig, WatchStep};
 pub use single_path::MIN_SEND_BUFFER;
 pub use stream::WgStream;
+pub use tcp_stack::STREAM_WINDOW_ENV;
 pub use timers::TimerSchedule;
 pub use ultra::{UltraMode, UltraStats, is_parity as is_ultra_parity};
 pub use ultra_auto::UltraChoice;
 pub use underlay::{
-    DatagramSocket, DueProbes, Origin, RECEIVE_BUFFER, Received, SocketPath, UdpUnderlay, Underlay,
+    DatagramSocket, DueProbes, Origin, RECEIVE_BUFFER, ReceiveBatch, Received, SendBatch,
+    SocketPath, UdpUnderlay, Underlay,
 };

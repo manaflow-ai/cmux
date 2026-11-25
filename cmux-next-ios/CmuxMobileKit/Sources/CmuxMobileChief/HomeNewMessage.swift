@@ -2,6 +2,7 @@
 import CmuxConversationCore
 import CmuxConversationUI
 import CmuxMobileAgentChat
+import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileSupport
 import Foundation
@@ -42,6 +43,14 @@ public final class HomeNewMessage {
     private var isUp = false
     /// The presenter lives as long as its sheet is up.
     private static var current: HomeNewMessage?
+
+    /// RootView's existing foreground callback reaches the sheet's private
+    /// keyboard tracker while the sheet remains visible. This keeps the
+    /// fix at the lifecycle owner instead of adding another notification
+    /// observer to every tracker.
+    public static func appActiveChanged() {
+        current?.sheet?.keyboard.dropKeyboardWithoutOwner()
+    }
 
     init(context: Context) {
         self.context = context
@@ -329,6 +338,7 @@ final class EmbeddedConversation: UIViewController, ConversationComposeEmbeddabl
         self.session = session
         self.carrying = carrying
         conversation = ConversationViewController(store: session.store, options: .chief, keyboard: keyboard)
+        conversation.dismissesKeyboardAfterSend = { CmuxMobilePreferences.dismissKeyboardAfterSend() }
         // New Message keeps its title and X.
         conversation.hidesNavigationBar = false
         conversation.showsHeader = false

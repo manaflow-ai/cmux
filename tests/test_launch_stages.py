@@ -54,6 +54,14 @@ class SpansTests(unittest.TestCase):
         self.assertEqual({"premain": 40}, launch_stages.spans({"main_start": 40, "cef.ready": -1,
                                                               "window_usable": float("nan"), "dfl.windows": "x"}))
 
+    def test_the_premain_split_setup_and_first_page_are_stages(self):
+        self.assertEqual({
+            "dyld": 31.5, "premain": 41.2, "main_setup": 47, "first_page_navigation": 720,
+            "first_page_dom_content_loaded": 760, "first_page_contentful_paint": 781,
+        }, launch_stages.spans({"premain.first_initializer": 31.5, "main_start": 41.25, "main.setup_done": 47,
+                                "first_page.navigation_start": 720, "first_page.dom_content_loaded": 760,
+                                "first_page.first_contentful_paint": 781}))
+
     def test_medians_take_each_stage_over_the_rows_that_reached_it(self):
         rows = [{"premain": 40, "first_frame": 500}, {"premain": 60}, {"premain": 50, "first_frame": 700}, None]
         self.assertEqual({"premain": 50, "first_frame": 600}, launch_stages.medians(rows))

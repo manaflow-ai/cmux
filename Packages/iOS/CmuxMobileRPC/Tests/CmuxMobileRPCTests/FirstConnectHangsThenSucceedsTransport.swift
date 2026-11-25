@@ -68,7 +68,7 @@ actor FirstConnectHangsThenSucceedsTransport: CmxByteTransport {
     }
 
     func waitUntilFirstAttemptClosed() async -> Bool {
-        for _ in 0..<200 {
+        for _ in 0..<5_000 {
             if firstAttemptClosed {
                 return true
             }

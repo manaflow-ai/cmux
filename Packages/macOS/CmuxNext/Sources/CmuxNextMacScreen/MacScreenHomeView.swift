@@ -56,6 +56,12 @@ final class MacScreenHomeView: MacScreenThemedView {
         self.systemShortcuts = systemShortcuts
         self.devices = devices
         super.init(frame: .zero)
+        // A plain NSView is not an accessibility element, so its identifier never reached the AX tree (the
+        // feature-flows probe's `macScreen.home` read found nothing, 2026-11-22 09:50Z). A labelled group keeps its
+        // children reachable and names the page for VoiceOver.
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel(L.t("macScreen.home.title", "Screen Sharing"))
         setAccessibilityIdentifier("macScreen.home")
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true

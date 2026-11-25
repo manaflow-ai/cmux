@@ -3122,8 +3122,12 @@ def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None 
         fallback = live.is_fallback(how)
         text = (live.unheld_notice if fallback else live.notice)(area, cell, files, head, branch, doc)
         # A fallback hears of an unheld area once a UTC day, not every push into it (the coordinator flood of
-        # 2026-11-20); a holder hears of each pushed head.
-        failed = live.notify(who, area, time.strftime("day %Y-%m-%d", time.gmtime()) if fallback else head, text)
+        # 2026-11-20); a holder hears of each branch once a UTC day, not each pushed head: on 2026-11-24 one
+        # branch's rebases sent its holder seven notices in 35 s and 20 branches sent 30. The notice names the
+        # branch, so the later heads are a `git log` away. A detached push (no branch) keys on its head.
+        day = time.strftime("day %Y-%m-%d", time.gmtime())
+        key = day if fallback else (f"{branch} {day}" if branch and branch != "HEAD" else head)
+        failed = live.notify(who, area, key, text)
         out.append(f"owner: {area} is held by {who} ({how}); "
                    + (f"not told: {failed}" if failed else "told of this push"))
     return out

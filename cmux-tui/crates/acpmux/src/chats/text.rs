@@ -163,6 +163,16 @@ impl Doc {
         self.folds_to_ascii = folds_to_ascii(&self.text);
     }
 
+    /// A transcript's index stamp may move when its metadata changes even though the searchable
+    /// text did not. Such a stamp update must not make the saved copy rewrite every held chat.
+    fn same_content(&self, other: &Self) -> bool {
+        self.text == other.text
+            && self.messages == other.messages
+            && self.first_turn == other.first_turn
+            && self.live == other.live
+            && self.folds_to_ascii == other.folds_to_ascii
+    }
+
     /// Turn `turn` and every one after it are replaced by `turns` (numbered from `turn`), the
     /// window starts at turn `first`, and the text is held to its bound. Costs what the replaced
     /// and added text does, not what the chat holds.
@@ -515,7 +525,7 @@ impl ChatText {
                         continue;
                     };
                     let mut inner = lock(&self.inner);
-                    let bytes = match edit {
+                    let (bytes, changed) = match edit {
                         follow::Read::Whole { first, turns } => {
                             let doc = Doc::of_turns(stamp, &turns, first);
                             let bytes = doc.text.len();
@@ -523,25 +533,35 @@ impl ChatText {
                                 inner.edge = Some((key, stamp, bytes));
                                 break;
                             }
+                            let changed =
+                                inner.docs.get(&key).is_none_or(|old| !old.same_content(&doc));
                             inner.docs.insert(key.clone(), Arc::new(doc));
-                            bytes
+                            (bytes, changed)
                         }
                         follow::Read::Tail { from, first, turns } => {
                             // Edited in place: the kept search answer is let go of first, so it
                             // holds no copy of the doc and the edit copies nothing (a search
                             // still running elsewhere keeps its own copy).
-                            inner.answer = None;
-                            let Some(doc) = inner.docs.get_mut(&key) else { continue };
-                            let doc = Arc::make_mut(doc);
-                            doc.stamp = stamp;
-                            doc.edit(from, &turns, first);
-                            doc.text.len()
+                            let (bytes, changed) = {
+                                let Some(doc) = inner.docs.get_mut(&key) else { continue };
+                                let doc = Arc::make_mut(doc);
+                                let before = doc.clone();
+                                doc.stamp = stamp;
+                                doc.edit(from, &turns, first);
+                                (doc.text.len(), !before.same_content(doc))
+                            };
+                            if changed {
+                                inner.answer = None;
+                            }
+                            (bytes, changed)
                         }
                     };
-                    read_since_publish += 1;
-                    if read_since_publish >= BATCH {
-                        self.publish(&mut inner);
-                        read_since_publish = 0;
+                    if changed {
+                        read_since_publish += 1;
+                        if read_since_publish >= BATCH {
+                            self.publish(&mut inner);
+                            read_since_publish = 0;
+                        }
                     }
                     bytes
                 }
@@ -575,9 +595,14 @@ impl ChatText {
             false
         });
         inner.evicted = (inner.evicted.0 + evicted.0, inner.evicted.1 + evicted.1);
-        if read_since_publish > 0 || gone || evicted.0 > 0 || !inner.filled {
+        let initial_fill = !inner.filled;
+        let content_changed = read_since_publish > 0 || gone || evicted.0 > 0;
+        if content_changed || initial_fill {
             inner.filled = true;
             self.publish(&mut inner);
+            if !content_changed {
+                inner.dirty = false;
+            }
         }
         // A chat gone leaves the saved copy at once, not at the next timed save: its text is not
         // kept on disk past it. A chat let go of for room is still listed and its transcript still
