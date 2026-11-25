@@ -1,4 +1,4 @@
-// Saved prompts: a message saved under a name (the prompt's or reply's Save as Prompt), offered in
+// Saved prompts: a message saved under a name (its name typed in the composer), offered in
 // the composer's `/` menu next to the chat's commands. Picking one writes its text in place of the
 // `/word`, its variables filled in. acpmux keeps them (`_acpmux/prompts_list`, `_acpmux/prompts_save`,
 // `_acpmux/prompts_delete`, crates/acpmux/src/prompts.rs) beside the prompts cmux-next.json names

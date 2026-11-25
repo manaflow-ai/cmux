@@ -14,6 +14,7 @@ public struct ActionRecovery {
     }
 }
 
+#if canImport(AppKit)
 extension ActionRegistry {
     /// The recovery a person's run of `id` would take now: the action is available in this context
     /// but disabled by its own reason, the run is the person's (``ActionOrigin/user``, also for the
@@ -29,3 +30,4 @@ extension ActionRegistry {
         return nil
     }
 }
+#endif

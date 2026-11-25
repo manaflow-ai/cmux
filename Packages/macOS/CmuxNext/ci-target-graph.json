@@ -177,6 +177,7 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextAgentList",
+        "CmuxNextAgentPanePlacement",
         "CmuxNextApps",
         "CmuxNextCloud",
         "CmuxNextCompat",
@@ -198,6 +199,21 @@
         "CmuxAppAttest",
         "CmuxEgress"
       ]
+    },
+    "CmuxNextAgentPanePlacement": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPanePlacement",
+      "targets": [],
+      "packages": []
+    },
+    "CmuxNextAgentPanePlacementTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAgentPanePlacementTests",
+      "targets": [
+        "CmuxNextAgentPanePlacement"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextAgentPaneTests": {
       "kind": "test",
@@ -387,6 +403,7 @@
         "CmuxNextTabs",
         "CmuxNextTaskManagerPage",
         "CmuxNextTerminal",
+        "CmuxNextTerminalComments",
         "CmuxNextTerminalFind",
         "CmuxNextTerminalGeometry",
         "CmuxNextUpdater",
@@ -1228,6 +1245,7 @@
         "CmuxNextDesignTokens",
         "CmuxNextIcons",
         "CmuxNextTestSupport",
+        "CmuxNextWakeups",
         "CmuxNextWakeupsTestSupport"
       ],
       "packages": [
@@ -1302,7 +1320,8 @@
         "CmuxNextCompat",
         "CmuxNextDaemonService",
         "CmuxNextPages",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
@@ -1328,6 +1347,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFavicons",
       "targets": [
         "CmuxNextBrowser",
+        "CmuxNextCompat",
         "CmuxNextTabs",
         "CmuxNextWakeups"
       ],
@@ -2194,8 +2214,10 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots",
       "targets": [
         "CmuxNextCompat",
+        "CmuxNextDesign",
         "CmuxNextFileGrid",
         "CmuxNextFiles",
+        "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -2423,6 +2445,17 @@
       "packages": [
         "CmuxGhosttyKit"
       ]
+    },
+    "CmuxNextTerminalComments": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTerminalComments",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextDaemonService",
+        "CmuxNextDesign",
+        "CmuxNextDiff"
+      ],
+      "packages": []
     },
     "CmuxNextTerminalFind": {
       "kind": "regular",
