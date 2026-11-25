@@ -84,11 +84,11 @@ fn what_the_rule_refuses_on_purpose_is_not_stripped() {
     // A gesture redemption's _meta (R1) holds the ticket and nothing else.
     let f = json!({"method": "session/set_mode", "params": {"sessionId": "s", "modeId": "m",
         "_meta": {"cmuxGesture": "t", "other": 1}}});
-    let after = strip(f.clone(), &[]).map(|(o, _)| o).unwrap_or(f.clone());
+    let after = strip(f.clone(), &[]).map(|(o, _)| o).unwrap_or(f);
     assert!(breaks_params_rule(&object(after), None));
     let f = json!({"method": "_acpmux/permission_respond", "params": {"sessionId": "s",
         "requestId": "r", "optionId": "o", "_meta": {"cmuxGesture": "t", "acpmux": {}}}});
-    let after = strip(f.clone(), &[]).map(|(o, _)| o).unwrap_or(f.clone());
+    let after = strip(f.clone(), &[]).map(|(o, _)| o).unwrap_or(f);
     assert!(breaks_params_rule(&object(after), None));
 }
 
