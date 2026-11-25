@@ -24,6 +24,7 @@ dependencies = [
  "clap",
  "cmux-agent-customize",
  "cmux-agent-pane-policy",
+ "cmux-api-compat",
  "cmux-auto-session",
  "cmux-bounded",
  "cmux-build-space",
@@ -2584,6 +2585,7 @@ name = "cmux-pty"
 version = "1.0.0"
 dependencies = [
  "anyhow",
+ "cmux-process",
  "libc",
  "portable-pty",
  "windows-sys 0.61.2",
