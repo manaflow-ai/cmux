@@ -144,10 +144,12 @@ pub fn first_update(session: &str) {
     };
     let Some(p) = p else { return };
     let end_ms = now_ms();
-    drop(p.step);
-    let Some(body) = body(&p, end_ms, machine_id()) else { return };
+    let body = body(&p, end_ms, machine_id());
+    let Pending { trace_id, step, .. } = p;
+    // Closing the first_token span.
+    drop(step);
+    let Some(body) = body else { return };
     let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
-    let trace_id = p.trace_id;
     rt.spawn(post(trace_id, body));
 }
 
