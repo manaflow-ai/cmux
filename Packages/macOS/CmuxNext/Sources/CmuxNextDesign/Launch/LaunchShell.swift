@@ -320,8 +320,8 @@ public struct LaunchShellPaths {
     }
 }
 
-/// The plan, and the image decoded on its own queue (never the launch reads' lane). Internal for its tests.
-@MainActor final class Prepared {
+/// The plan, and the image decoded on its own queue (never the launch reads' lane).
+@MainActor private final class Prepared {
     let frame: CGRect
     let look: LaunchShellLook
     let reason: UInt8

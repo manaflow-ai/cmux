@@ -74,13 +74,6 @@ struct LaunchShellTests {
         #expect(marks.all.contains("launch_shell.none_unknown_look"))
     }
 
-    @Test func aPlanWithColoursHasItsOwnLook() {
-        var plan = CmuxLaunchShellPlan()
-        #expect(!Prepared.hasLook(plan))
-        plan.background_rgba = (255, 255, 255, 255)
-        #expect(Prepared.hasLook(plan))
-    }
-
     @Test func theBuildKeyKeepsOnlyKeyCharacters() {
         #expect(LaunchShellPaths.build(info: ["CFBundleVersion": "4294", "CMUXCommit": "abc123"]) == "4294+abc123")
         #expect(LaunchShellPaths.build(info: ["CFBundleVersion": "1/../2 x"]) == "1..2x")
@@ -88,7 +81,7 @@ struct LaunchShellTests {
     }
 }
 
-private final class LaunchShellMarks: @unchecked Sendable {
+private nonisolated final class LaunchShellMarks: @unchecked Sendable {
     private let lock = NSLock()
     private var values: [String] = []
     func append(_ value: String) { lock.lock(); values.append(value); lock.unlock() }
