@@ -27,6 +27,13 @@ if [[ -n "${STUB_XCTEST:-}" ]] && [[ -z "${STUB_XCTEST_ONCE:-}" || ! -e "$STUB_X
   [[ -z "${STUB_XCTEST_ONCE:-}" ]] || : > "$STUB_XCTEST_ONCE"
   "$STUB_XCTEST" "${STUB_XCTEST_SECONDS:-60}"
 fi
+if [[ -n "${STUB_SWIFTPM_ONCE:-}" && ! -e "$STUB_SWIFTPM_ONCE" ]]; then
+  : > "$STUB_SWIFTPM_ONCE"
+  printf '%s\n' 'error: The file “CmuxNext” couldn’t be saved in the folder “macOS”.' \
+    "error: 'cmuxnext': binary target 'CCmuxAppFFI' could not be mapped to an artifact with expected name 'CCmuxAppFFI'" \
+    'error: no tests found; create a target in the '\''Tests'\'' directory'
+  exit 1
+fi
 cat "$STUB_OUTPUT"
 # Daemons a live-daemon test starts, and ones it does not own (STUB_DAEMONS, the daemon test below).
 # Each records its pid under its label. Detached ones are started in a subshell that exits at
@@ -927,6 +934,17 @@ grep -q '^::warning title=cmux-next swift test startup hang::.*running swift tes
   || fail "the retried startup hang left no warning" "$out"
 [[ "$out" != *"::error"* ]] || fail "a retry that passed printed an error" "$out"
 grep -q 'aPasses() passed' <<<"$out" || fail "the retry did not run the tests" "$out"
+
+# A killed shard can leave SwiftPM's package state held while the next isolated
+# process starts. The package-save/artifact-mapping errors happen before any test
+# line and must retry; a real test failure must remain red.
+rm -f "$TMP/swiftpm-once"
+cp "$TMP/green.out" "$TMP/swiftpmretry.out"
+STUB_SWIFTPM_ONCE="$TMP/swiftpm-once" run swiftpmretry 0
+[[ "$status" == 0 ]] || fail "a transient SwiftPM package-state failure exited $status" "$out"
+grep -q 'SwiftPM failed before any test ran; retrying package state' <<<"$out" \
+  || fail "the SwiftPM retry left no warning" "$out"
+grep -q 'aPasses() passed' <<<"$out" || fail "the SwiftPM retry did not run the tests" "$out"
 
 # The retry runs once: a second startup hang fails the step.
 rm -f "$TMP/startup-once"

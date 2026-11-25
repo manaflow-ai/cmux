@@ -44,16 +44,59 @@ def tracked_swift_files() -> list[str]:
 
 
 def argument_span(text: str, open_paren: int) -> str:
-    """The text between #require's parentheses, matched by nesting depth."""
+    """The text between #require's parentheses, matched by nesting depth. A parenthesis inside a
+    string literal ("f(x" as a search needle) is text, not nesting: it is skipped."""
     depth = 0
-    for index in range(open_paren, len(text)):
-        if text[index] == "(":
+    quote = ""  # "" outside a string, '"' in a one-line literal, '"""' in a multi-line one
+    index = open_paren
+    while index < len(text):
+        if quote:
+            if text[index] == "\\":
+                index += 2
+                continue
+            if text.startswith(quote, index):
+                index += len(quote)
+                quote = ""
+                continue
+            if quote == '"' and text[index] == "\n":
+                quote = ""
+        elif text[index] == "/" and text[index + 1 : index + 2] not in ("/", "*", " ") \
+                and text[:index].rstrip()[-1:] in ("(", ",", ":", "="):
+            # A one-line regex literal (/"id":"([^"]+)"/): its quotes and parentheses are pattern text.
+            end = index + 1
+            while end < len(text) and text[end] not in "/\n":
+                end += 2 if text[end] == "\\" else 1
+            if end < len(text) and text[end] == "/":
+                index = end + 1
+                continue
+            index += 1
+            continue
+        elif text.startswith('"""', index):
+            quote = '"""'
+            index += 3
+            continue
+        elif text[index] == '"':
+            quote = '"'
+        elif text[index] == "(":
             depth += 1
         elif text[index] == ")":
             depth -= 1
             if depth == 0:
                 return text[open_paren + 1 : index]
+        index += 1
     return text[open_paren + 1 :]
+
+
+SELF_CHECKS = (
+    # (Swift source, lines the lint must report)
+    ('let a = try #require(f(try #require(g())))\n', [1]),
+    ('let a = try #require(s.range(of: "f(x"))\nlet b = try #require(s.range(of: "y"))\n', []),
+    ('let a = try #require(s.range(of: "q\\"("))\nlet b = try #require(t)\n', []),
+    ('let a = try #require(parse("""\n  {"a": "(", "b": 1}\n  """))\nlet b = try #require(t)\n', []),
+    ('let a = try #require(parse("""\n  x\n  """, try #require(y)))\n', [1]),
+    ('let id = try #require(s.firstMatch(of: /"id":"([^"]+)"/)).1\nlet b = try #require(t)\n', []),
+    ('let a = try #require(x / 2 > 1 ? f(try #require(y)) : 0)\n', [1]),
+)
 
 
 def nested_requires(text: str) -> list[int]:
@@ -68,6 +111,10 @@ def nested_requires(text: str) -> list[int]:
 
 
 def main() -> int:
+    for source, want in SELF_CHECKS:
+        if nested_requires(source) != want:
+            print(f"self-check failed: {source!r} reported {nested_requires(source)}, wanted {want}", file=sys.stderr)
+            return 1
     offenders: list[str] = []
     for path in tracked_swift_files():
         try:

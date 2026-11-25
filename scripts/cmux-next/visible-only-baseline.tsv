@@ -47,7 +47,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeAgentPillCard.
 Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunView.swift	visible-only-subviews-teardown	1
 Packages/macOS/CmuxNext/Sources/CmuxNextHome/NewMessage/HomeRecipientSuggestionsView.swift	visible-only-reload-data	1
 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefTeleport/ChiefTeleportPlayground.swift	visible-only-subviews-teardown	1
-Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeChiefSettingsView+Teleport.swift	visible-only-subviews-teardown	1
 Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenCardView.swift	visible-only-subviews-teardown	1
 Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenHomeView.swift	visible-only-subviews-teardown	1
 Packages/macOS/CmuxNext/Sources/CmuxNextNotifications/Share/AgentShareInviteCard.swift	visible-only-subviews-teardown	1
@@ -92,7 +91,7 @@ cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/PanesScreen.swift	visib
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/TaskComposerScreen.swift	visible-only-eager-stack-in-scroll	3
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/TaskComposerScreen.swift	visible-only-foreach-unstable-id	1
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/WorkspaceIconPicker.swift	visible-only-foreach-unstable-id	1
-cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/WorkspacesList.swift	visible-only-foreach-unstable-id	3
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/WorkspacesList.swift	visible-only-foreach-unstable-id	1
 cmux-next-ios/NotificationContent/ConversationPreview.swift	visible-only-foreach-unstable-id	1
 cmux-next-ios/NotificationContent/NotificationContentView.swift	visible-only-eager-stack-in-scroll	1
 cmux-next-ios/NotificationContent/NotificationContentView.swift	visible-only-foreach-unstable-id	1

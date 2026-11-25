@@ -35,11 +35,24 @@ public struct HarnessIconLookup: Equatable, Sendable {
 
     /// The tab strip's icon for a chat on `harness`, or nil to keep the usual one.
     func tabIcon(for harness: String?) -> TabIcon? {
-        switch custom(for: harness) {
-        case .brand(let brand)?: .agentMark(brand)
-        case .symbol(let name)?: .symbol(name)
-        case .image(let image, _)?: .image(image)
-        case nil: nil
+        custom(for: harness).map(Self.tabIcon)
+    }
+
+    /// The tab strip's icon of one drawn icon (a harness's, or a session's own, `AgentTurnStateStore.iconArt(for:)`).
+    static func tabIcon(_ art: Art) -> TabIcon {
+        switch art {
+        case .brand(let brand): .agentMark(brand)
+        case .symbol(let name): .symbol(name)
+        case .image(let image, _): .image(image)
+        }
+    }
+
+    /// The sidebar row's agent mark of one drawn icon: a mark id is a brand, anything else the row's `agentIcon`.
+    static func sidebarMark(_ art: Art) -> (brand: String?, icon: SidebarAgentIcon?) {
+        switch art {
+        case .brand(let brand): (brand, nil)
+        case .symbol(let name): (nil, .symbol(name))
+        case .image(_, let favicon): (nil, .image(favicon))
         }
     }
 }

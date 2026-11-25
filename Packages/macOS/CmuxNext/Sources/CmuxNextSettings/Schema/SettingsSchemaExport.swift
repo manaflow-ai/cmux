@@ -82,13 +82,16 @@ public struct SettingsSchemaExport {
             if spec.devOnly { entry["dev_only"] = true }
             return entry
         }
-        // The sidebar's titled runs of categories; the untitled lead run has a null title.
+        // The sidebar's titled runs of categories; the untitled lead run has a null title. A
+        // collapsed run (More) is drawn closed until opened; absent on every other run.
         let sidebarSections: [[String: Any]] = SettingsPageLayout.sidebarSections.map { section in
-            [
+            var entry: [String: Any] = [
                 "id": section.id,
                 "title": section.title.map { text($0.text, $0.key) as Any } ?? NSNull(),
                 "categories": section.categories.map(\.id),
             ]
+            if section.collapsed { entry["collapsed"] = true }
+            return entry
         }
         return [
             "default_category": SettingsPageLayout.defaultCategory,
@@ -160,6 +163,9 @@ public struct SettingsSchemaExport {
             row["kind"] = "string_list"
             row["choices"] = choices(list)
             row["ordered"] = false
+        case .json(let shape):
+            row["kind"] = "json"
+            row["shape"] = foundation(shape)
         }
         // How another validator checks the value: portable, or a domain only the app knows (theme
         // names, installed fonts, system sounds) or with its own shape (row-facts.json).

@@ -3,8 +3,10 @@
 // what ChatSessionInfo takes and derives the same lists the same way; the per-section mappers turn them
 // into rows. The person's choices the page's sections kept in their own state (a fold, Show more, a
 // Reconnect under way) are kept here, since the App's rows have none.
+import type { SessionInfoCloudControl } from "../../hybrid/SessionInfoCloud";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePaneLanguage, useT } from "../../i18n";
+import { useConnectionQuiet } from "../../../../ui/lasting";
 import type { AcpmuxRow } from "../../model";
 import { planDone, type SessionInfoPlan } from "../progressSectionModel";
 import { postNative } from "../../native";
@@ -56,6 +58,7 @@ import { byUsage, compactingUsage, type UsageSort } from "../../usageStats";
 import { sourcesSection } from "./sources";
 import { subagentsSection } from "./subagents";
 import { tasksSection, useNativeWorkflowPhases } from "./tasks";
+import type { AgentSideRow } from "../agentSide";
 import { CloudRepositoryPicker } from "../CloudRepositoryPicker";
 import { chatMachine, type ChatPlace } from "../../chatMachine";
 import { useCloudRepositories } from "./useCloudRepositories";
@@ -87,6 +90,7 @@ export type NativeSessionInfoProps = {
   grants?: readonly AccessGrant[];
   cloudRepositoryAvailable?: boolean;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
+  cloud?: SessionInfoCloudControl;
   onCompact?: () => void;
   /// Context's View Prompt (ContextSection.tsx).
   onViewPrompt?: () => void;
@@ -118,6 +122,8 @@ export type NativeSessionInfoProps = {
   processes: readonly SessionInfoProcess[];
   listed: boolean;
   transcriptTasks: readonly SummaryBackgroundTask[];
+  /// What waits on the agent's side (agentSide.ts), at the foot of Background tasks.
+  agentSide?: readonly AgentSideRow[];
   sessions: readonly StartedSession[];
   workflows: readonly WorkflowSummary[];
   agent?: Subagent;
@@ -238,6 +244,10 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const [openLists, setOpenLists] = useState<ReadonlySet<string>>(new Set());
   const [reconnecting, setReconnecting] = useState<Readonly<Record<string, "reconnecting" | "failed">>>({});
   const reconnectingServers = useRef(new Set<string>());
+  // A connector still connecting says so only once that has lasted the shared bound (connectors.ts).
+  const connectorsPendingShown = useConnectionQuiet(
+    (props.summary?.mcpServers ?? []).some((server) => server.status === "pending"),
+  );
   const [changesAll, setChangesAll] = useState(false);
   const [outputsAll, setOutputsAll] = useState(false);
   const [usageAll, setUsageAll] = useState(false);
@@ -360,6 +370,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           repository: props.repository,
           grants: props.grants,
           remoteControl: props.remoteControl,
+          cloud: props.cloud,
           cloudRepositoryAvailable: props.cloudRepositoryAvailable,
           onAddCloudRepository: cloud.open,
           onOpenCloudEnvironment: () => openCloudEnvironment({ section: "overview" }),
@@ -382,7 +393,6 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           language,
           open: state.sections.context,
           onCompact: props.onCompact,
-          onViewPrompt: props.onViewPrompt,
           openLists,
           onToggleList: (id) =>
             setOpenLists((was) => {
@@ -414,6 +424,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           open: state.sections.connectors,
           reconnecting,
           imessage,
+          pendingShown: connectorsPendingShown,
         },
         actions,
         t,
@@ -507,6 +518,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           open: state.sections.tasks,
           processes: props.processes,
           transcriptTasks: props.transcriptTasks,
+          agentSide: props.agentSide,
           listed: props.listed,
           scheduled: props.made?.scheduled ?? NO_SCHEDULED,
           language,

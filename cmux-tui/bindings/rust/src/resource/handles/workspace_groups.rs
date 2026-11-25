@@ -20,7 +20,6 @@ const STATE_ID_MAX_LEN: usize = 64;
 
 /// One personal workspace group.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct WorkspaceGroupSnapshot {
     /// The group's state id; also the id of its state changes.
     pub id: String,
@@ -49,7 +48,6 @@ pub struct WorkspaceGroupSnapshot {
 
 /// A session-qualified workspace in the personal order.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct WorkspaceRef {
     /// Registry id of the session that owns the workspace.
     pub session_id: String,
@@ -69,7 +67,6 @@ impl WorkspaceRef {
 
 /// One workspace's place in the personal sidebar order.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct WorkspacePlacementSnapshot {
     pub workspace: WorkspaceRef,
     /// Position in the personal sidebar order.
@@ -84,7 +81,6 @@ pub struct WorkspacePlacementSnapshot {
 /// What `workspace_group.delete` removed: the group and the workspaces it
 /// ungrouped.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct WorkspaceGroupDeleteResult {
     pub id: String,
     pub ungrouped: Vec<WorkspaceRef>,

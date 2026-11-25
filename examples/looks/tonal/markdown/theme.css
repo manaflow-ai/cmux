@@ -1,0 +1,20 @@
+/* Tonal's Markdown viewer: the chat's tonal surfaces on a page. Code sits in a container one tone
+   up, tinted by the theme's accent (its seed), with the card corner (16 px); tables take the same
+   container for their header row and the quiet outline for their lines; headings carry no rule,
+   their weight does the work; a quote hangs on a 4 px bar in the seed; popovers are opaque and
+   lifted by tone, not by a shadow.
+   Only --cmux-md-* custom properties on :root; every color is mixed from the page's own, so this
+   one file reads over the light and the dark theme file alike. */
+:root {
+  --cmux-md-code-background: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 7%, var(--page-elevated));
+  --cmux-md-code-radius: 16px;
+  --cmux-md-border-color: color-mix(in srgb, var(--page-text) 12%, transparent);
+  --cmux-md-heading-weight: 600;
+  --cmux-md-heading-rule: none;
+  --cmux-md-quote-border: 4px solid color-mix(in srgb, var(--cmux-accent, var(--page-text)) 60%, transparent);
+  --cmux-md-table-border: 1px solid var(--cmux-md-border-color);
+  --cmux-md-table-header-background: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 10%, var(--page-elevated));
+  --cmux-md-accent-background: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 12%, transparent);
+  --cmux-md-popover-background: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 14%, var(--page-elevated));
+  --cmux-md-popover-shadow: 0 0 0 1px var(--cmux-md-border-color);
+}

@@ -189,6 +189,23 @@ for (const [template, selector] of [
   }, 60_000);
 }
 
+test("classic New Tab: the pane draws one page over the chat view it keeps built under it", async () => {
+  // The hidden chat view's `<Activity>` and the classic page were siblings keyed 0 in `.acpmux-main`:
+  // React's keyed pass lost the page's fiber under the Activity's, built a new page beside it and never
+  // removed the old one, so each pass that fell back to it added a page (twelve in a cold pane).
+  const pane = await mount("classic");
+  const pages = () => host.querySelectorAll(".acpmux-newtab").length;
+  await until(() => pages() > 0, "the New Tab page draws before the handshake");
+  for (let pass = 0; pass < 10; pass++) await tick();
+  expect(pages(), "one page before the handshake").toBe(1);
+  await act(async () => pane.fail());
+  await until(() => pages() === 0 && promptField() !== undefined, "the chat view stands in for the page");
+  pane.answer();
+  await until(() => pages() > 0, "the New Tab page comes back after the handshake", 30_000);
+  for (let pass = 0; pass < 10; pass++) await tick();
+  expect(pages(), "one page after the handshake").toBe(1);
+}, 60_000);
+
 test("an existing chat that failed before its handshake and recovered gives a later New Tab no prompt", async () => {
   // cmux#28204 review: the stand-in flag stayed set after a chat's own recovery, and a New Tab
   // adopted into the pane later took the chat's prompt as its draft.

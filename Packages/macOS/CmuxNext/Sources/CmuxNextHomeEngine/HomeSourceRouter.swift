@@ -174,7 +174,7 @@ public nonisolated final class HomeSourceRouter: HomeSource {
     }
 
     /// The agents that start: this Mac's Chief runs them, so the local owner sees them (a cloud Chief's do not show).
-    public func agentStarts() async -> AsyncStream<Set<String>> { await local.agentStarts() }
+    public func agentStarts() async -> AsyncStream<HomeAgentStarts> { await local.agentStarts() }
 
     public func requestLive(of conversation: ConversationID) async {
         await source(for: conversation).requestLive(of: conversation)

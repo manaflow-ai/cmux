@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use crate::chats::search::{Needle, find};
+use crate::chats::search::{MAX_QUERY, Needle, find};
 use crate::chats::{ChatCursor, ChatQuery, ChatService, chat_value};
 use crate::hub::Hub;
 use crate::rpc::RpcError;
@@ -44,10 +44,16 @@ pub(super) async fn handle(
         .get("query")
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("query must be a string"))?;
-    let needle = Needle::parse(query).map_err(RpcError::invalid_params)?;
+    if query.chars().count() > MAX_QUERY {
+        return Err(RpcError::invalid_params(format!(
+            "query is longer than {MAX_QUERY} characters"
+        )));
+    }
     let mut filter = ChatQuery::from_params(params).map_err(RpcError::invalid_params)?;
-    // The words are searched in the turns, not the filter's title and folder text.
-    filter.text = None;
+    // The words are searched in the turns, not the filter's title and folder text; its operators
+    // (`since:7d`, `harness:codex`, `in:cmux`, `-word`; `chats/terms.rs`) still narrow the chats.
+    let words = std::mem::take(&mut filter.terms.words);
+    let needle = Needle::of_words(words).map_err(RpcError::invalid_params)?;
     let limit = match params.get("limit") {
         None | Some(Value::Null) => DEFAULT_LIMIT,
         Some(_) => filter.limit.min(MAX_LIMIT),

@@ -24,9 +24,33 @@ pub(super) struct Transport {
     epoch: u64,
 }
 
+/// A request's bearer and extra headers (an `Idempotency-Key`).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Sign<'a> {
+    pub bearer: Option<&'a str>,
+    pub headers: &'a [(&'a str, &'a str)],
+}
+
+/// What a request carries and the most its answer may: a JSON request takes at most
+/// [`Shape::JSON_LIMIT`] back; a raw one says its own.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Shape<'a> {
+    pub payload: Option<super::Payload<'a>>,
+    pub limit: usize,
+}
+
+impl<'a> Shape<'a> {
+    /// The most bytes a JSON request's answer may have.
+    pub(crate) const JSON_LIMIT: usize = 1024 * 1024;
+
+    pub(crate) fn json(body: Option<&'a Value>) -> Shape<'a> {
+        Shape { payload: body.map(super::Payload::Json), limit: Shape::JSON_LIMIT }
+    }
+}
+
 impl Transport {
     pub(super) fn new(allow_http: bool, epoch: u64) -> Result<Self, String> {
-        let client = reqwest::Client::builder()
+        let client = cmux_egress::client_builder("cmux_server::cloud_http_transport")
             .default_headers(cmux_build_space::headers().map_err(|error| error.to_string())?)
             .https_only(!allow_http)
             .redirect(reqwest::redirect::Policy::none())
@@ -50,8 +74,8 @@ impl Transport {
         &self,
         method: reqwest::Method,
         url: &str,
-        body: Option<&Value>,
-        bearer: Option<&str>,
+        body: Shape<'_>,
+        sign: Sign<'_>,
         deadline: &RequestDeadline,
         network: &mut watch::Receiver<u64>,
     ) -> Result<super::Response, String> {
@@ -64,7 +88,7 @@ impl Transport {
                 }
                 // The connection under this request may be dead: fail now rather than at the deadline.
                 Ok(()) = network.changed() => Err("Cloud request unavailable".to_owned()),
-                response = self.send_reconnecting(method, url, body, bearer, deadline) => response,
+                response = self.send_reconnecting(method, url, body, sign.bearer, sign.headers, deadline) => response,
             }
         })?;
         deadline.remaining().ok_or("Cloud response unavailable")?;
@@ -78,13 +102,14 @@ impl Transport {
         &self,
         method: reqwest::Method,
         url: &str,
-        body: Option<&Value>,
+        body: Shape<'_>,
         bearer: Option<&str>,
+        headers: &[(&str, &str)],
         deadline: &RequestDeadline,
     ) -> Result<super::Response, String> {
         loop {
             let remaining = deadline.remaining().ok_or("Cloud request unavailable")?;
-            match self.send(method.clone(), url, body, bearer, remaining).await {
+            match self.send(method.clone(), url, body, bearer, headers, remaining).await {
                 Err(Failure::ConnectTimedOut) => continue,
                 Err(failure) => return Err(failure.message()),
                 Ok(response) => return Ok(response),
@@ -96,14 +121,22 @@ impl Transport {
         &self,
         method: reqwest::Method,
         url: &str,
-        body: Option<&Value>,
+        body: Shape<'_>,
         bearer: Option<&str>,
+        headers: &[(&str, &str)],
         remaining: Duration,
     ) -> Result<super::Response, Failure> {
         let mut request = self.client.request(method, url).timeout(remaining);
-        if let Some(body) = body {
-            request = request.json(body);
+        for (name, value) in headers {
+            request = request.header(*name, *value);
         }
+        request = match body.payload {
+            Some(super::Payload::Json(body)) => request.json(body),
+            Some(super::Payload::Bytes(bytes)) => request
+                .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+                .body(bytes.to_vec()),
+            None => request,
+        };
         if let Some(token) = bearer {
             request = request.bearer_auth(token);
         }
@@ -122,15 +155,15 @@ impl Transport {
             .and_then(|value| value.to_str().ok())
             .filter(|value| value.len() <= 64)
             .map(str::to_owned);
-        const LIMIT: usize = 1024 * 1024;
-        if response.content_length().is_some_and(|n| n > LIMIT as u64) {
+        let limit = body.limit;
+        if response.content_length().is_some_and(|n| n > limit as u64) {
             return Err(Failure::Other("Cloud response too large"));
         }
         let mut bytes = Vec::new();
         while let Some(chunk) =
             response.chunk().await.map_err(|_| Failure::Other("Cloud response failed"))?
         {
-            if chunk.len() > LIMIT - bytes.len() {
+            if chunk.len() > limit.saturating_sub(bytes.len()) {
                 return Err(Failure::Other("Cloud response too large"));
             }
             bytes.extend_from_slice(&chunk);

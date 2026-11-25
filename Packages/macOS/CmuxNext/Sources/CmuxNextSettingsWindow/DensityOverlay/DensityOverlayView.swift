@@ -142,6 +142,7 @@ final class DensityOverlayView: NSView {
         SystemScrollers.follow(scroll)
 
         status.isSelectable = true
+        status.focusRingType = .none
         status.font = Typography.caption
         status.lineBreakMode = .byTruncatingTail
         status.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)

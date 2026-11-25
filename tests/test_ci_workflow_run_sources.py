@@ -4,9 +4,7 @@
 `on.workflow_run.workflows:` matches the triggering workflow's `name:`. That
 name is presentation text. Renaming a workflow for clarity stops every consumer
 of it from triggering, and nothing turns red: the consumer simply never runs
-again. `merge-group-fail-fast.yml` is the expensive version of that failure --
-it cancels a merge group's CI run at the first failed job, so when it stops
-firing every queue entry behind a doomed one burns full runner time instead.
+again.
 
 The Actions API does carry stable identity. A workflow run object has `path`
 (`.github/workflows/ci.yml`) and `workflow_id` next to the presentation `name`,
@@ -71,13 +69,6 @@ PINNED_JOB_NAMES = (
         ".github/workflows/ios-screenshots.yml",
         "runner",
     ),
-)
-
-# The fail-fast watcher is started by a display name but must not act on one.
-# Display names are not unique, and the run object that arrives here carries
-# the stable path, so it can confirm what woke it before it cancels anything.
-IDENTITY_CHECKED = (
-    ".github/workflows/merge-group-fail-fast.yml",
 )
 
 # `repos/:owner/:repo/actions/workflows/<file>/runs` is the identity-based way
@@ -178,17 +169,6 @@ def check_runs_lookups_by_path(documents: dict[Path, dict], failures: list[str])
                 )
 
 
-def check_identity_before_acting(failures: list[str]) -> None:
-    for relative in IDENTITY_CHECKED:
-        watcher = (ROOT / relative).read_text(encoding="utf-8")
-        if "github.event.workflow_run.path" not in watcher or f"${DECLARATION}" not in watcher:
-            failures.append(
-                f"{relative}: must compare github.event.workflow_run.path "
-                f"against {DECLARATION} before it cancels anything, so a workflow "
-                "that merely shares a display name cannot drive it"
-            )
-
-
 def test_pr_ci_does_not_cancel_independent_jobs() -> None:
     # GitHub has no job-cancel REST endpoint. A PR-wide watcher hides useful
     # sibling failures and spends a hosted runner polling for the entire run.
@@ -233,7 +213,6 @@ def main() -> int:
     check_workflow_run_sources(documents, failures)
     check_pinned_job_names(documents, failures)
     check_runs_lookups_by_path(documents, failures)
-    check_identity_before_acting(failures)
 
     if failures:
         for failure in failures:

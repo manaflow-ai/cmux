@@ -101,6 +101,9 @@ FAST_GROUPS = ("ci",)
 # profile). They run in CI; a macOS run skips them and says so.
 LINUX_ONLY_STEPS = {
     "Validate CMUX workload profile contract",
+    # Their pinned zizmor and gitleaks release binaries are Linux builds (scripts/static-analysis/).
+    "Fail on a workflow security hole this change adds (zizmor)",
+    "Fail on a secret this change commits (gitleaks)",
 }
 # Linux-only wrappers whose payload is portable: off Linux, run the payload.
 # The workload profile runner refuses macOS, but ci-guard.sh's commands (the
@@ -383,8 +386,49 @@ def ordered_split(unit: Unit) -> int:
 def needs_clean_tree(steps: list[Step]) -> bool:
     """The workload profile runner refuses a checkout with source changes, and
     other steps (a submodule init) change the shared checkout while they run,
-    so a task holding it runs alone, before the parallel steps."""
+    so a task holding it runs in a clean copy of HEAD of its own (run_in_clean_copy)."""
     return any("cmux_workload_profile.py run" in step.run for step in steps)
+
+
+def run_in_clean_copy(
+    unit: Unit,
+    steps: list[Step],
+    base_env: dict[str, str],
+    base_sha: str,
+    keep_going: bool,
+    on_result: Callable[[StepResult], None] | None = None,
+) -> list[StepResult]:
+    """Run a clean-tree task in a detached worktree of HEAD, beside the parallel steps.
+
+    It ran alone before every other step, so 15 of 16 workers sat idle through its 146-168 s (the canonical
+    guard profile, cmux-next guard group logs, 2026-11-21). A worktree of its own is clean whatever the other
+    steps write. Its output names the shared checkout, so the head's and the base's failures still compare.
+    No worktree (git refuses): it runs in the shared checkout, and may see what the other steps write."""
+    scratch = Path(tempfile.mkdtemp(prefix="guard-clean-"))
+    copy = scratch / "tree"
+    made = subprocess.run(
+        ["git", "worktree", "add", "--quiet", "--detach", str(copy), "HEAD"],
+        cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    )
+    if made.returncode != 0:
+        safe_print(f"cmux guards: no clean worktree for {unit.label} ({made.stdout.strip()[-200:]}); "
+                   "it runs in the shared checkout", flush=True)
+        subprocess.run(["rm", "-rf", str(scratch)], check=False)
+        return run_steps(unit, steps, base_env, base_sha, keep_going, on_result)
+
+    def named_here(result: StepResult) -> StepResult:
+        return dataclasses.replace(result, output=result.output.replace(str(copy), str(ROOT)))
+
+    try:
+        return [named_here(r) for r in run_steps(
+            unit, steps, base_env, base_sha, keep_going,
+            (lambda r: on_result(named_here(r))) if on_result is not None else None, root=copy)]
+    finally:
+        subprocess.run(["git", "worktree", "remove", "--force", str(copy)], cwd=ROOT, stdin=subprocess.DEVNULL,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        subprocess.run(["rm", "-rf", str(scratch)], check=False)
+        subprocess.run(["git", "worktree", "prune"], cwd=ROOT, stdin=subprocess.DEVNULL,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 
 
 def skipped_here(step: Step) -> bool:
@@ -398,8 +442,10 @@ def run_steps(
     base_sha: str,
     keep_going: bool,
     on_result: Callable[[StepResult], None] | None = None,
+    root: Path | None = None,
 ) -> list[StepResult]:
-    """Run steps in order in one job-like sandbox (RUNNER_TEMP, GITHUB_ENV...)."""
+    """Run steps in order in one job-like sandbox (RUNNER_TEMP, GITHUB_ENV...), in ROOT or ROOT's clean copy."""
+    root = root or ROOT
     results: list[StepResult] = []
     # Not "cmux-": tests rewrite the workflows' fixed /tmp/cmux-* paths, and on
     # Linux this directory is under /tmp, so a nested temp path would match.
@@ -417,7 +463,7 @@ def run_steps(
                 "GITHUB_PATH": str(path_file),
                 "GITHUB_OUTPUT": str(temp_path / "github_output"),
                 "GITHUB_STEP_SUMMARY": str(temp_path / "github_step_summary"),
-                "GITHUB_WORKSPACE": str(ROOT),
+                "GITHUB_WORKSPACE": str(root),
             }
         )
         if unit.job == "workflow-guard-history":
@@ -436,9 +482,9 @@ def run_steps(
             if extra_path:
                 step_env["PATH"] = os.pathsep.join(list(reversed(extra_path)) + [step_env["PATH"]])
             step_env.update(step.env)
-            cwd = ROOT / step.working_directory if step.working_directory else ROOT
+            cwd = root / step.working_directory if step.working_directory else root
             if sys.platform != "linux" and step.name in PORTABLE_SUBSTITUTES:
-                if not (ROOT / PORTABLE_SUBSTITUTES[step.name]).exists():
+                if not (root / PORTABLE_SUBSTITUTES[step.name]).exists():
                     # An older checkout (--root) that predates the substitute.
                     result = StepResult(unit, step, None, 0.0, "")
                     results.append(result)
@@ -559,6 +605,48 @@ def select_steps(units: list[Unit], names: set[str]) -> list[Unit]:
         ]
         selected.append(dataclasses.replace(unit, steps=steps))
     return selected
+
+
+def affected_units(units: list[Unit], base: str) -> list[Unit]:
+    """Only the steps the change from `base` can reach (guard_step_inputs.py), with the steps that hand them
+    state. No base, a change to the selection itself, or a selection that fails keeps every step."""
+    try:
+        return _affected_units(units, base)
+    except Exception as error:  # noqa: BLE001 - a broken selection fails open: every step runs
+        safe_print(f"affected guard steps: the selection failed ({type(error).__name__}: {error}); every step runs",
+                   flush=True)
+        return units
+
+
+def _affected_units(units: list[Unit], base: str) -> list[Unit]:
+    import guard_step_inputs  # noqa: PLC0415 - the selection, beside this script
+
+    if not base:
+        safe_print("affected guard steps: no base to compare with; every step runs", flush=True)
+        return units
+    try:
+        changed = guard_step_inputs.changed_paths(base, root=ROOT, worktree=True)
+    except subprocess.CalledProcessError:
+        safe_print(f"affected guard steps: cannot diff {base[:12]}; every step runs", flush=True)
+        return units
+    reason = guard_step_inputs.everything_reason(changed)
+    if reason:
+        safe_print(f"affected guard steps: every step runs: {reason}", flush=True)
+        return units
+    # The base resolved into a step's env (its sha) reads as the base to the selection.
+    steps = {(s.name, s.run, s.working_directory,
+              tuple(sorted((k, v.replace(base, "BASE_SHA") if base else v) for k, v in s.env.items())))
+             for u in units for s in u.steps}
+    picked = guard_step_inputs.select(guard_step_inputs.Tree(ROOT), sorted(steps, key=lambda s: s[0]), changed)
+    kept = select_steps(units, set(picked))
+    total = sum(len(u.steps) for u in units)
+    always = sum(1 for why in picked.values() if why.startswith("always"))
+    safe_print(
+        f"affected guard steps: {len(changed)} changed paths reach {len(picked) - always} steps; {always} always run "
+        f"(inputs not readable); {total - sum(len(u.steps) for u in kept)} of {total} skipped as unchanged",
+        flush=True,
+    )
+    return kept
 
 
 def feat_routed_groups(changed_files: str) -> tuple[str, ...]:
@@ -734,6 +822,11 @@ def main(argv: list[str]) -> int:
              "feat-cmux-next change (detect_linux_guard_changes.classify_feat); no stamp",
     )
     parser.add_argument(
+        "--affected", nargs="?", const="", metavar="BASE",
+        help="run only the steps whose inputs the change from BASE (default: the base this runner compares with) "
+             "reaches, and every step whose inputs cannot be read (guard_step_inputs.py); no stamp",
+    )
+    parser.add_argument(
         "--skip-group", action="append", default=[], metavar="GROUP",
         help="leave out this group or job even when --feat-routes picks it",
     )
@@ -787,6 +880,16 @@ def main(argv: list[str]) -> int:
                 write_results(args.json_path, head_sha, base_sha, [], [], 0.0)
             return 3
 
+    if args.affected is not None and not args.root:
+        units = affected_units(units, args.affected or base_sha)
+        if not units:
+            safe_print("cmux guards: the change reaches no guard step's inputs; nothing to run")
+            if args.results:
+                write_step_results(Path(args.results), [], ROOT)
+            if args.json_path:
+                write_results(args.json_path, head_sha, base_sha, [], [], 0.0)
+            return 0
+
     if args.list:
         for unit in units:
             mode = "in order" if is_stateful(unit) else "in parallel"
@@ -825,10 +928,10 @@ def main(argv: list[str]) -> int:
                 follow_ups[id(head)] = [(unit, [step]) for step in unit.steps[split:]]
         else:
             tasks.extend((unit, [step]) for step in unit.steps)
-    tasks.sort(key=lambda task: -len(task[1]))
-    # Tasks that need a clean checkout run one at a time first; then the rest share the pool.
-    batches = [[task] for task in tasks if needs_clean_tree(task[1])]
-    batches.append([task for task in tasks if not needs_clean_tree(task[1])])
+    # A task that needs a clean checkout starts first, in a clean copy of its own (run_in_clean_copy); the longest
+    # ordered groups next.
+    tasks.sort(key=lambda task: (not needs_clean_tree(task[1]), -len(task[1])))
+    batches = [tasks]
     results: list[StepResult] = []
     writer = IncrementalResults(Path(args.results), ROOT) if args.results else None
     signal.signal(signal.SIGTERM, interrupt_on_term)
@@ -839,7 +942,8 @@ def main(argv: list[str]) -> int:
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs))
     try:
         def submit(task: tuple[Unit, list[Step]]) -> concurrent.futures.Future:
-            future = pool.submit(run_steps, task[0], task[1], env, base_sha, args.keep_going,
+            runner = run_in_clean_copy if needs_clean_tree(task[1]) else run_steps
+            future = pool.submit(runner, task[0], task[1], env, base_sha, args.keep_going,
                                  writer.add if writer is not None else None)
             pending[future] = task
             return future
@@ -898,7 +1002,7 @@ def main(argv: list[str]) -> int:
     if failed:
         safe_print("failed: " + "; ".join(f"{r.unit.label}: {r.step.name}" for r in failed), file=sys.stderr)
         return 1
-    if args.no_stamp or args.group or args.step or args.root or args.feat_routes:
+    if args.no_stamp or args.group or args.step or args.root or args.feat_routes or args.affected is not None:
         return 0
     if not (clean_at_start and tree_is_clean()) or git("rev-parse", "HEAD") != head_sha:
         safe_print("tree has uncommitted or untracked files (or HEAD moved); no pass stamp written. Commit, then rerun to stamp.")

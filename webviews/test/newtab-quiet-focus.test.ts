@@ -68,6 +68,11 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
         root.setProperty("--agent-text", theme === "dark" ? "rgb(236, 236, 236)" : "rgb(20, 20, 20)");
         root.setProperty("--agent-page-bg", "transparent");
         root.setProperty("--agent-accent", "rgb(0, 122, 255)");
+        // The card's ring eases on box-shadow (composerStates.css, HOVER GLASS RING): these reads
+        // judge the looks a state comes to rest in, so the eases run in no time, as the host's
+        // zero motion tokens run them.
+        root.setProperty("--agent-motion-in", "0ms");
+        root.setProperty("--agent-motion-out", "0ms");
       },
       { page: pages[theme], theme },
     );
@@ -297,6 +302,16 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     test(`${theme}: suggestions resolve the composer's surface in every background mode`, async () => {
       const page = await open(2, theme);
       try {
+        // The page's tree: New Tab's composer sits in `.nt-screen`, whose rule gives the box and the
+        // suggestions one rim hairline (`--cmux-hairline` over the composer zoom, newtab/screen.css;
+        // CMUX-652). The harness draws the composer bare, so it moves under a screen as the page has it.
+        await page.evaluate(() => {
+          const composer = document.getElementById("newtab")!.closest(".nt-composer")!;
+          const screen = document.createElement("div");
+          screen.className = "nt-screen";
+          composer.replaceWith(screen);
+          screen.append(composer);
+        });
         for (const seeThrough of [false, true])
           for (const [glass, lens] of [
             ["plain", false],
@@ -393,7 +408,8 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     test(`${theme}: New Tab casts ${theme === "light" ? "--elevation-1" : "no shadow"}, the chat composer the composer's quieter depth`, async () => {
       const page = await open(2, theme);
       const result = await page.evaluate(() => {
-        // The drop layers of a computed box-shadow (inset rims left out), and --elevation-1's own.
+        // The drop layers of a computed box-shadow (inset rims and the hover band's transparent rings
+        // at rest left out), and --elevation-1's own.
         const drops = (shadow: string) => {
           const entries: string[] = [];
           let depth = 0;
@@ -408,7 +424,10 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
             }
           }
           entries.push(shadow.slice(start).trim());
-          return entries.filter((entry) => entry !== "none" && !/\binset\b/.test(entry));
+          return entries.filter(
+            (entry) =>
+              entry !== "none" && !/\binset\b/.test(entry) && !/^rgba\(0, 0, 0, 0\) 0px 0px 0px [\d.]+px$/.test(entry),
+          );
         };
         const probe = document.createElement("div");
         probe.style.boxShadow = "var(--elevation-1)";
