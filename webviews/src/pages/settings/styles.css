@@ -3953,3 +3953,13 @@ button.menu-disclosure {
   stroke: var(--ds-color-accent);
   stroke-linecap: round;
 }
+
+/* Add a Connection > Claude Code's Paste a token instead: a collapsed disclosure in the help line's
+   type under Connect Claude, the paste form inside it once opened. */
+.models-claude-paste > summary {
+  width: fit-content;
+  cursor: pointer;
+}
+.models-claude-paste[open] > summary {
+  margin-bottom: 8px;
+}
