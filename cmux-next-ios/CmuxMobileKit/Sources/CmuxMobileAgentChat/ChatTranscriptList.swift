@@ -936,9 +936,18 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         // Find in Chat's current match moved: the rows losing and taking the mark draw again.
         let marked = surface.find?.currentBlock.map(Self.rowID(findBlock:))
         if marked != lookup.findMarked {
-            for id in [lookup.findMarked, marked].compactMap(\.self) where rows[id] != nil { forced.insert(id) }
+            for id in [lookup.findMarked, marked].compactMap(\.self) {
+                if rows[id] != nil {
+                    forced.insert(id)
+                } else if let parent = lookup.workedParent(of: id) {
+                    // A folded match is drawn by the parent SwiftUI row. Reconfigure that row so
+                    // its nested highlight and VoiceOver selection follow the current match.
+                    forced.insert(parent)
+                }
+            }
             lookup.findMarked = marked
         }
+        lookup.context.findMarked = marked
         // Edited-files cards on screen whose viewed marks changed (a file marked in Changes).
         for (id, native) in lookup.shownNative where native {
             guard let row = rows[id], case .editedFiles(let changes) = row.kind else { continue }
@@ -1543,6 +1552,15 @@ final class ChatRowLookup {
             hasher.combine(disclosures.isOpen("code-\(row.id)"))
         }
         return hasher.finalize()
+    }
+
+    /// The top-level Worked for row that owns an inner row id, when the fold is present.
+    func workedParent(of id: String) -> String? {
+        rows.first { entry in
+            let row = entry.value
+            guard case .worked(let fold) = row.kind else { return false }
+            return fold.rows.contains { $0.id == id }
+        }?.key
     }
 
     /// Drawn natively: a native kind in its resting state (an open tool row, group or thought

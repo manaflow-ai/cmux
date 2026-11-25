@@ -143,6 +143,11 @@ import Testing
         #expect(WorkedFold.duration(3780) == "1h 3m")
         #expect(WorkedFold.label(status: .completed, seconds: nil) == "Worked")
     }
+
+    @Test func coordinationCardsStayOutsideTheFold() {
+        #expect(!WorkedFold.folds(.subagents(["session-1"])))
+        #expect(!WorkedFold.folds(.whoElse("call-1", WhoElseCall(pending: true, answer: nil))))
+    }
 }
 
 extension Array where Element == ChatRow {
