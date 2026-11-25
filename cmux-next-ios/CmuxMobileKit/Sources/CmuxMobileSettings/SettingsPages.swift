@@ -372,6 +372,14 @@ struct TerminalPage: View {
                 Text("Adds Show Chat and Show Terminal to a Claude Code or Codex tab's menu when both views can open.")
             }
             Section {
+                Toggle(isOn: $settings.terminalPlainScroll) {
+                    SettingsLabel("Plain Scroll in Full-Screen Apps", symbol: "scroll")
+                }
+                .accessibilityIdentifier("settings.terminalPlainScroll")
+            } footer: {
+                Text("Scrolling up in a full-screen app such as Claude Code moves through the rows this phone already has, like any page, instead of asking the app to scroll.")
+            }
+            Section {
                 Toggle(isOn: $settings.terminalZoomFullScreenApps) {
                     SettingsLabel("Zoom Full-Screen Apps", symbol: "plus.magnifyingglass")
                 }
@@ -631,6 +639,14 @@ struct TransportPage: View {
                 .accessibilityIdentifier("settings.transport.alignKeepalives")
             } footer: {
                 Text("Sends every connection's keepalive at the same moments, every 10 seconds, so the radio wakes once for all of them instead of for each. Applies at the next connection.")
+            }
+            Section {
+                Toggle(isOn: $settings.quietCloudConnect) {
+                    Text("Quiet Cloud Connections")
+                }
+                .accessibilityIdentifier("settings.transport.quietCloudConnect")
+            } footer: {
+                Text("Cloud chats and machines that answer within 10 seconds show no loading or connecting message, and a short outage behind Cloud lists you already see shows no alert. Longer waits and failures still show.")
             }
             Section {
                 Toggle(isOn: $settings.agentCLIHybrid) {
