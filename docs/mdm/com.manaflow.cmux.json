@@ -3706,7 +3706,7 @@
       "type" : "boolean"
     },
     "experiments.composerHatGroups" : {
-      "default" : false,
+      "default" : true,
       "description" : "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph.",
       "title" : "Composer Hat: Two Groups",
       "type" : "boolean"

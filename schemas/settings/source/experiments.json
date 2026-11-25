@@ -187,7 +187,7 @@
         },
         {
           "key": "experiments.composerHatGroups",
-          "note": "Composer hat prototype: the folded running tray groups subagents and background tasks, and aligns the hat's leading column with the composer's plus glyph (webviews experiments subagent-tray-fold-head, arm groups, and subagent-tray-column, arm glyph). Off by default; off keeps today's tally and chip look.",
+          "note": "Composer hat prototype: the folded running tray groups subagents and background tasks, and aligns the hat's leading column with the composer's plus glyph (webviews experiments subagent-tray-fold-head, arm groups, and subagent-tray-column, arm glyph). On by default (Leo, 2026-11-25: \"did u guys fix the composer hat yet :( let's go ahead on those\"); turned off it keeps the earlier tally and chip look (hostSettings.ts SETTING_OFF_ARMS).",
           "title": {
             "key": "settings.experiments.composerHatGroups",
             "text": "Composer Hat: Two Groups"
@@ -197,7 +197,7 @@
             "text": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph."
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": [
             "labs",
             "experiments",

@@ -14,8 +14,22 @@ describe("Settings switches pick experiment arms", () => {
     expect(settingArms()).toEqual({});
     expect(experimentArm(menuStyleV2, { overrides: {}, stored: {} })).toBe("off");
     expect(experimentArm(menuRowStates, { overrides: {}, stored: {} })).toBe("off");
+    expect(experimentArm(trayFoldHeadLook, { overrides: {}, stored: {} })).toBe("groups");
+    expect(experimentArm(trayColumnLook, { overrides: {}, stored: {} })).toBe("glyph");
+  });
+
+  test("the composer hat switch is on by default; turned off it keeps the earlier look", () => {
+    setExperimentSwitches({ composerHatGroups: false });
+    expect(settingArms()).toEqual({ "subagent-tray-fold-head": "tally", "subagent-tray-column": "chip" });
     expect(experimentArm(trayFoldHeadLook, { overrides: {}, stored: {} })).toBe("tally");
     expect(experimentArm(trayColumnLook, { overrides: {}, stored: {} })).toBe("chip");
+    // The gallery's override still wins over a switch turned off.
+    expect(experimentArm(trayFoldHeadLook, { overrides: { "subagent-tray-fold-head": "summary" }, stored: {} })).toBe(
+      "summary",
+    );
+    // An off switch that is off by default changes nothing.
+    setExperimentSwitches({ menuStyleV2: false });
+    expect(settingArms()).toEqual({});
   });
 
   test("an on switch runs its arm, and the gallery's override still wins", () => {

@@ -9,7 +9,7 @@
 //
 // A switch that picks an arm: its row in schemas/settings/source/experiments.json and one entry in
 // SETTING_ARMS.
-import { experimentSwitchOn, setExperimentSwitches } from "./switches";
+import { experimentSwitchOff, experimentSwitchOn, setExperimentSwitches } from "./switches";
 
 type SettingArm = { experiment: string; arm: string };
 type SettingArmEntry = SettingArm | readonly SettingArm[];
@@ -21,6 +21,19 @@ export const SETTING_ARMS: Readonly<Record<string, SettingArmEntry>> = {
   composerHatGroups: [
     { experiment: "subagent-tray-fold-head", arm: "groups" },
     { experiment: "subagent-tray-column", arm: "glyph" },
+  ],
+};
+
+/**
+ * The arm(s) a switch that is on by default runs when the person turns it off. Its on arms are the
+ * experiments' defaults, so a page with no host (the gallery, tests) draws the shipped look.
+ * composerHatGroups: on by default since Leo, 2026-11-25 ("did u guys fix the composer hat yet :( let's
+ * go ahead on those"); off keeps the earlier tally header and the + chip's column.
+ */
+export const SETTING_OFF_ARMS: Readonly<Record<string, SettingArmEntry>> = {
+  composerHatGroups: [
+    { experiment: "subagent-tray-fold-head", arm: "tally" },
+    { experiment: "subagent-tray-column", arm: "chip" },
   ],
 };
 
@@ -36,11 +49,18 @@ declare global {
   var cmuxExperimentSettings: Record<string, unknown> | undefined;
 }
 
-/** Experiment id to arm, from the switches that are on now. */
-export function settingArms(on: (name: string) => boolean = experimentSwitchOn): Record<string, string> {
+/** Experiment id to arm, from the switches that are on now, and those on by default turned off. */
+export function settingArms(
+  on: (name: string) => boolean = experimentSwitchOn,
+  off: (name: string) => boolean = experimentSwitchOff,
+): Record<string, string> {
   const arms: Record<string, string> = {};
   for (const [name, entry] of Object.entries(SETTING_ARMS)) {
     if (!on(name)) continue;
+    for (const arm of armsFor(entry)) arms[arm.experiment] = arm.arm;
+  }
+  for (const [name, entry] of Object.entries(SETTING_OFF_ARMS)) {
+    if (!off(name)) continue;
     for (const arm of armsFor(entry)) arms[arm.experiment] = arm.arm;
   }
   return arms;
@@ -48,9 +68,8 @@ export function settingArms(on: (name: string) => boolean = experimentSwitchOn):
 
 /** The switch that picks an arm of `experimentId`, if any. */
 export function switchFor(experimentId: string): string | undefined {
-  return Object.keys(SETTING_ARMS).find((name) =>
-    armsFor(SETTING_ARMS[name]!).some((arm) => arm.experiment === experimentId),
-  );
+  const all = { ...SETTING_ARMS, ...SETTING_OFF_ARMS };
+  return Object.keys(all).find((name) => armsFor(all[name]!).some((arm) => arm.experiment === experimentId));
 }
 
 // The theme route: what the bootstrap set before this module ran, then each change. A page with no

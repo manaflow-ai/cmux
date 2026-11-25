@@ -501,7 +501,7 @@ button.cv-subagent > :last-child {
   --acpmux-tray-gap: var(--acpmux-composer-action-gap, 4px);
   --acpmux-tray-inset: var(--acpmux-composer-inset, calc(8px * var(--cmux-interface-scale, 1)));
   /* Where the hat's leading column starts (trayColumn.experiment.ts; Lucas, and Leo 2026-11-24: "the
-     alignment becomes... maybe awkward? against the ... attachment + button"). The `glyph` arm
+     alignment becomes... maybe awkward? against the ... attachment + button"). `glyph` (the default)
      starts its marks on the + glyph's ink, 6px in from the + chip's edge (a 16px glyph centred in the
      28px chip), so the hat's marks, the + and the prompt share one column; `chip` keeps the composer's
      inset. The trailing side keeps the inset, so the chevron stays over Send's column. */

@@ -622,7 +622,7 @@
     "setting.experiments.agentBadgesBeam": false,
     "setting.experiments.chatWidgets": false,
     "setting.experiments.composerV2": false,
-    "setting.experiments.composerHatGroups": false,
+    "setting.experiments.composerHatGroups": true,
     "setting.experiments.glassToolbarGroups": false,
     "setting.experiments.toastsV2": false,
     "setting.feed.agentPermissionPrompts": false,

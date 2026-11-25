@@ -73,15 +73,15 @@ const { backgroundCommands, commandLabel } = await import("../src/agent-session/
 const { runningBackgroundTasks } = await import("../src/agent-session/acpmux/summary/sessionSummary");
 const { SubagentFold } = await import("../src/agent-session/acpmux/subagents/subagentFold");
 
-/// The header's stack of the lines' marks draws under folded headers that are not `kinds`; `kinds`
-/// draws each kind's own mark instead. A test of the stack pins the `counts` arm, read when the tray
-/// mounts; every test ends with the arm unpinned.
+/// The header's stack of the lines' marks draws under the folded headers that are not `kinds`; `kinds`
+/// (the default since #48542) draws each kind's own mark instead. A test of the stack pins the
+/// `counts` arm, read when the tray mounts; every test ends with the arm unpinned.
 const experiments = globalThis as { cmuxExperiments?: Record<string, string> };
 function pinFoldHead(arm: keyof typeof trayFoldHeadLook.arms) {
   experiments.cmuxExperiments = { ...experiments.cmuxExperiments, "subagent-tray-fold-head": arm };
 }
-// This suite checks the explicit arms that predate `tally`; subagent-tray-tally.test.tsx checks the
-// default `tally` arm. Every test starts on `kinds` so each assertion names its intended arm.
+// This suite checks the headers from before the `tally` arm (the default since Leo's 2026-11-23 ask);
+// subagent-tray-tally.test.tsx checks `tally`. Every test starts on `kinds`.
 pinFoldHead("kinds");
 afterEach(() => pinFoldHead("kinds"));
 type BackgroundCommand = import("../src/agent-session/acpmux/session-info/processes").BackgroundCommand;
@@ -2073,7 +2073,7 @@ describe("the tally header", () => {
   });
 });
 
-// The opt-in `summary` arm (trayFoldHead.experiment.ts, HeadSummary.tsx; Leo, 2026-11-23: "this 2
+// The `summary` arm, the default (trayFoldHead.experiment.ts, HeadSummary.tsx; Leo, 2026-11-23: "this 2
 // is too bare. it being alone, it's just bad. ... x subagents running y commands running etc with full
 // text when you have space and it gradually shrinks when there is none").
 describe("the summary header", () => {

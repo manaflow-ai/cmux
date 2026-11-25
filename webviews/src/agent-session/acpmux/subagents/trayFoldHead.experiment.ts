@@ -72,5 +72,5 @@ export const trayFoldHeadLook = defineExperiment({
   // boom. waits, etc, they're just normal tool calls that are backgrounded instead of dozesns of
   // possible different buttons. we can obviously keep the icons the stuff but... we can group them up
   // more"). trayHeadKinds.ts `trayHeadGroups` counts them.
-  defaultArm: "tally",
+  defaultArm: "groups",
 });
