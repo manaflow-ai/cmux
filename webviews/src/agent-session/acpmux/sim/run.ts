@@ -10,6 +10,7 @@
 // No DOM is needed: this runs under plain `bun` and scales to 10k+ rows (a long run's trace holds
 // the probes, not every row, past `rowsInTraceUpTo`).
 import { AcpmuxDirectClient, type EventRecord } from "../direct";
+import { preserveScrollAnchorTop } from "../conversation/scrollAnchor";
 import { turnViewFrom, type TurnView } from "../conversation/turns";
 import { layoutConversation, type AcpmuxRow, type AcpmuxSnapshot, type ConversationLayout } from "../model";
 import { acpmuxSendCall } from "../conversation/acpmuxSends";
@@ -527,13 +528,27 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
     // MY STEER WENT UNDER IT".
     if (rows.length > 0) drewRows = true;
     else if (drewRows) flag("d-blank", "", "the chat drew no row after it drew some");
+    // A prepend (including the first turn's date line appearing after an hour) moves document
+    // coordinates. VirtualTranscript holds the first visible row at its old viewport position.
+    // Probe from the top so a change below that row still registers as movement.
+    const scrollCorrection =
+      prevLayout && rows[0]?.id !== prevRows[0]?.id
+        ? (preserveScrollAnchorTop({
+            oldLayout: prevLayout,
+            newLayout: layout,
+            oldRows: prevRows,
+            newRows: rows,
+            liveTop: 0,
+            anchorTop: 0,
+          }) ?? 0)
+        : 0;
     const ownTurn = (row: AcpmuxRow) => rowTurn.get(row.id) ?? 0;
     const lines = new Map<string, string>();
     for (let at = 0; at < rows.length; at += 1) {
       const row = rows[at]!;
       const live = isLive(row) || LIVE_KINDS.has(row.kind);
       // A settled row (two or more turns back, not live) stands where it stood: nothing above it moved.
-      const top = layout.tops[at]!;
+      const top = layout.tops[at]! - scrollCorrection;
       const was = tops.get(row.id);
       if (!live && was !== undefined && Math.abs(was - top) > 0.5 && ownTurn(row) < turn - 1)
         flag("d-shift", row.id, `${row.kind} of turn ${ownTurn(row)} moved ${Math.round(top - was)}px`);

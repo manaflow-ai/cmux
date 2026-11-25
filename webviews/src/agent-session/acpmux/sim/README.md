@@ -282,7 +282,7 @@ the escape hatch for any record acpmux writes.
   `d-started-pill`: a "started working" line names at most `STARTED_LINE_NAMES` (3) subagents, each by name,
   and none whose start the pane never read (one first met through progress, its spawn before the page);
   `d-started-lines`: one start line a turn (later starts join it); `d-blank`: once rows are drawn, the chat
-  never draws none; `d-shift`: a settled row (two or more turns back, not live) keeps its top;
+  never draws none; `d-shift`: a settled row (two or more turns back, not live) keeps its viewport position after the transcript anchors a prepend;
   `d-action-only`: a turn that ended draws more than its prompt and its action row; `d-steer-order`: no
   row of a steer's turn that came after the steer is drawn above it.
 - **(i) bubble integrity** (integrity.ts), on each turn's rows at its `turn_result` and at the run's last step

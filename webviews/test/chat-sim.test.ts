@@ -178,6 +178,22 @@ test("chat simulator: the sanitizer keeps the shape and drops every word", () =>
   expect(scrubText("## Fix it\n- one")).toMatch(/^## \S+ \S+\n- \S+$/);
 });
 
+test("a prepended date line preserves the reader's place while an opened fold still moves rows below it", () => {
+  const scenario = longRun(4);
+  const before = scenario.steps.length;
+  const afterHour = scenario.steps[0]!.at + 3_600_001;
+  scenario.steps.push(
+    { type: "reader", at: afterHour, label: "first date appears", reader: { scroll: "top" } },
+    { type: "reader", at: afterHour + 1, label: "open first turn", reader: { open: "worked-user-1" } },
+  );
+  const result = runSimulation(scenario);
+  expect(result.traces[before - 1]!.rows?.some((row) => row.kind === "date")).toBe(false);
+  expect(result.traces[before]!.rows?.[0]?.kind).toBe("date");
+  const moved = result.violations.filter((violation) => violation.rule === "d-shift");
+  expect(moved.some((violation) => violation.step === before)).toBe(false);
+  expect(moved.some((violation) => violation.step === before + 1)).toBe(true);
+});
+
 // 300 turns by default (about 3 s); CHAT_SIM_LONG=1 runs 1,800 (10k+ rows, 40 h simulated, about 90 s).
 const LONG = process.env.CHAT_SIM_LONG === "1";
 test(`chat simulator: a ${LONG ? "monstrously " : ""}long run (${LONG ? "10k+" : "1.5k+"} rows, hours of virtual time) keeps folds and settled rows stable`, () => {
