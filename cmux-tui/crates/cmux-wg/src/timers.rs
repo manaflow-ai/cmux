@@ -54,6 +54,12 @@ impl TimerSchedule {
         Self { last_activity: now, last_tick: now, swept: false, persistent_keepalive }
     }
 
+    /// Tick for the persistent keepalive or not (off while the tunnel is
+    /// held: `WgNet::hold`).
+    pub fn set_persistent_keepalive(&mut self, on: bool) {
+        self.persistent_keepalive = on;
+    }
+
     /// A datagram was authenticated, or a data or handshake datagram left.
     pub fn on_activity(&mut self, now: Instant) {
         if now > self.last_activity {
@@ -98,5 +104,77 @@ impl TimerSchedule {
             (Some(keepalive), Some(sweep)) => Some(keepalive.min(sweep)),
             (one, other) => one.or(other),
         }
+    }
+}
+
+/// When the driver's persistent keepalive is due: an interval after the
+/// last datagram the session sent. The driver sees sends as boringtun's
+/// byte counter (which leaves keepalives out) moving between two timer
+/// runs, and dates such a send at the earlier run, so the gap it allows is
+/// never longer than the interval.
+#[derive(Debug)]
+pub struct QuietKeepalive {
+    every: Duration,
+    tx_bytes: usize,
+    last_sent: Instant,
+    last_check: Instant,
+}
+
+impl QuietKeepalive {
+    pub fn new(every: Duration, now: Instant) -> Self {
+        Self { every, tx_bytes: 0, last_sent: now, last_check: now }
+    }
+
+    /// A timer run at `now` with the session's sent byte count: whether a
+    /// keepalive is due.
+    pub fn due(&mut self, tx_bytes: usize, now: Instant) -> bool {
+        if tx_bytes != self.tx_bytes {
+            self.tx_bytes = tx_bytes;
+            self.last_sent = self.last_sent.max(self.last_check);
+        }
+        self.last_check = now;
+        now >= self.last_sent + self.every
+    }
+
+    /// A keepalive or handshake datagram left at `now`.
+    pub fn sent(&mut self, now: Instant) {
+        self.last_sent = self.last_sent.max(now);
+    }
+}
+
+#[cfg(test)]
+mod quiet_keepalive_tests {
+    use super::*;
+
+    const EVERY: Duration = Duration::from_secs(10);
+    const TICK: Duration = Duration::from_secs(1);
+
+    #[test]
+    fn an_idle_session_keeps_the_interval() {
+        let start = Instant::now();
+        let mut keepalive = QuietKeepalive::new(EVERY, start);
+        assert!(!keepalive.due(0, start + EVERY - TICK));
+        assert!(keepalive.due(0, start + EVERY));
+        keepalive.sent(start + EVERY);
+        assert!(!keepalive.due(0, start + EVERY * 2 - TICK));
+        assert!(keepalive.due(0, start + EVERY * 2));
+    }
+
+    #[test]
+    fn other_traffic_holds_it_and_the_gap_never_passes_the_interval() {
+        let start = Instant::now();
+        let mut keepalive = QuietKeepalive::new(EVERY, start);
+        // Something leaves every 5 s: no keepalive ever.
+        let mut tx = 0;
+        for second in 1..=60 {
+            if second % 5 == 0 {
+                tx += 100;
+            }
+            assert!(!keepalive.due(tx, start + TICK * second), "second {second}");
+        }
+        // Then silence: the send seen at 60 s may have left just after the
+        // 59 s run, so the keepalive is due by 69 s.
+        assert!(!keepalive.due(tx, start + TICK * 68));
+        assert!(keepalive.due(tx, start + TICK * 69));
     }
 }

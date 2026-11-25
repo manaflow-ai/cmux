@@ -28,6 +28,8 @@ _git_fixture_spec.loader.exec_module(git_fixture_env)
 import workflow_jobs  # noqa: E402
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import docs_only_paths  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from real_git import real_git, run_bounded  # noqa: E402
 WORKFLOWS = ROOT / ".github/workflows"
 
 
@@ -144,9 +146,9 @@ class APushRunsEveryRoutedGroup(unittest.TestCase):
             env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
 
             def git(*args: str) -> str:
-                return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com",
-                                       "-c", "commit.gpgsign=false", *args], cwd=repo, env=env, check=True,
-                                      capture_output=True, text=True).stdout.strip()
+                return run_bounded(["git", "-c", "user.name=t", "-c", "user.email=t@example.com",
+                                    "-c", "commit.gpgsign=false", *args], cwd=repo, env=env, check=True,
+                                   capture_output=True, text=True, timeout=60).stdout.strip()
 
             git("init", "--quiet")
             (repo / "a.txt").write_text("a\n", encoding="utf-8")
@@ -162,13 +164,13 @@ class APushRunsEveryRoutedGroup(unittest.TestCase):
             git("add", "-A")
             git("commit", "--quiet", "-m", "head")
             # The push path fetches the previous tip; this repository already has it.
-            real_git = shutil.which("git")
+            # The git binary, never a wrapper on PATH that would exec this fake again (tests/real_git.py).
             (bin_dir / "git").write_text(
-                f'#!/bin/sh\n[ "$1" = fetch ] && exit 0\nexec "{real_git}" "$@"\n', encoding="utf-8")
+                f'#!/bin/sh\n[ "$1" = fetch ] && exit 0\nexec "{real_git()}" "$@"\n', encoding="utf-8")
             (bin_dir / "git").chmod(0o755)
             output = runner_temp / "github_output"
-            subprocess.run(["bash", "-eo", "pipefail", "-c", step["run"]], cwd=repo, check=True,
-                           capture_output=True, text=True,
+            run_bounded(["bash", "-eo", "pipefail", "-c", step["run"]], cwd=repo, check=True,
+                        capture_output=True, text=True, timeout=120,
                            env={**env, "PATH": f"{bin_dir}:{env['PATH']}", "EVENT_NAME": event,
                                 "BEFORE": before if event == "push" else "", "RUNNER_TEMP": str(runner_temp),
                                 "GITHUB_OUTPUT": str(output)})
@@ -269,9 +271,9 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
         # touches nothing a guard group reads skips it; an empty route (a push, a router failure) runs it.
         self.assertEqual(self.job()["needs"], ["coalesce", "fast-check-route"])
         self.assertEqual(self.job()["if"],
-                         "${{ !cancelled() && needs.coalesce.outputs.run != 'false' && "
+                         "${{ (github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
                          "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
-                         "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}")
+                         "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}")
         self.assertEqual(
             workflow_jobs.single_runs_on(self.job()),
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request'"

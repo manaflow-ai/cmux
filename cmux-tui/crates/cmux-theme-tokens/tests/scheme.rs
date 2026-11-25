@@ -1,6 +1,6 @@
 //! 16-color scheme import and export (extensibility design 12.4, step 13):
-//! base16 YAML, iTerm2 `.itermcolors`, Windows Terminal JSON and Ghostty
-//! theme files, and a scheme from a background image held to the contrast
+//! base16 YAML, iTerm2 `.itermcolors`, Windows Terminal JSON, VS Code color
+//! themes and Ghostty theme files, and a scheme from a background image held to the contrast
 //! floors.
 
 use cmux_theme_tokens::*;
@@ -191,6 +191,103 @@ fn windows_terminal_reads_a_settings_file_schemes_array() {
     let s = Scheme::parse(&settings, "settings.json", None).unwrap();
     assert_eq!(s.palette, tomorrow().palette);
     assert_eq!(s.name.as_deref(), Some("Tomorrow Night"));
+}
+
+// MARK: VS Code
+
+const VSCODE_DARK: &str = include_str!("fixtures/vscode-dark.jsonc");
+const VSCODE_LIGHT: &str = include_str!("fixtures/vscode-light.json");
+
+#[test]
+fn vscode_dark_theme_with_comments_and_trailing_commas_reads_its_terminal_colors() {
+    assert_eq!(SchemeFormat::detect("midnight.json", VSCODE_DARK), SchemeFormat::VsCode);
+    assert_eq!(SchemeFormat::detect("midnight", VSCODE_DARK), SchemeFormat::VsCode);
+    let s = Scheme::parse(VSCODE_DARK, "midnight.json", None).unwrap();
+    assert_eq!(s.name.as_deref(), Some("Midnight Harbor"));
+    assert_eq!(hex(s.background), 0x14161b, "editor.background");
+    assert_eq!(hex(s.foreground), 0xc8ccd4, "editor.foreground");
+    assert_eq!(s.cursor.map(hex), Some(0xffcc66), "editorCursor.foreground");
+    assert_eq!(s.accent.map(hex), Some(0x5ccfe6), "focusBorder");
+    // #3a405080 is 50% over the background.
+    assert_eq!(
+        s.selection_background.map(hex),
+        Some(Rgb::hex(0x3a4050).mixed(Rgb::hex(0x14161b), 0.5 - 0.5 / 255.0).to_hex())
+    );
+    let expected = [
+        0x1c1f26, 0xf07178, 0xbae67e, 0xffd580, 0x73d0ff, 0xd4bfff, 0x95e6cb, 0xc8ccd4, 0x5c6773,
+        0xff8f95, 0xd5ff9e, 0xffe6a3, 0xa3e1ff, 0xe6d9ff, 0xb8f2df, 0xffffff,
+    ];
+    assert_eq!(s.palette.map(hex), expected);
+}
+
+#[test]
+fn vscode_light_theme_without_terminal_colors_derives_them_from_token_colors() {
+    assert_eq!(SchemeFormat::detect("paper.json", VSCODE_LIGHT), SchemeFormat::VsCode);
+    let s = Scheme::parse(VSCODE_LIGHT, "paper.json", None).unwrap();
+    assert_eq!(s.name.as_deref(), Some("Paper Mill"));
+    assert_eq!(hex(s.background), 0xfafafa);
+    assert_eq!(hex(s.foreground), 0x383a42);
+    assert_eq!(s.cursor.map(hex), Some(0x526fff));
+    assert_eq!(s.selection_background.map(hex), Some(0xe5e5e6));
+    let p = s.palette.map(hex);
+    // Each hue from the syntax color nearest it.
+    assert_eq!(p[1], 0xe45649, "red: entity.name.tag");
+    assert_eq!(p[2], 0x50a14f, "green: string");
+    assert_eq!(p[3], 0xc18401, "yellow: constant");
+    assert_eq!(p[4], 0x4078f2, "blue: function");
+    assert_eq!(p[5], 0xa626a4, "magenta: keyword");
+    assert_eq!(p[6], 0x0184bc, "cyan: property");
+    // Light: black is the text, bright black the comment color.
+    assert_eq!(p[0], 0x383a42);
+    assert_eq!(p[8], 0xa0a1a7, "bright black: comment");
+    // Bright hues lean toward the text; whites sit near the paper.
+    for slot in 1..=6 {
+        assert_ne!(p[slot + 8], p[slot], "slot {slot}");
+    }
+    assert!(s.palette[15].relative_luminance() > s.palette[7].relative_luminance());
+    assert!(s.palette[0].contrast(s.background) > 4.5);
+}
+
+#[test]
+fn vscode_theme_with_only_token_colors_falls_back_to_vscode_defaults() {
+    let text = r##"{"type": "dark", "tokenColors": [
+        {"settings": {"background": "#272822", "foreground": "#f8f8f2", "caret": "#f8f8f0"}},
+        {"scope": "string", "settings": {"foreground": "#e6db74"}}
+    ]}"##;
+    let s = Scheme::parse(text, "mono.json", None).unwrap();
+    assert_eq!(hex(s.background), 0x272822, "global entry background");
+    assert_eq!(hex(s.foreground), 0xf8f8f2);
+    assert_eq!(s.cursor.map(hex), Some(0xf8f8f0));
+    assert_eq!(hex(s.palette[3]), 0xe6db74, "yellow: string");
+    assert_eq!(hex(s.palette[4]), 0x2472c8, "blue: VS Code's default");
+}
+
+#[test]
+fn vscode_round_trips_and_windows_terminal_json_stays_windows_terminal() {
+    let wt = tomorrow().export(SchemeFormat::WindowsTerminal);
+    assert_eq!(SchemeFormat::detect("t.json", &wt), SchemeFormat::WindowsTerminal);
+    let text = tomorrow().export(SchemeFormat::VsCode);
+    assert_eq!(SchemeFormat::detect("t.json", &text), SchemeFormat::VsCode);
+    let back = Scheme::parse(&text, "t.json", None).unwrap();
+    assert_eq!(back.palette, tomorrow().palette);
+    assert_eq!(back.name.as_deref(), Some("Tomorrow Night"));
+    assert_eq!(SchemeFormat::from_name("vscode"), Some(SchemeFormat::VsCode));
+    // A cmux theme file's `colors` object (plain keys) is no VS Code theme.
+    let cmux = r##"{"name": "Mine", "colors": {"accent": "#ff0000"}}"##;
+    assert_eq!(SchemeFormat::detect("mine.json", cmux), SchemeFormat::WindowsTerminal);
+}
+
+#[test]
+fn a_malformed_vscode_theme_names_the_file_and_line() {
+    let bad = VSCODE_DARK.replace("\"#f07178\"", "\"#f07zz8\"");
+    let line = bad.lines().position(|l| l.contains("terminal.ansiRed")).unwrap() + 1;
+    let err = Scheme::parse(&bad, "midnight.json", None).unwrap_err();
+    assert_eq!((err.file.as_str(), err.line), ("midnight.json", line), "{err}");
+    let broken = VSCODE_DARK.replace("\"type\": \"dark\",", "\"type\": \"dark\" \"x\"");
+    let err = Scheme::parse(&broken, "midnight.json", None).unwrap_err();
+    assert_eq!(err.line, 6, "{err}");
+    let err = Scheme::parse("{\"name\": \"x\"}", "x.json", Some(SchemeFormat::VsCode)).unwrap_err();
+    assert!(err.message.contains("no colors"), "{err}");
 }
 
 // MARK: palette from image

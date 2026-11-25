@@ -7,6 +7,7 @@
 pub mod awake;
 pub mod client;
 pub mod daemon_socket;
+pub mod locked;
 pub mod mcp;
 
 /// The tool catalog (names, schemas, the server name and its instructions),

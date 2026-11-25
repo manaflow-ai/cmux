@@ -128,6 +128,9 @@ fn cloud_triggers(t: &Trigger) -> Result<Value, Failure> {
         Trigger::At { .. } => usage(messages().cloud_local_only.replace("{flag}", "at")),
         Trigger::Watch { .. } => usage(messages().cloud_local_only.replace("{flag}", "watch")),
         Trigger::Event { .. } => usage(messages().cloud_local_only.replace("{flag}", "when")),
+        // A local webhook's URL is this machine's loopback; the cloud's GitHub webhooks are
+        // `create --webhook --on cloud`.
+        Trigger::Webhook { .. } => usage(messages().cloud_local_only.replace("{flag}", "webhook")),
         Trigger::Every { seconds, anchor } => match every_as_cron(*seconds, *anchor) {
             Some(expr) => Ok(cron(expr, "UTC")),
             None => usage(messages().teleport_every.replace("{value}", &t.describe())),

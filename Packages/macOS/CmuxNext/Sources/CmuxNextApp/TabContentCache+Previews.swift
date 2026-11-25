@@ -1,8 +1,10 @@
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextControl
+import CmuxNextDaemon
 import CmuxNextTerminal
 import CoreGraphics
+import Foundation
 
 /// Hover card and drag thumbnails of `TabContentCache` tabs.
 extension TabContentCache {
@@ -85,6 +87,10 @@ extension TabContentCache {
         // no hidden page); decoded 640 px pictures in the 16 MB budget kept only about 14 pages' (fleet e2fb152d, 05f0ba3c).
         pageThumbnails.insertCompressingLater(fitted, for: key)  // nobody who waits for this picture waits for its encode
         pageThumbnailVersions[key] = blank ? nil : version; pageThumbnailURLs[key] = blank ? nil : capture.url
+        if !blank {
+            keepFrameOnDisk(image, for: key) // also the picture the next launch shows first
+            phonePictures?.offerThumbnail(image, tab: key)
+        }
         return image
     }
 
@@ -102,5 +108,56 @@ extension TabContentCache {
                 capturePagePreview(entry, key: key, token: ContentLifecycle<String>.Token(generation))
             }
         }
+    }
+}
+
+/// A restored browser tab shows its page's last picture from the run before in the frame of its first show (Leo
+/// 2026-11-22: "constant rerenders on every fucking page still"): `BrowserPageFrames`, then the new page under it.
+extension TabContentCache {
+    /// A cold load after a relaunch takes seconds, a wake hundreds of ms (`BrowserHibernation.standInCap`).
+    static let relaunchStandInCap: Duration = .seconds(3)
+    /// A browser page that is not incognito.
+    func keepsFrameOnDisk(_ key: String) -> Bool {
+        guard let page = browsers[key]?.tab, page is CEFTab || page is WebKitTab else { return false }
+        return !cef.stores.offTheRecord.isOffTheRecord(page.profileID) && !browserTabs.isIncognitoTab(key)
+    }
+    func keepFrameOnDisk(_ image: CGImage, for key: String) {
+        guard keepsFrameOnDisk(key), let width = browsers[key]?.tab.contentView.bounds.width else { return }
+        pageFrames?.save(image, for: key, scale: BrowserPageFrames.scale(of: image, width: width))
+    }
+
+    /// The stand-in page of restored Chromium tab `tab` while its page is made; nil for a tab opened here.
+    func restoringStandIn(_ tab: TabModel, url: URL?) -> DeferredBrowserTab? {
+        guard !browserTabs.wasOpenedHere(tab), browsers[tab.id] == nil else { return nil }
+        let page = DeferredBrowserTab(id: BrowserTabID(rawValue: tab.id), engine: .cef, profile: browserProfile?(tab.id) ?? .default, url: url,
+                                      title: tab.titleText.isEmpty ? nil : tab.titleText, picture: pageFrames?.take(tab.id), restoresPage: true)
+        install(page, for: tab.id)
+        return page
+    }
+
+    /// A restored tab's page made now (WebKit): its last picture covers it until it paints.
+    func coverRestored(_ entry: BrowserEntry, _ tab: TabModel) -> BrowserEntry {
+        if !browserTabs.wasOpenedHere(tab), let picture = pageFrames?.take(tab.id) {
+            (entry.tab as? any BrowserWakeStandIn)?.showStandIn(picture, decoded: true, cap: Self.relaunchStandInCap, clock: ContinuousClock())
+        }
+        return entry
+    }
+
+    /// Whether `key` shows a restored tab's stand-in while its page is made (automation waits for the page).
+    func isRestoring(_ key: String) -> Bool { (browsers[key]?.tab as? DeferredBrowserTab)?.restoresPage == true }
+
+    /// The quit: the pages on screen are pictured (under the capture deadline) and written for the next launch.
+    func savePageFramesForQuit() async {
+        guard let pageFrames else { return }
+        var images: [String: (image: CGImage, scale: Int)] = [:]
+        // Every capture asked in this turn, so they run at once.
+        let requests = shownPages.filter(keepsFrameOnDisk).compactMap { key in browsers[key].map { (key, $0.tab.beginThumbnail(), $0.tab.contentView.bounds.width) } }
+        for (key, request, width) in requests {
+            guard let image = try? await ControlDeadline.shared.run(method: "preview.capture", deadline: .now + pageCaptureDeadline, { @MainActor in
+                try await request.image()
+            }), await ThumbnailStats.measure(image)?.isBlank != true else { continue }
+            images[key] = (image, BrowserPageFrames.scale(of: image, width: width))
+        }
+        await pageFrames.saveForQuit(images)
     }
 }

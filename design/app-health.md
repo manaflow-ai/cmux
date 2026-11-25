@@ -98,7 +98,14 @@ screen blank").
 
 ## Treatment
 
-Where it sits. Native gallery: `AAAppHealthIndicatorGalleryTests` renders `a-overlay` (shipped), `b-dot`
+Shipped: `hidden`, and the line is gone from the app (Leo, 2026-11-22, ask-eacfb2ec1f: "i see in the
+sidebar a repair connection to agent service... which i have requested to remove a while ago. ... we
+dont need it. ever. entire classes of bullshit fucking error/status bullshit. fuck em. remove them all.").
+The sidebar draws no health line or dot; the parts repair themselves, and the popover opens only from the
+Restoring sessions card's Details (`SidebarView.onHealthDetails`). The rest of this section is the history
+of the treatments tried before.
+
+Where it sat. Native gallery: `AAAppHealthIndicatorGalleryTests` renders `a-overlay` (shipped), `b-dot`
 and `c-hidden` in six states (healthy, only slow, not responding, repairing, needs a repair, a queued
 close), and the restoring card with Details. Web gallery: `ui.app-health.footer-row` draws the sidebar's
 bottom twice per variant, at rest and with the indicator, in the same five states:

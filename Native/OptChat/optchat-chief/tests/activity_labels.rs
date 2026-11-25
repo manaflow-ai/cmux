@@ -202,3 +202,97 @@ fn an_ended_call_gives_the_line_back_to_the_model() {
     assert_eq!(after["line"], "Thinking");
     assert!(after["since"].as_u64() > first["since"].as_u64());
 }
+
+/// Leo, 2026-10-20: "clear stale 'Telling' rows". A tell the turn was denied
+/// gets no end of its own from the harness: the line kept naming it, and a
+/// later call's end handed the line back to it ("Telling a31 · 4m").
+#[test]
+fn a_denied_tell_gives_the_line_back_and_never_returns() {
+    use cmux_chief::acp::AcpmuxEvent;
+    use optchat_chief::fold::TurnFold;
+    let event = |seq: u64, dir: &str, kind: &str, msg: serde_json::Value| -> AcpmuxEvent {
+        serde_json::from_value(json!({"seq": seq, "at": 1_792_400_000_000u64 + seq, "dir": dir, "kind": kind, "msg": msg}))
+            .unwrap()
+    };
+    let update = |seq: u64, mut update: serde_json::Value| {
+        let kind = update["sessionUpdate"].as_str().unwrap().to_owned();
+        update["sessionUpdate"] = json!(kind);
+        event(
+            seq,
+            "in",
+            &kind,
+            json!({"method": "session/update", "params": {"sessionId": "acp-1", "update": update}}),
+        )
+    };
+    let mut fold = TurnFold::new();
+    fold.apply(&update(1, json!({"sessionUpdate": "tool_call", "toolCallId": "tell-1", "title": "mcp__optchat__tell",
+        "rawInput": {"id": "a31", "message": "hi"}, "_meta": {"claude": {"tool": "mcp__optchat__tell"}}})));
+    fold.apply(&update(
+        2,
+        json!({"sessionUpdate": "tool_call", "toolCallId": "bash-1", "title": "Bash",
+        "kind": "execute", "_meta": {"claude": {"tool": "Bash"}}}),
+    ));
+    let line = |fold: &mut TurnFold| {
+        fold.take_run_live()
+            .into_iter()
+            .find(|f| f["type"] == "run.activity")
+            .map(|f| f["line"].as_str().unwrap().to_owned())
+    };
+    assert_eq!(line(&mut fold).as_deref(), Some("Telling a31"));
+    fold.apply(&event(3, "mux", "permission_request", json!({"permissionId": "perm1",
+        "request": {"toolCall": {"toolCallId": "tell-1"}, "options": [
+            {"optionId": "allow", "kind": "allow_once"}, {"optionId": "reject", "kind": "reject_once"}]}})));
+    fold.apply(&event(
+        4,
+        "mux",
+        "permission_decision",
+        json!({"permissionId": "perm1",
+        "outcome": {"outcome": "selected", "optionId": "reject"}}),
+    ));
+    assert_eq!(
+        line(&mut fold).as_deref(),
+        Some("Running"),
+        "the denied tell's line went to the next call"
+    );
+    fold.apply(&update(
+        5,
+        json!({"sessionUpdate": "tool_call_update", "toolCallId": "bash-1", "status": "completed"}),
+    ));
+    assert_eq!(
+        line(&mut fold).as_deref(),
+        Some("Thinking"),
+        "never back to the denied tell"
+    );
+    let steps = fold.take_run_steps(std::time::Instant::now(), true);
+    let tell = steps
+        .iter()
+        .find(|s| s["id"].as_str().is_some_and(|i| i.contains("tell-1")))
+        .unwrap();
+    assert_eq!(tell["status"], "failed");
+}
+
+/// A call still running when the turn ends ends with it: no row keeps
+/// reading as running after the turn.
+#[test]
+fn the_turns_end_ends_every_call_left_running() {
+    let mut run = RunSteps::default();
+    run.tool_call(
+        "tell-1",
+        "mcp__optchat__tell",
+        &json!({"rawInput": {"id": "a31", "message": "hi"}}),
+        None,
+    );
+    assert_eq!(activity(&mut run).unwrap()["line"], "Telling a31");
+    let _ = run.take(std::time::Instant::now(), true);
+    run.close_all();
+    let steps = run.take(std::time::Instant::now(), true);
+    let tell = steps
+        .iter()
+        .find(|s| s["kind"] == "tool")
+        .expect("the tell's row is sent again");
+    assert_eq!(tell["status"], "failed");
+    assert_ne!(
+        activity(&mut run).map(|f| f["line"].clone()),
+        Some(json!("Telling a31"))
+    );
+}

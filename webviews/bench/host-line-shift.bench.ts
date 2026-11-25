@@ -12,10 +12,9 @@ import { createElement, Fragment, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { chromium } from "./browsers";
 import * as Host from "../src/agent-session/acpmux/HostError";
-import { RECONNECT_LINE_AFTER_MS } from "../src/agent-session/acpmux/hostRetry";
 
 const css = readFileSync(new URL("../src/agent-session/acpmux/styles.css", import.meta.url), "utf8");
-const LONG = RECONNECT_LINE_AFTER_MS + 2_000;
+const LONG = 60_000;
 const noop = () => undefined;
 // The slot exists from the chip's change on; before it the line was a row of the dock itself.
 const Slot: (props: { children?: ReactNode }) => ReactNode =
@@ -24,15 +23,14 @@ const Slot: (props: { children?: ReactNode }) => ReactNode =
 
 const states: Record<string, ReactNode> = {
   connected: createElement(Host.HostRecoveringLine, {}),
-  "reconnecting under 10 s": createElement(Host.HostRecoveringLine, {
-    relinkingSince: 0,
-    now: RECONNECT_LINE_AFTER_MS - 1,
+  "dropped, reconnect in flight": createElement(Host.HostRecoveringLine, {
+    linkDown: false,
+    now: LONG,
   }),
-  "reconnecting past 10 s": createElement(Host.HostRecoveringLine, { relinkingSince: 0, now: LONG }),
-  "chip: dot": createElement(Host.HostRecoveringLine, { relinkingSince: 0, now: LONG, variant: "dot" }),
-  "chip: corner": createElement(Host.HostRecoveringLine, { relinkingSince: 0, now: LONG, variant: "corner" }),
-  restoring: createElement(Host.HostRecoveringLine, { restoring: { waitedMs: LONG, at: 0 }, now: 0 }),
-  "waiting for the service": createElement(Host.HostWaitingLine, { since: 0, now: 60_000, onRestart: noop }),
+  "link down": createElement(Host.HostRecoveringLine, { linkDown: true, now: LONG }),
+  "chip: dot": createElement(Host.HostRecoveringLine, { linkDown: true, now: LONG, variant: "dot" }),
+  "chip: corner": createElement(Host.HostRecoveringLine, { linkDown: true, now: LONG, variant: "corner" }),
+  restoring: createElement(Host.HostRecoveringLine, { linkDown: true, restoring: { waitedMs: LONG, at: 0 }, now: 0 }),
   "failed, self-retrying": createElement(Host.HostUnavailableLine, { message: "Can't connect." }),
   "failed, Retry": createElement(Host.HostUnavailableLine, {
     message: "Update cmux.",
