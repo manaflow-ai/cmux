@@ -42,7 +42,7 @@ use crate::provider::AxumWebSocketLink;
 use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits};
 #[cfg(unix)]
 use crate::unix_socket::{OwnedUnixListener, UnixSocketCleanup};
-use cmux_tui_core::net_keepalive::enable_tcp_keepalive;
+use cmux_terminal_host_protocol::net_keepalive::enable_tcp_keepalive;
 
 const PENDING_LINK_TTL: Duration = Duration::from_secs(30);
 const MAX_PENDING_LINK_GROUPS: usize = 256;
@@ -838,6 +838,9 @@ struct PendingLinks {
     /// A new session's admission permit, moved to `client_permits` once it
     /// registers; a reconnect has none.
     client_permit: Option<OwnedSemaphorePermit>,
+    /// The Control link's early data (`AcceptedSecureLink::early`), read by the
+    /// session first once the group commits.
+    early: Vec<Bytes>,
 }
 
 struct ReconnectRegistration<'a> {
@@ -1027,6 +1030,27 @@ impl RemoteDaemon {
                 (None, Lane::ALL.into_iter().map(|lane| (lane, 0)).collect())
             }
         };
+        // Early data is the Control lane's replay, written for this session and generation:
+        // anything else refuses the link. What the daemon already has is dropped here, and the
+        // session's own dedupe drops anything that arrives meanwhile.
+        let early = if accepted.early.is_empty() {
+            Vec::new()
+        } else {
+            let contiguous = daemon_resume.get(&Lane::Control).copied().unwrap_or(0);
+            match crate::session::admit_early_frames(
+                &accepted.early,
+                accepted.session,
+                accepted.generation,
+                contiguous,
+            ) {
+                Ok(early) if existing.is_some() => early,
+                Ok(_) => Vec::new(),
+                Err(error) => {
+                    let _ = accepted.link.close().await;
+                    return Err(DaemonError::Protocol(error));
+                }
+            }
+        };
         send_link_ready(&accepted.link, accepted.session, accepted.generation, daemon_resume)
             .await?;
 
@@ -1085,8 +1109,12 @@ impl RemoteDaemon {
                 grant_generation: accepted.grant.revocation_generation,
                 service_authority: accepted.grant.authority.clone(),
                 client_permit: None,
+                early: Vec::new(),
             }
         });
+        if !early.is_empty() {
+            pending.early = early;
+        }
         if pending.client_permit.is_none() {
             pending.client_permit = client_permit.take();
         }
@@ -1136,6 +1164,11 @@ impl RemoteDaemon {
         let (connection, is_new) = if let Some(connection) = existing {
             let expected_generation = base_generation.expect("an existing client has a generation");
             let rejected_mux = mux.clone();
+            let link: Arc<dyn FrameLink> = if pending.early.is_empty() {
+                mux
+            } else {
+                Arc::new(crate::link::EarlyFrames::new(mux, std::mem::take(&mut pending.early)))
+            };
             if let Err(error) = self
                 .reconnect_registered_client(
                     &key,
@@ -1143,7 +1176,7 @@ impl RemoteDaemon {
                     ReconnectRegistration {
                         expected_generation,
                         generation: accepted.generation,
-                        link: mux,
+                        link,
                         lane_bindings,
                         peer_resume: &pending.client_resume,
                         service_authority: &pending.service_authority,
@@ -1416,7 +1449,7 @@ struct WebSocketState {
     keepalive: WebSocketKeepalive,
 }
 
-pub use cmux_tui_core::net_keepalive::WebSocketKeepalive;
+pub use cmux_terminal_host_protocol::net_keepalive::WebSocketKeepalive;
 
 /// How a direct WebSocket listener admits links.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -1452,7 +1485,7 @@ struct LimitedTcpListener {
     inner: tokio::net::TcpListener,
     permits: Arc<Semaphore>,
     /// Spacing for accept errors that persist (descriptor exhaustion).
-    accept_backoff: cmux_tui_core::backoff::Backoff,
+    accept_backoff: cmux_tui_util::backoff::Backoff,
 }
 
 struct AdmissionIo {
@@ -1497,7 +1530,7 @@ impl Listener for LimitedTcpListener {
                 }
                 Err(error) => {
                     drop(permit);
-                    if cmux_tui_core::backoff::accept_error_needs_backoff(&error) {
+                    if cmux_tui_util::backoff::accept_error_needs_backoff(&error) {
                         tokio::time::sleep(self.accept_backoff.next_delay()).await;
                     }
                 }
@@ -1646,7 +1679,7 @@ pub async fn serve_direct_websocket_with_options(
     let state = WebSocketState { daemon, maximum_frame_bytes, trusted_carrier, keepalive };
     let router = Router::new().route("/v1/link", get(upgrade_websocket)).with_state(state);
     let listener = LimitedTcpListener {
-        accept_backoff: cmux_tui_core::backoff::Backoff::new(
+        accept_backoff: cmux_tui_util::backoff::Backoff::new(
             Duration::from_millis(10),
             Duration::from_secs(1),
         ),
@@ -1777,7 +1810,7 @@ pub async fn serve_unix_with_shutdown(
                             accepted
                         }
                         Err(error) => {
-                            let Some(delay) = cmux_tui_core::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
+                            let Some(delay) = cmux_tui_util::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
                                 if let Some(owner_shutdown) = &owner_shutdown {
                                     let _ = owner_shutdown.send(true);
                                 }

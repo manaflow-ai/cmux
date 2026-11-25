@@ -39,6 +39,7 @@ coderouter
 debug-settings
 feed
 files
+forum
 github
 group-editor
 history
@@ -56,6 +57,7 @@ stats
 glass-parity
 task-manager
 tasks
+terminal-history
 "
 # The browser chrome's pages (CmuxNextPages BrowserChromeWebHost).
 PAGES="$PAGES site-settings site-data certificate"

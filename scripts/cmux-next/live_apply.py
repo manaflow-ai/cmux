@@ -37,8 +37,11 @@ import sys
 # A *-gallery.html page is a design gallery. The root .gitattributes only sets merge drivers and Linguist
 # labels; evals/ (cueval's computer-use tasks) and Native/*/evals/ (the Chief's eval cases, which only its tests,
 # examples and backend/scripts read: no include_str! in src/, nothing in build.rs) are eval inputs; dogfood/ held
-# scenario files whose runner is gone. No Xcode phase, Package.swift resource or build script copies any of them.
-NOAPP_PATH = re.compile(r"(^|/)(docs?|plans|research|\.github|tests?|Tests|UITests|scripts|skills|release-notes|schemas|fixtures|bench|benchmarks|tools|build-fleet)(/|$)|^(web|backend|workers|services|images|examples|cmux-tui/relays|evals|dogfood)/|^Native/.+/evals/|^\.gitattributes$|(^|/)ci-target-graph\.json$|-gallery\.html$|(^|/)CHANGELOG|LICENSE|\.gitignore$|\.test\.(ts|tsx)$|\.gallery\.(ts|tsx|css)$|/gallery/")
+# scenario files whose runner is gone. design/ holds the sources generators read (design/icons, design/agent-icons:
+# their outputs are committed where the app reads them, cmux-icons.json, AgentBrandCatalog+Generated.swift, brand.rs)
+# and design pages. vault/ is the cmux-vault Go service (its own go.mod; the app's Rust uses cmux-vault-egress);
+# capture-scratch/ holds screenshot replay output. No Xcode phase, Package.swift resource or build script copies any of them.
+NOAPP_PATH = re.compile(r"(^|/)(docs?|plans|research|\.github|tests?|Tests|UITests|scripts|skills|release-notes|schemas|fixtures|bench|benchmarks|tools|build-fleet)(/|$)|^(web|backend|workers|services|images|examples|cmux-tui/relays|evals|dogfood|design|vault|capture-scratch)/|^Native/.+/evals/|^\.gitattributes$|(^|/)ci-target-graph\.json$|-gallery\.html$|(^|/)CHANGELOG|LICENSE|\.gitignore$|\.test\.(ts|tsx)$|\.gallery\.(ts|tsx|css)$|/gallery/")
 # Extensions that change nothing in the app, checked after the web, resource and Rust rules, so a
 # Cargo.lock, a bundled Resources/x.sh or webviews' vite.config.mjs still counts.
 NOAPP_EXT = re.compile(r"\.(md|txt|yml|yaml|toml|lock|sh|py|mjs)$")
@@ -144,6 +147,10 @@ def classify(files, diffs):
                 note("rebuild", path, reason)
             if not why:
                 note("swift-live", path)
+        elif status == "D":
+            # A deleted file of no known kind: the running app keeps what it had, and nothing that ships reads
+            # it any more (that reader's own change would be in the diff). A root stray such as OUTPUT or summary.
+            note("no-app", path)
         else:
             note("rebuild", path, "other app file")
     verdict = next((v for v in ORDER if v in kinds), "no-app")
