@@ -266,6 +266,11 @@ pub fn prepare_carry(
     commit.args(["rev-parse", "--verify", &format!("{base}^{{commit}}")]);
     output(commit)?;
 
+    // The carried pack is intentionally depth one.  Remove that temporary boundary before
+    // asking the projected repository for its refs, otherwise fetch treats the carried tip as
+    // complete and silently drops every parent commit from the machine's visible history.
+    let _ = std::fs::remove_file(local.join("shallow"));
+
     let mut fingerprint_now = before;
     for _ in 0..ATTEMPTS {
         copy_mac_state(projected, local, None)?;
