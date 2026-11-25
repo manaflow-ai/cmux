@@ -401,6 +401,7 @@ fn config(dir: &Path) -> Arc<ServiceConfig> {
         chief_socket: None,
         browser: cmux_mobile_host::browser::BrowserConfig::new(None, 1),
         surface: cmux_mobile_host::surface::SurfaceConfig::new(None, 1),
+        viewport_sync: None,
     })
 }
 
