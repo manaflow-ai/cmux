@@ -51,11 +51,11 @@ nonisolated enum AcpmuxPaneMethods {
         // Neither grants anything. Left off this list, every pane's picker was refused at each open.
         "catalog.get", "catalog.refresh",
         // The Labs live-tree preview (direct.ts liveTreeStatus): its reply is cut to the numeric
-        // `liveTree` lane verdicts (``replyShapes``), never the chat's detail, folder or env.
+        // `liveTree` lane verdicts (policy.json `reply_shapes`, ``AgentPanePolicyFFI``), never the chat's detail, folder or env.
         "_acpmux/info",
         // Take Over a View Only chat (direct.ts takeOver): the chat runs the conversation from then on.
         "_acpmux/watch_take_over", "_acpmux/project_new", // New project: AgentPaneProjectNewRelayTests.
-        // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
+        // Read-only, and its reply is filtered to its reply shape (policy.json `reply_shapes`, ad349).
         "_acpmux/status", "_acpmux/peers", "_acpmux/move_targets", "_acpmux/draft_get",
         // Which page requests the daemon still runs, in page ids (AcpmuxRequestIds.requestStateMethod).
         "_acpmux/request_state",
@@ -63,7 +63,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/draft_set",
         // Auto's Where (direct.ts placeChat, autoWhereModel.ts): a read-only decision. acpmux reads this
         // machine's budget and answers here or a place from the targets the page passed; it starts,
-        // moves and writes nothing. Its reply is cut to ``replyShapes``; acpmux answers this Mac's
+        // moves and writes nothing. Its reply is cut to its reply shape (``AgentPanePolicyFFI``); acpmux answers this Mac's
         // app and unix socket only.
         "_acpmux/place_chat",
         // An inbox notice's thread the person opened (direct.ts inboxThread, InboxNoticeCard):

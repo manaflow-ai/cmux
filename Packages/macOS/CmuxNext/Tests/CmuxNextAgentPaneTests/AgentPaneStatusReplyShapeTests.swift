@@ -2,15 +2,20 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// The relay's `_acpmux/status` filter (``AcpmuxPaneMethods/replyShapes``): the page's environment
-/// picker sorts peers into SSH and Cloud by transport and marks each one connected or not, so each
-/// peer keeps its name, the scheme of its URL and its `connected` flag, never the URL itself
-/// (which can carry a user or a token).
+/// The relay's `_acpmux/status` filter (the Rust policy's, ``AgentPanePolicyFFI``; these cases
+/// pinned the Swift filter it replaced): the page's environment picker sorts peers into SSH and
+/// Cloud by transport and marks each one connected or not, so each peer keeps its name, the scheme
+/// of its URL and its `connected` flag, never the URL itself (which can carry a user or a token).
 struct AgentPaneStatusReplyShapeTests {
-    static func reply(_ result: [String: Any]) throws -> [String: Any] {
-        let shape = try #require(AcpmuxPaneMethods.replyShapes["_acpmux/status"])
-        let text = AcpmuxPaneMethods.filteredReply(["result": result], shape: shape, pageID: "7")
+    /// The page's reply to `method` (id `pageID`) for a daemon reply `object`, parsed.
+    static func filtered(_ method: String, _ object: [String: Any], pageID: String = "7") throws -> [String: Any] {
+        let daemon = try #require(AcpmuxRequestIds.encode(object))
+        let text = try #require(AgentPanePolicyFFI.filteredReply(method: method, reply: daemon, pageID: pageID))
         return try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+    }
+
+    static func reply(_ result: [String: Any]) throws -> [String: Any] {
+        try filtered("_acpmux/status", ["jsonrpc": "2.0", "id": 41, "result": result])
     }
 
     static func peers(_ reply: [String: Any]) throws -> [[String: Any]] {
@@ -97,12 +102,11 @@ struct AgentPaneStatusReplyShapeTests {
 
 
     @Test func reconnectKeepsDoctorStateButDropsPeerEndpointsAndMetadata() throws {
-        let shape = try #require(AcpmuxPaneMethods.replyShapes["_acpmux/peer_reconnect"])
-        let text = AcpmuxPaneMethods.filteredReply(["result": ["peers": [
+        let reply = try Self.filtered("_acpmux/peer_reconnect", ["result": ["peers": [
             ["name": "cloud-1", "url": "wss://cloud-1.cmux.dev/?token=secret", "connected": false,
              "state": "offline", "error": "doctor refused", "health": ["host": "hidden"]],
-        ]]], shape: shape, pageID: "8")
-        let reply = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+        ]]], pageID: "8")
+        #expect(reply["id"] as? Int == 8)
         let result = try #require(reply["result"] as? [String: Any])
         let peers = try #require(result["peers"] as? [[String: Any]])
         let peer = try #require(peers.first)
@@ -111,5 +115,45 @@ struct AgentPaneStatusReplyShapeTests {
         #expect(peer["state"] as? String == "offline")
         #expect(peer["error"] as? String == "doctor refused")
         #expect(peer["url"] == nil && peer["health"] == nil)
+    }
+
+    /// A peer's AutoCloud state (RFD 0172) reaches the picker's badges; its owner's policy does not.
+    @Test func autoCloudKeepsOnlyTheBadges() throws {
+        let peers = try Self.peers(Self.reply(["peers": [[
+            "name": "mini", "health": ["autoCloud": [
+                "enrolled": true, "accepting": false, "ownerIdle": true, "caps": ["macos", "xcode"],
+                "team": "private team", "hours": "9-17",
+            ]],
+        ]]]))
+        let autoCloud = try #require((peers.first?["health"] as? [String: Any])?["autoCloud"] as? [String: Any])
+        #expect(Set(autoCloud.keys) == ["enrolled", "accepting", "ownerIdle", "caps"])
+        #expect(autoCloud["caps"] as? [String] == ["macos", "xcode"])
+        #expect(Self.isBool(autoCloud["enrolled"]) && autoCloud["accepting"] as? Bool == false)
+    }
+
+    /// An error keeps only its code and message, under the page's id (a string id stays a string).
+    @Test func anErrorKeepsOnlyItsCodeAndMessage() throws {
+        let reply = try Self.filtered("_acpmux/status", ["id": 3, "error": [
+            "code": -32000, "message": "busy", "data": ["home": "/Users/private"],
+        ]], pageID: "\"p-1\"")
+        #expect(reply["id"] as? String == "p-1")
+        let error = try #require(reply["error"] as? [String: Any])
+        #expect(error["code"] as? Int == -32000 && error["message"] as? String == "busy" && error["data"] == nil)
+        #expect(reply["result"] == nil)
+    }
+
+    /// A result with none of the shape's fields is an empty object, never the daemon's result.
+    @Test func aResultWithNothingKnownIsEmpty() throws {
+        let reply = try Self.filtered("_acpmux/status", ["id": 3, "result": ["home": "/Users/private"]])
+        #expect((reply["result"] as? [String: Any])?.isEmpty == true)
+    }
+
+    /// The methods the relay cuts are the policy's, and a method with no shape is left whole.
+    @Test func theShapedMethodsAreThePolicys() throws {
+        let methods = try #require(AgentPanePolicyFFI.replyShapeMethods)
+        #expect(methods == ["_acpmux/info", "_acpmux/status", "_acpmux/peer_reconnect", "_acpmux/peers",
+                            "_acpmux/move_targets", "_acpmux/place_chat"])
+        #expect(AgentPanePolicyFFI.filteredReply(method: "_acpmux/harnesses", reply: #"{"id":1,"result":{}}"#,
+                                                 pageID: "1") == nil)
     }
 }

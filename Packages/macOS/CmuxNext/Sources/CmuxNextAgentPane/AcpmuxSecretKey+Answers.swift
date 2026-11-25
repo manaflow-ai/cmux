@@ -1,4 +1,3 @@
-import CommonCrypto
 import Foundation
 
 /// The decision proof of a relayed answer to a question (acpmux `decision_answers_proof`,
@@ -23,67 +22,18 @@ nonisolated extension AcpmuxSecretKey {
     }
 
     /// The lowercase hex sha256 of `value`'s canonical JSON bytes (acpmux
-    /// `approvers::answers_digest`). Hex, so comparing two is comparing those bytes: `String`
-    /// equality treats canonically equivalent Unicode (a composed and a decomposed é) as equal.
+    /// `approvers::answers_digest`), from the Rust policy (cmux-agent-pane-policy `canonical_digest`).
+    /// Hex, so comparing two is comparing those bytes: `String` equality treats canonically
+    /// equivalent Unicode (a composed and a decomposed é) as equal.
     static func canonicalDigest(_ value: Any) -> String? {
-        guard let canonical = canonicalJSON(value) else { return nil }
-        var digest = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
-        let text = Array(canonical.utf8)
-        text.withUnsafeBytes { _ = CC_SHA256($0.baseAddress, CC_LONG(text.count), &digest) }
-        return digest.map { String(format: "%02x", $0) }.joined()
+        AgentPanePolicyFFI.call("canonical_digest", ["value": value])?["digest"] as? String
     }
 
-    /// The bytes acpmux hashes (`approvers::canonical_json`): object keys in UTF-8 byte order, no
-    /// whitespace, and only `"`, `\` and control characters escaped (`\b \f \n \r \t`, else
-    /// `\u00xx`). `value` is what `JSONSerialization` parsed.
+    /// The bytes acpmux hashes (`approvers::canonical_json`), from the Rust policy
+    /// (cmux-agent-pane-policy `canonical_json`): object keys in UTF-8 byte order, no whitespace,
+    /// and only `"`, `\` and control characters escaped. nil for a value with no canonical form (a
+    /// fractional number). `value` is what `JSONSerialization` parsed.
     static func canonicalJSON(_ value: Any) -> String? {
-        switch value {
-        case is NSNull:
-            return "null"
-        case let string as String:
-            return canonicalString(string)
-        case let number as NSNumber:
-            if CFGetTypeID(number) == CFBooleanGetTypeID() { return number.boolValue ? "true" : "false" }
-            if CFNumberIsFloatType(number) {
-                let double = number.doubleValue
-                guard double.rounded() == double, abs(double) < 1e15 else { return nil }
-                return String(Int64(double))
-            }
-            return number.stringValue
-        case let array as [Any]:
-            var parts: [String] = []
-            for item in array {
-                guard let part = canonicalJSON(item) else { return nil }
-                parts.append(part)
-            }
-            return "[" + parts.joined(separator: ",") + "]"
-        case let object as [String: Any]:
-            var parts: [String] = []
-            for key in object.keys.sorted(by: { Array($0.utf8).lexicographicallyPrecedes(Array($1.utf8)) }) {
-                guard let item = object[key], let part = canonicalJSON(item) else { return nil }
-                parts.append(canonicalString(key) + ":" + part)
-            }
-            return "{" + parts.joined(separator: ",") + "}"
-        default:
-            return nil
-        }
-    }
-
-    private static func canonicalString(_ string: String) -> String {
-        var out = "\""
-        for scalar in string.unicodeScalars {
-            switch scalar {
-            case "\"": out += "\\\""
-            case "\\": out += "\\\\"
-            case "\u{8}": out += "\\b"
-            case "\u{c}": out += "\\f"
-            case "\n": out += "\\n"
-            case "\r": out += "\\r"
-            case "\t": out += "\\t"
-            case _ where scalar.value < 0x20: out += String(format: "\\u%04x", scalar.value)
-            default: out.unicodeScalars.append(scalar)
-            }
-        }
-        return out + "\""
+        AgentPanePolicyFFI.call("canonical_json", ["value": value])?["json"] as? String
     }
 }

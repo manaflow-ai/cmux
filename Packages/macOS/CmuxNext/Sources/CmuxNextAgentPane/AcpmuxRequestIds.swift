@@ -4,7 +4,7 @@ import CmuxNextCompat
 /// Request ids between the page and acpmux (ad349, round 6). Every request the relay forwards gets
 /// an id the relay owns (a counter per connection), so a page cannot make two requests share an
 /// id at the daemon. The reply's id is mapped back to the page's, and a reply to a filtered method
-/// (``AcpmuxPaneMethods/replyShapes``) is cut to its shape. A page id (JSON value and type) is used
+/// (``AgentPanePolicyFFI/replyShapeMethods``) is cut to its shape. A page id (JSON value and type) is used
 /// by one request at a time. A daemon reply with an id the relay did not send is dropped. Replies
 /// pass the duplicate-key check and reach the page as the daemon's text with the page's id spliced
 /// in (a fresh serialization only when the id could not be found by the scan, or for a filtered
@@ -268,7 +268,7 @@ nonisolated final class AcpmuxRequestIds: Sendable {
             guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return .drop }
             object["id"] = id
             if entry.method == Self.requestStateMethod { return reply(requestState(object, relayID: relayID), entry: entry, text: nil) }
-            return reply(object, entry: entry, text: AcpmuxPaneMethods.replyShapes[entry.method] == nil ? Self.splice(text, span, entry.pageID) : nil)
+            return reply(object, entry: entry, text: AgentPanePolicyFFI.hasReplyShape(entry.method) ? nil : Self.splice(text, span, entry.pageID))
         }
         guard var object = replyObject ?? (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return .drop }
         guard let relayID = object["id"].flatMap(AcpmuxPaneMethods.rawID).flatMap({ Int($0) }) else { return .drop }
@@ -297,8 +297,14 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         if entry.method == AgentPaneAgentReply.method {
             return .complete(object: object, pageID: entry.pageID, subject: entry.subject)
         }
-        if let shape = AcpmuxPaneMethods.replyShapes[entry.method] {
-            return .page(AcpmuxPaneMethods.filteredReply(object, shape: shape, pageID: entry.pageID), object: object, replyTo: entry.method)
+        // A shaped reply reaches the page only as the Rust filter cut it (policy.json `reply_shapes`).
+        if AgentPanePolicyFFI.hasReplyShape(entry.method), let encoded = Self.encode(object) {
+            if let filtered = AgentPanePolicyFFI.filteredReply(method: entry.method, reply: encoded, pageID: entry.pageID) {
+                return .page(filtered, object: object, replyTo: entry.method)
+            }
+            // No shape after all (the policy could not be read): the reply goes as it is.
+            if AgentPanePolicyFFI.replyShapeMethods != nil { return .drop }
+            return .page(encoded, object: object, replyTo: entry.method)
         }
         guard let fresh = text ?? Self.encode(object) else { return .drop }
         return .page(fresh, object: object, replyTo: entry.method)
