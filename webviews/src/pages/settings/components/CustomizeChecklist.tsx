@@ -42,7 +42,6 @@ export type ChecklistLayout = "rows" | "chips" | "menu";
 
 const GROUP_TITLE: Record<ChecklistGroupId, string> = {
   code: "settingsPage.customizeChecklist.code",
-  code: "settingsPage.customizeChecklist.code",
   experiments: "settingsPage.customizeChecklist.experiments",
   labs: "settingsPage.customizeChecklist.labs",
   library: "settingsPage.customizeChecklist.library",
