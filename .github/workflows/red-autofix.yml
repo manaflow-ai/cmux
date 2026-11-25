@@ -79,6 +79,8 @@ jobs:
       key: ${{ steps.triage.outputs.key }}
       lang: ${{ steps.triage.outputs.lang }}
       revert: ${{ steps.triage.outputs.revert }}
+      regen: ${{ steps.triage.outputs.regen }}
+      run: ${{ steps.triage.outputs.run }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -166,6 +168,7 @@ jobs:
     timeout-minutes: 25
     permissions:
       contents: read
+      actions: read
     outputs:
       number: ${{ steps.open.outputs.number }}
       sha: ${{ steps.open.outputs.sha }}
@@ -180,10 +183,25 @@ jobs:
         with:
           name: red-report
           path: ${{ runner.temp }}/red
+      # Deterministic first: a red that uploads its own fix (the regenerated files) needs no model call.
+      - name: Download the red's regenerated files
+        if: ${{ needs.triage.outputs.regen != '' }}
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ needs.triage.outputs.regen }}
+          run-id: ${{ needs.triage.outputs.run }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/regen
+      - name: Copy the regenerated files onto the tip
+        id: regen
+        if: ${{ needs.triage.outputs.regen != '' }}
+        run: python3 -I scripts/ci/red_autofix.py regen --report "$RUNNER_TEMP/red/report.json" --files "$RUNNER_TEMP/regen"
       # Read and Edit only, in a copy of the tracked files with no .git (ci-compile-attribution.yml says why);
       # only its edits to tracked files come back.
       - name: Ask the fixer for a mechanical fix
         id: fixer
+        if: ${{ steps.regen.outputs.applied != 'true' }}
         continue-on-error: true
         timeout-minutes: 15
         env:
@@ -207,7 +225,7 @@ jobs:
           (cd "$tree" && find . -type f -newer "$RUNNER_TEMP/fixer-start" -print0) | while IFS= read -r -d '' path; do
             path="${path#./}"
             grep -qxzF -- "$path" "$RUNNER_TEMP/tracked.z" || continue
-            [ -f "$path" ] && [ ! -L "$path" ] || continue
+            if [ ! -f "$path" ] || [ -L "$path" ]; then continue; fi
             cp -- "$tree/$path" "$path"
           done
           python3 -I - "$RUNNER_TEMP/fixer.json" <<'PY' >> "$GITHUB_OUTPUT"
@@ -224,7 +242,7 @@ jobs:
           PY
       - name: Mint the pull request token
         id: app-token
-        if: ${{ steps.fixer.outputs.mechanical == 'true' }}
+        if: ${{ steps.fixer.outputs.mechanical == 'true' || steps.regen.outputs.applied == 'true' }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
@@ -243,7 +261,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
-          SUMMARY: ${{ steps.fixer.outputs.summary }}
+          SUMMARY: ${{ steps.fixer.outputs.summary || steps.regen.outputs.summary }}
         run: |
           set -euo pipefail
           git clean -ffdxq

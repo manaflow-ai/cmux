@@ -43,6 +43,7 @@ vars.RED_AUTOFIX: 0 turns it off; `pr` opens the pull requests but never merges.
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import hashlib
 import json
 import os
@@ -89,6 +90,12 @@ ANSI = re.compile(r"\x1b?\[[0-9;]*m")
 ERROR_START = re.compile(r"^\s*(?:error(?:\[E\d+\])?:|error TS\d+|.*\berror TS\d+:|.*typescript\(TS\d+\)|##\[error\]"
                          r"|.*: error:|×|✖|FAIL\b|.*\bERR!)")
 BLOCK = 8
+# Deterministic fixers, tried before any model call. A red job whose name matches carries its own fix: the
+# artifact holds the regenerated files at their repository paths plus `.paths` (cmux-next.yml "Regenerate stale
+# files"). Only paths matching the globs are copied; their diff has no size cap (generated output).
+REGEN = [{"job": re.compile(r"generated files", re.I), "artifact": "cmux-next-generated-patch",
+          "globs": ("plans/cmux-next/*.json", "plans/cmux-next/*.md", "schemas/settings/settings-schema.json",
+                    "docs/mdm/*", "schemas/defaults/cmux-next.json")}]
 
 
 # ---------------------------------------------------------------- GitHub and git
@@ -461,8 +468,11 @@ def triage(repo: str, run_id: str, repo_dir: Path, api=gh_api, fetch=None, repla
         report["why"] = "a red-autofix pull request for this red already exists: " + \
             ", ".join(p["url"] for p in report["existing"])
         return report
+    regen = next((r for r in REGEN if any(r["job"].search(j.get("name") or "") for j in failed)), None)
+    if regen:
+        report["regen"] = regen["artifact"]
     report["action"] = "fix"
-    report["why"] = (f"{kind} red; culprit {'#' + culprit['pr'] if culprit and culprit['pr'] else (culprit or {}).get('sha', 'unknown')[:12]}"
+    report["why"] = (f"{'regen' if regen else kind} red; culprit {'#' + culprit['pr'] if culprit and culprit['pr'] else (culprit or {}).get('sha', 'unknown')[:12]}"
                      f" ({'confirmed' if confirmed else 'suspected'}) in {len(commits)} commits since {good[:12] or 'no known green'}")
     return report
 
@@ -553,14 +563,16 @@ def open_pr(report: dict, kind: str, repo_dir: Path, push_url: str, summary: str
     ident = ["-c", f"user.name={BOT[0]}", "-c", f"user.email={BOT[1]}"]
     held = ""
     if kind == "fix":
-        numstat = git("diff", "--numstat", cwd=repo_dir)
+        numstat = git("diff", "--numstat", "HEAD", cwd=repo_dir)
         files = [ln.split("\t")[2] for ln in numstat.splitlines() if ln.count("\t") >= 2]
         lines = sum(int(a) + int(b) for a, b, *_ in (ln.split("\t") for ln in numstat.splitlines())
                     if a.isdigit() and b.isdigit())
         if not files:
             return {"action": "none", "why": "the fixer changed nothing"}
-        if len(files) > MAX_FILES or lines > MAX_LINES:
-            git("checkout", "--", ".", cwd=repo_dir)
+        if report.get("regen_applied") and all(regen_allowed(report["regen"], f) for f in files):
+            pass
+        elif len(files) > MAX_FILES or lines > MAX_LINES:
+            git("reset", "--quiet", "--hard", cwd=repo_dir)
             return {"action": "none", "why": f"the fixer's diff is {len(files)} files, {lines} lines: too large"}
         branch = f"autofix/red-{report['key']}"
         title = f"fix({report['target']}): {report['workflow']} red since {culprit_label(report)} (red-autofix)"
@@ -597,6 +609,34 @@ def open_pr(report: dict, kind: str, repo_dir: Path, push_url: str, summary: str
         pass
     return {"action": "held" if held else "opened", "number": number, "url": created.get("html_url", ""),
             "sha": sha, "branch": branch, "held": held}
+
+
+def regen_allowed(artifact: str, path: str) -> bool:
+    spec = next((r for r in REGEN if r["artifact"] == artifact), None)
+    return bool(spec) and ".." not in Path(path).parts and not path.startswith("/") and \
+        any(fnmatch.fnmatchcase(path, g) for g in spec["globs"])
+
+
+def apply_regen(report: dict, files_dir: Path, repo_dir: Path) -> tuple[int, str]:
+    """Copy the red's regenerated files (FILES_DIR, the downloaded artifact) onto the tip in REPO_DIR."""
+    listing = files_dir / ".paths"
+    if not report.get("regen") or not listing.is_file():
+        return 0, "no regenerated files"
+    copied = 0
+    for path in listing.read_text().split("\n"):
+        path = path.strip()
+        src = files_dir / path
+        if not path or not regen_allowed(report["regen"], path) or src.is_symlink() or not src.is_file():
+            continue
+        dest = repo_dir / path
+        if dest.is_symlink():
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(src.read_bytes())
+        # Staged, so a new generated file survives the open step's `git clean` and lands in the commit.
+        git("add", "--", path, cwd=repo_dir)
+        copied += 1
+    return copied, f"copied {copied} regenerated files from {report['regen']}"
 
 
 def culprit_label(report: dict) -> str:
@@ -802,7 +842,7 @@ def cmd_triage(args) -> int:
             f"\n\nFiles named: {', '.join(report['paths']) or 'none'}; language {report['lang']}")
     write_outputs({"action": report["action"], "target": report["target"], "key": report["key"],
                    "lang": report["lang"], "revert": "true" if report.get("confirmed") else "false",
-                   "red": report["red"]})
+                   "red": report["red"], "regen": report.get("regen", ""), "run": report["run"]})
     return 0
 
 
@@ -817,6 +857,20 @@ def cmd_open(args) -> int:
     out = open_pr(report, args.kind, Path(args.repo_dir).resolve(), args.push_url, args.summary or "")
     say(f"red-autofix {args.kind}: {out['action']} {out.get('url', '')} {out.get('why', '')}".strip())
     write_outputs({k: v for k, v in out.items() if k in {"action", "number", "url", "sha", "branch"}})
+    return 0
+
+
+def cmd_regen(args) -> int:
+    report_path = Path(args.report)
+    report = json.loads(report_path.read_text())
+    copied, why = apply_regen(report, Path(args.files), Path(args.repo_dir).resolve())
+    changed = bool(git("status", "--porcelain", cwd=Path(args.repo_dir).resolve()).strip()) if copied else False
+    if changed:
+        report["regen_applied"] = True
+        report_path.write_text(json.dumps(report, indent=1))
+    say(f"red-autofix regen: {why}; {'the tip changes' if changed else 'the tip already matches'}")
+    write_outputs({"applied": "true" if changed else "false",
+                   "summary": f"Regenerated files copied from the red run's {report.get('regen')} artifact."})
     return 0
 
 
@@ -874,12 +928,13 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("--replay", action="store_true", help="read an old red as if it had just failed (a demo)")
     for s in (t,):
         s.add_argument("--repo", default=repo)
-    for name in ("prompt", "open", "verify", "land", "comment"):
+    for name in ("prompt", "open", "verify", "land", "comment", "regen"):
         s = sub.add_parser(name)
         s.add_argument("--report", required=True)
-    for s in (t, sub.choices["prompt"], sub.choices["open"], sub.choices["verify"]):
+    for s in (t, sub.choices["prompt"], sub.choices["open"], sub.choices["verify"], sub.choices["regen"]):
         s.add_argument("--repo-dir", default=".")
     sub.choices["prompt"].add_argument("--out", required=True)
+    sub.choices["regen"].add_argument("--files", required=True, help="the downloaded regen artifact")
     o = sub.choices["open"]
     o.add_argument("--kind", choices=["fix", "revert"], required=True)
     o.add_argument("--push-url", required=True)
@@ -898,7 +953,7 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--revert", default="")
     args = p.parse_args(argv)
     return {"triage": cmd_triage, "prompt": cmd_prompt, "open": cmd_open, "verify": cmd_verify, "land": cmd_land,
-            "comment": cmd_comment}[args.cmd](args)
+            "comment": cmd_comment, "regen": cmd_regen}[args.cmd](args)
 
 
 if __name__ == "__main__":

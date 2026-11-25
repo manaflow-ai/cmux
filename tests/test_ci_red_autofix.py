@@ -160,6 +160,53 @@ class HistoryTests(unittest.TestCase):
         self.assertIn("pull request's own checks", why)
 
 
+class RegenTests(unittest.TestCase):
+    """hq#20980: "cmux-next / cmux-next generated files" was red on feat-cmux-next; the red job had already uploaded
+    the regenerated files. The fix is a copy of them, with no model call."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.repo, self.files = root / "repo", root / "artifact"
+        self.repo.mkdir()
+        git(self.repo, "init", "-q", "-b", "feat-cmux-next")
+        commit(self.repo, {"plans/cmux-next/actions.json": "{}\n", "README.md": "hi\n"}, "base")
+        stale = {"plans/cmux-next/actions.json": '{"a": 1}\n', "plans/cmux-next/new.md": "# new\n",
+                 "README.md": "planted\n", ".paths": "plans/cmux-next/actions.json\nplans/cmux-next/new.md\n"
+                 "README.md\n../escape.json\n"}
+        for name, text in stale.items():
+            (self.files / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.files / name).write_text(text)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_generated_files_job_is_a_regen_red(self):
+        spec = ra.REGEN[0]
+        self.assertTrue(spec["job"].search("cmux-next / cmux-next generated files"))
+        self.assertTrue(spec["job"].search("cmux-next generated files (shared build)"))
+        self.assertFalse(spec["job"].search("cmux-next / typecheck"))
+
+    def test_copies_only_generated_paths_and_stages_new_files(self):
+        report = {"regen": "cmux-next-generated-patch"}
+        copied, _ = ra.apply_regen(report, self.files, self.repo)
+        self.assertEqual(copied, 2, "README.md and ../escape.json are not generated paths")
+        self.assertEqual((self.repo / "README.md").read_text(), "hi\n")
+        self.assertFalse((self.repo.parent / "escape.json").exists())
+        status = git(self.repo, "status", "--porcelain")
+        self.assertIn("A  plans/cmux-next/new.md", status)
+        self.assertIn("M  plans/cmux-next/actions.json", status)
+
+    def test_no_regen_artifact_copies_nothing(self):
+        self.assertEqual(ra.apply_regen({}, self.files, self.repo)[0], 0)
+        self.assertEqual(ra.apply_regen({"regen": "cmux-next-generated-patch"}, self.repo / "none", self.repo)[0], 0)
+
+    def test_regen_diff_has_no_size_cap_but_only_generated_files(self):
+        self.assertTrue(ra.regen_allowed("cmux-next-generated-patch", "schemas/defaults/cmux-next.json"))
+        self.assertFalse(ra.regen_allowed("cmux-next-generated-patch", "plans/cmux-next/../../x.json"))
+        self.assertFalse(ra.regen_allowed("other", "plans/cmux-next/actions.json"))
+
+
 class FakeApi:
     def __init__(self, routes: dict):
         self.routes = routes
