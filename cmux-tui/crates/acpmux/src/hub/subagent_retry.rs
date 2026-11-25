@@ -317,7 +317,7 @@ fn given_up_text(name: Option<&str>, agent_id: &str, error: &str, attempts: usiz
     format!(
         "Your subagent {name}(agent id {agent_id}) failed for good: {attempts} automatic \
          resumes did not bring it back from a transient upstream error ({error}). Its work is \
-         not done. Resume it with SendMessage to \"{agent_id}\" once more, or start a new \
+         not done. Resume it once more (SendMessage, to its agent id), or start a new \
          subagent for its task, or report that task as failed to whoever asked for it. If it \
          is already running again, or you already resumed or replaced it, do nothing."
     )
@@ -1257,6 +1257,34 @@ mod tests {
         let refused = retries.start("s2", "p", true, || restored = true).unwrap_err();
         assert!(!restored);
         assert_eq!(refused.data.unwrap()["reason"], "subagent_retry.skipped");
+    }
+
+    /// An attempt waits the configured delay, or the error's own `retry after` when later
+    /// (capped), never less than the delay.
+    #[test]
+    fn an_attempt_waits_for_the_errors_retry_after() {
+        let failure = |error: &str| Failure {
+            agent_id: "a1".into(),
+            error: error.into(),
+            reason: "capacity",
+            at: 0,
+            idle: false,
+            wait: None,
+        };
+        let plain = failure("API Error: 503 no non-exhausted claude accounts available");
+        let wait = retry_wait(10_000, &plain, "s1", 0);
+        assert!((10_000..20_000).contains(&wait), "{wait}");
+        let hinted =
+            failure("API Error: 503 no non-exhausted claude accounts available, retry after 1269s");
+        let wait = retry_wait(10_000, &hinted, "s1", 0);
+        assert!((1_260_000..=MAX_HINTED_WAIT_MS).contains(&wait), "{wait}");
+        // A later configured delay still wins over a short hint.
+        let short = failure("API Error: 529 overloaded, retry after 5s");
+        assert!(retry_wait(300_000, &short, "s1", 0) >= 300_000);
+        // A hint past the cap waits the cap.
+        let far = failure("API Error: 503 no non-exhausted accounts, retry after 86400s");
+        assert_eq!(retry_wait(10_000, &far, "s1", 0), MAX_HINTED_WAIT_MS);
+        assert_eq!(given_up_text(None, "a1", "x", 4).contains("4 automatic"), true);
     }
 
     /// Past the limit the oldest stopped or given-up failures go; a waiting one stays.
