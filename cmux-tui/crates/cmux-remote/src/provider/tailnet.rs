@@ -1,10 +1,13 @@
 //! Local, non-authoritative hints used to add a Tailscale address to a dial race.
 //!
-//! The LocalAPI reader lives in a separate crate. This module keeps the race
-//! independent of that reader and provides a no-op implementation until the
-//! reader is wired into a client composition root.
+//! The LocalAPI reader lives in a separate crate (`cmux-tailnet-local`). The
+//! race sees it through [`TailnetHints`]: [`LocalApiTailnetHints`] reads its
+//! cached snapshot, [`NoTailnetHints`] is the setting turned off.
 
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
+
+use cmux_tailnet_local::{TailnetLocal, TailnetView};
 
 /// How a Tailscale address is reached right now.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -74,6 +77,88 @@ impl TailnetHints for NoTailnetHints {
     fn self_ips(&self) -> Vec<IpAddr> {
         Vec::new()
     }
+}
+
+/// Reads the last tailscaled view without waiting (`TailnetLocal::snapshot`).
+pub type TailnetViewReader = dyn Fn() -> Option<Arc<TailnetView>> + Send + Sync;
+
+/// Hints from tailscaled's LocalAPI through the process-wide cached snapshot
+/// (`cmux_tailnet_local::TailnetLocal`). Each call reads memory; a stale view
+/// asks the snapshot's own thread to read tailscaled again. Nothing is read
+/// until a race under a mode other than off asks.
+pub struct LocalApiTailnetHints {
+    read: Arc<TailnetViewReader>,
+}
+
+impl std::fmt::Debug for LocalApiTailnetHints {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("LocalApiTailnetHints").finish_non_exhaustive()
+    }
+}
+
+impl LocalApiTailnetHints {
+    /// The system tailscaled, through `TailnetLocal::global()`.
+    pub fn system() -> Self {
+        Self::with_reader(Arc::new(|| TailnetLocal::global().snapshot()))
+    }
+
+    /// Hints from `read` (tests, or a view the host supplied).
+    pub fn with_reader(read: Arc<TailnetViewReader>) -> Self {
+        Self { read }
+    }
+
+    fn view(&self) -> Option<Arc<TailnetView>> {
+        (self.read)().filter(|view| view.running())
+    }
+}
+
+impl TailnetHints for LocalApiTailnetHints {
+    fn path_hint(&self, ip: IpAddr) -> Option<PeerPath> {
+        self.view()?.path_hint(ip).map(PeerPath::from)
+    }
+
+    fn self_ips(&self) -> Vec<IpAddr> {
+        self.view()
+            .map(|view| view.this.ips.iter().copied().filter(|ip| tailnet_ip(*ip)).collect())
+            .unwrap_or_default()
+    }
+
+    fn peer_ips(&self, host: &str) -> Vec<IpAddr> {
+        let Some(view) = self.view() else { return Vec::new() };
+        let host = host.trim().trim_start_matches('[').trim_end_matches(']').trim_end_matches('.');
+        if host.is_empty() {
+            return Vec::new();
+        }
+        let peer = match host.parse::<IpAddr>() {
+            Ok(ip) => view.peer(ip),
+            Err(_) => view.peer_by_name(host),
+        };
+        peer.map(|peer| peer.ips.clone()).unwrap_or_default()
+    }
+}
+
+impl From<cmux_tailnet_local::PeerPath> for PeerPath {
+    fn from(path: cmux_tailnet_local::PeerPath) -> Self {
+        use cmux_tailnet_local::PeerPath as Local;
+        match path {
+            Local::Direct { endpoint } => Self::Direct { endpoint },
+            Local::Derp { .. } => Self::Derp,
+            Local::PeerRelay { .. } => Self::PeerRelay,
+            // No path chosen yet, offline or unclassified: never a candidate.
+            Local::Idle { .. } | Local::Offline | Local::Unknown => Self::Unknown,
+        }
+    }
+}
+
+/// The hint source for `mode`: off reads nothing (no LocalAPI call, no
+/// snapshot thread); otherwise the system tailscaled, asked to read now so
+/// the first race already has a view.
+pub fn hints_for_mode(mode: TailnetCarrierMode) -> Arc<dyn TailnetHints> {
+    if mode == TailnetCarrierMode::Off {
+        return Arc::new(NoTailnetHints);
+    }
+    TailnetLocal::global().refresh();
+    Arc::new(LocalApiTailnetHints::system())
 }
 
 fn tailnet_ip(ip: IpAddr) -> bool {

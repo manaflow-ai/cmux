@@ -256,6 +256,81 @@ class ClassifyTests(unittest.TestCase):
         ci = "scripts/ci/clean.sh"
         self.assertEqual(self.tier(ci, patches={ci: "+ rm -rf build; python -c 'shutil.rmtree(x)'"}), "normal")
 
+    def test_audit_false_highs_grade_below_high(self):
+        # The 2026-11-25 audit of open risk:high pull requests: named like a high path, but not one.
+        for path in (
+            ".github/workflows/nightly-speed.yml", ".github/workflows/billing-nightly.yml",
+            ".github/workflows/webviews-sampled-nightly.yml", "scripts/measure/nightly-fresh-launch.sh",
+            ".github/workflows/docs-deploy-reusable.yml", "scripts/repo-archive/publish.sh",
+            NEXT + "CmuxNextUpdater/GitHubStar/GitHubStarPrompt.swift", NEXT + "CmuxNextUpdater/UpdaterStrings.swift",
+            "cmux-next-ios/AppStoreReview/screenshots/en-US/iphone/06-sign-in.png",
+            ".github/workflows/auth-refresh-tests.yml", ".github/workflows/vercel-auth-health.yml",
+            "cmux-tui/crates/cmux-tui-core/src/login_shell.rs",
+            "cmux-tui/crates/cmux-tui/src/localization/auth_token.rs",
+            "cmux-tui/relays/cloudflare-do/Cargo.toml", "cmux-tui/crates/cmux-auth-coordinator/Cargo.toml",
+            "Native/OptChat/optchat-chief/src/migrate_cloud.rs", "cmux-tui/crates/cmux-migrate/src/plan.rs",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(path), "normal")
+        self.assertEqual(self.tier("plans/cmux-next/arch-exceptions/relay-chat-harness-login.json"), "low")
+
+    def test_audit_true_highs_stay_high(self):
+        for path in (
+            ".github/workflows/nightly.yml", ".github/workflows/nightly-next-tick.yml",
+            ".github/workflows/ios-internal-nightly.yml", ".github/workflows/sdk-publish-crates.yml",
+            ".github/workflows/mobile-worker-prod-deploy.yml", "scripts/sign-cmux-bundle-helpers.sh",
+            NEXT + "CmuxNextUpdater/UpdaterService.swift",
+            "cmux-tui/crates/acpmux/src/login.rs", "cmux-tui/crates/cmux-git-cache/src/auth.rs",
+            "cmux-tui/relays/cloudflare-do/src/index.ts", "cmux-tui/relays/cloudflare-do/wrangler.toml",
+            NEXT + "CmuxNextApp/AppOnboardingServices+ClassicMigration.swift",
+            "cmux-tui/crates/acpmux/src/hub/place_migrate.rs", "web/drizzle/0001_x.sql",
+            NEXT + "CmuxNextDaemon/Conversations/ChiefSecureStore.swift",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(path), "high")
+
+    def test_harness_code_and_own_temp_file_cleanup_are_not_new_deletes(self):
+        cases = {
+            "webviews/bench/send-pop-frames.bench.ts": "+  rmSync(outDir, { recursive: true, force: true });",
+            "cmux-tui/crates/cmux-machine-provider/examples/machine_provider_bench.rs":
+                "+    let _ = std::fs::remove_dir_all(&dir);",
+            "cmux-tui/frontends/web/e2e/ghostty-terminal.e2e.mjs": "+  fs.rmSync(dir, { recursive: true });",
+            "cmux-tui/crates/coord-sim/src/fanin/ramp.rs": "+    std::fs::remove_dir_all(&out)?;",
+            "cmux-tui/crates/acpmux/src/settings/write.rs": "+        let _ = std::fs::remove_file(&temp);",
+            "cmux-tui/crates/acpmux/src/settings/store.rs": "+        let _ = fs::remove_file(&self.staged);",
+            NEXT + "CmuxLiveCode/LiveEngine.swift": "+        defer { try? FileManager.default.removeItem(at: copy) }",
+        }
+        for path, line in cases.items():
+            with self.subTest(path=path):
+                self.assertNotEqual(self.tier(path, patches={path: line}), "high")
+        rs = "cmux-tui/crates/acpmux/src/settings/write.rs"
+        for line in ("+    std::fs::remove_file(&path)?;", "+    std::fs::remove_dir_all(&temp_root_of_user)?;"):
+            with self.subTest(line=line):
+                self.assertEqual(self.tier(rs, patches={rs: line}), "high")
+        swift = NEXT + "CmuxNextHistory/HistoryStore.swift"
+        self.assertEqual(self.tier(swift, patches={swift: "+ try FileManager.default.removeItem(at: storeURL)"}), "high")
+        mixed = "+    let _ = std::fs::remove_file(&temp); std::fs::remove_dir_all(&user_dir)?;"
+        self.assertEqual(self.tier(rs, patches={rs: mixed}), "high")
+        self.assertEqual(self.tier(swift, patches={swift: "+ try FileManager.default.removeItem(at: temp)"}), "high")
+        self.assertEqual(self.tier(swift, patches={swift: "+ defer { try? FileManager.default.removeItem(at: userDataDir) }"}), "high")
+        self.assertEqual(self.tier(rs, patches={rs: "+    std::fs::remove_file(&copy)?;"}), "high")
+        self.assertEqual(self.tier("webviews/src/store.ts", patches={"webviews/src/store.ts": "+  await db.delete(chats)"}), "high")
+
+    def test_unlink_bare_remove_and_keychain_deletes_count(self):
+        rs = "cmux-tui/crates/cmux-sign-clone-sweep/src/at.rs"
+        for line in ("+    let rc = unsafe { libc::unlinkat(dirfd, name.as_ptr(), libc::AT_REMOVEDIR) };",
+                     "+    unsafe { libc::unlink(path.as_ptr()) };", "+    remove_file(&path)?;", "+    remove_dir(&dir)?;"):
+            with self.subTest(line=line):
+                self.assertEqual(self.tier(rs, patches={rs: line}), "high")
+        ts = "webviews/src/agent-pane/files.ts"
+        self.assertEqual(self.tier(ts, patches={ts: "+  await fs.promises.unlink(file);"}), "high")
+        swift = NEXT + "CmuxNextApp/CredentialCache.swift"
+        self.assertEqual(self.tier(swift, patches={swift: "+    let status = SecItemDelete(query as CFDictionary)"}), "high")
+        # A method or a function named remove_file is not a delete.
+        for line in ("+    self.remove_file(id);", "+fn remove_file(&mut self, id: Id) {"):
+            with self.subTest(line=line):
+                self.assertEqual(self.tier(rs, patches={rs: line}), "normal")
+
     def test_a_new_privileged_workflow_trigger_is_high(self):
         # 16c570b576 put a cargo cache on pull_request_target: a fork could poison it.
         wf = ".github/workflows/cmux-tui-windows.yml"
