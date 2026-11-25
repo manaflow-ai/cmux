@@ -19,9 +19,15 @@ phase_env=(SRCROOT="$PWD" CONFIGURATION=Release ARCHS="$archs"
 python3 scripts/ci/background_build.py join --state "$state" optchat-chief
 env "${phase_env[@]}" CMUX_NEXT_OPTCHAT_CHIEF_BIN="${CMUX_NEXT_OPTCHAT_CHIEF_PENDING_BIN:?}" \
   CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF=1 scripts/cmux-next/bundle-optchat-chief.sh
-python3 scripts/ci/background_build.py join --state "$state" mobile-host
-env "${phase_env[@]}" CMUX_NEXT_MOBILE_HOST_BIN="${CMUX_NEXT_MOBILE_HOST_PENDING_BIN:?}" \
-  CMUX_NEXT_REQUIRE_MOBILE_HOST=1 scripts/cmux-next/bundle-mobile-host.sh
-python3 scripts/ci/background_build.py join --state "$state" screen-sharing-helper
-env "${phase_env[@]}" CMUX_NEXT_SCREEN_HELPER_BIN="${CMUX_NEXT_SCREEN_HELPER_PENDING_BIN:?}" \
-  CMUX_NEXT_REQUIRE_SCREEN_HELPER=1 scripts/cmux-next/bundle-screen-sharing-helper.sh
+# The iPhone host and the Screen Sharing helper are parts, not the app: a failed build of one bundles that part's
+# last good copy from this Mac (or none; the app says the feature is unavailable) and the nightly still ships,
+# with the part named in the run summary and the fix-forward issue (nightly_stale_part.py). On 2026-11-25 05:11Z
+# a cmux-mobile-link compile error failed this step and held the NEXT nightly (run 45551813915).
+python3 scripts/ci/nightly_stale_part.py bundle --state "$state" --job mobile-host --name cmux-mobile-host \
+  --built "${CMUX_NEXT_MOBILE_HOST_PENDING_BIN:?}" --report "$RUNNER_TEMP/nightly-stale-parts.json" \
+  --bin-env CMUX_NEXT_MOBILE_HOST_BIN --require-env CMUX_NEXT_REQUIRE_MOBILE_HOST \
+  -- env "${phase_env[@]}" scripts/cmux-next/bundle-mobile-host.sh
+python3 scripts/ci/nightly_stale_part.py bundle --state "$state" --job screen-sharing-helper --name cmux-screen-sharing \
+  --built "${CMUX_NEXT_SCREEN_HELPER_PENDING_BIN:?}" --report "$RUNNER_TEMP/nightly-stale-parts.json" \
+  --bin-env CMUX_NEXT_SCREEN_HELPER_BIN --require-env CMUX_NEXT_REQUIRE_SCREEN_HELPER \
+  -- env "${phase_env[@]}" scripts/cmux-next/bundle-screen-sharing-helper.sh

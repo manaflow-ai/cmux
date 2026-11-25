@@ -156,7 +156,7 @@ class FixForwardIssueTests(unittest.TestCase):
             report, output = Path(temp) / "lint.json", Path(temp) / "out"
             report.write_text(json.dumps({"failed": [{"check": "check:ui-review", "findings": ["f" * 50] * 500}]}))
             with contextlib.redirect_stdout(io.StringIO()) as out:
-                self.assertEqual(issue.outputs(report, str(output)), 0)
+                self.assertEqual(issue.outputs([report], str(output)), 0)
             line = output.read_text()
             self.assertTrue(line.startswith("lint_report="))
             value = line[len("lint_report="):].strip()
@@ -164,11 +164,29 @@ class FixForwardIssueTests(unittest.TestCase):
             self.assertEqual(json.loads(value)["failed"][0]["check"], "check:ui-review")
             self.assertIn("::warning", out.getvalue())
 
+    def test_outputs_merges_the_stale_parts_report(self):
+        with tempfile.TemporaryDirectory() as temp:
+            lint, parts, output = Path(temp) / "lint.json", Path(temp) / "parts.json", Path(temp) / "out"
+            lint.write_text(json.dumps({"failed": [{"check": "check:ui-review", "findings": ["a"]}]}))
+            parts.write_text(json.dumps({"failed": [{"check": "stale part: cmux-mobile-host", "findings": ["b"]}]}))
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(issue.outputs([lint, Path(temp) / "missing.json", parts], str(output)), 0)
+            value = json.loads(output.read_text()[len("lint_report="):])
+            self.assertEqual([f["check"] for f in value["failed"]], ["check:ui-review", "stale part: cmux-mobile-host"])
+
+    def test_typecheck_codegen_status_lines_are_not_app_findings(self):
+        # Run 45544253426: the codegen's status lines name no file, and held the nightly for a test-file TS2578.
+        lines = ["pane protocol: 0 of 4 files written (all current)", "acpmux protocol: 0 of 2 files written",
+                 "test/agent-pane-classic-script.test.ts(21,1): error TS2578: Unused '@ts-expect-error' directive."]
+        self.assertTrue(checks.outside_the_app(lines))
+        self.assertFalse(checks.outside_the_app(lines + ["src/a.tsx(1,1): error TS2322: x"]))
+        self.assertFalse(checks.outside_the_app(["pane protocol: 0 of 4 files written", "Segmentation fault"]))
+
     def test_no_report_writes_no_output(self):
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp) / "out"
             with contextlib.redirect_stdout(io.StringIO()):
-                self.assertEqual(issue.outputs(Path(temp) / "missing.json", str(output)), 0)
+                self.assertEqual(issue.outputs([Path(temp) / "missing.json"], str(output)), 0)
             self.assertFalse(output.exists())
 
     def test_a_github_failure_only_warns(self):

@@ -56,11 +56,13 @@ def compact(report: dict) -> str:
     return text  # with every finding trimmed only check names remain, far under OUTPUT_MAX; never cut the JSON
 
 
-def outputs(report_path: Path, github_output: str | None) -> int:
-    report = load(report_path)
-    if report is None:
-        print(f"nightly fix-forward: no lint report at {report_path}; nothing to file")
+def outputs(report_paths: list[Path], github_output: str | None) -> int:
+    """Each report's failed entries in one: the webview checks' lint and nightly_stale_part.py's stale parts."""
+    reports = [r for r in (load(p) for p in report_paths) if r is not None]
+    if not reports:
+        print(f"nightly fix-forward: no report at {', '.join(map(str, report_paths))}; nothing to file")
         return 0
+    report = {"failed": [item for r in reports for item in r.get("failed") or []]}
     line = compact(report)
     for item in report.get("failed") or []:
         first = (item.get("findings") or ["(no finding printed)"])[0]
@@ -145,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     out = sub.add_parser("outputs")
-    out.add_argument("--report", type=Path, required=True)
+    out.add_argument("--report", type=Path, action="append", required=True)
     filed = sub.add_parser("file")
     filed.add_argument("--repo", required=True)
     args = parser.parse_args(argv)

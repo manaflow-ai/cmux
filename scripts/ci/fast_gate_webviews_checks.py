@@ -90,10 +90,19 @@ NOT_SHIPPED = re.compile(r"^(?:webviews/)?(?:bench|test|tests|e2e|dev-server|scr
 BUN_RUN_LINE = re.compile(r'^(?:\$ .*|error: script "[^"]+" exited with code \d+)$')
 
 
+# A type error as findings() shows it: Oxlint's `path: typescript(TS2578): ...` or tsc's `path(21,1): error TS2578`.
+TYPE_ERROR = re.compile(r"\btypescript\(TS\d+\)|\berror TS\d+\b|\(\d+,\d+\): TS\d+\b")
+
+
 def outside_the_app(lines: list[str]) -> bool:
-    """Whether every finding names a file the app never ships (NOT_SHIPPED); a finding with no path counts as app."""
+    """Whether the type check printed type errors and every one names a file the app never ships (NOT_SHIPPED).
+    Only its type errors are judged: the check's codegen prints status lines (`pane protocol: 0 of 4 files
+    written ...`) that name no file, and those read as app findings held the NEXT nightly 01:59Z-04:08Z on
+    2026-11-25 for a TS2578 in test/agent-pane-classic-script.test.ts (run 45544253426). Output with no type
+    error at all (a crash, a config failure) still counts as app."""
     found = [line for line in lines if not BUN_RUN_LINE.match(line.strip())]
-    return bool(found) and all(NOT_SHIPPED.search(line.split(" ", 1)[0]) for line in found)
+    errors = [line for line in found if TYPE_ERROR.search(line)]
+    return bool(errors) and all(NOT_SHIPPED.search(line.split(" ", 1)[0]) for line in errors)
 
 
 def advisory_class(check: str, lines: list[str]) -> bool:

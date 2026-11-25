@@ -3150,7 +3150,7 @@ jobs:
         id: lint
         if: ${{ !cancelled() && !env.LEFT_SLOT }}
         continue-on-error: true
-        run: python3 scripts/ci/nightly_fix_forward_issue.py outputs --report "$RUNNER_TEMP/webview-lint.json"
+        run: python3 scripts/ci/nightly_fix_forward_issue.py outputs --report "$RUNNER_TEMP/webview-lint.json" --report "$RUNNER_TEMP/nightly-stale-parts.json"
       # A type error fixit-compile could not fix wrote its record (scripts/ci/oops/fixit_handoff.py signal).
       - name: Hand a type error with no machine fix to fixit-handoff
         id: fixit-nofix
