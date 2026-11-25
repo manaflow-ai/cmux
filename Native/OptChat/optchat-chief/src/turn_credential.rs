@@ -3,8 +3,10 @@
 //! A Cloud chat on staging or production reaches a model only through the owner's credential,
 //! which the Mac sends with the agent's launch (`_meta.acpmux.credentials`, acpmux
 //! `agent_credentials.rs`, cmux-tui/docs/model-connections.md "Revision 2"). The machine's
-//! shared coderouter route exists only in development (cmux-platform `CoderouterEdge.ts`), so
-//! acpmux drops it there (`cloud_model_plane.rs`), and a Chief turn, which no Mac launches,
+//! shared coderouter route is off in staging and production (cmux-platform `wrangler.jsonc`
+//! `CLOUD_CODEROUTER_EDGE_HOST`: on with #1759, off again with #1839 because fresh creates
+//! carrying the rule never bound), so `coderouter.cmux.internal` does not resolve, acpmux drops
+//! the route (`cloud_model_plane.rs` `machine_plane`), and a Chief turn, which no Mac launches,
 //! started with no route and no login: Claude answered "Not logged in" and acpmux showed
 //! "Claude is not signed in here" (`claude_auth.rs` `compose_cloud`).
 //!
