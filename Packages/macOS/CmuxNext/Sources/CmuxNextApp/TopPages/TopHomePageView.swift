@@ -10,13 +10,11 @@ import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import Observation
 
-/// The Home top page, two columns: MessagesLab's conversation list
-/// (`HomeSidebarView` over `HomeSidebarSource`: search, the pinned grid with
-/// the Chiefs, then conversations newest first) on the left, and the chosen conversation's native transcript
-/// (`HomeHostView`, MessagesLab's code) on the right. The page opens on the
-/// Chief conversation when there is one, else on the newest conversation.
-/// The store's home workspace and its chief tab stay as they are (other
-/// clients read them); this page reads the same store.
+/// The Home top page, two columns: MessagesLab's conversation list (`HomeSidebarView` over
+/// `HomeSidebarSource`: search, the pinned grid with the Chiefs, then conversations newest first) on the left,
+/// and the chosen conversation's native transcript (`HomeHostView`, MessagesLab's code) on the right. The page
+/// opens on the Chief conversation when there is one, else on the newest conversation. The store's home
+/// workspace and its chief tab stay as they are (other clients read them); this page reads the same store.
 @MainActor
 final class TopHomePageView: NSView {
     private weak var services: AppServices?
@@ -58,6 +56,8 @@ final class TopHomePageView: NSView {
         sidebar = services.home.makeSidebarSource()
         split = HomeSidebarSplitView(sidebar: list, content: transcriptColumn)
         super.init(frame: .zero)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
         setAccessibilityIdentifier("cmux.topPage.home")
         split.windowKey = windowKey
         split.frame = bounds
