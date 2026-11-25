@@ -1171,7 +1171,7 @@ extension LiveCoordinator {
             guard let target = session.link.target else { continue }
             let phase = session.link.phase
             let quietOver = session.linkDownSince.map { now - $0 >= QuietStatusGate.threshold } ?? false
-            var line = phase.statusLine(macName: target.name, media: session.link.media)
+            var line = phase.statusLine(macName: target.name, media: session.link.media, block: session.link.networkBlock)
             if phase != .signedOut, !quietOver { line = nil }
             // Keep the section header actionable and calm. Raw acpmux/daemon
             // failures belong in diagnostics, never in the normal status line.
@@ -1207,7 +1207,8 @@ extension LiveCoordinator {
             if store.macLinkDiagnostics.removeValue(forKey: session.macID) != nil { return }
             return
         }
-        var parts = [session.link.phase.diagnosticLine(macName: session.name, media: session.link.media)]
+        var parts = [session.link.phase.diagnosticLine(macName: session.name, media: session.link.media,
+                                                       block: session.link.networkBlock)]
         if let error = session.chatsError { parts.append("Chats: \(error)") }
         if let error = session.daemonError ?? session.workspaces.lastError { parts.append("Workspaces: \(error)") }
         let detail = parts.compactMap { $0 }.joined(separator: "\n")

@@ -108,7 +108,6 @@ impl Hub {
                 peer_wake,
                 btw,
                 titles,
-                summaries,
                 context_overrides,
                 send_relay,
                 new_relay,
@@ -211,7 +210,6 @@ impl Hub {
             current.peer_wake = peer_wake;
             current.btw = btw;
             current.titles = titles;
-            current.summaries = summaries;
             current.context_overrides = context_overrides;
             current.send_relay = send_relay;
             current.new_relay = new_relay;
