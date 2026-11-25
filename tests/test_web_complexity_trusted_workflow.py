@@ -994,6 +994,31 @@ def test_stale_branch_web_change_scans_only_its_own_files() -> None:
 
 
 
+def test_ephemeral_guard_admits_the_routed_runner() -> None:
+    """The ephemeral-runner guard must pass the runner the job routes to.
+
+    cmux#48329 moved the job to cmux-gcp-pr-control-jit-x64 while the guard still
+    admitted only GitHub-hosted and Blacksmith names, so every run failed. A
+    persistent pool runner (cmux-runner-pool-*) must still fail it.
+    """
+    import re
+
+    job = yaml.safe_load(WORKFLOW.read_text())["jobs"]["complexity"]
+    assert "cmux-gcp-pr-control-jit-x64" in job["runs-on"], job["runs-on"]
+    guard = next(step for step in job["steps"] if step.get("name") == "Require an ephemeral runner")
+    allowed = re.findall(r"!startsWith\(runner\.name, '([^']+)'\)", guard["if"])
+
+    def fails(environment: str, name: str) -> bool:
+        return environment != "github-hosted" and not any(name.startswith(p) for p in allowed)
+
+    # cmuxterm-hq runner_pool.py: PR_CONTROL_JIT_LABEL's VMs are PREFIX + "pc-".
+    assert not fails("self-hosted", "cmux-gha-runner-pc-1121-130000-abc123")
+    assert not fails("self-hosted", "blacksmith-4vcpu-ubuntu-2404-xyz")
+    assert not fails("github-hosted", "GitHub Actions 12")
+    assert fails("self-hosted", "cmux-runner-pool-e1bx-0012")
+    assert fails("self-hosted", "cmux-gha-runner-nj-1121-130000-abc123")
+
+
 def main() -> int:
     """Validate the trusted web-complexity workflow security contract."""
     document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
@@ -1073,6 +1098,7 @@ def main() -> int:
     test_pull_request_target_queues_only_for_web_or_policy_changes()
     test_stale_branch_without_web_changes_skips_the_scan()
     test_stale_branch_web_change_scans_only_its_own_files()
+    test_ephemeral_guard_admits_the_routed_runner()
     print("PASS: trusted web complexity scopes work before Bun and runs checks from the trusted checkout")
     return 0
 

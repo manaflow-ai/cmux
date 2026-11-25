@@ -1,10 +1,10 @@
 // Which Apple subscriptions grant a plan right now. pro.ts combines this
 // with the Stripe plan, so this module must not import pro.ts at runtime.
 
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 
 import { cloudDb } from "../../../db/client";
-import { appleSubscriptions, type AppleSubscriptionStatus } from "../../../db/schema";
+import { appleSubscriptions, appleTransactions, type AppleSubscriptionStatus } from "../../../db/schema";
 import type { PersonalPlanId } from "../pro";
 import { planTierRank } from "../planTier";
 import { APP_STORE_BUNDLE_ID, appleEnvironmentGrantsEntitlement, appleSandboxGrantNeedsAccountEmail } from "./config";
@@ -25,7 +25,26 @@ export type AppleEntitlementRow = {
   readonly autoRenewEnabled?: boolean | null;
   /** Purchase date of the newest transaction: the start of the current period. */
   readonly purchaseDate?: Date | null;
+  /** A paid higher plan kept after an early renewal into a lower one (see `carried_plan_id`). */
+  readonly carriedPlanId?: string | null;
+  readonly carriedUntil?: Date | null;
+  readonly carriedTransactionId?: string | null;
+  /** When the carried plan's transaction was refunded; a refunded period carries nothing. */
+  readonly carriedRevokedAt?: Date | null;
 };
+
+/**
+ * The plan a row grants at `now`: its carried plan while that paid period
+ * still runs and was not refunded, else its own. Status and expiry are
+ * checked separately (appleSubscriptionGrantsAccess).
+ */
+export function appleEntitlementPlanAt(row: AppleEntitlementRow, now: Date): string {
+  const carried = row.carriedPlanId;
+  if (!carried || !row.carriedUntil || row.carriedUntil.getTime() <= now.getTime() || row.carriedRevokedAt) {
+    return row.planId;
+  }
+  return planTierRank(carried) > planTierRank(row.planId) ? carried : row.planId;
+}
 
 
 function isAfter(value: Date | null, now: Date): boolean {
@@ -46,6 +65,17 @@ export function appleSubscriptionGrantsAccess(
 ): boolean {
   if (!APPLE_PLAN_IDS.has(row.planId)) return false;
   if (!appleEnvironmentGrantsEntitlement({ ...row, accountEmail }, env)) return false;
+  return appleStatusGrantsAt(row, now);
+}
+
+/**
+ * The status and time part of the grant rule alone, without the plan and
+ * Sandbox policy: whether Apple's state keeps access at `now`.
+ */
+export function appleStatusGrantsAt(
+  row: Pick<AppleEntitlementRow, "status" | "expiresAt" | "gracePeriodExpiresAt">,
+  now: Date,
+): boolean {
   switch (row.status) {
     case "active":
       return isAfter(row.expiresAt, now);
@@ -85,9 +115,34 @@ export async function appleSubscriptionRowsForUser(userId: string): Promise<Appl
       gracePeriodExpiresAt: appleSubscriptions.gracePeriodExpiresAt,
       autoRenewEnabled: appleSubscriptions.autoRenewEnabled,
       purchaseDate: appleSubscriptions.purchaseDate,
+      carriedPlanId: appleSubscriptions.carriedPlanId,
+      carriedUntil: appleSubscriptions.carriedUntil,
+      carriedTransactionId: appleSubscriptions.carriedTransactionId,
     })
     .from(appleSubscriptions)
     .where(eq(appleSubscriptions.userId, userId));
+}
+
+/**
+ * Marks carried plans whose transaction was refunded. Only rows with a carry
+ * still running need it, so a plan read stays one query in the usual case.
+ */
+async function withCarriedRefunds(
+  rows: readonly AppleEntitlementRow[],
+  now: Date,
+): Promise<AppleEntitlementRow[]> {
+  const carried = rows
+    .filter((row) => row.carriedTransactionId && row.carriedUntil && row.carriedUntil.getTime() > now.getTime())
+    .map((row) => row.carriedTransactionId!);
+  if (carried.length === 0) return [...rows];
+  const refunded = await cloudDb()
+    .select({ transactionId: appleTransactions.transactionId, revokedAt: appleTransactions.revokedAt })
+    .from(appleTransactions)
+    .where(and(inArray(appleTransactions.transactionId, carried), isNotNull(appleTransactions.revokedAt)));
+  const revokedAt = new Map(refunded.map((row) => [row.transactionId, row.revokedAt]));
+  return rows.map((row) => row.carriedTransactionId && revokedAt.has(row.carriedTransactionId)
+    ? { ...row, carriedRevokedAt: revokedAt.get(row.carriedTransactionId) ?? null }
+    : row);
 }
 
 /**
@@ -129,6 +184,7 @@ export async function activeAppleEntitlementForUser(
   }
   // Lightweight database doubles in older tests may return non-array values.
   if (!Array.isArray(rows)) return null;
+  rows = (await withCarriedRefunds(rows, now)).map((row) => ({ ...row, planId: appleEntitlementPlanAt(row, now) }));
   const needsEmail = appleSandboxGrantNeedsAccountEmail(env) &&
     rows.some((row) => row.environment === "Sandbox" && row.bundleId === APP_STORE_BUNDLE_ID &&
       appleSubscriptionGrantsAccess(row, now, {}));
