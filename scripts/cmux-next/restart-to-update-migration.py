@@ -13,7 +13,14 @@ the app by itself. The check then reads, from the updated app, what the person h
   - the bundle and the running app are the feed's newest build (--to);
   - the windows: as many, the same workspace in each, each still visible;
   - the workspaces by name, and the terminal's process still alive with its output;
-  - every setting changed before the update reads the same value after it.
+  - every setting changed before the update reads the same value after it;
+  - --tabless terminals with no tab, each held by an attach stream (an agent's terminal), more than the reap
+    cap of 16: every process still alive more than one reap grace after the new owner took them over;
+  - --agents acpmux agents at work (the test agent's "steps" turn, a tool call every 150 ms): the same agent
+    process after the update, its turn still stepping, no take-over SIGTERM.
+
+Leo, 2026-11-25 (c-68068a551d): "the newest nightly does it fix the transition on the next one? like, we need a
+cutover that can... do the restart close andwhatever without being stupid".
 
 The whole run is filmed (screencapture -v) to --out/restart-to-update.mov, with report.json beside it.
 Host rules match scripts/cmux-next/update-e2e.py: an Aqua GUI session for this user, no cmux NEXT installed or
@@ -38,6 +45,8 @@ parser.add_argument("--to", dest="to_build", help="the build expected after the 
 parser.add_argument("--feed", default=FEED)
 parser.add_argument("--out", default=os.path.join(os.getcwd(), ".build", "restart-to-update"))
 parser.add_argument("--film-seconds", type=int, default=420, help="longest film (it stops early when the check ends)")
+parser.add_argument("--tabless", type=int, default=20, help="tab-less terminals held by an attach stream (0: none)")
+parser.add_argument("--agents", type=int, default=3, help="acpmux test agents at work across the update (0: none)")
 parser.add_argument("--keep", action="store_true", help="keep the scratch folder and leave the app running")
 opts = parser.parse_args()
 
@@ -234,6 +243,105 @@ def seed(app, work):
     return made
 
 
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+FAKE_AGENT = os.path.join(REPO, "cmux-tui/crates/acpmux/tests/fake_agent.py")
+HARNESS = "rtufake"
+HARNESS_FILE = os.path.join(HOME, ".config/cmux/harnesses", f"{HARNESS}.toml")
+attachers = []  # the `terminal attach` CLIs this run started; only these are ended at the end
+
+
+def alive(pid):
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except (OSError, TypeError, ValueError):
+        return False
+
+
+def attach(app, term, work):
+    """An attach stream on a terminal, as the app holds one on an agent's terminal with no tab."""
+    env = {"HOME": HOME, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_QUIET": "1"}
+    log = open(os.path.join(work, f"attach-{term}.log"), "ab")
+    proc = subprocess.Popen([os.path.join(app, "Contents/Resources/bin/cmux"), "--app-socket", SOCKET,
+                             "terminal", term, "attach"], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                            stderr=log, env=env, cwd=HOME)
+    attachers.append(proc)
+    return proc
+
+
+def close_workspace(app, workspace):
+    cli(app, "workspace", workspace, "focus")
+    wait(lambda: rpc("snapshot.get", timeout=5), 2)
+    reply = rpc("action.run", {"action": "closeWorkspace", "args": {"confirm": True}, "focus": True, "origin": "script"}, 30)
+    if "error" in reply:
+        reply = rpc("action.run", {"id": "closeWorkspace", "args": {"confirm": True}}, 30)
+    return wait(lambda: workspace not in {w.get("id") for w in (topology() or {}).get("workspaces") or []}, 15, 0.25), reply
+
+
+def seed_tabless(app, work, count):
+    """`count` terminals, each running a process, held by an attach stream, their workspace closed: no tab."""
+    rows = []
+    for n in range(count):
+        made = cli(app, "workspace", "create", "--name", f"rtu-tabless-{n}")
+        term = made.get("terminal_id") if isinstance(made, dict) else None
+        if not term:
+            print(f"tab-less {n}: workspace create answered {made}")
+            continue
+        pidfile = os.path.join(work, f"tabless-{n}.pid")
+        cli(app, "terminal", term, "write", "--text", f"sh -c 'echo $$ > {pidfile}; exec sleep 86400'\n")
+        if not wait(lambda: os.path.exists(pidfile) and open(pidfile).read().strip(), 20):
+            print(f"tab-less {n}: the process never wrote its pid")
+            continue
+        attach(app, term, work)
+        time.sleep(0.5)
+        closed, reply = close_workspace(app, made["workspace_id"])
+        rows.append({"terminal": term, "pid": int(open(pidfile).read().strip()), "closed": bool(closed),
+                     **({} if closed else {"close": reply})})
+    return rows
+
+
+def write_harness(work):
+    os.makedirs(os.path.dirname(HARNESS_FILE), exist_ok=True)
+    if os.path.exists(HARNESS_FILE):
+        return False  # not ours: leave it
+    with open(HARNESS_FILE, "w") as f:
+        f.write(f'schema = 1\nid = "{HARNESS}"\nname = "Restart to Update test agent"\nprotocol = "acp"\n'
+                f'command = "/usr/bin/python3"\nargs = [{json.dumps(FAKE_AGENT)}]\n'
+                f'[env]\nFAKE_STEP_LOG = {json.dumps(os.path.join(work, "steps.log"))}\n'
+                f'FAKE_CLASS_LOG = {json.dumps(os.path.join(work, "agents.jsonl"))}\n')
+    os.chmod(HARNESS_FILE, 0o600)
+    return True
+
+
+def agent_pids(work):
+    try:
+        return [json.loads(line)["pid"] for line in open(os.path.join(work, "agents.jsonl")) if line.strip()]
+    except (OSError, ValueError, KeyError):
+        return []
+
+
+def steps(work):
+    try:
+        return sum(1 for _ in open(os.path.join(work, "steps.log")))
+    except OSError:
+        return 0
+
+
+def seed_agents(app, work, count):
+    """`count` test agents in a "steps" turn: a finished tool call every 150 ms until cancelled."""
+    out = {"profile_written": write_harness(work), "chats": []}
+    cli(app, "harness", "reload")
+    cli(app, "setup", "trust", work)
+    ws = cli(app, "workspace", "create", "--name", "rtu-agents")
+    for n in range(count):
+        chat = cli(app, "agents", "chat", "new", "--workspace", (ws or {}).get("workspace_id", ""), "--harness", HARNESS,
+                   "--cwd", work, "--name", f"rtu-agent-{n}", "--", "steps", timeout=90)
+        out["chats"].append(chat.get("chat") if isinstance(chat, dict) and chat.get("chat") else {"error": chat})
+    wait(lambda: len(agent_pids(work)) >= count and steps(work) >= 5 * count, 60, 0.5)
+    out["pids"] = agent_pids(work)
+    return out
+
+
 def terminal_state(app, made):
     pid = None
     try:
@@ -265,6 +373,17 @@ def main():
         record("older build launched, control socket answers", bool(launch(app, log)), rpc("updates.status").get("build"))
         made = seed(app, work)
         report["seed"] = made
+        tabless = seed_tabless(app, work, opts.tabless) if opts.tabless else []
+        report["tabless"] = tabless
+        if opts.tabless:
+            held = [r for r in tabless if r["closed"] and alive(r["pid"])]
+            record(f"seeded {opts.tabless} tab-less terminals held by an attach stream", len(held) == opts.tabless,
+                   f"{len(held)} placed nowhere and alive")
+        agents = seed_agents(app, work, opts.agents) if opts.agents else {}
+        report["agents"] = agents
+        if opts.agents:
+            record(f"seeded {opts.agents} agents at work", len(agents["pids"]) >= opts.agents and steps(work) > 0,
+                   f"pids {agents['pids']}, {steps(work)} steps")
         before = {"topology_windows": windows_seen(topology()), "workspaces": workspace_names(topology()),
                   "terminal": terminal_state(app, made),
                   "settings": {p: setting(p) for p in made["settings"]}}
@@ -277,7 +396,12 @@ def main():
         staged = wait(lambda: (lambda s: s if s.get("phase") == "installing" else None)(rpc("updates.status")), 900, 2)
         record("update found, downloaded and staged", bool(staged),
                json.dumps({k: (staged or {}).get(k) for k in ("phase", "detected_version", "badge", "card")}))
+        if opts.tabless:
+            ended = [r["terminal"] for r in tabless if not alive(r["pid"])]
+            record("tab-less terminals alive at the click (the attach streams hold them)", not ended,
+                   f"ended before the update: {ended}" if ended else f"{len(tabless)} alive")
         pids = app_pids(app)
+        steps_before = steps(work)
         clicked = time.time()
         report["clicked"] = clicked
         report["apply"] = rpc("action.run", {"id": "palette.applyUpdateIfAvailable"})
@@ -304,6 +428,24 @@ def main():
                f"{before['terminal']} -> {after['terminal']}")
         record("terminal output kept", after["terminal"]["token_on_screen"], "")
         record("settings kept", after["settings"] == before["settings"], f"{before['settings']} -> {after['settings']}")
+        if opts.agents:
+            pids_now = [p for p in agents["pids"] if alive(p)]
+            mark = steps(work)
+            stepping = wait(lambda: steps(work) > mark + 5, 30, 0.5)
+            record("agents at work: the same processes after the update", pids_now == agents["pids"] and bool(pids_now),
+                   f"{agents['pids']} -> alive {pids_now}; agents started since: {agent_pids(work)[len(agents['pids']):]}")
+            record("agents at work: their turns kept stepping across the update", bool(stepping) and mark > steps_before,
+                   f"{steps_before} steps at the click, {mark} after the relaunch, {steps(work)} now")
+        if opts.tabless:
+            # The app attaches again as it would (its CLI stand-ins quit with the old app's socket), then the check
+            # waits out more than one reap grace from the new owner's start.
+            for row in tabless:
+                attach(app, row["terminal"], work)
+            time.sleep(40)
+            gone = [r for r in tabless if r["closed"] and not alive(r["pid"])]
+            record(f"tab-less attach-held terminals alive past one grace on the new owner ({len(tabless)} > cap 16)",
+                   not gone and bool(tabless), f"{len(tabless) - len(gone)} of {len(tabless)} alive"
+                   + (f"; ended: {[r['terminal'] for r in gone]}" if gone else ""))
         time.sleep(4)  # the film shows the restored windows settle
     finally:
         if recorder:
@@ -312,6 +454,11 @@ def main():
                 recorder.wait(30)
             except subprocess.TimeoutExpired:
                 recorder.kill()
+        for proc in attachers:
+            if proc.poll() is None:
+                proc.terminate()
+        if opts.agents and os.path.exists(HARNESS_FILE) and (report.get("agents") or {}).get("profile_written"):
+            os.unlink(HARNESS_FILE)
         failed = [r for r in results if r["state"] == "FAIL"]
         report.update(results=results, ok=not failed, film=film if os.path.exists(film) else None)
         with open(os.path.join(opts.out, "report.json"), "w") as f:
