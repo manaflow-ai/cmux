@@ -62,9 +62,12 @@ final class TerminalComposerTapBleedUITests: XCTestCase {
             keyboardKey.exists && keyboardKey.frame.height >= 20
         }, object: nil)
         XCTAssertEqual(XCTWaiter().wait(for: [shown], timeout: 5), .completed, "no key row over the keyboard")
-        // The row's slot opens over 0.25 s and fades in 0.15 s; the card settles after it.
-        let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in false }, object: nil)
-        _ = XCTWaiter().wait(for: [settled], timeout: 1.5)
+        // The row's slot opens over 0.25 s and fades in 0.15 s; let the card settle before
+        // measuring the edge. A timer-backed expectation keeps this wait explicit instead of
+        // using an always-false predicate that can only time out.
+        let settled = expectation(description: "composer and key row settle")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { settled.fulfill() }
+        wait(for: [settled], timeout: 2.5)
 
         let probe = app.descendants(matching: .any)["terminal.keyBar.fired"].firstMatch
         XCTAssertTrue(probe.waitForExistence(timeout: 5), "no key row probe (a DEBUG build?)")
