@@ -378,6 +378,9 @@ fn answering(path: &Path) -> std::sync::Arc<std::sync::atomic::AtomicUsize> {
             }
             counted.fetch_add(1, Ordering::SeqCst);
             let _ = reader.get_mut().write_all(b"{\"ok\":true,\"data\":{}}\n");
+            // Read the rest of the dial (its listing line) until the Mac closes it: closing with
+            // that line unread makes Linux reset the link, sometimes before the answer is read.
+            let _ = std::io::copy(&mut reader, &mut std::io::sink());
         }
     });
     dials
