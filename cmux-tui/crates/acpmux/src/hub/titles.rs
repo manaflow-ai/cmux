@@ -508,6 +508,7 @@ impl Hub {
         (title, Attempt { model, ms })
     }
 
+    #[cfg(test)]
     pub(super) fn apply_generated_title(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -580,20 +581,9 @@ fn request(prompt: &str, reply: &str, first: bool) -> String {
 }
 
 /// Run a title command with the request on stdin; its cleaned first line.
-pub(super) async fn run(cmd: tokio::process::Command, request: &str) -> Option<String> {
-    clean(&run_command(cmd, request, TIMEOUT).await?)
-}
-
-/// Run a one-shot command (in its own process group) with `request` on stdin; its whole
-/// stdout when it exits 0 within `timeout`, else None (the group is killed at the timeout).
-/// Shared with `rolling_summary.rs`.
-pub(super) async fn run_command(
-    mut cmd: tokio::process::Command,
-    request: &str,
-    timeout: Duration,
-) -> Option<String> {
+pub(super) async fn run(mut cmd: tokio::process::Command, request: &str) -> Option<String> {
     cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
-    let mut child = cmd.spawn().map_err(|e| tracing::debug!("one-shot command: {e}")).ok()?;
+    let mut child = cmd.spawn().map_err(|e| tracing::debug!("title command: {e}")).ok()?;
     let pid = child.id();
     let mut stdin = child.stdin.take()?;
     let mut stdout = child.stdout.take()?;
@@ -606,7 +596,7 @@ pub(super) async fn run_command(
         let status = child.wait().await.ok()?;
         status.success().then_some(out)
     };
-    let Ok(out) = tokio::time::timeout(timeout, answer).await else {
+    let Ok(out) = tokio::time::timeout(TIMEOUT, answer).await else {
         // The command runs in its own group (a wrapper's children too): end it
         // all while its leader, not yet reaped, still holds the group's id.
         #[cfg(unix)]
@@ -618,7 +608,7 @@ pub(super) async fn run_command(
         drop(child);
         return None;
     };
-    out
+    clean(&out?)
 }
 
 /// The title in a model's answer: its first line without quotes, a

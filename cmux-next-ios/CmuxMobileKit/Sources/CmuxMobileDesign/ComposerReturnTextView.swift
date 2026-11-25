@@ -29,6 +29,18 @@ open class ComposerReturnTextView: UITextView {
     /// plain text view offers no Paste for an image at all). The paste is the
     /// person's own action, so reading the pasteboard then asks nothing.
     public var onPasteAttachments: (() -> Void)?
+    /// A downward swipe inside the text, starting at its top, ends editing:
+    /// the keyboard goes down and the composer returns to its resting row
+    /// (`ComposerSwipeCollapse`), when Settings → Composer → Swipe Down to
+    /// Collapse is on (`CmuxMobilePreferences.swipeDownCollapsesComposer`, off
+    /// by default). Set false to opt one composer out.
+    public var collapsesOnSwipeDown = true
+    /// Whether the swipe is on for this view now: its own switch and the setting.
+    public var swipeCollapseEnabled: Bool {
+        collapsesOnSwipeDown && CmuxMobilePreferences.swipeDownCollapsesComposer()
+    }
+    /// Called after a swipe down collapsed the composer.
+    public var onSwipeCollapse: (() -> Void)?
 
     private let placeholderLabel = UILabel()
     /// Set while this view inserts its own line break, so the delegate's
@@ -50,6 +62,10 @@ open class ComposerReturnTextView: UITextView {
         placeholderLabel.numberOfLines = 1
         placeholderLabel.isAccessibilityElement = false
         addSubview(placeholderLabel)
+        swipeCollapse.addTarget(self, action: #selector(swipeCollapseChanged(_:)))
+        swipeCollapse.cancelsTouchesInView = false
+        swipeCollapse.delegate = swipeCollapseDelegate
+        addGestureRecognizer(swipeCollapse)
     }
 
     @available(*, unavailable)
@@ -64,9 +80,76 @@ open class ComposerReturnTextView: UITextView {
 
     override open var text: String! {
         didSet {
+            handedDraft = nil
             updatePlaceholder()
             unsettle()
         }
+    }
+
+    // MARK: Draft
+
+    /// The draft as last handed to the binding (`draftText()`) or taken from it
+    /// (`takeDraft(_:)`): what the view's text is, as a native Swift string. Nil after any
+    /// other change to `text`.
+    private var handedDraft: String?
+
+    /// The view's text for the binding, after an edit (the delegate's `textViewDidChange`).
+    ///
+    /// `UITextView.text` bridges as a lazy NSString (the text storage's NSBigMutableString),
+    /// so every Swift comparison of it (the binding's `didSet`, `@Observable`'s change
+    /// check, SwiftUI's diff of the views that hold it) walked it a character at a time with
+    /// Unicode normalization: hundreds of ms per key in a 10,000-character chat draft, in
+    /// stacks of `NSBigMutableString characterAtIndex` and `_NFCNormalizer` under
+    /// `AgentChatSurface.text` and `ViewBodyAccessor` (Leo, 2026-11-24; ComposerTypingLagUITests).
+    /// One native copy per key (`nativeCopy(of:)`, one bulk conversion) makes each of those a
+    /// buffer compare, and the copy kept here lets `differs(from:)` answer the binding's next
+    /// update by identity.
+    public func draftText() -> String {
+        #if DEBUG
+        if Self.measuresWholeDraft { return text ?? "" }
+        #endif
+        let draft = Self.nativeCopy(of: textStorage.string as NSString)
+        handedDraft = draft
+        return draft
+    }
+
+    /// A native Swift string of `string` in one bulk UTF-16 to UTF-8 conversion
+    /// (`CFStringGetBytes`). `makeContiguousUTF8()` on the bridged text copied it through
+    /// String's foreign-string path a scalar at a time (`_foreignSubscript` in the
+    /// long-text matrix's stacks). A string CFStringGetBytes cannot convert whole (a lone
+    /// surrogate) takes that path still.
+    static func nativeCopy(of string: NSString) -> String {
+        let length = string.length
+        guard length > 0 else { return "" }
+        let capacity = CFStringGetMaximumSizeForEncoding(length, CFStringBuiltInEncodings.UTF8.rawValue)
+        var converted = 0
+        let copy = String(unsafeUninitializedCapacity: capacity) { buffer in
+            var used = 0
+            converted = CFStringGetBytes(string, CFRange(location: 0, length: length), CFStringBuiltInEncodings.UTF8.rawValue,
+                                         0, false, buffer.baseAddress, capacity, &used)
+            return used
+        }
+        if converted == length { return copy }
+        var slow = string as String
+        slow.makeContiguousUTF8()
+        return slow
+    }
+
+    /// Whether the binding's draft differs from the view's text (`updateUIView`). The
+    /// binding hands back the string `draftText()` gave it, the same storage, which
+    /// compares in O(1); only a draft set from outside reads and compares the view's text.
+    public func differs(from draft: String) -> Bool {
+        #if DEBUG
+        if Self.measuresWholeDraft { return text != draft }
+        #endif
+        if let handedDraft, handedDraft == draft { return false }
+        return text != draft
+    }
+
+    /// Sets the view's text from the binding (`updateUIView`), remembered as handed.
+    public func takeDraft(_ draft: String) {
+        text = draft
+        handedDraft = draft
     }
 
     override open var font: UIFont? {
@@ -292,7 +375,7 @@ open class ComposerReturnTextView: UITextView {
     public func followCaret() {
         if !textOverflows {
             pinToTop()
-        } else if NSMaxRange(selectedRange) >= (text as NSString? ?? "").length {
+        } else if NSMaxRange(selectedRange) >= textStorage.length {
             // Typing at the end: the field's bottom inset shows below the last
             // line, as it does at rest (scrollRangeToVisible stops at the
             // caret, leaving the line flush against the field's bottom edge).
@@ -310,6 +393,14 @@ open class ComposerReturnTextView: UITextView {
     private func pinToTop() {
         let top = -adjustedContentInset.top
         if contentOffset.y != top { contentOffset.y = top }
+    }
+
+    /// Key-to-glyph stamps (`ComposerKeyStamp`): signposts in every build, samples under `InputLatencyTrace`.
+    private lazy var keyStamp = ComposerKeyStamp { [weak self] in self?.accessibilityIdentifier ?? "composer" }
+
+    override open func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if let event, presses.contains(where: { $0.key != nil }) { keyStamp.pressed(at: event.timestamp) }
+        super.pressesBegan(presses, with: event)
     }
 
     #if DEBUG
@@ -336,7 +427,7 @@ open class ComposerReturnTextView: UITextView {
         #if DEBUG
         if let trace = InputLatencyTrace.shared { return tracedInsert(text, trace: trace) }
         #endif
-        super.insertText(text)
+        keyStamp.insert { super.insertText(text) }
     }
 
     #if DEBUG
@@ -346,12 +437,13 @@ open class ComposerReturnTextView: UITextView {
     private func tracedInsert(_ text: String, trace: InputLatencyTrace) {
         let id = accessibilityIdentifier ?? "composer"
         let start = CACurrentMediaTime()
+        trace.typed()
         let cpu = InputLatencyTrace.threadCPUms()
         let units = Self.measuredUnits
         let calls = Self.measureCalls
         let seconds = Self.measureSeconds
         let counters = trace.counters
-        super.insertText(text)
+        keyStamp.insert { super.insertText(text) }
         trace.sampleAtNextFrame("\(id)_key_frame", since: start)
         trace.sampleAfterCommit("\(id)_key_commit", since: start)
         // The main thread's CPU from the key to its frame committed.
@@ -386,8 +478,63 @@ open class ComposerReturnTextView: UITextView {
     }
 
     public func updatePlaceholder() {
-        placeholderLabel.isHidden = !(text ?? "").isEmpty
+        placeholderLabel.isHidden = hasText
         accessibilityLabel = placeholder
+    }
+
+    // MARK: Swipe down to collapse
+
+    private let swipeCollapse = UIPanGestureRecognizer()
+    private let swipeCollapseDelegate = SwipeCollapseDelegate()
+    private let swipeCollapseRule = ComposerSwipeCollapse()
+    /// When the finger came down, and whether the text was at its top then
+    /// (read at touch-down: by the pan's `.began` the text's own scroll may
+    /// already have moved).
+    fileprivate var touchDownTime: TimeInterval = 0
+    fileprivate var swipeBeganAtTop = false
+    private var swipeHeldFor: TimeInterval = 0
+
+    /// Whether the text shows its first line (a fitting draft always does).
+    fileprivate var atTop: Bool { contentOffset.y <= -adjustedContentInset.top + 0.5 }
+
+    @objc private func swipeCollapseChanged(_ pan: UIPanGestureRecognizer) {
+        switch pan.state {
+        case .began:
+            swipeHeldFor = touchDownTime > 0 ? max(0, CACurrentMediaTime() - touchDownTime) : 0
+        case .changed, .ended:
+            guard swipeCollapseEnabled, isFirstResponder,
+                  swipeCollapseRule.collapses(translation: pan.translation(in: self), velocity: pan.velocity(in: self),
+                                              beganAtTop: swipeBeganAtTop, heldFor: swipeHeldFor) else { return }
+            // Stop this drag so it collapses once.
+            pan.isEnabled = false
+            pan.isEnabled = true
+            resignFirstResponder()
+            onSwipeCollapse?()
+        default:
+            break
+        }
+    }
+
+    /// Lets the swipe run beside the text view's own scroll, selection and
+    /// loupe gestures (a separate object: a UIScrollView subclass must not
+    /// become a recognizer delegate itself).
+    private final class SwipeCollapseDelegate: NSObject, UIGestureRecognizerDelegate {
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+
+        /// The finger came down (touch timestamps share `CACurrentMediaTime`'s clock).
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            if let view = gestureRecognizer.view as? ComposerReturnTextView {
+                view.touchDownTime = touch.timestamp
+                view.swipeBeganAtTop = view.atTop
+            }
+            return true
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let view = gestureRecognizer.view as? ComposerReturnTextView else { return false }
+            return view.swipeCollapseEnabled && view.isFirstResponder
+        }
     }
 
     // MARK: Return
