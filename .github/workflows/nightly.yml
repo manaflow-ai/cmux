@@ -7472,9 +7472,13 @@ jobs:
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 240 || 120 }}
     permissions:
       contents: read
+      # The sign pick's live jobs listing of the open nightly-next runs.
+      actions: read
     # continue-on-error makes this job's result success even when it failed: sign gates on built, not the result.
     outputs:
       built: ${{ steps.live-code-built.outputs.built }}
+      # sign-live-code-variant's runs-on: the signer label, narrowed to a signer Mac no nightly-next-one holds.
+      sign_pin: ${{ steps.sign-pick.outputs.pin }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -7507,6 +7511,17 @@ jobs:
         env:
           COMMIT: ${{ needs.nightly-next-one.outputs.build_sha }}
         run: bash scripts/ci/nightly-steps/live-code-variant.sh built "$COMMIT" "$RUNNER_TEMP/live-code"
+      # Picked here, seconds before the sign job queues: on the label alone it took a runner on the Mac the next
+      # push's nightly-next-one had just taken and waited 16.7 min for it (run 45562645699).
+      - name: Pick a free signer Mac for the variant
+        id: sign-pick
+        if: steps.live-code-built.outputs.built == 'true' && vars.CI_NIGHTLY_MINI == ''
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/nightly_next_signer_pick.py sign
 
   # Signs the overlay into the published nightly's app (no bundle code runs while a secret is in reach) on the signer.
   sign-live-code-variant:
@@ -7514,8 +7529,9 @@ jobs:
     if: "!cancelled() && needs.build-live-code-variant.outputs.built == 'true'"
     continue-on-error: true
     environment: ${{ needs.decide.outputs.environment }}
-    # The signer label, a literal, as nightly-next-one takes it. Why: docs/ci/nightly-workflow-notes.md#note-33
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-trusted-next-signing' }}
+    # The signer label, a literal, as nightly-next-one takes it; the sign pick only narrows it to one signer Mac no
+    # nightly-next-one holds (its pin always starts with the label). Why: docs/ci/nightly-workflow-notes.md#note-33
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI == '' && needs.build-live-code-variant.outputs.sign_pin && fromJSON(needs.build-live-code-variant.outputs.sign_pin) || 'glaeda-trusted-next-signing' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 270 || 160 }}
     permissions:
       contents: read

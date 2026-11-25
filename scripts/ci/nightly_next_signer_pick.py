@@ -28,7 +28,15 @@ every two minutes, no API call), then with the job's GITHUB_TOKEN (actions: read
 nightly.yml's runs on nightly-next and one jobs listing for each open loop run (at most MAX_RUNS). Each request has
 a READ_TIMEOUT and is never retried. The script never fails the job.
 
-usage: nightly_next_signer_pick.py   (env: GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_TOKEN, CI_RUNNER_STATE)
+`sign` (nightly.yml's build-live-code-variant, last step): the pin for sign-live-code-variant, which signs the live code
+variant about an hour after the run started. With the label alone it went to whichever signer runner GitHub saw idle,
+often a second runner on the Mac the next push's nightly-next-one had just taken, and waited there in glaeda's start
+hook for the whole Mac: 16.7 min in run 45562645699 while that build ran. So it takes the same pick: a signer host no
+nightly-next-one holds or waits for, else the one whose holder ends soonest. The census vars.CI_RUNNER_STATE is the
+run's (read at its start, an hour old by then), so it names the signer runners only (SIGN_CENSUS_MAX_AGE_SECONDS);
+busy comes from the live jobs listing alone.
+
+usage: nightly_next_signer_pick.py [sign]   (env: GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_TOKEN, CI_RUNNER_STATE)
 Writes host=..., pin=... and reason=... to $GITHUB_OUTPUT.
 """
 from __future__ import annotations
@@ -69,6 +77,9 @@ MAX_RUNS = 6
 # reads which signer runners are online and busy from the census, and the nightly-next-one builds holding or
 # waiting for each host from the live jobs listing; an older census can pin a runner that went offline since.
 CENSUS_MAX_AGE_SECONDS = 50 * 60
+# The sign pick's census age: the run's census, read at its start, names the signer runners and their labels (which
+# change only when a Mac is re-registered); whether each is busy comes from the live jobs listing.
+SIGN_CENSUS_MAX_AGE_SECONDS = 6 * 60 * 60
 
 
 def loop_run(run: Mapping[str, Any]) -> bool:
@@ -131,8 +142,14 @@ def holder_host(job: Mapping[str, Any], names: Sequence[str]) -> str:
     return FALLBACK_HOST
 
 
-def pick(runners: Sequence[Mapping[str, Any]], holders: Sequence[Mapping[str, Any]]) -> tuple[str, str, str]:
-    """(host, pin, why) from the census runners and the open loop runs' nightly-next-one jobs (not this run's)."""
+def pick(runners: Sequence[Mapping[str, Any]], holders: Sequence[Mapping[str, Any]], *,
+         census_busy: bool = True) -> tuple[str, str, str]:
+    """(host, pin, why) from the census runners and the open loop runs' nightly-next-one jobs (not this run's).
+
+    census_busy False (the sign pick, an hour-old census): the census's busy flags are not read; a host is free when
+    no nightly-next-one holds or waits for it."""
+    if not census_busy:
+        runners = [{**runner, "busy": False} for runner in runners]
     by_host = signers(runners)
     names = [str(r.get("name") or "") for r in runners]
     claims: dict[str, list[Mapping[str, Any]]] = {host: [] for host in HOSTS}
@@ -185,12 +202,12 @@ def api_get(repo: str, token: str) -> Callable[[str], Any]:
 
 
 def evaluate(env: Mapping[str, str], get: Callable[[str], Any] | None = None,
-             now: dt.datetime | None = None) -> tuple[str, str, str]:
+             now: dt.datetime | None = None, sign: bool = False) -> tuple[str, str, str]:
     """(host, pin, why); any failure is the fallback (cmux15, the label alone)."""
     try:
         repo = env.get("GITHUB_REPOSITORY", "")
         document = pool.runner_state(repo, raw=env.get("CI_RUNNER_STATE", ""), now=now,
-                                     max_age_seconds=CENSUS_MAX_AGE_SECONDS)
+                                     max_age_seconds=SIGN_CENSUS_MAX_AGE_SECONDS if sign else CENSUS_MAX_AGE_SECONDS)
         if document is None:
             raise LookupError("vars.CI_RUNNER_STATE is missing, stale or not a complete census")
         runners = pool.census_runners(document)
@@ -208,15 +225,15 @@ def evaluate(env: Mapping[str, str], get: Callable[[str], Any] | None = None,
         holders = []
         for run in runs:
             holders.extend(get(f"actions/runs/{int(run['id'])}/jobs?filter=latest&per_page=100")["jobs"])
-        return pick(runners, holders)
+        return pick(runners, holders, census_busy=not sign)
     except Exception as error:  # noqa: BLE001 - never fail the job: the label alone is the routing before this
         why = f"pick failed ({type(error).__name__}: {str(error)[:200]}); the signer label alone, as before"
         print(f"::warning title=nightly-next signer pick::{why}")
         return FALLBACK_HOST, FALLBACK_PIN, why
 
 
-def main(env: Mapping[str, str] = os.environ) -> int:
-    host, pin, why = evaluate(env)
+def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = ()) -> int:
+    host, pin, why = evaluate(env, sign=list(argv[:1]) == ["sign"])
     if host not in HOSTS or not pin.startswith(f'["{SIGNER_LABEL}"'):
         host, pin, why = FALLBACK_HOST, FALLBACK_PIN, f"refused an unexpected pick ({host!r}, {pin!r})"
     print(f"nightly-next signer: host={host} pin={pin} ({why})")
@@ -230,4 +247,4 @@ def main(env: Mapping[str, str] = os.environ) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(argv=sys.argv[1:]))
