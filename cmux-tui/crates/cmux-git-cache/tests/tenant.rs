@@ -461,8 +461,7 @@ async fn filtered_pack_is_not_kept() {
     assert_eq!(std::fs::read_to_string(w.tmp.join("f/f2")).unwrap(), "content 2\n".repeat(100));
 }
 
-/// A miss starts one background fill of the whole mirror; once it is done the mirror says so,
-/// and the next clone is local.
+/// A partial clone's miss starts no fill of the whole mirror (`Mirrors::mark_partial_only`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_partial_clone_keeps_no_full_mirror() {
     // A blobless clone marks the repository partial-only on this machine: no kept pack and no
