@@ -57,8 +57,7 @@ enum WorkspaceCreation {
     /// (``DaemonConnection/retryingLateReplies(_:until:_:)``).
     @MainActor static func createWithFirstTab<T>(
         _ key: WorkspaceKey,
-        name: String?,
-        nameSource: WorkspaceNameSource? = nil,
+        name: String?, nameSource: WorkspaceNameSource? = nil,
         on connection: DaemonConnection,
         repair: EmptyWorkspaceRepair,
         giveUp: ContinuousClock.Instant? = nil,

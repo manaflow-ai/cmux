@@ -31,8 +31,7 @@ extension AgentTabStore {
 
     /// Shows workspace `key` named `name` with its New Tab page (starting in `cwd`; `token` is the
     /// key hold of the press) at daemon-order `index` in this turn, and returns the work that
-    /// confirms it; with `chat` (a seed) or `session` (`linked`: ``linkedSessions``), that chat (P4); `firstTabKeyed`: its tab is keyed by the workspace (`firstChatTabMutationID`).
-    /// `nameSource` `.user`: `name` is the caller's own, pinned (``CreateWorkspaceRequest/nameSource``).
+    /// confirms it; with `chat` (a seed) or `session` (`linked`: ``linkedSessions``), that chat (P4); `firstTabKeyed`: its tab is keyed by the workspace (`firstChatTabMutationID`); `nameSource` `.user` pins `name` (#56422).
     /// Nil when it cannot (``showsWorkspaceAtOnce(on:)``).
     func showWorkspace(_ key: WorkspaceKey, name: String, nameSource: WorkspaceNameSource? = nil, index: Int?, cwd: String?, token: String?, chat: AgentPaneSeed? = nil,
                        session: (id: String, host: String?, linked: Bool)? = nil, firstTabKeyed: Bool = false, on daemon: DaemonService, repair: EmptyWorkspaceRepair) -> OptimisticWorkspace? {
