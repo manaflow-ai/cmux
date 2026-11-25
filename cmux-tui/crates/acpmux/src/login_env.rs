@@ -960,7 +960,8 @@ pub fn allowed_with(
                 || azure_allowed(key, value, profile)
         }
         Some("codex") => key.starts_with("OPENAI_") || key.starts_with("CODEX_"),
-        Some("gemini") => key.starts_with("GEMINI_") || key.starts_with("GOOGLE_"),
+        // Antigravity (`agy`) reads Gemini's key and base URL (`acp_key_auth.rs`).
+        Some("gemini" | "antigravity") => key.starts_with("GEMINI_") || key.starts_with("GOOGLE_"),
         Some("muse") => key.starts_with("MUSE_") || key.starts_with("META_"),
         Some(f) if PROVIDER_FAMILIES.contains(&f) => PROVIDER_KEYS.contains(&key),
         _ => false,
