@@ -95,8 +95,6 @@ final class WorkspaceRowView: SidebarRowView {
     /// cluster, in the tertiary text color, beside the row's own icon and status (#56146: a grouped pinned row drew no
     /// pin at rest, so it read as unpinned).
     let pinMark = DecorativeImageView()
-    /// A workspace on a Cloud machine (``WorkspaceRowContent/runsInCloud``): a small muted cloud in the trailing status cluster.
-    let cloudMark = DecorativeImageView()
     /// The workspace's tabs play sound (or are muted): a small speaker in the
     /// trailing cluster, always shown while they do, crossed out while they
     /// are muted. A click mutes or unmutes them (`onToggleAudio`). Made when it first shows
@@ -225,10 +223,7 @@ final class WorkspaceRowView: SidebarRowView {
         pinMark.imageScaling = .scaleProportionallyDown
         pinMark.isHidden = true
         pinMark.setAccessibilityElement(false) // the row's label says Pinned
-        cloudMark.imageScaling = .scaleProportionallyDown
-        cloudMark.isHidden = true
-        cloudMark.setAccessibilityElement(false) // the row's label says Cloud
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, pinMark, mutedMark, cloudMark, badge, rowBadge, presenceDots, driveIndicator, tabCount, prBadge, placeholderBar, statusBlock,
+        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, pinMark, mutedMark, badge, rowBadge, presenceDots, driveIndicator, tabCount, prBadge, placeholderBar, statusBlock,
          treeLine, pullRequests, keycap, rollUp, subagentsView].forEach(addSubview)
         headFill.isHidden = true
         layer?.insertSublayer(headFill, at: 0)
@@ -358,9 +353,8 @@ final class WorkspaceRowView: SidebarRowView {
         // `experiments.agentBadges`: the row's one status pill stands in for its status mark (the badge, the status
         // glyph, an agent mark in the status's place); nil (off, idle, failed) keeps the shipped mark.
         let pill = content.agentBadges.showsPills && !isPlaceholderRow && !isShowingPlaceholder ? SidebarAgentPill.of(ws) : nil
-        // The leading slot is the row's own icon and its state only, never where it runs: a Cloud row's cloud is a
-        // small muted mark in the trailing status cluster (Leo 2026-11-22: "im not sure we want the cloud icon at the
-        // left. it makes it stick out in a slight eyesore-y way. compared to the local ones which have no icon").
+        // The leading slot is the row's own icon and its state only, never where it runs: no row draws a cloud, only a
+        // Cloud chat's tab does (2026-11-25, cmux#55668).
         icon.configure(icon: shown.icon)
         iconKind = shown.icon
         configureColor(shown)
@@ -421,8 +415,6 @@ final class WorkspaceRowView: SidebarRowView {
         pinMark.image = ws.isPinnedInGroup && !isShowingPlaceholder
             ? NSImage.icon(.statePinned, size: SidebarStyle.indicatorSize, style: .solid) : nil
         pinMark.isHidden = pinMark.image == nil
-        cloudMark.image = shown.runsInCloud && !isShowingPlaceholder ? NSImage.icon(.cloud, size: Self.cloudMarkSide) : nil
-        cloudMark.isHidden = cloudMark.image == nil
         // The bell-slash alone does not say what is muted: notifications, not the tabs' sound. The row's hover card
         // and its accessibility label say it (a1315's cut 3: rows carry no tooltips).
         audio = isShowingPlaceholder ? nil : ws.audio

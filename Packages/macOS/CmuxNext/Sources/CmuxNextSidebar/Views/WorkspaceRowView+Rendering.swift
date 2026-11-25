@@ -86,7 +86,6 @@ extension WorkspaceRowView {
             [subtitle, timeLabel, metaLabel, tabCount].forEach { $0.setColor(SidebarStyle.TextInk.tertiary.color) }
             mutedMark.setTint(Palette.textTertiary)
             pinMark.setTint(Palette.textTertiary)
-            cloudMark.setTint(Palette.textTertiary)
             prBadge.setColor(Palette.textSecondary)
             tintSessionTree()
             let waits = if case .waiting = activityState { true } else { false }
@@ -276,13 +275,6 @@ extension WorkspaceRowView {
             mutedMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: ind, height: ind))
             trailing = columns.trailingEdge(before: mutedMark.frame)
         }
-        // Where the row runs is a status mark like the bell-slash: a Cloud row's small muted cloud sits in the trailing
-        // cluster, never in the leading slot or against the name (Leo 2026-11-22).
-        if !cloudMark.isHidden {
-            let side = Self.cloudMarkSide
-            cloudMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: side, height: side))
-            trailing = columns.trailingEdge(before: cloudMark.frame)
-        }
         if audioSlot.made?.isHidden == false {
             audioSlot.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: control, height: control))
             trailing = columns.trailingEdge(before: audioSlot.frame)
@@ -341,14 +333,14 @@ extension WorkspaceRowView {
         // The hovered controls replace every trailing mark, in every case (Leo 2026-11-22: "in all cases, the hovered
         // buttons should just replace the other ones"): while the ✕, the ⋮ or the pin shows, the dot, the spinner, the
         // status stack, the counts and the time hide in place (no layout shift). Only what a person
-        // points at keeps its place: the audio button, and the Cloud mark, which belongs to the name.
+        // points at keeps its place: the audio button.
         let controlsShow = !shownControls.isEmpty
-        for mark in ([activity, rowBadge, agentMark, pinMark, mutedMark, cloudMark, audioSlot.made, presenceDots, timeLabel, tabCount, prBadge] as [NSView?]).compactMap(\.self) {
+        for mark in ([activity, rowBadge, agentMark, pinMark, mutedMark, audioSlot.made, presenceDots, timeLabel, tabCount, prBadge] as [NSView?]).compactMap(\.self) {
             // The column's mark gives way while the hover controls show; so does a status spinner left of it.
             // A leading status mark sits before the title, clear of the hover controls: it never gives way.
             let statusMark = mark === activity || (mark === agentMark && markReplacesStatus)
             let status = !statusLeads && statusMark
-            let keepsPlace = (statusLeads && statusMark) || mark === cloudMark || mark === audioSlot.made
+            let keepsPlace = (statusLeads && statusMark) || mark === audioSlot.made
                 || (mark === agentMark && agentMarkVariant == .besideTitle)
             let covered = mark === columnMark?.view ? markGivesWay || controlsShow
                 : (controlsShow && !keepsPlace) || (status && coverStart != nil) || coverStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true
@@ -361,7 +353,7 @@ extension WorkspaceRowView {
         // before it, clears (Leo 2026-11-22: "this too. fucking overlapping icons. over 24 hours ago.": the blue dot
         // drew on a tree parent's ⋮ beside its chevron).
         clearMarksMeetingIcons(keep: [closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made, driveIndicator],
-                               marks: [rowBadge, badge, activity, agentMark, keycap, pullRequests, rollUp, pinMark, mutedMark, cloudMark,
+                               marks: [rowBadge, badge, activity, agentMark, keycap, pullRequests, rollUp, pinMark, mutedMark,
                                        presenceDots, tabCount, prBadge, timeLabel],
                                fades: fades)
         if showsNeedsYouGlow { hideMarksForNeedsYouGlow() } else { marksHiddenForGlow = false } // the mark pass showed them
