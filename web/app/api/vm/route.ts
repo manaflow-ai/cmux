@@ -14,7 +14,7 @@ import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../services/v
 
 import type { Span } from "@opentelemetry/api";
 import * as Effect from "effect/Effect";
-import { preconnectCloudDb } from "../../../db/client";
+import { discardCloudDb, preconnectCloudDb } from "../../../db/client";
 import { preconnectFreestyle } from "../../../services/vms/drivers/freestyle";
 import {
   verifyRequest,
@@ -81,7 +81,7 @@ import {
   type VmWorkflowErrorOverrides,
 } from "../../../services/vms/routeHelpers";
 import { vmRequestLocale, vmUnsupportedCopy } from "../../../services/vms/vmErrorMessages";
-import { createRouteAnswerDeadline } from "../../../services/vms/routeDeadline";
+import { createRouteAnswerDeadline, VM_LIST_DATABASE_BUDGET_MS } from "../../../services/vms/routeDeadline";
 import { runVmRoute } from "../../../services/vms/routeWorkflow";
 import { captureVmProvisionOutcome } from "../../../services/vms/observability";
 import { annotateVmRequestBilling } from "../../../services/vms/requestContext";
@@ -172,7 +172,13 @@ export async function GET(request: Request): Promise<Response> {
       // from this list as of this instant, so a machine created after it
       // (newer row clock) survives the replace published below.
       const listObservedAtMs = Date.now();
-      const listed = await runVmRoute(listUserVms(user.id, billingTeamId), { request });
+      // Bounded: a wedged database pool once held this read for the route's
+      // whole maxDuration. Past the budget it answers the retryable 503 and
+      // drops this instance's client so the next request reconnects.
+      const listed = await runVmRoute(listUserVms(user.id, billingTeamId), {
+        request,
+        databaseDeadline: { operation: "listUserVms", budgetMs: VM_LIST_DATABASE_BUDGET_MS, onDeadline: discardCloudDb },
+      });
       if (!listed.ok) return listed.response;
       const entries = listed.value;
       // Converge the realtime `vms` collection on exactly what this list shows;

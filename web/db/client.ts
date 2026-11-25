@@ -20,6 +20,8 @@ type CloudDb = ReturnType<typeof createPostgresJsDb>;
 type CloudDbState = {
   db: CloudDb;
   close: () => Promise<void>;
+  /** Closes the client without waiting on its queries; see discardCloudDb. */
+  abandon: () => Promise<void>;
   /** Opens one pooled connection ahead of the first query; see preconnectCloudDb. */
   warm: () => Promise<void>;
   key: string;
@@ -276,6 +278,9 @@ export function cloudDb(): CloudDb {
     globalForDb.__cmuxCloudDb = {
       db,
       close: () => pool.end(),
+      // node-postgres has no forced end: idle clients close now, and a
+      // checked-out client closes when its query settles.
+      abandon: () => pool.end(),
       warm: coalesceWarm(async () => {
         const client = await pool.connect();
         client.release();
@@ -293,12 +298,32 @@ export function cloudDb(): CloudDb {
   globalForDb.__cmuxCloudDb = {
     db,
     close: () => sql.end(),
+    abandon: () => sql.end({ timeout: CLOUD_DB_DISCARD_GRACE_SECONDS }),
     warm: coalesceWarm(async () => {
       await sql`select 1`;
     }),
     key,
   };
   return db;
+}
+
+/** How long a discarded postgres.js client lets its in-flight queries finish before it drops their sockets. */
+const CLOUD_DB_DISCARD_GRACE_SECONDS = 5;
+
+/**
+ * Drops this process's database client so the next query opens a new one.
+ *
+ * For a pool that stopped answering: a query queued behind wedged
+ * connections is never sent, so no abort or deadline reaches it, and every
+ * later query on the same pool queues behind it too. The old client is closed
+ * in the background (postgres.js after a short grace for in-flight queries);
+ * nothing here waits on it.
+ */
+export function discardCloudDb(): void {
+  const state = globalForDb.__cmuxCloudDb;
+  if (!state) return;
+  globalForDb.__cmuxCloudDb = undefined;
+  void state.abandon().catch(() => undefined);
 }
 
 /**

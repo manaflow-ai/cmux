@@ -126,7 +126,7 @@ import { networkSlugForTeam, networkSlugForUser, privateNetworkUnavailableReason
 import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
 import { detachNetworkTunnels } from "./teamNetworkAccess";
 import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderMachineGone, isProviderNotFoundError } from "./providerErrors";
-import { withVmReadDeadline, type VmReadDeadline } from "./routeDeadline";
+import { withVmDatabaseReadDeadline, withVmReadDeadline, type VmDatabaseReadDeadline, type VmReadDeadline } from "./routeDeadline";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
 import {
@@ -402,9 +402,14 @@ export const vmWorkflowRuntime = ManagedRuntime.make(VmWorkflowLive);
  */
 export function runVmWorkflowExit<A>(
   program: VmWorkflowProgram<A>,
-  options: { readonly readDeadline?: VmReadDeadline; readonly deadline?: VmRouteDeadline } = {},
+  options: {
+    readonly readDeadline?: VmReadDeadline;
+    readonly deadline?: VmRouteDeadline;
+    readonly databaseDeadline?: VmDatabaseReadDeadline;
+  } = {},
 ): Promise<Exit.Exit<A, VmWorkflowError>> {
-  const bounded = options.deadline ? withVmRouteDeadline(program, options.deadline) : program;
+  const databaseBounded = options.databaseDeadline ? withVmDatabaseReadDeadline(program, options.databaseDeadline) : program;
+  const bounded = options.deadline ? withVmRouteDeadline(databaseBounded, options.deadline) : databaseBounded;
   return vmWorkflowRuntime.runPromiseExit(options.readDeadline ? withVmReadDeadline(bounded, options.readDeadline) : bounded);
 }
 

@@ -7,7 +7,7 @@ import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Runtime from "effect/Runtime";
 import { hasProviderGuestUnresponsiveCause, isProviderHangCause } from "./drivers/types";
-import { VmOperationDeadlineError, type VmWorkflowError } from "./errors";
+import { VmDatabaseError, VmOperationDeadlineError, type VmWorkflowError } from "./errors";
 import { VM_PROVIDER_CREATE_TIMEOUT_MS } from "./operationTimeouts";
 import { scrubErrorForLog } from "../observability/report";
 import { forceFlushTraces, withPrioritySpan, type MaybeAttributes } from "../telemetry";
@@ -510,6 +510,49 @@ export function withVmReadDeadline<A, E, R>(
   const elapsedMs = deadline.elapsedMs ?? (startedAtMs === undefined ? 0 : performance.now() - startedAtMs);
   const answerWithinMs = vmReadAnswerBudgetMs(deadline.operation, elapsedMs);
   return Effect.flatMap(Clock.currentTimeMillis, (nowMs) => Effect.locally(program, VmProviderReadDeadline, nowMs + answerWithinMs));
+}
+
+// ---- Database reads: GET /api/vm. ----
+
+/**
+ * How long GET /api/vm waits on its database read. The list is a pure
+ * database read on the route that shares create's 960 s maxDuration; on
+ * 2026-11-25 instances with a wedged pool held list requests for all of it,
+ * long after the Mac app, the CLI and `cmux vm env set` gave up. Well under
+ * the smallest of those clients' budgets.
+ */
+export const VM_LIST_DATABASE_BUDGET_MS = 20_000;
+
+export type VmDatabaseReadDeadline = {
+  /** The repository operation the 503 names. */
+  readonly operation: string;
+  readonly budgetMs: number;
+  /** Runs once when the budget elapses, before the route answers. */
+  readonly onDeadline: () => void;
+};
+
+/**
+ * Bounds a database read: past `budgetMs` the read is interrupted and fails
+ * {@link VmDatabaseError}, the retryable 503 with Retry-After. Times come
+ * from the Effect clock.
+ */
+export function withVmDatabaseReadDeadline<A, E, R>(
+  program: Effect.Effect<A, E, R>,
+  deadline: VmDatabaseReadDeadline,
+): Effect.Effect<A, E | VmDatabaseError, R> {
+  return program.pipe(
+    Effect.timeoutTo({
+      duration: Math.max(0, deadline.budgetMs),
+      onSuccess: (value): Effect.Effect<A, VmDatabaseError> => Effect.succeed(value),
+      onTimeout: () => Effect.sync(deadline.onDeadline).pipe(
+        Effect.andThen(Effect.fail(new VmDatabaseError({
+          operation: deadline.operation,
+          cause: new Error(`database read exceeded ${deadline.budgetMs} ms`),
+        }))),
+      ),
+    }),
+    Effect.flatten,
+  );
 }
 
 /**
