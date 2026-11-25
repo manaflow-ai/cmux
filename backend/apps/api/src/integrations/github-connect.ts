@@ -15,9 +15,12 @@ import { appJwt, ghHeaders, type Http } from "./providers.ts"
  *
  * Any failure, or a lookup past CONNECT_LOOKUP_TIMEOUT_MS, answers `install` with no target, the page Connect
  * opened before this existed.
+ *
+ * `permissions_pending`: the installation has not accepted the permissions the App requests now (`requested`, the
+ * App's own GET /app); Connect then opens its configure page, where GitHub's "Review request" accepts them.
  */
 export type GithubConnectTarget =
-  | { readonly kind: "installed"; readonly installation: number; readonly configure_url: string }
+  | { readonly kind: "installed"; readonly installation: number; readonly configure_url: string; readonly permissions_pending?: true }
   | { readonly kind: "install"; readonly target_id?: number }
 
 const GH_API = "https://api.github.com"
@@ -59,14 +62,17 @@ const ownerId = async (http: Http, owner: string): Promise<number | undefined> =
   return typeof id === "number" && Number.isSafeInteger(id) && id > 0 ? id : undefined
 }
 
-export const githubConnectTarget = async (env: Env, http: Http, repo: string): Promise<GithubConnectTarget> => {
+export const githubConnectTarget = async (env: Env, http: Http, repo: string, requested?: () => Promise<Readonly<Record<string, string>> | null>): Promise<GithubConnectTarget> => {
   const owner = repo.split("/")[0]!
   try {
     const inst = await ownerInstallation(env, http, owner)
     if (!inst) return { kind: "install", ...(await ownerId(http, owner).then((id) => (id ? { target_id: id } : {}))) }
     const id = Number(inst.id)
     const configure_url = Number.isSafeInteger(id) ? configurePage(id, inst, owner) : undefined
-    return configure_url ? { kind: "installed", installation: id, configure_url } : { kind: "install" }
+    if (!configure_url) return { kind: "install" }
+    const granted = permsOf(inst.permissions)
+    const asks = granted && requested ? await requested().catch(() => null) : null
+    return { kind: "installed", installation: id, configure_url, ...(granted && asks && permissionsShort(granted, asks) ? { permissions_pending: true as const } : {}) }
   } catch {
     return { kind: "install" }
   }
@@ -74,6 +80,8 @@ export const githubConnectTarget = async (env: Env, http: Http, repo: string): P
 
 /** The URL Connect answers for a target: never a permission beyond what the App already asks for. */
 export const githubConnectUrl = (env: Env, target: GithubConnectTarget, state: string, redirectUri: string): string => {
+  // A pending permission update: the installation's page, where an owner accepts it, before any authorize.
+  if (target.kind === "installed" && target.permissions_pending) return target.configure_url
   if (target.kind === "installed") {
     const q = new URLSearchParams({ client_id: env.GITHUB_APP_CLIENT_ID!, redirect_uri: redirectUri, state })
     return `https://github.com/login/oauth/authorize?${q}`

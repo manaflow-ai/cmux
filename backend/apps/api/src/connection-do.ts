@@ -18,7 +18,7 @@ import { onDisconnect, onGmailPush, runWatchWork, startWatchSafely, stopWatchWit
 import { createRevocationTable, drainRevocations, nextRevocationAt, takeCredentialForRevocation } from "./integrations/revocations.ts"
 import * as ghTokens from "./integrations/github-tokens.ts"
 import * as ghUser from "./integrations/github-user-tokens.ts"
-import { createConfigurePageTable, githubConnectTarget, installationPage, type GithubConnectTarget } from "./integrations/github-connect.ts"
+import { appRequestedPermissions, createConfigurePageTable, githubConnectTarget, installationPage, type GithubConnectTarget } from "./integrations/github-connect.ts"
 import { addListener, createListenerTable, githubChangeOf, GithubPushCoalescer, listeners, removeListener, type IntegrationChangedFrame } from "./integrations/github-push.ts"
 import { github, githubScopesOf, ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
@@ -324,7 +324,25 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
   /** integration.connect with a repo: which GitHub page to open (github-connect.ts), asked with this object's injectable HTTP. */
   async githubConnectTarget(entity: string, principal: Principal, repo: string): Promise<GithubConnectTarget> {
     if (principal.team !== entity) return { kind: "install" }
-    return githubConnectTarget(this.env, this.http, repo)
+    return githubConnectTarget(this.env, this.http, repo, () => appRequestedPermissions(this.ctx.storage.sql, this.env, this.http, Date.now()))
+  }
+
+  /**
+   * integration.connect: the page that accepts a pending App permission update on the installation of this team's
+   * active GitHub connection this principal would use (the one on `repo`'s owner, else the one GET /status describes),
+   * or null when nothing is pending or it is not known. Connect opens it instead of the install or authorize page.
+   */
+  async githubConnectAccept(entity: string, principal: Principal, repo?: string): Promise<string | null> {
+    if (principal.team !== entity || !this.boundTo(entity) || !github.configured(this.env)) return null
+    const state = this.bind(entity).currentState
+    const owner = repo?.split("/")[0]?.toLowerCase()
+    const c = owner === undefined
+      ? ghTokens.githubStatusConnection(state, principal)
+      : Object.values(state.connections).find((x) => x.provider === "github" && x.status === "active" && mayUse(x, principal) && x.account?.name.toLowerCase() === owner && githubInstallationOf(x) !== undefined)
+    const installation = c ? githubInstallationOf(c) : undefined
+    if (!c?.account || c.status !== "active" || installation === undefined) return null
+    const page = await installationPage(this.ctx.storage.sql, this.env, this.http, installation, c.account.name, Date.now()).catch(() => null)
+    return page?.permissionsPending && page.url ? page.url : null
   }
 
   async githubRepos(entity: string, principal: Principal, query: { readonly query?: string; readonly cursor?: string }) {

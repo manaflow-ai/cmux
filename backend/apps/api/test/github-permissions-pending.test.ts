@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { signedInWithInstall, worker } from "./cloud-bind-support.ts"
-import { inDO, linkGitHub, ok, testEnv, token } from "./github-token-support.ts"
+import { inDO, linkGitHub, ok, op, testEnv, token } from "./github-token-support.ts"
 
 /**
  * A pending GitHub App permission update (Leo, 2026-11-25: "You need to just do this and wire it up"): the App now
@@ -51,6 +51,34 @@ describe("a pending GitHub App permission update", { timeout: 60_000 }, () => {
     appAsks = { contents: "read" }
     await ageCaches(a.team)
     expect(await status(a.session, a.team)).toMatchObject({ permissions_pending: false, accept_url: null })
+  })
+
+  it("Connect opens the installation's page that accepts a pending update, with or without a repository", async () => {
+    const a = await signedInWithInstall("gh-perms-pending-connect", "cli")
+    const { gh } = await linkGitHub(a.session, a.team)
+    const page = "https://github.com/organizations/acme/settings/installations/99"
+    let granted: Record<string, string> = { contents: "read", metadata: "read" }
+    gh.routes["https://api.github.com/app/installations/99"] = () => ok({ id: 99, account: { login: "acme", type: "Organization" }, permissions: granted })
+    // An installation on another owner the team has not linked yet (the install-or-authorize target).
+    gh.routes["https://api.github.com/orgs/beta/installation"] = () => ok({ id: 55, account: { login: "beta", type: "Organization" }, permissions: { contents: "read" } })
+    const installationRoute = (req: Request, body: string) => gh.routes["https://api.github.com/app/installations/99"]!(req, body)
+    gh.routes["https://api.github.com/app"] = (req, body) => (req.url === "https://api.github.com/app" ? ok({ permissions: { contents: "write", metadata: "read" } }) : installationRoute(req, body))
+    const connect = (params: Record<string, unknown>) => op(a.session, "integration.connect", { provider: "github", ...params }).then((r) => r.body)
+
+    // The linked installation covers acme/web: not "connected", but its page, where "Review request" accepts the update.
+    const covered = await connect({ repo: "acme/web" })
+    expect(covered).toMatchObject({ ok: true, value: { authorize_url: page, permissions_pending: true } })
+    expect(covered.value.connected).toBeUndefined()
+    // Plain Connect / Sign in with GitHub: the same page, not the install page.
+    expect((await connect({})).value).toMatchObject({ authorize_url: page, permissions_pending: true })
+    // An installation on an owner the team has no connection on: its own page, not GitHub's authorize page.
+    expect((await connect({ repo: "beta/app" })).value.authorize_url).toBe("https://github.com/organizations/beta/settings/installations/55")
+
+    // Accepted: Connect is back to reuse (with a repository) and the install page (without).
+    granted = { contents: "write", metadata: "read" }
+    await ageCaches(a.team)
+    expect((await connect({ repo: "acme/web" })).value).toMatchObject({ connected: true })
+    expect(new URL((await connect({})).value.authorize_url).pathname).toMatch(/^\/apps\/[^/]+\/installations\/new/)
   })
 
   it("a personal account's page is /settings/installations/<id>; GET /app unknown never reads as pending", async () => {

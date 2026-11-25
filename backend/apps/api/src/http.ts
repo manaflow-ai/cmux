@@ -471,6 +471,13 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const c = response.value as Connection
           const impl = providers[c.provider]
           const asked = connectAsk(payload.params)
+          const connections = () => requestEnv().CONNECTION_DO.get(requestEnv().CONNECTION_DO.idFromName(c.owner))
+          // An installation that has not accepted the App's updated permissions: Connect opens its page, where an
+          // owner accepts them (GitHub's "Review request"), never the install or authorize page.
+          const accept = c.provider === "github" && (c.status === "active" || !asked.repo)
+            ? yield* Effect.promise(() => rpc<string | null>(connections().githubConnectAccept(c.owner, principal, asked.repo)).catch(() => null))
+            : null
+          if (accept) return { ...response, value: { connection: c, authorize_url: accept, permissions_pending: true as const } }
           // Reuse before asking: the owner answered an active connection that already covers the repository.
           if (asked.repo && c.status === "active") return { ...response, value: { connection: c, connected: true as const } }
           const target = asked.repo && c.provider === "github"
