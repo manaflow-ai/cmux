@@ -2584,7 +2584,25 @@ pub fn reset(snapshot: &Snapshot) {
             "process-scan-baseline.tsv", "state-roots-baseline.tsv", "raw-spawn-baseline.tsv",
             "raw-flock-baseline.tsv", "spawn-owner-baseline.tsv", "app-id-special-cases-baseline.tsv",
             "swift-type-scale-baseline.tsv", "focus-routes-baseline.tsv", "visible-only-baseline.tsv",
-            "keychain-no-prompt-baseline.tsv"})
+            "keychain-no-prompt-baseline.tsv", "classic-ids-baseline.tsv"})
+
+    def test_classic_ids_baseline_takes_a_deleted_row(self):
+        # A push that moves a Classic cache root and deletes its classic-ids row was refused as "no longer has ...:
+        # delete its row" (the installed copy kept the row): now each tree reads its own lower row.
+        spec = importlib.util.spec_from_file_location("prepush_gate_classic_ids", SOURCE / GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        name = "classic-ids-baseline.tsv"
+        self.write(f"scripts/cmux-next/{name}", "a.rs\t.config/cmux/\t1\tmove\tx\n")
+        self.commit("pushed classic ids: b.rs moved off Classic's cache, a.rs kept")
+        installed = self.root / "installed"
+        installed.mkdir()
+        (installed / name).write_text("a.rs\t.config/cmux/\t1\tmove\tx\nb.rs\tjoin(\"cmux\")\t1\tmove\tx\n")
+
+        taken = gate.lower_ratchet_baselines(self.repo, "HEAD", installed)
+
+        self.assertEqual((installed / name).read_text(), "a.rs\t.config/cmux/\t1\tmove\tx\n")
+        self.assertEqual(taken, [f'{name}: b.rs join("cmux") 1 -> 0 (row deleted)'])
 
     def test_a_line_baseline_takes_only_the_lines_the_push_removed(self):
         spec = importlib.util.spec_from_file_location("prepush_gate_line_baselines", SOURCE / GATE)
