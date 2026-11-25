@@ -85,7 +85,7 @@ import { readChatMini } from "../header/miniRow";
 import { ToastLayer } from "../ToastLayer";
 import { SubagentClockContext } from "../subagents/subagentGroupModel";
 import { NewProjectUnsupported } from "../newtab/NewProjectName";
-import { newWorktree, cloneRepository } from "../startFolderModel";
+import { newWorktree, cloneRepository, newTabCommandsChat } from "../startFolderModel";
 import { LiveChatChoice } from "../LiveChatChoice";
 import { WatchBanner } from "../WatchBanner";
 import { HandoffReviewMessage } from "../handoff/ReviewMessage";
@@ -908,11 +908,7 @@ export function drawPaneBody({
                   importSandboxed={sandbox.mode === "sandboxed"}
                   // The machine the person last picked for a new chat (cmux#46019), while acpmux lists it.
                   {...(newTabStartMachine ? { startMachine: newTabStartMachine } : {})}
-                  onCommands={(harness, cwd) => {
-                    void callNative("chat.new", { harness, ...(cwd ? { cwd } : {}), deferred: true }).catch(
-                      () => undefined,
-                    );
-                  }}
+                  onCommands={(harness, cwd) => void newTabCommandsChat(callNative, harness, cwd)}
                   key={newTabGeneration}
                   environments
                   onLeaveDraft={leaveNewTabDraft}
@@ -1065,8 +1061,10 @@ export function drawPaneBody({
                   template={screenTemplate(shownTemplate(newTab))}
                   {...(newTab.allChats === false ? { allChats: false } : {})}
                   {...(newTab.suggestionOrder ? { suggestionOrder: newTab.suggestionOrder } : {})}
+                  // Until the deferred chat lists its commands, the page's own list stays: an empty one
+                  // closed the open `/` menu, and nothing opened it again.
                   snapshot={
-                    commandSession
+                    commandSession && pendingCommands?.length
                       ? {
                           ...newTabSnapshot,
                           commands: withToolCommands(
