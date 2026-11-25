@@ -27,6 +27,7 @@ public struct SelectableText: View {
 
     private let content: Content
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.chatStill) private var still
 
     public init(_ text: NSAttributedString) {
         content = .attributed(text)
@@ -54,11 +55,30 @@ public struct SelectableText: View {
     }
 
     public var body: some View {
-        let text = attributedText
-        let firstFont = text.length > 0 ? text.attribute(.font, at: 0, effectiveRange: nil) as? UIFont : nil
-        let baseline = firstFont?.ascender ?? 0
-        SelectableLabel(text: text)
-            .alignmentGuide(.firstTextBaseline) { _ in baseline }
+        if still {
+            standIn
+        } else {
+            let text = attributedText
+            let firstFont = text.length > 0 ? text.attribute(.font, at: 0, effectiveRange: nil) as? UIFont : nil
+            let baseline = firstFont?.ascender ?? 0
+            SelectableLabel(text: text)
+                .alignmentGuide(.firstTextBaseline) { _ in baseline }
+        }
+    }
+
+    /// In a still (`chatStill`: a tab card's picture, the live preview) the label is SwiftUI's own
+    /// `Text`: `ImageRenderer` draws a UIKit label as its yellow placeholder, which covered every
+    /// row of the card's picture once rows held their text in one (#52600).
+    @ViewBuilder private var standIn: some View {
+        switch content {
+        case .attributed(let text):
+            Text((try? AttributedString(text, including: \.uiKit)) ?? AttributedString(text.string))
+        case let .plain(text, font, color, spacing):
+            Text(verbatim: text)
+                .font(Font(font.font(for: typeSize)))
+                .foregroundStyle(Color(uiColor: color))
+                .lineSpacing(spacing)
+        }
     }
 }
 
