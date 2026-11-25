@@ -436,7 +436,10 @@ async fn wireguard_falls_back_to_second_turn_stream_when_preferred_relay_is_unre
     ice.urls.insert(1, format!("turns:127.0.0.1:{blocked_port}?transport=tcp"));
     let phone = DialOptions {
         ice_servers: vec![ice],
-        relay_only: true,
+        // Drop the phone's direct UDP packets and unsolicited replies at the
+        // test network boundary. The dialer still offers every normal route.
+        drop_outbound_udp: true,
+        restrict_inbound_udp: true,
         turn_tls_roots: Some(std::sync::Arc::clone(&turn.roots)),
         ..options()
     };
