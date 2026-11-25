@@ -71,8 +71,9 @@ enum SidebarContextMenus {
             return SidebarScreenIntentActions.addShareThisMacRow(to: registry.makeContextMenu(for: .sidebarBackground), registry: registry).themeRows(in: scope)
         case .section(.machine(let machine)):
             return machineMenu(machine.rawValue, header: model.sections.first { $0.machine?.id == machine }?.machine, services: services).themeRows(in: scope)
-        case .section, .background, .newButton: // the + button's menu only makes things (SidebarContextTarget.newButton)
-            return registry.makeContextMenu(for: .sidebarBackground, entries: target == .newButton ? registry.contextMenuEntries(for: .sidebarBackground, only: .create) : nil).themeRows(in: scope)
+        case .section, .background:
+            return registry.makeContextMenu(for: .sidebarBackground).themeRows(in: scope)
+        case .newButton: return registry.makeContextMenu(for: .sidebarNew).themeRows(in: scope) // the + button's short list
         case .footer:
             // Show for each piece hidden from the band (cx-wab7m); with none hidden, the sidebar's menu.
             let band = registry.makeContextMenu(for: .sidebarFooter, customize: false)
