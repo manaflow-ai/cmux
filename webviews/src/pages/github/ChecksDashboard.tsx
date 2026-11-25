@@ -17,6 +17,7 @@ import {
 } from "./checksModel";
 import type { GitHubStore } from "./store";
 import type { DashboardChecks, DashboardJob, RerunState } from "./types";
+import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
 
 /** Re-renders once a second while a job runs and the page is shown, for its elapsed time; stops when none runs. */
 function useTicking(running: boolean) {
@@ -201,9 +202,13 @@ function Row({
       <div className="gh-ci-line">
         <span className="gh-dot" aria-hidden="true" />
         {first.url ? (
-          <button type="button" className="gh-row-link" aria-description={first.name} onClick={() => open(first.url!)}>
-            {row.name}
-          </button>
+          <WithFacts facts={[{ value: first.name }]}>
+            {(facts) => (
+              <button {...facts} type="button" className="gh-row-link" onClick={() => open(first.url!)}>
+                {row.name}
+              </button>
+            )}
+          </WithFacts>
         ) : (
           <span className="gh-row-name">{row.name}</span>
         )}

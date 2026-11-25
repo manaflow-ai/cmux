@@ -5,7 +5,18 @@
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { categoryById, homes, categoryOf } from "./categories";
 import { legacyPart } from "./legacyLinks";
-import type { AgentsState, ChannelsState, KeysState, SharesState, TailnetState, LibraryListing } from "./ops";
+import type {
+  AgentsState,
+  ChannelsState,
+  Checklist,
+  KeysState,
+  SharesState,
+  TailnetState,
+  LibraryListing,
+  DoctorReport,
+  ArchivedState,
+} from "./ops";
+import { checklistFacts } from "./customizeProgress";
 import { settingsKeys } from "./queries";
 import { loadCards } from "./components/cardModules";
 import type { SettingsStore } from "./store";
@@ -76,6 +87,18 @@ export function sharesQuery(store: SettingsStore) {
   });
 }
 
+export const ARCHIVED_KEY = [...settingsKeys.all, "archived"] as const;
+
+/** Settings > Sidebar > Archived Workspaces: the archived rows (null: the host has none). */
+export function archivedQuery(store: SettingsStore) {
+  return queryOptions<ArchivedState | null>({
+    queryKey: ARCHIVED_KEY,
+    queryFn: () => store.archived(),
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
 /** Appearance > Customization Library's key; a change the card makes writes the library it answers here. */
 export const LIBRARY_KEY = [...settingsKeys.all, "customize-library"] as const;
 
@@ -89,8 +112,38 @@ export function libraryQuery(store: SettingsStore) {
   });
 }
 
+/** Settings > General > Customize cmux: the checklist at settings revision `revision` with the
+ * connections `has` (null: no CLI). A write moves the revision, so the progress follows it. */
+/** The checklist's one key: the section read and the card share it whatever the revision and
+ * connections are when each starts, so the card draws in the first screen; the card refreshes it
+ * when either changes (CustomizeProgressCard). The read asks with the connections the store holds then. */
+export const checklistKey = [...settingsKeys.all, "customize-checklist"] as const;
+
+export function checklistQuery(store: SettingsStore) {
+  return queryOptions<Checklist | null>({
+    queryKey: checklistKey,
+    queryFn: () => store.customizeChecklist(checklistFacts(store.getSnapshot())),
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
 /** The library as read, and the CLI's refusal of the read in its own words. */
 export type LibraryRead = { library: LibraryListing | null; refusal: string | null };
+
+/** The customize doctor's key; each fix and dismiss answers it again. */
+export const DOCTOR_KEY = [...settingsKeys.all, "customize-doctor"] as const;
+
+/** Personalization > Customization Problems and the Settings notice: what `cmux customize doctor`
+ * finds (null: the host cannot run it). */
+export function doctorQuery(store: SettingsStore) {
+  return queryOptions<DoctorReport | null>({
+    queryKey: DOCTOR_KEY,
+    queryFn: async () => (await store.customizeDoctor({ verb: "doctor" })).doctor,
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
 
 /** The Keys list's key; an answer, a decline, a revoke and the host's `cmux.settings.keys.changed`
  * refresh it. */
@@ -127,13 +180,24 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
   // stay fresh until the host pushes a change; the per-section host reads refresh when stale.
   for (const id of category.actions) reads.push({ options: sectionActionsQuery(store, id), revalidate: true });
   if (cards.has("themeStudio")) reads.push({ options: { queryKey: settingsKeys.themeColors }, revalidate: false });
-  if (cards.has("accounts")) reads.push({ options: { queryKey: settingsKeys.accounts }, revalidate: false });
+  if (cards.has("accounts") || cards.has("integrationsHub"))
+    reads.push({ options: { queryKey: settingsKeys.accounts }, revalidate: false });
   if (cards.has("harnesses")) reads.push({ options: { queryKey: settingsKeys.harnesses }, revalidate: false });
   if (cards.has("models") || cards.has("cloudModels"))
     reads.push({ options: { queryKey: settingsKeys.models }, revalidate: false });
   if (cards.has("agentHarnesses")) reads.push({ options: agentsQuery(store), revalidate: true });
   if (cards.has("sharedLinks")) reads.push({ options: sharesQuery(store), revalidate: true });
-  if (cards.has("customizeLibrary")) reads.push({ options: libraryQuery(store), revalidate: true });
+  if (cards.has("archivedWorkspaces")) reads.push({ options: archivedQuery(store), revalidate: true });
+  if (cards.has("customizeLibrary") || cards.has("customizeChecklist"))
+    reads.push({ options: libraryQuery(store), revalidate: true });
+  if (cards.has("customizeProgress")) {
+    // The checklist's connection steps read the Accounts and Models parts the store keeps.
+    reads.push({ options: { queryKey: settingsKeys.accounts }, revalidate: false });
+    reads.push({ options: { queryKey: settingsKeys.models }, revalidate: false });
+    reads.push({ options: checklistQuery(store), revalidate: true });
+  }
+  // Customization Problems draws above the library, in its slot.
+  if (cards.has("customizeLibrary")) reads.push({ options: doctorQuery(store), revalidate: true });
   if (cards.has("keys")) reads.push({ options: keysQuery(store), revalidate: true });
   if (cards.has("tailnet")) reads.push({ options: tailnetQuery(store), revalidate: true });
   if (cards.has("channels")) {

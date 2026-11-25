@@ -306,12 +306,42 @@ def report_lines(found: dict, commits: list[str], subjects: dict[str, str], name
     return lines
 
 
+def culprits(found: dict, commits: list[str], subjects: dict[str, str], skipped: dict[str, str], base: str) -> dict:
+    """The report's machine-readable verdicts, for a reader that acts on a culprit (fix-forward-velocity's
+    auto-revert): `verdicts` has one entry a file, `culprits` one entry a first red commit with every file it broke,
+    oldest first. A file is a culprit only when the bisect pinned it to one commit; base-red, flaky and unresolved
+    files name no commit to act on."""
+    def commit(sha: str) -> dict:
+        subject = subjects.get(sha, "")
+        match = SQUASH_PR.search(subject)
+        return {"sha": sha, "pr": int(match.group(1)) if match else None, "subject": subject}
+
+    verdicts, by_sha = [], {}
+    for file in sorted(found):
+        kind, a, b = found[file]
+        if kind == "first":
+            verdicts.append({"file": file, "verdict": "culprit", "culprit": commit(commits[a]), "green": commits[b]})
+            by_sha.setdefault(a, []).append(file)
+        elif kind == "base":
+            verdicts.append({"file": file, "verdict": "base-red", "culprit": None, "green": None})
+        else:
+            verdicts.append({"file": file, "verdict": "unresolved", "culprit": None, "green": commits[a],
+                             "red": commits[b]})
+    for file in sorted(skipped):
+        verdicts.append({"file": file, "verdict": "flaky" if skipped[file] == "flaky" else "base-red",
+                         "culprit": None, "green": None})
+    return {"schema": "web-bisect/2", "base": base, "verdicts": verdicts,
+            "culprits": [dict(commit(commits[a]), files=by_sha[a]) for a in sorted(by_sha)]}
+
+
 def bisect(args, run=subprocess.run) -> int:
     import webviews_test_history as history  # noqa: PLC0415
 
     requested_base = args.base
     base, base_source = choose_bisect_base(requested_base, getattr(args, "last_known_green", ""), args.head)
-    report: dict = {"base": base, "head": args.head, "files": {}, "lines": [], "base_source": base_source}
+    report: dict = {"base": base, "head": args.head, "files": {}, "lines": [], "base_source": base_source,
+                    "schema": "web-bisect/2", "verdicts": [], "culprits": [], "probes": [],
+                    "run_url": getattr(args, "run_url", "") or ""}
     Path(args.report).parent.mkdir(parents=True, exist_ok=True)
 
     def finish(note: str | None = None) -> int:
@@ -357,7 +387,9 @@ def bisect(args, run=subprocess.run) -> int:
             out = Path(args.report).parent / f"probe-{sha[:12]}.json"
             listed = Path(args.report).parent / f"probe-{sha[:12]}.files"
             listed.write_text("\n".join(files) + "\n", encoding="utf-8")
+            started = time.monotonic()
             run(["bash", args.probe, sha, str(listed), str(out)], check=False)
+            report["probes"].append({"sha": sha, "files": len(files), "seconds": round(time.monotonic() - started)})
             try:
                 got = json.loads(out.read_text(encoding="utf-8"))
             except (OSError, ValueError):
@@ -376,6 +408,7 @@ def bisect(args, run=subprocess.run) -> int:
     report["files"] = {f: list(v) for f, v in found.items()}
     report["skipped"] = skipped
     report["lines"] = report_lines(found, commits, subjects, names, skipped, base)
+    report.update(culprits(found, commits, subjects, skipped, base))
     if base_source == "last-known-green":
         line = f"web bisect: lower bound last-known-green at {base} (coalesced base {requested_base})"
         report["lines"].insert(0, line)
@@ -463,6 +496,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--probe", required=True)
     b.add_argument("--report", required=True)
     b.add_argument("--max-probes", type=int, default=MAX_PROBES)
+    b.add_argument("--run-url", default="", help="this run's URL, copied into the report for a reader acting on it")
     args = parser.parse_args(argv)
     return wait(args) if args.command == "wait" else bisect(args)
 

@@ -12,6 +12,7 @@ import { HomeIcon } from "./icons";
 import { participantNames, RunMark, runLabel, shownStatus, useNow } from "./RunCard";
 import { runCost, runTokens, type RunEntry } from "./runs";
 import type { HomeParticipant, HomeRun } from "./types";
+import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
 
 export interface RunSheetProps {
   entry: RunEntry;
@@ -73,7 +74,11 @@ export function RunSheet({ entry, people, strings, place, asked, onClose, onLoad
               <span>{run.stepCount === 1 ? t("run.steps.one") : format("run.steps.many", String(run.stepCount))}</span>
             )}
             {tokens && <span>{format("run.tokens", tokens)}</span>}
-            {cost && <span aria-description={t("run.cost.hint")}>{format("run.cost", cost)}</span>}
+            {cost && (
+              <WithFacts facts={[{ value: t("run.cost.hint") }]}>
+                {(facts) => <span {...facts}>{format("run.cost", cost)}</span>}
+              </WithFacts>
+            )}
             {run.model && <span>{run.model}</span>}
           </p>
         </header>

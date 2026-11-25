@@ -60,6 +60,12 @@ struct TerminalScrollRestore: Equatable {
     /// here). `loadOlder` returns whether a fetch was sent.
     mutating func replayed(totalRows: Int, rowText: (Int) -> String?, loadOlder: () -> Bool) -> TerminalScrollModel.Anchor? {
         let short = totalRows < mark.rowsFromEnd
+        // Fewer rows than the reader was above the end, yet the reader's own
+        // rows are in it, once: a window far above the Mac's screen moved
+        // (`attach-replay-history-window-v1`, up to `historyWindowStep` rows),
+        // it did not leave them out. Before, it read as missing rows: older
+        // rows were asked for, each fetch moved the window again.
+        if short, let found = mark.uniqueMatch(totalRows: totalRows, rowText: rowText) { return found }
         if short, olderLoads < Self.maxOlderLoads, loadOlder() {
             olderLoads += 1
             // The next replay starts further up: count from its end.

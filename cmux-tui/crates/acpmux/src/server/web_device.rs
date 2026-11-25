@@ -268,8 +268,35 @@ fn same_browser_owner(identity: &Value, team: &str, user: &str) -> bool {
         && identity.get("teamId").and_then(Value::as_str) == Some(team)
 }
 
+/// Whether a socket keeps the Origin of the page that opened it, which binds a browser
+/// sign-in (`start_with`). Only a web socket admitted by the listener token or by the
+/// `/app/ws` token (`ConnAuth::BrowserApp`, the production pane's) has a page origin.
+pub(super) fn keeps_page_origin(origin: Origin, auth: ConnAuth) -> bool {
+    origin == Origin::Web && matches!(auth, ConnAuth::ListenerToken | ConnAuth::BrowserApp)
+}
+
+/// How many renewals in a row may find the hub unavailable before the socket ends:
+/// a blip keeps the tab, an outage past about two minutes still ends its access.
+const UNAVAILABLE_RENEWALS: u32 = 3;
+
+/// Whether a renewal ends the socket: a refusal or a different owner at once, an
+/// unavailable hub only after `UNAVAILABLE_RENEWALS` in a row (`unavailable` counts them).
+fn renewal_ends(result: &Result<(), RpcError>, unavailable: &mut u32) -> bool {
+    let Err(error) = result else {
+        *unavailable = 0;
+        return false;
+    };
+    let reason = error.data.as_ref().and_then(|data| data.get("reason")).and_then(Value::as_str);
+    if reason != Some("device.hub_unavailable") {
+        return true;
+    }
+    *unavailable = unavailable.saturating_add(1);
+    *unavailable >= UNAVAILABLE_RENEWALS
+}
+
 /// A quiet socket can still receive a live transcript. Renew its proof even
-/// when the browser makes no requests. A refused or unavailable hub ends it.
+/// when the browser makes no requests. A refusal ends it; so does a hub that stays
+/// unavailable (`renewal_ends`).
 pub(super) async fn credential_ended(hub: &Hub, conn: &Conn) {
     if conn.auth != ConnAuth::BrowserApp {
         return std::future::pending().await;
@@ -278,9 +305,10 @@ pub(super) async fn credential_ended(hub: &Hub, conn: &Conn) {
         Slot::Device(device) => Arc::clone(device),
         _ => return,
     };
+    let mut unavailable = 0;
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-        if verify_owner(hub, &device).await.is_err() {
+        if renewal_ends(&verify_owner(hub, &device).await, &mut unavailable) {
             return;
         }
     }
@@ -289,6 +317,26 @@ pub(super) async fn credential_ended(hub: &Hub, conn: &Conn) {
 #[cfg(test)]
 mod browser_owner_tests {
     use super::*;
+
+    #[test]
+    fn the_production_pane_socket_keeps_its_page_origin() {
+        assert!(keeps_page_origin(Origin::Web, ConnAuth::BrowserApp));
+        assert!(keeps_page_origin(Origin::Web, ConnAuth::ListenerToken));
+    }
+
+    #[test]
+    fn an_unavailable_hub_ends_the_socket_only_when_it_stays_unavailable() {
+        let unavailable = || Err(owner_error("device.hub_unavailable", "down"));
+        let mut count = 0;
+        assert!(!renewal_ends(&unavailable(), &mut count));
+        assert!(!renewal_ends(&unavailable(), &mut count));
+        assert!(!renewal_ends(&Ok(()), &mut count), "a success resets the count");
+        assert!(!renewal_ends(&unavailable(), &mut count));
+        assert!(!renewal_ends(&unavailable(), &mut count));
+        assert!(renewal_ends(&unavailable(), &mut count));
+        let mut fresh = 0;
+        assert!(renewal_ends(&Err(owner_error("device.wrong_owner", "no")), &mut fresh));
+    }
 
     #[test]
     fn requires_a_web_device_from_the_same_person_and_team() {

@@ -18,8 +18,8 @@ enum CmuxRemoteStrings {
 
     static func confirmShare() -> (String, String) {
         (String(localized: "remote.confirm.share.title", defaultValue: "Share This Mac?", table: "CmuxRemote", bundle: .localizedModule),
-         String(localized: "remote.confirm.share.body",
-                defaultValue: "Your devices can ask to see or control this Mac. You approve each one, and cmux Remote shows who is connected.",
+         String(localized: "remote.confirm.share.bodyOwn",
+                defaultValue: "Your devices on this account can see or control this Mac. cmux Remote shows who is connected.",
                 table: "CmuxRemote", bundle: .localizedModule))
     }
 

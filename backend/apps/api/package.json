@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "tsc -p .",
+    "typecheck": "bun scripts/gen-chief-vm-source.ts && tsc -p .",
     "test": "vitest run",
     "test:node": "vitest run --config vitest.node.config.ts",
     "dev": "wrangler dev --env development",

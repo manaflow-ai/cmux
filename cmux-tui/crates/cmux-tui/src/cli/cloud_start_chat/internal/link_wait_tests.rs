@@ -136,7 +136,79 @@ fn a_replay_page_that_cannot_advance_hands_the_turn_to_exec() {
 
 #[test]
 fn a_daemon_without_attach_is_refused_before_any_attach() {
-    let (_dir, path) = daemon(&["workspace-registry-v1"], json!({}), vec![]);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("not-ready.sock");
+    let listener = UnixListener::bind(&path).unwrap();
+    let requests = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut writer = stream.try_clone().unwrap();
+        let mut lines = BufReader::new(stream);
+        let mut commands = Vec::new();
+        let mut line = String::new();
+        while lines.read_line(&mut line).unwrap() > 0 {
+            let request: Value = serde_json::from_str(line.trim()).unwrap();
+            line.clear();
+            commands.push(request["cmd"].as_str().unwrap().to_owned());
+            writeln!(
+                writer,
+                "{}",
+                json!({"id": request["id"], "ok": true,
+                "data": {"capabilities": ["workspace-registry-v1"]}})
+            )
+            .unwrap();
+        }
+        commands
+    });
     assert!(observe(&path, 7, 0, Duration::from_secs(5)).is_err());
+    assert_eq!(requests.join().unwrap(), ["identify"], "no attach before readiness");
     assert!(observe(Path::new("/nonexistent/link.sock"), 7, 0, Duration::from_secs(1)).is_err());
+}
+
+#[test]
+fn a_prompt_goes_after_identify_and_attach_and_answers_the_daemons_receipt() {
+    let (_dir, path) = daemon(&[ATTACH], json!({"events": [], "hasMore": false}), vec![]);
+    let answer = send(&path, 7, "p1", "hello", Duration::from_secs(5)).unwrap();
+    assert_eq!(answer, json!({}));
+}
+
+#[test]
+fn a_daemon_without_attach_is_not_sent_to() {
+    let (_dir, path) = daemon(&[], json!({}), vec![]);
+    assert!(matches!(
+        send(&path, 7, "p1", "hello", Duration::from_secs(5)),
+        Err(SendFailure::NotSent(_))
+    ));
+}
+
+#[test]
+fn no_socket_is_not_sent_and_a_silent_prompt_is_unsure() {
+    let dir = tempfile::tempdir().unwrap();
+    assert!(matches!(
+        send(&dir.path().join("none.sock"), 7, "p1", "x", Duration::from_secs(1)),
+        Err(SendFailure::NotSent(_))
+    ));
+    // A daemon that answers identify and attach, then says nothing to the prompt.
+    let path = dir.path().join("quiet.sock");
+    let listener = UnixListener::bind(&path).unwrap();
+    std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut writer = stream.try_clone().unwrap();
+        let mut lines = BufReader::new(stream);
+        let mut line = String::new();
+        while lines.read_line(&mut line).unwrap_or(0) > 0 {
+            let request: Value = serde_json::from_str(line.trim()).unwrap();
+            line.clear();
+            let data = match request["cmd"].as_str() {
+                Some("identify") => json!({"capabilities": [ATTACH]}),
+                Some("agent-session-prompt") => continue,
+                _ => json!({}),
+            };
+            writeln!(writer, "{}", json!({"id": request["id"], "ok": true, "data": data})).unwrap();
+        }
+    });
+    assert!(matches!(
+        send(&path, 7, "p1", "x", Duration::from_millis(300)),
+        Err(SendFailure::Unsure(_))
+    ));
 }

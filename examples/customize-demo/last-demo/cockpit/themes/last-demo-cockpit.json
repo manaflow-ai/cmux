@@ -44,6 +44,11 @@
   "appearance.surfaces.newTabPage.opacity": 0.5,
 
   "appearance.statusIndicator.style": "arc",
-  "appearance.statusIndicator.color": "#7cc7ff"
+  "appearance.statusIndicator.color": "#7cc7ff",
 
+  // Shape, not only color (Leo: "customizing the tabs/sidebars a lot deeper"): a cockpit: a 300 pt sidebar of tall, spaced rows, round 12 pt cards, buttons always shown, Session Info beside the chat.
+  "density": { "basedOn": "cozy", "tokens": {"tabCornerRadius": 12, "verticalTabCornerRadius": 12, "sidebarCornerRadius": 12, "itemCornerRadius": 10, "sidebarWidth": 300, "sidebarRowHeight": 34, "sidebarRowGap": 4, "tabGap": 6 } },
+  "window.titlebarButtons": "always",
+  "tabs.plusButton": "always",
+  "agentPane.display.sessionInfo.placement": "push"
 }

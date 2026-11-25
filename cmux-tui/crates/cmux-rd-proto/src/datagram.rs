@@ -12,6 +12,29 @@ pub const MAX_FEC_BLOCK: u32 = 255;
 /// Most data shards of a frame without parity (about 4.6 MB at 1136-byte shards).
 pub const MAX_FRAME_SHARDS: u32 = 4096;
 
+/// The FEC blocks of a frame of `count` data shards and `fec_count` parity shards
+/// (design D6: a frame larger than one block is split across blocks, each with its own
+/// parity). One block while the frame fits [`MAX_FEC_BLOCK`] (every frame a viewer
+/// without the `fec.blocks` cap is sent), else the fewest blocks whose largest one fits.
+/// The blocks interleave: data shard `i` and parity shard `count + p` belong to block
+/// `i % blocks` and `p % blocks`, so a burst of consecutive losses spreads over blocks.
+/// Both ends derive the layout from the header alone; no field carries it.
+pub fn fec_blocks(count: u16, fec_count: u16) -> usize {
+    let (k, m) = (usize::from(count).max(1), usize::from(fec_count));
+    if m == 0 {
+        return 1;
+    }
+    let fits = |b: usize| k.div_ceil(b) + m.div_ceil(b) <= MAX_FEC_BLOCK as usize;
+    (1..=k).find(|&b| fits(b)).unwrap_or(k)
+}
+
+/// The FEC block of shard `index` (data `0..count`, parity after) in [`fec_blocks`]' layout.
+pub fn fec_block_of(index: u16, count: u16, blocks: usize) -> usize {
+    let blocks = blocks.max(1);
+    let (i, k) = (usize::from(index), usize::from(count));
+    if i < k { i % blocks } else { (i - k) % blocks }
+}
+
 /// Header flag bits (low nibble of the first byte).
 pub mod flags {
     /// The frame is an IDR: it references no earlier frame.
@@ -56,6 +79,10 @@ pub enum DatagramKind {
     /// upstream media frame, viewer to host: microphone, camera or screen
     /// share (rd change C4; cap `up_media`).
     UpMedia = 11,
+    /// One frame's host times for the stage ledger ([`crate::FrameTimes`]), sent after the
+    /// frame's last shard; the header names its stream and frame (host to viewer; cap
+    /// `ledger`).
+    FrameTimes = 12,
 }
 
 impl DatagramKind {
@@ -73,6 +100,7 @@ impl DatagramKind {
             9 => Self::ClockPing,
             10 => Self::ClockPong,
             11 => Self::UpMedia,
+            12 => Self::FrameTimes,
             other => return Err(DecodeError::Kind(other)),
         })
     }
@@ -165,10 +193,21 @@ impl DatagramHeader {
         };
         if matches!(kind, DatagramKind::Video | DatagramKind::Fec | DatagramKind::UpMedia) {
             let total = u32::from(header.count) + u32::from(header.fec_count);
-            // A frame with parity is one FEC block (at most 255 shards); a frame without
-            // parity may span up to MAX_FRAME_SHARDS data shards.
-            let limit = if header.fec_count == 0 { MAX_FRAME_SHARDS } else { MAX_FEC_BLOCK };
-            if header.count == 0 || u32::from(header.index) >= total || total > limit {
+            // A frame may span up to MAX_FRAME_SHARDS data shards. With parity it is one
+            // FEC block (at most 255 shards) or, past that, several interleaved blocks
+            // (`fec_blocks`) of at most 255 shards each, at most one parity per data shard.
+            let fits = header.fec_count == 0 || total <= MAX_FEC_BLOCK || {
+                let blocks = fec_blocks(header.count, header.fec_count);
+                header.fec_count <= header.count
+                    && usize::from(header.count).div_ceil(blocks)
+                        + usize::from(header.fec_count).div_ceil(blocks)
+                        <= MAX_FEC_BLOCK as usize
+            };
+            if header.count == 0
+                || u32::from(header.index) >= total
+                || u32::from(header.count) > MAX_FRAME_SHARDS
+                || !fits
+            {
                 return Err(DecodeError::Invalid("shard index or count"));
             }
             // Upstream shards use one kind; the index tells data from parity.

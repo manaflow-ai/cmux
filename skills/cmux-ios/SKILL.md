@@ -17,13 +17,13 @@ Pick the fastest route that covers your change. The table and its numbers are in
 
 | Change | Route | Edit to visible |
 |---|---|---|
-| Swift values, strings, colors or logic in a running DEBUG app | Swift live code, `scripts/live-code/ios-sim.sh patch OUT FILE.swift` ([#45397](https://github.com/manaflow-ai/cmux/pull/45397)) | about 2 s |
-| Any change, sent from your checkout to an always-on simulator on another Mac | `scripts/ios-live/ios-live swift` or `swap` ([#45435](https://github.com/manaflow-ai/cmux/pull/45435)) | about 5 s live, about 16 s rebuild |
+| Any change, sent from your checkout to the always-on simulator | `scripts/ios-live/ios-live swap` (on `feat-cmux-next` since [#45435](https://github.com/manaflow-ai/cmux/pull/45435)) | about 16 s |
+| Swift values, strings, colors or logic in a running DEBUG app | `ios-live swift`, Swift live code ([#45397](https://github.com/manaflow-ai/cmux/pull/45397), `scripts/live-code/ios-sim.sh` not on the branch yet) | about 2 s once it lands |
 | PR evidence: tests, UI tests, benches, video | the fleet simulator step below | about 15 min |
 
-Both live routes are open PRs and aren't on `feat-cmux-next` yet, so until they land the fleet
-step is the only route that works from a branch. Once they land, use them for every edit and keep
-the fleet step for the evidence a PR cites.
+`ios-live swap` is on `feat-cmux-next`: use it for every edit and keep the fleet step for the evidence a PR
+cites. `ios-live swift` needs `scripts/live-code/ios-sim.sh` (#45397, still open); until it lands `swift`
+refuses and `swap` is the live route.
 
 ## Build and test on the fleet
 
@@ -33,7 +33,7 @@ the fleet step for the evidence a PR cites.
 - Swift Testing suites: `scripts/ci/run-swift-testing-suites.sh <package>` with `--env CMUX_SWIFT_TEST_SUITES=Suite[,Suite]` ([example](../cmux-testing/references/local-vs-ci-validation.md)).
 - Name only real suites of that package. `scripts/ci/swift_suite_names_precheck.py <package> <name>...` refuses a name its tests never mention, before a build that takes 11 to 58 minutes.
 - A run that executed zero tests proves nothing; report how many ran.
-- CmuxMobileKit's tests run in `.github/workflows/cmux-next-ios-kit.yml`. The Mac-to-iPhone gate is `.github/workflows/ios-e2e.yml`, which runs on PRs into `feat-cmux-next`.
+- CmuxMobileKit's tests run in `.github/workflows/cmux-next-ios-kit.yml`. They run with no label on a PR into `feat-cmux-next` that touches the kit or a package it links, and skip a tree that already passed. The Mac-to-iPhone gate is `.github/workflows/ios-e2e.yml`: its tailnet jobs skip on PRs while the repo variable `IOS_E2E_PR_TAILNET` isn't `true`, and a dispatch runs them.
 - A Mac build proves neither an iOS compile nor an install. Report Mac, simulator and iPhone results separately.
 
 ## Logic in Rust
@@ -58,7 +58,7 @@ the fleet step for the evidence a PR cites.
 
 - The app is iPhone only: `TARGETED_DEVICE_FAMILY: "1"` on every target in `cmux-next-ios/project.yml`. Don't add iPad.
 - `.github/workflows/ios-review-gate.yml` runs `cmux-next-ios/scripts/app_review_gate.py` and the reviewer-path UI tests. It answers "would Apple accept this build?" ([APP-REVIEW-GATE.md](../../cmux-next-ios/AppStoreReview/APP-REVIEW-GATE.md)).
-- A push or PR fails only on a blocker that isn't in `known-blockers.json`. A fix removes its entry, and a PR that adds an entry is itself a blocker.
+- A PR into `feat-cmux-next` skips the gate unless it is labeled `full-ci`; the push after the merge runs it. A push or a `full-ci` PR fails only on a blocker that isn't in `known-blockers.json`. A fix removes its entry, and a PR that adds an entry is itself a blocker.
 - Every past rejection keeps a detector in `rejection-history.json`. When Apple rejects a build, add the rejection with the check that catches it.
 - `.github/workflows/ios-screenshots.yml` shoots the classic `ios/` app's listing, not the cmux-next app's.
 - TestFlight (`cmux INTERNAL`, `dev.cmux.app.internal`) builds come from `ios-internal-nightly.yml`. `cmux-next-ios/scripts/testflight-build.sh` uploads nothing without `--upload`.
@@ -68,6 +68,12 @@ the fleet step for the evidence a PR cites.
 ## Merging iOS PRs
 
 - Agents that land PRs automatically hold a PR touching iOS code (`cmux-next-ios/`, `ios/`, `Packages/iOS/`, the mobile core and FFI crates) until Aziz approves its exact head.
-- Docs (`*.md`) and `cmux-next-ios/verify/` don't hold a PR.
+- Docs (`*.md`), `cmux-next-ios/verify/`, iOS files that draw nothing (Rust, tests, Swift targets with no UI import) and screen-sharing paths don't hold a PR.
+- Other ways past the hold (each claim line stands alone on its own line in the PR body):
+  - Aziz's own PR with the `ready-to-land` label.
+  - A strict fix: a body line `iOS-hold: strict fix` and a one-paragraph `## ELI5` section (at most 120 words). It needs no review.
+  - A proven change: a body line `iOS-hold: proven`, a test that fails without the change, the flow shown working in a simulator or on a device, an `## Implications` section, and a SHIP review at the head that confirms correctness, full functionality and implications (a self or helper review counts).
+  - A screen-sharing PR touching no screen-sharing path: a body line `iPhone-tested: <device> at <head sha> <capture url>`.
+  - A change that flips a default stays with Leo.
 - A push after his approval needs a new one. The hold stops only the merge: keep testing and pushing fixes.
 - When you open one, mention `@azooz2003-bit` in a PR comment so he knows it's waiting.

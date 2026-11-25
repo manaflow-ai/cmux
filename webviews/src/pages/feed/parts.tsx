@@ -2,6 +2,7 @@
 // state, the disconnected banner (FeedView), a request card (FeedListView's FeedRequestCard), the
 // prompt summary (FeedPromptSummary) and the list that virtualizes past 200 rows (FeedRowsView).
 import { useMemo, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { ConnectionChip } from "../../ui/ConnectionChip";
 import { cx } from "../../ui/cx";
 import type { Strings } from "../shared/i18n";
 import { VirtualList } from "../../ui/VirtualList";
@@ -69,14 +70,10 @@ export function EmptyState({ text, size = 32 }: { text: string; size?: 32 | 44 }
   );
 }
 
-/** A line above the content: the owner is unreachable. */
+/** The owner is unreachable: a mark in the page's corner (ui/ConnectionChip.tsx), out of flow, so the
+ *  list under it never moves when it comes or goes. Its sentence is the tooltip. */
 export function Banner({ text }: { text: string }) {
-  return (
-    <output className="feed-banner">
-      <span className="feed-banner-dot" aria-hidden="true" />
-      {text}
-    </output>
-  );
+  return <ConnectionChip text={text} />;
 }
 
 // MARK: - A row

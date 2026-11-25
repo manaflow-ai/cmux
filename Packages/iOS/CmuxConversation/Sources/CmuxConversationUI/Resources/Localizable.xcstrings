@@ -341,6 +341,23 @@
         }
       }
     },
+    "conversation.menu.copyMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Message"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージをコピー"
+          }
+        }
+      }
+    },
     "conversation.menu.more": {
       "extractionState": "manual",
       "localizations": {

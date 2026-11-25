@@ -42,8 +42,8 @@ function recordAt(seq: number) {
 
 /// A stand-in acpmux for one chat of `records` records that compresses as acpmux does: once the
 /// connection's `initialize` lists `zlib`, every message of `MIN_BYTES` or more goes as Binary.
-function daemon(records: number) {
-  const seen = { offered: undefined as unknown, binary: 0, textBytes: 0, binaryBytes: 0 };
+function daemon(records: number, options: { closeAfterAttach?: boolean } = {}) {
+  const seen = { offered: undefined as unknown, binary: 0, textBytes: 0, binaryBytes: 0, opens: 0 };
   const session = {
     sessionId: CHAT,
     cwd: "/home/dev/x",
@@ -84,6 +84,9 @@ function daemon(records: number) {
     }
   };
   const open = () => {
+    seen.opens += 1;
+    // With `closeAfterAttach`, a reconnect never opens: only the first socket's frames can draw the chat.
+    if (options.closeAfterAttach && seen.opens > 1) return { readyState: 0, send() {}, close() {} } as any as WebSocket;
     const socket: any = {
       readyState: 1,
       send(raw: string) {
@@ -104,6 +107,11 @@ function daemon(records: number) {
             seen.textBytes += text.length;
             socket.onmessage?.({ data: text });
           }
+          // The link drops right after the attach reply fully arrived: a compressed one is still inflating.
+          if (options.closeAfterAttach && message.method === "_acpmux/attach") {
+            socket.readyState = 3;
+            socket.onclose?.({ code: 1006, reason: "", wasClean: false });
+          }
         });
       },
       close() {},
@@ -114,9 +122,10 @@ function daemon(records: number) {
   return { open, seen };
 }
 
-async function openChat(endpoint: string, records = 4_000) {
-  const fake = daemon(records);
+async function openChat(endpoint: string, records = 4_000, options: { closeAfterAttach?: boolean } = {}) {
+  const fake = daemon(records, options);
   let rows = "";
+  let connectError: unknown;
   const client = await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint, token: "t", sessionId: CHAT },
     (snapshot) => {
@@ -124,10 +133,13 @@ async function openChat(endpoint: string, records = 4_000) {
     },
     undefined,
     fake.open,
-  );
+  ).catch((error: unknown) => {
+    connectError = error;
+    return undefined;
+  });
   for (let n = 0; n < 40; n += 1) await tick();
-  client.dispose();
-  return { seen: fake.seen, rows };
+  client?.dispose();
+  return { seen: fake.seen, rows, connectError };
 }
 
 test("the page's socket to an acpmux across a network offers zlib frames and reads a compressed attach reply", async () => {
@@ -154,4 +166,16 @@ test("inflateFrame reads acpmux's zlib stream through the browser's own decoder"
   const big = JSON.stringify({ n: 1, pad: "x".repeat(MIN_BYTES) });
   const zlib = deflateSync(big);
   expect(await inflateFrame(zlib.buffer.slice(zlib.byteOffset, zlib.byteOffset + zlib.byteLength))).toBe(big);
+});
+
+test("a compressed reply that fully arrived is read even when the socket closes while it inflates", async () => {
+  // The same drop on an uncompressed (Text) reply: the reply is read before the close.
+  const text = await openChat("ws://127.0.0.1:7777/", 4_000, { closeAfterAttach: true });
+  expect(text.seen.binary).toBe(0);
+  expect(text.rows).toContain("Answer 1999: green.");
+  // A compressed reply is still inflating when the close comes; the chat draws the same rows.
+  const zlib = await openChat("wss://box.example.net/app/ws", 4_000, { closeAfterAttach: true });
+  expect(zlib.seen.binary).toBe(1);
+  expect(zlib.rows).toContain("Answer 1999: green.");
+  expect(zlib.rows).toBe(text.rows);
 });

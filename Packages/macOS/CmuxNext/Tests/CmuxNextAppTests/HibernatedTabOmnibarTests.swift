@@ -50,11 +50,12 @@ import Testing
         defer { wake.rig.close() }
         _ = try await wake.show()
         let page = try #require(wake.made)
-        let next = try #require(URL(string: "https://example.com/next"))
+        // Another host, so the check tells the new page from the asleep one by its host too.
+        let next = try #require(URL(string: "https://next.example.org/next"))
         let id = page.makeNavigationID()
         page.simulate(.started(id, url: next))
         page.simulate(.committed(id, url: next))
-        try await wake.rig.until("the omnibar follows the page") { wake.bar.displayedText.contains("example.com/next") }
+        try await wake.rig.until("the omnibar follows the page") { wake.bar.displayedText.contains("next.example.org") }
         #expect(wake.bar.displayedText != wake.asleepText)
     }
 

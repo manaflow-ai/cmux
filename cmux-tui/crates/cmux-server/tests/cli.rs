@@ -71,6 +71,7 @@ impl Env {
             env: env_for(self.tmp.path()),
             now_ms: NOW_MS,
             self_exe: None,
+            terminal_socket: None,
         }
     }
 

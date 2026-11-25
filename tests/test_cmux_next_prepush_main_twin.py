@@ -215,6 +215,44 @@ class MainTwinPushTests(unittest.TestCase):
         self.assertIn("Scheduled workflows match main's", output)
         self.assertIn("never fires", output)
 
+    def old_scheduled_file_main_lacks(self) -> str:
+        """origin/feat-cmux-next already has sweep.yml with its schedule, and main has no copy: base's drift."""
+        self.base_with_twins()
+        self.write(SCHEDULED, SWEEP.format(cron="17 7 * * *", timeout="30"))
+        self.commit("sweep: an old scheduled file main never got")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        return self.remote_head()
+
+    def test_a_step_edit_in_a_scheduled_file_main_already_lacked_warns_and_passes(self):
+        # The missing twin is base's, not the push's: a push that edits only a step (no job, no cron) did not cause
+        # it, so it is warned about and goes through. Before, any edit to the file was refused for main's missing copy.
+        self.old_scheduled_file_main_lacks()
+        self.write(SCHEDULED, SWEEP.format(cron="17 7 * * *", timeout="30").replace("echo sweep", "echo sweep twice"))
+        self.commit("sweep: say it twice")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
+        self.assertIn("WARNING", output)
+        self.assertIn("sweep.yml", output)
+        self.assertIn("before this push", output)
+
+    def test_a_cron_edit_in_a_scheduled_file_main_lacks_is_still_refused(self):
+        # The push's own change to the schedule of a file main has no copy of: still refused.
+        before = self.old_scheduled_file_main_lacks()
+        self.write(SCHEDULED, SWEEP.format(cron="5 3 * * *", timeout="30"))
+        self.commit("sweep: run earlier")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("never fires", output)
+
     def test_a_scheduled_workflow_with_its_twin_named_passes(self):
         self.base_with_twins()
         self.write(SCHEDULED, SWEEP.format(cron="17 7 * * *", timeout="30"))

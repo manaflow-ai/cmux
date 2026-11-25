@@ -1,12 +1,11 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAppTry
 import CmuxNextDaemon
-import CmuxNextDesign
 import CmuxNextLiveCode
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
-import os
 
 /// Edit cmux Live… and Stop Editing cmux Live (docs/cmux-next/hot-reload.md): the palette and
 /// Settings > General face of `cmux live start|stop`, so a person finds cmux Live without
@@ -19,22 +18,23 @@ enum LiveWebHandlers {
     static let stopID: ActionID = "liveWeb.stop"
     static let swiftStartID: ActionID = "liveSwift.start"
     static let swiftStopID: ActionID = "liveSwift.stop"
-    private static let toastID = "live-web"
+    private static let toast = CLIRowToast(id: "live-web", category: "live-web", didNotFinish: { LiveWebStrings.didNotFinish },
+                                           failed: { LiveWebStrings.failed($0) })
     /// `start` may install the checkout's webviews packages first, then waits up to 60 s for the server.
     private static let startTimeout: Duration = .seconds(300)
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let bundled = context.services.bundledCLI
-        Task { _ = await bundled.resolve(); _ = await BundledCLIRun.expireStaleLayers(bundled) } // task-owner: none; a bounded file read, then stale layers off
+        Task { await BundledCLIRun.atLaunch(bundled) } // task-owner: none; bounded CLI runs: stale layers off, code layers refreshed once per app commit
         let noCLI: @MainActor () -> String? = { bundled.known == nil ? LiveWebStrings.noCLI : nil }
         registry.bindEffect(startID, unavailable: noCLI, effect: { invocation in
             guard let cli = bundled.known else { return .refused(LiveWebStrings.noCLI) }
             let window = context.activeWindow?.window
             if let path = invocation["path"]?.stringValue, !path.isEmpty {
-                show(LiveWebStrings.starting(path), in: window, duration: startTimeout)
+                toast.show(LiveWebStrings.starting(path), in: window, duration: startTimeout)
                 return .applied(result: {
                     // With cmux Live off the app ignores web-dev.json: the server runs, pages stay bundled.
-                    await run(cli, ["live", "start", "--worktree", path], timeout: startTimeout,
+                    await toast.run(cli, ["live", "start", "--worktree", path], timeout: startTimeout,
                               done: WebDevOverride.isAllowed ? LiveWebStrings.started(path) : LiveWebStrings.startedButOff,
                               in: window)
                 })
@@ -57,15 +57,15 @@ enum LiveWebHandlers {
         registry.bindEffect(stopID, unavailable: noCLI, effect: { _ in
             guard let cli = bundled.known else { return .refused(LiveWebStrings.noCLI) }
             let window = context.activeWindow?.window
-            show(LiveWebStrings.stopping, in: window, duration: .seconds(30))
+            toast.show(LiveWebStrings.stopping, in: window, duration: .seconds(30))
             return .applied(result: {
-                await run(cli, ["live", "stop"], timeout: .seconds(30), done: LiveWebStrings.stopped, in: window)
+                await toast.run(cli, ["live", "stop"], timeout: .seconds(30), done: LiveWebStrings.stopped, in: window)
             })
         })
         bindSwift(into: registry, context: context, bundled: bundled)
         WebDevOverrideWatcher.shared.onFallBack = { reason in // a page did not start from the code layer
-            show(LiveWebStrings.fellBack(reason), in: context.activeWindow?.window, duration: .seconds(12))
-            Task { if let why = await BundledCLIRun.turnCodeLayerOff(bundled, reason: reason) { show(LiveWebStrings.failed(why), in: nil, duration: .seconds(12)) } } // task-owner: one bounded CLI run
+            toast.show(LiveWebStrings.fellBack(reason), in: context.activeWindow?.window, duration: .seconds(12))
+            Task { if let why = await BundledCLIRun.turnCodeLayerOff(bundled, reason: reason) { toast.show(LiveWebStrings.failed(why), in: nil, duration: .seconds(12)) } } // task-owner: one bounded CLI run
         }
     }
 
@@ -91,7 +91,7 @@ enum LiveWebHandlers {
                 let window = context.activeWindow?.window
                 let byPerson = invocation.isPersonsOwnRun // a socket request may claim the user origin
                 let settings = context.services.settings
-                show(on ? LiveWebStrings.swiftStarting : LiveWebStrings.swiftStopping, in: window, duration: .seconds(20))
+                toast.show(on ? LiveWebStrings.swiftStarting : LiveWebStrings.swiftStopping, in: window, duration: .seconds(20))
                 return .applied(result: {
                     // Only a write that took skips the script's own confirmation.
                     var set = false
@@ -100,35 +100,11 @@ enum LiveWebHandlers {
                     }
                     var arguments = ["live", on ? "start" : "stop", "--swift", "--detach", "--worktree", tree]
                     if set { arguments.append("--setting-done") }
-                    return await run(cli, arguments, timeout: .seconds(30),
+                    return await toast.run(cli, arguments, timeout: .seconds(30),
                                      done: on ? LiveWebStrings.swiftStarted : LiveWebStrings.swiftStopped, in: window)
                 })
             })
         }
-    }
-
-    /// Runs `cmux <arguments>` and replaces the working toast with `done` or the command's error.
-    private static func run(_ cli: URL, _ arguments: [String], timeout: Duration, done: String,
-                            in window: NSWindow?) async -> Result<[String: ActionResultValue], ActionWorkFailure> {
-        let result = await BundledCLIRun.run(cli, arguments, timeout: timeout)
-        guard let result, result.status == 0 else {
-            let why = result.map { BundledCLIRun.lastLine($0.stderr) ?? BundledCLIRun.lastLine($0.stdout) ?? "exit \($0.status)" } ?? LiveWebStrings.didNotFinish
-            let message = LiveWebStrings.failed(why)
-            show(message, in: window, duration: .seconds(12))
-            var failure = ActionWorkFailure(message)
-            failure.shown = true // the toast above already says it
-            return .failure(failure)
-        }
-        show(done, in: window, duration: .seconds(8))
-        return .success(["output": .string(String(decoding: result.stdout, as: UTF8.self))])
-    }
-
-    private static func show(_ message: String, in window: NSWindow?, duration: Duration) {
-        guard let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow else {
-            Logger(subsystem: "com.cmuxterm.app.next", category: "live-web").info("live web: \(message, privacy: .public)")
-            return
-        }
-        _ = CmuxToastCenter.shared.show(CmuxToast(id: toastID, message: message, duration: duration), in: window)
     }
 }
 
