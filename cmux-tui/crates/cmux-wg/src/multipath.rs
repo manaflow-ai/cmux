@@ -40,6 +40,7 @@ use cmux_transport::{
 use tokio::sync::{broadcast, watch};
 use tokio::time::Instant;
 
+use crate::pacing::Priority;
 use crate::probe_schedule::{PathWatch, ProbeConfig};
 use crate::underlay::{DueProbes, Origin, Received, Underlay, is_transient};
 
@@ -450,8 +451,10 @@ impl MultipathControl {
     }
 }
 
-impl Underlay for Multipath {
-    fn send(&mut self, datagram: &[u8]) {
+impl Multipath {
+    /// Send on the current path, or on every live path when none is chosen,
+    /// in class `priority` when it has one (the carrier marks it).
+    fn send_in(&mut self, datagram: &[u8], priority: Option<Priority>) {
         let mut shared = lock(&self.shared);
         let current = shared.selector.current();
         let targeted = current.is_some_and(|id| shared.slots.iter().any(|slot| slot.id == id));
@@ -459,10 +462,23 @@ impl Underlay for Multipath {
             if slot.failed || (targeted && Some(slot.id) != current) {
                 continue;
             }
-            slot.carrier.send(datagram);
+            match priority {
+                Some(priority) => slot.carrier.send_classified(datagram, priority),
+                None => slot.carrier.send(datagram),
+            }
             slot.sent += 1;
             slot.watch.sent(Instant::now());
         }
+    }
+}
+
+impl Underlay for Multipath {
+    fn send(&mut self, datagram: &[u8]) {
+        self.send_in(datagram, None);
+    }
+
+    fn send_classified(&mut self, datagram: &[u8], priority: Priority) {
+        self.send_in(datagram, Some(priority));
     }
 
     fn send_on(&mut self, path: PathId, datagram: &[u8]) {
@@ -471,6 +487,12 @@ impl Underlay for Multipath {
         {
             slot.carrier.send(datagram);
             slot.sent += 1;
+        }
+    }
+
+    fn hold_routine_probes(&mut self, floor: Option<Instant>) {
+        for slot in &mut lock(&self.shared).slots {
+            slot.watch.hold_routine(floor);
         }
     }
 
