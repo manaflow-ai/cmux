@@ -1,3 +1,4 @@
+#if canImport(Security)
 import CryptoKit
 import Foundation
 import LocalAuthentication
@@ -176,3 +177,4 @@ private struct SSHImportedKeySecret: Codable {
     var text: String
     var passphrase: String?
 }
+#endif

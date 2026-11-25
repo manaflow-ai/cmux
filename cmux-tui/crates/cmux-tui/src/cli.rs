@@ -5,6 +5,8 @@
 //! accidentally fall back to the private command protocol.
 
 #[cfg(unix)]
+mod account_limit;
+#[cfg(unix)]
 mod action_hint;
 #[cfg(unix)]
 mod agent_config;
@@ -64,6 +66,8 @@ mod share_requests;
 mod change_background;
 #[cfg(unix)]
 mod chat_cd;
+#[cfg(unix)]
+mod chat_move;
 #[cfg(unix)]
 mod chat_send;
 #[cfg(unix)]
@@ -128,6 +132,8 @@ mod key_broker;
 mod notification_banners;
 pub(crate) use completion::refuse_in_help_reader;
 #[cfg(unix)]
+mod autocloud;
+#[cfg(unix)]
 mod community;
 #[cfg(unix)]
 mod customize;
@@ -168,6 +174,8 @@ mod lifecycle;
 #[cfg(unix)]
 mod live_code;
 #[cfg(unix)]
+mod mcp_servers;
+#[cfg(unix)]
 mod ps_gc;
 #[cfg(unix)]
 mod repo_hold;
@@ -176,6 +184,8 @@ mod repo_mcp_lazy;
 #[cfg(unix)]
 mod safe_mode;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
+#[cfg(unix)]
+mod repro;
 #[cfg(unix)]
 mod sandbox_run;
 #[cfg(unix)]
@@ -191,6 +201,8 @@ mod vm_gcp;
 mod vm_ready;
 #[cfg(unix)]
 mod vm_short;
+#[cfg(unix)]
+mod vm_tailnet;
 mod vm_words;
 #[cfg(unix)]
 mod vnc;
@@ -272,6 +284,8 @@ pub(crate) use machine_server::is_lifecycle_scope;
 mod computer_use;
 #[cfg(unix)]
 mod mcp;
+#[cfg(unix)]
+mod migrate;
 mod older_daemon;
 // `cmux pack`: theme packs (a whole look as one folder), swap, undo, redo, live edit.
 #[cfg(unix)]
@@ -1021,6 +1035,11 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     if let Some(code) = chat_cd::run_if_requested(args) {
         return code;
     }
+    // `chat move SESSION --on local|cloud|auto`: Local, Cloud or AutoCloud (chat_move.rs).
+    #[cfg(unix)]
+    if let Some(code) = chat_move::run_if_requested(args) {
+        return code;
+    }
     // `chat send` from a coding agent is the agent's message, not the owner's
     // (chief/chat_scope.rs): a Chief's chat is sent here, any other chat runs
     // the app action with its text labelled.
@@ -1049,7 +1068,8 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         Err(code) => return code,
     };
     #[cfg(unix)]
-    if let Some(code) = agent_move::run_if_requested(args)
+    if let Some(code) = cloud_start_chat::direct::run_if_requested(args)
+        .or_else(|| agent_move::run_if_requested(args))
         .or_else(|| agent_start::run_if_requested(args))
         .or_else(|| agent_config::run_if_requested(args))
         .or_else(|| chat_start::run_if_requested(args))
@@ -1065,6 +1085,8 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| inference_gateway_admin::run_route_if_requested(args))
         .or_else(|| cloud_preflight::run_if_requested(args))
         .or_else(|| hub::run_if_requested(args))
+        .or_else(|| autocloud::run_if_requested(args))
+        .or_else(|| mcp_servers::run_if_requested(args))
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
         .or_else(|| auth_token::run_if_requested(args))
@@ -1072,6 +1094,8 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| live_code::run_if_requested(args))
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| cloud_journey::run_if_requested(args))
+        .or_else(|| repro::run_if_requested(args))
+        .or_else(|| migrate::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))
@@ -1277,7 +1301,7 @@ fn daemon_settings_scope(command_args: &[String]) -> bool {
         {
             false
         }
-        Some("get" | "set" | "reset" | "unset" | "edit") => true,
+        Some("get" | "set" | "reset" | "unset" | "edit" | "history" | "undo" | "restore") => true,
         _ => false,
     }
 }
@@ -1847,6 +1871,7 @@ fn scope_help_with_keys(
         "pairing" => Cow::Borrowed(PAIRING_HELP),
         "projection" => Cow::Borrowed(PROJECTION_HELP),
         "provider" => Cow::Borrowed(PROVIDER_HELP),
+        "share" => Cow::Borrowed(share_requests::HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
         #[cfg(unix)]
         "workflow" => Cow::Borrowed(workflow::HELP),

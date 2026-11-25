@@ -34,6 +34,26 @@ import CmuxNextWakeupsTestSupport
         #expect(ran == 1)
     }
 
+    /// A view's own launch work (Home's first conversation host, TopHomePageView) is never ahead of the
+    /// first frame, nor inside the commit's completion that opens the gate; an open that needs it runs it now.
+    @Test func aHoldRunsItsWorkAfterTheGateOpensNotInsideItAndRunNowRunsItOnce() {
+        let hold = FirstFrameHold()
+        var ran: [String] = []
+        hold.run(after: nil) { ran.append("no gate") }
+        #expect(ran == ["no gate"], "no gate (tests): at once")
+        let gate = FirstFrameGate(backstop: DemandTimer(owner: "test", clock: ManualClock()))
+        hold.run(after: gate) { ran.append("host") }
+        hold.run(after: gate) { ran.append("second") }
+        #expect(ran == ["no gate"], "ahead of the first frame")
+        gate.open()
+        #expect(ran == ["no gate"], "inside the completion that opened the gate")
+        hold.runNow()
+        hold.runNow()
+        #expect(ran == ["no gate", "host"], "runNow: the held work once; work given while it was held: dropped")
+        hold.run(after: gate) { ran.append("open gate") }
+        #expect(ran == ["no gate", "host", "open gate"], "once the frame is in: at once")
+    }
+
     @Test func theFirstFrameCancelsTheBackstop() async throws {
         let clock = ManualClock()
         let gate = FirstFrameGate(backstop: DemandTimer(owner: "test", clock: clock))

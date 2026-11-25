@@ -350,6 +350,49 @@ class Scope(unittest.TestCase):
         self.assertTrue(starts_a_test("    #[tokio::test]\n    async fn c() {}\n"))
 
 
+class BaseLogSave(unittest.TestCase):
+    """The base's own test log, which every red pull request run reads first (a test red there is the base's), is
+    saved by whichever event runs the job on feat-cmux-next. After #52321 that is only the post-merge batch (a
+    workflow_call from a workflow_dispatch, `inputs.sha` the tested tip); the save steps still asked for `push`, so
+    no log was saved, every red pull request retried and replayed the base's reds on a rebuilt merge parent (about
+    15 of a red run's 33 min), and a base test flaky there read as the change's own red."""
+
+    WORKFLOW = ROOT / ".github/workflows/cmux-tui-spec.yml"
+    BATCH = ROOT / ".github/workflows/cmux-next-post-merge.yml"
+
+    def steps(self, text, *names):
+        found = {}
+        for name in names:
+            match = re.search(rf"^      - name: {re.escape(name)}\n((?:        .*\n|\s*\n)+)", text, re.M)
+            self.assertIsNotNone(match, f"cmux-tui-spec.yml has no step {name!r}")
+            found[name] = match.group(1)
+        return found
+
+    def test_the_batch_that_tests_feat_cmux_next_saves_the_base_log(self):
+        text = self.WORKFLOW.read_text()
+        push_branches = re.search(r"^  push:\n    branches:\n((?:      .*\n)+?)    paths:", text, re.M).group(1)
+        batch = self.BATCH.read_text()
+        batch_calls_with_sha = re.search(r"uses: \./\.github/workflows/cmux-tui-spec\.yml\n    with:\n      sha: ", batch)
+        steps = self.steps(text, "Save this push's test log for pull requests", "Save the base's last test log")
+        for name, body in steps.items():
+            condition = re.search(r"^        if: \$\{\{(.*)\}\}$", body, re.M).group(1)
+            with self.subTest(step=name):
+                if "- feat-cmux-next" not in push_branches:
+                    self.assertTrue(batch_calls_with_sha, "the post-merge batch no longer calls cmux-tui-spec.yml with "
+                                                          "a sha: say which event tests feat-cmux-next, and save there")
+                    self.assertIn("github.event_name == 'workflow_dispatch' && inputs.sha != ''", condition,
+                                  f"{name!r} never runs on the post-merge batch, the only run of the job on "
+                                  "feat-cmux-next: pull requests find no base log")
+                # A bisect probe tests an old commit: its log, saved now, would read as the base's newest.
+                self.assertIn("inputs.only == ''", condition)
+                self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", condition)
+        # The tested commit names the log, so a pull request's exact merge-parent key finds the batch's run.
+        self.assertIn("key: acpmux-tests-base-log-${{ inputs.sha || github.sha }}",
+                      steps["Save the base's last test log"])
+        self.assertIn('"${TESTED_SHA:-$GITHUB_SHA}" > "$dir/sha"', steps["Save this push's test log for pull requests"])
+        self.assertIn("TESTED_SHA: ${{ inputs.sha }}", steps["Save this push's test log for pull requests"])
+
+
 class Cli(unittest.TestCase):
     def run_cli(self, *args):
         return subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True, check=False,
