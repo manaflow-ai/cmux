@@ -524,6 +524,7 @@ version = "0.1.0"
 name = "cmux-braid-path"
 version = "0.1.0"
 dependencies = [
+ "cmux-transport",
  "futures-util",
  "tokio",
 ]
@@ -537,10 +538,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cloud-wire"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-composer-send"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+]
+
+[[package]]
+name = "cmux-deadline"
+version = "0.1.0"
+dependencies = [
+ "tokio",
 ]
 
 [[package]]
@@ -584,6 +600,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-mobile-core"
+version = "0.1.0"
+dependencies = [
+ "cmux-cloud-wire",
+ "cmux-terminal-sizing",
+]
+
+[[package]]
 name = "cmux-mobile-host"
 version = "0.1.0"
 dependencies = [
@@ -592,9 +616,11 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-build-space",
+ "cmux-deadline",
  "cmux-fault",
  "cmux-message-preview",
  "cmux-mobile-link",
+ "cmux-output-paint",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-proto",
@@ -632,6 +658,7 @@ dependencies = [
 name = "cmux-mobile-link"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
  "anyhow",
  "async-trait",
  "base64",
@@ -648,6 +675,8 @@ dependencies = [
  "flate2",
  "futures-util",
  "getrandom 0.3.4",
+ "hkdf",
+ "p256",
  "rcgen",
  "reqwest",
  "rustls",
@@ -679,6 +708,7 @@ dependencies = [
  "cmux-composer-send",
  "cmux-follow-cam",
  "cmux-mobile-auto",
+ "cmux-mobile-core",
  "cmux-mobile-host",
  "cmux-mobile-last-place",
  "cmux-mobile-link",
@@ -706,6 +736,10 @@ dependencies = [
  "url",
  "uuid",
 ]
+
+[[package]]
+name = "cmux-output-paint"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-process"
@@ -812,6 +846,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-terminal-sizing"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "cmux-transport"
 version = "0.1.0"
 dependencies = [
@@ -834,6 +875,7 @@ dependencies = [
  "base64",
  "boringtun",
  "bytes",
+ "cmux-braid-path",
  "cmux-transport",
  "getrandom 0.3.4",
  "ip_network",

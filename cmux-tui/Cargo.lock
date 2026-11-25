@@ -25,6 +25,7 @@ dependencies = [
  "cmux-agent-customize",
  "cmux-agent-pane-policy",
  "cmux-auto-session",
+ "cmux-bounded",
  "cmux-build-space",
  "cmux-chat-index",
  "cmux-cloud-api",
@@ -75,6 +76,8 @@ dependencies = [
  "cmux-supervise-core",
  "cmux-tag-cache",
  "cmux-tailnet",
+ "cmux-tailnet-front",
+ "cmux-tailnet-join",
  "cmux-transport",
  "cmux-tui-hooks",
  "cmux-tui-platform",
@@ -229,6 +232,7 @@ dependencies = [
  "acpmux",
  "anyhow",
  "base64",
+ "cmux-bounded",
  "cmux-json",
  "cmux-scope",
  "crossterm",
@@ -1485,6 +1489,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-bounded"
+version = "0.1.0"
+dependencies = [
+ "cmux-deadline",
+ "proc-macro2",
+ "serde",
+ "serde_json",
+ "syn 2.0.119",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "cmux-braid-carrier"
 version = "0.1.0"
 
@@ -1492,6 +1509,7 @@ version = "0.1.0"
 name = "cmux-braid-path"
 version = "0.1.0"
 dependencies = [
+ "cmux-transport",
  "futures-util",
  "tokio",
 ]
@@ -2313,6 +2331,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-migrate"
+version = "0.1.0"
+dependencies = [
+ "cmux-git",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml",
+ "yaml-rust",
+]
+
+[[package]]
 name = "cmux-mobile-core"
 version = "0.1.0"
 dependencies = [
@@ -2851,6 +2881,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-tailnet-front"
+version = "0.1.0"
+dependencies = [
+ "cmux-scope",
+ "cmux-tailnet",
+ "libc",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-tailnet-join"
 version = "0.1.0"
 dependencies = [
@@ -3046,6 +3088,7 @@ dependencies = [
  "cmux-layout-reducer",
  "cmux-lifeline",
  "cmux-link",
+ "cmux-migrate",
  "cmux-panic-log",
  "cmux-process",
  "cmux-projection",
@@ -3196,6 +3239,7 @@ dependencies = [
  "cmux-link",
  "cmux-local-auth",
  "cmux-local-url",
+ "cmux-output-paint",
  "cmux-palette-ranker",
  "cmux-panic-log",
  "cmux-process",
@@ -3529,6 +3573,7 @@ dependencies = [
  "blake2",
  "boringtun",
  "bytes",
+ "cmux-braid-path",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-link",
