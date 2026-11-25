@@ -2787,7 +2787,10 @@ button.cv-subagent > :last-child {
 .acpmux-hat-face {
   position: absolute;
   top: 0;
-  left: calc(var(--hat-face-index) * var(--hat-face-step));
+  left: 0;
+  /* Placed on transform, so a step change (more icons sharing the cap) slides them without moving
+     any box by layout; `transform` stays free for the hover lift. */
+  translate: calc(var(--hat-face-index) * var(--hat-face-step)) 0;
   display: inline-flex;
   line-height: 0;
   border-radius: 999px;
@@ -2796,7 +2799,7 @@ button.cv-subagent > :last-child {
      under it instead (the mask, as SenderIcon.tsx cuts under its badge), so it shows the glass
      behind on any theme. The mask reaches --hat-face-pad past the icon so its badge still hangs out. */
   transition:
-    left var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out),
+    translate var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out),
     transform var(--cmux-motion-quick) var(--agent-ease-out, ease-out);
 }
 .acpmux-hat-face svg {
@@ -2839,7 +2842,7 @@ button.cv-subagent > :last-child {
 /* The fan arm: a tight stack at rest; hovered, the icons spread to the spread arm's step over the
    header (the row keeps its resting width, so nothing beside it moves). */
 .acpmux-hat-faces[data-hat-faces="fan"]:hover .acpmux-hat-face {
-  left: calc(var(--hat-face-index) * var(--hat-face-open-step));
+  translate: calc(var(--hat-face-index) * var(--hat-face-open-step)) 0;
   --hat-face-gap: var(--hat-face-open-step);
 }
 .acpmux-hat-faces[data-hat-faces="fan"] .acpmux-hat-faces__row {
@@ -3073,11 +3076,29 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray .acpmux-agent-line__button > .acpmux-summary-text {
   margin-left: calc(var(--acpmux-tray-lead-box) + var(--acpmux-tray-lead-gap) + var(--acpmux-tray-indent, 0px));
 }
+/* The steps' marks (rings, the check, the spinner) are the header glyph's ink size at every density:
+   12 px at Default, as the cropped 14 px header glyph inks (the person, 2026-11-24: the card's and the
+   plan's icons on the + axis, the same size). */
+.acpmux-running-tray {
+  --acpmux-tray-mark: calc(var(--acpmux-tray-glyph) * 12 / 14);
+}
 .acpmux-running-tray__plan .cv-plan__item {
-  gap: calc((var(--acpmux-tray-lead-box) - 12px) / 2 + var(--acpmux-tray-lead-gap));
+  gap: calc((var(--acpmux-tray-lead-box) - var(--acpmux-tray-mark)) / 2 + var(--acpmux-tray-lead-gap));
 }
 .acpmux-running-tray__plan .cv-plan__mark {
-  margin-inline-start: calc((var(--acpmux-tray-lead-box) - 12px) / 2);
+  width: var(--acpmux-tray-mark);
+  height: var(--acpmux-tray-mark);
+  /* Centred on the step's first line, as the 12 px mark's half step centred it. */
+  margin-top: calc((var(--grid-icon-box) - var(--acpmux-tray-mark)) / 2);
+  margin-inline-start: calc((var(--acpmux-tray-lead-box) - var(--acpmux-tray-mark)) / 2);
+}
+.acpmux-running-tray__plan .cv-plan__mark > svg {
+  width: 100%;
+  height: 100%;
+}
+.acpmux-running-tray__plan .cv-plan__item[data-status="completed"] .cv-plan__mark > svg {
+  width: calc(100% * 10 / 12);
+  height: calc(100% * 10 / 12);
 }
 
 /* The hat's one caret (HatChevron.tsx): the Goal row's and the header's, one size at every density. */
