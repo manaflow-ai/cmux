@@ -48,7 +48,9 @@ Left to right in the toolbar row:
 3. **Pinned extension actions** (each the extension's icon and badge), then the Extensions
    button. Shown on Chromium tabs only.
 4. **Trailing buttons**, only the pinned ones with something to show, in catalog order: Media,
-   Zoom, Bookmarks, Downloads, Design Mode, Profile, Theme, DevTools, then More (always).
+   Zoom, Bookmarks, Downloads, Design Mode, Theme, DevTools, Profile, then More (always). Profile
+   is pinned by default and draws the tab's profile as its avatar (its letter or icon on its
+   color); a press opens the profile menu. The profile is never inside the address bar.
 5. **Progress line**, 2 pt, at the row's bottom edge, the focus ring gray at 80%.
 
 The suggestion card hangs from the bar. Page Info is a popup anchored at the chip.
@@ -83,9 +85,8 @@ Comfortable density (34 pt bar and buttons, 15 pt text) is not drawn yet; the nu
 ## States
 
 - **Idle.** The bar is a tonal fill over the toolbar (fg at 7%), a lift on hover (10%).
-  The site-info chip and the star always show (#50986). The tab's profile avatar carries no news,
-  so it is clear until the pointer is on the bar or the bar has the keyboard, and keeps its room so
-  no text moves (`AddressBarView+QuietIcons.swift`).
+  The site-info chip and the star always show (#50986). The tab's profile is never inside the
+  bar, at rest or focused: it is the toolbar's profile button, at the toolbar's right.
 - **Focused / editing.** No fill, a 2 pt neutral ring, the full URL, the chip's label hidden and
   its icon describing the input (search, or the highlighted suggestion's kind). Focus changes the
   look in the press's own frame; only hover eases.
