@@ -134,6 +134,36 @@ SWIFT_STRINGS = """\
         static func placeholderTitle(_ machine: String) -> String { machine }
     }
 """
+# A strings member whose words sit under a local (`let state`) inside it, and the button that draws it (cmux#53574's
+# Live tooltip: "Click to go offline" read as a state on the strings type, and every kit run on base went red).
+SWIFT_STRINGS_LOCAL = """\
+    extension Strings {
+        static func liveTooltip(isLive: Bool) -> String {
+            let state = isLive
+                ? String(localized: "sidebar.live.on", defaultValue: "Live is on. Click to go offline.")
+                : String(localized: "sidebar.live.off", defaultValue: "Live is off. Click to go live.")
+            return state
+        }
+    }
+"""
+SWIFT_LIVE_BUTTON = """\
+    import AppKit
+
+    extension SidebarView {
+        func applyLive() { liveButton.toolTip = Strings.liveTooltip(isLive: live.isLive) }
+        func liveMenu() -> NSMenu {
+            let item = NSMenuItem(title: "", action: #selector(SidebarLiveMenuTarget.pick(_:)), keyEquivalent: "")
+            return NSMenu()
+        }
+    }
+"""
+SWIFT_LIVE_LABEL = """\
+    import AppKit
+
+    final class LiveLabel: NSView {
+        func show(isLive: Bool) { label.stringValue = Strings.liveTooltip(isLive: isLive) }
+    }
+"""
 SWIFT_VIEW_OLD = """\
     import AppKit
 
@@ -294,6 +324,20 @@ class NativeShapes(unittest.TestCase):
                       "state ('RemoteStrings: Reconnecting to %@…')", out)
         self.assertNotIn("RemoteTerminalTitleView", out, "a view that draws another member of the strings is quiet")
         self.assertNotIn("RemoteStrings.swift", out)
+
+    def test_words_under_a_local_belong_to_the_member_around_it(self):
+        """The hit's member is the strings function, not the `let` inside it: the words move to the unit that calls
+        the function. A button with its own action passes; a label with none fails at the label."""
+        tree = Tree(self)
+        tree.write(f"{MAC}/Strings+Live.swift", SWIFT_STRINGS_LOCAL)
+        tree.write(f"{MAC}/SidebarView+Live.swift", SWIFT_LIVE_BUTTON)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree.write(f"{MAC}/LiveLabel.swift", SWIFT_LIVE_LABEL)
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"{MAC}/LiveLabel.swift:4: LiveLabel shows a connection state", out)
+        self.assertNotIn("Strings+Live.swift:", out)
 
     def test_remote_placeholder_held_for_notice_timing_passes(self):
         tree = Tree(self)
@@ -673,6 +717,76 @@ class SharedBound(unittest.TestCase):
         if not (ROOT / ccn.NOTICE_TIMING).is_file():
             self.skipTest("no schema in this checkout")
         self.assertEqual(ccn.bound_drift(tree), [])
+
+
+class InputBlockedWhileConnecting(unittest.TestCase):
+    """--input-block: Leo, 2026-11-24, back in the iOS app after minutes away: "the entire thing is somehow grayed out
+    and I can't interact with anything at all". Each place input is taken away or a view grayed out on a link
+    condition is reported; a show-or-hide toggle, an account's connect button and a callback named onConnect are
+    not. A report: it exits 0 whatever it finds."""
+
+    def found(self, tree: Tree) -> list[tuple[str, str, str]]:
+        return [(f.surface, f.unit, f.kind) for f in ccn.input_blocks(ccn.Tree(tree.root))]
+
+    def test_ios_controls_disabled_or_dimmed_on_the_link(self):
+        tree = Tree(self)
+        tree.write(f"{IOS}/TerminalPage.swift", """\
+            struct TerminalPage: View {
+                var body: some View {
+                    VStack {
+                        Composer().disabled(!model.connectionState.isAttached)
+                        Grid().opacity(link == .reconnecting ? 0.45 : 1)
+                        Rows().allowsHitTesting(hub.isReady)
+                        Chip().opacity(shown ? 1 : 0)
+                        Send().disabled(text.isEmpty)
+                    }
+                }
+            }
+        """)
+        self.assertEqual(self.found(tree), [("ios", "TerminalPage", "disabled"), ("ios", "TerminalPage", "opacity"),
+                                            ("ios", "TerminalPage", "allowsHitTesting")])
+
+    def test_a_derived_flag_and_a_labelled_argument(self):
+        tree = Tree(self)
+        tree.write(f"{IOS}/TabActions.swift", """\
+            final class TabActions {
+                var inputBlocked: Bool { linkState != .live }
+                let model = TerminalModel(connection: connection)
+                func actions() -> [Action] {
+                    [Action(title: "Send Text", isEnabled: !inputBlocked),
+                     Action(title: "Clear", isEnabled: model.canClear),
+                     Action(title: "Paste", isEnabled: model.connectionState.isAttached)]
+                }
+            }
+        """)
+        self.assertEqual(self.found(tree), [("ios", "TabActions", "isEnabled"), ("ios", "TabActions", "isEnabled")])
+
+    def test_web_disabled_while_disconnected_but_not_an_account_connect(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/KeysPage.tsx", """\
+            export function KeysPage({ snap, github, onConnect }: Props) {
+              const disconnected = snap.connection === "disconnected";
+              return (
+                <div>
+                  <button disabled={disconnected}>Save</button>
+                  <button disabled={state.connection !== "live"}>Attach</button>
+                  <button disabled={!github.canConnect}>Connect GitHub</button>
+                  <button disabled={!onConnect}>Pick</button>
+                </div>
+              );
+            }
+        """)
+        self.assertEqual(self.found(tree), [("web", "KeysPage", "disabled"), ("web", "KeysPage", "disabled")])
+
+    def test_the_report_exits_zero(self):
+        tree = Tree(self)
+        tree.write(f"{IOS}/Page.swift", "struct Page: View { var body: some View { Text(\"x\").disabled(offline) } }\n")
+        out = io.StringIO()
+        self.assertEqual(ccn.report_input_blocks(tree.root, out=out), 0)
+        self.assertIn("input blocked while connecting: 1 place(s) (ios 1)", out.getvalue())
+        out = io.StringIO()
+        self.assertEqual(ccn.report_input_blocks(tree.root, as_json=True, out=out), 0)
+        self.assertEqual(json.loads(out.getvalue())["findings"][0]["unit"], "Page")
 
 
 if __name__ == "__main__":

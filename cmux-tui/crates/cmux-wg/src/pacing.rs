@@ -31,6 +31,13 @@
 //! waits here. Nothing is dropped: the queues are
 //! bounded by the connections' TCP windows, and past `MAX_QUEUED` packets
 //! the driver leaves smoltcp's output in the device, which then blocks TCP.
+//!
+//! A bulk connection is also held to a delay-based window on the wire
+//! ([`crate::delay_window`]): from its own round-trip times it keeps the
+//! path's queue near [`crate::delay_window::TARGET`] instead of full, so
+//! what the classes above send never waits behind it in the path either.
+//! Its backlog waits here, behind them. An interactive connection is never
+//! held.
 
 use std::collections::{HashMap, VecDeque};
 use std::net::IpAddr;
@@ -39,6 +46,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use tokio::time::Instant;
+
+use crate::delay_window::DelayWindow;
 
 /// Pacing gain over the measured rate (the usual slow-start pacing ratio).
 const GAIN: f64 = 2.0;
@@ -191,6 +200,8 @@ struct Connection {
     timed: Option<(u32, Instant)>,
     srtt: Option<Duration>,
     last_seen: Instant,
+    /// The delay-based window on the wire (bulk only).
+    delay: DelayWindow,
 }
 
 impl Connection {
@@ -207,6 +218,7 @@ impl Connection {
             timed: None,
             srtt: None,
             last_seen: now,
+            delay: DelayWindow::default(),
         }
     }
 
@@ -218,6 +230,31 @@ impl Connection {
         }
     }
 
+    /// Bytes on the wire: sent and not yet acknowledged.
+    fn wire_flight(&self) -> u32 {
+        match (self.snd_max, self.snd_una) {
+            (Some(max), Some(una)) if after(max, una) => max.wrapping_sub(una),
+            _ => 0,
+        }
+    }
+
+    /// Whether the delay window lets the queue's head leave: anything but
+    /// fresh data does, and so does fresh data that fits the window (or
+    /// with nothing on the wire). An interactive connection is never held.
+    fn window_open(&self) -> bool {
+        let Some(window) = self.delay.window() else { return true };
+        if self.interactive() {
+            return true;
+        }
+        let Some(head) = self.queue.front().and_then(|packet| segment(packet)) else {
+            return true;
+        };
+        let end = head.seq.wrapping_add(head.len);
+        let fresh = head.len > 0 && self.snd_max.is_none_or(|max| after(end, max));
+        let flight = self.wire_flight();
+        !fresh || flight == 0 || flight.saturating_add(head.len) <= window
+    }
+
     /// Whether the connection is interactive now (see `INTERACTIVE_QUEUE`).
     fn interactive(&self) -> bool {
         self.queue.len() <= INTERACTIVE_QUEUE && self.flight() < MIN_FLIGHT
@@ -226,7 +263,12 @@ impl Connection {
     /// Bytes per second, or `None` before the first RTT sample (unpaced).
     fn rate(&self) -> Option<f64> {
         let srtt = self.srtt?.as_secs_f64().max(1e-6);
-        Some(GAIN * f64::from(self.flight().max(MIN_FLIGHT)) / srtt)
+        // Held to a window, the backlog queued here is not flight.
+        let flight = match self.delay.window() {
+            Some(window) => self.flight().min(window),
+            None => self.flight(),
+        };
+        Some(GAIN * f64::from(flight.max(MIN_FLIGHT)) / srtt)
     }
 
     /// Record a segment the stack emitted; true when it carries sequence
@@ -248,6 +290,13 @@ impl Connection {
                 self.snd_max = Some(end);
                 if self.timed.is_none() {
                     self.timed = Some((end, now));
+                }
+                // Not a SYN: a repeated SYN restarts the connection here,
+                // so the next SYN-ACK copy would look fresh and the first
+                // copy's ACK would time it at zero, a base no queue exceeds.
+                if !segment.syn {
+                    let flight = self.wire_flight();
+                    self.delay.departed(end, flight, now);
                 }
             } else if self.timed.is_some_and(|(timed, _)| !after(end, timed)) {
                 // A retransmission: its ACK cannot be timed (Karn).
@@ -271,6 +320,7 @@ impl Connection {
         self.una_window_seq = None;
         self.rcv_max = None;
         self.timed = None;
+        self.delay.restart();
     }
 
     fn acked(&mut self, ack: u32, seq: u32, window: u16, now: Instant) {
@@ -282,6 +332,9 @@ impl Connection {
             self.snd_una = Some(ack);
             self.una_window = Some(window);
             self.una_window_seq = Some(seq);
+        }
+        if newer && let Some(max) = self.snd_max {
+            self.delay.acked(ack, max, now);
         }
         if let Some((timed, sent)) = self.timed
             && !after(timed, ack)
@@ -299,12 +352,14 @@ impl Connection {
 /// The scheduling class of a datagram (transport.md 12a).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Priority {
-    /// Control and terminal bytes: before everything else.
-    Interactive,
-    /// Terminal screen state (latest wins): queued exactly like
-    /// [`Interactive`](Self::Interactive), but Ultra Mode repairs it only
-    /// above 1 % measured loss (input is repaired at any loss).
+    /// Terminal screen state (the link's class-1 datagrams): ahead of every
+    /// other datagram and the TCP stack's interactive connections, unpaced.
+    /// Each message is a whole state, so a full queue refuses the newest.
+    /// Ultra Mode repairs it only above 1 % measured loss (input is
+    /// repaired at any loss).
     Screen,
+    /// Control and terminal bytes: before everything else but screen state.
+    Interactive,
     /// Remote desktop media: after interactive traffic, dropped when stale.
     Media,
     /// Everything that can wait: after media.
@@ -318,6 +373,7 @@ pub(crate) struct DropCounters {
     pub(crate) media_stale: AtomicU64,
     pub(crate) media_full: AtomicU64,
     pub(crate) interactive_full: AtomicU64,
+    pub(crate) screen_full: AtomicU64,
     pub(crate) bulk_full: AtomicU64,
     pub(crate) inbox_full: AtomicU64,
 }
@@ -335,9 +391,10 @@ pub(crate) struct Pacer {
     connections: HashMap<Flow, Connection>,
     /// Packets from the TCP stack that are not TCP (rare): first, unpaced.
     other: VecDeque<Vec<u8>>,
-    /// Interactive datagrams: right after `other`, unpaced.
-    /// Each with its class: [`Priority::Interactive`] or [`Priority::Screen`].
-    interactive: VecDeque<(Vec<u8>, Priority)>,
+    /// Screen-state datagrams: right after `other`, unpaced.
+    screen: VecDeque<Vec<u8>>,
+    /// Interactive datagrams: right after `screen`, unpaced.
+    interactive: VecDeque<Vec<u8>>,
     media: VecDeque<(Instant, Vec<u8>)>,
     bulk: VecDeque<Vec<u8>>,
     /// Earliest departure of the next bulk datagram: bulk datagrams are
@@ -352,11 +409,26 @@ pub(crate) struct Pacer {
     /// Segments the stack sent again (lost, or so TCP thinks) since the last
     /// [`Pacer::take_resent`]; a keepalive is not one.
     resent: u64,
+    /// The stack was told the path changed (see [`Pacer::path_changed`]):
+    /// what it sends again now is forced, not lost.
+    forced: bool,
 }
 
 impl Pacer {
     pub(crate) fn has_room(&self) -> bool {
         self.queued < MAX_QUEUED
+    }
+
+    /// The peer was silent and is heard again (a parked phone woke, a
+    /// blackout ended): a segment timed before or during the silence would
+    /// time the silence as a round trip. One such sample after a 60 s sleep
+    /// put the smoothed RTT at about 7.5 s, so a resumed backlog left at a
+    /// hundredth of the path's rate for seconds. Every connection's sample
+    /// in flight is dropped; its next new segment starts another.
+    pub(crate) fn forget_samples(&mut self) {
+        for connection in self.connections.values_mut() {
+            connection.timed = None;
+        }
     }
 
     /// The largest smoothed RTT among the connections, if any measured one.
@@ -366,6 +438,7 @@ impl Pacer {
 
     pub(crate) fn has_queued(&self) -> bool {
         self.queued > 0
+            || !self.screen.is_empty()
             || !self.interactive.is_empty()
             || !self.media.is_empty()
             || !self.bulk.is_empty()
@@ -375,7 +448,8 @@ impl Pacer {
     pub(crate) fn drain(&mut self) -> Vec<Vec<u8>> {
         self.queued = 0;
         let mut packets: Vec<Vec<u8>> = self.other.drain(..).collect();
-        packets.extend(self.interactive.drain(..).map(|(packet, _)| packet));
+        packets.extend(self.screen.drain(..));
+        packets.extend(self.interactive.drain(..));
         packets.extend(self.media.drain(..).map(|(_, packet)| packet));
         packets.extend(self.bulk.drain(..));
         for connection in self.connections.values_mut() {
@@ -388,13 +462,13 @@ impl Pacer {
     /// class bound (see [`MAX_DATAGRAMS`]).
     pub(crate) fn push_datagram(&mut self, packet: Vec<u8>, priority: Priority, now: Instant) {
         match priority {
-            Priority::Interactive | Priority::Screen if self.interactive.len() < MAX_DATAGRAMS => {
-                self.interactive.push_back((packet, priority));
+            Priority::Screen if self.screen.len() < MAX_DATAGRAMS => self.screen.push_back(packet),
+            Priority::Screen => DropCounters::count(&self.drops.screen_full),
+            Priority::Interactive if self.interactive.len() < MAX_DATAGRAMS => {
+                self.interactive.push_back(packet);
             }
             Priority::Bulk if self.bulk.len() < MAX_DATAGRAMS => self.bulk.push_back(packet),
-            Priority::Interactive | Priority::Screen => {
-                DropCounters::count(&self.drops.interactive_full);
-            }
+            Priority::Interactive => DropCounters::count(&self.drops.interactive_full),
             Priority::Bulk => DropCounters::count(&self.drops.bulk_full),
             Priority::Media => {
                 self.expire_media(now);
@@ -444,11 +518,43 @@ impl Pacer {
         // Old sequence space past what the peer acknowledged: TCP sends it
         // again. A keepalive repeats the byte before `snd_una`, so it is not.
         let end = segment.seq.wrapping_add(segment.len);
-        if !fresh && segment.len > 0 && connection.snd_una.is_some_and(|una| after(end, una)) {
+        if !fresh
+            && !self.forced
+            && segment.len > 0
+            && connection.snd_una.is_some_and(|una| after(end, una))
+        {
             self.resent += 1;
+            connection.delay.resent();
+            // Ahead of the fresh data queued here (TCP takes it in any
+            // order): the delay window may hold that data until an ACK this
+            // segment is what brings.
+            if let Some(max) = connection.snd_max
+                && let Some(at) = connection.queue.iter().position(|waiting| {
+                    self::segment(waiting).is_some_and(|queued| {
+                        queued.len > 0 && after(queued.seq.wrapping_add(queued.len), max)
+                    })
+                })
+            {
+                connection.queue.insert(at, packet);
+                return fresh;
+            }
         }
         connection.queue.push_back(packet);
         fresh
+    }
+
+    /// Until [`Pacer::path_settled`], segments sent again are not counted
+    /// in [`Pacer::take_resent`]: the stack resends what is in flight because
+    /// it was told the path changed (or a silence ended), not because the
+    /// segments were lost. Counted, an idle link whose ends send at the same
+    /// moment took it as loss and turned ultra mode's Auto on.
+    pub(crate) fn path_changed(&mut self) {
+        self.forced = true;
+    }
+
+    /// The resends forced by [`Pacer::path_changed`] were pushed.
+    pub(crate) fn path_settled(&mut self) {
+        self.forced = false;
     }
 
     /// Segments sent again since the last call (for ultra mode's Auto).
@@ -539,7 +645,7 @@ impl Pacer {
 
     /// [`pop`](Self::pop), with the class the packet left in: packets the
     /// stack emitted that are not TCP, interactive datagrams and connections
-    /// are [`Priority::Interactive`], paced bulk connections and bulk
+    /// are [`Priority::Interactive`], screen datagrams [`Priority::Screen`], paced bulk connections and bulk
     /// datagrams [`Priority::Bulk`].
     pub(crate) fn pop_classified(
         &mut self,
@@ -549,8 +655,11 @@ impl Pacer {
             self.queued = self.queued.saturating_sub(1);
             return Ok(Some((packet, Priority::Interactive)));
         }
-        if let Some((packet, class)) = self.interactive.pop_front() {
-            return Ok(Some((packet, class)));
+        if let Some(packet) = self.screen.pop_front() {
+            return Ok(Some((packet, Priority::Screen)));
+        }
+        if let Some(packet) = self.interactive.pop_front() {
+            return Ok(Some((packet, Priority::Interactive)));
         }
         if let Some(packet) = self.pop_connection(now, true) {
             return Ok(Some((packet, Priority::Interactive)));
@@ -576,7 +685,8 @@ impl Pacer {
         let earliest = self
             .connections
             .values()
-            .filter(|connection| !connection.queue.is_empty())
+            // One the window holds waits for an ACK, not a time.
+            .filter(|connection| !connection.queue.is_empty() && connection.window_open())
             .map(|connection| connection.next_free)
             .chain(bulk_free)
             .min();
@@ -634,6 +744,7 @@ impl Pacer {
                 !connection.queue.is_empty()
                     && connection.interactive() == interactive
                     && connection.next_free <= now
+                    && connection.window_open()
             })
             .min_by_key(|(_, connection)| connection.queue.len())
             .map(|(flow, _)| *flow)?;
