@@ -18,6 +18,7 @@ mod browser;
 mod classic_leftovers;
 mod composer_outbox;
 mod follow_camera;
+mod last_place;
 mod link_side;
 pub mod local_link;
 mod mac_screen;
@@ -25,6 +26,7 @@ mod pair_requests;
 mod share_approval;
 mod tabs;
 mod terminal_chat;
+mod terminal_fit;
 mod terminal_prediction;
 mod terminal_projection;
 mod window_layout;
@@ -35,12 +37,16 @@ pub use composer_outbox::{
     ComposerOutbox, ComposerSendAnswer, ComposerSendDone, ComposerSendOutcome, ComposerSendRequest,
 };
 pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};
+pub use last_place::{LastPlaceAnchor, LastPlaceRecord, LastPlaceScreen, LastPlaceStore};
 pub use link_side::{LinkOpenSide, link_open_side};
 pub use mac_screen::{MacScreenAnswer, MacScreenDisplay, MacScreenIceServer, MacScreenObserver, MacScreenRd};
 pub use share_approval::{ShareApprovalDraft, ShareAsk, share_approval_draft, share_approval_signed};
 pub use tabs::{TabsEvent, TabsMirror, TabsRow, TabsViewport};
 pub use terminal_chat::{
     TabFace, TerminalChatCandidate, TerminalChatFaces, TerminalChatFacts, TerminalChatSwap,
+};
+pub use terminal_fit::{
+    TerminalFitDecision, TerminalFitPolicy, TerminalFitReason, TerminalZoomGeometry, TerminalZoomState,
 };
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
 pub use terminal_projection::{ProjectionSegment, ProjectionStats, TerminalProjection};
@@ -688,6 +694,13 @@ impl ChannelHandle {
         self.id
     }
 
+    /// Payload bytes this channel has queued for the transport so far. It moves while a long
+    /// write is taken by the link and stops when the link stalls: a request's deadline reads it
+    /// as progress, not a wall clock (`DaemonClient` on iOS).
+    pub fn sent_bytes(&self) -> u64 {
+        self.sender.sent_bytes()
+    }
+
     pub async fn send(&self, data: Vec<u8>) -> Result<(), CmuxMobileError> {
         let sender = Arc::clone(&self.sender);
         on_runtime(async move { sender.send(data.into()).await }).await?;
@@ -1217,6 +1230,8 @@ async fn network_changed_on(
     team_id: String,
     device_id: String,
 ) -> Vec<TimingMark> {
+    // The ads were seen on the old network: a dial now would wait on a dead hub.
+    local_link::local_link_forget_all();
     let roam = tokio::spawn(cmux_mobile_link::dial::wireguard::network_changed());
     let timeline = Timeline::new();
     let key = SocketKey { base_url, team_id, device_id, build_space: build_space() };

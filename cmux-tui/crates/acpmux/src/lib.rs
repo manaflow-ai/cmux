@@ -257,6 +257,7 @@ pub mod peer_states;
 pub mod person_proof;
 pub mod person_tokens;
 // A new chat's place mode (Auto, Cloud, one machine) and where it starts with it.
+pub mod fleet_elastic;
 pub mod place_mode;
 pub mod placement;
 pub mod plan_build_records;
@@ -301,6 +302,8 @@ mod router_socket;
 pub mod routes;
 pub mod rows;
 pub mod rpc;
+// `acpmux run-ask`: run an accepted forum `run` ask here or through the scheduler.
+pub mod run_ask;
 pub mod run_elsewhere;
 pub mod sccache_env;
 pub mod schema;

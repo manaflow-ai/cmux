@@ -352,10 +352,12 @@ handoff_tag=""
 if [[ "$mode" == handoff ]]; then
   [[ $# -eq 2 && "${2:-}" == tag=* ]] || { echo "cmux-next-ios-sim.sh: handoff takes one argument, tag=TAG" >&2; exit 2; }
   handoff_tag="${2#tag=}"
-  [[ "$handoff_tag" =~ ^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$ && "$handoff_tag" != default ]] ||
-    { echo "cmux-next-ios-sim.sh: handoff tag= wants lowercase letters, digits and dashes (at most 64), got '$handoff_tag'" >&2; exit 2; }
-  # dev.cmux.mobile.dev is the cmux Dev app (try mode), which shows the person's real data.
-  [[ "$handoff_tag" != dev ]] || { echo "cmux-next-ios-sim.sh: tag dev is the cmux Dev app's (try mode); pick another tag" >&2; exit 2; }
+  # The one tag rule of every build entry point (reload.sh, review.sh): a canonical tag (its own slug, so
+  # no two spellings share the space dev:<tag>), and none of the reserved ones: default, dev (the cmux Dev
+  # app, try mode, which shows the person's real data), demo and prod (demo-build.sh's installs).
+  # shellcheck source=scripts/lib/mobile-attach.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/../lib/mobile-attach.sh"
+  cmux_attach_validate_dev_tag "$handoff_tag" || { echo "cmux-next-ios-sim.sh: handoff tag=$handoff_tag refused" >&2; exit 2; }
 fi
 if [[ "$mode" == shots && ${#scenes[@]} -eq 0 ]]; then
   echo "cmux-next-ios-sim.sh: shots needs one or more scenes after it, name=WORD,WORD,..." >&2; exit 2
