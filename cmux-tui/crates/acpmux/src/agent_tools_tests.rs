@@ -1370,3 +1370,44 @@ fn the_moved_instructions_join_the_last_appended_prompt() {
     assert!(!super::takes_appended_prompt(&words(&["--append-system-prompt-file", "f"])));
     assert!(!super::takes_appended_prompt(&words(&["--append-system-prompt=x"])));
 }
+
+#[test]
+fn a_chat_whose_memory_followed_it_keeps_memory_and_reaches_its_owner() {
+    use crate::memory_follow::{FOLLOWS_ENV, OWNER_ENV};
+    let root = std::env::temp_dir().join(format!("acpmux-memory-follow-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let chief = root.join("optchat-chief");
+    crate::test_exec::write_executable(&chief, "#!/bin/sh\nexit 0\n");
+    let moved: std::collections::BTreeMap<String, String> =
+        [(FOLLOWS_ENV.to_owned(), "1".to_owned()), (OWNER_ENV.to_owned(), "mac-mini".to_owned())]
+            .into();
+    let memory = |json: Option<&str>, session_env: &std::collections::BTreeMap<String, String>| {
+        resolve(&memory_inputs(&root, json))
+            .scoped(session_env)
+            .for_session("s-1")
+            .servers
+            .into_iter()
+            .find(|s| s.name == super::MEMORY_SERVER_NAME)
+    };
+    // A Cloud machine with no memory setting: the moved chat gets the server, routed to its owner.
+    for json in [None, Some("{}")] {
+        let server = memory(json, &moved).unwrap_or_else(|| panic!("{json:?}"));
+        assert_eq!(server.command, chief);
+        assert_eq!(server.args, ["agent-memory", "mcp"]);
+        assert!(server.env.contains(&(OWNER_ENV.to_owned(), "mac-mini".to_owned())));
+        assert!(server.env.contains(&(super::AGENT_SESSION_ENV.to_owned(), "s-1".to_owned())));
+        // A chat that started here, with no memory, still gets none.
+        assert!(memory(json, &std::collections::BTreeMap::new()).is_none());
+    }
+    // This machine has memory on too: one server, which carries the owner the chat used.
+    let on = Some(r#"{"agents": {"memory": {"enabled": true}}}"#);
+    let tools = resolve(&memory_inputs(&root, on)).scoped(&moved);
+    let servers: Vec<_> =
+        tools.servers.iter().filter(|s| s.name == super::MEMORY_SERVER_NAME).collect();
+    assert_eq!(servers.len(), 1);
+    assert!(servers[0].env.contains(&(OWNER_ENV.to_owned(), "mac-mini".to_owned())));
+    // The person turned memory off on this machine: off for moved chats too.
+    let off = Some(r#"{"agents": {"memory": {"enabled": false}}}"#);
+    assert!(memory(off, &moved).is_none());
+    let _ = std::fs::remove_dir_all(&root);
+}

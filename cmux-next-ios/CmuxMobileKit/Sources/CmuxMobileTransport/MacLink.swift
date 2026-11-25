@@ -171,6 +171,14 @@ public protocol ParkableMacLink: MacLink {
     /// passed. The tunnel then moves onto a fresh socket; probe it, and the
     /// first frame back ends the park on both sides.
     func resumeParked() -> Bool
+    /// In front again, how long the resumed link may stay silent before a
+    /// redial is raced against it (the Rust link: three smoothed round trips
+    /// plus 100 ms, within 250 ms and 1.5 s); nil keeps the controller's own.
+    var resumeHedge: Duration? { get }
+}
+
+public extension ParkableMacLink {
+    var resumeHedge: Duration? { nil }
 }
 
 /// One multiplexed channel inside a link.
