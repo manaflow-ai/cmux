@@ -376,6 +376,7 @@ backfill() { # <reason>
   fi
   if gh workflow run cmux-tui-artifacts.yml --repo "$repo" --ref feat-cmux-next; then
     : > "$stamp"
+    backfill_dispatched=1
     echo "backfill: dispatched cmux-tui-artifacts on feat-cmux-next ($1)"
   else
     echo "warning: backfill: could not dispatch cmux-tui-artifacts on feat-cmux-next ($1)" >&2
@@ -420,6 +421,25 @@ if ! resolved="$(env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY CMUX_TUI_TREE_DISPA
         && { (( tip_runs == 0 )) || (( tip_runs - $(starved_runs "$sha") <= 0 )); }; then
       backfill "the feat-cmux-next tip ${sha:0:12} has no cmux-tui-artifacts run"
     fi
+  fi
+  # The dispatch just made is the tip's active run: request the tip now, as the
+  # next tick would, instead of 30 min later. Every coalesced tip used to wait
+  # one whole tick here (2026-11-24/25: promote took 32-55 min on 3 of the last
+  # 10 publishes). The run shows in the run list within seconds; polls bound it.
+  if [[ "${backfill_dispatched:-0}" == 1 ]]; then
+    polls="${CMUX_BACKFILL_REQUEST_POLLS:-6}"; pause="${CMUX_BACKFILL_REQUEST_SLEEP:-10}"
+    [[ "$polls" =~ ^[0-9]+$ ]] || polls=6
+    [[ "$pause" =~ ^[0-9]+$ ]] || pause=10
+    for (( poll = 1; poll <= polls; poll++ )); do
+      sleep "$pause"
+      pending_rc=0
+      request_tree_pending || pending_rc=$?
+      case "$pending_rc" in
+        0) exit 0 ;;
+        2) exit 1 ;;
+      esac
+    done
+    echo "the backfill run for ${sha:0:12} did not show as active after $polls polls; the next tick requests it"
   fi
   exit 0
 fi

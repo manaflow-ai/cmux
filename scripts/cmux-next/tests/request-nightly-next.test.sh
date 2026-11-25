@@ -110,6 +110,10 @@ STUB
 cat > "$TMP/bin/gh" <<STUB
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$TMP/gh.log"
+# A dispatch that makes the tip's run active: \$TMP/gh-runs-after-dispatch becomes the run list.
+if [[ "\$1 \$2 \$3" == "workflow run cmux-tui-artifacts.yml" && -f "$TMP/gh-runs-after-dispatch" ]]; then
+  cp "$TMP/gh-runs-after-dispatch" "$TMP/gh-runs"; exit 0
+fi
 if [[ "\$1 \$2" == "run list" ]]; then
   # \$TMP/gh-runs-json (a run list as JSON) is filtered by the call's own --jq.
   if [[ -f "$TMP/gh-runs-json" && " \$* " == *" --json status,conclusion,event "* ]]; then
@@ -176,6 +180,7 @@ request() { # <args...> -> output in $out, exit in $status
   : > "$TMP/gh.log"
   out=$(cd "$src" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT -u CMUX_TUI_TREE_DISPATCH PATH="$TMP/bin:$PATH" \
     RUNNER_TEMP="$TMP/runner" GITHUB_RUN_ID="${RUN_ID:-1}" NIGHTLY_NEXT_PROMOTE="${PROMOTE-1}" \
+    CMUX_BACKFILL_REQUEST_SLEEP=0 CMUX_BACKFILL_REQUEST_POLLS="${POLLS:-2}" \
     bash scripts/cmux-next/request-nightly-next.sh --repo o/r "$@" 2>&1) || status=$?
 }
 mkdir -p "$TMP/runner"
@@ -824,6 +829,18 @@ echo '[{"status":"completed","conclusion":"success","event":"push"}]' > "$TMP/gh
 RUN_ID=129 request --tree-ready "$pending"
 [[ "$status" == 0 ]] && backfilled && ! dispatched "$pending" \
   || fail "a tip whose only run succeeded without a tree must be backfilled:" "$out" "$(cat "$TMP/gh.log")"
+# The backfill's own run is the tip's active run at once: the same job requests
+# the tip (its nightly compiles while the tree builds) instead of the next tick.
+echo 1 > "$TMP/gh-runs-after-dispatch"
+RUN_ID=131 request --tree-ready "$pending"
+[[ "$status" == 0 ]] && backfilled && dispatched "$pending" && grep -q "its cmux-tui tree is building" <<<"$out" \
+  || fail "a backfilled tip must be requested in the same job once its run shows:" "$out" "$(cat "$TMP/gh.log")"
+rm -f "$TMP/gh-runs-after-dispatch"
+echo 0 > "$TMP/gh-runs"
+RUN_ID=132 request --tree-ready "$pending"
+[[ "$status" == 0 ]] && backfilled && ! dispatched "$pending" && grep -q "did not show as active after 2 polls" <<<"$out" \
+  || fail "a backfill run that never shows must leave the tip to the next tick:" "$out" "$(cat "$TMP/gh.log")"
+echo '[{"status":"completed","conclusion":"success","event":"push"}]' > "$TMP/gh-runs-json"
 # A green backfill dispatch that published nothing is not re-dispatched every tick.
 for run in '{"status":"completed","conclusion":"failure","event":"push"}' '{"status":"in_progress","conclusion":null,"event":"push"}' \
            '{"status":"completed","conclusion":"success","event":"workflow_dispatch"}'; do
