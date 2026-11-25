@@ -213,16 +213,16 @@ fn keep_acceptance(session: &Session, prompt_id: &str, v: &Value) {
         .filter(|(_, outcome)| outcome.borrow().is_none())
         .map(|(id, _)| id.clone())
         .collect();
+    let token = session
+        .prompts
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .find(|(id, _)| id == prompt_id)
+        .map(|(_, outcome)| outcome_token(outcome));
+    let Some(token) = token else { return };
     {
         let mut kept = session.accepted_prompts.lock().unwrap_or_else(|e| e.into_inner());
-        let token = session
-            .prompts
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .iter()
-            .find(|(id, _)| id == prompt_id)
-            .map(|(_, outcome)| outcome_token(outcome));
-        let Some(token) = token else { return };
         kept.retain(|(id, _, _)| id != prompt_id);
         kept.push_back((prompt_id.to_owned(), token, v.clone()));
         while kept.len() > KEPT_ACCEPTS {
@@ -248,14 +248,17 @@ async fn first_acceptance(
     let mut seq = session.accepted_seq.subscribe();
     loop {
         seq.borrow_and_update();
-        let kept = session
-            .accepted_prompts
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .iter()
-            .rev()
-            .find(|(id, kept_token, _)| id == prompt_id && *kept_token == token)
-            .map(|(_, _, v)| v.clone());
+        let kept = {
+            let _ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
+            session
+                .accepted_prompts
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .rev()
+                .find(|(id, kept_token, _)| id == prompt_id && *kept_token == token)
+                .map(|(_, _, v)| v.clone())
+        };
         if kept.is_some() {
             return kept;
         }
