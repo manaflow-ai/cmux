@@ -23,7 +23,8 @@ await requireBrowserLane("steer-fold-boundary-browser.test.ts", async () => {
   setDefaultTimeout(300_000);
   try {
     await (await chromium.launch({ headless: true })).close();
-  } catch {
+  } catch (e) {
+    console.log("LAUNCHFAIL", String(e).slice(0, 800));
     describe.skip("steer fold boundary", () => test("chromium", () => {}));
     return;
   }
