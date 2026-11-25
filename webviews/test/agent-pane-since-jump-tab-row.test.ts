@@ -129,6 +129,7 @@ await requireBrowserLane("agent-pane-since-jump-tab-row.test.ts", async () => {
     // again if it stalls, so the tests time only the pane.
     for (let attempt = 1; ; attempt++) {
       const warm = await browser.newPage();
+      await bannerOnFromStart(warm);
       try {
         await warm.goto(url());
         await warm.getByText(LAST).waitFor({ timeout: 25_000 });
@@ -148,10 +149,29 @@ await requireBrowserLane("agent-pane-since-jump-tab-row.test.ts", async () => {
 
   type Bridge = { applyTabRow?(row: unknown): void };
 
+  /// The banner on before the chat loads, as a person who turned it on has it: their view opens at
+  /// the latest message (a return lands at the New line only with the banner off, App.tsx
+  /// `sinceLands`), so the banner shows over the transcript's top. dev.tsx installs
+  /// `cmuxDevDisplay` before the pane mounts; this applies the setting as it does.
+  async function bannerOnFromStart(page: Page): Promise<void> {
+    await page.addInitScript(() => {
+      let install: ((value: unknown) => void) | undefined;
+      Object.defineProperty(window, "cmuxDevDisplay", {
+        configurable: true,
+        get: () => install,
+        set: (next: (value: unknown) => void) => {
+          install = next;
+          next({ "agentPane.display.unreadBanner": "expanded" });
+        },
+      });
+    });
+  }
+
   /// Opens the chat at `width` and offers `row` (no offer: the header is its own row).
   async function openChat(width: number, row?: Record<string, unknown>): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width, height: 600 } });
     await installPaintedFrames(page);
+    await bannerOnFromStart(page);
     await page.goto(url());
     await page.getByText(LAST).waitFor();
     await page.waitForFunction(() => Boolean((window as { cmuxAcpmuxBridge?: Bridge }).cmuxAcpmuxBridge?.applyTabRow));
@@ -212,4 +232,25 @@ await requireBrowserLane("agent-pane-since-jump-tab-row.test.ts", async () => {
         expect(at.pill.right).toBeLessThanOrEqual(width);
         await page.close();
       });
+
+  // Leo, 2026-11-15, of the terminal chat's "157 new messages" rule: "we needto properly do somthing
+  // like this in the gui somehow". With the banner off (the default), the return opens at the New
+  // line, not at the latest reply, and the line counts what came after it.
+  test("with the banner off, a return opens at the New line and counts the new messages", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 600 } });
+    await installPaintedFrames(page);
+    await page.goto(url());
+    const line = page.locator(".cv-since");
+    await line.waitFor();
+    await page.waitForFunction(() => {
+      const box = document.querySelector(".cv-since")?.getBoundingClientRect();
+      const view = document.querySelector(".acpmux-scroll")?.getBoundingClientRect();
+      return Boolean(box && view && box.top >= view.top && box.bottom <= view.bottom);
+    });
+    // Each turn after the seen record is a prompt and a reply: messages, not turns. The words are
+    // the line's label in every look (the rule's text on "line", the tag on "worked").
+    await expect(line.locator(".cv-since__line").getAttribute("aria-label")).resolves.toMatch(/^\d+ new messages?$/);
+    expect(await page.getByText(LAST).isVisible()).toBe(false);
+    await page.close();
+  });
 });

@@ -202,7 +202,7 @@ final class CloudMoveAsks {
         return nil
     }
 
-    private static func name(_ folder: String) -> String { URL(fileURLWithPath: folder).lastPathComponent }
+    private static func name(_ folder: String) -> String { (folder as NSString).lastPathComponent }
 
     private static func title(_ answer: Answer) -> String {
         switch answer {

@@ -35,7 +35,7 @@ public nonisolated struct CmuxToastDetailCopy: Equatable, Sendable {
 
     /// The line for an `fs.*` code with no words of its own (a code the daemon added later).
     public static var fileFailed: String {
-        String(localized: "toast.detail.fileFailed", defaultValue: "The machine couldn't finish the file operation.", bundle: .module)
+        String(localized: "toast.detail.fileFailed", defaultValue: "The machine couldn't finish the file operation.", bundle: .localizedModule)
     }
 
     /// The codes this map knows, in plain words; nil for any other. The codes are the daemon's
@@ -44,25 +44,25 @@ public nonisolated struct CmuxToastDetailCopy: Equatable, Sendable {
     public static func words(_ code: String) -> String? {
         switch code {
         case "fs.no_space", "disk_full":
-            String(localized: "toast.detail.noSpace", defaultValue: "The machine is out of disk space.", bundle: .module)
+            String(localized: "toast.detail.noSpace", defaultValue: "The machine is out of disk space.", bundle: .localizedModule)
         case "fs.read_only":
-            String(localized: "toast.detail.readOnly", defaultValue: "The machine's disk is read-only.", bundle: .module)
+            String(localized: "toast.detail.readOnly", defaultValue: "The machine's disk is read-only.", bundle: .localizedModule)
         case "fs.permission_denied", "fs.permission":
             String(localized: "toast.detail.permissionDenied", defaultValue: "The machine didn't allow access to that location.",
-                   bundle: .module)
+                   bundle: .localizedModule)
         case "fs.too_large":
-            String(localized: "toast.detail.tooLarge", defaultValue: "The file is too large for the machine.", bundle: .module)
+            String(localized: "toast.detail.tooLarge", defaultValue: "The file is too large for the machine.", bundle: .localizedModule)
         case "fs.not_found":
-            String(localized: "toast.detail.notFound", defaultValue: "That file or folder isn't on the machine anymore.", bundle: .module)
+            String(localized: "toast.detail.notFound", defaultValue: "That file or folder isn't on the machine anymore.", bundle: .localizedModule)
         case "fs.exists":
-            String(localized: "toast.detail.exists", defaultValue: "An item with that name already exists on the machine.", bundle: .module)
+            String(localized: "toast.detail.exists", defaultValue: "An item with that name already exists on the machine.", bundle: .localizedModule)
         case "fs.not_a_directory":
-            String(localized: "toast.detail.notADirectory", defaultValue: "That path is a file, not a folder.", bundle: .module)
+            String(localized: "toast.detail.notADirectory", defaultValue: "That path is a file, not a folder.", bundle: .localizedModule)
         case "fs.io":
-            String(localized: "toast.detail.io", defaultValue: "The machine couldn't read or write the file.", bundle: .module)
+            String(localized: "toast.detail.io", defaultValue: "The machine couldn't read or write the file.", bundle: .localizedModule)
         case "fs.revision_mismatch":
             String(localized: "toast.detail.revisionMismatch",
-                   defaultValue: "The file changed on the machine after it was opened. Reload it, then try again.", bundle: .module)
+                   defaultValue: "The file changed on the machine after it was opened. Reload it, then try again.", bundle: .localizedModule)
         default:
             nil
         }
@@ -70,7 +70,7 @@ public nonisolated struct CmuxToastDetailCopy: Equatable, Sendable {
 
     /// The code line under the plain words ("Error code: fs.no_space").
     public static func codeLine(_ code: String) -> String {
-        String(format: String(localized: "toast.detail.errorCode", defaultValue: "Error code: %@", bundle: .module), code)
+        String(format: String(localized: "toast.detail.errorCode", defaultValue: "Error code: %@", bundle: .localizedModule), code)
     }
 
     /// The code-shaped words of `detail` in order: runs of lowercase letters, digits, `_` and `.`,

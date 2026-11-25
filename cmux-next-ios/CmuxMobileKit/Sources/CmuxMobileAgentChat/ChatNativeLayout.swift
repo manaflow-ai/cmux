@@ -35,7 +35,7 @@ struct ChatNativeLayout: @unchecked Sendable {
         var frame: CGRect
         var fill: UIColor
         var radius: CGFloat
-        /// A 0.5 pt border in the separator color at half opacity.
+        /// A 1 px border in the card level's line (`CmuxMobileContentSurface.line(.card)`).
         var bordered = false
     }
 
@@ -66,6 +66,8 @@ struct ChatNativeLayout: @unchecked Sendable {
         var file: Int?
         /// The region is a disclosure ("collapsed" until opened).
         var isDisclosure = false
+        /// The identifier UI tests find the region by.
+        var identifier: String?
     }
 
     /// Text runs, SF symbols, boxes, separators and tap regions, positioned in the row.

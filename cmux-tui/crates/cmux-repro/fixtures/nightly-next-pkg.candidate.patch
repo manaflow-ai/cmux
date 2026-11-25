@@ -1,0 +1,13 @@
+diff --git a/tests/test_publish_app_token_workflow.py b/tests/test_publish_app_token_workflow.py
+index 413d14f3b2d..230f8e48a65 100644
+--- a/tests/test_publish_app_token_workflow.py
++++ b/tests/test_publish_app_token_workflow.py
+@@ -27,6 +27,8 @@ APP_JOBS = {
+     "generate-nightly-deltas": "read",
+     "republish-nightly-deltas": "write", "publish-release-notes": "read",
+     "publish-nightly-next-github": "write", "nightly-next-one": "write",
++    # Mints the read token before its download of the published variant (#54859).
++    "nightly-next-pkg": "read",
+ }
+ # The permission each job mints is a choice, so APP_JOBS stays hand-kept, but every nightly.yml
+ # job that can run under a release environment or reads the release App's credentials must be

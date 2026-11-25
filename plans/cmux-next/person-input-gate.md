@@ -21,6 +21,11 @@ A Send still spends the person's gesture, so the Enter never pays for the agent'
 One prompt still waits for the person: one the CLI, MCP or a script seeded into a new chat (no seed
 ticket) stays in the composer until the person sends it (`automationSeedWaits`).
 
+A new chat's first Send in Cloud (`cloud.startChat`) is a Send too, and needs no gesture
+(2026-11-20: the staging GUI probe's Enter came back "Click the choice again to apply it." on every
+Cloud reply). The gesture stays only where it is the person's pick of a folder to copy off this Mac:
+a folder under none of the tab's roots (`AgentPaneCloudStart`, `needsGesture`).
+
 ## "Computer use can act as me"
 
 Leo, 2026-11-02: "imo you guys ought to be able to do a true send type thing... and also wouldn't

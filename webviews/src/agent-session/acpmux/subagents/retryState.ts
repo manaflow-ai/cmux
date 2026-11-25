@@ -12,7 +12,7 @@
 // The daemon's field names live in ``readRetry`` and ``RETRY_METHOD`` alone.
 import type { StringKey, Translate } from "../i18n";
 import type { RetrySummary } from "../protocol/generated/types";
-import type { Subagent } from "./subagentFold";
+import type { Subagent } from "./subagent";
 
 /// A retry acpmux has scheduled: which attempt of how many, why, and when it runs (epoch ms). The
 /// session row's is acpmux's `RetrySummary`; a subagent's carries the same four fields.
@@ -163,10 +163,11 @@ export function retryLabel(t: Translate, retry: RetryState): string {
 
 /// Whether a prompt record is acpmux's continuation of a failed turn or subagent, never the
 /// person's: its provenance is `auto_resume` (a turn's retry, automatic or manual) or
-/// `subagent_retry` (a subagent resumed by its agent id).
+/// `subagent_retry` (a subagent resumed by its agent id) or `subagent_resume` (the row's Resume,
+/// hub/subagent_resume.rs).
 export function isRetryContinuation(msg: { _meta?: { provenance?: unknown } } | undefined): boolean {
   const kind = (msg?._meta?.provenance as { kind?: unknown } | undefined)?.kind;
-  return kind === "auto_resume" || kind === "subagent_retry";
+  return kind === "auto_resume" || kind === "subagent_retry" || kind === "subagent_resume";
 }
 
 /// acpmux's ask that the chat's agent resume a subagent that failed on a transient error (acpmux

@@ -11,55 +11,6 @@ of cmux: every terminal, chat and agent pane. Now the grants belong to a separat
 grant restarts only the helper, and since the helper is a fresh process for every use, the restart
 needs no step from anyone.
 
-## One permission identity with Computer Use (2026-11-17)
-
-Lawrence, forwarded by Leo: "ensure screen sharing + computer use uses same app for permissions,
-unless there's a good reason for having different apps for requesting screen sharing/accessibility".
-Leo, 2026-11-16: "the screen sharing should just be able to come with as the bonus and be in the
-separate process from teh app so it doesn't have to restart the app to grant permissions or
-whatever". A process apart from the app is the reason to stay out of cmux; it is no reason for
-screen sharing and computer use to differ. So release, NIGHTLY and RC builds ship the executable
-inside the Computer Use helper:
-
-```
-cmux NIGHTLY.app/Contents/Library/cmux Computer Use.app     com.cmuxterm.cua, every channel
-  Contents/MacOS/cmux-cua               the Computer Use driver (the bundle's executable)
-  Contents/MacOS/cmux-screen-sharing    the cmux.rd/1 host below, signed --identifier com.cmuxterm.cua
-```
-
-- **One row, already granted.** com.cmuxterm.cua is the Developer ID identity Computer Use has had
-  since 2026-08, shared by every channel. Anyone who allowed Computer Use has both grants; anyone
-  else is asked once, for "cmux Computer Use", by the one guide (`CmuxRemoteSharingSetup`), which
-  now names that app. Either attribution model gives this row: the outermost bundle (macOS 26
-  checks nested code as the outermost app; tried on Leo's Mac: the helper nested in cmux NIGHTLY
-  read cmux NIGHTLY's grant, the same code anywhere else read none) or the code's own identifier
-  (older macOS: the nested executable carries com.cmuxterm.cua and the helper's Developer ID
-  requirement).
-- **One staged copy.** The app stages the Computer Use helper once,
-  `.../cmux-next/cmux-cua/helper/next-<scope>/cmux Computer Use.app`
-  (`ComputerUseHelperStaging.legacy`), and both roles start from it with responsibility disclaimed;
-  staging takes turns per copy, so one role never swaps out the copy the other runs. acpmux stages
-  its own copy under `.../screen-sharing/com.cmuxterm.cua/daemon/`.
-- **Packaging.** The Release build's phase still wraps the executable in its own app (the
-  Computer Use helper does not exist yet then); the nightly's "Assemble the Computer Use helper"
-  then moves it in (`bundle-screen-sharing-helper.sh --into-computer-use`), and
-  `verify-computer-use-helper.sh` fails an app whose `Contents/Library` holds any app beside the
-  Computer Use helper. Every signer signs `cmux-screen-sharing` with the helper's identifier before
-  it seals the helper (`sign-cmux-bundle.sh`, `notarize-computer-use-helper.sh --start`,
-  `release-signer/sign-app.sh`, `rcodesign-sign-bundle.sh`), so the helper's own notarization
-  ticket covers it.
-- **DEV keeps the separate helper below.** A DEV build's Computer Use helper is the pinned
-  `cmux Computer Use (dev).app` (`embed-cua-helper-dev.sh`), signed with a certificate CI does not
-  hold, so no executable can be added to it, and `reload.sh` drops any ad hoc com.cmuxterm.cua
-  helper (a grant to one would replace the release row). DEV's screen sharing grants stay under
-  "<app> Screen Sharing", ad hoc. Builds made before this change keep their separate helper too;
-  the app and acpmux fall back to it.
-- **The fleet** pins com.cmuxterm.cua in its MDM profile (cmuxterm-hq
-  `build-fleet/mdm/cmux-screen-sharing.mobileconfig`) and keeps the old `.screen-sharing` ids until
-  every fleet Mac runs a NIGHTLY with this layout.
-
-The rest of this page describes the separate helper, which is what DEV builds still carry.
-
 ## Process layout
 
 ```
@@ -120,7 +71,14 @@ cmux NIGHTLY.app/Contents/Library/cmux NIGHTLY Screen Sharing.app
   - A session's helper is the app's child: the app reaps it (`SignedHelperLaunch.reap`) and closes
     its stdin when the session ends, as it did for the in-app child.
   - When the app dies, its pipes close and `serve` exits on EOF.
+  - The app keeps a session helper's stdout and stderr pipes for the session's life
+    (`MacScreenRdProcess.startSpawned`). No `Process` holds them, and a released `Pipe` closes
+    its read end under its reader. That left the helper's answer unread and the viewer at
+    "Connecting..." (cmuxterm-hq#13721).
   - Probes have a 10 s deadline, then SIGKILL.
+  - A started host that has not answered within 15 s fails the session. A viewer whose connect
+    shows no picture within 15 s fails naming the stage it reached (no answer, no link, no
+    frame). `mac_screen.state` reports it as `connect_stage` / `timed_out_at`.
 - **No fallback across the line.** If a build carries the helper but staging fails, the share
   fails. Running capture in the app would silently move the grant back to cmux. A build without the
   helper (a local build with no cached Rust binary) keeps the old in-app path, so a dev build still
@@ -174,11 +132,48 @@ The helper follows the iPhone host (cmux-mobile-host):
 | Developer ID signing before notarization | `scripts/sign-cmux-bundle.sh` |
 | Notices; dependency budget for its lockfile | `scripts/cmux-next/notices/bundle-map.json`; `scripts/cmux-next/bundle-size-budget.json` |
 
+## The iPhone viewer's WebRTC host
+
+The iPhone viewer (and a Mac from before cmux.rd/1) offers WebRTC, which `ScreenStreamHost`
+(CmuxScreenKit) serves. With the helper bundled it runs outside the app too, so its
+ScreenCaptureKit capture and CGEvent input use the helper's grants:
+
+```
+cmux NIGHTLY (app)                      MacScreenRdHost.serveWebRTC -> MacScreenStreamProcess
+  └ disclaimed spawn: cmux-screen-sharing __webrtc-host <app executable> --screen-stream-host
+       (the helper; its own responsible process)
+       └ posix_spawn, suspended: <app executable> --screen-stream-host
+            runs only when its code is signed by the helper's own Team ID (SecCodeCheckValidity),
+            its signing identifier is a cmux app's (com.cmuxterm.app*) and its only argument is
+            --screen-stream-host;
+            the helper's ordinary child, so macOS checks the helper's grants
+            MacScreenStreamChild: ScreenStreamHost + ScreenCaptureBackend, no NSApplication
+```
+
+The app keeps the session's signaling (the viewer's protocol is unchanged) and relays it in JSON
+lines on the child's stdio (`MacScreenStreamLine`): app to child `setup` (with the first
+`exclude_windows`), `signal`, `ice`, `exclude_windows` (the whole list on every change, SECURITY:
+`CaptureExcludedWindows`) and `stop`; child to app `signal`, `ice_request`, `event`, `close` and
+`done`. Stop, or the app ending, closes the child's input and it exits. A build without the helper
+serves the viewer in the app, as before.
+
+The exclusion list has one reading: the one on the setup seeds the watch, which starts only once
+the setup is queued, so no watch line can reach the child before the setup and be replaced by it.
+
+SECURITY, the limit of the check: SecCodeCheckValidity covers the child's main executable (the
+app's stub). The code it loads from `Contents/Frameworks` is not checked again, and the app's
+entitlements disable library validation, so a copied cmux app with a replaced framework would run
+under the helper's grants. That is the app's own exposure today (it runs under the app's grants
+the same way); closing it means checking the whole bundle from a protected path.
+
 ## Left
 
-- The WebRTC path for iPhone viewers (`ScreenStreamHost`, CmuxScreenKit) still captures in the
-  app. Moving it means a WebRTC peer in the helper, or the helper capturing and handing IOSurfaces
-  to the app.
+- Still this app's own grants (a grant made there takes effect after a relaunch):
+  `MacScreenSystemShortcuts`' Accessibility event tap (`requestAppAccessibility`, the remote pane's
+  system shortcuts), the reads `CmuxRemoteService.appPermissions` reports, and every capture of a
+  build without the helper. A remote pane's Share Screen (`SystemUpstreamPermissions`) still asks for
+  this app's grant; nothing captures for it yet, and its capturer must run in the helper and ask the
+  helper (`MacScreenShareHost.requestAndWait`), or it keeps the relaunch.
 - Consent read inside the helper, after #43983 (above).
 - Notices: the helper maps to the `rust-cmux-cli` section, because bin/cmux links the same crates.
   A dedicated section built from `cmux-rd-host/Cargo.lock` would also list its exact versions.

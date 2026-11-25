@@ -4,7 +4,8 @@
 The workflow holds the repo's dev stack account and adds an OS user, so these
 hold for good: manual dispatch only; feat-cmux-next only; top-level
 `permissions: contents: read` and nothing else (no job-level grants); the stack
-secrets reach exactly one step, through `env`; no `set -x`; the platform origin
+secrets (the account and the share's guest account) reach exactly one step,
+through `env`; no `set -x`; the platform origin
 is development's; the runner is an ephemeral Blacksmith label (never a runner
 variable that can name a persistent host); the evidence check, the upload and
 the disposable user's removal run under `always()`, the upload only when the
@@ -53,7 +54,7 @@ def step(name: str) -> dict:
 class MachineJoinE2EWorkflow(unittest.TestCase):
     def test_manual_dispatch_only(self) -> None:
         self.assertEqual(list(load()["on"].keys()), ["workflow_dispatch"])
-        self.assertEqual(sorted(load()["on"]["workflow_dispatch"]["inputs"]), ["acpmux_ref", "bench", "name", "share"])
+        self.assertEqual(sorted(load()["on"]["workflow_dispatch"]["inputs"]), ["acpmux_ref", "bench", "name", "share", "share_install"])
         bench = load()["on"]["workflow_dispatch"]["inputs"]["bench"]
         self.assertEqual(bench["default"], "none")
         self.assertEqual(bench["options"], ["none", "deps", "deps-slow"])
@@ -83,8 +84,11 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
 
     def test_stack_secrets_reach_one_step_through_env(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertEqual(len(re.findall(r"\$\{\{\s*secrets\.", text)), 2)
-        self.assertEqual(workflow_jobs.secret_names(load()), {"CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"})
+        self.assertEqual(len(re.findall(r"\$\{\{\s*secrets\.", text)), 4)
+        self.assertEqual(
+            workflow_jobs.secret_names(load()),
+            {"CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CMUX_DOGFOOD_GUEST_STACK_EMAIL", "CMUX_DOGFOOD_GUEST_STACK_PASSWORD"},
+        )
         for name, job in load()["jobs"].items():
             outside_steps = workflow_jobs.copy_job(job, {"steps": workflow_jobs.DROP}) if name == "e2e" else job
             self.assertEqual(workflow_jobs.secret_names(outside_steps), set(), name)
@@ -93,8 +97,13 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         mint = holders[0]
         self.assertEqual(mint["env"]["CMUX_UITEST_STACK_EMAIL"], "${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}")
         self.assertEqual(mint["env"]["CMUX_UITEST_STACK_PASSWORD"], "${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}")
+        # The share's second account (cloud-capture-provision.yml's guest, sealed to the same environment):
+        # it must not see the joined machine, and the hub must refuse its request for it.
+        self.assertEqual(mint["env"]["CMUX_UITEST_GUEST_STACK_EMAIL"], "${{ secrets.CMUX_DOGFOOD_GUEST_STACK_EMAIL }}")
+        self.assertEqual(mint["env"]["CMUX_UITEST_GUEST_STACK_PASSWORD"], "${{ secrets.CMUX_DOGFOOD_GUEST_STACK_PASSWORD }}")
         self.assertNotIn("secrets", mint["run"])
         self.assertNotIn("CMUX_UITEST_STACK", mint["run"])
+        self.assertNotIn("CMUX_UITEST_GUEST", mint["run"])
 
     def test_no_xtrace(self) -> None:
         for s in steps():
@@ -223,6 +232,13 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         self.assertLess(prep.index('sudo loginctl enable-linger "$JOIN_USER"'), prep.index('systemctl start "$manager"'))
         self.assertIn('private="/run/user/$JOIN_UID/systemd/private"', prep)
         self.assertNotIn("linux-host", prep)
+        # Nothing of the share runs on the joined machine: the daemon sets the host up itself, so no step
+        # (and not the harness) runs `linux-host enable` or hands cmux-rd an ACPMUX_HOME.
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertNotIn("linux-host enable", text)
+        self.assertNotIn("ACPMUX_HOME", text)
+        self.assertNotIn('"linux-host", "enable"', script := SCRIPT.read_text(encoding="utf-8"))
+        self.assertNotIn("ACPMUX_HOME=", script)
         # /run/user/UID is the joined user's (0700): the runner's own `[ -S ]` never sees inside it (run
         # 44039047306 read "no" with the socket there), so every test of it runs as root. The manager is judged
         # by is-active, not by its start's exit status (1 there, with the manager up).
@@ -247,6 +263,48 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         self.assertLess(names.index("Remove the viewer user"), names.index("Remove the disposable user"))
         remove = step("Remove the disposable user")["run"]
         self.assertLess(remove.index('sudo loginctl disable-linger "$JOIN_USER"'), remove.index("/bin/kill -KILL -1"))
+
+    def test_share_install_channel_tests_the_join_install_path(self) -> None:
+        # build (the default) keeps placing the run's cmux-rd, which tests the commit; channel places none,
+        # and the join line's own cmux-rd step installs it from the channel, checked against its sha256.
+        share_install = load()["on"]["workflow_dispatch"]["inputs"]["share_install"]
+        self.assertEqual((share_install["type"], share_install["default"]), ("choice", "build"))
+        self.assertEqual(share_install["options"], ["build", "channel"])
+        resolve = step("Resolve inputs")
+        self.assertEqual(resolve["env"]["SHARE_INSTALL"], "${{ inputs.share_install }}")
+        self.assertIn('if [ "$SHARE_INSTALL" = channel ] && [ "$SHARE" != true ]; then', resolve["run"])
+        prep = step("Prepare the share")
+        self.assertEqual(prep["env"]["SHARE_INSTALL"], "${{ inputs.share_install }}")
+        run = prep["run"]
+        channel = run.index('if [ "$SHARE_INSTALL" = channel ]; then')
+        otherwise = run.index("else", channel)
+        done = run.index("fi\n", run.index('ln -s "$1" "$HOME/.local/bin/cmux-rd"'))
+        # The link is only in the build branch; the viewer's root-owned copy is made in both.
+        self.assertLess(otherwise, run.index('ln -s "$1" "$HOME/.local/bin/cmux-rd"'))
+        self.assertLess(run.index('ln -s "$1" "$HOME/.local/bin/cmux-rd"'), done)
+        self.assertLess(run.index('sudo install -o root -g root -m 0755 "$CMUX_RD_BIN" "$JOIN_BASE/bin/cmux-rd"'), channel)
+        branch = run[channel:otherwise]
+        # The join script from the run's own checkout, root-owned beside acpmux; the channel's sha256 for this
+        # machine's gnu build, from files.cmux.com over https, or the run stops before any secret.
+        self.assertIn('sudo install -o root -g root -m 0644 cmux-tui/scripts/machine-join.sh "$JOIN_BASE/bin/machine-join.sh"', branch)
+        self.assertIn("https://files.cmux.com/cmux-tui/channels/feat-cmux-next.json", branch)
+        self.assertIn("--proto '=https'", branch)
+        self.assertIn('"cmux-tui-rd-$rd_target"', branch)
+        self.assertIn("x86_64-unknown-linux-gnu", branch)
+        self.assertIn("aarch64-unknown-linux-gnu", branch)
+        self.assertIn('[ "${#rd_sha}" -ne 64 ]', branch)
+        self.assertIn('echo "rd_sha256=$rd_sha" >> "$GITHUB_OUTPUT"', branch)
+        self.assertNotIn("ln -s", branch)
+        mint = step("Mint, join, verify and revoke")
+        self.assertEqual(mint["env"]["SHARE_INSTALL"], "${{ inputs.share_install }}")
+        self.assertEqual(mint["env"]["RD_SHA256"], "${{ steps.share.outputs.rd_sha256 }}")
+        self.assertIn('share+=(--share-install-script "$JOIN_BASE/bin/machine-join.sh" --share-rd-sha256 "$RD_SHA256")', mint["run"])
+        # The harness runs the script's cmux-rd step as the joined user and checks what it left.
+        script = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('"CMUX_JOIN_STEP=cmux-rd"', script)
+        self.assertIn('"--share-install-script"', script)
+        join = (ROOT / "cmux-tui/scripts/machine-join.sh").read_text(encoding="utf-8")
+        self.assertIn("'' | signin | cmux-rd) ;;", join)
 
     def test_only_the_evidence_is_uploaded(self) -> None:
         uploads = [s for s in steps() if "upload-artifact" in s.get("uses", "")]

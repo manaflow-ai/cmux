@@ -205,6 +205,10 @@ export function diffLineTotals(items: readonly DiffItem[]): { additions: number;
 // ---------------------------------------------------------------------------
 
 export type OverflowMenuItemId =
+  | "find"
+  | "word-wrap"
+  | "collapse-all"
+  | "refresh"
   | "load-full-files"
   | "rich-preview"
   | "word-diffs"
@@ -246,13 +250,32 @@ export const NO_HOST_CAPABILITIES: OverflowCapabilities = {
   hideImports: false,
 };
 
+/**
+ * The "..." menu's rows. Word wrap, Collapse all and Refresh lead it: they left the pill, which
+ * keeps only what a reader reaches for while reading (`toolbarPillButtons`). The viewer refreshes
+ * itself and offers Refresh inline when the diff changes (diff-viewer/freshness.ts), so the menu
+ * row is the manual fallback.
+ */
 export function overflowMenuItems(
-  options: Pick<DiffViewerOptions, "hideImports" | "hideWhitespace" | "loadFullFiles" | "richPreview" | "wordDiffs">,
+  options: Pick<
+    DiffViewerOptions,
+    "collapsed" | "hideImports" | "hideWhitespace" | "loadFullFiles" | "richPreview" | "wordDiffs" | "wordWrap"
+  >,
   capabilities: OverflowCapabilities,
   /** The shown session's answer (AppState `whitespaceHidden`); null before one answers. */
   whitespaceHidden: boolean | null = null,
 ): OverflowMenuItem[] {
   return [
+    // Find is Cmd-F too; the pill keeps no button for it.
+    { id: "find", icon: "fileSearch", labelKey: "findInDiff", available: true },
+    { id: "word-wrap", icon: "wrap", labelKey: "wordWrap", checked: options.wordWrap, available: true },
+    {
+      id: "collapse-all",
+      icon: options.collapsed ? "expand" : "collapse",
+      labelKey: options.collapsed ? "expandAllDiffs" : "collapseAllDiffs",
+      available: true,
+    },
+    { id: "refresh", icon: "refresh", labelKey: "refresh", available: true },
     {
       id: "load-full-files",
       icon: "file",
@@ -300,7 +323,7 @@ export function overflowMenuItems(
 // Floating toolbar pill
 // ---------------------------------------------------------------------------
 
-export type PillButtonId = "options" | "find" | "plainEnglish" | "refresh" | "wrap" | "expand" | "layout" | "files";
+export type PillButtonId = "options" | "layout" | "files";
 
 export type PillButton = {
   id: PillButtonId;
@@ -332,36 +355,20 @@ const LAYOUT_NEXT_LABEL = {
 export type PlainEnglishPill = {
   on: boolean;
   availability: PlainEnglishAvailability;
-  /** A narrow viewer (`PLAIN_ENGLISH_MENU_ONLY`): the toggle is only in the "..." menu, so the pill
-   * keeps its width and the source controls beside it stay whole. */
-  menuOnly?: boolean;
 };
 
-/** Below this the pill has no room for one more button (test/diff-toolbar-narrow.test.ts). */
-export const PLAIN_ENGLISH_MENU_ONLY = "(max-width: 600px)";
-
-export function toolbarPillButtons(
-  state: {
-    options: Pick<DiffViewerOptions, "collapsed" | "layout" | "wordWrap">;
-    filesVisible: boolean;
-    optionsOpen: boolean;
-    findOpen: boolean;
-  },
-  plainEnglish?: PlainEnglishPill,
-): PillButton[] {
+/**
+ * The pill: the "..." menu, the layout and the files list. Everything else, Find and Plain English
+ * too, is a row of the "..." menu (`overflowMenuItems`, `plainEnglishMenuItem`).
+ */
+export function toolbarPillButtons(state: {
+  options: Pick<DiffViewerOptions, "layout">;
+  filesVisible: boolean;
+  optionsOpen: boolean;
+}): PillButton[] {
   const { options } = state;
   return [
     { id: "options", domId: "options-button", icon: "dots", labelKey: "options", expanded: state.optionsOpen },
-    { id: "find", domId: "find-toggle", icon: "fileSearch", labelKey: "findInDiff", pressed: state.findOpen },
-    ...(plainEnglish && !plainEnglish.menuOnly ? [plainEnglishButton(plainEnglish)] : []),
-    { id: "refresh", domId: "refresh-button", icon: "pillRefresh", labelKey: "refresh" },
-    { id: "wrap", domId: "wrap-toggle", icon: "pillWrap", labelKey: "wordWrap", pressed: options.wordWrap },
-    {
-      id: "expand",
-      domId: "expand-toggle",
-      icon: options.collapsed ? "pillExpand" : "pillCollapse",
-      labelKey: options.collapsed ? "expandAllDiffs" : "collapseAllDiffs",
-    },
     {
       // Shows the chosen layout (rows, columns, or the diagonal of auto) and names the next one.
       id: "layout",
@@ -377,18 +384,6 @@ export function toolbarPillButtons(
       pressed: state.filesVisible,
     },
   ];
-}
-
-function plainEnglishButton({ on, availability }: PlainEnglishPill): PillButton {
-  const button = { id: "plainEnglish", domId: "plain-english-toggle", icon: "book" } as const;
-  switch (availability.kind) {
-    case "ready":
-      return { ...button, labelKey: on ? "plainEnglishOn" : "plainEnglish", pressed: on };
-    case "checking":
-      return { ...button, labelKey: "plainEnglishChecking", pressed: false, unavailable: true };
-    case "unavailable":
-      return { ...button, labelKey: availability.reasonKey, pressed: false, unavailable: true };
-  }
 }
 
 /** Plain English's "..." menu row, at every width: checked while it shows, off with its reason. */
@@ -424,6 +419,14 @@ export function rovingIndex(
 // ---------------------------------------------------------------------------
 // Jump to file palette
 // ---------------------------------------------------------------------------
+
+/**
+ * Whether the toolbar shows Jump to file: only while the files list is hidden (its filter field
+ * does the same beside it) and for a diff of more than one file.
+ */
+export function jumpToFileShown(state: { filesVisible: boolean; fileCount: number }): boolean {
+  return !state.filesVisible && state.fileCount > 1;
+}
 
 export type JumpRow = { id: string; name: string; directory: string };
 

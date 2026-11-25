@@ -174,7 +174,11 @@ export async function startRealAcpmux(options: RealAcpmuxOptions): Promise<RealA
   let daemon: ReturnType<typeof Bun.spawn> | undefined;
   let logText = "";
   const env: Record<string, string> = {
-    PATH: [path.dirname(python), "/usr/bin", "/bin"].join(":"),
+    // The stand-ins first: acpmux finds `codex` and `claude` on PATH for more than the profiles'
+    // argv (the live model list runs `codex` by name, hub/live_models.rs). A machine's real Codex
+    // beside python3 (/usr/local/bin on the Linux runners) otherwise listed its own models, so
+    // GPT-6.1 Sol was gone from the picker and its chip read "Sign in to Codex".
+    PATH: [binDir, path.dirname(python), "/usr/bin", "/bin"].join(":"),
     HOME: userHome,
     TMPDIR: os.tmpdir(),
     ACPMUX_HOME: home,
@@ -280,8 +284,8 @@ export async function startRealAcpmux(options: RealAcpmuxOptions): Promise<RealA
       (socket as any).sendFirst = (frame: Frame) => {
         stage = "init";
         frame.params = frame.params ?? {};
-        frame.params._meta = { ...(frame.params._meta ?? {}) };
-        frame.params._meta.acpmux = { ...(frame.params._meta.acpmux ?? {}), localAppToken };
+        frame.params._meta = { ...frame.params._meta };
+        frame.params._meta.acpmux = { ...frame.params._meta.acpmux, localAppToken };
         socket.send(JSON.stringify(frame));
       };
     });

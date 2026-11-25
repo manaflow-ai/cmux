@@ -209,9 +209,7 @@ CUA_SCALE = 1.0
 
 # Real moves need a process with its own lasting Accessibility grant: one this step compiles or starts directly never
 # holds one (cmux20-bench, 2026-11-15: AXIsProcessTrusted and CGPreflightPostEventAccess false for the step's
-# processes). No shipped app can do it either: the Nightly's "cmux Computer Use.app" is the legacy Rust cmux-cua,
-# which answers `--pointer-glide` with "Unknown tool" (step 1fee5f1e), and helper v2, where PointerGlide.swift lives,
-# is not in Nightly (scripts/ci/cua_signed_host_check.py). So the bench builds PointerGlide.swift into a small app
+# processes), and no shipped app answers `--pointer-glide`. So the bench builds PointerGlide.swift into a small app
 # once, at a stable path the step's next runs find again, and never rebuilds it: an ad-hoc grant is tied to the binary,
 # so one grant at the host's console lasts. Launched through LaunchServices, it is its own responsible process. The
 # directory is this user's alone (0700). A changed PointerGlide.swift is picked up only after the app is deleted by
@@ -219,8 +217,7 @@ CUA_SCALE = 1.0
 HELPER_CACHE = f"/Users/Shared/cmux-bench-pointer-{os.getuid()}"
 HELPER_ID = "com.cmuxterm.bench-pointer"
 HELPER_APP = os.environ.get("CMUX_BENCH_POINTER_APP", os.path.join(HELPER_CACHE, "v2", "cmux Bench Pointer.app"))
-POINTER_GLIDE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "Packages", "macOS",
-                             "CmuxComputerUseHelper", "Sources", "CmuxCuaHelperCore", "PointerGlide.swift")
+POINTER_GLIDE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-pointer", "PointerGlide.swift")
 
 
 def own_cache():
@@ -511,7 +508,9 @@ def sample(count, index, key, point, frame):
     # Cold start: no card open and the coordinator idle, or the sample is not counted (a card already open would
     # read as shown in a few ms with no pending phase, as the 200 workspace cell did in step b13acff317b8d8977670a944).
     cold = wait(lambda: (lambda c: c.get("phase") == "idle" and c.get("card_showing") != "true")(cards()), 3)
-    time.sleep(0.45)  # test harness: past the quick-reshow window, so the card opens cold
+    # sleep-ok: outlasts the app's quick-reshow timer (HoverCardTiming.reshowWindow, 300 ms from the card hiding),
+    # which debug.hover_cards does not report (the phase is idle through it), so the card opens cold.
+    time.sleep(0.45)
     activate()
     start = [frame[0] + frame[2] + 40, point[1]]
     move_path(off, start, 3)

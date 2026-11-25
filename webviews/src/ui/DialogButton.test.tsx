@@ -1,4 +1,4 @@
-// u2647: every dialog button shows the key that presses it ("Cancel ⎋", "Create ↩", "Don't Save ⌘D"),
+// u2647: every dialog button shows the key that presses it ("Cancel esc", "Create return", "Don't Save ⌘D"),
 // names it to assistive tech, and a Command key really presses it. The Home sheets (FormDialog) use it:
 // Escape on Cancel, Return on the primary submit button.
 import { afterEach, expect, test } from "bun:test";
@@ -62,7 +62,7 @@ function press(key: string, meta: boolean) {
 
 test("keys read as macOS writes them", () => {
   expect(dialogKeyGlyph("return")).toBe("↩");
-  expect(dialogKeyGlyph("escape")).toBe("⎋");
+  expect(dialogKeyGlyph("escape")).toBe("esc");
   expect(dialogKeyGlyph({ command: "d" })).toBe("⌘D");
   expect(dialogKeyAria("return")).toBe("Enter");
   expect(dialogKeyAria("escape")).toBe("Escape");
@@ -79,8 +79,8 @@ test("the approval sheet's buttons show Escape and Return after their titles", (
     </footer>,
   );
   const [cancel, change] = Array.from(host.querySelectorAll("button"));
-  expect(cancel.textContent).toBe("Cancel⎋");
-  expect(change.textContent).toBe("Change↩");
+  expect(cancel.textContent).toBe("Cancelesc");
+  expect(change.textContent).toBe("Changereturn");
   expect(cancel.getAttribute("aria-keyshortcuts")).toBe("Escape");
   expect(change.getAttribute("aria-keyshortcuts")).toBe("Enter");
   expect(change.getAttribute("type")).toBe("submit");
@@ -129,7 +129,7 @@ test("an icon button names its key in the tooltip and to assistive tech", () => 
   expect(keyedIconProps("Close", "escape")).toEqual({
     "aria-label": "Close",
     "aria-keyshortcuts": "Escape",
-    title: "Close ⎋",
+    title: "Close esc",
   });
   expect(keyedIconProps("Next", "right")).toEqual({
     "aria-label": "Next",

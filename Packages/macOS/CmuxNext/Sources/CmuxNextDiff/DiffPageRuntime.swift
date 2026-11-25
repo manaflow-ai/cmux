@@ -108,7 +108,7 @@ public final class DiffPageRuntime {
         do {
             root = try DiffSessionRoot.prepare(wanted)
         } catch {
-            throw DiffTabFailure(title: URL(fileURLWithPath: repository).lastPathComponent, message: DiffPageStrings.unavailable)
+            throw DiffTabFailure(title: (repository as NSString).lastPathComponent, message: DiffPageStrings.unavailable)
         }
         let sweep = swept.withLock { swept -> Bool in
             defer { swept = true }

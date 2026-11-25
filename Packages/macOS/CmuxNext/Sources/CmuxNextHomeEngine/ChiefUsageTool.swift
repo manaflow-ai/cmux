@@ -38,7 +38,7 @@ public nonisolated struct ChiefUsageTool: Sendable {
                                bin: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)) -> ChiefUsageTool? {
         let explicit = environment["CMUX_OPTCHAT_CHIEF"].flatMap { $0.isEmpty ? nil : $0 }
         // A `CMUX_NEXT_MUX_HOST` that is the TypeScript mux has no `usage`: only an optchat-chief build counts.
-        let host = environment["CMUX_NEXT_MUX_HOST"].flatMap { URL(fileURLWithPath: $0).lastPathComponent == HomeBrainHost.bundledChiefName ? $0 : nil }
+        let host = environment["CMUX_NEXT_MUX_HOST"].flatMap { ($0 as NSString).lastPathComponent == HomeBrainHost.bundledChiefName ? $0 : nil }
         let bundled = bin?.appendingPathComponent(HomeBrainHost.bundledChiefName).path
         guard let path = [explicit, host, bundled].compactMap({ $0 }).first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
             return nil

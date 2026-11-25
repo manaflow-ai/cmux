@@ -35,6 +35,7 @@ extension MacScreenHomeView {
     func sharingSection(_ sharing: MacScreenHomeSnapshot.Sharing,
                         look: MacScreenSharingLook = MacScreenTunables.sharingLook.value) -> NSView {
         switch look {
+        case .simple: simpleSharing(sharing)
         case .classic: classicSharing(sharing)
         case .list: listSharing(sharing)
         case .summary: summarySharing(sharing)
@@ -42,7 +43,82 @@ extension MacScreenHomeView {
         }
     }
 
-    // MARK: List (default)
+    // MARK: Simple (default)
+
+    /// The switch, whose detail is the status; who is connected, with one Stop, while a device is; and the
+    /// macOS permissions as one Grant Access step while one is missing (Leo 2026-11-16: the allow and deny
+    /// rows were "too many ... steps").
+    private func simpleSharing(_ sharing: MacScreenHomeSnapshot.Sharing) -> NSView {
+        let content = MacScreenStack.make(.vertical, spacing: 0, alignment: .leading)
+        let detail: String = if !sharing.isSharing {
+            L.t("macScreen.home.shareThisMacOff", "Your devices can’t see or control this Mac.")
+        } else if sharing.session != nil {
+            L.t("macScreen.home.shareThisMacOn", "Your devices on this account can connect.")
+        } else {
+            sharing.statusText
+        }
+        add(padded(sharingSwitch(sharing, title: L.t("macScreen.home.allowToggleShort", "Allow Mac Screen"), detail: detail)), to: content)
+        if sharing.isSharing, let session = sharing.session {
+            add(MacScreenFill.divider(), to: content, inset: Self.rowInsets.left)
+            add(padded(connectedRow(session)), to: content)
+        }
+        if sharing.isSharing, let grant = grantRow(sharing) {
+            add(MacScreenFill.divider(), to: content, inset: Self.rowInsets.left)
+            add(padded(grant), to: content)
+        }
+        if let error = sharing.lastError { add(padded(errorRow(error)), to: content) }
+        return MacScreenHomeParts.section(L.t("devices.section.this", "This Mac"), content: content)
+    }
+
+    /// "Connected: Studio · Viewing" with one Stop, while a device is connected or connecting.
+    private func connectedRow(_ session: MacScreenHubHost.Session) -> NSView {
+        let text: String = if !session.connected {
+            String(format: L.t("macScreen.home.hubConnecting", "%@ is connecting…"), session.viewerName)
+        } else if session.scope == .view {
+            String(format: L.t("macScreen.home.connectedViewing", "Connected: %@ · Viewing"), session.viewerName)
+        } else {
+            String(format: L.t("macScreen.home.connectedControlling", "Connected: %@ · Controlling"), session.viewerName)
+        }
+        let label = MacScreenText(text, font: MacScreenType.body, wraps: true)
+        label.setAccessibilityIdentifier("macScreen.home.connected")
+        label.setContentHuggingPriority(.init(1), for: .horizontal)
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let hubHost = devices?.hubHost
+        let stop = MacScreenButton(L.t("macScreen.home.stopSession", "Stop"), role: .destructive, compact: true,
+                                   id: "macScreen.home.stop") { _ = hubHost?.stopSession() }
+        return MacScreenStack.make(.horizontal, spacing: 10, alignment: .centerY, [
+            glyphCell(MacScreenFill.dot(session.connected ? \.litGlyph : \.attention, side: 8)), label, stop,
+        ])
+    }
+
+    /// The macOS permissions as one step: one row, one Grant Access button that asks macOS for the first one
+    /// missing (Screen Recording, then Accessibility) through the share host, so the helper that holds the
+    /// grant is the one asked. nil when both are granted.
+    private func grantRow(_ sharing: MacScreenHomeSnapshot.Sharing) -> NSView? {
+        guard !sharing.screenRecordingGranted || !sharing.accessibilityGranted else { return nil }
+        let screenRecording = !sharing.screenRecordingGranted
+        let title = screenRecording && !sharing.accessibilityGranted
+            ? L.t("macScreen.home.grantBoth", "Screen Recording and Accessibility")
+            : screenRecording ? L.t("macScreen.home.screenRecording", "Screen Recording") : L.t("macScreen.home.accessibility", "Accessibility")
+        let detail = screenRecording
+            ? L.t("macScreen.home.grantDetail", "macOS asks once, so your devices can see and control this Mac.")
+            : L.t("macScreen.home.grantAccessibilityDetail", "macOS asks once, so your devices can click and type here.")
+        let labels = MacScreenStack.make(.vertical, spacing: 2, alignment: .leading)
+        MacScreenStack.addFullWidth(MacScreenText(title, font: MacScreenType.body, wraps: true), to: labels)
+        MacScreenStack.addFullWidth(MacScreenText(detail, font: MacScreenType.caption, ink: \.secondary, wraps: true), to: labels)
+        labels.setContentHuggingPriority(.init(1), for: .horizontal)
+        labels.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let host = self.host
+        let grant = MacScreenButton(L.t("macScreen.home.grantAccess", "Grant Access"), role: .primary, compact: true,
+                                    id: "macScreen.home.grantAccess") {
+            if screenRecording { host.requestScreenRecording() } else { host.requestAccessibility() }
+        }
+        let row = MacScreenStack.make(.horizontal, spacing: 10, alignment: .centerY, [glyphCell(permissionGlyph(granted: false)), labels, grant])
+        row.setAccessibilityIdentifier("macScreen.home.grant")
+        return row
+    }
+
+    // MARK: List
 
     private func listSharing(_ sharing: MacScreenHomeSnapshot.Sharing) -> NSView {
         let content = MacScreenStack.make(.vertical, spacing: 0, alignment: .leading)
@@ -135,7 +211,7 @@ extension MacScreenHomeView {
             MacScreenStack.addFullWidth(MacScreenFill.divider(), to: content)
             MacScreenStack.addFullWidth(MacScreenHomeParts.permissionRow(
                 title: L.t("macScreen.home.screenRecording", "Screen Recording"),
-                detail: MacScreenGrantCopy.screenRecordingDetail(sharing.grantHolderName),
+                detail: L.t("macScreen.home.screenRecordingDetail", "Lets cmux send this screen. macOS may ask you to quit and reopen cmux."),
                 granted: sharing.screenRecordingGranted
             ) { [weak self] in self?.host.openSettings(screenRecording: true) }, to: content)
             MacScreenStack.addFullWidth(MacScreenHomeParts.permissionRow(
@@ -159,7 +235,7 @@ extension MacScreenHomeView {
 
     /// The Allow Mac Screen switch; it shows the hub's record, not the click.
     private func sharingSwitch(_ sharing: MacScreenHomeSnapshot.Sharing, title: String, emphasized: Bool = false,
-                               detail: String = L.t("macScreen.home.allowDetailShort", "Your devices signed in to cmux can ask to see or control this Mac. You approve each one.")) -> NSView {
+                               detail: String = L.t("macScreen.home.shareThisMacOn", "Your devices on this account can connect.")) -> NSView {
         let hubHost = devices?.hubHost
         return MacScreenHomeParts.switchRow(
             title: title, detail: detail, isOn: sharing.isSharing, enabled: !sharing.busy, emphasized: emphasized,
@@ -168,6 +244,8 @@ extension MacScreenHomeView {
             if on {
                 self?.actions.shareThisMac()
             } else {
+                // The person's click: their off outranks the join default (Z4).
+                CmuxRemoteShareConsent.recordDecline()
                 hubHost?.stopSession(immediately: true)
                 // task-owner: one sharing-off write; the switch follows the hub's record
                 Task { try? await hubHost?.setSharing(false) }
@@ -182,7 +260,7 @@ extension MacScreenHomeView {
     private func permissionRows(_ sharing: MacScreenHomeSnapshot.Sharing) -> [NSView] {
         [
             permissionRow(title: L.t("macScreen.home.screenRecording", "Screen Recording"),
-                          missing: MacScreenGrantCopy.screenRecordingNeeded(sharing.grantHolderName),
+                          missing: L.t("macScreen.home.screenRecordingNeeded", "Needed to send this screen. macOS may ask you to reopen cmux."),
                           granted: sharing.screenRecordingGranted, id: "macScreen.home.screenRecording") { [weak self] in
                 self?.host.openSettings(screenRecording: true)
             },

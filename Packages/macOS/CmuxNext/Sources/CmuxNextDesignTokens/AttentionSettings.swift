@@ -12,6 +12,16 @@ public nonisolated enum AttentionStyle: String, Hashable, Sendable, CaseIterable
     case blink
 }
 
+/// How a tab and a sidebar row that wait for the person show it (`notifications.attention.mark`).
+/// Leo 2026-11-19: "needs you" as motion, a look customization off by default; the badge stays the default.
+public nonisolated enum AttentionMarkLook: String, Hashable, Sendable, CaseIterable {
+    /// The unread dot or status mark (the default).
+    case badge
+    /// No mark: the tab's pill and the row breathe a soft halo in the mark's color until they are seen
+    /// (selected); a seen tab or row that still waits shows the badge.
+    case glow
+}
+
 /// `notifications.attention.*` in cmux.json: the pane attention ring and
 /// whether the tab and the sidebar row show the unread mark too.
 public nonisolated struct AttentionSettings: Hashable, Sendable {
@@ -54,6 +64,8 @@ public nonisolated struct AttentionSettings: Hashable, Sendable {
     public var flashesOnTyping = true
     public var showsOnTab = true
     public var showsOnSidebar = true
+    /// How the tab and the sidebar row show it (`notifications.attention.mark`): the badge, or a glow.
+    public var mark: AttentionMarkLook = .badge
     /// A notification for a pane the user is not looking at moves its
     /// workspace to the top of the unpinned rows (classic's
     /// `app.reorderOnNotification`), once per notification, as iMessage does:

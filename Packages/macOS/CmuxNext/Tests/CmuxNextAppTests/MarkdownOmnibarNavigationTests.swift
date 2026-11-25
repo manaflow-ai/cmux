@@ -87,7 +87,13 @@ import Testing
         let bar = MarkdownOmnibarBar(suggestionEngine: OmniboxSuggestionEngine(), actions: MarkdownOmnibarActions(
             open: { _, _ in }, returnFocus: {}, liveLink: { _ in nil }, openInBrowser: { _ in },
             back: {}, forward: {}, reload: {}))
-        #expect(bar.toolbar.preferredHeight == OmnibarStyle.toolbarHeight(scale: NSScreen.main?.backingScaleFactor ?? 2))
+        // In a window, as in the app: the row is on the window's pixel grid. With no window AppKit fits a half-point row
+        // (Compact's 30.5 pt) to whole points.
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 200), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView?.addSubview(bar)
+        #expect(bar.toolbar.preferredHeight == OmnibarStyle.toolbarHeight(scale: window.backingScaleFactor))
         // The row sizes the bar (its intrinsic height), so a density change resizes the Markdown tab's row too.
         #expect(bar.fittingSize.height == bar.toolbar.preferredHeight)
     }

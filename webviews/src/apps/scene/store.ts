@@ -169,6 +169,19 @@ export class SceneStore {
     this.publishStatus(sceneStatusReducer(status, { type: "scene", hasRoot: this.root !== undefined }));
   }
 
+  /** The person typed in a TextField: the mirror's `text` is what the field shows, as the host's copy
+   * is (it takes the text each edit, submit and cancel reports). So the app's next value replaces the
+   * typed text whenever it differs from it, also when it equals the last value the host sent (an app
+   * that sets "" after a submit while its value was "" all along), and an update of another prop
+   * leaves the typed text alone. */
+  reflectText(id: string, text: string): void {
+    const node = this.nodes.get(id);
+    if (!node || node.props.text === text) return;
+    const changed = new Set<string>();
+    this.write({ ...node, props: { ...node.props, text } }, changed);
+    for (const listener of this.listeners.get(id) ?? []) listener();
+  }
+
   private write(node: SceneNode, changed: Set<string>): void {
     this.nodes.set(node.id, node);
     changed.add(node.id);

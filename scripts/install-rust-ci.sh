@@ -4,8 +4,15 @@ set -euo pipefail
 export PATH="$HOME/.cargo/bin:$PATH"
 
 if ! command -v rustup >/dev/null 2>&1; then
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-    | sh -s -- -y --profile minimal --default-toolchain stable
+  # To a file first: a retried transfer never pipes a partial installer into sh.
+  rustup_init="$(mktemp "${TMPDIR:-/tmp}/rustup-init.XXXXXX")"
+  trap 'rm -f "$rustup_init"' EXIT
+  curl --proto '=https' --tlsv1.2 -sSf --retry 3 --retry-all-errors --connect-timeout 20 --max-time 120 \
+    -o "$rustup_init" https://sh.rustup.rs
+  # A distro rustc in /usr/bin would make rustup-init print "cannot install while Rust is installed" before going
+  # on under -y, a line that reads as the failure in a red job's log; skip that check.
+  RUSTUP_INIT_SKIP_PATH_CHECK=yes sh "$rustup_init" -y --profile minimal --default-toolchain stable
+  rm -f "$rustup_init"
   export PATH="$HOME/.cargo/bin:$PATH"
 fi
 

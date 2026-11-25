@@ -12,7 +12,7 @@ struct AboutPanelCredits {
 
     /// The link text.
     static var title: String {
-        String(localized: "about.credits.licenses", defaultValue: "Third-Party Licenses", table: "Windows", bundle: .module)
+        String(localized: "about.credits.licenses", defaultValue: "Third-Party Licenses", table: "Windows", bundle: .module.inAppLanguage)
     }
 
     /// The line shown when the build opted out of the remote browser host.
@@ -21,7 +21,7 @@ struct AboutPanelCredits {
             localized: "about.credits.remoteBrowserHostOptOut",
             defaultValue: "Built without the remote browser host (CMUX_NEXT_SKIP_RB_HOST=1)",
             table: "Windows",
-            bundle: .module
+            bundle: .module.inAppLanguage
         )
     }
 

@@ -17,7 +17,7 @@ describe("GET /v1/me/macs", () => {
     expect(r.status).toBe(200)
     expect(r.json.macs).toEqual([
       { deviceId: inPersonal, name: "Carol Air", teamId: "personal-carol", online: false, lastSeenAt: null, ownerUserId: "carol" },
-      { deviceId: inTeam, name: "Carol Studio", teamId: "team-c", online: true, lastSeenAt: expect.any(String), ownerUserId: "carol" }
+      { deviceId: inTeam, name: "Carol Studio", teamId: "team-c", online: true, lastSeenAt: expect.any(String), ownerUserId: "carol", quietMs: expect.any(Number) }
     ])
     mac.ws.close()
   })

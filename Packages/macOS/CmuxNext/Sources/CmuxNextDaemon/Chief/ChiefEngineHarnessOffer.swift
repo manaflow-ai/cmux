@@ -57,7 +57,7 @@ public struct ChiefEngineHarness: Decodable, Sendable, Equatable, Identifiable {
     public var description: String?
     /// A built-in icon name, or an absolute path to the icon file.
     public var icon: String?
-    /// The command that signs in to it (`unii login`).
+    /// The command that signs in to it (`cmux harness login unii`).
     public var login: String?
 
     /// Whether a turn can run on it now.
