@@ -43,3 +43,14 @@ fn the_file_round_trips_and_a_bad_file_reads_as_none() {
     assert!(read_file(&path).is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_harness_whose_spare_idled_out_is_missing_and_a_warming_or_ready_one_is_not() {
+    let list = vec![r("claude", "/a", 10), r("codex", "/a", 20)];
+    // The claude spare idled out; the codex one is warming or ready.
+    let gone = missing(&list, 30, |h| h == "codex");
+    assert_eq!(gone, vec![r("claude", "/a", 10)]);
+    assert!(missing(&list, 30, |_| true).is_empty(), "no spare is wanted twice");
+    let week = u64::try_from(RECENT.as_millis()).unwrap();
+    assert!(missing(&list, week + 100, |_| false).is_empty(), "only a recent harness");
+}

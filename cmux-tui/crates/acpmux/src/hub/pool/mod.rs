@@ -117,6 +117,11 @@ pub(crate) struct PoolState {
     /// Harnesses whose spare died, for the spare worker to start again (`spare.rs`).
     spare_restart: StdMutex<Vec<String>>,
     spare_wake: Notify,
+    /// A person request's spare check is running (`spare_on_person_request`): one at a time.
+    spare_presence_busy: AtomicBool,
+    /// A spare a person request wanted was refused (pool off, over the RSS cap, no spec): the
+    /// next person request tries again only after this.
+    spare_presence_retry_at: StdMutex<Option<std::time::Instant>>,
 }
 
 type Spec = (String, Option<String>);
@@ -140,6 +145,8 @@ impl PoolState {
             spare_file: StdMutex::new(()),
             spare_restart: StdMutex::new(Vec::new()),
             spare_wake: Notify::new(),
+            spare_presence_busy: AtomicBool::new(false),
+            spare_presence_retry_at: StdMutex::new(None),
         }
     }
 }
