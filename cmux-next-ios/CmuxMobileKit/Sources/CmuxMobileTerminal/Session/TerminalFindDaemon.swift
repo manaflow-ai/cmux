@@ -106,8 +106,8 @@ public enum TerminalFindError: Error, Equatable, Sendable {
 
     /// The daemon (or the phone's lane) does not know `terminal-find`: search the mirror instead.
     public var isUnsupported: Bool {
-        guard case .refused(let text) = self else { return false }
-        let text = text.lowercased()
+        guard case .refused(let reason) = self else { return false }
+        let text = reason.lowercased()
         return ["unknown command", "unknown cmd", "not available", "forbidden", "unsupported", "unrecognized"].contains { text.contains($0) }
     }
 }

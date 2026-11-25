@@ -49,15 +49,15 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
 
     func install(in view: UIView) {
         let interaction = UIFindInteraction(sessionDelegate: self)
-        interaction.optionsMenuProvider = { [weak self] menu in
-            guard let self else { return menu }
+        interaction.optionsMenuProvider = { [weak self] elements in
+            guard let self else { return UIMenu(children: elements) }
             let regex = UIAction(title: String(localized: "Regular Expression"),
                                  state: self.options.regex ? .on : .off) { [weak self] _ in
                 guard let self else { return }
                 self.options.regex.toggle()
                 self.restartSearch()
             }
-            return UIMenu(children: menu.children + [UIMenu(options: .displayInline, children: [regex])])
+            return UIMenu(children: elements + [UIMenu(options: .displayInline, children: [regex])])
         }
         view.addInteraction(interaction)
         self.interaction = interaction
@@ -104,6 +104,23 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
     /// New output while the bar is up: the next search reads the rows again.
     func outputArrived() {
         if isActive { snapshotStale = true }
+    }
+
+    /// One search of the redrawn screen per main-queue turn (``screenRedrawn()``).
+    private lazy var redrawSearch = TerminalTurnCoalescer(schedule: TerminalMainQueue.schedule)
+
+    /// A full-screen app drew its screen again (output, its scroll): its rows have no
+    /// scrollback numbering to keep, so the matches are found again on the new screen and the
+    /// highlights move with their text instead of staying on the rows they were on (Leo,
+    /// 2026-11-24: "sometimes the highlights in terminal just float and dont move when i
+    /// scroll?"). One search per main-queue turn at most, near the selected match, without scrolling.
+    func screenRedrawn() {
+        guard isActive, !query.isEmpty else { return }
+        redrawSearch.request { [weak self] in
+            guard let self, isActive, !query.isEmpty else { return }
+            snapshot = nil
+            search(query, revealing: false, nearRow: results.selectedMatch?.row)
+        }
     }
 
     fileprivate func search(_ query: String, revealing: Bool = true, nearRow: Int? = nil) {
@@ -293,6 +310,21 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
         highlight.setNeedsDisplay()
         host.bringSubviewToFront(highlight)
     }
+
+    #if DEBUG
+    /// The highlights drawn now, one rect per row a match covers, in the host's coordinates
+    /// (the highlight demo, TerminalHighlightScrollUITests).
+    var drawnRects: [CGRect] {
+        highlight.isHidden || highlight.superview == nil ? [] : highlight.rects.map { $0.0.offsetBy(dx: highlight.frame.minX, dy: highlight.frame.minY) }
+    }
+
+    /// Opens the bar and searches `query`, as typing it in the bar does (the highlight demo).
+    func debugSearch(_ query: String) {
+        present(terminalHadFocus: false)
+        interaction?.searchText = query
+        search(query)
+    }
+    #endif
 
     // MARK: UIFindInteractionDelegate
 

@@ -1136,7 +1136,12 @@ fn plain_keeping_link(out: &mut Vec<u8>, style: Style) -> Style {
     plain
 }
 
-fn write_style(term: &Terminal, out: &mut Vec<u8>, previous: Option<Style>, style: Style) {
+pub(crate) fn write_style(
+    term: &Terminal,
+    out: &mut Vec<u8>,
+    previous: Option<Style>,
+    style: Style,
+) {
     if previous.map(|p| p.link) != Some(style.link) {
         if style.link == 0 {
             out.extend_from_slice(b"\x1b]8;;\x1b\\");

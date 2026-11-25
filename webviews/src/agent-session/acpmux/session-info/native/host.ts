@@ -2,6 +2,7 @@
 // the clicks it hands back (`sessionInfoAction`): each runs the action the page's last model named.
 import { useSyncExternalStore } from "react";
 import { NATIVE_ACTION_ID_MAX, type NativeInfoActions, type NativeInfoRect } from "./model";
+import { loadNativeSessionInfo } from "./LazyNativeSessionInfo";
 
 let drawn = false;
 const listeners = new Set<() => void>();
@@ -14,6 +15,9 @@ export function setNativeSessionInfoHost(on: unknown): void {
   const next = on === true;
   if (next === drawn) return;
   drawn = next;
+  // The panel's code is out of the page's first script (LazyNativeSessionInfo.tsx): fetch it now, before
+  // the render that draws it.
+  if (next) void loadNativeSessionInfo().catch(() => undefined);
   for (const listener of listeners) listener();
 }
 

@@ -32,6 +32,18 @@
       "pending": "An outside-only look: there is no built-in twin."
     },
     {
+      "id": "overdrive",
+      "addon": "overdrive",
+      "builtIn": null,
+      "pending": "An outside-only look: there is no built-in twin."
+    },
+    {
+      "id": "astrolabe",
+      "addon": "astrolabe",
+      "builtIn": null,
+      "pending": "An outside-only look: there is no built-in twin."
+    },
+    {
       "id": "gel",
       "addon": "gel",
       "builtIn": null,

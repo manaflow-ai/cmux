@@ -83,3 +83,97 @@ fn an_unknown_op_or_event_is_invalid() {
     let bad = json!({"event": {"on": "nothing"}, "now": 0});
     assert_eq!(call(c"cloud_hybrid_step", &bad).0, ERR_INVALID);
 }
+
+/// A sessions folder of its own under the temp folder, made empty.
+fn sessions(name: &str) -> std::path::PathBuf {
+    let root =
+        std::env::temp_dir().join(format!("cloud-hybrid-start-{}-{name}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let sessions = root.join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    sessions
+}
+
+#[test]
+fn a_session_with_no_hybrid_start_shows_none() {
+    let sessions = sessions("none");
+    let ask = json!({"stateDir": sessions, "session": "s-none"});
+    assert_eq!(call(c"cloud_hybrid_start", &ask), (OK, json!({})));
+    let _ = std::fs::remove_dir_all(sessions.parent().unwrap());
+}
+
+#[test]
+fn the_newest_show_of_the_driver_log_is_the_start() {
+    let sessions = sessions("log");
+    let folder = sessions.parent().unwrap().join("hybrid-start");
+    std::fs::create_dir_all(&folder).unwrap();
+    let log = [
+        "hybrid start step: gate 4 ms",
+        r#"{"show":{"cloud":"booting","session":"s/1","at":10}}"#,
+        r#"{"show":{"cloud":"failed","session":"s/1","reason":"quota","machine":"vm-1","at":20}}"#,
+        r#"{"show":{"cloud":"mov"#,
+    ]
+    .join("\n");
+    std::fs::write(folder.join("s-1.log"), log).unwrap();
+    let ask = json!({"stateDir": sessions, "session": "s/1"});
+    assert_eq!(
+        call(c"cloud_hybrid_start", &ask),
+        (OK, json!({"start": {"cloud": "failed", "reason": "quota", "sinceMs": 20}}))
+    );
+    assert_eq!(call(c"cloud_hybrid_start", &json!({"session": "s/1"})).0, ERR_INVALID);
+    let _ = std::fs::remove_dir_all(sessions.parent().unwrap());
+}
+
+#[test]
+fn a_session_reads_its_one_computer_status() {
+    let facts = json!({
+        "session_id": "s1",
+        "home": "cloud",
+        "machine": {"shape": {"vcpu": 2.0, "memory_gib": 4.0}, "paused_by": "spend_cap", "paused_since_ms": 9}
+    });
+    let (code, status) = call(c"cloud_computer_status", &facts);
+    assert_eq!(code, OK);
+    assert_eq!(status["phase"], "paused_spend_cap");
+    assert_eq!(status["home"], "cloud");
+    assert_eq!(status["shape"], json!({"vcpu": 2.0, "memory_gib": 4.0}));
+    assert_eq!(status["why"], json!({"at_ms": 9, "reason": "spend_cap"}));
+    assert_eq!(call(c"cloud_computer_status", &json!("nope")).0, ERR_INVALID);
+}
+
+#[test]
+fn the_keep_count_says_how_many_and_what_another_does() {
+    let plus = json!({"plan": "next_plus", "kept": 2, "on": false, "hoursUsed": 41.5});
+    let (code, reply) = call(c"cloud_hybrid_keep_count", &plus);
+    assert_eq!(code, OK);
+    assert_eq!((reply["kept"].clone(), reply["slots"].clone()), (json!(2), json!(3)));
+    assert_eq!(reply["hoursUsed"], 41);
+    assert_eq!(reply["next"], json!({"do": "keeps", "after": 3}));
+    let none = call(c"cloud_hybrid_keep_count", &json!({})).1;
+    assert_eq!(none["next"], json!({"do": "startsTrial", "slots": 1, "hours": 10}));
+    assert_eq!(call(c"cloud_hybrid_keep_count", &json!({"kept": "two"})).0, ERR_INVALID);
+}
+
+#[test]
+fn a_computer_status_needs_its_session_and_reads_a_live_hybrid_show() {
+    assert_eq!(call(c"cloud_computer_status", &json!({"home": "cloud"})).0, ERR_INVALID);
+    assert_eq!(call(c"cloud_computer_status", &json!({"session_id": ""})).0, ERR_INVALID);
+    // The Show as `cloud_hybrid_start` answers it, `sinceMs` and all, paused at the spend cap.
+    let facts = json!({
+        "session_id": "s1",
+        "hybrid": {"cloud": "live", "sinceMs": 4},
+        "machine": {"paused_by": "spend_cap", "paused_since_ms": 9}
+    });
+    let (code, status) = call(c"cloud_computer_status", &facts);
+    assert_eq!(code, OK);
+    assert_eq!((&status["phase"], &status["home"]), (&json!("paused_spend_cap"), &json!("cloud")));
+    // An unknown pause word is paused, not sleeping; a failed move keeps the chat here.
+    let unknown = json!({"session_id": "s1", "home": "cloud", "machine": {"paused_by": "later"}});
+    assert_eq!(call(c"cloud_computer_status", &unknown).1["phase"], "paused");
+    let failed = json!({
+        "session_id": "s1",
+        "hybrid": {"cloud": "live"},
+        "move": {"direction": "to_cloud", "failure": "network_dropped"}
+    });
+    let (_, status) = call(c"cloud_computer_status", &failed);
+    assert_eq!((&status["phase"], &status["home"]), (&json!("move_failed"), &json!("this_mac")));
+}

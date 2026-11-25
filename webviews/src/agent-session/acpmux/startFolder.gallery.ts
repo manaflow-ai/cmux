@@ -24,9 +24,10 @@ const newWorktree: Play = async (ctx) => {
   await ctx.click({ role: "option", name: "New worktree" });
 };
 
-// The home folder's row in the folder menu. Rows show the repository or folder name since #22724,
-// with the full path only as the row's tooltip.
-const HOME_ROW = '.acpmux-location-menu [title="/Users/you"]';
+// The home folder's row in the folder menu. Rows show the repository or folder name since #22724;
+// the full path ends the row's accessible name (ComposerContext.tsx `itemLabel`) since its tooltip
+// went in c0ecbb88f12 (tooltip cuts: no tooltip on an element whose text shows).
+const HOME_ROW = '.acpmux-location-menu .ui-combobox-item[aria-label$="/Users/you"]';
 
 const fresh = noChat(
   [

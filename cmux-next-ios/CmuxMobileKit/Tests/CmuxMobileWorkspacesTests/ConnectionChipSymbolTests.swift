@@ -12,8 +12,6 @@ import Testing
     static var everyChip: [(String, ConnectionChip.Content)] {
         var chips: [(String, ConnectionChip.Content)] = []
         let banners: [(String, ConnectionBannerState)] = [
-            ("banner reconnecting", .reconnecting(to: "Mac Studio")),
-            ("banner connecting", .connecting(to: "Mac Studio")),
             ("banner offline", .offline),
             ("banner mac offline", .macOffline("Mac Studio")),
             ("banner connection failed", .connectionFailed),

@@ -9,7 +9,7 @@
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use cmux_terminal_projection::{DEFAULT_HISTORY_LIMIT, Projection, Segment};
+use cmux_terminal_projection::{AltPan, DEFAULT_HISTORY_LIMIT, Projection, Segment};
 
 /// What a feed gives the phone's surface, in order.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
@@ -39,13 +39,30 @@ pub struct ProjectionLocation {
     pub column: u32,
 }
 
+/// What a vertical pan over a full-screen app does: bytes the phone's
+/// surface paints itself (nothing sent), then rows of wheel for the app on
+/// the Mac (0: nothing goes).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct ProjectionAltPan {
+    pub paint: Vec<u8>,
+    /// Rows of wheel, positive toward older content.
+    pub forward_rows: f64,
+}
+
+/// Rows held for a pan over a full-screen app, and their bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct ProjectionHeld {
+    pub rows: u64,
+    pub bytes: u64,
+}
+
 #[derive(uniffi::Object)]
 pub struct TerminalProjection {
     inner: Mutex<Projection>,
 }
 
 impl TerminalProjection {
-    fn inner(&self) -> MutexGuard<'_, Projection> {
+    pub(crate) fn inner(&self) -> MutexGuard<'_, Projection> {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
@@ -128,6 +145,32 @@ impl TerminalProjection {
         self.inner().take_replies()
     }
 
+    /// A vertical pan of `rows` (positive: toward older content) over the
+    /// alternate screen: within the rows the app scrolled off, the phone
+    /// paints them and nothing is sent; past them, for an app that asked for
+    /// the mouse, on the primary screen or with nothing held, the wheel goes
+    /// to the Mac as before.
+    pub fn alt_pan(&self, rows: f64) -> ProjectionAltPan {
+        let AltPan { paint, forward_rows } = self.inner().alt_pan(rows);
+        ProjectionAltPan { paint, forward_rows }
+    }
+
+    /// A key or a tap: bytes that show the app's live screen again (empty
+    /// when the surface already shows it).
+    pub fn alt_return_live(&self) -> Vec<u8> {
+        self.inner().alt_return_live()
+    }
+
+    /// How many held rows back the surface shows the alternate screen.
+    pub fn alt_rows_back(&self) -> u32 {
+        u32::try_from(self.inner().alt_rows_back()).unwrap_or(u32::MAX)
+    }
+
+    pub fn held(&self) -> ProjectionHeld {
+        let (rows, bytes) = self.inner().held();
+        ProjectionHeld { rows: rows as u64, bytes: bytes as u64 }
+    }
+
     pub fn is_alternate(&self) -> bool {
         self.inner().is_alternate()
     }
@@ -167,5 +210,23 @@ mod tests {
         let vim = projection.feed(b"\x1b[?1049hvim".to_vec(), true);
         assert!(vim.contains(&ProjectionSegment::Alternate { on: true }));
         assert!(projection.is_alternate());
+    }
+
+    #[test]
+    fn a_pan_within_held_rows_paints_and_forwards_nothing() {
+        let projection = TerminalProjection::new(80, 24);
+        let _ = projection.set_viewport(54, 38);
+        let mut bytes = b"\x1b[?1049h".to_vec();
+        for i in 0..60 {
+            bytes.extend_from_slice(format!("line {i}\r\n").as_bytes());
+        }
+        let _ = projection.feed(bytes, true);
+        assert_eq!(projection.held().rows, 37);
+        let step = projection.alt_pan(3.0);
+        assert!(!step.paint.is_empty());
+        assert_eq!(step.forward_rows, 0.0);
+        assert_eq!(projection.alt_rows_back(), 3);
+        assert!(!projection.alt_return_live().is_empty());
+        assert_eq!(projection.alt_rows_back(), 0);
     }
 }
