@@ -27,6 +27,7 @@ public struct SelectableText: View {
 
     private let content: Content
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.chatStill) private var still
 
     public init(_ text: NSAttributedString) {
         content = .attributed(text)
@@ -53,59 +54,32 @@ public struct SelectableText: View {
         }
     }
 
-    @Environment(\.selectableTextIsStill) private var still
-
     public var body: some View {
-        let text = attributedText
-        let firstFont = text.length > 0 ? text.attribute(.font, at: 0, effectiveRange: nil) as? UIFont : nil
-        let baseline = firstFont?.ascender ?? 0
-        Group {
-            if still {
-                Self.stillText(text)
-            } else {
-                SelectableLabel(text: text)
-            }
+        if still {
+            standIn
+        } else {
+            let text = attributedText
+            let firstFont = text.length > 0 ? text.attribute(.font, at: 0, effectiveRange: nil) as? UIFont : nil
+            let baseline = firstFont?.ascender ?? 0
+            SelectableLabel(text: text)
+                .alignmentGuide(.firstTextBaseline) { _ in baseline }
         }
-        .alignmentGuide(.firstTextBaseline) { _ in baseline }
     }
 
-    /// The label's text as SwiftUI's own `Text`, for a still: the same fonts, colors and line
-    /// spacing, nothing to hold.
-    private static func stillText(_ text: NSAttributedString) -> some View {
-        var out = AttributedString()
-        var lineSpacing: CGFloat = 0
-        text.enumerateAttributes(in: NSRange(location: 0, length: text.length)) { attributes, range, _ in
-            var run = AttributedString((text.string as NSString).substring(with: range))
-            if let font = attributes[.font] as? UIFont {
-                run[AttributeScopes.SwiftUIAttributes.FontAttribute.self] = Font(font as CTFont)
-            }
-            if let color = attributes[.foregroundColor] as? UIColor {
-                run[AttributeScopes.SwiftUIAttributes.ForegroundColorAttribute.self] = Color(uiColor: color)
-            }
-            if let color = attributes[.backgroundColor] as? UIColor {
-                run[AttributeScopes.SwiftUIAttributes.BackgroundColorAttribute.self] = Color(uiColor: color)
-            }
-            if attributes[.strikethroughStyle] != nil {
-                run[AttributeScopes.SwiftUIAttributes.StrikethroughStyleAttribute.self] = .single
-            }
-            if attributes[.underlineStyle] != nil {
-                run[AttributeScopes.SwiftUIAttributes.UnderlineStyleAttribute.self] = .single
-            }
-            if let paragraph = attributes[.paragraphStyle] as? NSParagraphStyle {
-                lineSpacing = max(lineSpacing, paragraph.lineSpacing)
-            }
-            out += run
+    /// In a still (`chatStill`: a tab card's picture, the live preview) the label is SwiftUI's own
+    /// `Text`: `ImageRenderer` draws a UIKit label as its yellow placeholder, which covered every
+    /// row of the card's picture once rows held their text in one (#52600).
+    @ViewBuilder private var standIn: some View {
+        switch content {
+        case .attributed(let text):
+            Text((try? AttributedString(text, including: \.uiKit)) ?? AttributedString(text.string))
+        case let .plain(text, font, color, spacing):
+            Text(verbatim: text)
+                .font(Font(font.font(for: typeSize)))
+                .foregroundStyle(Color(uiColor: color))
+                .lineSpacing(spacing)
         }
-        return Text(out).lineSpacing(lineSpacing)
     }
-}
-
-extension EnvironmentValues {
-    /// The text is drawn as a still (an agent tab card's picture, an `ImageRenderer` still of
-    /// the chat). `ImageRenderer` draws only SwiftUI's own views: the label a hold selects in
-    /// (a `UILabel`) came out as the yellow "can't render" placeholder in every bubble and
-    /// paragraph of the card. In a still, ``SelectableText`` draws its text as a `Text`.
-    @Entry public var selectableTextIsStill = false
 }
 
 private struct SelectableLabel: UIViewRepresentable {

@@ -308,11 +308,12 @@ struct ChiefConversationHooksTests {
         defer { session.store.stop(); ChiefTextZoom.shared.actualSize() }
         let menu = try #require(conversation.headerActionMenu)
         #expect((menu.children.first as? UIAction)?.title == "Invite to cmux")
+        // #51834 (App Review 1.2 / 4.7.1) added Report as an inline section after the deferred
+        // Chat Colors / zoom element, on purpose: three children, in that order.
         #expect(menu.children.count == 3 && menu.children[1] is UIDeferredMenuElement)
-        // App Review 1.2 / 4.7.1: Report a Response… closes the menu in its own section.
-        let report = try #require(menu.children.last as? UIMenu)
-        #expect(report.options.contains(.displayInline))
-        #expect(report.children.compactMap { ($0 as? UIAction)?.title } == [ChiefReport.title])
+        let reportSection = try #require(menu.children.last as? UIMenu)
+        #expect(reportSection.options.contains(.displayInline))
+        #expect(reportSection.children.compactMap { ($0 as? UIAction)?.title } == [ChiefReport.title])
         // Chat Colors… waits until the chat is known (this one never connects).
         #expect(container.chatColorsAction().title == "Chat Colors…")
         #expect(container.chatColorsAction().attributes.contains(.disabled))

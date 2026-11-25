@@ -34,19 +34,14 @@ public final class InlineMarkdownCache {
         let output = NSMutableAttributedString()
         for run in parsed.runs {
             let intent = run.inlinePresentationIntent ?? []
-            var runFont = font
-            if intent.contains(.code) {
-                // A text style's descriptor drops `withDesign(.monospaced)` when its traits are set
-                // again; build the mono face as the native rows do (ChatNativeLayout).
-                let weight = (font.fontDescriptor.object(forKey: .traits) as? [UIFontDescriptor.TraitKey: Any])?[.weight] as? CGFloat
-                runFont = UIFont.monospacedSystemFont(ofSize: font.pointSize, weight: UIFont.Weight(weight ?? 0))
-            }
-            var traits: UIFontDescriptor.SymbolicTraits = []
+            // Code starts from the system monospaced font at the row's size and weight: a text
+            // style's descriptor (`preferredFont`) ignores `withDesign(.monospaced)` once its traits
+            // are set, so a code span in a table cell drew in the proportional face (#52600's test).
+            let descriptor = intent.contains(.code) ? Self.monospaced(like: font).fontDescriptor : font.fontDescriptor
+            var traits = descriptor.symbolicTraits
             if intent.contains(.stronglyEmphasized) { traits.insert(.traitBold) }
             if intent.contains(.emphasized) { traits.insert(.traitItalic) }
-            if !traits.isEmpty, let descriptor = runFont.fontDescriptor.withSymbolicTraits(runFont.fontDescriptor.symbolicTraits.union(traits)) {
-                runFont = UIFont(descriptor: descriptor, size: font.pointSize)
-            }
+            let runFont = UIFont(descriptor: descriptor.withSymbolicTraits(traits) ?? descriptor, size: font.pointSize)
             var attributes: [NSAttributedString.Key: Any] = [
                 .font: runFont, .foregroundColor: color, .paragraphStyle: paragraph,
             ]
@@ -60,6 +55,13 @@ public final class InlineMarkdownCache {
             output.append(NSAttributedString(string: String(parsed[run.range].characters), attributes: attributes))
         }
         return output
+    }
+
+    /// The system monospaced font at `font`'s size and weight.
+    private static func monospaced(like font: UIFont) -> UIFont {
+        let traits = font.fontDescriptor.object(forKey: .traits) as? [UIFontDescriptor.TraitKey: Any]
+        let weight = (traits?[.weight] as? CGFloat).map { UIFont.Weight(rawValue: $0) } ?? .regular
+        return UIFont.monospacedSystemFont(ofSize: font.pointSize, weight: weight)
     }
 
     static func render(_ source: String) -> AttributedString {

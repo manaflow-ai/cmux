@@ -116,11 +116,9 @@ public enum DeveloperOptions {
     /// "complete" and kept reading NO: the space choice never left the
     /// screen (App Review gate, 2026-11-11). Called once at launch, before
     /// anything reads the keys.
-    /// `seededKeys` is for tests: the argument domain is process-wide, so a
-    /// test that seeds the real key hides it from every test running beside it.
-    public static func seedLaunchArguments(into defaults: UserDefaults = .standard, seededKeys: [String] = launchSeededKeys) {
+    public static func seedLaunchArguments(into defaults: UserDefaults = .standard, keys seeded: [String] = launchSeededKeys) {
         var arguments = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
-        let keys = seededKeys.filter { arguments[$0] != nil }
+        let keys = seeded.filter { arguments[$0] != nil }
         guard !keys.isEmpty else { return }
         // `bool(forKey:)` reads the argument's "YES"/"NO" string as a Bool.
         let values = keys.map { (key: $0, value: defaults.bool(forKey: $0)) }
