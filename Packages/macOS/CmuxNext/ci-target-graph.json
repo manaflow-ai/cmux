@@ -563,6 +563,7 @@
         "Resources/ghostty/themes/",
         "Resources/markdown-viewer/ondine.min.js",
         "Resources/sidebar-looks/",
+        "Resources/theme-files/",
         "cmux-tui/crates/acpmux/tests/fake_agent.py",
         "cmux-tui/crates/cmux-layout-reducer/tests/data/closing_panes_corpus.txt",
         "cmux-tui/crates/cmux-layout-reducer/tests/data/shown_resize_corpus.txt",
@@ -1149,6 +1150,7 @@
         "CmuxNextDaemon",
         "CmuxNextFiles",
         "CmuxNextLayout",
+        "CmuxNextTerminalFind",
         "CmuxNextWakeups",
         "CmuxNextWindowRules"
       ],
@@ -1484,6 +1486,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHome",
       "targets": [
+        "CmuxNextActions",
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextDesignTokens",
@@ -2278,6 +2281,7 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextDesignTokens",
+        "CmuxNextPages",
         "CmuxNextSettings",
         "CmuxNextSettingsWindow",
         "CmuxNextSidebar"
@@ -2387,6 +2391,7 @@
         "CmuxNextDesign",
         "CmuxNextDictation",
         "CmuxNextTerminal",
+        "CmuxNextTerminalFind",
         "CmuxNextTestSupport"
       ],
       "packages": [],
