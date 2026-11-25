@@ -79,8 +79,8 @@ final class LoadShiftsUITests: XCTestCase {
         }
     }
 
-    // A main-actor func, not a static closure: a stored static of a non-Sendable closure type is not
-    // concurrency-safe under Xcode 26.6, and XCUI queries are main-actor.
+    /// A method, not a stored closure: XCUIElement's queries are main-actor, and a stored
+    /// closure would be a nonisolated, non-Sendable static (Swift 6 refuses both).
     @MainActor
     static func anyComposer(_ app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any).matching(NSPredicate(
