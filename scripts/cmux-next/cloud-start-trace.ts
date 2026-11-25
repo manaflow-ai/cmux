@@ -83,6 +83,69 @@ export async function readStartTrace(raw: Raw, id: string, spans: Span[], machin
 }
 
 /*
+ * One journey send as one trace (cmux#55505's format): the journey mints a W3C trace id per send and carries it as
+ * `traceparent` and `x-cmux-start-trace` on the create op and the carrier ticket, and as `params._meta.traceId` on the
+ * prompt to acpmux. After the first token it reads the platform's Chrome trace JSON for that id
+ * (GET /v1/cloud/start-traces/{id}/chrome, opens in ui.perfetto.dev) and prints each hop beside its floor. Tracing never
+ * fails the journey: a 404 (the route not deployed yet) or any error is printed and the run goes on.
+ */
+
+/** A send's trace: the 32 lowercase hex W3C trace id, and the headers that carry it on a platform request. */
+export type SendTrace = { id: string; headers: Record<string, string> };
+
+export function mintSendTrace(bytes: (n: number) => Uint8Array = (n) => crypto.getRandomValues(new Uint8Array(n))): SendTrace {
+  const hex = (n: number) => {
+    for (;;) {
+      const h = Array.from(bytes(n), (b) => b.toString(16).padStart(2, "0")).join("");
+      if (!/^0+$/.test(h)) return h; // W3C: an all-zero trace or span id is invalid
+    }
+  };
+  const id = hex(16);
+  return { id, headers: { traceparent: `00-${id}-${hex(8)}-01`, "x-cmux-start-trace": id } };
+}
+
+export type ChromeEvent = { name?: string; ph?: string; ts?: number; dur?: number; args?: Record<string, unknown> };
+export type SendTraceRow = { hop: string; ms: number; floor_ms: number | null };
+
+/** The Chrome trace's events: a bare array, or the object form's `traceEvents`. */
+export function chromeEvents(body: unknown): ChromeEvent[] {
+  const list = Array.isArray(body) ? body : Array.isArray((body as any)?.traceEvents) ? (body as any).traceEvents : [];
+  return list.filter((e: unknown): e is ChromeEvent => typeof e === "object" && e !== null);
+}
+
+/** Each complete ("X") event as hop, ms and floor_ms, in trace order. */
+export function sendTraceRows(body: unknown): SendTraceRow[] {
+  return chromeEvents(body)
+    .filter((e) => e.ph === "X")
+    .sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0))
+    .map((e) => {
+      const floor = Number(e.args?.floor_ms);
+      return { hop: String(e.args?.hop ?? e.name ?? "?"), ms: Math.round((e.dur ?? 0) / 1000), floor_ms: Number.isFinite(floor) ? floor : null };
+    });
+}
+
+/** The rows as a fixed-width table: hop, ms, floor_ms. */
+export function sendTraceTable(rows: SendTraceRow[]): string {
+  const w = Math.max(3, ...rows.map((r) => r.hop.length));
+  const line = (a: string, b: string, c: string) => `${a.padEnd(w)}  ${b.padStart(8)}  ${c.padStart(8)}`;
+  return [line("hop", "ms", "floor_ms"), ...rows.map((r) => line(r.hop, String(r.ms), r.floor_ms === null ? "-" : String(r.floor_ms)))].join("\n");
+}
+
+/**
+ * Read a send's Chrome trace. `{ body }` on 200; `{ missing }` with why otherwise (404: the route is not deployed, or
+ * the trace is unknown). Never throws.
+ */
+export async function readSendTrace(raw: Raw, id: string): Promise<{ body: unknown } | { missing: string }> {
+  try {
+    const r = await raw("GET", `/v1/cloud/start-traces/${encodeURIComponent(id)}/chrome`, undefined, 15_000);
+    if (r.status === 200) return { body: r.body };
+    return { missing: `HTTP ${r.status}${r.status === 404 ? " (the /chrome route is not deployed, or the trace is unknown)" : ""} ${String(r.body?.error?.code ?? "")}`.trim() };
+  } catch (error) {
+    return { missing: String((error as Error)?.message ?? error).slice(0, 200) };
+  }
+}
+
+/*
  * snappy-bench/v1, the cloud leg: send to first token on a fresh Cloud chat, cut into its parts, beside the model's
  * own floor (Leo, 2026-11-25: "austin started a cloud chat on current main ... he apparently got like 40+ seconds
  * from sending message to first token"). On a fresh chat the person's send is the create (Enter on "new chat in
