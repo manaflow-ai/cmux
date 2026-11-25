@@ -29,6 +29,33 @@ import UIKit
         }
     }
 
+    /// Leo, 2026-11-23: "why do we not have a horizontal mode?" Every
+    /// workspace tab page turns, so a swipe from the terminal to a browser or
+    /// chat tab (or an address-bar edit) keeps the phone sideways; the last
+    /// page leaving (zoomed out to the grid) turns it back.
+    @MainActor @Test func everyTabPageTurnsWithThePhone() {
+        // Its own instance: another test's pages on `shared` can't leak in.
+        let orientation = ScreenSharingOrientation()
+        #expect(!orientation.isShowingTurningPage)
+        orientation.tabPage("browser", shows: true)
+        #expect(orientation.isShowingTurningPage)
+        // The swipe: the next page is on before the last one leaves.
+        orientation.tabPage("chat", shows: true)
+        orientation.tabPage("browser", shows: false)
+        #expect(orientation.isShowingTurningPage)
+        orientation.tabPage("chat", shows: false)
+        #expect(!orientation.isShowingTurningPage)
+    }
+
+    /// A phone already held sideways when a turning page appears is asked to
+    /// turn now; its interface mirrors the device (home button side).
+    @Test func aSidewaysPhoneMapsToItsInterfaceOrientation() {
+        #expect(ScreenSharingOrientation.interface(for: .landscapeLeft) == .landscapeRight)
+        #expect(ScreenSharingOrientation.interface(for: .landscapeRight) == .landscapeLeft)
+        #expect(ScreenSharingOrientation.interface(for: .portrait) == nil)
+        #expect(ScreenSharingOrientation.interface(for: .faceUp) == nil)
+    }
+
     @Test func noWindowYetIsPortrait() {
         #expect(ScreenSharingOrientation.resting(windowSize: .zero) == .portrait)
     }
