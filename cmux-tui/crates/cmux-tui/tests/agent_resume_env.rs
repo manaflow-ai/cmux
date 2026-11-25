@@ -48,6 +48,9 @@ const CALLER_SESSION_ENV: &[(&str, &str)] = &[
     ("ACPMUX_SESSION_TOKEN", SENTINEL),
     ("ACPMUX_HOST_NONCE", SENTINEL),
     ("CMUX_AGENT_SESSION", SENTINEL),
+    // A terminal Claude's answer to cmux's tools (the `claude` shim): an owner it started must not
+    // give every terminal it hosts that answer over the live setting.
+    ("CMUX_AGENT_TOOLS_ANSWER", SENTINEL),
     // A Chief turn's own messaging credential (acpmux CHIEF_CREDENTIAL_ENV)
     // and a background task's subagent mark (review 6731023492, item 5).
     ("MUX_AGENT_TOKEN_FILE", SENTINEL),

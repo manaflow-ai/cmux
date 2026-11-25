@@ -61,7 +61,20 @@
 //! stops being at work, so a missed `completed` never holds `tool` past its turn. A missed start
 //! is worse (a tool would run under `model-wait`), so after a lag every session then at work
 //! reports `unknown` (which the Cloud reads as awake) until its turn ends or it is no longer at
-//! work.
+//! work. A restarted daemon missed every event before its start the same way (a tool an agent
+//! host that outlived the last daemon still runs), so every session at work until its startup
+//! settles, and at the first look after, is `unknown` too ([`Tracker::startup`]): a pause never
+//! lands under a tool this daemon did not see start (wake kind 5, cmuxterm-hq RFD 0017).
+//!
+//! Each line also carries `"turn_end": 1` (version [`TURN_END_VERSION`], capability
+//! `activity-turn-end`): this daemon's promise that `turns` 0 means nothing is pending. No turn
+//! runs or is queued, no permission or question waits, no continuation is pending, and no
+//! background task, process, subagent or sub-session is at work (the count is
+//! [`crate::hub::Hub::sessions_at_work`], which covers each). So a pause right when the count
+//! drops to 0 loses nothing, and the Cloud may pause at turn end instead of after its 60 s
+//! window, on the machines whose pause policy asks for it (cmux-platform `turn_end`). A daemon
+//! older than this field sends no `turn_end`, and the agent then advertises no capability, so
+//! the Cloud keeps its usual window.
 //!
 //! A machine without the agent's socket (every machine that is not a Cloud machine) sends nothing.
 
@@ -77,6 +90,8 @@ use tokio::io::AsyncWriteExt;
 /// How often a line goes in any case. The agent keeps a count for 90 s
 /// (cmux-host `cloud/wire.rs` `ACP_ACTIVITY_TTL_MS`), so two lines can be lost before it forgets.
 pub(super) const RENEW: Duration = Duration::from_secs(20);
+/// The `turn_end` field's version: 1 promises that a count of 0 means nothing pending (module doc).
+pub(super) const TURN_END_VERSION: u64 = 1;
 /// A line must not hold this loop on a dead socket.
 const SEND_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -104,6 +119,9 @@ pub(super) struct Tracker {
     lagged: bool,
     /// Sessions whose tool events may be missing since a lag.
     uncertain: BTreeSet<String>,
+    /// This daemon started after events it never saw (every daemon's own tracker,
+    /// [`Tracker::new`]): until its startup settles, each look is a lag ([`Self::startup`]).
+    restarted: bool,
     /// Each session at work's phase and since when, once [`Self::observe`] ran.
     phases: Option<BTreeMap<String, TurnPhase>>,
     /// The phases the agent last got, by session: (phase, since).
@@ -121,7 +139,7 @@ pub(super) struct TurnPhase {
 
 impl Tracker {
     pub(super) fn new(daemon: String) -> Tracker {
-        Tracker { daemon, ..Tracker::default() }
+        Tracker { daemon, restarted: true, ..Tracker::default() }
     }
 
     /// An agent acted at `at_ms` (a record's own time).
@@ -191,6 +209,18 @@ impl Tracker {
         self.lagged = true;
     }
 
+    /// Before each look ([`Self::observe`]): whether this daemon's startup has settled
+    /// ([`crate::hub::Hub::startup_settled`]). A daemon that just started missed every tool
+    /// event before it (an agent host that outlived the last daemon may run a tool now), so
+    /// until it settles, and at the first look after (adoption's sessions show up then), every
+    /// session at work is `unknown` until its turn ends, as after a lag.
+    pub(super) fn startup(&mut self, settled: bool) {
+        if self.restarted {
+            self.lagged = true;
+            self.restarted = !settled;
+        }
+    }
+
     /// The sessions at work as read at `now_ms`: each one's phase, its since kept while the
     /// phase holds. A session no longer at work forgets its open calls.
     pub(super) fn observe(&mut self, at_work: &[SessionAtWork], now_ms: u64) {
@@ -255,7 +285,7 @@ impl Tracker {
         self.sent = Some((turns, self.last_action));
         self.sent_phases = phases;
         self.sent_person_prompt = self.person_prompt;
-        let mut activity = json!({"turns": turns});
+        let mut activity = json!({"turns": turns, "turn_end": TURN_END_VERSION});
         if let Some(at) = self.last_action {
             activity.set("last_agent_action_at", json!(at));
         }
@@ -310,11 +340,14 @@ async fn agent_socket_appears(path: &Path) {
     if path.exists() {
         return;
     }
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    // A coalescing slot of one (RFD 0124 R4): each wake looks at the path again, so one waiting
+    // stands for any number more. An unbounded channel kept one per event in the folder (`/run`
+    // off a Cloud machine, for the daemon's whole life) until the next look.
+    let (tx, mut rx) = tokio::sync::mpsc::channel(1);
     let Ok(mut watcher) =
         notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
             if !matches!(&event, Ok(e) if e.kind.is_access()) {
-                let _ = tx.send(());
+                let _ = tx.try_send(());
             }
         })
     else {
@@ -394,6 +427,8 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
         if !path.exists() {
             continue;
         }
+        // Read before the sessions: once settled, this look already sees adoption's sessions.
+        let settled = hub.startup_settled();
         let detail = {
             let hub = hub.clone();
             tokio::task::spawn_blocking(move || hub.sessions_at_work_detail()).await.ok()
@@ -401,13 +436,14 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
         let now = crate::store::now_ms();
         let at_work = match &detail {
             Some(detail) => {
+                tracker.startup(settled);
                 tracker.observe(detail, now);
                 detail.len()
             }
             // A count that cannot be read is not a known 0.
             None => 1,
         };
-        let at_work = reported_at_work(at_work, hub.startup_settled());
+        let at_work = reported_at_work(at_work, settled);
         if let Some(at) = hub.last_person_prompt_at() {
             tracker.person_prompted(at);
         }

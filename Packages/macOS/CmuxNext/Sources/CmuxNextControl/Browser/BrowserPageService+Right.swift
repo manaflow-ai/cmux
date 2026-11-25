@@ -22,8 +22,12 @@ import Foundation
 /// chat's dock, never with focus, and unselected while the person's focus is
 /// in that pane (plans/cmux-next/agent-browser-passkey-DESIGN.md 3.1). A tab
 /// another agent holds answers `lease_held` naming the holder. With no
-/// column right of the chat it answers `not_found` with `dock_pane`, so the
-/// caller makes the column (`cmux pane <dock_pane> split --right`).
+/// column right of the chat the new tab opens beside the person's current tab
+/// (any workspace, unselected), and while the person is in the Home chat
+/// itself in a new column right of it (``openPlace(column:topology:)``); the
+/// agent's own tab is then found wherever it is. Leo 2026-11-23: "you should
+/// be able to simply open it to the left or right of your current tab or pane
+/// or split depending".
 extension BrowserPageService {
     /// `openBrowser`'s profile value for the clean agent profile: no extensions, no cookies shared
     /// with the person's profiles (plans/cmux-next/passwords.md, section 3.4).
@@ -64,30 +68,31 @@ extension BrowserPageService {
             guard let column = BrowserRightColumn.resolve(in: call.snapshot.topology) else {
                 throw ControlError(code: "not_found", message: ControlStrings.text("control.error.rightNoHome", "No Home workspace"))
             }
-            guard let pane = column.pane else {
-                throw ControlError(code: "not_found",
-                                   message: ControlStrings.text("control.error.rightNoColumn",
-                                                                "No column right of the Home chat; make one with `cmux pane <dock_pane> split --right`"),
-                                   data: ["dock_pane": .string(column.dock.id), "workspace": .string(column.workspace.publicID)])
-            }
+            let topology = call.snapshot.topology
             func answer(_ tab: String, created: Bool, navigated: Bool, shared: Bool = false) -> JSONValue {
-                ["tab": .string(tab), "pane": .string(pane.id), "workspace": .string(column.workspace.publicID),
-                 "agent": .string(agent), "created": .bool(created), "navigated": .bool(navigated), "shared": .bool(shared)]
+                let now = router.snapshots.current.topology
+                let place = Self.place(of: tab, in: now) ?? Self.place(of: tab, in: topology)
+                return ["tab": .string(tab), "pane": .optional(place?.pane ?? column.pane?.id),
+                        "workspace": .string(place?.workspace ?? column.workspace.publicID),
+                        "agent": .string(agent), "created": .bool(created), "navigated": .bool(navigated), "shared": .bool(shared)]
             }
             func held(_ holder: String, _ tab: String) -> ControlError { Self.leaseHeld(holder: holder, tab: tab) }
+            // With no column right of the Home chat the agent's tabs live beside the person's tab
+            // (below), so its own and held tabs are looked up wherever they are.
+            let candidates = column.pane == nil ? Self.allBrowserTabs(in: topology) : column.browserTabs
             // Its own tabs in the agent profile only: one from before in the person's profile
             // (their extensions) would refuse every page call, so a new one opens instead.
-            let usable = Set(column.browserTabs.filter { Self.isAgentProfile($0.browserProfileID) }.map(\.id))
+            let usable = Set(candidates.filter { Self.isAgentProfile($0.browserProfileID) }.map(\.id))
             if let own = await leases.openedTab(of: agent, among: usable) {
                 if let holder = await leases.acquire(own, for: agent) { throw held(holder, own) }
                 return answer(own, created: false, navigated: false)
             }
             // A tab it already drives stays its own, even once another tab is shown.
-            if url == nil, let kept = await leases.heldTab(of: agent, among: column.browserTabs.map(\.id)) {
+            if url == nil, let kept = await leases.heldTab(of: agent, among: candidates.map(\.id)) {
                 _ = await leases.acquire(kept, for: agent)
                 return answer(kept, created: false, navigated: false)
             }
-            if url == nil, let shown = column.shownBrowserTab {
+            if url == nil, column.pane != nil, let shown = column.shownBrowserTab {
                 if take {
                     if let holder = await leases.acquire(shown.id, for: agent) { throw held(holder, shown.id) }
                     return answer(shown.id, created: false, navigated: false)
@@ -98,23 +103,65 @@ extension BrowserPageService {
                                                                 "The shown tab is the person's: read it, or open your own with `cmux browser right navigate <url>`"),
                                    data: ["tab": .string(shown.id), "url": .string(shown.url ?? "about:blank")])
             }
-            let personIsHere = call.snapshot.topology.focus.paneID == pane.id
-            let opened = try await Self.openRightTab(in: pane, url: url, background: personIsHere, call: call, router: router)
+            let opened = try await Self.openRightTab(Self.openPlace(column: column, topology: topology), url: url, call: call, router: router)
             if let holder = await leases.acquire(opened, for: agent, opened: true) { throw held(holder, opened) }
             return answer(opened, created: true, navigated: url != nil)
         }.claimingProgress().withLimit { _, _ in Self.rightOpenLimit }
     }
 
-    /// Opens a browser tab in `pane` through `openBrowser` (aimed at a tab of
-    /// that pane, without focus; unselected when `background`) and returns its id.
-    private static func openRightTab(in pane: ControlPaneInfo, url: String?, background: Bool, call: ControlCall,
-                                     router: ControlRouter) async throws -> String {
-        guard let anchor = pane.selectedTabID ?? pane.tabs.first?.id else {
-            throw ControlError(code: "not_found", message: ControlStrings.text("control.error.rightEmptyColumn", "The column right of the Home chat has no tab to open beside"),
-                               data: ["pane": .string(pane.id)])
+    /// Where a new agent tab opens. Leo 2026-11-23: "you should be able to simply open it to the left
+    /// or right of your current tab or pane or split depending".
+    enum OpenPlace: Equatable {
+        /// Beside `anchor` in `pane` (the column right of the Home chat, or the person's focused pane);
+        /// unselected when `background` (the person works in that pane).
+        case beside(anchor: String, pane: String, background: Bool)
+        /// A new column right of the Home chat (the person is in the chat, or nothing has focus).
+        case besideHomeChat
+    }
+
+    /// The column right of the Home chat when there is one; else beside the person's current tab, in
+    /// any workspace, when it is not the Home chat itself; else a new column right of the Home chat.
+    static func openPlace(column: BrowserRightColumn, topology: ControlTopology) -> OpenPlace {
+        let focus = topology.focus
+        if let pane = column.pane, let anchor = pane.selectedTabID ?? pane.tabs.first?.id {
+            return .beside(anchor: anchor, pane: pane.id, background: focus.paneID == pane.id)
         }
-        var params: [String: JSONValue] = ["action": "openBrowser", "target": .string("tab:" + anchor), "wait": true, "focus": false,
-                                           "background": .bool(background)]
+        let panes = topology.workspaces.lazy.flatMap(\.screens).flatMap(\.panes)
+        if let id = focus.paneID, id != column.dock.id, let pane = panes.first(where: { $0.id == id }),
+           !pane.tabs.contains(where: { $0.page == "home-dock" }),
+           let anchor = focus.tabID.flatMap({ tab in pane.tabs.contains { $0.id == tab } ? tab : nil })
+            ?? pane.selectedTabID ?? pane.tabs.first?.id {
+            return .beside(anchor: anchor, pane: pane.id, background: true)
+        }
+        return .besideHomeChat
+    }
+
+    /// Every app browser tab, any workspace.
+    static func allBrowserTabs(in topology: ControlTopology) -> [ControlTabInfo] {
+        topology.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).filter { $0.kind == "browser" && $0.page == nil }
+    }
+
+    /// The pane and public workspace id holding `tab`.
+    static func place(of tab: String, in topology: ControlTopology) -> (pane: String, workspace: String)? {
+        for workspace in topology.workspaces {
+            for screen in workspace.screens {
+                if let pane = screen.panes.first(where: { $0.tabs.contains { $0.id == tab } }) { return (pane.id, workspace.publicID) }
+            }
+        }
+        return nil
+    }
+
+    /// Opens a browser tab at `place` through `openBrowser` (never with focus) and returns its id.
+    private static func openRightTab(_ place: OpenPlace, url: String?, call: ControlCall, router: ControlRouter) async throws -> String {
+        var params: [String: JSONValue] = ["action": "openBrowser", "wait": true, "focus": false]
+        switch place {
+        case let .beside(anchor, _, background):
+            params["target"] = .string("tab:" + anchor)
+            params["background"] = .bool(background)
+        case .besideHomeChat:
+            // The Home chat as the caller: the app opens a new column right of it, never in its dock.
+            params["caller"] = ["home_chat": true]
+        }
         // The agent's own tab: the extension-free agent profile (cmux makes it on first use), so
         // the extension rule never refuses it and the person's profiles and extensions stay theirs.
         var args: [String: JSONValue] = ["profile": .string(agentBrowserProfileName)]
@@ -122,13 +169,11 @@ extension BrowserPageService {
         params["args"] = .object(args)
         if let origin = call.request.params["origin"] { params["origin"] = origin }
         if let key = call.request.params["idempotency_key"] { params["idempotency_key"] = key }
-        let before = Set(pane.tabs.map(\.id))
+        let before = Set(allBrowserTabs(in: call.snapshot.topology).map(\.id))
         let request = ControlRequest(id: call.request.id, method: call.method, params: params)
         let run = try await router.runAction(ControlCall(request: request, snapshot: call.snapshot, connection: call.connection,
                                                          deadline: call.deadline, progress: call.progress, engineStartMark: call.engineStartMark))
-        let now = router.snapshots.current.topology
-        let paneNow = now.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).first { $0.id == pane.id }
-        let browsers = Set((paneNow?.tabs ?? []).filter { $0.kind == "browser" }.map(\.id))
+        let browsers = Set(allBrowserTabs(in: router.snapshots.current.topology).map(\.id))
         let created = run["created"]?.arrayValue?.compactMap(\.stringValue) ?? []
         if let tab = created.first(where: { browsers.contains($0) }) ?? browsers.subtracting(before).sorted().first {
             return tab

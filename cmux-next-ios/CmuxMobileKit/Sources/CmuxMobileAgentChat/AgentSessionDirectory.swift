@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxSpinner
 import SwiftUI
@@ -132,21 +133,67 @@ public struct AgentChatDestinationView: View {
         self.destination = destination
     }
 
+    /// The tab and workspace last found, kept while the tab is missing from a reconnect's partial resync.
+    private final class Remembered {
+        var found: (workspace: Workspace, tab: WorkspaceTab)?
+        /// What to show: the tab found now (kept), else the one last found unless it closed.
+        func shown(_ now: (workspace: Workspace, tab: WorkspaceTab)?, closed: Bool) -> (workspace: Workspace, tab: WorkspaceTab)? {
+            if let now { found = now; return now }
+            return closed ? nil : found
+        }
+    }
+    @State private var remembered = Remembered()
+    /// The tab stayed missing on a connected Mac past the grace: it closed.
+    @State private var confirmedClosed = false
+    /// The loading state's words wait out ``QuietStatusGate/threshold``: a cold open usually
+    /// lands first, with only the spinner shown (iOS release bar read-back, 2026-11-22, shot 14).
+    @State private var loadingWords = QuietStatusGate()
+
+    private var current: (workspace: Workspace, tab: WorkspaceTab)? {
+        guard let workspace = appStore.workspaces.first(where: { $0.id == destination.workspaceID }),
+              let tab = workspace.tabs.first(where: { $0.id == destination.tabID }) else { return nil }
+        return (workspace, tab)
+    }
+
     public var body: some View {
-        if let workspace = appStore.workspaces.first(where: { $0.id == destination.workspaceID }),
-           let tab = workspace.tabs.first(where: { $0.id == destination.tabID }) {
-            let mac = appStore.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? "Mac"
-            AgentChatScreen(store: AgentSessionDirectory.shared.store(workspace: workspace, tab: tab, macName: mac))
-                .onAppear { appStore.noteOpened(tabID: tab.id, in: workspace.id) }
+        let found = current
+        if let shown = remembered.shown(found, closed: confirmedClosed) {
+            let mac = appStore.teams.flatMap(\.macs).first { $0.id == shown.workspace.macID }?.name ?? "Mac"
+            AgentChatScreen(store: AgentSessionDirectory.shared.store(workspace: shown.workspace, tab: shown.tab, macName: mac))
+                .onAppear { appStore.noteOpened(tabID: shown.tab.id, in: shown.workspace.id) }
+                .task(id: found == nil ? (linkUp(shown.workspace.macID) ? 2 : 1) : 0) {
+                    // A reconnect can list the workspace without the tab for a few seconds: the chat
+                    // stays, and "Tab closed" shows only once the tab stays missing on a connected Mac.
+                    guard found == nil, linkUp(shown.workspace.macID) else { return }
+                    try? await Task.sleep(for: .seconds(10))
+                    if !Task.isCancelled, current == nil, linkUp(shown.workspace.macID) { confirmedClosed = true }
+                }
         } else if isLoading {
             // The workspaces are still on their way (a cold open from a notification): the
             // chat loads, it is not "closed".
-            CmuxSpinner(label: Text("Loading chat…"))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityIdentifier("agentChat.destination.loading")
+            VStack(spacing: 12) {
+                CmuxSpinner()
+                // Keeps its room while hidden, so the spinner never moves when it shows.
+                Text("Loading chat…")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .opacity(loadingWords.isShown ? 1 : 0)
+                    .animation(.cmuxMobileSmooth.unlessReduceMotion, value: loadingWords.isShown)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text("Loading chat…"))
+            .accessibilityIdentifier("agentChat.destination.loading")
+            .placeholderBound("chat.destination.loading", .milliseconds(2000))
+            .onAppear { loadingWords.update(down: true) }
+            .onDisappear { loadingWords.update(down: false) }
         } else {
             ContentUnavailableView("Tab closed", systemImage: "sparkle", description: Text("This agent tab is no longer open."))
         }
+    }
+
+    private func linkUp(_ macID: String) -> Bool {
+        appStore.macConnection[macID].map { $0 == .connected } ?? true
     }
 
     /// The tab may still come: the team's data or a Mac's list is loading (or showing last-known

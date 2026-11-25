@@ -14,7 +14,11 @@
 # It holds the Swift symbols that name a CmuxNext module: their functions, and their extensions of
 # other modules' types.
 
-live_code_ours() { grep -oE '_\$s[^ ]*' | grep -E '[0-9]CmuxNext' | sort -u; }
+# The CmuxNext modules and the shared ones the live code build compiles for patching
+# (live_code_module_pattern in xcodebuild-args.sh), so a nightly variant that sources only this file lists them too.
+# shellcheck source=scripts/live-code/lib/xcodebuild-args.sh
+declare -F live_code_module_pattern >/dev/null || source "$(dirname "${BASH_SOURCE[0]}")/xcodebuild-args.sh"
+live_code_ours() { grep -oE '_\$s[^ ]*' | grep -E "$(live_code_module_pattern)" | sort -u; }
 
 live_code_list() { # BIN OUT
   local bin="$1" out="$2"

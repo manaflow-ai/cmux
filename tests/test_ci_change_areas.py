@@ -59,6 +59,7 @@ GUARD_ALWAYS_JOBS = ("workflow-guard-submodule-forward-only",)
 WEB_JOBS = (
     "web-subarea-scope",
     "web-typecheck",
+    "webviews-typecheck",
     "web-production-build",
     "web-tests",
     "web-instant-navigation",
@@ -136,14 +137,15 @@ def test_portable_guard_runner_and_tests_are_linux_control_plane_only() -> None:
     ), (paths, actual)
 
 
-def test_portable_placement_input_keeps_the_guard_tests_linux_only() -> None:
-    # cmux-next-guards.yml may pass a free mini as guard_tests_runner; the guard
-    # tests that job names stay off the macOS and Release lanes.
+def test_the_one_linux_label_keeps_the_guard_tests_linux_only() -> None:
+    # Own-branch Linux jobs take the one label cmux-linux; the guard tests that job names stay off
+    # the macOS and Release lanes. A needs or inputs expression still fails open.
     runs_on = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-               "inputs.guard_tests_runner != '' && inputs.guard_tests_runner || "
-               "vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}")
+               "github.event.pull_request.head.repo.full_name != github.repository && "
+               "'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}")
     assert module.is_plainly_linux_runner(runs_on)
-    assert not module.is_plainly_linux_runner(runs_on.replace("guard_tests_runner", "other_runner"))
+    assert module.is_plainly_linux_runner("cmux-linux") is False
+    assert not module.is_plainly_linux_runner(runs_on.replace("'cmux-linux'", "inputs.guard_tests_runner"))
     actual = module.classify_files(["tests/test_ci_nightly_push_throttle.py"])
     assert actual.macos is False and actual.release_build is False, actual
 
@@ -158,18 +160,21 @@ def test_portable_guard_runner_does_not_hide_a_native_change() -> None:
     assert actual.macos is True, (paths, actual)
 
 
-def test_portable_router_linux_placement_keeps_guard_references_linux_only() -> None:
+def test_the_router_keeps_guard_references_linux_only() -> None:
     workflow = (ROOT / module.CI_WORKFLOW_PATH).read_text(encoding="utf-8")
     _, jobs = module.split_workflow_jobs(workflow)
     router = jobs["changes"]
     assert module.job_is_plainly_linux(router)
     references = module.macos_job_test_references("\njobs:\n  " + router)
     assert references is not None and references[0] == frozenset(), references
+    # One cmux-linux label, no placement job (hq decisions/junctions.md 2026-11-20); a Mac label or a
+    # needs expression in its place is no longer plainly Linux.
+    assert "'cmux-linux'" in router, router
     for unknown in (
-        router.replace("outputs.linux_runner", "outputs.mini_runner"),
-        router.replace("outputs.placed_attempt", "outputs.unchecked_attempt"),
-        router.replace("' changes '", "' other-job '"),
+        router.replace("'cmux-linux'", "'macos-26'"),
+        router.replace("'cmux-linux'", "needs.place.outputs.runner"),
     ):
+        assert unknown != router
         assert not module.job_is_plainly_linux(unknown), unknown
 
 
@@ -601,8 +606,8 @@ def test_bundled_root_markdown_still_runs_macos() -> None:
 
 
 def test_bundled_and_executable_skill_files_run_macos() -> None:
-    # The app bundles skills/cmux-cua as a folder resource.
-    assert_areas(["skills/cmux-cua/SKILL.md"], macos=True, web=False)
+    # The app bundles skills/cmux-computer-use as a folder resource.
+    assert_areas(["skills/cmux-computer-use/SKILL.md"], macos=True, web=False)
     assert_areas(["skills/cmux-settings/scripts/cmux-settings"], macos=True, web=False)
     assert_areas(["skills/cmux-browser/agents/openai.yaml"], macos=True, web=False)
 
@@ -709,8 +714,10 @@ def test_standalone_browser_and_remote_daemon_skip_app_host_macos() -> None:
 
 def test_required_ci_owns_standalone_browser_and_remote_daemon_pr_validation() -> None:
     changes = workflow_job_block("changes")
-    assert "browser: ${{ steps.standalone.outputs.browser }}" in changes
-    assert "remote_daemon: ${{ steps.standalone.outputs.remote_daemon }}" in changes
+    # A draft head's cheap tier (scripts/ci/head_tier.py, #48920) runs neither; every other tier takes the router's answer.
+    tier_off = "(steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false'"
+    assert f"browser: ${{{{ {tier_off} || (steps.standalone.outputs.browser) }}}}" in changes
+    assert f"remote_daemon: ${{{{ {tier_off} || (steps.standalone.outputs.remote_daemon) }}}}" in changes
     route = workflow_job_step_script("changes", "Route standalone project workflows")
     assert "cmux-browser/*|.github/workflows/cmux-browser.yml" in route
     assert "daemon/remote/*|scripts/*remote_daemon*" in route
@@ -1883,10 +1890,51 @@ def test_macos_test_references_fail_open_without_ci_workflow() -> None:
     assert module.macos_job_test_references("not a workflow") is None
 
 
+def ci_router_trigger_problems(workflow: str) -> list[str]:
+    """Why ci.yml would not run its router on every pull request event and every merge group.
+
+    The only path filter allowed is the docs-only block scripts/ci/docs_only_paths.py writes under pull_request
+    (#47195): docs-only-fallback.yml calls ci.yml when that block could have skipped it wrongly. merge_group takes
+    no filter at all, since a merge group must always get its required checks."""
+    spec = importlib.util.spec_from_file_location("docs_only_paths_for_router", ROOT / "scripts" / "ci" / "docs_only_paths.py")
+    assert spec and spec.loader
+    docs = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(docs)
+    problems = []
+    on = yaml.load(workflow, Loader=yaml.BaseLoader)["on"]
+    pull_request = on.get("pull_request") or {}
+    if pull_request.get("types") != ["opened", "synchronize", "reopened", "labeled", "unlabeled", "ready_for_review"]:
+        problems.append(f"pull_request types are {pull_request.get('types')!r}")
+    if set(pull_request) - {"types", "paths"}:
+        problems.append(f"pull_request has other filters: {sorted(set(pull_request) - {'types', 'paths'})}")
+    if "paths" in pull_request and pull_request["paths"] != list(docs.DOCS_ONLY_PATHS):
+        problems.append("pull_request paths are not the synced docs-only block")
+    block = "\n".join(docs.block("    "))
+    if "paths" in pull_request and block not in workflow:
+        problems.append("the docs-only block drifted from scripts/ci/docs_only_paths.py")
+    if "merge_group" not in on:
+        problems.append("no merge_group trigger")
+    elif on["merge_group"] not in (None, "", {}):
+        problems.append(f"merge_group has a filter: {on['merge_group']!r}")
+    if len(re.findall(r"(?m)^\s*paths:", workflow)) != workflow.count(docs.BEGIN):
+        problems.append("a paths: filter outside the docs-only block")
+    if re.search(r"(?m)^\s*paths-ignore:", workflow):
+        problems.append("a paths-ignore filter")
+    return problems
+
+
 def test_ci_router_runs_on_every_pr_and_merge_group() -> None:
+    assert ci_router_trigger_problems(CI_WORKFLOW.read_text(encoding="utf-8")) == []
+
+
+def test_ci_router_trigger_check_catches_a_filtered_merge_group_or_extra_paths() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "  pull_request:\n    types: [opened, synchronize, reopened, labeled, unlabeled]\n  merge_group:" in workflow
-    assert "    paths:" not in workflow
+    assert ci_router_trigger_problems(workflow.replace("  merge_group:\n", "  merge_group:\n    types: [checks_requested]\n", 1))
+    assert ci_router_trigger_problems(workflow.replace("  merge_group:\n", "", 1))
+    assert ci_router_trigger_problems(workflow.replace("  workflow_call:\n", "  push:\n    paths: [\"x/**\"]\n  workflow_call:\n", 1))
+    assert ci_router_trigger_problems(workflow.replace(", unlabeled, ready_for_review]", ", ready_for_review]", 1))
+    assert ci_router_trigger_problems(workflow.replace(", ready_for_review]", "]", 1))
+    assert ci_router_trigger_problems(workflow.replace('      - "!**/*.md"\n', "", 1))
 
 
 def test_ci_label_only_reruns_preserve_inflight_compile() -> None:
@@ -2022,6 +2070,8 @@ def run_guard_status(
     *,
     inputs: dict[str, str] | None = None,
     results: dict[str, str] | None = None,
+    event: str = "",
+    base_ref: str = "",
 ) -> subprocess.CompletedProcess[str]:
     route_inputs = dict.fromkeys(GUARD_ROUTE_JOBS, "true") if inputs is None else dict(inputs)
     route_inputs.setdefault(
@@ -2042,6 +2092,8 @@ def run_guard_status(
         "GUARD_NEEDS": json.dumps(
             {name: {"result": result} for name, result in job_results.items()}
         ),
+        "GUARD_EVENT": event,
+        "GUARD_BASE_REF": base_ref,
     }
     return subprocess.run(
         ["bash", "-c", script],
@@ -2058,6 +2110,8 @@ def run_web_status(
     inputs: dict[str, str] | None = None,
     results: dict[str, str] | None = None,
     subareas: dict[str, str] | None = None,
+    event: str = "",
+    base_ref: str = "",
 ) -> subprocess.CompletedProcess[str]:
     route_inputs = {
         "web": "true",
@@ -2075,6 +2129,7 @@ def run_web_status(
             "instant": "true",
             "production_build": "true",
             "react_apps": "true",
+            "agent_pane": "true",
             "typecheck": "true",
             "unit_tests": "true",
         } if scope_required else {
@@ -2083,6 +2138,7 @@ def run_web_status(
             "instant": "false",
             "production_build": "false",
             "react_apps": "false",
+            "agent_pane": "false",
             "typecheck": "false",
             "unit_tests": "false",
         }
@@ -2097,6 +2153,8 @@ def run_web_status(
         **os.environ,
         "WEB_INPUTS": json.dumps(route_inputs),
         "WEB_NEEDS": json.dumps(needs),
+        "WEB_EVENT": event,
+        "WEB_BASE_REF": base_ref,
     }
     return subprocess.run(
         ["bash", "-c", script],
@@ -2530,6 +2588,19 @@ def test_helper_a_test_only_unrouted_workflows_run_names_reaches_no_lane() -> No
     # A test a routed job names, or that something else runs, still fails open.
     run_by_a_script = {**unrouted_test, "scripts/run-it.sh": "python3 tests/test_unrouted.py\n"}
     assert helper_areas(run_by_a_script) is None
+    run_by_a_python_script = {
+        **unrouted_test,
+        "scripts/run_it.py": 'import subprocess\nsubprocess.run(["python3", "tests/test_unrouted.py"])\n',
+    }
+    assert helper_areas(run_by_a_python_script) is None
+    # A scripts/ Python file that names the test only in a comment or docstring
+    # runs nothing (scripts/cmux-next/tests/test_build_names.py's comment, once
+    # run-script-tests.py ran that file, #44759, failed owned_pool_rescue.py open).
+    named_in_prose = {
+        **unrouted_test,
+        "scripts/notes_it.py": '"""See tests/test_unrouted.py."""\n# tests/test_unrouted.py shares a module\nprint(1)\n',
+    }
+    assert helper_areas(named_in_prose) == areas()
     # A nightly step script only an unrouted workflow runs is a dead end too.
     step_script = {
         **unrouted_test,
@@ -2693,7 +2764,11 @@ def test_a_script_only_unrouted_workflows_or_linux_guards_run_reaches_no_macos_l
     # The same walk as the scripts/ci helpers: these run only in dispatched
     # or scheduled workflows, which a pull request's CI never runs.
     for path in (
-        "scripts/strip-release-bundle.sh",
+        # The cmux-tui legs restore and record their warm target with these
+        # (scripts/ci/machine-channel-warm-target.sh, cmux-tui-build-package.yml) on Linux
+        # runners only: the aarch64-apple-darwin leg is cross-built there.
+        "scripts/blacksmith-testbox-target-prune.sh",
+        "scripts/blacksmith-testbox-source-mtimes.py",
     ):
         assert module.classify_files([path]) == areas(), path
 
@@ -2704,12 +2779,10 @@ def test_a_script_a_mac_job_the_app_or_a_native_test_runs_keeps_its_macos_route(
         "scripts/install-cmux-tui-client.sh",
         # A native shell test runs it.
         "scripts/sign-cmux-bundle.sh",
-        # The shipped aarch64-apple-darwin cmux-tui build restores and records its warm target with these
-        # (scripts/ci/machine-channel-warm-target.sh, cmux-tui-build-package.yml).
-        "scripts/blacksmith-testbox-target-prune.sh",
-        "scripts/blacksmith-testbox-source-mtimes.py",
         # ci.yml's Mac jobs run it.
         "scripts/reload.sh",
+        # scripts/cmux-next/swap-binary.sh and its Mac test run it (#46110).
+        "scripts/strip-release-bundle.sh",
     ):
         actual = module.classify_files([path])
         assert actual.macos and actual.release_build, path
@@ -3136,7 +3209,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
 
 
 # ci.yml's legacy lanes skip PRs into feat-cmux-next, which cmux-next.yml covers.
-FEAT_CMUX_NEXT_PR_SKIP = "(github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next')"
+FEAT_CMUX_NEXT_PR_SKIP = "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next'))"
 
 
 def test_feat_next_route_keeps_one_compile_for_webview_resources() -> None:
@@ -3246,8 +3319,9 @@ def test_react_apps_check_keeps_a_stable_aggregate_gate() -> None:
     assert 'required_jobs.append("react-apps-base-check")' in block
     # React Doctor reports on a push only; the ratchet (cmux-next-react-doctor.yml) gates a pull request.
     assert 'else:\n              required_jobs.append("react-doctor")' in block
-    # always(): a cancelled shard reports a red gate, never a skipped (passing) one.
-    assert "if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}" in block
+    # always(): a cancelled shard reports a red gate, never a skipped (passing) one. A post-merge batch probe
+    # (inputs.only set) runs no aggregate: its probed shards answer for themselves.
+    assert "if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && inputs.only == '' }}" in block
 
 
 def test_react_doctor_runs_as_an_independent_required_lane() -> None:
@@ -3261,7 +3335,11 @@ def test_react_doctor_runs_as_an_independent_required_lane() -> None:
     assert "bun run react-doctor:ci" in block
     assert "hashFiles('webviews/bun.lock')" in block
     # 16 vCPU from the capability map: on 4 vCPU it hit its 10 min timeout.
-    assert "runs-on: ${{ fromJSON(needs.runners.outputs.map).linux_16 }}" in block
+    # A fork head takes CI_FORK_LINUX_RUNNER, since fork code never reaches
+    # the owned label the map names for manaflow-ai.
+    runs_on = next(line.strip() for line in block.splitlines() if line.strip().startswith("runs-on:"))
+    assert runs_on.endswith("|| fromJSON(needs.runners.outputs.map).linux_16 }}"), runs_on
+    assert "head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04')" in runs_on, runs_on
 
 
 def test_every_setup_bun_step_declares_a_version() -> None:
@@ -3343,7 +3421,7 @@ def test_ci_instant_navigation_owns_typecheck_once() -> None:
     assert '          CMUX_INSTANT_SKIP_TYPECHECK: "1"' in instant
     assert "        run: bun run test:instant" in instant
 
-    validation_typecheck = web_validation.index("      - run: bun run typecheck")
+    validation_typecheck = web_validation.index("        run: bun run typecheck")
     validation_instant = web_validation.index("      - run: bun run test:instant")
     assert validation_typecheck < validation_instant
     assert web_validation[validation_typecheck:validation_instant].count("bun run typecheck") == 1
@@ -4255,7 +4333,8 @@ def test_unchanged_build_inputs_skip_mac_compile_before_runner_allocation() -> N
         in changes
     )
     assert (
-        "ghosttykit_release: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'false' || steps.linux_guards.outputs.ghosttykit_release }}"
+        "ghosttykit_release: ${{ (steps.unchanged_inputs.outputs.compile_admitted == 'true' || (github.event_name == 'pull_request' && startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') && "
+        "!contains(github.event.pull_request.labels.*.name, 'full-ci') && steps.ghosttykit_provenance.outputs.changed == 'false')) && 'false' || steps.linux_guards.outputs.ghosttykit_release }}"
         in changes
     )
 
@@ -4507,7 +4586,7 @@ def test_suite_labels_are_read_from_the_run_event_snapshot() -> None:
 
 def test_full_ci_label_changes_start_a_fresh_run_instead_of_mutating_a_rerun() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "  pull_request:\n    types: [opened, synchronize, reopened, labeled, unlabeled]" in workflow
+    assert re.search(r"(?m)^  pull_request:\n(?:    #.*\n)*    types: \[opened, synchronize, reopened, labeled, unlabeled, ready_for_review\]$", workflow)
 
     suite = workflow_step_block("changes", "Choose the macOS suite for this run")
     assert "gh api" not in suite
@@ -4515,18 +4594,7 @@ def test_full_ci_label_changes_start_a_fresh_run_instead_of_mutating_a_rerun() -
     assert '--event-path "$GITHUB_EVENT_PATH"' in suite
 
 
-def test_merge_groups_stop_at_the_first_failure() -> None:
-    # The privileged watcher is started by a merge-group-only workflow, so an
-    # ordinary pull request never creates a skipped fail-fast run. It still runs
-    # from the default branch and executes no repository code.
-    watcher = (ROOT / ".github/workflows/merge-group-fail-fast.yml").read_text(encoding="utf-8")
-    assert "  workflow_run:\n    workflows: [Merge-group policy checks]\n    types: [in_progress]" in watcher
-    assert "workflows: [CI]" not in watcher
-    assert "head_sha=$HEAD_SHA" in watcher
-    assert "event=merge_group" in watcher
-    assert '.conclusion != null and .conclusion != "success" and .conclusion != "skipped"' in watcher
-    assert "permissions: {}" in watcher and "actions: write" in watcher
-    assert "uses:" not in watcher
+def test_ci_holds_no_actions_write() -> None:
     # ci.yml holds no actions: write at all: a pull_request run takes it from
     # the pull request.
     jobs = _ci_jobs()
@@ -4963,6 +5031,41 @@ def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
         ) == expected, (paths, actual)
 
 
+def test_agent_pane_real_daemon_lane_is_narrower_than_react_apps() -> None:
+    for path in (
+        "webviews/test/agent-pane-picks-hold.test.ts",
+        "webviews/test/agent-pane-new-chat-settles.test.ts",
+        "webviews/test/support/realAcpmux.ts",
+        "webviews/test/support/warmDevServer.ts",
+        "webviews/test/support/fixture.test.ts",
+        "webviews/test/preload.ts",
+        "webviews/vite.config.acpmux-pane.mjs",
+        "webviews/src/ui/NoticeDeck.tsx",
+        "webviews/src/agent-session/acpmux/Composer.tsx",
+        "cmux-tui/crates/acpmux/src/lib.rs",
+        "cmux-tui/crates/acpmux-book/src/lib.rs",
+        "cmux-tui/Cargo.lock",
+    ):
+        areas = web_subareas.classify_paths([path], ROOT)
+        assert areas.react_apps is (path.startswith("webviews/"))
+        assert areas.agent_pane is True, path
+
+    for path in ("webviews/test/diff.test.ts", "webviews/test/agent-activity.test.tsx"):
+        areas = web_subareas.classify_paths([path], ROOT)
+        assert areas.react_apps is True, path
+        assert areas.agent_pane is False, path
+
+
+def test_agent_pane_scope_keeps_shared_inputs_and_mixed_changes() -> None:
+    for path in web_subareas.ALL_SUBAREA_INPUTS:
+        assert web_subareas.classify_paths([path], ROOT).agent_pane, path
+    for paths in (
+        ["webviews/test/diff.test.ts", "webviews/test/support/warmDevServer.ts"],
+        ["webviews/test/diff.test.ts", "webviews/src/ui/NoticeDeck.tsx"],
+        ["webviews/src/ui/NoticeDeck.tsx", "webviews/test/diff.test.ts"],
+    ):
+        assert web_subareas.classify_paths(paths, ROOT).agent_pane, paths
+
 
 def test_docs_reference_inputs_run_web_unit_tests() -> None:
     # web/tests/next-docs.test.ts reads these outside web/; a change to them that
@@ -4975,6 +5078,7 @@ def test_web_status_allows_unselected_subarea_jobs_to_skip() -> None:
     result = run_web_status(
         results={
             "web-typecheck": "skipped",
+            "webviews-typecheck": "skipped",
             "web-production-build": "skipped",
             "web-tests": "skipped",
             "web-instant-navigation": "skipped",
@@ -4989,6 +5093,7 @@ def test_web_status_allows_unselected_subarea_jobs_to_skip() -> None:
             "instant": "false",
             "production_build": "false",
             "react_apps": "false",
+            "agent_pane": "false",
             "typecheck": "false",
             "unit_tests": "false",
         },
@@ -5001,6 +5106,56 @@ def test_web_status_rejects_selected_skip_failure_or_cancellation() -> None:
         for outcome in ("skipped", "failure", "cancelled"):
             result = run_web_status(results={web_job: outcome})
             assert result.returncode != 0, (web_job, outcome)
+
+
+def test_web_status_allows_the_typecheck_skip_only_on_a_feat_cmux_next_pull_request() -> None:
+    # A feat-cmux-next pull request runs web-typecheck as the ci/steps.toml step (pr-pipeline.yml): the job skips.
+    result = run_web_status(results={"web-typecheck": "skipped"}, event="pull_request", base_ref="feat-cmux-next")
+    assert result.returncode == 0, result.stderr
+    for event, base_ref in (("pull_request", "main"), ("push", ""), ("workflow_dispatch", "")):
+        result = run_web_status(results={"web-typecheck": "skipped"}, event=event, base_ref=base_ref)
+        assert result.returncode != 0, (event, base_ref)
+    for outcome in ("failure", "cancelled"):
+        result = run_web_status(results={"web-typecheck": outcome}, event="pull_request", base_ref="feat-cmux-next")
+        assert result.returncode != 0, outcome
+    # Only web-typecheck moved: another routed job's skip is still a red there.
+    result = run_web_status(results={"web-tests": "skipped"}, event="pull_request", base_ref="feat-cmux-next")
+    assert result.returncode != 0
+    block = workflow_job_block("web-typecheck", WEB_WORKFLOW)
+    assert "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}" in block
+
+
+def test_the_web_typecheck_step_keeps_the_jobs_commands() -> None:
+    # The step a feat-cmux-next pull request runs instead (ci/steps.toml) keeps the job's install, catalog check,
+    # retry and fixit-compile wrappers and its retry of a native tsgo abort.
+    import tomllib
+
+    step = tomllib.loads((ROOT / "ci/steps.toml").read_text())["step"]["web-typecheck"]["run"]
+    script = workflow_job_step_script("web-typecheck", "Typecheck", WEB_WORKFLOW)
+    for line in ("bun install --frozen-lockfile", "bun tools/generate-managed-iroh-relay-catalog.ts --check",
+                 "python3 -I ../scripts/ci/oops/retry.py --job web-typecheck -- \\",
+                 "python3 -I ../scripts/ci/oops/fixit_compile.py run --kind tsc -- bun run typecheck 2>&1 | tee \"$log\"",
+                 "grep -Fq 'Aborted (core dumped)' \"$log\""):
+        assert line in step, line
+    for line in ("python3 -I ../scripts/ci/oops/fixit_compile.py run --kind tsc -- bun run typecheck",
+                 "grep -Fq 'Aborted (core dumped)' \"$log\""):
+        assert line in script, line
+
+
+def test_web_status_checks_react_when_real_daemon_tests_are_unselected() -> None:
+    # An unrelated standalone test still needs React validation even though it
+    # does not need another acpmux build. The summary must distinguish the two.
+    subareas = {name: "true" for name in (
+        "db", "diff_sidecar", "instant", "production_build", "react_apps",
+        "typecheck", "unit_tests",
+    )}
+    subareas["agent_pane"] = "false"
+    for react_result, expected in (("success", 0), ("skipped", 3), ("failure", 1)):
+        result = run_web_status(
+            results={"agent-pane-real-acpmux": "skipped", "react-apps-check": react_result},
+            subareas=subareas,
+        )
+        assert result.returncode == expected, (react_result, result.stdout, result.stderr)
 
 
 def test_web_status_rejects_a_scope_that_succeeded_with_no_subareas() -> None:
@@ -5495,15 +5650,6 @@ def test_guard_python_setup_is_scoped_to_owning_groups() -> None:
     assert block.count("actions/setup-python@") == 1
 
 
-def test_pipe_safe_capture_guard_runs_once_in_app_host_execution_group() -> None:
-    block = workflow_job_block("workflow-guard-tests", GUARD_WORKFLOW)
-    start = block.index("      - name: Validate pipe-safe CI capture")
-    end = block.index("      - name: Validate focused test launcher", start)
-    step = block[start:end]
-    assert "if: ${{ !cancelled() && matrix.group == 'app-host-execution' }}" in step
-    assert block.count("Validate pipe-safe CI capture") == 1
-
-
 def test_reuse_lookups_match_the_job_name_github_actually_reports() -> None:
     """The producer lookups must survive ci.yml reaching admission indirectly.
 
@@ -5559,9 +5705,12 @@ def test_reuse_lookups_match_the_job_name_github_actually_reports() -> None:
     definitions = {
         ".github/workflows/ci.yml": ".github/workflows/ci-macos.yml",
         ".github/workflows/test-e2e.yml": ".github/workflows/test-e2e.yml",
-        ".github/workflows/seed-derived-data.yml": ".github/workflows/seed-derived-data.yml",
     }
     for path, (job_name, step_name) in reuse_app_host_products.COMPILE_JOBS.items():
+        # The push producer runs from main (TRUSTED_BRANCHES), whose copy this
+        # branch does not carry (ci-v2 step 3, R12).
+        if path == reuse_app_host_products.TRUSTED_WORKFLOWS["push"]:
+            continue
         workflow = yaml.safe_load((ROOT / definitions[path]).read_text(encoding="utf-8"))
         producer = next(
             (job for job in workflow["jobs"].values()
@@ -5624,6 +5773,37 @@ def _run_named_test(name: str) -> tuple[str, str | None]:
     except BaseException:
         return name, traceback.format_exc()
     return name, None
+
+
+def test_the_helper_walk_widens_a_narrow_sparse_checkout_before_it_searches() -> None:
+    # ci.yml's `changes` job checks out fewer paths than .github/checkout-lean.json's
+    # `sparse_checkout`; the walk's `git grep` sees only checked-out files, so it widens first
+    # and finds a referrer outside the narrow set. Without the table it cannot widen and
+    # answers None ("could not search"), which routes every area.
+    env = git_fixture_env.fixture_env()
+
+    def git(repo: Path, *args: str) -> None:
+        subprocess.run(["git", "-C", str(repo), *args], env=env, check=True, capture_output=True, text=True)
+
+    for keep_table in (True, False):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = git_fixture_env.init_repo(Path(temp_dir) / "repo", env=env)
+            (repo / ".github").mkdir()
+            (repo / ".github" / "checkout-lean.json").write_text(
+                json.dumps({"sparse_checkout": ["/*", "!/drop/verify/"]}) if keep_table else "{}")
+            (repo / "drop").mkdir()
+            (repo / "drop" / "runner.sh").write_text("scripts/widen-probe.sh\n")
+            git(repo, "add", "-A")
+            git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "fixture")
+            git(repo, "sparse-checkout", "set", "--no-cone", "/*", "!/drop/")
+            assert not (repo / "drop" / "runner.sh").exists()
+            module._tree_is_complete.cache_clear()
+            found = module._files_naming(repo, "scripts/widen-probe.sh")
+            if keep_table:
+                assert found == ["drop/runner.sh"], found
+            else:
+                assert found is None, found
+    module._tree_is_complete.cache_clear()
 
 
 def _main() -> int:

@@ -348,7 +348,7 @@ class ResolverGaps(unittest.TestCase):
                "strategy": {"matrix": "${{ fromJSON(needs.plan.outputs.matrix) }}"}, "steps": [{"run": "true"}]}
         with self.assertRaisesRegex(AssertionError, "UNRESOLVED_MATRICES"):
             self.overflow.job_picks_one_size(job, "matrix-fixture.yml", "build")
-        self.assertFalse(self.overflow.job_picks_one_size(job, "seed-derived-data.yml", "seed"))
+        self.assertFalse(self.overflow.job_picks_one_size(job, "cmux-next-fast-tier-seed.yml", "seed"))
 
     def test_a_copied_job_keeps_its_workflow_env_secret(self) -> None:
         """Rule 6 reads each job through inline_step_scripts, a copy: the copy keeps the workflow env the job

@@ -101,7 +101,17 @@ pub fn rules_text(rules: &Value) -> String {
                     "{} (a person; an instruction)",
                     author["account"].as_str().unwrap_or("")
                 ),
-                _ => format!("agent {} (information)", author["name"].as_str().unwrap_or("")),
+                _ => {
+                    let handle = author["handle"].as_str().filter(|h| !h.is_empty());
+                    let name = author["name"].as_str().unwrap_or("");
+                    match handle {
+                        Some(handle) if !name.is_empty() => {
+                            format!("agent {handle} (session {name}; information)")
+                        }
+                        Some(handle) => format!("agent {handle} (information)"),
+                        None => format!("agent {name} (information)"),
+                    }
+                }
             };
             format!(
                 "[{}] from {who}, postId {}, read by {}:\n{}",

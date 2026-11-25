@@ -18,6 +18,7 @@ extension SidebarListViewComponents {
         var before = insertion.section
         before.nodes.remove(at: insertion.node)
         SidebarPerfCounters.add(.rowsWalked, shown.nodes.count)
+        listWork.walked(shown.nodes.count)
         guard shown == before else { return nil }
         let o = options(includeGap: true)
         // The selection moves to the new row with the insert (Cmd-N): the layout reads it only to keep a selected row
@@ -47,6 +48,7 @@ extension SidebarListViewComponents {
         var after = shown
         after.nodes.remove(at: removal.node)
         SidebarPerfCounters.add(.rowsWalked, shown.nodes.count)
+        listWork.walked(shown.nodes.count)
         guard after == removal.section else { return nil }
         // A move's target section, as the list would draw it before the row comes back.
         var target: SidebarSection?
@@ -83,7 +85,7 @@ extension SidebarListViewComponents {
     /// drawn row that no fold, no collapsed group and no Archive keeps for the selection.
     private func keepsRows(selecting id: WorkspaceID?, inserted: WorkspaceID, _ o: SidebarLayoutOptions) -> Bool {
         guard let id, id != inserted, let ws = workspaces[id] else { return true }
-        guard !ws.isArchived, !(o.foldsDone && ws.taskStatus == .done) else { return false }
+        guard !ws.isArchived, !(o.foldsDone && ws.taskStatus == .done), !o.settled.contains(id) else { return false }
         // Listed but not drawn: a collapsed group or a fold hides it, and its selection would draw it.
         guard let row = displayed.row(for: .workspace(id)) else { return false }
         // A group that leaves for the Archive stays in its list while it holds the selection (`splittingArchive`),

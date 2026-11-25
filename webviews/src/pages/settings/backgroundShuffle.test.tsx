@@ -10,11 +10,15 @@ afterAll(() => restore());
 const { renderPage, settle } = await import("./testing");
 
 const runs = (page: Awaited<ReturnType<typeof renderPage>>, op: string) =>
-  page.provider.log.filter((entry) => entry.op === op).map((entry) => entry.params);
+  page.provider.log
+    .filter((entry) => entry.op === op)
+    .map((entry) => entry.params)
+    // What a background mode last showed is kept beside each change (wallpaperSwitch.test.tsx covers it).
+    .filter((params) => (params as { key?: string }).key !== "appearance.backgroundMemory");
 
 const FOLDER = "/Users/me/Library/Application Support/cmux/Backgrounds";
 
-async function picker(path = "/settings/personalization", background = "none") {
+async function picker(path = "/settings/appearance", background = "none") {
   const page = await renderPage({
     path,
     mock: {
@@ -74,14 +78,14 @@ test("Shuffle a Folder… asks the app for a folder", async () => {
 });
 
 test("a shuffled folder shows as the chosen tile, by the folder's name", async () => {
-  const { page, card } = await picker("/settings/personalization", "folder:/Users/me/Pictures/Trips");
+  const { page, card } = await picker("/settings/appearance", "folder:/Users/me/Pictures/Trips");
   const chosen = card.querySelector<HTMLInputElement>('button[aria-pressed="true"]')!;
   expect(chosen.textContent).toContain("Trips");
   page.unmount();
 });
 
 test("This Workspace comes after the shuffles: All Workspaces is the default", async () => {
-  const { page, card } = await picker("/settings/personalization?focus=personalization.background&workspace=ws-1");
+  const { page, card } = await picker("/settings/appearance?focus=appearance.background&workspace=ws-1");
   const first = card.querySelector<HTMLElement>(".backdrop-grid")!;
   const scope = card.querySelector<HTMLElement>(".backdrop-scope")!;
   expect(first.compareDocumentPosition(scope) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -97,7 +101,7 @@ test("Change Picture is in the card, on while a shuffle is chosen and off otherw
   const still = await picker();
   expect(control(still.card).disabled).toBe(true);
   still.page.unmount();
-  const shuffling = await picker("/settings/personalization", "daily");
+  const shuffling = await picker("/settings/appearance", "daily");
   expect(control(shuffling.card).disabled).toBe(false);
   shuffling.page.unmount();
 });

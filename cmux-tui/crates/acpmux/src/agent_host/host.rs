@@ -166,6 +166,9 @@ async fn start_adopted(spec: &SpawnSpec, adopt: Adopt) -> Result<Started> {
         host_build: crate::build_info::build().to_owned(),
         socket: spec.socket.clone(),
         claude_translator: spec.translator.is_some(),
+        host_level: HOST_LEVEL,
+        // A replacement host is the holder of the harness it took over.
+        holder: Some(true),
     };
     write_record_atomic(&record_path(&spec.hosts_dir, &spec.session_id), &record)?;
     cleanup.paths.clear();
@@ -236,6 +239,7 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
             anyhow!(e).context(format!("spawn harness process {}", spec.program))
         }
     })?;
+    let holder = spec.keeps_holder().then(|| holder_of(&child, spec)).flatten();
     let record = HostRecord {
         record_version: RECORD_VERSION,
         session_id: spec.session_id.clone(),
@@ -250,6 +254,8 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         host_build: crate::build_info::build().to_owned(),
         socket: spec.socket.clone(),
         claude_translator: spec.translator.is_some(),
+        host_level: HOST_LEVEL,
+        holder: Some(holder.is_some()),
     };
     if let Err(e) = write_record_atomic(&record_path(&spec.hosts_dir, &spec.session_id), &record) {
         if let Some(pg) = child.id() {
@@ -260,12 +266,6 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         return Err(e);
     }
     cleanup.paths.clear();
-    // Only a harness that speaks ACP itself: a translator's state is the host's (`custody.rs`).
-    let holder = spec
-        .holder
-        .as_ref()
-        .filter(|_| spec.translator.is_none() && !spec.codex_bridge)
-        .and_then(|_| holder_of(&child, spec));
     Ok(Started { record, listener, harness: Harness::Spawned(child), holder, _live: live })
 }
 
@@ -780,6 +780,12 @@ impl Started {
         crate::claude_stdio::prompt_suggestions::set_managed(spec.prompt_suggestions_managed);
         let translator = spec.translator.as_ref().map(|t| {
             let tr = Translator::new(t.acp_session_id.clone(), &t.mode, &t.model, &t.effort);
+            tr.stop_condition.store(t.stop_condition, std::sync::atomic::Ordering::Relaxed);
+            if let Some((_, home)) =
+                spec.env.iter().find(|(key, _)| key == crate::bg_hook::HOME_ENV)
+            {
+                let _ = tr.plugin_hook_home.set(home.into());
+            }
             if t.fast
                 && let Ok(mut fast) = tr.fast.try_lock()
             {
@@ -791,6 +797,9 @@ impl Started {
                 && let Ok(mut slot) = tr.session_id.try_lock()
             {
                 *slot = Some(sid.clone());
+            }
+            if t.resumes_cut_turn {
+                tr.owe_resumed();
             }
             tr
         });
@@ -936,10 +945,9 @@ impl Started {
                 Event::Accepted(stream) => {
                     next_conn += 1;
                     let id = next_conn;
-                    // Custody may be asked on it (`custody.rs`): a copy of its socket until then.
-                    if state.holder.is_some()
-                        && let Ok(sock) = super::custody::dup(stream.as_raw_fd())
-                    {
+                    // Custody may be asked on it (`custody.rs`): a copy of its socket until then,
+                    // so that even a host with no holder answers the ask (with no).
+                    if let Ok(sock) = super::custody::dup(stream.as_raw_fd()) {
                         state.custody_socks.insert(id, sock);
                     }
                     let (mut rd, mut wr) = stream.into_split();
@@ -1285,7 +1293,7 @@ impl State {
             if let Some(kind) = crate::codex_app_server::tap_kind(&raw) {
                 self.push(Entry::Tap {
                     dir: TapDir::In,
-                    msg: Message::notification(&kind, crate::codex_app_server::redact(&raw))
+                    msg: Message::notification(&kind, crate::codex_app_server::logged(&raw))
                         .into_value(),
                 });
             }
@@ -1484,6 +1492,13 @@ impl State {
             }
             // An immediate local answer, as if Claude replied.
             Outbound::Reply(reply) => self.push(Entry::In { msg: reply.to_value() }),
+            // Written first, so Claude Code reads them; then answered without it.
+            Outbound::LinesThenReply(lines, reply) => {
+                for l in lines {
+                    self.write_claude_line(l);
+                }
+                self.push(Entry::In { msg: reply.to_value() });
+            }
         }
     }
 
@@ -1634,13 +1649,16 @@ impl State {
 impl State {
     /// `ControllerFrame::Custody` on connection `id` (`custody.rs`): the daemon gets copies of
     /// the harness's stdio, ring and pidfd, with the spawn spec, and the connection closes. A
-    /// wrong token gets nothing; a host with no holder, or whose harness's output ended, says no.
+    /// wrong token, a host with no holder, or one whose harness's output ended, says no
+    /// (`spec: None`), so the daemon reads an answer and never an end of file.
     fn custody(&mut self, id: u64, token: &str) {
+        let sock = self.custody_socks.remove(&id);
         let Some(pos) = self.pending_conns.iter().position(|(pid, _)| *pid == id) else { return };
         // Its writer ends with this sender: the connection closes once the daemon read it all.
         self.pending_conns.remove(pos);
-        let Some(sock) = self.custody_socks.remove(&id) else { return };
+        let Some(sock) = sock else { return };
         if !constant_time_eq(token.as_bytes(), self.record.owner_token.as_bytes()) {
+            super::custody::refuse(sock);
             return;
         }
         // The nonce the harness was started with: this host's, or the first host's.

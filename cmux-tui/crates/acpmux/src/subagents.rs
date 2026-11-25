@@ -1,10 +1,11 @@
 //! Subagent attribution for session updates.
 //!
-//! Harnesses report subagents three ways: native ACP subagent sessions
+//! Harnesses report subagents four ways: native ACP subagent sessions
 //! (draft agentclientprotocol/agent-client-protocol#1992: `subagent_spawned`,
 //! `subagent_state_update`, and the child's updates under its own session
-//! id), Codex's legacy `spawnAgent` collaboration calls, and Codex's legacy
-//! subagent activity items. The hub forwards every update under its own
+//! id), Codex's legacy `spawnAgent` collaboration calls, Codex's legacy
+//! subagent activity items, and OpenCode's `task` tool calls
+//! (`subagents_opencode.rs`). The hub forwards every update under its own
 //! session id, so the child's id would be lost; this module writes one model
 //! into each update's `_meta.acpmux` instead:
 //!
@@ -36,8 +37,16 @@
 //!   every subagent below it: a client never waits on one for the turn's end.
 
 use crate::protocol::merge_mux_meta;
+use expiry::Expiry;
 use serde_json::{Map, Value, json};
 use std::collections::{HashMap, HashSet};
+
+#[path = "subagents_recent.rs"]
+mod recent;
+pub use recent::{RECENT_SUBAGENTS, RecentSubagent};
+#[path = "subagents_listed.rs"]
+pub(crate) mod listed;
+pub use listed::{ListedSubagent, SubagentListing};
 
 /// Whether a `session/update` params object is a subagent's (the hub tags it
 /// `_meta.acpmux.subagent`, ``SubagentTree::annotate``). A subagent's text and
@@ -50,7 +59,7 @@ pub fn is_subagents(params: &Value) -> bool {
 
 /// The subagents seen in one session, each mapped to its parent subagent
 /// (`None` for the session's own).
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SubagentTree {
     parents: HashMap<String, Option<String>>,
     /// Children whose sender was not in the replay window yet. Once that sender
@@ -85,9 +94,27 @@ pub struct SubagentTree {
     /// conversation names a new root, so every root learned is kept: replayed
     /// history still names the earlier ones.
     root_threads: HashSet<String>,
+    /// What ends a subagent its harness never said ended (`expiry.rs`).
+    expiry: Expiry,
+    /// The latest subagents, live and finished, each with its state: the summary's
+    /// `recentSubagents`, which the sidebar nests under the chat (`subagents_recent.rs`).
+    #[serde(default)]
+    recent: std::collections::VecDeque<recent::RecentEntry>,
+    /// Moves once on each live change to `recent`, so the hub tells watchers the list moved
+    /// even when the running count did not (`hub/tap.rs`).
+    #[serde(default)]
+    recent_revision: u64,
+    /// Every subagent the chat started with its last state, for the Background tasks panel's
+    /// whole list (`_acpmux/subagents`, `subagents_listed.rs`): one small entry per id `parents`
+    /// already holds, so it grows no faster than the tree.
+    #[serde(default)]
+    listed: HashMap<String, listed::Listed>,
+    /// Moves on each state change `listed` takes: the order the ended ones list in, latest first.
+    #[serde(default)]
+    listed_seq: u64,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 struct ChildPreview {
     text: String,
     message_id: Option<String>,
@@ -168,6 +195,11 @@ impl SubagentTree {
         self.names.values().any(|name| name == to)
             || self.parents.contains_key(to)
             || self.previews.values().any(|p| p.agent_id.as_deref() == Some(to))
+    }
+
+    /// Whether `session_id` is one this session knows: one of its subagents, or a root thread.
+    pub fn knows(&self, session_id: &str) -> bool {
+        self.parents.contains_key(session_id) || self.is_root(session_id)
     }
 
     /// Whether `session_id` is one of this session's subagents.
@@ -271,6 +303,8 @@ impl SubagentTree {
             }
             let state = event.get("state").and_then(Value::as_str);
             let ended = matches!(state, Some("completed" | "failed" | "cancelled"));
+            // A replayed `running` is history, not news of it.
+            let running = state == Some("running");
             if state == Some("completed")
                 && event.get("result").is_none()
                 && !preview.result_cut
@@ -282,6 +316,11 @@ impl SubagentTree {
             if ended {
                 preview.free_result();
             }
+            if (live || !running)
+                && let Some(id) = event.get("id").and_then(Value::as_str).map(str::to_owned)
+            {
+                self.expiry_event(&id, running);
+            }
         }
         let mut fields = Map::new();
         if let Some(owner) = &owner {
@@ -291,6 +330,8 @@ impl SubagentTree {
             self.note_background(&events);
             self.note_running(&events);
         }
+        self.note_recent(&events, live);
+        self.note_listed(&events, live);
         if !events.is_empty() {
             fields.insert("subagents".into(), Value::Array(events));
         }
@@ -338,6 +379,9 @@ impl SubagentTree {
             }
         }
         self.root_threads.extend(log.root_threads);
+        self.adopt_expiry(log.expiry, &known);
+        self.adopt_recent(log.recent);
+        self.adopt_listed(log.listed, &known);
     }
 
     /// Learns `id`'s name from `event` when it names it, or gives `event` the name learned before
@@ -378,6 +422,7 @@ impl SubagentTree {
 
     /// The harness is gone, and its background subagents with it.
     pub fn end_background(&mut self) {
+        self.expiry_harness_exit();
         self.background.clear();
         self.running.clear();
     }
@@ -561,6 +606,16 @@ impl SubagentTree {
                 if let Some(tokens) = update.get("tokens").and_then(Value::as_u64) {
                     event.insert("tokens".into(), json!(tokens));
                 }
+                // An end acpmux wrote after the fact (`expiry.rs`): when it really ended and
+                // started, and that it was recovered, so a client draws it where it ended.
+                for key in ["endedAt", "startedAt"] {
+                    if let Some(at) = update.get(key).and_then(Value::as_u64) {
+                        event.insert(key.into(), json!(at));
+                    }
+                }
+                if update.get("recovered") == Some(&Value::Bool(true)) {
+                    event.insert("recovered".into(), json!(true));
+                }
                 self.remember_label(&id, &event);
                 self.label(&id, &mut event);
                 vec![Value::Object(event)]
@@ -615,7 +670,10 @@ impl SubagentTree {
                 self.label(&id, &mut event);
                 vec![Value::Object(event)]
             }
-            Some("tool_call" | "tool_call_update") => self.codex_legacy(update, owner),
+            Some("tool_call" | "tool_call_update") => match self.opencode_task(update, owner) {
+                Some(events) => events,
+                None => self.codex_legacy(update, owner),
+            },
             _ => vec![],
         }
     }
@@ -779,6 +837,7 @@ impl SubagentTree {
         }
         if let Some(v) = text("agentId") {
             self.previews.entry(id.to_owned()).or_default().agent_id = Some(v.to_owned());
+            self.expiry_agent(id, v);
         }
     }
 
@@ -968,6 +1027,9 @@ fn truncate_last_message(text: &str) -> String {
         value
     }
 }
+
+#[path = "subagent_expiry.rs"]
+pub mod expiry;
 
 #[cfg(test)]
 mod codex_tests {
@@ -1787,3 +1849,6 @@ mod codex_tests {
 #[cfg(test)]
 #[path = "subagents_background_tests.rs"]
 mod background_tests;
+
+#[path = "subagents_opencode.rs"]
+mod opencode;

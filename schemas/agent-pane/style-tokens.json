@@ -1,0 +1,83 @@
+{
+  "$comment": "cmux.agentPane.style/1: the CSS custom properties a person's agent-pane/theme.css (and a look add-on's) may set, on :root only. They are paint: color, fill, edge and corner. None moves a box, so a look applied or hot reloaded never shifts the transcript. Type, width and spacing are settings (agentPane.display.*), because the transcript's height estimate reads them (model.ts); a stylesheet that set them would make rows jump when they are measured. The colors the host pushes from the theme (--agent-text, --agent-accent and the rest of shared/theme.ts cssVariables) are inline styles on the root, so a stylesheet cannot beat them: set those with the theme file's `colors` and `appearance.surfaces.agentPane`. webviews scripts/check-look-addons.ts holds the pane's stylesheets and every add-on in examples/looks to this file: each token is declared on :root in `owner` (or, for a token with no value of its own, read there with a fallback: `var(--token, today's value)`), nowhere else but `alsoScopedIn`, never pushed by the host, and an add-on sets nothing else. Docs: docs/cmux-next/look-addons.md.",
+  "interface": "cmux.agentPane.style/1",
+  "status": "draft: shapes are refined with the first outside look before the interface is public",
+  "selectors": [":root"],
+  "tokens": [
+    {
+      "name": "--cv-text",
+      "kind": "color",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "alsoScopedIn": ["webviews/src/agent-session/guest/guest.css", "webviews/src/pages/home-channels/ledger.css"],
+      "about": "The transcript's body text: prompts, replies and headings."
+    },
+    {
+      "name": "--cv-text-muted",
+      "kind": "color",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "Secondary transcript text: meta lines, the live run's words. Tool rows and Worked for draw --cv-activity-text."
+    },
+    {
+      "name": "--cv-activity-text",
+      "kind": "color",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "Background activity: tool rows and Worked for (58% of the text by default). A look on a light paper of its own sets it, often to its --cv-text-muted, to hold 4.5:1."
+    },
+    {
+      "name": "--cv-text-dim",
+      "kind": "color",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "The quietest transcript text: timestamps and hints."
+    },
+    {
+      "name": "--cv-link",
+      "kind": "color",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "alsoScopedIn": ["webviews/src/pages/changelog/styles.css"],
+      "about": "Links in replies."
+    },
+    {
+      "name": "--agent-link",
+      "kind": "color",
+      "owner": "webviews/src/agent-session/shared/styles.css",
+      "alsoScopedIn": ["webviews/src/pages/changelog/styles.css", "webviews/src/ui/glass/glass.css"],
+      "about": "Links in the rest of the pane (chips, cards, the composer)."
+    },
+    {
+      "name": "--cv-card-fill",
+      "kind": "color",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "The fill of the card level in the pane: tool output, edit, error and permission cards, plans, the subagent card (design/chat-surfaces.md). Code blocks keep --cv-codeblock-bg. Unset: the card level, the theme's text at 4%."
+    },
+    {
+      "name": "--cv-card-ring",
+      "kind": "color",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "The hairline around those cards (none under appearance.borders: none). Unset: the card level's line, the theme's text at 10%."
+    },
+    {
+      "name": "--cv-user-bubble-tint",
+      "kind": "color",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "The prompt bubble's glass tint. Unset: the theme's text at 14%."
+    },
+    {
+      "name": "--cv-user-bubble-edge",
+      "kind": "color",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "The prompt bubble's hairline edge. Unset: none (transparent)."
+    },
+    {
+      "name": "--cv-user-bubble-radius",
+      "kind": "length",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "The prompt bubble's corner radius. Unset: 12 px at the chat's text scale. A corner never changes the bubble's box."
+    },
+    {
+      "name": "--cv-code-edge-fade",
+      "kind": "length",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "How far a code block's long line fades at the card's right edge while more of it lies past. Unset: no fade, a hard edge. Paint only: the line's box does not change."
+    }
+  ]
+}

@@ -196,6 +196,7 @@ export const navItems: NavEntry[] = [
     sectionKey: "nextSection",
     children: [
       { titleKey: "nextGettingStarted", href: "/docs/next", locales: baseDocsLocales },
+      { titleKey: "nextStart", href: "/docs/next/start", locales: baseDocsLocales },
       { titleKey: "nextUpdates", href: "/docs/next/updates", locales: baseDocsLocales },
       { titleKey: "nextHome", href: "/docs/next/home-and-chief", locales: baseDocsLocales },
       { titleKey: "nextAgents", href: "/docs/next/agents", locales: baseDocsLocales },
@@ -208,6 +209,7 @@ export const navItems: NavEntry[] = [
       { titleKey: "nextBrowser", href: "/docs/next/browser", locales: baseDocsLocales },
       { titleKey: "nextMarkdown", href: "/docs/next/markdown", locales: baseDocsLocales },
       { titleKey: "nextRemote", href: "/docs/next/remote", locales: baseDocsLocales },
+      { titleKey: "nextServer", href: "/docs/next/server", locales: baseDocsLocales },
       { titleKey: "nextCloud", href: "/docs/next/cloud", locales: baseDocsLocales },
       { titleKey: "nextPlans", href: "/docs/next/plans", locales: baseDocsLocales },
       { titleKey: "nextShortcuts", href: "/docs/next/keyboard-shortcuts", locales: baseDocsLocales },

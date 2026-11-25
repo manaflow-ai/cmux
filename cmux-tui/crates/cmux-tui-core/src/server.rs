@@ -105,6 +105,7 @@ mod apps;
 #[cfg(unix)]
 pub use apps::start_apps_when_ready;
 pub use cmd_workspaces::WORKSPACE_NAME_SOURCE_CAPABILITY;
+pub use conversation_scheduled::start_scheduled_sender;
 #[cfg(unix)]
 mod browser_runtime;
 #[path = "server/image_paste.rs"]
@@ -135,6 +136,8 @@ mod agent_inventory;
 #[cfg(unix)]
 mod agent_session_attach;
 #[cfg(unix)]
+mod machine_chats;
+#[cfg(unix)]
 mod mobile_chat;
 #[cfg(unix)]
 pub(crate) use agent_session_attach::agent_session_link::chat_marks::ChatMarkError;
@@ -155,6 +158,8 @@ pub(crate) use agent_session_attach::{
     close_chat_shares, close_listed_chat_shares, close_unlisted_chat_shares, open_chat_shares,
 };
 #[cfg(unix)]
+pub use machine_chats::machine_chats;
+#[cfg(unix)]
 pub mod agent_transfer;
 mod app_trust;
 pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};
@@ -163,6 +168,8 @@ mod command_args;
 #[cfg(unix)]
 mod fs_wire;
 mod input_qos;
+#[cfg(unix)]
+mod projection_away;
 #[cfg(all(test, target_os = "macos"))]
 pub(crate) use input_qos::current_thread_qos as current_input_thread_qos;
 pub(crate) use input_qos::raise_this_thread as raise_input_thread_qos;
@@ -181,6 +188,7 @@ pub use orphan_shutdown::stop_orphaned_owner;
 pub use owner_keepers::{Keepers, OwnerKeepersWatch, watch_owner_keepers};
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 mod starter_exit;
+mod stop_if_idle;
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 pub use starter_exit::{Starter, exit_with_process};
 mod pending_handoff;
@@ -196,10 +204,12 @@ mod close_tabs_command;
 mod cloud_attachments;
 mod cloud_conversations;
 pub mod cloud_host_replica;
+pub(crate) mod computer_use_command;
 mod conversation_attachments;
 mod conversation_live;
 mod conversation_resource;
 mod conversation_runs;
+mod conversation_scheduled;
 mod device_setup_command;
 mod remote_host_command;
 mod resource_trust;
@@ -250,9 +260,11 @@ use cmd_sizing::{optional_surface_size, paired_surface_size};
 pub use size_lease::{SIZE_LEASE_CAPABILITY, SIZE_LEASE_V2_CAPABILITY};
 mod cmd_subscribe;
 mod cmd_tabs;
+mod cmd_terminal_find;
 mod cmd_terminal_io;
 mod cmd_terminals;
 mod creating_input;
+mod send_once;
 use cmd_terminals::placed_terminal_result;
 mod cmd_workspaces;
 mod column_move;
@@ -314,7 +326,8 @@ mod terminal_history;
 mod terminal_ports;
 mod terminal_resources;
 pub use agent_cli_hybrid::{
-    AGENT_CLI_HYBRID_CAPABILITY, AGENT_CLI_HYBRID_LEAN_CAPABILITY, TERMINAL_SHELL_LINES_CAPABILITY,
+    AGENT_CLI_HYBRID_CAPABILITY, AGENT_CLI_HYBRID_LEAN_CAPABILITY,
+    TERMINAL_FULL_SCREEN_FRAMES_CAPABILITY, TERMINAL_SHELL_LINES_CAPABILITY,
 };
 pub use attach_output_coalesce::ATTACH_OUTPUT_COALESCE_CAPABILITY;
 mod terminal_snapshot;
@@ -332,7 +345,7 @@ use socket_path::default_socket_path_in_runtime_dir;
 pub(crate) use socket_path::unix_socket_path_fits;
 pub use socket_path::{
     default_socket_path, try_default_socket_path, try_default_socket_path_in_base,
-    validate_session_name,
+    try_default_socket_path_in_base_scoped, validate_session_name,
 };
 pub(crate) mod activity;
 mod browser_input;
@@ -434,6 +447,16 @@ pub const TERMINAL_COLOR_OVERRIDES_CAPABILITY: &str = "terminal-color-overrides-
 /// to receive the replay's incomplete sequence as a separate `pending` field.
 /// Other attachments get it appended to the replay bytes, in the legacy shape.
 pub const TERMINAL_PENDING_SEQUENCE_CAPABILITY: &str = "terminal-pending-sequence-v1";
+/// A byte attach of a connection that declared this gets `offset` and
+/// `generation` on its `vt-state`, `output`, `resized` and `colors-changed`
+/// events, and may reattach with `resume_offset` and `resume_generation` for
+/// only the missing bytes (server/terminal_resume.rs).
+pub const TERMINAL_RESUME_CAPABILITY: &str = "terminal-resume-v1";
+/// `resume_max_bytes` on a resuming `attach-surface`: an exact resume only when
+/// the missed bytes fit; past it the normal replay (`resume: "gap"`), so a
+/// viewer back from a long time away reads one screen, not megabytes of
+/// output it never sees (cmux-next-ios/design/background-delta-sync.md).
+pub const TERMINAL_RESUME_BOUNDED_CAPABILITY: &str = "terminal-resume-bounded-v1";
 /// `replay_history_rows` on a bytes `attach-surface`: the `vt-state` replay
 /// keeps only that many of the newest history rows above the active area
 /// and says how many older ones it left out (`history_rows_omitted`).
@@ -464,12 +487,22 @@ pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
 pub const BROWSER_PROVIDER_NATIVE_HOSTING_CAPABILITY: &str = "browser-provider-native-hosting-v1";
 /// Advertises the `server-stats` command.
 pub const SERVER_STATS_CAPABILITY: &str = "server-stats-v1";
+/// `process-census`: the terminal hosts and state this daemon and its
+/// siblings keep, from their records (`mux/process_census.rs`). Trusted local
+/// connections only.
+pub const PROCESS_CENSUS_CAPABILITY: &str = "process-census-v1";
 pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
 pub const DAEMON_SHUTDOWN_EVENT: &str = "daemon-shutdown";
 /// A client that sends this in `set-client-info` gets `restart` on the
 /// [`DAEMON_SHUTDOWN_EVENT`] (whether a replacement daemon follows). Others
 /// get the bare event, which strict older SDK decoders accept.
 pub const DAEMON_SHUTDOWN_RESTART_CAPABILITY: &str = "daemon-shutdown-restart-v1";
+/// Advertises `if_idle` on `shutdown-daemon`: stop only while no other
+/// client is connected and no terminal is live, else refuse with
+/// `error_code` `daemon_busy` and what uses the daemon in `error_details`.
+/// An older daemon ignores the field and stops, so a client sends it only
+/// to a daemon that advertises this.
+pub const DAEMON_STOP_IF_IDLE_CAPABILITY: &str = "daemon-stop-if-idle-v1";
 /// `error_code` of a request refused while the daemon's shutdown handoff is
 /// reserved and not yet announced. The [`DAEMON_SHUTDOWN_EVENT`] follows
 /// unless the shutdown is cancelled.
@@ -585,6 +618,10 @@ pub const WORKSPACE_SIDEBAR_PLACEMENT_CAPABILITY: &str = "workspace-sidebar-plac
 /// creator `workspace`, the agent `session`): an agent or script workspace
 /// goes below its creator; workspaces carry it as `extra.created_by`.
 pub const WORKSPACE_CREATED_BY_CAPABILITY: &str = "workspace-created-by-v1";
+/// `created_by` also names the agent's `session_name`, `host` and a one-line `purpose`, and
+/// `room.create`, `tab.create_terminal` and `tab.create_browser` take it too: a space shows it as
+/// `created_by`, a tab and a workspace as `extra.created_by` (state/created_by.rs).
+pub const CREATED_BY_DETAIL_CAPABILITY: &str = "created-by-detail-v1";
 /// `terminal.screen.read` takes `unwrap` (soft wraps joined into logical
 /// lines) and `lines` (the last N lines of scrollback and screen), and
 /// `terminal.copy` takes `unwrap`.
@@ -771,7 +808,6 @@ struct CreateSurfaceWithReceiptRequest {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct BrowserProviderTargetRequest {
     tab_id: String,
     target_id: String,
@@ -779,7 +815,6 @@ struct BrowserProviderTargetRequest {
 
 /// `set-host-size-policy`'s `policy`: a mode and optionally the order.
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct HostSizePolicyRequest {
     mode: String,
     #[serde(default)]
@@ -894,6 +929,20 @@ enum Command {
         app_permissions: Option<crate::remote_host::AppPermissions>,
     },
     RemoteHostApp,
+    /// cmux Computer Use (`computer-use-v1`, server/computer_use_command.rs).
+    ComputerUseEndpoint,
+    ComputerUseConfig {
+        config: Value,
+    },
+    ComputerUseApprovals {
+        action: String,
+        #[serde(default)]
+        app_id: Option<String>,
+        #[serde(default)]
+        id: Option<u64>,
+        #[serde(default)]
+        answer: Option<String>,
+    },
     /// `cmux device setup|start` for the app (server/device_setup_command.rs).
     DeviceSetup {
         device: String,
@@ -953,6 +1002,12 @@ enum Command {
     ServerStats {
         include: Option<Vec<String>>,
     },
+    /// The terminal hosts this daemon holds and every record root it can
+    /// read, each host classified from records, leases and session guards,
+    /// never from argv (`mux/process_census.rs`; `cmux ps`). Trusted local
+    /// connections only; read-only: it saves nothing (`cmux gc` saves the
+    /// unowned-host sightings).
+    ProcessCensus,
     /// `terminal-command-history-v1`, trusted local only (server/command_history.rs).
     SetTerminalCommandHistory(command_history::SetParams),
     ListTerminalCommands(command_history::ListParams),
@@ -978,6 +1033,11 @@ enum Command {
         /// exits. Absent from older callers, which leave it unknown.
         #[serde(default)]
         restart: Option<bool>,
+        /// Stop only while no other client is connected and no terminal is
+        /// live (`daemon-stop-if-idle-v1`); else refuse with `daemon_busy`.
+        /// Checked under the handoff reservation, which refuses new clients.
+        #[serde(default)]
+        if_idle: bool,
     },
     Ping,
     SetClientInfo {
@@ -1003,6 +1063,11 @@ enum Command {
         /// (server/api_revision_wire.rs). Absent: revision 12.
         #[serde(default)]
         api_revision: Option<u32>,
+        /// The dated API version the client pins (`YYYY-MM-DD`): the
+        /// newest revision dated on or before it serves it
+        /// (server/api_revision_wire.rs, spec/api-versioning.md).
+        #[serde(default)]
+        api_version: Option<String>,
         /// The client's release (`cmux --version`), for refusals and logs.
         #[serde(default)]
         version: Option<String>,
@@ -1122,10 +1187,11 @@ enum Command {
         title: String,
     },
     ClearWindowTitle,
-    /// `known` and `limit`: server/list_workspaces_page.rs.
+    /// `known`, `limit` and `after`: server/list_workspaces_page.rs.
     ListWorkspaces {
         known: Option<cmd_workspaces::KnownTree>,
         limit: Option<usize>,
+        after: Option<usize>,
     },
     GetFrontendProjection {
         frontend: String,
@@ -1182,6 +1248,26 @@ enum Command {
         surface: SurfaceId,
         start: u32,
         count: u32,
+    },
+    /// One page of Cmd-F matches in the whole retained history, newest first
+    /// (`cmd_terminal_find.rs`).
+    TerminalFind {
+        surface: SurfaceId,
+        query: String,
+        #[serde(default)]
+        case_sensitive: bool,
+        #[serde(default)]
+        whole_word: bool,
+        #[serde(default)]
+        regex: bool,
+        #[serde(default)]
+        before: Option<u64>,
+        #[serde(default)]
+        epoch: Option<u64>,
+        #[serde(default)]
+        page_rows: Option<u64>,
+        #[serde(default)]
+        max_matches: Option<usize>,
     },
     SidebarPlugin {
         cols: u16,
@@ -1895,6 +1981,10 @@ enum Command {
     ListNotifications {
         #[serde(default)]
         limit: Option<usize>,
+        /// true: the reply also carries `agent_notice_stats`, how often agent
+        /// notices were read and how fast (`mux/agent_notice_stats.rs`).
+        #[serde(default)]
+        stats: bool,
     },
     /// Pin or unpin a tab placement; pinned tabs sort first in their pane.
     SetTabPinned {
@@ -2005,6 +2095,9 @@ enum Command {
     ConversationThread(conversations::ThreadParams),
     ConversationLinkResolve(conversations::LinkResolveParams),
     ConversationInboxOp(conversations::InboxOpParams),
+    /// Send Later (`conversation-scheduled-v1`, server/conversation_scheduled.rs).
+    ConversationScheduledList(conversation_scheduled::ListParams),
+    ConversationScheduledOp(conversation_scheduled::OpParams),
     /// The Home list rows (`home-inbox-v1`, server/conversations.rs).
     HomeInbox(conversations::HomeInboxParams),
     ConversationSearch(conversations::SearchParams),
@@ -2365,6 +2458,8 @@ enum Command {
         #[serde(flatten)]
         mutation: MutationRequest,
     },
+    /// Release every user-owned workspace name to the automatic namer.
+    ReleaseWorkspaceNames {},
     RenameProviderManagedWorkspace {
         workspace: WorkspaceId,
         key: String,
@@ -2498,6 +2593,19 @@ enum Command {
         hybrid_stream: Option<String>,
         #[serde(default)]
         hybrid_frame: Option<u64>,
+        /// Bytes mode, `terminal-resume-v1`: the last `offset` this viewer
+        /// applied and the `generation` that stamped it (both or neither). The
+        /// reply says `resume: "exact"` with only the missing bytes, or
+        /// `"gap"` with the replay as without them.
+        #[serde(default)]
+        resume_offset: Option<u64>,
+        #[serde(default)]
+        resume_generation: Option<String>,
+        /// `terminal-resume-bounded-v1`: the most missed bytes this viewer
+        /// takes as an exact resume; more, and the reply is the replay with
+        /// `resume: "gap"`. Absent: no bound (`terminal-resume-v1`).
+        #[serde(default)]
+        resume_max_bytes: Option<u64>,
         #[serde(flatten)]
         snapshot: terminal_snapshot::SnapshotAttachParams,
     },
@@ -2524,6 +2632,7 @@ impl Command {
             | Self::ReadScreen { surface }
             | Self::ClearHistory { surface, .. }
             | Self::ReadScrollback { surface, .. }
+            | Self::TerminalFind { surface, .. }
             | Self::WaitFor { surface, .. }
             | Self::SendKey { surface, .. }
             | Self::Copy { surface, .. }
@@ -3007,6 +3116,7 @@ use journal_stream::{
     handle_journal_extension_request, prepare_session_journal_stream, start_session_journal_stream,
 };
 
+mod agent_app_control;
 mod incognito_orphans;
 mod incognito_remote;
 mod resource_connection;
@@ -3092,7 +3202,19 @@ use tree_json::{ShortIds, pane_json, tree_delta_json};
 #[cfg(test)]
 pub(crate) use tree_json::{panes_built_for_test, set_entity_check_hook_for_test};
 
+/// The live runtime of tab `id`. A parked terminal tab (`relaunch.on_show`:
+/// lazy start, `park-tabs`) starts here on its first need, and the request
+/// goes on with its new shell (`mux/terminal_respawn/lazy.rs`).
 fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
+    // A live tab costs only the lock-free route read it always did.
+    if mux.surface(id).is_none_or(|surface| surface.is_dead()) {
+        mux.wake_lazy_tab(id);
+    }
+    get_surface_without_start(mux, id)
+}
+
+/// [`get_surface`] that never starts a parked tab (closing one).
+fn get_surface_without_start(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
     mux.surface(id)
         .filter(|surface| !surface.is_dead())
         .ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
@@ -3191,6 +3313,9 @@ mod session_identity_tests;
 #[cfg(all(test, any(target_vendor = "apple", target_os = "linux")))]
 #[path = "server/starter_exit_tests.rs"]
 mod starter_exit_tests;
+#[cfg(test)]
+#[path = "server/terminal_resume_tests.rs"]
+mod terminal_resume_tests;
 
 #[cfg(test)]
 #[path = "server/personal_tests.rs"]
@@ -3264,3 +3389,4 @@ mod cloud_api;
 mod cloud_repos;
 #[cfg(unix)]
 mod cloud_runs;
+mod language_packs_op;

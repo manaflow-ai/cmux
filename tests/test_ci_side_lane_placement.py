@@ -29,6 +29,7 @@ WORKFLOWS = ROOT / ".github/workflows"
 SIDE = "glaeda-side-std-xcode-26.6"
 STD = "glaeda-std-xcode-26.6"
 FALLBACK = "blacksmith-6vcpu-macos-26"
+CMUX_MAC = "cmux-mac"  # the one own-branch Mac label, behind vars.CI_OVERFLOW_MAC
 NIGHTLY_POOL = "glaeda-trusted-light-xcode-26.6"
 NIGHTLY_RUNNER = "glaeda-runner-cmux22-nightly-next"
 # The GUI suites take the owned pool's gui label, never the generic side label.
@@ -130,9 +131,14 @@ DAILY_PICK = ("needs.dev-daily-place.outputs.runs_on != '' && fromJSON(needs.dev
               "needs.dev-daily-place.outputs.runner_label != '' && needs.dev-daily-place.outputs.runner_label")
 
 
+# A scheduler grant (scripts/ci/mac_grants.py) is a label array in runs-on; the env copy names its first label.
+GRANT_PICK = ("fromJSON(needs.macos-placement.outputs.grant_runner)",
+              "fromJSON(needs.macos-placement.outputs.grant_runner)[0]")
+
+
 def label_copy(runs_on: str) -> str:
     """runs-on as the job's own CMUX_NEXT_RUNNER copy states it."""
-    return runs_on.replace(*DAILY_PICK)
+    return runs_on.replace(*DAILY_PICK).replace(*GRANT_PICK)
 
 class Decide(unittest.TestCase):
     def setUp(self):
@@ -1761,6 +1767,19 @@ class FastTierHandback(unittest.TestCase):
         self.assertEqual(self.place(None)[0], self.SMALL)
         self.assertEqual(self.place(busy, read=False)[0], self.SMALL)
 
+    def test_the_hand_back_keeps_the_owned_route_while_blacksmith_is_off(self):
+        # With vars.CI_BLACKSMITH_MACOS off no runner serves 6 vCPU, so a fast tier the fleet handed back
+        # (verdict `queued`) waits on the owned route there, never on a Blacksmith label with no runner.
+        busy = [runner("mini-a-glaeda-1", busy=True), runner("mini-b-glaeda-1", busy=True)]
+        for switch in ("", "off", "pr-rescue"):
+            with self.subTest(switch=switch):
+                label, why = self.place(busy, CI_BLACKSMITH_MACOS=switch)
+                self.assertEqual(label, SIDE, why)
+                self.assertIn("off", why)
+        self.assertEqual(self.place(busy, CI_BLACKSMITH_MACOS="on")[0], self.SMALL)
+        # An idle owned Mac still wins.
+        self.assertEqual(self.place([runner("mini-a-glaeda-1")], CI_BLACKSMITH_MACOS="")[0], SIDE)
+
     def test_an_excluded_blacksmith_keeps_the_owned_route(self):
         busy = [runner("mini-a-glaeda-1", busy=True), runner("mini-b-glaeda-1", busy=True)]
         label, why = self.place(busy, outage=True)
@@ -2505,25 +2524,27 @@ class CmuxNextWiring(unittest.TestCase):
 
 
 class FeedReplyFullText(unittest.TestCase):
-    """The feed workflow's package tests need no secrets, so they take the owned side lane
-    on attempt 1 like the cmux-tui legs, instead of always queuing on Blacksmith."""
+    """The feed workflow's package tests need no secrets, so they take cmux-mac, the one own-branch Mac label
+    (docs/design/ci-v2.md, "Blacksmith is a switch, not a route"), instead of always queuing on Blacksmith."""
 
     def runs_on(self, job: str) -> str:
         workflow = yaml.safe_load((WORKFLOWS / "test-feed-reply-providers.yml").read_text(encoding="utf-8"))
         return runs_on_route(workflow["jobs"][job], job)
 
-    def context(self, attempt: str = "1", owned: str = "1", owner: str = "manaflow-ai") -> dict:
-        context = github_context("workflow_dispatch", CI_PR_POOL_OWNED=owned, CI_SIDE_LANE_RUNNER=SIDE)
+    def context(self, attempt: str = "1", owned: str = "1", owner: str = "manaflow-ai", overflow: str = "") -> dict:
+        context = github_context("workflow_dispatch", CI_PR_POOL_OWNED=owned, CI_SIDE_LANE_RUNNER=SIDE,
+                                 CI_OVERFLOW_MAC=overflow)
         context["vars"].pop("MACOS_RUNNER_PR")
         context["github"].update(run_attempt=attempt, repository_owner=owner)
         return context
 
-    def test_full_text_takes_the_side_lane_on_attempt_1(self):
+    def test_full_text_takes_cmux_mac_behind_the_overflow_switch(self):
         runs_on = self.runs_on("full-text")
-        self.assertEqual(evaluate(runs_on, self.context()), SIDE)
-        # A re-run, owned pools off, or another owner keeps a hosted runner.
-        self.assertEqual(evaluate(runs_on, self.context(attempt="2")), FALLBACK)
-        self.assertEqual(evaluate(runs_on, self.context(owned="0")), FALLBACK)
+        for attempt in ("1", "2"):
+            for owned in ("1", "0"):
+                self.assertEqual(evaluate(runs_on, self.context(attempt=attempt, owned=owned)), CMUX_MAC)
+        self.assertEqual(evaluate(runs_on, self.context(overflow=FALLBACK)), FALLBACK)
+        # Another owner keeps a hosted runner.
         self.assertEqual(evaluate(runs_on, self.context(owner="someone")), "macos-26")
 
     def test_verify_stays_hosted(self):
@@ -2532,27 +2553,27 @@ class FeedReplyFullText(unittest.TestCase):
 
 
 class SmallMacChecks(unittest.TestCase):
-    """The zsh HEAD watcher and Computer Use helper checks hold no secrets and change no session, so a
-    same-repository run takes the owned side label on attempt 1; Blacksmith macOS is the last resort."""
+    """The zsh HEAD watcher check holds no secrets and changes no session, so a same-repository run takes
+    cmux-mac behind vars.CI_OVERFLOW_MAC; a fork pull request keeps Blacksmith macOS."""
 
-    JOBS = (("cmux-next-shell-integration.yml", "zsh-head-watch"),
-            ("cmux-next-cua-helper-identity.yml", "helper-identity"))
+    JOBS = (("cmux-next-shell-integration.yml", "zsh-head-watch"),)
 
     def context(self, event: str = "pull_request", attempt: str = "1", owned: str = "1",
-                head: str = "manaflow-ai/cmux", owner: str = "manaflow-ai") -> dict:
-        context = github_context(event, CI_PR_POOL_OWNED=owned, CI_SIDE_LANE_RUNNER=SIDE)
+                head: str = "manaflow-ai/cmux", owner: str = "manaflow-ai", overflow: str = "") -> dict:
+        context = github_context(event, CI_PR_POOL_OWNED=owned, CI_SIDE_LANE_RUNNER=SIDE, CI_OVERFLOW_MAC=overflow)
         context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, repository_owner=owner,
                                  event={"pull_request": {"head": {"repo": {"full_name": head}}}})
         return context
 
-    def test_attempt_1_takes_the_side_lane_and_everything_else_blacksmith(self):
+    def test_own_branch_runs_take_cmux_mac_and_a_fork_blacksmith(self):
         for name, job in self.JOBS:
             runs_on = runs_on_route(yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))["jobs"][job], job)
             with self.subTest(workflow=name):
                 for event in ("pull_request", "push", "workflow_dispatch"):
-                    self.assertEqual(evaluate(runs_on, self.context(event=event)), SIDE, event)
-                self.assertEqual(evaluate(runs_on, self.context(attempt="2")), FALLBACK)
-                self.assertEqual(evaluate(runs_on, self.context(owned="0")), FALLBACK)
+                    self.assertEqual(evaluate(runs_on, self.context(event=event)), CMUX_MAC, event)
+                self.assertEqual(evaluate(runs_on, self.context(attempt="2")), CMUX_MAC)
+                self.assertEqual(evaluate(runs_on, self.context(owned="0")), CMUX_MAC)
+                self.assertEqual(evaluate(runs_on, self.context(overflow=FALLBACK)), FALLBACK)
                 self.assertEqual(evaluate(runs_on, self.context(head="someone/cmux")), FALLBACK)
                 self.assertEqual(evaluate(runs_on, self.context(owner="someone")), "macos-26")
 

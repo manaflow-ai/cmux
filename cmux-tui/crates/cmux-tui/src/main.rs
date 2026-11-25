@@ -12,6 +12,10 @@ use cmux_json::JsonSet as _;
 mod acp;
 #[cfg(unix)]
 mod agent_browser_provider;
+#[cfg(unix)]
+mod agent_computer_use;
+#[cfg(unix)]
+mod agent_mcp_choice;
 use cmux_tui_hooks as agent_hook_install;
 mod agent_plugin_config;
 #[cfg(unix)]
@@ -43,9 +47,14 @@ mod cloud_environment;
 #[cfg(unix)]
 mod coderouter_usage;
 #[cfg(unix)]
+#[cfg(unix)]
 mod codex_wrapper;
+#[cfg(not(target_os = "macos"))]
+mod computer_use_worker;
 mod config;
 mod daemon_build;
+#[cfg(unix)]
+mod files_lister;
 mod headless;
 mod heap_profile;
 #[cfg(unix)]
@@ -58,6 +67,8 @@ mod own_build_helpers;
 mod page_listener;
 mod private_mode;
 mod screen_detection_status;
+#[cfg(unix)]
+mod scroll_probe;
 #[cfg(unix)]
 mod share_room;
 #[cfg(unix)]
@@ -580,6 +591,51 @@ fn usage() -> String {
     usage_for(localization::catalog())
 }
 
+/// The startup options that run or configure the authenticated remote daemon,
+/// the ones `cmux remote --help` calls "explicit remote flags". A test checks
+/// this list against `parse_args_result`'s match arms, so it cannot drift.
+pub(crate) const REMOTE_START_OPTIONS: &[&str] = &[
+    "--remote",
+    "--remote-ws",
+    "--remote-ws-insecure-bind",
+    "--remote-ws-trusted-carrier",
+    "--remote-http",
+    "--remote-state-dir",
+    "--remote-link-socket",
+    "--remote-admin-socket",
+    "--remote-resume-lease-seconds",
+    "--relay",
+    "--relay-slot",
+    "--relay-ticket-file",
+    "--relay-ticket-command",
+    "--relay-ticket-command-arg",
+    "--carrier-grant-config",
+    "--iroh",
+    "--advertise",
+    "--remote-local-socket",
+];
+
+/// The START OPTIONS entries of usage.txt for [`REMOTE_START_OPTIONS`], each
+/// with its description lines, so `cmux daemon start --help` and the startup
+/// usage say the same thing.
+pub(crate) fn remote_start_options_help() -> String {
+    let mut out = String::new();
+    let mut keep = false;
+    for line in USAGE.lines() {
+        if let Some(entry) = line.strip_prefix("  -") {
+            let flag = format!("-{}", entry.split_whitespace().next().unwrap_or_default());
+            keep = REMOTE_START_OPTIONS.contains(&flag.as_str());
+        } else if !line.starts_with("   ") {
+            keep = false;
+        }
+        if keep {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Args {
     attach: bool,
@@ -1024,7 +1080,14 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                 if args.peek().is_some_and(|next| next == "--json") {
                     println!("{}", version_report_json());
                 } else {
-                    println!("cmux {}", version_string());
+                    let exe = std::env::current_exe()
+                        .ok()
+                        .and_then(|path| std::fs::canonicalize(path).ok());
+                    let app_commit = exe.as_deref().and_then(version_report::app_commit);
+                    println!(
+                        "{}",
+                        version_report::version_lines(&version_string(), app_commit.as_deref())
+                    );
                 }
                 client_log::exit(0);
             }
@@ -1855,6 +1918,8 @@ pub fn main() -> std::process::ExitCode {
     cmux_tui_core::server::install_build_stamp(build_stamp());
     cmux_tui_core::release::install_distribution_version(version_report::DISTRIBUTION_STAMP);
     acpmux::hub::install_build(acpmux_build_id::build());
+    // acpmux is headless; its interactive commands open the terminal UI this binary links.
+    acpmux_tui::install();
     #[cfg(unix)]
     cmux_tui_core::git_seed::on_seeded(warm_seeded_deps);
     // The daemon's `device-setup` (the app's set-up buttons) runs `cmux device setup|start`'s code.
@@ -1882,7 +1947,7 @@ pub fn main() -> std::process::ExitCode {
 }
 
 /// Runs the host argv[0]'s file name names (`cmux-browser-host`,
-/// `cmux-app-host`) and returns its exit code, or `None` when it names none.
+/// `cmux-app-host`, `cmux-mobile-host`) and returns its exit code, or `None` when it names none.
 #[cfg(unix)]
 fn run_folded_host() -> Option<i32> {
     let argv0 = std::env::args_os().next()?;
@@ -1891,6 +1956,11 @@ fn run_folded_host() -> Option<i32> {
     match name {
         "cmux-browser-host" => Some(cmux_browser_host::cli::run(args())),
         "cmux-app-host" => Some(cmux_app_host::entry::run(&args())),
+        // A tool the app downloads on first use (`tool_packs`): runs it in this process's place.
+        "cmux-mobile-host" => {
+            let exe = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
+            cmux_tui_core::tool_packs::run_as(name, &exe)
+        }
         _ => None,
     }
 }
@@ -1983,13 +2053,48 @@ fn run_main() {
     cmux_tui_core::host_exe::use_sibling_host(cmux_build_identity::BUILD_IDENTITY);
     // `cmux acp …` (and `cmux harness|chats …` = `cmux acp harness|chats …`) runs acpmux in
     // this process. It needs none of the mux's provider credentials or signal handlers.
+    // `cmux share screens|start|stop|move …`: the screen shares, read and changed by this
+    // machine's daemon device at the device hub (acpmux `share-host`), with no app needed.
     #[cfg(unix)]
-    if let Some(head @ ("acp" | "harness" | "chats")) = raw_args.first().map(String::as_str) {
+    if let Some(args) = cli::share_screen_args(&raw_args) {
+        discard_provider_secret_environment();
+        client_log::exit(acp::run_as(args, "cmux"));
+    }
+    #[cfg(unix)]
+    if let Some(head) = raw_args.first().map(String::as_str)
+        && (matches!(head, "acp" | "harness" | "chats" | "board")
+            || cli::agent_engine_requested(&raw_args))
+    {
         discard_provider_secret_environment();
         // From raw_args, not args_os: `cmux help chats` became `chats --help` there, and
         // std::env::args() above already refused argv that is not UTF-8.
         let args = cli::acp_scope_args(&raw_args);
         client_log::exit(acp::run_scope(head, args));
+    }
+    #[cfg(unix)]
+    if let Some(args) = cli::agent_acp_scope_args(&raw_args) {
+        discard_provider_secret_environment();
+        client_log::exit(acp::run_as(args, "cmux agent"));
+    }
+    // Windows machine join installs the session engine as its own executable.
+    // Launch that binary so its daemon and agent hosts use the Windows install.
+    #[cfg(windows)]
+    if cli::agent_engine_requested(&raw_args) {
+        discard_provider_secret_environment();
+        let result = std::env::home_dir()
+            .ok_or_else(|| io::Error::other("cannot locate the Windows user profile"))
+            .and_then(|home| {
+                cmux_process::Command::new(home.join(".local/bin/acpmux.exe"))
+                    .args(cli::acp_scope_args(&raw_args))
+                    .status()
+            });
+        match result {
+            Ok(status) => client_log::exit(status.code().unwrap_or(1)),
+            Err(error) => {
+                eprintln!("cmux agent: cannot run the Windows session engine: {error}");
+                client_log::exit(1);
+            }
+        }
     }
     // `cmux host enable|serve|dial|…`: remote hosting, on every platform
     // (plans/cmux-next/remote-hosts.md). The other `host` verbs are the
@@ -2712,6 +2817,10 @@ fn run_server(
     // source/working-tree checks keep local development installs untouched.
     let _plugin_auto_update = plugin_manager::start_auto_update();
     mux.configure_browser_host(&socket_path);
+    // The agent-share audit rows go to the host's own audit log (remote_host/config.rs).
+    if let Ok(dir) = remote_host::config::dir() {
+        cmux_tui_core::remote_host::set_agent_share_audit_dir(dir);
+    }
     mux.configure_remote_host(&socket_path);
     #[cfg(target_os = "linux")]
     let _provider_management = provider_management_listener

@@ -347,7 +347,43 @@ struct ChiefMockScript {
             }
             messages.append(message)
         }
+        // `-cmux-mobile-chief-markdown-quote`: Chief's before/after table with its shots, a later line, and my reply to
+        // the table, through the real wire (ChiefWire.message), so a capture shows the reply's quote of a Markdown
+        // message (Lawrence, 2026-11-20: "this preview thing is not very good").
+        if ProcessInfo.processInfo.arguments.contains("-cmux-mobile-chief-markdown-quote") {
+            messages += markdownQuote(identity: identity, now: now, after: messages.count)
+        }
         return messages
+    }
+
+    /// The `-cmux-mobile-chief-markdown-quote` scene: three messages after the seeded `count`, the last my reply.
+    static func markdownQuote(identity: ChiefIdentity, now: Date, after count: Int) -> [ConversationMessage] {
+        let wire = ChiefWire(identity: identity)
+        let table = """
+            Both themes are fixed.
+
+            | | Before | After |
+            |---|---|---|
+            | Light | ![before, light](/Users/me/shots/before-light.png) | ![after, light](/Users/me/shots/after-light.png) |
+            | Dark | ![before, dark](/Users/me/shots/before-dark.png) | ![after, dark](/Users/me/shots/after-dark.png) |
+            """
+        let lines: [(me: Bool, secondsAgo: Double, text: String)] = [
+            (false, 120, table),
+            (false, 90, "See [PR 12](https://github.com/manaflow-ai/cmux/pull/12) ![the shot](/Users/me/shots/after-light.png) for the diff."),
+            (true, 60, "this preview thing is not very good"),
+        ]
+        let formatter = ISO8601DateFormatter()
+        return lines.enumerated().compactMap { offset, line in
+            let seq = count + offset + 1
+            var object: [String: Any] = [
+                "id": "msg_local_\(seq)", "seq": seq, "client_msg_id": "seed-\(seq)",
+                "author": line.me ? identity.meID : identity.chiefID,
+                "created_at": formatter.string(from: now.addingTimeInterval(-line.secondsAgo)),
+                "parts": [["type": "text", "text": line.text]], "reactions": [],
+            ]
+            if line.me { object["reply_to"] = ["message_id": "msg_local_\(count + 1)"] }
+            return wire.message(object, peerReadSeq: line.me ? seq : 0)
+        }
     }
 
     static func tapback(for text: String) -> ConversationReaction? {
