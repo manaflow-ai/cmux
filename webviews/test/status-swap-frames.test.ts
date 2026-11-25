@@ -239,7 +239,8 @@ await requireBrowserLane("status-swap-frames.test.ts", async () => {
       test(`${name}${lagging ? ", lagging" : ""}: every frame of a status change shows one line of words`, async () => {
         const page = await open(name);
         if (lagging) await lag(page, 40, 70);
-        const report: Report = await run(page, 8, 260);
+        // Steps further apart than the line's dwell (Thinking.tsx `LINE_DWELL_MS`), so each one rolls at once.
+        const report: Report = await run(page, 8, 400);
         console.log(`STATUS_SWAP_REPORT ${JSON.stringify({ engine: name, lagging, ...report })}`);
         await page.close();
         for (const which of ["hat", "line"] as const) {
