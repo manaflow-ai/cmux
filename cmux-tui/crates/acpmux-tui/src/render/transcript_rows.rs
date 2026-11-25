@@ -46,6 +46,8 @@ pub(super) fn transcript_rows_range(
     let w = width;
     let running = t.status == "running";
     let last = t.items.len().saturating_sub(1);
+    // The turn acpmux holds for capacity and continues itself: drawn calm, never red (GUI parity).
+    let held = crate::capacity_wait::held_error(t);
     let is_open = |tg: Toggle, default_open: bool| default_open ^ toggled.contains(&tg);
     let group = |it: &Item| matches!(it, Item::Tool { .. } | Item::Permission { .. });
     // Visible items: lifecycle noise and silent turn ends never draw.
@@ -672,7 +674,17 @@ pub(super) fn transcript_rows_range(
                         let cw = width.max(12);
                         let inner = cw.saturating_sub(6);
                         let mut body: Vec<Row> = Vec::new();
-                        wrap(text, inner, Style::default().fg(c.status_fg), "", i, &mut body);
+                        let calm = held == Some(i);
+                        let mut first = 1;
+                        if calm {
+                            let note =
+                                format!("Waiting for capacity · {}", crate::capacity_wait::GOES_ON);
+                            wrap(&note, inner, Style::default().fg(c.status_fg), "", i, &mut body);
+                            first = body.len();
+                            wrap(text, inner, c.dim(), "", i, &mut body);
+                        } else {
+                            wrap(text, inner, Style::default().fg(c.status_fg), "", i, &mut body);
+                        }
                         rows.push(Row {
                             line: Line::from(Span::styled(
                                 format!("╭{}╮", "─".repeat(cw - 2)),
@@ -684,18 +696,26 @@ pub(super) fn transcript_rows_range(
                         });
                         for (n, r) in body.into_iter().enumerate() {
                             let content = r.text.clone();
-                            let icon = if n == 0 { "✗ " } else { "  " };
+                            let icon = match (n, calm) {
+                                (0, true) => "◷ ",
+                                (0, false) => "✗ ",
+                                _ => "  ",
+                            };
+                            let icon_fg = if calm { c.attention_fg } else { c.error_fg };
+                            let text_style = if n >= first && calm {
+                                c.dim()
+                            } else {
+                                Style::default().fg(c.status_fg)
+                            };
                             let pad = inner.saturating_sub(content.width());
                             rows.push(Row {
                                 line: Line::from(vec![
                                     Span::styled("│ ".to_owned(), border),
                                     Span::styled(
                                         icon.to_owned(),
-                                        Style::default()
-                                            .fg(c.error_fg)
-                                            .add_modifier(Modifier::BOLD),
+                                        Style::default().fg(icon_fg).add_modifier(Modifier::BOLD),
                                     ),
-                                    Span::styled(content.clone(), Style::default().fg(c.status_fg)),
+                                    Span::styled(content.clone(), text_style),
                                     Span::raw(" ".repeat(pad)),
                                     Span::styled(" │".to_owned(), border),
                                 ]),
@@ -769,8 +789,21 @@ pub(super) fn transcript_rows_range(
     if running && footer {
         plain("", Style::default(), usize::MAX, &mut rows);
         rows.push(working_row(t, c));
+    } else if footer && let Some(wait) = t.capacity_wait.as_ref() {
+        plain("", Style::default(), usize::MAX, &mut rows);
+        rows.push(capacity_row(wait, c));
     }
     rows
+}
+
+/// The footer while acpmux waits out a capacity cut: the GUI's calm line, counting down.
+pub(super) fn capacity_row(wait: &serde_json::Value, c: &Chrome) -> Row {
+    let label = crate::capacity_wait::line(wait, now_ms());
+    let line = Line::from(vec![
+        Span::styled("◷ ".to_owned(), Style::default().fg(c.attention_fg)),
+        Span::styled(label.clone(), c.muted()),
+    ]);
+    Row { line, text: format!("◷ {label}"), item: usize::MAX, toggle: None }
 }
 
 pub(super) fn working_row(t: &Transcript, c: &Chrome) -> Row {
