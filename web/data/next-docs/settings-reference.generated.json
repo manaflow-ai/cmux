@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 797,
+  "count": 804,
   "sections": [
     {
       "id": "general",
@@ -5359,6 +5359,14 @@
           "group": "Sidebar"
         },
         {
+          "key": "sidebar.showAgentSessions",
+          "title": "Show Sessions Started by Agents",
+          "help": "Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.showAutomaticSessions",
           "title": "Show Automatic Sessions",
           "help": "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list.",
@@ -7051,7 +7059,8 @@
           "default": [
             "media",
             "zoom",
-            "downloads"
+            "downloads",
+            "profile"
           ],
           "group": "Toolbar"
         },
@@ -8254,6 +8263,14 @@
           "group": "Developer Tools"
         },
         {
+          "key": "developerTools.overloadNotice",
+          "title": "Overload Warning in Chats",
+          "help": "Shows a banner above the composer when this Mac's load or swap is too high.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Developer Tools"
+        },
+        {
           "key": "experiments.agentBadges",
           "title": "Agent Badges",
           "help": "Agent tabs show a count of unread messages and approvals, and sidebar rows show a status pill: Running, Needs approval or Done.",
@@ -8281,6 +8298,14 @@
           "key": "experiments.attachmentTypeIcons",
           "title": "Attachment Type Icons",
           "help": "While an attachment loads, its chip shows a file or image icon instead of the loading mark.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
+          "key": "experiments.browserProfileCard",
+          "title": "Browser Profile Card",
+          "help": "The browser's profile menu opens with a profile card.",
           "kind": "toggle",
           "default": false,
           "group": "Experiments"
@@ -8440,6 +8465,14 @@
           "title": "Terminal History Find",
           "help": "Cmd-F in a terminal searches its whole history, with case, whole-word and regex options.",
           "kind": "toggle",
+          "default": true,
+          "group": "Experiments"
+        },
+        {
+          "key": "experiments.themedPrompts",
+          "title": "Themed Floating Prompts",
+          "help": "Prompts over other apps, such as a teammate asking to control this Mac, use your theme's glass and colors.",
+          "kind": "toggle",
           "default": false,
           "group": "Experiments"
         },
@@ -8447,6 +8480,14 @@
           "key": "experiments.threadMinimapRestReveal",
           "title": "Prompt Rail Waits for a Resting Pointer",
           "help": "In narrow chats the prompt rail opens only when the pointer rests on the edge, never while you select text.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
+          "key": "experiments.toastGlass",
+          "title": "Toast Glass",
+          "help": "Toasts in chats sit on the same glass as the app's own toasts.",
           "kind": "toggle",
           "default": false,
           "group": "Experiments"
@@ -8487,6 +8528,14 @@
           "key": "labs.commentThreads",
           "title": "Comment Threads in Browser and Terminal",
           "help": "Send browser and terminal comments to the chat as threads that show the agent's reply.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
+          "key": "labs.connectionsUpcoming",
+          "title": "Upcoming Connections",
+          "help": "Lists Slack and Google in Connections before they can be connected.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"
@@ -8535,6 +8584,14 @@
           "key": "labs.previewFeatures",
           "title": "Show Preview Features",
           "help": "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
+          "key": "labs.previousBuild",
+          "title": "Go Back to Previous Build",
+          "help": "Show the build cmux kept before the last update on the Updates card, with a button to go back to it.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"
