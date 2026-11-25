@@ -80,3 +80,26 @@ fn a_direct_probe_while_relayed_is_an_upgrade_attempt() {
     stats.failed(Via::Link, false);
     assert_eq!(stats.view(1)["directUpgrade"]["attempts"], 3);
 }
+
+#[test]
+fn every_attempt_is_recorded_with_its_transport_in_a_bounded_ring() {
+    let mut stats = LinkStats::new(0);
+    stats.attempt_failed(Via::Wireguard, 900);
+    stats.opened(&[Via::Wireguard, Via::Ssh], Via::Ssh, 1_000, 1_420);
+    let view = stats.view(1_420);
+    let rows = view["attempts"].as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["transport"], "wireguard");
+    assert_eq!(rows[0]["outcome"], "failed");
+    assert_eq!(rows[0]["firstByteMs"], serde_json::Value::Null);
+    assert_eq!(rows[1]["transport"], "ssh");
+    assert_eq!(rows[1]["carrier"], "ssh");
+    assert_eq!(rows[1]["outcome"], "opened");
+    assert_eq!(rows[1]["firstByteMs"], 420);
+
+    for i in 0..(ATTEMPT_SAMPLES as u64 * 2) {
+        stats.opened(&[Via::Wireguard], Via::Wireguard, i * 10, i * 10 + 5);
+    }
+    let view = stats.view(10_000);
+    assert_eq!(view["attempts"].as_array().unwrap().len(), ATTEMPT_SAMPLES);
+}

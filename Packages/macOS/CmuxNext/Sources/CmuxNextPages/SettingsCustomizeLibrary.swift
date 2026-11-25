@@ -11,7 +11,8 @@ import CmuxNextWakeups
 /// is kept, the stack's order and the rule that the higher entry that is on wins, so the card and
 /// the CLI never differ, and this type keeps no state.
 ///
-/// `list` only reads, so the page may ask for it; `on`, `off`, `order` and `remove` rewrite the
+/// `list` and `standup` (one line per entry, to read out at standup) only read, so the page may ask
+/// for them; `on`, `off`, `order` and `remove` rewrite the
 /// person's settings and files, so they run only on the person's click or key in the page
 /// (`context.userGesture`, the host's record) or a call they approved, as Agent integrations'
 /// installs do: a page script alone gets `cmux.app.user_only`.
@@ -73,13 +74,26 @@ public final class SettingsCustomizeLibrary: PageProvider {
                 throw PageError(code: PageNativeOp.userOnlyCode, message: "\(verb) needs a click in the page")
             }
         }
+        return try await answer(arguments, params: params)
+    }
+
+    /// Runs `arguments` (``arguments(_:)``) through the bundled CLI and answers its JSON, or its error
+    /// envelope on a refusal (`code`, `message`). Not gated: the page's call checks the gesture first, and
+    /// the sidebar's experiments mark runs only on the person's click.
+    /// `params` is the page call's (nil from the mark): a page verb such as `doctor-open` reads its id there.
+    func answer(_ arguments: [String], params: JSONValue? = nil) async throws -> JSONValue {
+        let verb = params?["verb"]?.stringValue ?? arguments.dropFirst(3).first ?? ""
         guard let binary = await cli() else { throw PageError(code: "cmux.page.unavailable", message: "no cmux CLI") }
         let environment = Self.environment(ProcessInfo.processInfo.environment, settingsFile: settingsFile())
         let (status, stdout, stderr) = try await runCLI(binary, arguments, environment)
+        // A change can turn a PR's pages on or off: the sidebar's experiments mark reads the library again.
+        if status == 0, Self.changes.contains(verb) {
+            WebDevOverrideWatcher.shared.libraryChanged()
+        }
         // A refusal is the CLI's envelope on stderr (`code`, `message`): the page shows its words.
         let answer = (try? JSONValue.parse(status == 0 ? stdout : stderr)) ?? .object([:])
         guard verb == "doctor-open", status == 0 else { return answer }
-        let id = params["id"]?.stringValue ?? ""
+        let id = params?["id"]?.stringValue ?? ""
         guard let path = Self.openPath(answer, id: id) else {
             throw PageError(code: "customize.doctor.open", message: "\(id) has no file to open")
         }
@@ -134,8 +148,8 @@ public final class SettingsCustomizeLibrary: PageProvider {
             return doctor + ["dismiss", try findingID()]
         case "doctor-recover":
             return doctor + ["recover"]
-        case "list":
-            return base + ["list"]
+        case "list", "standup":
+            return base + [verb]
         case "reset":
             // Every entry off (`cmux customize library reset`), the palette's Reset Customization Library.
             return base + ["reset"]
@@ -149,7 +163,7 @@ public final class SettingsCustomizeLibrary: PageProvider {
             }
             return base + [verb, name, position]
         default:
-            throw PageError.invalidParams("verb is list, on, off, order, remove, reset, doctor, doctor-fix, doctor-dismiss, doctor-open or doctor-recover")
+            throw PageError.invalidParams("verb is list, standup, on, off, order, remove, reset, doctor, doctor-fix, doctor-dismiss, doctor-open or doctor-recover")
         }
     }
 
@@ -180,14 +194,14 @@ public final class SettingsCustomizeLibrary: PageProvider {
     }
 
     /// The CLI's environment: the app's own, naming the app's settings file only when it is not the
-    /// CLI's default (`~/.config/cmux/cmux-next.json`). An override also moves the CLI's library
+    /// CLI's default (`~/.config/cmux-next/cmux-next.json`). An override also moves the CLI's library
     /// state into the config folder (cmux-customize `Roots::from`), so naming the default file would
     /// hide every entry an ordinary `cmux customize` run kept.
     nonisolated static func environment(_ base: [String: String], settingsFile: URL?) -> [String: String] {
         var environment = base
         guard let file = settingsFile else { return environment }
         if let home = environment["HOME"], !home.isEmpty,
-           file.standardizedFileURL.path == URL(fileURLWithPath: home).appendingPathComponent(".config/cmux/cmux-next.json").standardizedFileURL.path {
+           file.standardizedFileURL.path == URL(fileURLWithPath: home).appendingPathComponent(".config/cmux-next/cmux-next.json").standardizedFileURL.path {
             return environment
         }
         environment["CMUX_NEXT_CONFIG_FILE"] = file.path
