@@ -439,7 +439,6 @@ function LiveWords({
       label={indicator.label}
       verbs={decorative ? indicator.verbs : undefined}
       lead={lead}
-      elapsed={indicator.elapsed}
     />
   );
 }

@@ -118,7 +118,7 @@ export default agentPaneEntry({
     // Leo, 2026-11-25: "did we identify the cause between the gap here? betwen the copy branch etc
     // buttons and the next working for?" The woken turn still running under the footer.
     working: {
-      note: "Shipped, while the woken turn runs: its Working for line stands the block gap under the footer (24), as when it has ended.",
+      note: "Shipped, while the woken turn runs: its first row stands the block gap under the footer (24), as its Worked for does once it ends. test/woken-turn-gap.test.ts holds it.",
       snapshot: working(),
       recording: recordingOf(true),
     },

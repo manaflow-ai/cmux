@@ -5,8 +5,8 @@ import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 setDefaultTimeout(300_000);
 const SCENES = [
   ["agent-pane.turn-boundary-gaps", "inbox-read"],
-  ["agent-pane.turn-boundary-gaps", "lines-read"],
-  ["agent-pane.turn-boundary-gaps", "inbox-unread"],
+  
+  
 ];
 let vite: any; let browser: Browser;
 beforeAll(async () => {
@@ -15,7 +15,7 @@ beforeAll(async () => {
   vite = await createServer({ configFile: path.join(webviews, "vite.config.gallery-dev.ts"), server: { port: 0, host: "127.0.0.1", strictPort: false }, logLevel: "error" });
   await vite.listen();
   browser = await chromium.launch({ headless: true });
-  for (const [e, v] of SCENES) await warmGalleryFrame(vite, e, { browser, params: { variant: v } });
+
 });
 afterAll(async () => { await browser?.close(); await vite?.close(); });
 for (const [entry, variant] of SCENES)

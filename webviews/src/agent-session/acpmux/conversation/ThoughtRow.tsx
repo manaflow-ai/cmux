@@ -78,6 +78,37 @@ function FoldedThought({
     observer.observe(node);
     return () => observer.disconnect();
   }, [head.line, open, opens]);
+  // Closed and cut, the line wraps at a word and shows its first line only, so its box ran past
+  // that line's last word and the chevron after it stood 12 to 28px off the words, where every
+  // other row's stands --cv-chevron-gap (Leo, 2026-11-25: "chevron spacing bad"). The box takes
+  // the first line's own width: the same words on it, broken at the same place, and opened it gets
+  // its whole width back, so opening moves none of them. test/transcript-chevron-after-label.test.ts.
+  useLayoutEffect(() => {
+    const node = line.current;
+    if (!node) return;
+    if (open || !cut) {
+      node.style.maxWidth = "";
+      return;
+    }
+    const fit = () => {
+      node.style.maxWidth = "";
+      const width = firstLineWidth(node);
+      if (width !== null) node.style.maxWidth = `${Math.ceil(width) + 1}px`;
+    };
+    fit();
+    const row = node.parentElement;
+    const Observer = node.ownerDocument.defaultView?.ResizeObserver;
+    if (!row || !Observer) return;
+    let width = row.getBoundingClientRect().width;
+    const observer = new Observer(() => {
+      const now = row.getBoundingClientRect().width;
+      if (now === width) return;
+      width = now;
+      fit();
+    });
+    observer.observe(row);
+    return () => observer.disconnect();
+  }, [head.line, open, cut]);
   // The line's height when the reader clicked, for the morph: only their toggle plays it.
   const from = useRef<number | undefined>(undefined);
   useLayoutEffect(() => {
@@ -149,6 +180,19 @@ function FoldedThought({
       )}
     </>
   );
+}
+
+/// The width of a wrapped line's first line, from its words' own boxes (null when it draws none).
+function firstLineWidth(node: HTMLElement): number | null {
+  const range = node.ownerDocument.createRange();
+  range.selectNodeContents(node);
+  // A DOM with no layout (a unit test's) has no boxes to read.
+  if (typeof range.getClientRects !== "function") return null;
+  const rects = [...range.getClientRects()].filter((rect) => rect.width > 0);
+  const first = rects[0];
+  if (!first) return null;
+  const line = rects.filter((rect) => Math.abs(rect.top - first.top) < first.height / 2);
+  return Math.max(...line.map((rect) => rect.right)) - Math.min(...line.map((rect) => rect.left));
 }
 
 /// A finished thought's time for its row's end: "12s" once dated and a second or more, unless the
