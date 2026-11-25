@@ -102,12 +102,12 @@ where
     })
 }
 
-/// Debug builds and unit tests: a panic at `point` once it is armed, where `text` holds the armed text:
+/// Debug builds only: a panic at `point` once it is armed, where `text` holds the armed text:
 /// by a unit test ([`arm_panic`]) or by `ACPMUX_TEST_PANIC_AT=POINT[:TEXT]` for the daemon's
 /// integration tests. Each arming fires once, and counts every pass of its point after
-/// ([`armed_passes`]), so a test sees a supervised loop come back to it. Release binaries have no
+/// ([`armed_passes`]), so a test sees a supervised loop come back to it. Release builds have no
 /// seam.
-#[cfg(any(debug_assertions, test))]
+#[cfg(any(test, debug_assertions))]
 pub(crate) fn panic_point(point: &str, text: &str) {
     let fire = {
         let mut seam = PANIC_SEAM.lock().unwrap_or_else(|e| e.into_inner());
@@ -135,12 +135,12 @@ pub(crate) fn panic_point(point: &str, text: &str) {
     }
 }
 
-#[cfg(not(any(debug_assertions, test)))]
+#[cfg(not(any(test, debug_assertions)))]
 #[inline(always)]
 pub(crate) fn panic_point(_point: &str, _text: &str) {}
 
 /// [`panic_point`] whose text is made only while something is armed at `point`.
-#[cfg(any(debug_assertions, test))]
+#[cfg(any(test, debug_assertions))]
 pub(crate) fn panic_point_with(point: &str, text: impl FnOnce() -> String) {
     let armed = {
         let seam = PANIC_SEAM.lock().unwrap_or_else(|e| e.into_inner());
@@ -151,7 +151,7 @@ pub(crate) fn panic_point_with(point: &str, text: impl FnOnce() -> String) {
     }
 }
 
-#[cfg(not(any(debug_assertions, test)))]
+#[cfg(not(any(test, debug_assertions)))]
 #[inline(always)]
 pub(crate) fn panic_point_with(_point: &str, _text: impl FnOnce() -> String) {}
 
