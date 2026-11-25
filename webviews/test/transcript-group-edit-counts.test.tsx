@@ -88,6 +88,17 @@ test("a run's summary line sums its edits: green added, red removed", async () =
   expect(line.querySelector(".cv-tool__text.has-counts")).not.toBeNull();
 });
 
+test("a lone described edit keeps its prose label and its diff counts", async () => {
+  const item = edit("named-edit", "/repo/src/helper.ts", "old\n", "new\n");
+  item.tool = { ...item.tool!, description: "Fix the retry limit" };
+  await draw([item], 2);
+  const line = host.querySelector('[data-tool-group="group:edits:named-edit"]')!;
+  expect(line.querySelector(".cv-tool__summary")?.textContent).toBe("Fix the retry limit");
+  expect(line.querySelector(".cv-tool__summary code")).toBeNull();
+  expect(line.querySelector(".cv-edit-diff__add")?.textContent).toBe("+1");
+  expect(line.querySelector(".cv-edit-diff__del")?.textContent).toBe("-1");
+});
+
 test("added lines only: no red count", async () => {
   await draw([edit("edit-c", "/repo/new.md", "", "a\nb\nc\n"), command(2)], 2);
   const line = summary();

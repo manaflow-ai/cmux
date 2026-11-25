@@ -1,0 +1,4 @@
+{
+  "agent": "settable",
+  "why": "Whether a chat's pull request link opens the cmux GitHub page or github.com in a cmux tab: both stay in cmux, with no network, privacy or destructive effect."
+}
