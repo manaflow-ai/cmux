@@ -585,6 +585,7 @@ impl Hub {
                 redirect: false,
                 auto: false,
                 waiting: None,
+                harness: Some(harness.clone()),
             })
             .await?;
         // Its worktree is made, and its harness spawns, only in the very folder checked.

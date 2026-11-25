@@ -296,6 +296,7 @@ mod tests {
             redirect,
             auto: false,
             waiting: None,
+            harness: None,
         }
     }
 

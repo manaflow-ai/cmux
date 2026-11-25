@@ -780,11 +780,14 @@ jobs:
     # 44258208231 hit the limit on small runners, still testing. A fork's run reads no variables, so
     # its arms come first. The anchor hands these minutes to Test webviews, whose retry deadline is
     # measured from them.
+    # A dispatch (the post-merge batch tick, the full suite of the base) gets 45: the ticks of 11-22 to 11-24 ran 8
+    # shards to the 90 minute limit, 100% red (about 5,760 shard minutes a day), because a red base never turns
+    # green by waiting; the retry deadline follows these minutes, so a red file stays red and the tick ends sooner.
     # actions: read: a pull request's shard downloads the files that passed at its previous head (an artifact).
     permissions:
       contents: read
       actions: read
-    timeout-minutes: &webview-shard-minutes ${{ github.repository_owner != 'manaflow-ai' && 90 || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 90 || contains(fromJSON(vars.RUNNER_POOLS).linux_4, '-2vcpu-') && 150 || 90 }}
+    timeout-minutes: &webview-shard-minutes ${{ github.repository_owner != 'manaflow-ai' && 90 || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 90 || contains(fromJSON(vars.RUNNER_POOLS).linux_4, '-2vcpu-') && 150 || github.event_name == 'workflow_dispatch' && 45 || 90 }}
     name: react-apps-check (${{ matrix.shard }})
     strategy:
       fail-fast: false
