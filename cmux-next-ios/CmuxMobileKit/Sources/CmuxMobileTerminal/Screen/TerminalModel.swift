@@ -68,9 +68,20 @@ public final class TerminalModel {
             guard composerText != oldValue else { return }
             let hasText = !composerText.isEmpty
             if composerHasText != hasText { composerHasText = hasText }
-            composerEdited()
+            if !puttingComposerText { composerEdited() }
             onDraftChange?()
         }
+    }
+    /// Set while the model itself writes the draft (``putComposerText(_:)``): that is not the
+    /// person editing it, so a notice set with it stays.
+    @ObservationIgnored private var puttingComposerText = false
+    /// The model's own write of the draft (a dropped send coming back, a sent one cleared):
+    /// unlike the person's edit, it keeps the composer's notice. Since #52667 every write of
+    /// `composerText` counted as an edit and cleared the "not sent" notice it came back with.
+    func putComposerText(_ text: String) {
+        puttingComposerText = true
+        defer { puttingComposerText = false }
+        composerText = text
     }
     /// Whether the draft has any text: changes on the first key and on clearing, not per key.
     public private(set) var composerHasText = false
@@ -118,6 +129,11 @@ public final class TerminalModel {
     public internal(set) var composerPresented = true
     /// Hide Toolbar took the key row and the composer away until the next terminal tap.
     public internal(set) var chromeHidden = false
+    /// Wide (the key row's Wide key, the page menu's Wide View): the grid is
+    /// wider than the page (`TerminalHostGridLayout.wideColumns`), so a wide
+    /// table or a long line stays one row and the page pans sideways to it.
+    /// For this page's life.
+    public internal(set) var wideOutput = false
     /// Attachments are being sent; the composer waits.
     public internal(set) var isUploading = false
     /// Why the last send with attachments failed (shown over the composer).
@@ -387,7 +403,7 @@ public final class TerminalModel {
                 composerSendRefused = true
             } else if let held = heldComposerSend, composerText.isEmpty,
                ProcessInfo.processInfo.systemUptime - held.at <= Self.heldComposerSendWindow {
-                composerText = held.text
+                putComposerText(held.text)
             }
             heldComposerSend = nil
         case .inputHeld(let bytes):
@@ -618,18 +634,27 @@ public final class TerminalModel {
     var demoNote = "start"
     #endif
 
-    /// Refreshes `snapshot` from the live page (the grid is about to show it).
+    /// Refreshes `snapshot` from the live page, rendered here on the main
+    /// thread: for callers that need the picture now (the background save).
     public func captureSnapshot() {
         if let image = controller?.snapshot() {
             cardRenders += 1
             cardSnapshotAt = CACurrentMediaTime()
             snapshot = image
-            #if DEBUG
-            if CommandLine.arguments.contains("-CmuxMobileDumpCard"), let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
-                try? image.pngData()?.write(to: dir.appendingPathComponent("card-snapshot.png"))
-            }
-            #endif
+            Self.dumpCard(image)
         }
+    }
+
+    /// The grid is about to open on this page: the frame is copied here and
+    /// composed off the main thread, and `snapshot` follows once it is
+    /// (`TerminalTabHost.prepareCard`). Rendered in the tap (`captureSnapshot`),
+    /// it was the zoom's first frame: Leo, 2026-11-22, "the button clicking is
+    /// not smooth. it's not 120fps." The zoom draws the live page, and the
+    /// still is first shown when the grid settles (`showsStaticCard`), a
+    /// spring later than the render takes.
+    public func captureSnapshotOffMain() {
+        guard let capture = controller?.capture(hidingCursor: false) else { return }
+        renderCard(capture)
     }
 
     /// The grid is open and the page drew output (D6): its card is taken
@@ -638,17 +663,34 @@ public final class TerminalModel {
     /// with no presented frame keeps the card as it is.
     public func refreshCardSnapshot() {
         guard let capture = controller?.capture(hidingCursor: false), capture.surface != nil || capture.fallback != nil else { return }
+        renderCard(capture)
+    }
+
+    /// Composes `capture` off the main thread into `snapshot`; a newer card
+    /// (another refresh, the grid opening, a main-thread capture) wins.
+    private func renderCard(_ capture: TerminalPageCapture) {
         cardRenders += 1
         let serial = cardRenders
         cardSnapshotAt = CACurrentMediaTime()
-        Task { @MainActor [weak self] in
+        cardRender = Task { @MainActor [weak self] in
             let image = await Task.detached(priority: .userInitiated) { capture.render() }.value
-            // A newer card (another refresh, the grid opening) wins.
             guard let self, let image, serial == self.cardRenders else { return }
             self.snapshot = image
+            Self.dumpCard(image)
         }
     }
+
+    /// The last off-main card render (tests await it).
+    @ObservationIgnored private(set) var cardRender: Task<Void, Never>?
     @ObservationIgnored private var cardRenders = 0
+
+    private static func dumpCard(_ image: UIImage) {
+        #if DEBUG
+        if CommandLine.arguments.contains("-CmuxMobileDumpCard"), let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            try? image.pngData()?.write(to: dir.appendingPathComponent("card-snapshot.png"))
+        }
+        #endif
+    }
 
     public func focusComposer() {
         directTyping = false
@@ -725,7 +767,7 @@ public final class TerminalModel {
         if composerSending {
             composerSendRefused = true
         } else if composerText.isEmpty {
-            composerText = text
+            putComposerText(text)
         }
     }
 
@@ -739,7 +781,7 @@ public final class TerminalModel {
         if composerSending {
             composerSendRefused = false
         } else if composerText == text {
-            composerText = ""
+            putComposerText("")
         }
     }
 
@@ -761,7 +803,7 @@ public final class TerminalModel {
         if composerSendRefused {
             composerSendRefused = false
         } else {
-            composerText = ""
+            putComposerText("")
         }
     }
 
@@ -938,7 +980,7 @@ public final class TerminalModel {
         // Keys that leave the terminal (classic: paste, zoom, compose, hide)
         // first turn off an armed modifier, so it cannot linger unseen.
         let resetsModifiers: Bool = switch key {
-        case .paste, .zoomOut, .zoomIn, .composer, .hideChrome, .launcher: true
+        case .paste, .zoomOut, .zoomIn, .wide, .composer, .hideChrome, .launcher: true
         default: false
         }
         if resetsModifiers { surface.input.sticky.reset() }
@@ -966,6 +1008,7 @@ public final class TerminalModel {
         case .zoomOut, .zoomIn: zoom(larger: key == .zoomIn)
         case .composer: composeKeyTapped()
         case .hideChrome: setChromeHidden(true)
+        case .wide: setWide(!wideOutput)
         }
         sticky = surface.input.sticky
     }
@@ -997,6 +1040,24 @@ public final class TerminalModel {
             controller?.focusTerminal()
         }
         controller?.dockChanged()
+    }
+
+    /// Wide on or off: the page claims the wide grid (or the page's own
+    /// again) and pans sideways while it is wider than the page.
+    func setWide(_ on: Bool) {
+        guard wideOutput != on else { return }
+        wideOutput = on
+        controller?.wideChanged()
+    }
+
+    /// Wide View, the dedicated view for wide output (Leo, 2026-11-23: "being
+    /// able to flip [it] horizontally and actually have a dedicated view would
+    /// help too"): Wide on and the key row, composer and keyboard away, so the
+    /// grid has the whole page. A tap on the terminal brings them back (as
+    /// Hide Toolbar); Wide stays on until its key turns it off.
+    public func openWideView() {
+        setWide(true)
+        setChromeHidden(true)
     }
 
     /// Hide Toolbar: the key row, the composer and the keyboard go away until
