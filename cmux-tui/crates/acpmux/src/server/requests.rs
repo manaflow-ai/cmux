@@ -958,6 +958,19 @@ async fn new_on_peer(
         return super::mesh_control_send::start_through_hub(hub, conn, params, peer_name).await;
     }
     let peer = hub.peer_by_name(peer_name).ok_or_else(|| RpcError::no_peer(peer_name))?;
+    // A new chat started while the peer's link is coming back (a network that just returned)
+    // waits for it, as a prompt does (`wait_for_prompt_link`), instead of being refused in a few
+    // ms as not sent: its ask makes the next attempt come within a second (`peer_wanted.rs`).
+    // Before the feature checks below: a link that is down lists no features. A peer down past
+    // its outage window, or whose login was refused, is refused at once by the request, as before.
+    if !peer.ready() && peer.reconnects_soon() {
+        tokio::select! {
+            _ = super::peer_forward::await_link(&peer, super::peer_forward::PROMPT_LINK_WAIT) => {}
+            () = conn.closed() => {
+                return Err(RpcError::internal("the client closed the connection"));
+            }
+        }
+    }
     if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
         return Err(super::trust_gate::peer_unsupported(&peer.name));
     }
