@@ -170,6 +170,7 @@ fn dispatch_command(
             device_name,
             device_id,
             api_revision,
+            api_version,
             version,
             install,
             remote,
@@ -185,6 +186,7 @@ fn dispatch_command(
             device_name,
             device_id,
             api_revision,
+            api_version,
             version,
             install,
             remote.unwrap_or(false),
@@ -255,14 +257,19 @@ fn dispatch_command(
         Command::ReloadConfig => cmd_server::reload_config(mux),
         Command::SetWindowTitle { title } => cmd_server::set_window_title(mux, title),
         Command::ClearWindowTitle => cmd_server::clear_window_title(mux),
-        Command::ListWorkspaces { known, limit, after } => cmd_workspaces::list_workspaces(
-            mux,
-            client,
-            writer.lines_written(),
-            known.as_ref(),
-            limit,
-            after,
-        ),
+        Command::ListWorkspaces { known, limit, after, since } => match since {
+            Some(since) => {
+                cmd_workspaces::list_workspaces_delta(mux, client, writer.lines_written(), &since)
+            }
+            None => cmd_workspaces::list_workspaces(
+                mux,
+                client,
+                writer.lines_written(),
+                known.as_ref(),
+                limit,
+                after,
+            ),
+        },
         Command::GetFrontendProjection { frontend, scope, subject_key } => {
             cmd_frontend::get_frontend_projection(mux, frontend, scope, subject_key)
         }
@@ -285,6 +292,7 @@ fn dispatch_command(
             projection,
             mutation,
         ),
+        Command::FlushLaunchSnapshot => launch_snapshot::flush_command(mux),
         Command::JournalFrontendEvent { event } => {
             cmd_frontend::journal_frontend_event(mux, client, event)
         }
@@ -1052,6 +1060,7 @@ fn dispatch_command(
             hybrid_frame,
             resume_offset,
             resume_generation,
+            resume_max_bytes,
             snapshot,
         } => {
             // A sized attach is a size report: it starts (or renews) the
@@ -1073,7 +1082,7 @@ fn dispatch_command(
                 output_coalesce_ms,
                 replay_history_start,
                 (hybrid_stream, hybrid_frame),
-                (resume_offset, resume_generation),
+                (resume_offset, resume_generation, resume_max_bytes),
                 snapshot,
             )
         }

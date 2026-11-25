@@ -113,7 +113,7 @@ mod apps {
                 }
             }
             None if !wanted.is_empty() => {
-                problems.push(format!("exports {wanted:?} but no src/main.ts"))
+                problems.push(format!("exports {wanted:?} but no src/main.ts"));
             }
             None => {}
         }

@@ -15,7 +15,7 @@ export type RunMode = "persistent" | "sandboxed" | "cloud";
 export type RunModeRows = {
   mode: RunMode;
   onMode(mode: RunMode): void;
-  /// The new chat's Cloud environment (CloudEnvironmentChip.tsx), held per chat with its mode.
+  /// The new chat's Cloud environment (chatCloudEnvironment.ts), held per chat with its mode.
   environment?: CloudEnvironmentPick;
   /// false: Cloud alone, with no Sandboxed face (a new chat whose empty local session already opened).
   sandbox?: false;

@@ -212,6 +212,7 @@ appearance.surfaces.tabBar.opacity
 appearance.surfaces.terminal.color
 appearance.surfaces.terminal.opacity
 appearance.tabBarBackground
+appearance.terminalCellBackgrounds
 appearance.theme
 appearance.themeEdits
 appearance.themeFile
@@ -425,12 +426,15 @@ home.server
 imessage.automationSkipped
 imessage.enabled
 labs.agentCustomization
+labs.appStore
 labs.classicHome
+labs.commentThreads
 labs.liveCode
 labs.liveTree
 labs.machineJoin
 labs.pauseAgentMachines
 labs.previewFeatures
+labs.previousBuild
 labs.voiceRoom
 labs.voiceRoomURL
 layout.centerFocusedColumn
@@ -545,6 +549,7 @@ phone.cloudReplica
 phone.keepAwake
 phone.startSessions
 picker.pinned
+presence.live
 remote.enabled
 remote.endSharingOnQuit
 remote.screenSharingProfile
@@ -614,6 +619,7 @@ sidebar.showAutomaticSessions
 sidebar.showChats
 sidebar.showColors
 sidebar.showCounts
+sidebar.showLiveToggle
 sidebar.showLocalMachine
 sidebar.showNewWorkspaceChooser
 sidebar.showProfileControl

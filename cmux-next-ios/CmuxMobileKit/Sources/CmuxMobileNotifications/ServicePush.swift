@@ -1,4 +1,5 @@
 import Foundation
+#if canImport(UserNotifications)
 import UserNotifications
 
 /// What the Notification Service Extension does with a delivered push
@@ -76,3 +77,4 @@ public struct ServicePush: Sendable {
         return out
     }
 }
+#endif

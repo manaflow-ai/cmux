@@ -132,7 +132,11 @@ fn migrate_legacy_harness_state(
 impl Hub {
     /// `session/new` or `session/load` params for acpmux session `id`'s ACP
     /// harness: its folder and cmux's MCP servers (agent_tools.rs), none for
-    /// a remote origin or an isolated profile.
+    /// a remote origin or an isolated profile. `init` is this child's own `initialize` answer:
+    /// whether it takes HTTP servers (the daemon's gateway, `mcp_gateway.rs`) comes from it,
+    /// never from `meta`, a copy taken before the answer was recorded (a fresh chat's has no
+    /// capabilities, so a Codex chat got five stdio `acpmux *-mcp` processes, bench 2026-11-25).
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn acp_params(
         &self,
         id: &str,
@@ -141,6 +145,7 @@ impl Hub {
         session_id: Option<&str>,
         child: &crate::agent::ChildAgent,
         answer: &crate::agent_tools::CodexAnswer,
+        init: &Value,
     ) -> Value {
         let all =
             crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env, &meta.cwd);
@@ -155,7 +160,7 @@ impl Hub {
                 answer: Some(answer),
             },
         );
-        let http = crate::agent_tools::takes_http(meta.agent_capabilities.as_ref());
+        let http = crate::agent_tools::takes_http(init.get("agentCapabilities"));
         let servers = crate::agent_tools::acp_servers_for(
             meta.remote_origin,
             &profile.env,
@@ -674,7 +679,7 @@ impl Hub {
                 );
             }
         }
-        // Gemini and Grok on a cmux Cloud machine: the team's gateway when the person has no
+        // Gemini, Grok and Antigravity on a cmux Cloud machine: the team's gateway when the person has no
         // sign-in of their own and the gateway serves the agent (provider_cloud_auth.rs,
         // hq#11225). A bound route, or a launcher that picks the provider itself, owns it instead.
         // The probe waits at most `PROBE_DEADLINE`; any failure keeps own.
@@ -725,6 +730,12 @@ impl Hub {
                 }
             }
         }
+        // Antigravity with no key in its launch: the person's own one from `~/.gemini/.env`, where
+        // the Cloud sign-in card saves it; `agy` reads only its environment (acp_key_auth.rs).
+        let family = crate::config::derive_family(&meta.harness, &p);
+        crate::acp_key_auth::fill_key_from_gemini_dotenv(&mut p.env, &family, |k| {
+            std::env::var(k).ok()
+        });
         p.env.remove(crate::agent::REMOTE_ENV_POLICY_KEY);
         if meta.remote_origin {
             // Validate every executable after expansion and launcher
@@ -788,6 +799,9 @@ impl Hub {
                 crate::prompt_cache_env::PromptCache::current(),
                 &login,
             );
+            // Per-turn context in the user turn, not a trailing system message the
+            // next turn cannot read from the cache (prompt_cache_env.rs).
+            crate::prompt_cache_env::keep_turn_context_in_user_turn(&mut p.env, &login);
         }
         // The MCP servers this chat turned off (`tools.rs`): Claude Code never calls their tools.
         if profile.kind == crate::config::HarnessKind::ClaudeStdio {

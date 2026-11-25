@@ -19,11 +19,11 @@ const value = (key: string) => page!.store.getSnapshot().rows.get(key)?.value ??
 const size = (id: string) => page!.container.querySelector<HTMLInputElement>(`input[data-text-size="${id}"]`)!;
 const density = (id: string) => page!.container.querySelector<HTMLInputElement>(`input[data-density-choice="${id}"]`)!;
 
-test("General opens on the Text Size card, ahead of every other card", async () => {
+test("General opens on the Customize cmux checklist, then the Text Size card, ahead of every other card", async () => {
   page = await renderPage({ path: "/settings/general", mock: { values: { [DENSITY_KEY]: "cozy" } } });
   const section = page.container.querySelector<HTMLElement>(".section[data-section='general']")!;
-  const first = section.querySelector<HTMLElement>("[data-card]");
-  expect(first?.dataset.card).toBe("textSize");
+  const cards = [...section.querySelectorAll<HTMLElement>("[data-card]")].map((card) => card.dataset.card);
+  expect(cards.slice(0, 2)).toEqual(["customizeProgress", "textSize"]);
   // Unset is Default, and Default is checked.
   expect(size("default").checked).toBe(true);
   expect(density("cozy").checked).toBe(true);

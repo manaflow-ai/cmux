@@ -3,9 +3,19 @@
 //! in its chat, and stops (SIGSTOP) its top writer's process group while the host's disk is under
 //! its floor. Its readings and each scope's budget are `daemon status`'s `sessionBudgets`
 //! (`session_budget::status`, versioned).
+//!
+//! A second task, every `session_store::TICK`, measures what each loaded chat keeps in acpmux's
+//! own store (its event log and background output) against its store budget: a chat over it
+//! has its sealed log segments compressed, losslessly (`cold_segments_of`), and is told in its
+//! chat once, and again each time it doubles.
 
 use super::*;
 use crate::session_disk::{self, Action, Sample};
+use crate::session_store;
+
+/// The most cold-segment moves (each at most `cold_segments::PER_PASS` segments) one chat gets
+/// in a store pass; the rest waits for the next pass.
+const COMPRESS_ROUNDS: usize = 16;
 
 /// The notice's sender.
 const SENDER: &str = "acpmux";
@@ -13,9 +23,7 @@ const SENDER: &str = "acpmux";
 impl Hub {
     /// Starts the watcher; off (`session_disk::enabled`, a disk budget of 0) it starts nothing.
     pub fn start_session_budget_watch(self: &Arc<Self>) {
-        if !session_disk::enabled() {
-            return;
-        }
+        self.start_session_store_watch();
         #[cfg(target_os = "linux")]
         {
             let Some(manager) = std::fs::read_to_string("/proc/self/cgroup")
@@ -25,10 +33,25 @@ impl Hub {
             else {
                 return;
             };
+            // A group the last daemon stopped resumes now, watcher on or off: no chat stays frozen
+            // because the daemon that stopped it went away.
+            let home = crate::config::home();
+            for g in session_disk::resume_left_stopped(&home, &manager, |pgid| {
+                session_disk::signal_group(pgid, libc::SIGCONT)
+            }) {
+                tracing::info!(scope = %g.scope, pgid = g.pgid, "resumed a group the last daemon stopped");
+            }
+            if !session_disk::enabled() {
+                return;
+            }
             // Weak: the watcher never keeps a stopped hub alive; the hub's scope ends it.
             let weak = Arc::downgrade(self);
             self.scope.spawn_until_cancelled("session-budget-watch", async move {
                 let floor = tokio::task::spawn_blocking(|| {
+                    // The hosts slice's total (`session_total.rs`), once per daemon.
+                    crate::session_total::limit_hosts_slice(
+                        &crate::session_budget::daemon_totals().1,
+                    );
                     crate::placement::disk_floor(
                         crate::placement::load_registry().as_ref(),
                         &crate::host_pressure::host_name(),
@@ -43,7 +66,7 @@ impl Hub {
                     if hub.stopping.load(Ordering::SeqCst) {
                         return;
                     }
-                    let manager = manager.clone();
+                    let (manager, home) = (manager.clone(), home.clone());
                     let (actions, tick) = tokio::task::spawn_blocking(move || {
                         let (budget, _) = crate::session_budget::daemon_budget();
                         let free = crate::session_budget::home_disk().map_or(u64::MAX, |(_, f)| f);
@@ -54,12 +77,21 @@ impl Hub {
                                 .sessions,
                         );
                         let (samples, truncated) = session_disk::scan(&manager, &mut known);
+                        crate::session_total::sweep_blocking(&manager);
                         let mut watch =
                             session_disk::shared().lock().unwrap_or_else(|e| e.into_inner());
                         watch.sessions = known;
                         (watch.budget, watch.free, watch.floor, watch.truncated) =
                             (budget.disk, free, floor, truncated);
+                        let held = watch.stopped();
                         let actions = watch.apply(samples);
+                        // Written before any SIGSTOP goes out, so a restart can resume it.
+                        let stopped = watch.stopped();
+                        if stopped != held
+                            && let Err(e) = session_disk::write_ledger(&home, &stopped)
+                        {
+                            tracing::warn!("could not write {}: {e}", session_disk::LEDGER);
+                        }
                         (actions, session_disk::next_tick(free, floor))
                     })
                     .await
@@ -155,6 +187,146 @@ impl Hub {
     }
 }
 
+impl Hub {
+    /// Starts the store budget pass (`session_store.rs`); a budget of 0 starts nothing.
+    fn start_session_store_watch(self: &Arc<Self>) {
+        let (budget, compress) = store_knobs();
+        {
+            let mut watch = session_store::shared().lock().unwrap_or_else(|e| e.into_inner());
+            (watch.budget, watch.compress) = (budget, compress);
+        }
+        if budget == 0 || !cfg!(target_os = "linux") {
+            return;
+        }
+        // Weak: the pass never keeps a stopped hub alive; the hub's scope ends it.
+        let weak = Arc::downgrade(self);
+        self.scope.spawn_until_cancelled("session-store-watch", async move {
+            loop {
+                tokio::time::sleep(session_store::TICK).await;
+                let Some(hub) = weak.upgrade() else { return };
+                if hub.stopping.load(Ordering::SeqCst) || hub.shutting_down() {
+                    return;
+                }
+                let worker = hub.clone();
+                let actions = tokio::task::spawn_blocking(move || worker.session_store_pass())
+                    .await
+                    .unwrap_or_default();
+                for (id, action) in actions {
+                    if let session_store::Action::Warn { bytes } = action {
+                        hub.session_store_warn(&id, bytes).await;
+                    }
+                }
+            }
+        });
+    }
+
+    /// One store pass, on a blocking thread: measures every loaded chat (at most
+    /// `session_store::MAX_SESSIONS`), compresses the ones over, and answers the actions.
+    pub(crate) fn session_store_pass(&self) -> Vec<(String, session_store::Action)> {
+        let (budget, compress) = store_knobs();
+        let ids: Vec<String> = self.sessions().into_iter().map(|s| s.id.clone()).collect();
+        self.session_store_pass_of(ids, budget, compress)
+    }
+
+    /// [`Self::session_store_pass`] over `ids` at `budget` bytes.
+    pub(crate) fn session_store_pass_of(
+        &self,
+        mut ids: Vec<String>,
+        budget: u64,
+        compress: bool,
+    ) -> Vec<(String, session_store::Action)> {
+        let bg = crate::config::home().join("bg");
+        let truncated = ids.len() > session_store::MAX_SESSIONS;
+        ids.truncate(session_store::MAX_SESSIONS);
+        let readings = ids
+            .into_iter()
+            .map(|id| {
+                let dir = self.store.session_path(&id);
+                let (bytes, partial) = session_store::measure(dir.as_deref(), &bg.join(&id));
+                (id, bytes, partial)
+            })
+            .collect();
+        let actions = {
+            let mut watch = session_store::shared().lock().unwrap_or_else(|e| e.into_inner());
+            (watch.budget, watch.compress, watch.truncated) = (budget, compress, truncated);
+            watch.apply(readings)
+        };
+        for (id, action) in &actions {
+            if *action != session_store::Action::Compress {
+                continue;
+            }
+            let saved = self.session_store_compress(id);
+            if saved > 0 {
+                let mut watch = session_store::shared().lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(entry) = watch.sessions.get_mut(id) {
+                    entry.saved = entry.saved.saturating_add(saved);
+                }
+            }
+        }
+        actions
+    }
+
+    /// Compresses `id`'s sealed log segments (lossless, the cold segment move), at most
+    /// [`COMPRESS_ROUNDS`] moves: the bytes it saved.
+    fn session_store_compress(&self, id: &str) -> u64 {
+        let level = crate::store::cold_segments::DEFAULT_LEVEL;
+        let mut saved = 0u64;
+        for _ in 0..COMPRESS_ROUNDS {
+            if self.shutting_down() {
+                break;
+            }
+            match self.cold_segments_of(id, Some(level)) {
+                Ok((moved, more)) => {
+                    saved = saved.saturating_add(moved.raw.saturating_sub(moved.comp));
+                    if !more {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(session = %id, "store budget: compressing its log: {e:#}");
+                    break;
+                }
+            }
+        }
+        if saved > 0 {
+            tracing::info!(session = %id, saved, "store budget: compressed sealed log segments");
+        }
+        saved
+    }
+
+    /// Tells chat `id` it passed its store budget at `bytes`.
+    async fn session_store_warn(self: &Arc<Self>, id: &str, bytes: u64) {
+        let (budget, compress) = {
+            let watch = session_store::shared().lock().unwrap_or_else(|e| e.into_inner());
+            (watch.budget, watch.compress)
+        };
+        let mib = |b: u64| format!("{:.0} MiB", b as f64 / (1u64 << 20) as f64);
+        let title = format!("Chat store budget passed: {} of {}", mib(bytes), mib(budget));
+        let kept = if compress {
+            "Its older log segments are being compressed (lossless: every line stays readable, \
+             nothing is deleted)."
+        } else {
+            "Compression is off (ACPMUX_SESSION_STORE_COMPRESS=0), so nothing was changed."
+        };
+        let body = format!(
+            "This chat's event log and background task output in acpmux's store hold {}. {kept} \
+             Large tool outputs and long-running commands grow it most; start a new chat for new \
+             work. Rollback: ACPMUX_SESSION_STORE_MB=0.",
+            mib(bytes)
+        );
+        tracing::warn!(session = %id, bytes, budget, "{title}");
+        self.session_budget_notice(id, &title, &body).await;
+    }
+}
+
+/// The store budget and whether it compresses, from the daemon config and env.
+fn store_knobs() -> (u64, bool) {
+    let empty = Default::default();
+    let get = crate::session_scope::knob_reader(&empty, crate::session_scope::daemon_limits());
+    let (budget, _) = crate::session_budget::daemon_budget();
+    (session_store::budget_from(&get, budget.disk), session_store::compress_from(&get))
+}
+
 /// `daemon status`'s `sessionBudgets` (`session_budget::status`).
 pub(crate) fn status() -> Value {
     let host = crate::session_budget::this_host();
@@ -166,5 +338,19 @@ pub(crate) fn status() -> Value {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .json(session_disk::enabled() && budget.disk > 0);
-    crate::session_budget::status(&budget, &task, &host, watch)
+    let tasks = crate::session_scope::sessions_tasks_default(crate::session_scope::threads_max());
+    let session_total = crate::session_budget::session_total_from(&get, &host, &budget);
+    let hosts_total = crate::session_budget::hosts_total_from(&get, &host, tasks);
+    let store = session_store::shared()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .json(cfg!(target_os = "linux"));
+    crate::session_budget::status(
+        &budget,
+        &task,
+        (&session_total, &hosts_total),
+        &host,
+        watch,
+        store,
+    )
 }
