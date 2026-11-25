@@ -86,6 +86,10 @@ test("the New Tab tells the built-in tool rows from an extension's command of th
   // An extension's command with the same name and text names its extension: it stays in `/`.
   expect(isToolCommand({ ...browserUse!, extension: "Local" })).toBe(false);
   expect(isToolCommand({ name: "computer-use", description: "", source: "skill" })).toBe(false);
+  // The cmux plugin's skills behind the two tools: `@` names them, so `/` leaves them out.
+  expect(isToolCommand({ name: "cmux:cmux-browser", description: "", source: "skill" })).toBe(true);
+  expect(isToolCommand({ name: "cmux:cmux-computer-use", description: "", source: "agent" })).toBe(true);
+  expect(isToolCommand({ name: "cmux:cmux-customization", description: "", source: "skill" })).toBe(false);
 });
 
 test("the draft's badges: each tool word's range and href, and the tool each href names", () => {

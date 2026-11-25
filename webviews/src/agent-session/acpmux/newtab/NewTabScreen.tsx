@@ -1166,10 +1166,12 @@ export function NewTabScreen(props: Props) {
     ? { harness, agent: agentName(harness, askEntry?.name), ...(askModel ? { model: askModel } : {}) }
     : undefined;
   // Shell mode's text is a command line, where a `/` starts a path. A `$word` is Codex's skill mark:
-  // it opens the menu only while the chat starts on Codex (Lucas 2026-11-24), else it is a price or a
-  // shell variable.
+  // it opens the menu only while the chat starts on a Codex profile, by its family (Lucas 2026-11-24),
+  // else it is a price or a shell variable.
   const commandAt =
-    shell || (commandTrigger?.mark === "$" && agentKey(harness) !== "codex") ? undefined : commandTrigger;
+    shell || (commandTrigger?.mark === "$" && agentKey(askEntry?.family ?? harness) !== "codex")
+      ? undefined
+      : commandTrigger;
   const commandQuery = commandAt?.query;
   // The `/` menu's commands: the agent's, cmux's and the extensions'. Computer use and browser use
   // (toolMentions.ts) are plugins, listed only after `@` (Lucas 2026-11-24).
@@ -1216,7 +1218,9 @@ export function NewTabScreen(props: Props) {
   const menuQuery = atOpen ? atWord?.query : commandQuery;
   // The row the arrows chose holds only while its word and its list stay: a new word, a cleared draft
   // or the list closing forgets it (adjusted while rendering, before any key reads it).
-  if (commandArrowedAt !== undefined && (!commandsOpen || menuQuery !== commandArrowedAt))
+  // The word with its mark: a row the arrows chose at `/emil` is not chosen at `$emil`.
+  const menuWord = menuQuery === undefined ? undefined : `${atOpen ? "@" : (commandAt?.mark ?? "/")}${menuQuery}`;
+  if (commandArrowedAt !== undefined && (!commandsOpen || menuWord !== commandArrowedAt))
     setCommandArrowedAt(undefined);
   // A `/word` further on that names no command is the person's text (a path): the rows stay.
   const commandTyping = (commandAt !== undefined && (commandAt.leading || commandMatches.length > 0)) || atOpen;
@@ -2021,7 +2025,7 @@ export function NewTabScreen(props: Props) {
         setCommandActive(
           (commandIndex + (event.key === "ArrowDown" ? 1 : menuMatches.length - 1)) % menuMatches.length,
         );
-        setCommandArrowedAt(menuQuery);
+        setCommandArrowedAt(menuWord);
         return;
       }
       // As in chat (slashCommands.ts returnPicks): Tab and a plain Return pick the highlighted row

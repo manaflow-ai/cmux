@@ -1090,6 +1090,17 @@ test("a `$` word opens the skills only while the chat starts on Codex", async ()
   expect(container.querySelector("#acpmux-slash-menu")).toBeNull();
   await typePrompt("use this /");
   expect(names().length).toBe(2);
+  // A Codex profile under another id ("work") is Codex by its family.
+  await act(async () => root!.render(<div />));
+  const work = {
+    ...snapshot,
+    catalog: [...snapshot.catalog, { id: "work", name: "Work", models: [], family: "codex" }],
+  };
+  await act(async () => {
+    root!.render(<NewTabScreen {...firstRunProps} lastAgent="work" snapshot={work} />);
+  });
+  await typePrompt("use this $");
+  expect(names().length).toBe(2);
 });
 
 test("mid-prompt a Codex skill named like a command goes with its `$`, picked or not", async () => {

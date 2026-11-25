@@ -102,4 +102,11 @@ async fn before_the_first_turn_every_command_not_builtin_is_a_skill_then_the_ini
             ("vercel:deploy".to_owned(), true)
         ]
     );
+    // A turn that names no skills leaves none tagged.
+    let out = t
+        .inbound(
+            &json!({"type": "system", "subtype": "init", "session_id": "claude-1", "skills": []}),
+        )
+        .await;
+    assert!(commands_sent(&out).iter().all(|(_, skill)| !skill), "{out:?}");
 }
