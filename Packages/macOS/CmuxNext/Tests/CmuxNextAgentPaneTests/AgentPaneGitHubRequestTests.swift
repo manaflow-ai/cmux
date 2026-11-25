@@ -194,6 +194,58 @@ struct AgentPaneGitHubRequestTests {
         #expect(opened.isEmpty)
     }
 
+    @Test func signedOutConnectRetriesTheSameRequestAfterSignIn() async {
+        let page = URL(string: "https://github.com/apps/cmux/installations/new?repository=acme/api")!
+        var signIns = 0
+        var connects = 0
+        var opened: [URL] = []
+        let work = AgentPaneGitHub.signInAndRetry(
+            beginSignIn: {
+                signIns += 1
+                return Task { true }
+            },
+            connect: {
+                connects += 1
+                return .open(page)
+            },
+            open: { opened.append($0) })
+
+        await work.value
+
+        #expect(signIns == 1)
+        #expect(connects == 1)
+        #expect(opened == [page])
+    }
+
+    @Test func canceledSignInDoesNotReplayConnect() async {
+        var connects = 0
+        var opened: [URL] = []
+        let work = AgentPaneGitHub.signInAndRetry(
+            beginSignIn: { Task { false } },
+            connect: {
+                connects += 1
+                return .connected
+            },
+            open: { opened.append($0) })
+
+        await work.value
+
+        #expect(connects == 0)
+        #expect(opened.isEmpty)
+    }
+
+    @Test func connectedRetryDoesNotOpenAnotherPage() async {
+        var opened: [URL] = []
+        let work = AgentPaneGitHub.signInAndRetry(
+            beginSignIn: { Task { true } },
+            connect: { .connected },
+            open: { opened.append($0) })
+
+        await work.value
+
+        #expect(opened.isEmpty)
+    }
+
     @Test(arguments: [
         ("github:acme/api", "acme/api"),
         ("github:manaflow-ai/cmux.next_2", "manaflow-ai/cmux.next_2"),
