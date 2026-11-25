@@ -1905,10 +1905,10 @@ button.cv-subagent > :last-child {
 .cv-subagent-done-row:is([data-look="grid"], [data-look="quiet"]) > .cv-subagent-done[data-state="failed"] .cv-tool__icon::after {
   content: "";
   position: absolute;
-  inset-inline-end: -1px;
-  inset-block-end: -1px;
-  width: 7px;
-  height: 7px;
+  inset-inline-end: calc(-1 * var(--cmux-hairline));
+  inset-block-end: calc(-1 * var(--cmux-hairline));
+  width: calc(var(--ds-space-2) - var(--cmux-hairline));
+  height: calc(var(--ds-space-2) - var(--cmux-hairline));
   border-radius: 50%;
   background: var(--agent-status-failure);
 }

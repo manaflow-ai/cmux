@@ -2186,7 +2186,9 @@ function shapeTurn(
     // its rule through the subagent's row (cmux#54927): the subagent's own row says it all, as
     // Claude's and Codex's apps draw a lone subagent.
     const shown = shownAgentNames(body);
-    const lone = subagentsOnly(work, shown);
+    // Only with no reply of its own: a reply's turn folds a subagent's end under its Worked for, as a
+    // call (Leo, 2026-11-24: "we can indeed treat them as tool calls").
+    const lone = said === undefined && subagentsOnly(work, shown);
     const unlabeled =
       previous === undefined &&
       messages.sent + messages.received === 0 &&
