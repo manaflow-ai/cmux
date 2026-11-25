@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'edd365380654689985f3f1c18f1a98fa386f9d427f7cbc03b0b8a08a3aea0d6a'
+IR_SHA256 = '64273ea2052a4bb812246feadd18ffe06fd3087a25510903ee26fa9bb1c3a6c4'
 
 
 @dataclass(frozen=True)
@@ -108,6 +108,7 @@ COMMANDS = {
             'replay_history_rows': CommandFieldMetadata(None, 'attach-replay-history-rows-v1'),
             'replay_history_start': CommandFieldMetadata(None, 'attach-replay-history-window-v1'),
             'resume_generation': CommandFieldMetadata(None, 'terminal-resume-v1'),
+            'resume_max_bytes': CommandFieldMetadata(None, 'terminal-resume-bounded-v1'),
             'resume_offset': CommandFieldMetadata(None, 'terminal-resume-v1'),
             'rows': CommandFieldMetadata(None, 'attach-initial-size'),
             'snapshot': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
@@ -1922,6 +1923,7 @@ COMMANDS = {
         None,
         {
             'limit': CommandFieldMetadata(None, None),
+            'stats': CommandFieldMetadata(None, None),
         },
     ),
     'list-personal': CommandMetadata(
@@ -2007,6 +2009,7 @@ COMMANDS = {
             'after': CommandFieldMetadata(12, 'list-workspaces-page-v1'),
             'known': CommandFieldMetadata(12, 'list-workspaces-known-v1'),
             'limit': CommandFieldMetadata(12, 'list-workspaces-limit-v1'),
+            'since': CommandFieldMetadata(None, 'workspace-list-delta-v1'),
         },
     ),
     'machine-listening-tcp': CommandMetadata(
@@ -2835,6 +2838,16 @@ COMMANDS = {
         None,
         {
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'release-workspace-names': CommandMetadata(
+        'release-workspace-names',
+        'control',
+        12,
+        None,
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
         },
     ),
     'reload-config': CommandMetadata(

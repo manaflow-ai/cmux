@@ -6,7 +6,7 @@
 // it). No timer: nothing runs between calls. Seed it in a chat that has a session (the capture state
 // sends a prompt first): the tray's entrance plays only in one (App.tsx trayEnters).
 //   0  the ask and the agent's answer, no subagent
-//   1  two background subagents start: the tray eases in, "2 subagents running"
+//   1  two background subagents start: the tray eases in, "2 subagents"
 //   2  a received agent message arrives in the transcript beside the tray
 //   3  the first subagent finishes: the count ticks to 1, its line ticks to its end
 //   4  the second finishes: the header ticks to the finished count
