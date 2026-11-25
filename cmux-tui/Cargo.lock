@@ -1652,6 +1652,8 @@ name = "cmux-cloud"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-cloud-client",
+ "cmux-cloud-disk",
  "cmux-cloud-wire",
  "cmux-terminal-iface",
  "getrandom 0.3.4",
