@@ -147,6 +147,7 @@ fn a_failed_call_clears_a_reused_plan_that_showed_a_window() {
         sidebar_rows: vec![],
         session_socket_path: String::new(),
         session_registry_id: String::new(),
+        written_at_ms: 0,
     };
     write_atomic(support.0.join("launch-record.bin"), &data).unwrap();
     std::fs::write(support.0.join("launch-images/w1.7.png"), png(2200, 1440)).unwrap();
