@@ -19,7 +19,7 @@ fn run_hook(socket: &Path, source: &str, event: &str, budget: Duration) -> (Outp
     let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-tui-hook"))
         .args([source, event])
         .env("CMUX_TUI_SOCKET", socket)
-        .env("CMUX_TUI_TERMINAL_ID", "term_7")
+        .env("CMUX_TUI_TERMINAL_ID", "term_00000000000000000000000000000007")
         .env("CMUX_TUI_HOOK_ROUTE", "launch")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
