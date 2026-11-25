@@ -1705,10 +1705,11 @@
   width: fit-content;
   max-width: 100%;
   margin: var(--cv-table-before, 6.5px) 0 14px;
+  margin-inline: auto;
 }
 /* Beside: the pair sits just past the table's right edge, so the block leaves room for it. */
 .cv-table-block[data-actions="beside"] {
-  max-width: calc(100% - var(--cv-table-tools-width) - var(--cv-action-gap, 4px));
+  max-width: calc(100% - 2 * (var(--cv-table-tools-width) + var(--cv-action-gap, 4px)));
 }
 .cv-table-tools {
   position: absolute;
