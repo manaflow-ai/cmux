@@ -77,18 +77,15 @@ struct SidebarAgentRowPresentationTests {
         #expect(turns.lastMessage(for: ref) == nil)
     }
 
-    @Test func aPromptDerivedLaneStepUsesActivityOrPlanStep() throws {
+    @Test func aPromptDerivedLaneStepUsesActivity() throws {
         let prompt = String(repeating: "Implement the adapter and report the result.\n", count: 8)
         let foldedPrompt = prompt.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         let summary: [String: Any] = ["sessionId": Self.laneSession, "name": "demo-lane",
             "lane": ["state": "working", "step": String(foldedPrompt.prefix(240)) + "…"],
-            "turn": ["prompt": prompt, "activity": "Running tests", "planStep": "Verify output"]]
+            "turn": ["prompt": prompt, "activity": "Running tests"]]
         let lane = try #require(AgentActivityLane.of(summary: summary))
         #expect(lane.turnPrompt == prompt)
         #expect(SidebarLaneStatus.step([lane]) == "Running tests")
-        let planOnly = summary.merging(["turn": ["prompt": prompt, "activity": NSNull(), "planStep": "Verify output"]]) { _, new in new }
-        let planLane = try #require(AgentActivityLane.of(summary: planOnly))
-        #expect(SidebarLaneStatus.step([planLane]) == "Verify output")
         let folded = summary.merging(["turn": ["prompt": prompt]]) { _, new in new }
         let foldedLane = try #require(AgentActivityLane.of(summary: folded))
         #expect(SidebarLaneStatus.step([foldedLane]) == nil)

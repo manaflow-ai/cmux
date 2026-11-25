@@ -131,7 +131,7 @@ impl Config {
             self.session.cpu_class = match value.to_ascii_lowercase().as_str() {
                 "" | "default" | "none" | "clear" => None,
                 _ => Some(crate::cpu_class::CpuClass::parse(value).ok_or_else(|| {
-                    anyhow::anyhow!("{key} must be `background`, `normal` or `default`")
+                    anyhow::anyhow!("{key} must be `dynamic`, `background`, `normal` or `default`")
                 })?),
             };
             return Ok(());
