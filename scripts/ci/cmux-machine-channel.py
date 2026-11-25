@@ -430,6 +430,29 @@ def alias(args):
         out.write(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
 
 
+def rollback(args):
+    """The Cloud machine channel payload that moves it back to an earlier, proven build: the proven build's
+    verified channel file, retold with committed_at one second past the build it replaces (`--over`, the
+    channel's verified current file). The channel and every machine's updater move forward only by
+    committed_at (web-ota-pointer.py newer, cmux-host updater decide()), so a plain re-point at the older
+    commit would be refused by both. Nothing is downloaded: the proven file's signature covers its targets,
+    and the commit and URLs stay the proven build's own (cmux-host updater/channel.rs takes only those)."""
+    def verified(path):
+        r = subprocess.run([sys.executable, POINTER, "verify", "--pointer", path, "--keys", args.keys,
+                            "--purpose", PURPOSE, "--channel", CHANNEL, "--allow-expired"],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            fail(f"{path} does not verify: {r.stderr.strip()}")
+        return json.loads(r.stdout)
+    proven, over = verified(args.proven), verified(args.over)
+    if proven["commit"] == over["commit"] or proven.get("key") == over.get("key"):
+        fail(f"{args.proven} is the build it would replace ({over['commit'][:12]})")
+    now = int(time.time())
+    value = proven | {"committed_at": int(over["committed_at"]) + 1, "published_at": now, "expires_at": now + LIFETIME}
+    with open(args.out, "wb") as out:
+        out.write(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -462,9 +485,14 @@ def main(argv):
         a.add_argument(name, required=True)
     a.add_argument("--min-sequence", type=int, default=0,
                    help="the lowest sequence to sign (the channel's current one + 1)")
+    r = sub.add_parser("rollback", help="the Cloud machine payload that moves the channel back to a proven build")
+    for name in ("--proven", "--over", "--keys", "--out"):
+        r.add_argument(name, required=True)
     args = parser.parse_args(argv[1:])
     if args.command == "alias":
         alias(args)
+    elif args.command == "rollback":
+        rollback(args)
     else:
         payload(args)
     return 0

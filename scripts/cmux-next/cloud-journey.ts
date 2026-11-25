@@ -4449,6 +4449,16 @@ export function newReds(before: Step[] | null, after: Step[]): Step[] {
   return after.filter((s) => s.status === "fail" && (before === null || passed.has(s.step)));
 }
 
+/**
+ * Whether every new red is the platform turning the journey away for capacity (no machine to give, or a rate limit),
+ * not the deploy breaking a step: such a red never rolls a deploy back (`--compare` exits 4). A machine that was
+ * given and then failed (vm_unavailable on its first exec, a crash) is not capacity: a bad build does that.
+ */
+export const CAPACITY_RED = /\b429\b|rate.?limit|too many requests|no (?:machine|spare|capacity)s? (?:is |are )?available|out of capacity|at capacity|insufficient capacity|no_capacity/i;
+export function capacityOnly(reds: Step[]): boolean {
+  return reds.length > 0 && reds.every((s) => CAPACITY_RED.test(s.detail));
+}
+
 function argValue(flag: string, argv: string[]): string | undefined {
   const i = argv.indexOf(flag);
   return i >= 0 ? argv[i + 1] : undefined;
@@ -4459,7 +4469,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     console.log(readFileSync(fileURLToPath(import.meta.url), "utf8").split("*/")[0]);
     return 0;
   }
-  // --compare BEFORE.json AFTER.json: exit 3 when the deploy made a step red (newReds), 0 otherwise.
+  // --compare BEFORE.json AFTER.json: exit 3 when the deploy made a step red (newReds), 4 when every such red is
+  // capacity (capacityOnly: never a rollback), 0 otherwise.
   const compare = argv.indexOf("--compare");
   if (compare >= 0) {
     const load = (f: string | undefined): Step[] | null => {
@@ -4470,6 +4481,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const reds = newReds(before, after);
     for (const r of reds) console.log(`NEW RED ${r.step}: ${r.detail.slice(0, 300)}`);
     console.log(reds.length ? `${reds.length} step(s) red after the deploy that were green before it` : "no new reds");
+    if (capacityOnly(reds)) {
+      console.log("every new red is capacity (no machine available or rate limited): not the deploy's, no rollback");
+      return 4;
+    }
     return reds.length ? 3 : 0;
   }
   const backendArg = argValue("--backend", argv) ?? (argValue("--api", argv) ? "custom" : "staging");

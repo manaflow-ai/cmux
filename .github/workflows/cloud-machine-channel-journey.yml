@@ -1,0 +1,196 @@
+# The Cloud machine channel's journey verdict and its rollback to the last proven build, called twice by
+# cmux-tui-artifacts.yml for each feat-cmux-next push whose run builds the tree: phase baseline while the commit
+# builds (scripts/cmux-next/cloud-journey-ci.sh JOURNEY_PHASE=baseline on staging, the channel's previous build),
+# and phase after once point-machine-channel-early has moved the channel (JOURNEY_PHASE=after, its "Cloud journey
+# verdict": pass, red, regressed, not-run). Phase after then settles the channel with the signing key:
+#   pass      the channel's signed file is copied to cmux-tui/channels/cloud-machine-proven.json, the last proven
+#             build;
+#   regressed (a step green on the baseline is red now, and not capacity: cloud-journey.ts capacityOnly) the
+#             channel moves back to that proven build (scripts/ci/cmux-machine-channel.py rollback: its own commit
+#             and URLs, retold one second past this commit's commit time, so the forward-only channel and the
+#             machines' updaters take it); this run's later fat point (point-machine-channel) then finds the
+#             channel newer and keeps it, and the next push moves it forward again.
+# Any other verdict, or a channel that names another commit by then (a newer push judges itself), changes
+# nothing. A delivery step, not a gate: continue-on-error keeps every job out of the caller's result.
+name: Cloud machine channel journey
+
+on:
+  workflow_call:
+    inputs:
+      phase:
+        description: baseline (before the channel moves) or after (the verdict and the settle)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  machine-channel-journey-baseline:
+    name: Cloud machine channel journey (baseline)
+    if: inputs.phase == 'baseline'
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    concurrency:
+      group: cmux-tui-machine-channel-journey-baseline-${{ github.ref }}
+      cancel-in-progress: true
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/cmux-next
+            scripts/ci
+            Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials
+            tests/fixtures/model-stub
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: true
+      - name: Cloud journey (staging), the channel's previous build
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          JOURNEY_MODEL: stub
+          JOURNEY_PHASE: baseline
+          TARGET: staging
+        run: bash scripts/cmux-next/cloud-journey-ci.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: machine-channel-journey-baseline
+          path: ${{ runner.temp }}/cloud-journey/baseline-test-team/journey.json
+          if-no-files-found: ignore
+          retention-days: 1
+
+  machine-channel-journey:
+    name: Cloud machine channel journey (verdict)
+    if: inputs.phase == 'after'
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    concurrency:
+      group: cmux-tui-machine-channel-journey-${{ github.ref }}
+      cancel-in-progress: false
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      verdict: ${{ steps.journey.outputs.verdict }}
+      commit: ${{ steps.channel.outputs.commit }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/cmux-next
+            scripts/ci
+            Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials
+            Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources
+            tests/fixtures/model-stub
+      - name: The commit the channel names
+        id: channel
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 3 --max-time 60 -o "$RUNNER_TEMP/channel.json" "https://files.cmux.com/cmux-tui/channels/cloud-machine.json?journey=$GITHUB_RUN_ID"
+          commit="$(python3 scripts/cmux-next/web-ota-pointer.py verify --pointer "$RUNNER_TEMP/channel.json" \
+            --keys Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json \
+            --purpose cmux-cloud-machine-update --channel cloud-machine --allow-expired | python3 -c 'import json, sys; print(json.load(sys.stdin)["commit"])')"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          [[ "$commit" == "$GITHUB_SHA" ]] || echo "::notice title=Cloud machine journey::the channel names ${commit:0:12}, not this commit; its own run judges it"
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: steps.channel.outputs.commit == github.sha
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: steps.channel.outputs.commit == github.sha
+        with:
+          bun-version: "1.4.4"
+          no-cache: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: steps.channel.outputs.commit == github.sha
+        continue-on-error: true  # no baseline: every red step counts (cloud-journey.ts newReds)
+        with:
+          name: machine-channel-journey-baseline
+          path: ${{ runner.temp }}/cloud-journey/baseline-test-team
+      - name: Cloud journey (staging), this commit's machine build
+        id: journey
+        if: steps.channel.outputs.commit == github.sha
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          JOURNEY_MODEL: stub
+          JOURNEY_PHASE: after
+          TARGET: staging
+        # The verdict is the output; exit 3 (regressed) and 1 (red) are read by machine-channel-settle, not here.
+        run: bash scripts/cmux-next/cloud-journey-ci.sh || true
+
+  machine-channel-settle:
+    environment:
+      name: artifacts
+      deployment: false
+    name: settle the Cloud machine channel on its journey verdict
+    needs: [machine-channel-journey]
+    if: ${{ !cancelled() && inputs.phase == 'after' && needs.machine-channel-journey.outputs.commit == github.sha && (needs.machine-channel-journey.outputs.verdict == 'pass' || needs.machine-channel-journey.outputs.verdict == 'regressed') }}
+    continue-on-error: true
+    concurrency:
+      group: cmux-tui-point-machine-early-${{ github.ref }}  # the early point's group: one channel writer at a time
+      cancel-in-progress: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 402
+      - name: Record the proven build, or roll the channel back to it
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+          VERDICT: ${{ needs.machine-channel-journey.outputs.verdict }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/machine-channel-settle"
+          mkdir -p "$dir" && chmod 700 "$dir"
+          keys=Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json
+          files=https://files.cmux.com/cmux-tui/channels
+          curl -fsS --retry 3 --max-time 60 -o "$dir/over.json" "$files/cloud-machine.json?settle=$GITHUB_RUN_ID"
+          commit="$(python3 scripts/cmux-next/web-ota-pointer.py verify --pointer "$dir/over.json" --keys "$keys" \
+            --purpose cmux-cloud-machine-update --channel cloud-machine --allow-expired | python3 -c 'import json, sys; print(json.load(sys.stdin)["commit"])')"
+          if [[ "$commit" != "$GITHUB_SHA" ]]; then
+            echo "The channel moved to ${commit:0:12} since the journey; that commit's run settles it."
+            exit 0
+          fi
+          if [[ "$VERDICT" == pass ]]; then
+            python3 scripts/ci/upload-r2-object.py --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
+              --cache-control "public, max-age=60, must-revalidate" --file "$dir/over.json" \
+              --key cmux-tui/channels/cloud-machine-proven.json --content-type application/json
+            echo "Cloud machine channel proven at ${GITHUB_SHA:0:12}" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          code="$(curl -sS -o "$dir/proven.json" -w '%{http_code}' --max-time 60 "$files/cloud-machine-proven.json?settle=$GITHUB_RUN_ID" || true)"
+          if [[ "$code" != 200 ]]; then
+            echo "::warning title=Cloud machine channel regressed::no proven build to roll back to yet (HTTP $code); the channel stays on ${GITHUB_SHA:0:12}"
+            exit 0
+          fi
+          python3 scripts/ci/cmux-machine-channel.py rollback --proven "$dir/proven.json" --over "$dir/over.json" \
+            --keys "$keys" --out "$dir/payload.json"
+          scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir"
+          echo "::warning title=Cloud machine channel rolled back::the journey regressed on ${GITHUB_SHA:0:12}; the channel is back on the last proven build"
