@@ -61,6 +61,39 @@ export default settingsPageEntry({
       "The Markdown viewer's Font: System, Serif and Code tiles at 18 px, Serif in use.",
       18,
     ),
+    // The App Font (Leo, 2026-11-08: "i wanna just be able to see different fonts just like how i can
+    // see different themes as preview"): the row unset, a proportional family picked, and the picker
+    // open over every installed family, each in its own face.
+    "app-font-system": variant(
+      "appearance",
+      "appearance.appFont",
+      { "appearance.metrics.chromeFontSize": 15 },
+      "The App Font row unset: System on its button, the sample's interface text in the system face at the 15 px Text Size.",
+      15,
+    ),
+    "app-font-avenir": variant(
+      "appearance",
+      "appearance.appFont",
+      { "appearance.appFont": "Avenir Next", "appearance.metrics.chromeFontSize": 15 },
+      "Avenir Next picked: the button and the sample draw in it; every page of the app follows (WebTheme).",
+      15,
+    ),
+    "app-font-picker-open": {
+      ...variant(
+        "appearance",
+        "appearance.appFont",
+        { "appearance.appFont": "Georgia", "appearance.metrics.chromeFontSize": 15 },
+        "The App Font picker open: System first, then every installed family, proportional ones too, each in its own face; Georgia checked. A highlighted row previews in the whole app.",
+        15,
+      ),
+      play: async (ctx) => {
+        const row = () => ctx.document.querySelector<HTMLElement>('[data-row-key="appearance.appFont"]');
+        await ctx.waitFor(() => row()?.querySelector<HTMLElement>(".font-sample")?.dataset.size === "15");
+        row()!.querySelector<HTMLElement>("[data-font-picker]")!.click();
+        await ctx.waitFor(() => ctx.document.querySelector('[data-font-option="Avenir Next"]') !== null);
+        await ctx.document.fonts.ready;
+      },
+    },
     "terminal-family": variant(
       "terminal",
       "terminal.fontFamily",

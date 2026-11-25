@@ -7,14 +7,16 @@ import { categoryById, homes, categoryOf } from "./categories";
 import { legacyPart } from "./legacyLinks";
 import type {
   AgentsState,
-  ArchivedState,
   ChannelsState,
+  Checklist,
   KeysState,
   SharesState,
   TailnetState,
   LibraryListing,
   DoctorReport,
+  ArchivedState,
 } from "./ops";
+import { checklistFacts } from "./customizeProgress";
 import { settingsKeys } from "./queries";
 import { loadCards } from "./components/cardModules";
 import type { SettingsStore } from "./store";
@@ -110,6 +112,22 @@ export function libraryQuery(store: SettingsStore) {
   });
 }
 
+/** Settings > General > Customize cmux: the checklist at settings revision `revision` with the
+ * connections `has` (null: no CLI). A write moves the revision, so the progress follows it. */
+/** The checklist's one key: the section read and the card share it whatever the revision and
+ * connections are when each starts, so the card draws in the first screen; the card refreshes it
+ * when either changes (CustomizeProgressCard). The read asks with the connections the store holds then. */
+export const checklistKey = [...settingsKeys.all, "customize-checklist"] as const;
+
+export function checklistQuery(store: SettingsStore) {
+  return queryOptions<Checklist | null>({
+    queryKey: checklistKey,
+    queryFn: () => store.customizeChecklist(checklistFacts(store.getSnapshot())),
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
 /** The library as read, and the CLI's refusal of the read in its own words. */
 export type LibraryRead = { library: LibraryListing | null; refusal: string | null };
 
@@ -172,6 +190,12 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
   if (cards.has("archivedWorkspaces")) reads.push({ options: archivedQuery(store), revalidate: true });
   if (cards.has("customizeLibrary") || cards.has("customizeChecklist"))
     reads.push({ options: libraryQuery(store), revalidate: true });
+  if (cards.has("customizeProgress")) {
+    // The checklist's connection steps read the Accounts and Models parts the store keeps.
+    reads.push({ options: { queryKey: settingsKeys.accounts }, revalidate: false });
+    reads.push({ options: { queryKey: settingsKeys.models }, revalidate: false });
+    reads.push({ options: checklistQuery(store), revalidate: true });
+  }
   // Customization Problems draws above the library, in its slot.
   if (cards.has("customizeLibrary")) reads.push({ options: doctorQuery(store), revalidate: true });
   if (cards.has("keys")) reads.push({ options: keysQuery(store), revalidate: true });

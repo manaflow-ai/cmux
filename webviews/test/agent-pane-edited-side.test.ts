@@ -1,7 +1,9 @@
 // l10n-allow-file: test fixture prompts, replies and file text, not shipped UI.
-// A finished turn's Edited files card (cx-ncc.82, Claude parity). The card's header always shows
-// the turn's +/- totals beside one View changes, which opens the turn's diff in a tab beside the
-// chat (5c388eb6 removed the in-page view; agent-pane-changes-tab.test.ts covers the tab). The page is the pane's dev entry with its browser host, talking
+// A finished turn's Edited files card (cx-ncc.82, Claude parity). The card's header shows the turn's
+// +/- totals as plain counts, with no View changes beside them and no hover link in their place
+// (Leo, 2026-11-22: "we can support both or one, but stop making it look so fucking stupid"); a file
+// row opens its diff inline, and that diff's Open in Changes icon opens the turn's diff in a tab
+// beside the chat (agent-pane-changes-tab.test.ts covers the tab). The page is the pane's dev entry with its browser host, talking
 // JSON-RPC to a stand-in acpmux daemon.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -148,32 +150,34 @@ await requireBrowserLane("agent-pane-edited-side.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  test("the card header keeps one review action and makes its totals a second review target", async () => {
+  test("the card header shows plain totals, and a file row opens its diff inline with one Open in Changes", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(CHAT));
     await page.getByText("Retry added to the uploader.").waitFor();
     const card = page.locator(".acpmux-edited");
-    expect(
-      await card.locator(".acpmux-edited-actions").getByRole("button", { name: "View changes", exact: true }).count(),
-    ).toBe(1);
+    expect(await card.getByRole("button", { name: "View changes", exact: true }).count()).toBe(0);
+    expect(await card.locator(".acpmux-review-changes:not(.acpmux-edited-open), .acpmux-edited-summary").count()).toBe(
+      0,
+    );
+    expect(await card.locator(".acpmux-edited-actions button").count()).toBeLessThanOrEqual(1);
     expect(await card.locator(".acpmux-edited-sub .acpmux-diff-add").textContent()).toBe("+2");
     expect(await card.locator(".acpmux-edited-sub .acpmux-diff-del").textContent()).toBe("-1");
-    const counts = card.locator(".acpmux-edited-summary");
-    expect(await counts.getAttribute("aria-label")).toBe("View changes +2 -1");
-    expect(await counts.locator(".acpmux-edited-summary-link").evaluate((node) => getComputedStyle(node).opacity)).toBe(
-      "0",
-    );
+    // The totals are not a control and do not change under the pointer.
+    expect(await card.locator(".acpmux-edited-sub button").count()).toBe(0);
+    const counts = card.locator(".acpmux-edited-sub .acpmux-diff-counts");
+    const before = await counts.evaluate((node) => [getComputedStyle(node).opacity, node.textContent]);
     await counts.hover();
-    await page.waitForFunction(() => {
-      const link = document.querySelector(".acpmux-edited-summary-link");
-      return link && getComputedStyle(link).opacity === "1";
-    });
-    expect(await counts.locator(".acpmux-edited-summary-link").evaluate((node) => getComputedStyle(node).opacity)).toBe(
-      "1",
-    );
+    expect(await counts.evaluate((node) => [getComputedStyle(node).opacity, node.textContent])).toEqual(before);
+    // A file row opens its own diff under it, inside the card.
+    const row = card.locator("button.acpmux-edited-file").first();
+    expect(await row.getAttribute("aria-expanded")).toBe("false");
+    await row.click();
+    await card.locator(".acpmux-edited-entry").first().locator(".acpmux-edited-diff .cv-edit-diff").waitFor();
+    expect(await row.getAttribute("aria-expanded")).toBe("true");
+    expect(await card.locator(".acpmux-edited-diff .cv-edit-diff").count()).toBe(1);
     expect(
-      await counts.locator(".acpmux-edited-summary-counts").evaluate((node) => getComputedStyle(node).opacity),
-    ).toBe("0");
+      await card.locator(".acpmux-edited-diff").getByRole("button", { name: "Open in Changes", exact: true }).count(),
+    ).toBe(1);
     await page.close();
   });
 });
