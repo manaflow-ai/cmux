@@ -808,6 +808,16 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                         None => Err((error, Next::Unsent)),
                     }
                 }
+                // `HOST/ID` on a machine only the hub reaches, as a followed hub move names it
+                // (`follow_move`): this daemon's lookup reaches nothing there, so the hub carries
+                // it, never a "no session HOST/ID on" this machine.
+                Err((error, Next::NoSession)) if hub.mesh_only_host(&delivery.target) => {
+                    relayed = true;
+                    match relay_attempt(hub, &delivery).await {
+                        Some(outcome) => outcome,
+                        None => Err((error, Next::NoSession)),
+                    }
+                }
                 outcome => outcome,
             }
         };
