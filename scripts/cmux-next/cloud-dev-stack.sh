@@ -131,14 +131,12 @@ ps() { pscale "$@" --org "$PS_ORG" --format json; }
 # Unknown (no base ref, not a git checkout) counts as a branch: it installs, and records no generation.
 helper_copies() {
   case "${CMUX_DEV_STACK_HELPER:-}" in merged|branch) echo "$CMUX_DEV_STACK_HELPER"; return ;; esac
-  local merge_base
-  merge_base="$(git -C "$root" merge-base HEAD "$BASE_REF" 2>/dev/null)" || { echo branch; return; }
-  if git -C "$root" diff --quiet "$merge_base" -- scripts/cmux-next/cloud-dev-stack/vm_stack.py \
-       scripts/cmux-next/cloud-dev-stack/router.mjs 2>/dev/null; then
-    echo merged
-  else
-    echo branch
-  fi
+  local ref files=(scripts/cmux-next/cloud-dev-stack/vm_stack.py scripts/cmux-next/cloud-dev-stack/router.mjs)
+  # Equal to the merge base's (an older base), or to the base's tip (a branch whose change has merged since).
+  for ref in "$(git -C "$root" merge-base HEAD "$BASE_REF" 2>/dev/null)" "$BASE_REF"; do
+    [ -n "$ref" ] && git -C "$root" diff --quiet "$ref" -- "${files[@]}" 2>/dev/null && { echo merged; return; }
+  done
+  echo branch
 }
 
 ensure_helper() {
@@ -146,7 +144,6 @@ ensure_helper() {
   local want have theirs copies record
   want="$(cat "$helper" "$router" | shasum -a 256 | cut -d' ' -f1)"
   have="$("${SSH[@]}" "cat $BASE/bin/vm_stack.py $BASE/bin/router.mjs 2>/dev/null | sha256sum | cut -d' ' -f1" || true)"
-  [ "$want" != "$have" ] || return 0
   copies="$(helper_copies)"
   # The generation of the merged copies the VM runs (bin/.generation; none after a branch's install). Merged copies
   # from an older base leave newer merged ones alone: an up from an older worktree put an old router back and
@@ -154,6 +151,14 @@ ensure_helper() {
   # install, to be tested, and clear the record: the next up from any base checkout puts merged copies back.
   theirs="$("${SSH[@]}" "cat $BASE/bin/.generation 2>/dev/null" || true)"
   [[ "$theirs" =~ ^[0-9]+$ ]] || theirs=0
+  if [ "$want" = "$have" ]; then
+    # The VM already runs these copies. Merged ones it has no record of (a branch installed them, then they
+    # merged as they were) are recorded now, or the next older checkout's up would put its old copies back.
+    if [ "$copies" = merged ] && (( 10#$theirs != 10#$HELPER_GENERATION )); then
+      "${SSH[@]}" "echo $HELPER_GENERATION > $BASE/bin/.generation"
+    fi
+    return 0
+  fi
   if [ "$copies" = merged ] && (( 10#$HELPER_GENERATION < 10#$theirs )); then
     echo "note: the dev VM runs newer merged stack copies (helper generation $theirs; this checkout's base has $HELPER_GENERATION): left as they are. Update this checkout's base to change them, or CMUX_DEV_STACK_HELPER=branch to install its copies anyway." >&2
     return 0

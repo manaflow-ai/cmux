@@ -127,5 +127,58 @@ class EnsureHelper(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual((self.base / "bin/router.mjs").read_text(), "// newer\n")
 
+    def test_merged_copies_a_branch_installed_are_recorded_by_the_next_merged_up(self) -> None:
+        # The normal flow: a PR's review build installs its copies (no record), then the PR merges as it was. The
+        # VM already runs the merged copies; the next up from a base checkout must record their generation, or an
+        # older checkout's up rolls the router back (the second review of #55907).
+        self.vm(ROUTER.read_text(), HELPER.read_text(), None)
+        r = self.stop(copies="merged")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((self.base / "bin/.generation").read_text().strip(), str(generation()))
+        self.assertNotIn("install", self.log.read_text() if self.log.exists() else "", "nothing to install")
+        # An older checkout's merged copies now leave them alone.
+        older = self.tmp / "older.sh"
+        older.write_text(SCRIPT.read_text().replace(f"HELPER_GENERATION={generation()}", f"HELPER_GENERATION={generation() - 1}"))
+        (self.tmp / "older-router.mjs").write_text("// an older router\n")
+        r = subprocess.run(
+            ["bash", "-c", f'sed "s#^router=.*#router={self.tmp}/older-router.mjs#; s#^root=.*#root={ROOT}#" "{older}" > "{older}.run"; bash "{older}.run" stop --tag helper-test'],
+            env={**self.env, "CMUX_DEV_STACK_HELPER": "merged"}, capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((self.base / "bin/router.mjs").read_bytes(), ROUTER.read_bytes(), "the older checkout left them")
+        self.assertIn("runs newer merged stack copies", r.stderr)
+
+    def test_a_branch_whose_copies_have_merged_reads_as_merged(self) -> None:
+        # After a squash merge the author's worktree differs from its old merge base but equals the base's tip.
+        src = (ROOT / "scripts/cmux-next/cloud-dev-stack.sh").read_text()
+        start = src.index("helper_copies() {")
+        fn = src[start:src.index("\n}\n", start) + 3]
+        repo = self.tmp / "repo"
+        files = ["scripts/cmux-next/cloud-dev-stack/vm_stack.py", "scripts/cmux-next/cloud-dev-stack/router.mjs"]
+        def git(*a: str) -> str:
+            return subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, text=True).stdout.strip()
+        repo.mkdir()
+        git("init", "-q")
+        for f in files:
+            (repo / f).parent.mkdir(parents=True, exist_ok=True)
+            (repo / f).write_text("old\n")
+        git("add", "-A"); git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base")
+        base = git("rev-parse", "HEAD")
+        git("checkout", "-qb", "pr")
+        (repo / files[1]).write_text("new\n")
+        git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "pr")
+        git("checkout", "-q", "--detach", base)
+        (repo / files[1]).write_text("new\n")
+        git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "squash of pr")
+        git("update-ref", "refs/remotes/origin/main", "HEAD")
+        git("checkout", "-q", "pr")
+        def copies() -> str:
+            return subprocess.run(["bash", "-c", f'{fn}\nroot="{repo}" BASE_REF=origin/main; helper_copies'],
+                                  env={k: v for k, v in os.environ.items() if k != "CMUX_DEV_STACK_HELPER"},
+                                  capture_output=True, text=True, check=True).stdout.strip()
+        self.assertEqual(copies(), "merged", "equal to the base's tip")
+        (repo / files[0]).write_text("unmerged\n")
+        self.assertEqual(copies(), "branch")
+
 if __name__ == "__main__":
     unittest.main()
