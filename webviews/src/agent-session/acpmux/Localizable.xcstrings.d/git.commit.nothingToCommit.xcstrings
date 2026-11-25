@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "git.commit.nothingToCommit" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا يوجد ما يُودَع. جهّز التغييرات أولًا، أو اختر «الكل»."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nema ništa za commit. Prvo pripremite promjene ili odaberite Sve."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Intet at committe. Stage ændringer først, eller vælg Alle."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nichts zu committen. Stage zuerst Änderungen oder wähle „Alle“."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing to commit. Stage changes first, or choose All."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "No hay nada que confirmar. Prepara los cambios primero o elige Todos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rien à valider. Indexez d’abord des modifications ou choisissez Toutes."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nessuna modifica da includere nel commit. Metti prima in stage le modifiche o scegli Tutte."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コミットする変更がありません。先に変更をステージするか、「すべて」を選んでください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "គ្មានអ្វីត្រូវ Commit ទេ។ សូម Stage ការផ្លាស់ប្ដូរជាមុនសិន ឬជ្រើសរើស ទាំងអស់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "커밋할 항목이 없습니다. 먼저 변경 사항을 스테이징하거나 모두를 선택하십시오."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ingenting å committe. Stage endringer først, eller velg Alle."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Brak zmian do zatwierdzenia. Najpierw przygotuj zmiany lub wybierz Wszystko."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nada para fazer commit. Prepare as alterações primeiro ou escolha Todas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Нечего коммитить. Сначала проиндексируйте изменения или выберите «Все»."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไม่มีอะไรให้คอมมิต สเตจการเปลี่ยนแปลงก่อน หรือเลือกทั้งหมด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Commit edilecek bir şey yok. Önce değişiklikleri hazırlayın veya Tümü'nü seçin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Немає що комітити. Спершу проіндексуйте зміни або виберіть «Усі»."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không có gì để commit. Hãy stage thay đổi trước hoặc chọn Tất cả."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "没有可提交的内容。请先暂存更改，或选择“全部”。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "沒有可提交的內容。請先暫存變更，或選擇「全部」。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
