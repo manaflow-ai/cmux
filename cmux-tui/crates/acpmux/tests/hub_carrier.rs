@@ -1169,6 +1169,68 @@ async fn hub_carrier_the_pipe_reply_reports_where_the_dial_went() {
     assert_eq!(fixture.carrier_a.kept_circuits(&fixture.carrier_b.public_key()), 1);
 }
 
+/// One `_acpmux/remote.pipe` open through the fixture's socket: the reply line's `result`.
+async fn pipe_reply(fixture: &PipeFixture) -> serde_json::Value {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+    let stream = tokio::net::UnixStream::connect(&fixture.socket).await.unwrap();
+    let (read, mut write) = stream.into_split();
+    let line = json!({"jsonrpc": "2.0", "id": 1, "method": "_acpmux/remote.pipe",
+                      "params": {"machine": "mac", "port": fixture.daemon.port()}});
+    write.write_all(format!("{line}\n").as_bytes()).await.unwrap();
+    let mut reply = String::new();
+    tokio::time::timeout(
+        Duration::from_secs(20),
+        tokio::io::BufReader::new(read).read_line(&mut reply),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let reply: serde_json::Value = serde_json::from_str(&reply).unwrap();
+    reply["result"].clone()
+}
+
+/// Weft move 2: with B listening for direct circuits and A knowing B's private address, a pipe
+/// dial skips the relay (`via: direct`) and the next one rides the kept direct circuit.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_pipe_between_private_machines_goes_direct() {
+    let _ = HERMETIC;
+    let fixture = pipe_fixture().await;
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let direct = listener.local_addr().unwrap();
+    let _serving = fixture.carrier_b.serve_direct(listener);
+    let b = fixture.carrier_b.public_key();
+    fixture.carrier_a.set_direct_route(&b, direct);
+    let first = pipe_reply(&fixture).await;
+    assert_eq!(first["via"], "direct", "{first}");
+    assert_eq!(first["dial"]["path"], "direct", "{first}");
+    let second = pipe_reply(&fixture).await;
+    assert_eq!(second["via"], "direct", "{second}");
+    assert_eq!(second["dial"]["circuit"], "kept", "{second}");
+    assert_eq!(fixture.carrier_a.kept_direct_circuits(&b), 1);
+}
+
+/// A direct address nobody listens on costs one refused connect: the dial takes the relay
+/// (`via: hub`) and holds B off the direct path, so the next dial goes straight to the relay.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_closed_direct_port_falls_back_to_the_relay() {
+    let _ = HERMETIC;
+    let fixture = pipe_fixture().await;
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    let closed = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = closed.local_addr().unwrap();
+    drop(closed);
+    let b = fixture.carrier_b.public_key();
+    fixture.carrier_a.set_direct_route(&b, address);
+    for _ in 0..2 {
+        let reply = pipe_reply(&fixture).await;
+        assert_eq!(reply["via"], "hub", "{reply}");
+        assert_eq!(reply["dial"]["path"], "hub", "{reply}");
+    }
+    assert_eq!(fixture.carrier_a.kept_direct_circuits(&b), 0);
+}
+
 /// One remote-protocol connection to B's daemon through the pipe: with `invitation`, a new
 /// device the owner approves; without, `identity` as an enrolled device.
 async fn connect_through_pipe(
@@ -2457,8 +2519,10 @@ async fn move_over_relay(precopy: bool) -> MoveRun {
     let hook = MeshControlHook::new(
         vec![MeshControlFrom {
             daemon_id: String::new(),
+            max_policy: None,
             same_user: true,
             ops: vec!["move".into()],
+            max_policy: None,
         }],
         Some(ledger.path().join("mesh-controls.json")),
     )
@@ -2757,6 +2821,10 @@ async fn standin_sshd() -> SocketAddr {
 
 struct KeptFixture {
     a: Arc<HubCarrier>,
+    /// A's node key and relay route, for an A started again with the same key (a restart).
+    a_key: [u8; 32],
+    a_route: String,
+    timings: Timings,
     b: Arc<HubCarrier>,
     b_key: String,
     sshd_port: u16,
@@ -2781,6 +2849,19 @@ impl KeptFixture {
         within("the banner", stream.read_exact(&mut banner)).await.unwrap();
         assert_eq!(banner, BANNER);
         stream
+    }
+
+    /// A new carrier on A's key and route: A's acpmux after a restart.
+    fn restarted_a(&self) -> Arc<HubCarrier> {
+        HubCarrier::new(
+            Arc::new(FixedTickets {
+                relay: self.a_route.clone(),
+                peers: vec![self.b_key.clone()],
+                asked: AtomicU64::new(0),
+            }),
+            self.a_key,
+            self.timings,
+        )
     }
 
     fn kept_circuits(&self) -> u64 {
@@ -2859,7 +2940,7 @@ async fn kept_fixture_with(
     let serving = b.serve(acpmux_b_address);
     let a = HubCarrier::new(
         Arc::new(FixedTickets {
-            relay: route,
+            relay: route.clone(),
             peers: vec![public(&key_b)],
             asked: AtomicU64::new(0),
         }),
@@ -2868,6 +2949,9 @@ async fn kept_fixture_with(
     );
     let fixture = KeptFixture {
         a,
+        a_key: key_a,
+        a_route: route,
+        timings: fast,
         b,
         b_key: public(&key_b),
         sshd_port: sshd.port(),
@@ -3223,6 +3307,85 @@ async fn hub_carrier_kept_circuit_numbers() {
         ms(percentile(&mut warm_each, 0.95)),
     );
 }
+
+/// The lane-gh broker as a carrier service (RFD 0127 cut 2): B's gate names its broker socket
+/// for A's proven key only, so a broker stream from A reaches that socket on B's kept circuit.
+/// B with no gate (no `laneGhBroker`) refuses `service.off`, and a stranger's key is refused.
+struct TestBrokerGate {
+    admits: String,
+    socket: std::path::PathBuf,
+}
+
+#[async_trait::async_trait]
+impl acpmux::hub_carrier::broker::LaneGhBrokerGate for TestBrokerGate {
+    async fn admit(
+        &self,
+        from: &str,
+    ) -> Result<std::path::PathBuf, acpmux::hub_carrier::ServiceRefusal> {
+        if from != self.admits {
+            return Err(acpmux::hub_carrier::ServiceRefusal::new(
+                "service.unknown_machine",
+                "not this test's machine",
+            ));
+        }
+        Ok(self.socket.clone())
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_lane_gh_broker_stream_reaches_the_owners_broker_socket() {
+    let _ = HERMETIC;
+    let fixture = kept_fixture(Duration::ZERO, true, true).await;
+    let broker = CircuitService::LaneGhBroker;
+    assert_eq!(CircuitLane::of(broker), CircuitLane::Cheap);
+    let refused = within("an ungated dial", fixture.a.dial_service(&fixture.b_key, broker))
+        .await
+        .unwrap_err();
+    assert!(refused.contains("service.off"), "{refused}");
+
+    // B's broker: a line in, `broker:` and the line back, as a stand-in for lane-gh-broker.
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("client-a.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    tokio::spawn(async move {
+        while let Ok((conn, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let (read, mut write) = conn.into_split();
+                let mut lines = tokio::io::BufReader::new(read).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    if write.write_all(format!("broker:{line}\n").as_bytes()).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    fixture.b.set_lane_gh_broker_gate(Arc::new(TestBrokerGate {
+        admits: fixture.a.public_key(),
+        socket: socket.clone(),
+    }));
+    let mut stream =
+        within("a broker dial", fixture.a.dial_service(&fixture.b_key, broker)).await.unwrap();
+    stream.write_all(b"{\"tool\":\"get\"}\n").await.unwrap();
+    let mut back = vec![0u8; "broker:{\"tool\":\"get\"}\n".len()];
+    within("the broker's answer", stream.read_exact(&mut back)).await.unwrap();
+    assert_eq!(back, b"broker:{\"tool\":\"get\"}\n");
+    assert_eq!(fixture.plain_dials(), 0, "the broker stream rode the kept circuit");
+
+    // A gate that admits another key refuses A.
+    fixture.b.set_lane_gh_broker_gate(Arc::new(TestBrokerGate {
+        admits: "someone else".to_owned(),
+        socket,
+    }));
+    let refused = within("a stranger's dial", fixture.a.dial_service(&fixture.b_key, broker))
+        .await
+        .unwrap_err();
+    assert!(refused.contains("service.unknown_machine"), "{refused}");
+}
+
+#[path = "hub_carrier_cases/held_ssh.rs"]
+mod held_ssh;
 
 #[path = "hub_carrier/move_out.rs"]
 mod move_out;

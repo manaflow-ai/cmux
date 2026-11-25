@@ -1222,6 +1222,62 @@
           }
         },
         {
+          "key": "transport.tailnetCarrier",
+          "name": "tailnetCarrier",
+          "note": "Read by direct route races. When direct-only, a cached Tailscale LocalAPI view may add a peer's direct tailnet address as a candidate. DERP and peer-relay paths are excluded until their cost is measured. Off is the default.",
+          "title": {
+            "key": "settings.transport.tailnetCarrier",
+            "text": "Tailscale Carrier"
+          },
+          "help": {
+            "key": "settings.transport.tailnetCarrier.help",
+            "text": "Race a peer's direct Tailscale address with the other transports when tailscaled reports one."
+          },
+          "summary": {
+            "key": "settings.transport.tailnetCarrier.summary",
+            "text": "Use direct Tailscale paths when available"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.transport.tailnetCarrier.off",
+                "text": "Off"
+              },
+              "note": "Do not add Tailscale candidates."
+            },
+            {
+              "value": "direct-only",
+              "title": {
+                "key": "settings.transport.tailnetCarrier.directOnly",
+                "text": "Direct Only"
+              },
+              "note": "Add only paths tailscaled reports as direct."
+            },
+            {
+              "value": "on",
+              "title": {
+                "key": "settings.transport.tailnetCarrier.on",
+                "text": "On"
+              },
+              "note": "Accept the carrier policy value. Relayed paths remain excluded until their cost is measured."
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "tailscale",
+            "tailnet",
+            "wireguard",
+            "transport",
+            "direct",
+            "relay"
+          ],
+          "swift_enum": {
+            "name": "TailnetCarrierMode"
+          }
+        },
+        {
           "key": "remote.screenSharingProfile",
           "name": "screenSharingProfile",
           "note": "Read by MacScreenSession: ultra puts a=cmux-rd-encode-profile:ultra in the viewer's cmux.rd offer and the host's cmux-rd serve setup gets \"encode_profile\": \"ultra\"; balanced (the default) sends nothing. Not remote.ultra, which repairs loss on the WireGuard tunnel.",
