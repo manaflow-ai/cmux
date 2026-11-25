@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "10280eec50fa87834b28ac8f31ecc796d708ca9f8aee5561d8c930322f92b6e0";
+inline constexpr std::string_view kProtocolIrSha256 = "defd271ab4602cc91c0ea32d274d6d04d552990182c64fecdbea5f0026039a77";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -2890,6 +2890,11 @@ struct CreateWorkspaceGroupRequest {
     friend bool operator==(const CreateWorkspaceGroupRequest&, const CreateWorkspaceGroupRequest&) = default;
 };
 
+enum class NameSource {
+    user,
+    auto_,
+};
+
 struct WorkspaceFirstTabBrowser {
     std::optional<bool> activate{};
     Field<std::uint16_t> cols{};
@@ -2917,6 +2922,7 @@ struct CreateWorkspaceRequest {
     Field<std::string> key{};
     Field<std::string> mutation_id{};
     Field<std::string> name{};
+    Field<NameSource> name_source{};
     Field<std::string> origin{};
     friend bool operator==(const CreateWorkspaceRequest&, const CreateWorkspaceRequest&) = default;
 };
@@ -4294,11 +4300,6 @@ struct MoveWorkspaceToGroupRequest {
     Field<std::string> origin{};
     Field<Id> workspace{};
     friend bool operator==(const MoveWorkspaceToGroupRequest&, const MoveWorkspaceToGroupRequest&) = default;
-};
-
-enum class NameSource {
-    user,
-    auto_,
 };
 
 struct NewBrowserTabRequest {

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 10280eec50fa87834b28ac8f31ecc796d708ca9f8aee5561d8c930322f92b6e0. */
+/* cmux-tui mux protocol 12, IR defd271ab4602cc91c0ea32d274d6d04d552990182c64fecdbea5f0026039a77. */
 
 
 import type * as T from "./types.js";
@@ -1168,6 +1168,8 @@ export interface CreateWorkspaceRequest extends CmuxRequestBase {
   "key"?: (string) | null;
   "mutation_id"?: (string) | null;
   "name"?: (string) | null;
+  /** user: name is exactly what the caller asked for (agents chat new --name), pinned like a rename at name_revision 1 so no automatic name or chat title replaces it. Absent or auto: a starting name the automatic namer may replace. */
+  "name_source"?: (T.NameSource) | null;
   "origin"?: (string) | null;
 }
 export type CreateWorkspaceResult = T.WorkspaceMutationResult;

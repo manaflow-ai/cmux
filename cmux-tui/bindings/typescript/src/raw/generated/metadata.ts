@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 10280eec50fa87834b28ac8f31ecc796d708ca9f8aee5561d8c930322f92b6e0. */
+/* cmux-tui mux protocol 12, IR defd271ab4602cc91c0ea32d274d6d04d552990182c64fecdbea5f0026039a77. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "10280eec50fa87834b28ac8f31ecc796d708ca9f8aee5561d8c930322f92b6e0" as const;
+export const SDK_IR_SHA256 = "defd271ab4602cc91c0ea32d274d6d04d552990182c64fecdbea5f0026039a77" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -22391,6 +22391,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "name_source": {
+          "default": null,
+          "description": "user: name is exactly what the caller asked for (agents chat new --name), pinned like a rename at name_revision 1 so no automatic name or chat title replaces it. Absent or auto: a starting name the automatic namer may replace.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "NameSource"
           }
         },
         "origin": {
