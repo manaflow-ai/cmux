@@ -122,6 +122,7 @@ pub mod github_rest_op;
 pub mod github_session_env;
 pub mod god_fixture;
 pub mod install_share;
+pub mod memory_follow;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
 /// never offered, and the command says so.
 #[cfg(not(unix))]
@@ -253,6 +254,7 @@ pub(crate) mod peer_notice_outbox;
 pub mod peer_mirror;
 pub mod peer_path_stats;
 pub mod peer_paths;
+pub(crate) mod peer_row_patch;
 pub mod peer_states;
 pub mod person_proof;
 pub mod person_tokens;
@@ -342,6 +344,7 @@ pub(crate) mod single_flight;
 /// A hub move's pages over the hub carrier (`transfer_service.rs`, `hub/transfer_pull.rs`).
 #[cfg(feature = "hub-carrier")]
 pub mod transfer_service;
+pub mod usage_limit;
 pub(crate) mod worker_lock;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
 pub mod memory_inbox;
