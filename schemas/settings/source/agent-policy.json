@@ -532,7 +532,8 @@
         "experiments.menuStyleV2",
         "experiments.menuRowStates",
         "experiments.toastsV2",
-        "experiments.cloudDiskBar"
+        "experiments.cloudDiskBar",
+        "experiments.terminalHistoryFind"
       ]
     },
     {

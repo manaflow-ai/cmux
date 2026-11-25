@@ -1319,6 +1319,14 @@ jobs:
         if: ${{ success() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-cmux-now-epoch ')) }}
         run: python3 -I tests/test_cmux_now_epoch.py
 
+      # ios-placeholder-bounds (Leo, 2026-11-24): every placeholder the iOS app draws sits under
+      # `.placeholderBound` and is listed with its bound in cmux-next-ios/design/placeholders.json.
+      # The simulator half is cmux-next-ios/UITests/PlaceholderBoundUITests.swift.
+      - name: Every iOS placeholder has a listed bound (ios-placeholder-bounds)
+        id: tt-ios-placeholder-bounds
+        if: ${{ success() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-ios-placeholder-bounds ')) }}
+        run: python3 -I tests/test_ios_placeholder_bounds.py
+
       - name: A rebuilt cmux-tui commit reuses its earlier publication
         id: tt-cmux-tui-republish
         if: ${{ success() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-cmux-tui-republish ')) }}
