@@ -256463,6 +256463,60 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "將指標移到聊天框上，即可顯示列出所有實驗與 Labs 開關的自訂按鈕。"}}
       }
     },
+    "settings.experiments.quietButtons": {
+      "comment": "Settings > Experiments: the Quiet Buttons taste prototype row (design D2)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Quiet Buttons"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أزرار هادئة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Tihi dugmići"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Diskrete knapper"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Dezente Tasten"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Botones discretos"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Boutons discrets"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Pulsanti discreti"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "控えめなボタン"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប៊ូតុងស្ងាត់"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "조용한 버튼"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Diskré knapper"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Dyskretne przyciski"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Botões discretos"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Неброские кнопки"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ปุ่มแบบเรียบ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Sade düğmeler"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Непомітні кнопки"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Nút tối giản"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "安静按钮"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "安靜按鈕"}}
+      }
+    },
+    "settings.experiments.quietButtons.help": {
+      "comment": "Settings > Experiments: the Quiet Buttons taste prototype row (design D2)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Buttons draw no background until you hover over them."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "لا تظهر للأزرار خلفية حتى تمرر المؤشر فوقها."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Dugmići nemaju pozadinu dok ne pređete preko njih."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Knapper har ingen baggrund, før du holder markøren over dem."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Tasten zeigen erst einen Hintergrund, wenn du mit dem Zeiger darüberfährst."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Los botones no muestran fondo hasta que pasas el puntero por encima."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Les boutons n'affichent aucun fond tant que vous ne les survolez pas."}},
+        "it": {"stringUnit": {"state": "translated", "value": "I pulsanti non mostrano lo sfondo finché non ci passi sopra con il puntatore."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ボタンはポインタを重ねるまで背景を表示しません。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប៊ូតុងមិនបង្ហាញផ្ទៃខាងក្រោយទេ រហូតដល់អ្នកដាក់ព្រួញលើវា។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "버튼은 포인터를 올리기 전까지 배경이 없습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Knapper har ingen bakgrunn før du holder pekeren over dem."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Przyciski nie mają tła, dopóki nie najedziesz na nie kursorem."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Os botões não mostram fundo até você passar o ponteiro sobre eles."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Кнопки не показывают фон, пока на них не наведён указатель."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ปุ่มจะไม่แสดงพื้นหลังจนกว่าคุณจะชี้เมาส์ไว้เหนือปุ่ม"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Düğmeler, üzerine gelene kadar arka plan göstermez."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Кнопки не мають тла, доки ви не наведете на них вказівник."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Nút không hiện nền cho đến khi bạn di chuột lên."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "按钮在指针悬停前不显示背景。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "按鈕在指標懸停前不顯示背景。"}}
+      }
+    },
     "settings.experiments.agentBadges": {
       "comment": "Settings > Advanced > Experiments: the title of the Agent Badges switch (taste prototype, off by default)",
       "extractionState": "manual",
