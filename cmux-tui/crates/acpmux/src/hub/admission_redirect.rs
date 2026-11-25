@@ -309,6 +309,7 @@ mod tests {
             peers,
             redirect,
             spill: None,
+            harness: None,
         }
     }
 
