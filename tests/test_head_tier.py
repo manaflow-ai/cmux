@@ -473,7 +473,11 @@ GATED = {name: "pull_request" for name in (
     "cmux-next-hot-verify.yml", "cmux-next-pr-autofix.yml",
     "cmux-next-shell-integration.yml", "cmux-vm.yml", "cmux-vm-clients.yml", "cmux-vm-cloud.yml", "cmux-vnc.yml",
     "ios-e2e.yml", "iroh-v2.yml", "measure-swift-typecheck.yml", "relay-tls.yml",
-    "release-rails.yml", "signing-keychain-macos.yml", "terminal-hang-diagnostics.yml", "test-ios.yml")}
+    "release-rails.yml", "rust-workspaces.yml", "signing-keychain-macos.yml", "terminal-hang-diagnostics.yml",
+    "test-ios.yml",
+    # cmux-tui-spec's router (changes) and its crate-graph replay: their heavy jobs already need full-ci on a
+    # feat-cmux-next pull request, so on a cheap head the router fed nothing (13k runner-min/day, 11-25).
+    "cmux-tui-spec.yml")}
 GATED["backend-migrations.yml"] = "pull_request_target"
 # Only the draft tier: its one job runs only when the motion-golden label is the one added (a person asks for it).
 DRAFT_ONLY = {"cmux-next-motion-golden.yml": "pull_request"}
