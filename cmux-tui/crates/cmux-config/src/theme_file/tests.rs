@@ -1,7 +1,7 @@
 //! The cases of Swift `ThemeFileTests` (CmuxNextSettingsTests), so both
 //! readers agree, and the render round trip.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use serde_json::{Value, json};
@@ -828,6 +828,69 @@ fn the_settings_owner_keeps_the_keys_changed_over_the_theme_file() {
     let file = overlay(r#"{ "appearance.themeFileExceptions": ["appearance.accent"] }"#);
     assert!(file.keys().is_empty(), "{:?}", file.keys());
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_theme_file_picks_slot_variants_and_drops_unknown_ones() {
+    let file = overlay(
+        r#"{
+  "appearance.accent": "blue",
+  "slots": {
+    "chat.thinkingIndicator": "counting-dots",
+    "chat.jumpToBottom": "no-such-variant",
+    "chat.nope": "default",
+    "chat.jumpToBottom ": 3
+  }
+}"#,
+    );
+    assert!(file.is_loaded);
+    assert_eq!(
+        file.slots,
+        BTreeMap::from([("chat.thinkingIndicator".to_string(), "counting-dots".to_string())])
+    );
+    // `slots` is no setting: the look still applies and `slots` is not refused as one.
+    assert_eq!(file.keys(), vec!["appearance.accent".to_string()]);
+    let refused: Vec<&str> = file.diagnostics.iter().map(|d| d.path.as_str()).collect();
+    assert_eq!(
+        refused,
+        vec!["slots.chat.jumpToBottom", "slots.chat.jumpToBottom ", "slots.chat.nope"]
+    );
+    assert!(file.diagnostics.iter().all(|d| d.kind == ThemeDiagnosticKind::InvalidValue));
+    let variant = &file.diagnostics[0];
+    assert_eq!(variant.line, Some(5), "{variant:?}");
+    assert!(variant.message.contains("nudge"), "{}", variant.message);
+    assert!(
+        file.diagnostics[2].message.contains("no such slot"),
+        "{}",
+        file.diagnostics[2].message
+    );
+}
+
+#[test]
+fn a_theme_file_slots_value_that_is_no_object_is_refused() {
+    for text in [r#"{ "slots": "pulse" }"#, r#"{ "slots": ["pulse"] }"#, r#"{ "slots": null }"#] {
+        let file = overlay(text);
+        assert!(file.slots.is_empty(), "{text}");
+        assert_eq!(file.diagnostics.len(), 1, "{text}: {:?}", file.diagnostics);
+        assert_eq!(file.diagnostics[0].path, "slots");
+        assert_eq!(file.diagnostics[0].kind, ThemeDiagnosticKind::InvalidValue);
+    }
+    let file = overlay(r#"{ "slots": {} }"#);
+    assert!(file.slots.is_empty() && file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert!(overlay(r#"{ "appearance.accent": "blue" }"#).slots.is_empty());
+}
+
+#[test]
+fn every_shipped_slot_has_its_variants_and_the_theme_schema_names_them() {
+    let known = slots::known();
+    assert!(
+        known.iter().any(|(id, variants)| id == "chat.thinkingIndicator"
+            && variants.iter().any(|v| v == "default"))
+    );
+    assert!(known.iter().all(|(_, variants)| !variants.is_empty()));
+    let schema = Schema::embedded().theme_file_json_schema(is_look);
+    let property = &schema["properties"]["slots"]["properties"]["chat.jumpToBottom"]["enum"];
+    assert!(property.as_array().is_some_and(|v| v.contains(&json!("nudge"))), "{property}");
 }
 
 /// `appearance.twoTone` is a look key: a theme file may switch the two-tone on
