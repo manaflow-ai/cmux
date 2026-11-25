@@ -14,7 +14,10 @@ fn anchor_of(key: &str) -> Value {
 #[test]
 fn other_areas_ops_are_not_ours() {
     assert!(call("jsonc.parse", &json!({})).is_none());
-    assert!(matches!(super::super::call("settings_window.nope", &json!({})), Err(OpError::Unknown)));
+    assert!(matches!(
+        super::super::call("settings_window.nope", &json!({})),
+        Err(OpError::Unknown)
+    ));
 }
 
 #[test]
@@ -43,7 +46,8 @@ fn blank_and_unknown_names_are_no_anchor() {
 
 #[test]
 fn a_card_is_named_bare_or_with_its_anchor_id() {
-    let theme = json!({ "anchor": { "section": "appearance", "id": "card.theme", "header": false } });
+    let theme =
+        json!({ "anchor": { "section": "appearance", "id": "card.theme", "header": false } });
     assert_eq!(anchor_of("theme"), theme);
     assert_eq!(anchor_of("card.theme"), theme);
     assert_eq!(anchor_of("browserProfiles")["anchor"]["section"], "rooms");
@@ -78,7 +82,10 @@ fn every_section_action_is_found() {
     for section in sections() {
         for action in actions_in(section) {
             let found = anchor(&format!("action.{section}.{action}")).expect("anchored");
-            assert_eq!((found.section.as_str(), found.id.as_str()), (section, format!("action.{section}.{action}").as_str()));
+            assert_eq!(
+                (found.section.as_str(), found.id.as_str()),
+                (section, format!("action.{section}.{action}").as_str())
+            );
         }
     }
 }
@@ -108,7 +115,10 @@ fn a_setting_routes_to_its_section_and_focuses_its_row() {
 fn development_opens_only_in_a_dev_build() {
     let route = |request| ask("settings_window.route", request);
     assert_eq!(route(json!({ "section": "development", "dev_build": false })), json!({}));
-    assert_eq!(route(json!({ "section": "development", "dev_build": true }))["route"], "#/settings/development");
+    assert_eq!(
+        route(json!({ "section": "development", "dev_build": true }))["route"],
+        "#/settings/development"
+    );
     assert_eq!(route(json!({ "setting": "app.internalDeveloperMode" })), json!({}));
     assert_eq!(
         route(json!({ "setting": "app.internalDeveloperMode", "dev_build": true }))["route"],
@@ -120,23 +130,34 @@ fn development_opens_only_in_a_dev_build() {
 fn a_link_reads_its_arguments_as_the_app_does() {
     let link = |request| ask("settings_window.link", request);
     assert_eq!(
-        link(json!({ "section": "browser", "setting": "  tabs.newTabPosition ", "route": "#/settings/customize?focus=card.x" })),
+        link(
+            json!({ "section": "browser", "setting": "  tabs.newTabPosition ", "route": "#/settings/customize?focus=card.x" })
+        ),
         json!({ "section": "browser", "setting": "tabs.newTabPosition", "route": "#/settings/customize?focus=card.x" })
     );
     // an unknown section is ignored, a blank setting is none, a route must be a settings route
-    assert_eq!(link(json!({ "section": "nope", "setting": "  ", "route": "https://example.com" })), json!({}));
+    assert_eq!(
+        link(json!({ "section": "nope", "setting": "  ", "route": "https://example.com" })),
+        json!({})
+    );
     assert_eq!(link(json!({})), json!({}));
 }
 
 #[test]
 fn personalization_opens_appearance() {
-    assert_eq!(ask("settings_window.appearance_route", json!({}))["route"], "#/settings/appearance");
+    assert_eq!(
+        ask("settings_window.appearance_route", json!({}))["route"],
+        "#/settings/appearance"
+    );
 }
 
 #[test]
 fn change_background_is_a_new_route_on_the_background_picker_each_time() {
     let route = |open| {
-        ask("settings_window.appearance_route", json!({ "background": true, "workspace": "ws 1", "open": open }))["route"]
+        ask(
+            "settings_window.appearance_route",
+            json!({ "background": true, "workspace": "ws 1", "open": open }),
+        )["route"]
             .as_str()
             .unwrap()
             .to_owned()
@@ -153,7 +174,10 @@ fn change_background_is_a_new_route_on_the_background_picker_each_time() {
 
 #[test]
 fn reopening_customization_returns_to_sidebar() {
-    assert_eq!(ask("settings_window.sidebar_route", json!({ "open": 7 }))["route"], "#/settings/sidebar?open=7");
+    assert_eq!(
+        ask("settings_window.sidebar_route", json!({ "open": 7 }))["route"],
+        "#/settings/sidebar?open=7"
+    );
     assert!(call("settings_window.sidebar_route", &json!({})).unwrap().is_err());
 }
 
@@ -167,7 +191,10 @@ fn the_devices_join_consent_switches_are_page_anchors() {
             "route": "#/settings/devices?focus=devices.join.control",
         } })
     );
-    assert_eq!(ask("settings_window.page_anchor", json!({ "key": "devices.join.other" })), json!({}));
+    assert_eq!(
+        ask("settings_window.page_anchor", json!({ "key": "devices.join.other" })),
+        json!({})
+    );
     assert_eq!(ask("settings_window.page_anchor", json!({ "key": "" })), json!({}));
 }
 

@@ -94,9 +94,8 @@ fn sections() -> impl Iterator<Item = &'static str> {
 /// The action ids drawn at the end of `section` (Swift `SettingsSchema.actions(in:)`).
 fn actions_in(section: &str) -> Vec<&'static str> {
     static LAYOUT: OnceLock<Value> = OnceLock::new();
-    let layout = LAYOUT.get_or_init(|| {
-        serde_json::from_str(PAGE_LAYOUT).expect("the page layout source parses")
-    });
+    let layout = LAYOUT
+        .get_or_init(|| serde_json::from_str(PAGE_LAYOUT).expect("the page layout source parses"));
     layout
         .pointer(&format!("/section_actions/{section}"))
         .and_then(Value::as_array)
@@ -125,9 +124,8 @@ pub fn anchor(key: &str) -> Option<Anchor> {
     if let Some(row) = schema.row_at(&key_path(key)).filter(|row| shown_on_page(row)) {
         return Some(Anchor { section: row.section.clone(), id: row.key.clone() });
     }
-    if let Some((name, section)) = CARDS
-        .iter()
-        .find(|(name, _)| key == format!("card.{name}") || key == *name)
+    if let Some((name, section)) =
+        CARDS.iter().find(|(name, _)| key == format!("card.{name}") || key == *name)
     {
         return Some(Anchor { section: (*section).to_owned(), id: format!("card.{name}") });
     }
@@ -191,13 +189,17 @@ fn text(value: Option<&str>) -> Option<&str> {
 
 fn link(request: &Value) -> Value {
     let mut link = serde_json::Map::new();
-    if let Some(section) = text(optional(request, "section")).filter(|name| sections().any(|id| id == *name)) {
+    if let Some(section) =
+        text(optional(request, "section")).filter(|name| sections().any(|id| id == *name))
+    {
         link.insert("section".to_owned(), json!(section));
     }
     if let Some(setting) = text(optional(request, "setting")) {
         link.insert("setting".to_owned(), json!(setting));
     }
-    if let Some(route) = text(optional(request, "route")).filter(|route| route.starts_with("#/settings/")) {
+    if let Some(route) =
+        text(optional(request, "route")).filter(|route| route.starts_with("#/settings/"))
+    {
         link.insert("route".to_owned(), json!(route));
     }
     Value::Object(link)
