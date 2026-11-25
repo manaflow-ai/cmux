@@ -392,6 +392,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "machine broker-forward",
+        &[(
+            "Reach huge-blue's lane-gh broker over the carrier for lane-gh here",
+            "acpmux machine broker-forward huge-blue --socket ~/.cache/lane-gh/carrier.sock",
+        )],
+    ),
+    (
         "machine agents",
         &[
             (
