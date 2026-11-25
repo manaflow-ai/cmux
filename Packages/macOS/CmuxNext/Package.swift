@@ -3036,17 +3036,28 @@ let linuxTargetNames: Set<String> = [
     "CmuxNextHostPressureTests",
 ]
 
-/// Dependencies only the Linux shape adds: swift-crypto's Crypto where Apple builds import CryptoKit.
-let linuxExtraDependencies: [String: [Target.Dependency]] = [
-    "CmuxNextChromiumRuntime": [.product(name: "Crypto", package: "swift-crypto")],
-    "CmuxNextChromiumRuntimeTests": [.product(name: "Crypto", package: "swift-crypto")],
-]
+/// The Linux shape's ChromiumRuntime pair: Apple builds import CryptoKit, Linux swift-crypto's Crypto, so the
+/// Linux declarations add it here instead of changing the shared targets (the layer gate reads literal targets).
+let linuxChromiumRuntime: Target = .target(
+    name: "CmuxNextChromiumRuntime",
+    dependencies: [
+        .product(name: "CmuxEgress", package: "CmuxEgress"),
+        .product(name: "Crypto", package: "swift-crypto"),
+    ],
+    swiftSettings: daemonSwiftSettings
+)
+let linuxChromiumRuntimeTests: Target = .testTarget(
+    name: "CmuxNextChromiumRuntimeTests",
+    dependencies: [
+        "CmuxNextChromiumRuntime",
+        .product(name: "Crypto", package: "swift-crypto"),
+    ],
+    swiftSettings: daemonSwiftSettings
+)
 
-/// Target is a class: the edits below change the shared targets, so they run only in the Linux shape.
-let linuxTargets: [Target] = !targetsLinux ? [] : packageTargets.filter { linuxTargetNames.contains($0.name) }.map { target in
-    target.dependencies += linuxExtraDependencies[target.name] ?? []
-    return target
-}
+let linuxTargets: [Target] = !targetsLinux ? [] : packageTargets.filter {
+    linuxTargetNames.contains($0.name) && !$0.name.hasPrefix("CmuxNextChromiumRuntime")
+} + [linuxChromiumRuntime, linuxChromiumRuntimeTests]
 
 let linuxPackageDependencies: [Package.Dependency] = [
     .package(path: "../../Shared/CmuxEgress"),
