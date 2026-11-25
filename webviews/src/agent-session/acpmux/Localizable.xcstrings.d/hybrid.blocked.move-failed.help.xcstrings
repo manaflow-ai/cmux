@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "hybrid.blocked.move-failed.help" : {
+      "comment" : "Agent pane, the three-state cloud control: tooltip, what a click does when the chat's last move failed",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يعرض سبب فشل النقل ويتيح لك المحاولة مرة أخرى."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prikazuje zašto premještanje nije uspjelo i omogućava novi pokušaj."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Viser, hvorfor flytningen mislykkedes, og lader dig prøve igen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zeigt, warum das Verschieben fehlschlug, und lässt dich es erneut versuchen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shows why the move failed and lets you try again."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Muestra por qué falló el traslado y te deja intentarlo de nuevo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Indique pourquoi le déplacement a échoué et permet de réessayer."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostra perché lo spostamento non è riuscito e ti permette di riprovare."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "移動に失敗した理由を表示し、再試行できるようにします。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បង្ហាញមូលហេតុដែលការផ្លាស់ទីបរាជ័យ ហើយអនុញ្ញាតឱ្យអ្នកព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이동에 실패한 이유를 보여 주고 다시 시도할 수 있게 합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Viser hvorfor flyttingen mislyktes, og lar deg prøve igjen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pokazuje, dlaczego przeniesienie się nie udało, i pozwala spróbować ponownie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostra por que a mudança falhou e permite tentar de novo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показывает, почему перенос не удался, и позволяет повторить попытку."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แสดงสาเหตุที่ย้ายไม่สำเร็จ และให้คุณลองอีกครั้ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Taşımanın neden başarısız olduğunu gösterir ve yeniden denemenizi sağlar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показує, чому перенесення не вдалося, і дає змогу спробувати ще раз."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cho biết lý do chuyển thất bại và cho phép bạn thử lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "显示移动失败的原因，并让你重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "顯示移動失敗的原因，並讓你重試。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

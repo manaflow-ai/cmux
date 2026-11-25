@@ -385,7 +385,7 @@ jobs:
       - name: Validate the VM image qcow2 export
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: |
-          command -v qemu-img >/dev/null || timeout 120 sudo -n apt-get install -y -qq qemu-utils >/dev/null 2>&1 || true
+          command -v qemu-img >/dev/null || timeout 120 sudo -n apt-get -o DPkg::Lock::Timeout=100 install -y -qq qemu-utils >/dev/null 2>&1 || true
           python3 tests/test_ci_vm_image_qcow2.py
 
       - name: Validate macOS jobs select a pinned Xcode
@@ -902,6 +902,10 @@ jobs:
       - name: Validate hook installation leaves existing hooks alone
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_install_git_hooks.py
+
+      - name: Validate the Cargo.lock merge driver
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_merge_cargo_lock.py
 
       # cmux#55547: string catalogs change in place (the checker, the in-place editor and the pre-push gate's check).
       - name: Validate string catalogs are edited in place
