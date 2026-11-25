@@ -350,7 +350,8 @@ function useInlineDiff(rowId: string, file: TurnFile | undefined): AnchoredColla
   return useAnchoredCollapse({ open: Boolean(file) && open, onOpenChange: setOpen });
 }
 
-/// A file's diff, opened inside the card under the line that opened it.
+/// A file's diff, opened inside the card under the line that opened it, drawn flat on the card (one
+/// container, not a box in a box: https://github.com/manaflow-ai/cmux/issues/56442).
 function InlineDiff({
   fold,
   file,
@@ -368,6 +369,7 @@ function InlineDiff({
       <div className="acpmux-edited-diff">
         <EditDiff
           file={file}
+          flat
           actions={
             onOpen && (
               <button
