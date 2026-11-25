@@ -7,7 +7,6 @@ CmuxNextDesignTokens/CloseFocus/CloseSelection+Tabs.swift
 CmuxNextDesignTokens/Launch/LaunchMarkPath.swift
 CmuxNextDesignTokens/LowPowerMode.swift
 CmuxNextDesignTokens/LowPowerModeObservation.swift
-CmuxNextDesignTokens/Motion/AnimatedFrame.swift
 CmuxNextDesignTokens/MuseumArtSearch+Parse.swift
 CmuxNextDesignTokens/StatusIndicator/StatusGlyphGeometry.swift
 CmuxNextDesignTokens/ThemeApplyLedger.swift

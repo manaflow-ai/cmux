@@ -1,10 +1,6 @@
+public import AppKit
 public import CmuxTheme
 public import CmuxNextDesignTokens
-#if canImport(AppKit) // the Mac; the Linux settings exporter builds the model below without it
-public import AppKit
-#else
-public import Foundation
-#endif
 
 /// The nine group colors, shared by tab groups and workspace groups so
 /// both render identically. The raw value is the stable token the daemon

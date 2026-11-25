@@ -1,18 +1,4 @@
-#if canImport(AppKit) // the Mac; the Linux settings exporter builds the model below without it
 public import AppKit
-#else
-public import Foundation
-#endif
-
-/// `window.titlebar` in cmux.json.
-public nonisolated enum TitlebarStyle: String, Sendable, CaseIterable, Codable {
-    /// No titlebar strip (the default, user nxdog9): content reaches the
-    /// window's top edge, the traffic lights sit in the top row, and every
-    /// empty area of that row moves the window.
-    case minimal
-    /// A titlebar strip with the workspace name above the content.
-    case standard
-}
 
 /// Titlebar behavior for the app's own drag areas (empty tab strip space,
 /// the sidebar header, the titlebar strip), matching a native titlebar.

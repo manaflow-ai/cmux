@@ -1,10 +1,6 @@
+public import AppKit
 public import CmuxTheme
 public import CmuxNextDesignTokens
-#if canImport(AppKit) // the Mac; the Linux settings exporter builds the model below without it
-public import AppKit
-#else
-public import Foundation
-#endif
 
 /// An agent's presence color (cx-gg84): one of the theme's ANSI accents,
 /// picked by a stable hash of the agent's key (its session id), so the same

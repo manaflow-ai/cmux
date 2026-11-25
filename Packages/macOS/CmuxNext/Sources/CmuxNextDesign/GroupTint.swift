@@ -1,10 +1,6 @@
+public import AppKit
 public import CmuxTheme
 public import CmuxNextDesignTokens
-#if canImport(AppKit) // the Mac; the Linux settings exporter builds the model below without it
-public import AppKit
-#else
-public import Foundation
-#endif
 
 /// A workspace group's color (cx-25az): one of the group palette tokens, a
 /// custom color a person picked, or no color at all. The wire form is the

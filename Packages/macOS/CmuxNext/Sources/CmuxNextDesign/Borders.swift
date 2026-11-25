@@ -1,23 +1,5 @@
-public import CmuxNextDesignTokens
-#if canImport(AppKit) // the Mac; the Linux settings exporter builds the model below without it
 public import AppKit
-#else
-public import Foundation
-#endif
-
-/// `appearance.borders` in cmux.json: `default` draws the app's borders,
-/// hairlines and separators; `none` removes every one of them.
-public nonisolated enum BorderMode: String, Sendable, CaseIterable, Codable, TunableChoice {
-    case `default`
-    case none
-
-    public var tunableTitle: String {
-        switch self {
-        case .default: "Default"
-        case .none: "None"
-        }
-    }
-}
+public import CmuxNextDesignTokens
 
 /// The one switch every border, hairline and separator in the app goes
 /// through (pane borders, the focus ring, divider lines, tab, strip,

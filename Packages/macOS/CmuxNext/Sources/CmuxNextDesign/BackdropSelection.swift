@@ -1,11 +1,7 @@
-public import Foundation
-#if canImport(AppKit) // the Mac; the Linux settings exporter builds the model below without it
 public import AppKit
+public import Foundation
 import os
 import ImageIO
-#else
-public import Foundation
-#endif
 
 /// A selectable image source for the window backdrop. Each case is one source: the bundled art,
 /// a macOS wallpaper file, the person's own image, or their current desktop picture. Each has its
