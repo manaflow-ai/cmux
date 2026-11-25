@@ -372,3 +372,124 @@ async fn a_second_copy_hears_no_turn_before_the_first_is_accepted() {
     }
     hub.shutdown_all().await;
 }
+
+/// Leo, 2026-11-25: "no prompt holds `prompt_admission` across an unbounded await ... A delivery
+/// always gets an answer within seconds". Every prompt here sticks in its setup on the agent's
+/// lock (held by the test, as a call that never came back holds it): each is still answered,
+/// queued, within seconds, and the queue runs them all once the lock comes back
+/// (`prompt_admission.rs`). Before, the first held the chat's admission across that await and every
+/// later prompt waited for it unanswered (one chat: 66 restored notices, none answered).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn prompts_stuck_in_setup_are_answered_queued_within_seconds_and_the_queue_drains() {
+    let (hub, s) = chat().await;
+    let stuck = s.child.lock().await;
+    let bound = super::prompt_admission::ANSWER_BOUND + Duration::from_secs(4);
+    let mut accepted = Vec::new();
+    let mut runs = Vec::new();
+    for i in 0..8 {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        runs.push(prompt(&hub, &s, &format!("stuck-{i}"), &format!("prompt {i}"), tx));
+        accepted.push(rx);
+    }
+    let started = std::time::Instant::now();
+    for (i, rx) in accepted.into_iter().enumerate() {
+        let left = bound.saturating_sub(started.elapsed());
+        let notice = tokio::time::timeout(left, rx)
+            .await
+            .unwrap_or_else(|_| panic!("prompt {i} got no answer within {bound:?}"))
+            .unwrap();
+        assert_eq!(
+            (&notice["queued"], &notice["state"], &notice["deferred"]),
+            (&json!(true), &json!("queued"), &json!(true)),
+            "{notice}"
+        );
+    }
+    let journal = hub.events(&s.id, 0, 10_000).unwrap();
+    for i in 0..8 {
+        assert!(
+            journal.iter().any(|r| r.kind == "queued" && r.msg["promptId"] == format!("stuck-{i}")),
+            "stuck-{i} is queued durably when it is answered"
+        );
+    }
+    assert!(s.turn().is_none(), "nothing ran while the agent's lock was held");
+
+    // The lock comes back: every prompt runs from the queue, each with its own answer.
+    drop(stuck);
+    for run in runs {
+        let answer = tokio::time::timeout(WAIT * 3, run).await.unwrap().unwrap().unwrap();
+        assert!(answer.get("stopReason").is_some(), "{answer}");
+    }
+    let ran = hub
+        .events(&s.id, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.kind == "user_message")
+        .count();
+    assert_eq!(ran, 8, "every queued prompt ran once");
+    assert_eq!(s.queue().len(), 0, "the queue drained");
+}
+
+/// The holder side: a prompt held in its setup keeps the chat's admission no longer than its
+/// lease, so a later prompt is answered while the first is still held, and the first, once
+/// past its own due time, is queued and runs after (`prompt_admission.rs`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_prompt_held_past_its_lease_does_not_hold_up_the_next() {
+    let (hub, s) = chat().await;
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (_release, release_rx) = tokio::sync::oneshot::channel::<()>();
+    *hub.prompt_admission_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    let (first_tx, first_accepted) = tokio::sync::oneshot::channel();
+    let first = prompt(&hub, &s, "held", "held in setup", first_tx);
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+
+    let (second_tx, second_accepted) = tokio::sync::oneshot::channel();
+    let second = prompt(&hub, &s, "next", "after the held one", second_tx);
+    let bound = super::prompt_admission::ANSWER_BOUND + Duration::from_secs(4);
+    let next =
+        tokio::time::timeout(bound, second_accepted).await.expect("the next is answered").unwrap();
+    assert_eq!(next["promptId"], "next", "{next}");
+    let held = tokio::time::timeout(bound, first_accepted)
+        .await
+        .expect("the held one is answered")
+        .unwrap();
+    assert_eq!((&held["promptId"], &held["deferred"]), (&json!("held"), &json!(true)), "{held}");
+    for run in [first, second] {
+        tokio::time::timeout(WAIT * 3, run).await.unwrap().unwrap().unwrap();
+    }
+    let ran: Vec<Value> = hub
+        .events(&s.id, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.kind == "user_message")
+        .map(|r| r.msg["promptId"].clone())
+        .collect();
+    assert_eq!(ran, [json!("next"), json!("held")]);
+}
+
+/// The turn lock side: a prompt that reached the queue while another holds the turn lock (a turn
+/// that never showed, a call that never came back) is answered queued by its due time, not when
+/// the lock is let go, and runs once it is (`queue.rs`, `answer_due`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_prompt_waiting_on_a_held_turn_lock_is_answered_queued_by_its_due_time() {
+    let (hub, s) = chat().await;
+    let held = s.turn_lock.lock().await;
+    let (tx, accepted) = tokio::sync::oneshot::channel();
+    let run = prompt(&hub, &s, "behind-lock", "waits on the turn lock", tx);
+    let bound = super::prompt_admission::ANSWER_BOUND + Duration::from_secs(4);
+    let notice = tokio::time::timeout(bound, accepted)
+        .await
+        .expect("answered while the turn lock is held")
+        .unwrap();
+    assert_eq!((&notice["queued"], &notice["state"]), (&json!(true), &json!("queued")), "{notice}");
+    assert!(
+        hub.events(&s.id, 0, 10_000)
+            .unwrap()
+            .iter()
+            .any(|r| r.kind == "queued" && r.msg["promptId"] == "behind-lock"),
+        "queued durably when answered"
+    );
+    drop(held);
+    let answer = tokio::time::timeout(WAIT * 3, run).await.unwrap().unwrap().unwrap();
+    assert!(answer.get("stopReason").is_some(), "{answer}");
+    assert_eq!(s.queue().len(), 0, "the queue drained");
+}
