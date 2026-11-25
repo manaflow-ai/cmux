@@ -696,22 +696,17 @@ class UploadTests(unittest.TestCase):
         clone = origin.root / "cache" / "o_r.git"
         MODULE.existing_sha("o/r", "pr-media", "12/shot.png")
 
-        def stored():
-            return sorted(str(path.relative_to(clone / "objects")) for path in (clone / "objects").rglob("*")
-                          if path.is_file())
-
-        before = stored()
+        data = PNG + os.urandom(1 << 20)
         with tempfile.TemporaryDirectory() as scratch:
-            big = written(scratch, "big.png", PNG + os.urandom(1 << 20))
+            big = written(scratch, "big.png", data)
             MODULE.put_files("o/r", "pr-media", {"12/big.png": big, "13/big.png": big}, "m", checked=True)
             MODULE.put_file("o/r", "pr-media", "12/again.png", big, "m", checked=True)
-        self.assertEqual(origin.files()["12/big.png"], big.read_bytes())
-        self.assertEqual(stored(), before)
-        self.assertFalse((clone / MODULE.WRITE_OBJECTS).exists())
+        self.assertEqual(origin.files()["12/big.png"], data)
         blob = origin.blob("12/big.png")
-        missing = subprocess.run(["git", "-C", str(clone), "cat-file", "-e", blob],
-                                 env={**os.environ, "GIT_NO_LAZY_FETCH": "1"}, capture_output=True)
-        self.assertNotEqual(missing.returncode, 0)
+        self.assertNothingWritten(clone, blob)
+        # The fetched trees are all that is packed: far under the one upload's size.
+        packed = sum(path.stat().st_size for path in (clone / "objects").rglob("*") if path.is_file())
+        self.assertLess(packed, len(data) // 4)
         # The clone is still whole: every ref names an object it has, and the next read sees the upload.
         for sha in git(clone, "for-each-ref", "--format=%(objectname)").split():
             git(clone, "cat-file", "-e", f"{sha}^{{tree}}")
@@ -735,7 +730,6 @@ class UploadTests(unittest.TestCase):
         origin = Origin(self)
         clone = origin.root / "cache" / "o_r.git"
         MODULE.existing_sha("o/r", "pr-media", "12/shot.png")
-        before = sorted((clone / "objects").rglob("*"))
         real_git = MODULE.MediaBranch.git
 
         def git_refusing(store, *args, **kwargs):
@@ -746,8 +740,17 @@ class UploadTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as scratch, mock.patch.object(MODULE.MediaBranch, "git", git_refusing), \
                 self.assertRaises(MODULE.MediaError):
             MODULE.put_file("o/r", "pr-media", "7/mine.png", written(scratch, "mine.png", PNG), "m", checked=True)
-        self.assertEqual(sorted((clone / "objects").rglob("*")), before)
+        uploaded = subprocess.run(["git", "hash-object", "--stdin"], input=PNG, capture_output=True, check=True)
+        self.assertNothingWritten(clone, uploaded.stdout.decode().strip())
+
+    def assertNothingWritten(self, clone, blob):
+        """No loose object (an upload's would be), no scratch dir, and the uploaded blob is not there."""
+        loose = [path for path in (clone / "objects").glob("[0-9a-f][0-9a-f]/*")]
+        self.assertEqual(loose, [])
         self.assertFalse((clone / MODULE.WRITE_OBJECTS).exists())
+        missing = subprocess.run(["git", "-C", str(clone), "cat-file", "-e", blob],
+                                 env={**os.environ, "GIT_NO_LAZY_FETCH": "1"}, capture_output=True)
+        self.assertNotEqual(missing.returncode, 0)
 
     def test_a_write_that_lost_a_race_is_built_again_on_the_new_tip(self):
         # Two sessions uploading to the branch at once: the rejected push is the branch moving under us,
