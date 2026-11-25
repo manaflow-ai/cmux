@@ -1457,7 +1457,6 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
         Attachment.record(report.joined(separator: "\n"), named: "resume-matrix.txt")
     }
 }
-#endif
 
 /// The resume matrix's redial cells and a kept-link baseline, alone: where a redial's first key spends
 /// its time (`stage_p50_ms`), in minutes rather than the whole matrix's half hour. On the fleet:
@@ -1472,3 +1471,4 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
         try await ResumeMatrixBenchTests().run(cells: ResumeMatrixBenchTests.onlyCells ?? Self.cells)
     }
 }
+#endif
