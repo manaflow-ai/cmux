@@ -5176,6 +5176,39 @@ feat-cmux-next still run every entry.
 
 The switch: `vars.CI_FAST_TIER_PR_SCOPE` set to `0` runs every entry on the pull request again (both jobs).
 
+## note-daemon-reuse
+
+Above `daemon-test: Fingerprint this job's inputs` and `daemon-test: Record this pass for the same inputs` in
+`.github/workflows/cmux-next.yml`.
+
+Leo, 2026-11-25: "linux... more motherfucking linux, better motherfucking caching".
+
+The daemon suites took about 25 Mac minutes per run and never reused a pass. They now key like swift test
+(scripts/ci/job_input_fingerprint.py `daemon-test`: the whole tree, the workflow blob, the Mac toolchain, the web
+bundles' source key, the GUI flag, the Xcode app and the generated-files base) and look up a pass recorded under that
+key before they take any build step (scripts/ci/job_reuse.py, `vars.CI_NEXT_JOB_REUSE == '1'`). A pull request's last
+pass on its merge tree is the feat-cmux-next push's tree when nothing landed in between, so the push skips the suites.
+The lookup uses the workflow token (artifact listing needs no secret here). A pass is recorded only when the run's
+generated-files verdict, if it gave one, was fresh, so a hit reports `fresh`. A hit skips the base autofix exports
+pack, as generated-files does.
+
+## note-fleet-fallback
+
+The "Say why this runs on a Mac (fleet fallback)" steps of `swift-canary`, `release-compile` and
+`cmux-scheme-compile` in `.github/workflows/cmux-next.yml`, and `scripts/ci/fleet_fallback.py`.
+
+Leo, 2026-11-25: "linux... more motherfucking linux, better motherfucking caching".
+
+Each of these Mac jobs has a fleet job partner that answers first; when the partner is skipped, fails or gives no
+usable verdict, the Mac does the work itself. That fall was silent when the partner never ran: cmux#55653's scheme
+compile took 27.1 Mac minutes because `cmux app scheme compile (build fleet)` was skipped by its
+`vars.CI_SCHEME_COMPILE_FLEET` off switch, and nothing in the run said so. Now the Mac job's first step after checkout,
+whenever it did not take the fleet answer, logs a `fleet fallback` warning, a step summary line and one
+`fleet-fallback: {json}` log line naming the fleet job and the reason: a gate that was false (the workflow passes each
+gate of the fleet job's `if:` as a label and its value, a variable as presence only), a skip though every gate held, a
+failed or cancelled fleet job, or a verdict other than pass. Grep run logs for `fleet-fallback:` to count falls by
+reason. The step never fails the job.
+
 ## note-scheme-fleet
 
 Above the `cmux-scheme-compile-fleet` job, the `CMUX_SCHEME_FLEET_JOB` env, and the "Take the app the build fleet
@@ -5200,7 +5233,8 @@ compile-checks phase `scheme-debug` with the job id of the app zip.
 - Parity: heads whose sha ends in `0` (1 in 16; `vars.CI_SCHEME_FLEET_PARITY=always` for every head) still compile on
   the Mac and compare file lists, Info.plist and Mach-O link lists (`scripts/ci/app_bundle_parity.py`); a difference
   is a `fleet parity` warning with the table in the step summary.
-- Off switch: `vars.CI_SCHEME_COMPILE_FLEET=0` skips the fleet job; the Mac compiles every head. DEV Release
+- Off switch: `vars.CI_SCHEME_COMPILE_FLEET=0` skips the fleet job; the Mac compiles every head and says so
+  (note-fleet-fallback). DEV Release
   (`dev_daily`) compiles are unchanged.
 
 ## note-canary-linux-read

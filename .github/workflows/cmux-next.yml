@@ -2928,6 +2928,20 @@ jobs:
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
 
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-fleet-fallback
+      - name: Say why this runs on a Mac (fleet fallback)
+        if: ${{ !contains(fromJSON('["pass","superseded"]'), needs.swift-canary-fleet.outputs.verdict) }}
+        continue-on-error: true
+        env:
+          FLEET_RESULT: ${{ needs.swift-canary-fleet.result }}
+          FLEET_VERDICT: ${{ needs.swift-canary-fleet.outputs.verdict }}
+          FLEET_JOB_NAME: "cmux-next Swift canary (build fleet)"
+          FLEET_GATE_0: "compile gateway is set=${{ vars.CI_COMPILE_CHECK_GATEWAY != '' }}"
+          FLEET_GATE_1: "manaflow-ai repository=${{ github.repository_owner == 'manaflow-ai' }}"
+        run: >-
+          python3 -I scripts/ci/fleet_fallback.py --job "cmux-next Swift canary" --fleet "$FLEET_JOB_NAME"
+          --result "$FLEET_RESULT" --verdict "$FLEET_VERDICT" --gate "$FLEET_GATE_0" --gate "$FLEET_GATE_1"
+
       - name: Select Xcode
         if: ${{ !contains(fromJSON('["pass","superseded"]'), needs.swift-canary-fleet.outputs.verdict) }}
         run: ./scripts/select-ci-xcode.sh
@@ -4669,7 +4683,7 @@ jobs:
     timeout-minutes: 60
     outputs:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-243
-      generated_files: ${{ steps.generated-files-verdict.outputs.verdict }}
+      generated_files: ${{ steps.reuse.outputs.hit == 'true' && 'fresh' || steps.generated-files-verdict.outputs.verdict }}
     env:
       CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.grant_jobs, ' daemon-test ') && fromJSON(needs.macos-placement.outputs.grant_runner)[0] || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.light_jobs, ' daemon-test ') && needs.macos-placement.outputs.light_runner || github.event_name == 'pull_request' && ((github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' daemon-test ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26_large) || (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' daemon-test ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) || (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.owned_jobs, ' daemon-test ') && needs.macos-placement.outputs.runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' daemon-test ') && needs.macos-placement.outputs.retry_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.session_jobs, ' daemon-test ') && needs.macos-placement.outputs.session_spill_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.deferred_runner || (vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt)) && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') && vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-26.6') || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26))) || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gui_overflow != '' && needs.macos-placement.outputs.gui_overflow || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && 'glaeda-gui-std-xcode-26.6' || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
@@ -4737,10 +4751,47 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-daemon-reuse
+      - name: Fingerprint this job's inputs
+        id: reuse-key
+        if: ${{ vars.CI_NEXT_JOB_REUSE == '1' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        continue-on-error: true
+        run: |
+          python3 -I scripts/ci/job_input_fingerprint.py daemon-test \
+            --extra "xcode=$(xcodebuild -version | tr '\n' ' ')" \
+            --extra "macos=$(sw_vers -productVersion)" \
+            --extra "macos_build=$(sw_vers -buildVersion)" \
+            --extra "arch=$(uname -m)" \
+            --extra "pool=${{ contains(runner.name, '-glaeda') && 'owned' || startsWith(runner.name, 'blacksmith-') && 'blacksmith' || runner.environment == 'github-hosted' && 'hosted' || runner.name }}" \
+            --extra "image=${ImageOS:-}${ImageVersion:+-$ImageVersion}" \
+            --extra "mini=${{ startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') }}" \
+            --extra "xcode_app=$CMUX_CI_XCODE_APP" \
+            --extra "generated_base=$([[ "$CMUX_NEXT_FOLD_GENERATED" != true ]] || git rev-parse HEAD^1)" \
+            --extra "web_bundles=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
+
+      - name: Look for a pass on the same inputs
+        id: reuse
+        if: ${{ steps.reuse-key.outputs.key != '' && inputs.no_reuse != true }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ steps.reuse-key.outputs.key }}
+        run: python3 -I scripts/ci/job_reuse.py lookup --key "$KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Reuse that pass
+        if: ${{ steps.reuse.outputs.hit == 'true' }}
+        env:
+          KEY: ${{ steps.reuse-key.outputs.key }}
+          RUN_URL: ${{ steps.reuse.outputs.run_url }}
+          SHA: ${{ steps.reuse.outputs.sha }}
+        run: |
+          echo "::notice title=cmux-next daemon tests reused::$RUN_URL passed on the same inputs (${SHA:0:12})"
+          echo "Reused $RUN_URL: it passed on \`${SHA:0:12}\` with the same inputs (\`$KEY\`)." >> "$GITHUB_STEP_SUMMARY"
+
       # Why: docs/ci/cmux-next-workflow-notes.md#note-251
       # Why: docs/ci/cmux-next-workflow-notes.md#note-385
       - name: Keep Swift package builds on this owned Mac
-        if: ${{ contains(runner.name, '-glaeda') }}
+        if: ${{ (contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
         run: |
           python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
@@ -4749,13 +4800,13 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-378
       - name: Compute the fast-tier seed keys
         id: seed-key
-        if: ${{ !contains(runner.name, '-glaeda') }}
+        if: ${{ (!contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
         run: scripts/cmux-next/fast-tier-cache-key.sh >> "$GITHUB_OUTPUT"
 
       - name: Restore the CmuxNext build the base seeded
         id: seed-restore
-        if: ${{ steps.seed-key.outputs.swift-prefix != '' }}
+        if: ${{ (steps.seed-key.outputs.swift-prefix != '') && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
         uses: ./.github/actions/cache-restore
         env:
@@ -4769,17 +4820,19 @@ jobs:
           restore-keys: ${{ steps.seed-key.outputs.swift-prefix }}
 
       - name: Replay the seed's input times
-        if: ${{ steps.seed-restore.outputs.cache-matched-key != '' }}
+        if: ${{ (steps.seed-restore.outputs.cache-matched-key != '') && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
         run: |
           python3 scripts/ci/owned_spm_scratch.py drop-bundles Packages/macOS/CmuxNext/.build
           python3 -I scripts/ci/e2e_warm_derived_data.py replay "$GITHUB_WORKSPACE" Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json
 
       - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-252
       - name: Setup Bun
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -4787,21 +4840,25 @@ jobs:
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-253
       - name: Give this job its own bun
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
         run: scripts/cmux-next/private-bun.sh
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-254
       - name: Setup Node
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-255
       - name: Source key of the web bundles
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
         id: web-bundle-key
         run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-256
       - name: Restore the web bundles from R2
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
         id: web-bundle-r2
         uses: ./.github/actions/cache-restore
         env:
@@ -4814,7 +4871,7 @@ jobs:
 
       - name: Restore the web bundles built for this source key
         id: web-bundle-cache
-        if: steps.web-bundle-r2.outputs.cache-hit != 'true'
+        if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true') && steps.reuse.outputs.hit != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: web-bundles-out
@@ -4823,7 +4880,7 @@ jobs:
 
       - name: Download the web bundles this run's bundle job built
         id: web-bundle-artifact
-        if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && needs.web-bundles.result == 'success' }}
+        if: ${{ ((steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && needs.web-bundles.result == 'success') && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -4831,14 +4888,15 @@ jobs:
           path: web-bundles-out
 
       - name: Install the restored web bundles
-        if: steps.web-bundle-r2.outputs.cache-hit == 'true' || steps.web-bundle-cache.outputs.cache-hit == 'true' || steps.web-bundle-artifact.outcome == 'success'
+        if: ${{ (steps.web-bundle-r2.outputs.cache-hit == 'true' || steps.web-bundle-cache.outputs.cache-hit == 'true' || steps.web-bundle-artifact.outcome == 'success') && steps.reuse.outputs.hit != 'true' }}
         run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
 
       - name: Build the web bundles
-        if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success'
+        if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success') && steps.reuse.outputs.hit != 'true' }}
         run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Build package and tests
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
         id: build-tests
         working-directory: Packages/macOS/CmuxNext
         env:
@@ -4848,7 +4906,7 @@ jobs:
 
       - name: Upload the test build measurement and log
         continue-on-error: true
-        if: ${{ always() }}
+        if: ${{ (always()) && steps.reuse.outputs.hit != 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-next-build-metrics-daemon-test-${{ github.run_attempt }}
@@ -4859,7 +4917,7 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-257
       - name: Check generated action catalog, surfaces and inventory
         id: actions
-        if: ${{ env.CMUX_NEXT_FOLD_GENERATED == 'true' }}
+        if: ${{ env.CMUX_NEXT_FOLD_GENERATED == 'true' && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
         working-directory: Packages/macOS/CmuxNext
         env:
@@ -4869,7 +4927,7 @@ jobs:
 
       - name: Check the settings exports
         id: settings
-        if: ${{ env.CMUX_NEXT_FOLD_GENERATED == 'true' }}
+        if: ${{ env.CMUX_NEXT_FOLD_GENERATED == 'true' && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
         env:
           CMUX_NEXT_JOB_BUILT: plain
@@ -4878,7 +4936,7 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-258
       - name: Pack the exports for the base autofix
         id: base-exports
-        if: ${{ env.CMUX_NEXT_FOLD_GENERATED == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && format('{0}', vars.CMUX_NEXT_BASE_EXPORTS_PACK) != '0' }}
+        if: ${{ (env.CMUX_NEXT_FOLD_GENERATED == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && format('{0}', vars.CMUX_NEXT_BASE_EXPORTS_PACK) != '0') && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
         timeout-minutes: 10
         env:
@@ -4895,7 +4953,7 @@ jobs:
           scripts/cmux-next/base-autofix-exports-pack.sh "$RUNNER_TEMP/base-exports" | tee -a "$GITHUB_OUTPUT"
 
       - name: Upload the exports for the base autofix
-        if: ${{ steps.base-exports.outcome == 'success' && steps.base-exports.outputs.name != '' }}
+        if: ${{ (steps.base-exports.outcome == 'success' && steps.base-exports.outputs.name != '') && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -4905,11 +4963,13 @@ jobs:
           retention-days: 1
 
       - name: Compile string catalogs into the resource bundles
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
         working-directory: Packages/macOS/CmuxNext
         run: ../../../scripts/cmux-next/compile-string-catalogs.sh
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-57
       - name: Clean generated layout-reducer FFI lockfile
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
         run: |
           lock=cmux-tui/crates/cmux-app-ffi/Cargo.lock
           if git ls-files --error-unmatch "$lock" >/dev/null 2>&1; then
@@ -4919,6 +4979,7 @@ jobs:
           fi
 
       - name: Fetch the same-tree cmux-tui
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
         timeout-minutes: 50
         env:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-259
@@ -4930,10 +4991,12 @@ jobs:
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
 
       - name: Check the same-tree cmux-tui serves the app's daemon capabilities
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
         timeout-minutes: 2
         run: scripts/cmux-next/check-daemon-capabilities.sh
 
       - name: Run the live-daemon suites
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
         timeout-minutes: 20
         working-directory: Packages/macOS/CmuxNext
         env:
@@ -4942,7 +5005,7 @@ jobs:
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter '^(CmuxNextDaemonTests|CmuxNextMobileTests)\.|FirstLaunchTests|MarkdownPageFindTests|FileSourceSwitchTests|ClassicImportTests|ClassicMigrationTests|ClassicUpgradeSimulationTests' --skip BranchStateResourcesTests
 
       - name: Run state-resource regressions
-        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' }}
+        if: ${{ (!cancelled() && steps.build-tests.outcome == 'success') && steps.reuse.outputs.hit != 'true' }}
         timeout-minutes: 10
         working-directory: Packages/macOS/CmuxNext
         env:
@@ -4952,7 +5015,7 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-58
       - name: Regenerate stale files
         id: regenerate
-        if: ${{ !cancelled() && (steps.actions.outcome == 'failure' || steps.settings.outcome == 'failure') }}
+        if: ${{ (!cancelled() && (steps.actions.outcome == 'failure' || steps.settings.outcome == 'failure')) && steps.reuse.outputs.hit != 'true' }}
         run: |
           set -euo pipefail
           if [[ "${{ steps.actions.outcome }}" == failure ]]; then
@@ -4980,7 +5043,7 @@ jobs:
           fi
 
       - name: Upload the regenerated files
-        if: ${{ !cancelled() && steps.regenerate.outputs.patch == 'true' }}
+        if: ${{ (!cancelled() && steps.regenerate.outputs.patch == 'true') && steps.reuse.outputs.hit != 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-next-generated-patch
@@ -4991,7 +5054,7 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-261
       - name: Give the generated files verdict
         id: generated-files-verdict
-        if: ${{ !cancelled() && env.CMUX_NEXT_FOLD_GENERATED == 'true' }}
+        if: ${{ (!cancelled() && env.CMUX_NEXT_FOLD_GENERATED == 'true') && steps.reuse.outputs.hit != 'true' }}
         env:
           ACTIONS: ${{ steps.actions.outcome }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-262
@@ -5044,7 +5107,7 @@ jobs:
           rm -rf "$home"
 
       - name: Upload the test helper's crash reports
-        if: ${{ failure() }}
+        if: ${{ (failure()) && steps.reuse.outputs.hit != 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: daemon-test-crash-reports-${{ github.run_attempt }}
@@ -5058,6 +5121,25 @@ jobs:
   # (scripts/ci/base_red_skip.py: fails open, 10% of skips still run as the audit, label full-ci runs it,
   # vars.CI_SKIP_WHILE_BASE_RED == '0' turns it off). 2026-11-24: 0 of 37 PR runs green in 2 h, about 10k min a day.
   # Why: docs/ci/cmux-next-workflow-notes.md#note-556
+
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-daemon-reuse
+      - name: Record this pass for the same inputs
+        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && (env.CMUX_NEXT_FOLD_GENERATED != 'true' || steps.generated-files-verdict.outputs.verdict == 'fresh') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/ci-job-pass"
+          printf '%s\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" > "$RUNNER_TEMP/ci-job-pass/pass.txt"
+
+      - name: Save the pass
+        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && (env.CMUX_NEXT_FOLD_GENERATED != 'true' || steps.generated-files-verdict.outputs.verdict == 'fresh') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.reuse-key.outputs.key }}
+          path: ${{ runner.temp }}/ci-job-pass
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
+
   generated-files-base-red:
     needs: [path_route]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.path_route.outputs.generated_host == 'generated-files' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
@@ -5825,6 +5907,22 @@ jobs:
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
 
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-fleet-fallback
+      - name: Say why this runs on a Mac (fleet fallback)
+        continue-on-error: true
+        env:
+          FLEET_RESULT: ${{ github.event_name == 'pull_request' && needs.app-compile-fleet.result || needs.release-compile-fast.result }}
+          FLEET_VERDICT: ${{ github.event_name == 'pull_request' && needs.app-compile-fleet.outputs.verdict || needs.release-compile-fast.outputs.verdict }}
+          FLEET_JOB_NAME: ${{ github.event_name == 'pull_request' && 'cmux-next app compile (build fleet)' || 'cmux-next Release compile (fleet fast check)' }}
+          FLEET_GATE_0: "manaflow-ai repository=${{ github.repository_owner == 'manaflow-ai' }}"
+          FLEET_GATE_1: "compile gateway is set (pull requests)=${{ github.event_name != 'pull_request' || vars.CI_COMPILE_CHECK_GATEWAY != '' }}"
+          FLEET_GATE_2: "same-repository pull request=${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}"
+          FLEET_GATE_3: "no full-ci label (pull requests)=${{ github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'full-ci') }}"
+          FLEET_GATE_4: "a feat-cmux-next push (pushes)=${{ github.event_name == 'pull_request' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}"
+        run: >-
+          python3 -I scripts/ci/fleet_fallback.py --job "cmux-next Release compile (Xcode 26)" --fleet "$FLEET_JOB_NAME"
+          --result "$FLEET_RESULT" --verdict "$FLEET_VERDICT" --gate "$FLEET_GATE_0" --gate "$FLEET_GATE_1" --gate "$FLEET_GATE_2" --gate "$FLEET_GATE_3" --gate "$FLEET_GATE_4"
+
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
@@ -6227,6 +6325,21 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-304
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
+
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-fleet-fallback
+      - name: Say why this runs on a Mac (fleet fallback)
+        if: ${{ inputs.dev_daily != true && env.CMUX_SCHEME_FLEET_JOB == '' }}
+        continue-on-error: true
+        env:
+          FLEET_RESULT: ${{ needs.cmux-scheme-compile-fleet.result }}
+          FLEET_VERDICT: ${{ needs.cmux-scheme-compile-fleet.outputs.verdict }}
+          FLEET_JOB_NAME: "cmux app scheme compile (build fleet)"
+          FLEET_GATE_0: "CI_SCHEME_COMPILE_FLEET is not 0=${{ vars.CI_SCHEME_COMPILE_FLEET != '0' }}"
+          FLEET_GATE_1: "manaflow-ai repository=${{ github.repository_owner == 'manaflow-ai' }}"
+          FLEET_GATE_2: "same-repository pull request=${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}"
+        run: >-
+          python3 -I scripts/ci/fleet_fallback.py --job "cmux app scheme compile (Debug)" --fleet "$FLEET_JOB_NAME"
+          --result "$FLEET_RESULT" --verdict "$FLEET_VERDICT" --gate "$FLEET_GATE_0" --gate "$FLEET_GATE_1" --gate "$FLEET_GATE_2"
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
