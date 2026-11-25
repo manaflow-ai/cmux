@@ -777,11 +777,15 @@ export type ModelsState = {
   /** `attempt`: a Continue with ChatGPT sign-in waiting on the browser; `error`: the last one's
    * failure code (`access_denied`, `no_chatgpt_account`, ...). */
   chatgpt: { attempt: string | null; error: string | null };
+  /** `claude setup-token` run by the app with no terminal tab: `waiting` on the person's approval in
+   * the browser, `error` why the last run saved no token. Absent from an older app. */
+  claudeSetup?: { waiting: boolean; error: string | null };
 };
 
 /** One Settings > Models gesture. `addKey`, `addClaudeToken` and `orgKey` carry a pasted secret once:
  * the app moves it into the Keychain and passes acpmux or the team only a reference.
- * `claudeSetupToken` opens a cmux terminal tab running `claude setup-token`. */
+ * `claudeSetupToken` runs `claude setup-token` with no terminal tab and saves the token it prints
+ * (`claudeSetup` in the state while it waits); `cancelClaudeSetupToken` stops it. */
 export type ModelsRun =
   | { action: "order"; ids: string[] }
   | { action: "spread"; on: boolean }
@@ -790,7 +794,8 @@ export type ModelsRun =
   | { action: "connectChatGPT"; id?: string }
   | { action: "cancelChatGPT" }
   | { action: "connectClaude" }
-  | { action: "claudeSetupToken" }
+  | { action: "claudeSetupToken"; label?: string }
+  | { action: "cancelClaudeSetupToken" }
   | { action: "addClaudeToken"; token: string; label?: string }
   | { action: "addKey"; provider: ModelProvider; key: string; label?: string }
   | { action: "orgKey"; agent: "claude" | "codex"; key: string | null }

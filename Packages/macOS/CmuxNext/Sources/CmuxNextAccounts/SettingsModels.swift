@@ -10,8 +10,9 @@ import Observation
 /// the React Settings page's `cmux.settings.models.state|run` and its `.changed` stream.
 ///
 /// Every run maps to one owner: acpmux for the person's connections (order, spread, enable, remove,
-/// Sign in with ChatGPT, an API key, a Claude setup token), the existing Claude account sign-in and a
-/// terminal tab running `claude setup-token` (``SettingsHarnesses``), the owner API for the team's keys
+/// Sign in with ChatGPT, an API key, a Claude setup token), the existing Claude account sign-in
+/// (``SettingsHarnesses``), `claude setup-token` run with no terminal tab (``ClaudeSetupTokenCapture``),
+/// the owner API for the team's keys
 /// (``TeamAgentKeys``) and policy (``TeamModelsPolicy``). Revision 2: no team gateway.
 ///
 /// A pasted API key or setup token goes into this Mac's Keychain (``ModelKeyStoring``) before anything
@@ -39,6 +40,10 @@ public final class SettingsModels {
     private(set) var read = false
     private(set) var chatgptAttempt: String?
     private(set) var chatgptError: String?
+    /// `claude setup-token` running with no terminal tab (``ClaudeSetupTokenCapture``): waiting on the
+    /// person's approval in the browser, and why the last run saved no token.
+    private(set) var claudeSetupWaiting = false
+    private(set) var claudeSetupError: String?
 
     @ObservationIgnored let environment: @MainActor () -> AcpmuxEnvironment?
     @ObservationIgnored private let call: (@Sendable (AcpmuxEnvironment, AcpmuxHarnessMethod, [String: any Sendable]) async throws -> Data)?
@@ -57,12 +62,15 @@ public final class SettingsModels {
     @ObservationIgnored private(set) var chatgptTask: Task<Void, Never>?
     @ObservationIgnored private var watch: Task<Void, Never>?
     @ObservationIgnored private var watchers = 0
+    @ObservationIgnored private let setupToken: (@Sendable () async throws -> String)?
+    @ObservationIgnored private(set) var claudeSetupTask: Task<Void, Never>?
 
     /// - Parameters:
     ///   - call: a test's stand-in for the daemon; nil calls it (``AcpmuxEnvironment/harness(_:params:)``).
     ///   - openURL: opens the ChatGPT sign-in page in the person's browser, in the background.
     ///   - team: the active team's id and name; nil signed out or for the personal team.
     ///   - spreadSetting, writeSpreadSetting: `models.spreadUsage`, read and written through the settings writer.
+    ///   - setupToken: a test's stand-in for `claude setup-token`; nil runs it (``ClaudeSetupTokenCapture``).
     public init(environment: @escaping @MainActor () -> AcpmuxEnvironment?,
                 call: (@Sendable (AcpmuxEnvironment, AcpmuxHarnessMethod, [String: any Sendable]) async throws -> Data)? = nil,
                 keys: any ModelKeyStoring,
@@ -72,7 +80,8 @@ public final class SettingsModels {
                 agentKeys: TeamAgentKeys? = nil,
                 policy: TeamModelsPolicy? = nil,
                 spreadSetting: (@MainActor () -> Bool)? = nil,
-                writeSpreadSetting: (@MainActor (Bool) async throws -> Void)? = nil) {
+                writeSpreadSetting: (@MainActor (Bool) async throws -> Void)? = nil,
+                setupToken: (@Sendable () async throws -> String)? = nil) {
         self.environment = environment
         self.call = call
         self.keys = keys
@@ -83,6 +92,7 @@ public final class SettingsModels {
         self.policy = policy
         self.spreadSetting = spreadSetting
         self.writeSpreadSetting = writeSpreadSetting
+        self.setupToken = setupToken
     }
 
     // MARK: State
@@ -107,6 +117,7 @@ public final class SettingsModels {
             ],
             "members": members,
             "chatgpt": ["attempt": chatgptAttempt.map(JSONValue.string) ?? .null, "error": chatgptError.map(JSONValue.string) ?? .null],
+            "claudeSetup": ["waiting": .bool(claudeSetupWaiting), "error": claudeSetupError.map(JSONValue.string) ?? .null],
         ]
     }
 
@@ -261,9 +272,20 @@ public final class SettingsModels {
             guard let harnesses else { throw PageError.unavailable("Claude sign-in is not available here") }
             try await harnesses.connectClaude(context: context)
         case "claudeSetupToken":
-            // The person's own gesture: a new terminal tab in their window runs Claude Code's `claude setup-token`.
-            guard let harnesses else { throw PageError.unavailable("no terminal tab could be opened on this Mac") }
-            try await harnesses.typeLine("claude setup-token")
+            // The person's own gesture: Claude Code's `claude setup-token` runs with no terminal tab, opens
+            // their browser, and the token it prints is saved as a pasted one is: nothing to copy.
+            let capture: @Sendable () async throws -> String
+            if let setupToken {
+                capture = setupToken
+            } else {
+                guard let claude = harnesses?.claudeProgram ?? ClaudeSetupTokenCapture.installed() else {
+                    throw PageError.unavailable("Claude Code isn't installed on this Mac")
+                }
+                capture = { try await ClaudeSetupTokenCapture.run(claude: claude) }
+            }
+            startClaudeSetupToken(capture, label: params["label"]?.stringValue)
+        case "cancelClaudeSetupToken":
+            endClaudeSetupToken(error: nil)
         case "addClaudeToken":
             try await addClaudeToken(params["token"]?.stringValue ?? "", label: params["label"]?.stringValue)
         case "addKey":
@@ -282,6 +304,40 @@ public final class SettingsModels {
             throw PageError.invalidParams("unknown models action \(action)")
         }
         return .object([:])
+    }
+
+    /// Runs CAPTURE (`claude setup-token`) in place of a run already waiting and saves the token it
+    /// answers with LABEL; the page reads `claudeSetup` meanwhile.
+    private func startClaudeSetupToken(_ capture: @escaping @Sendable () async throws -> String, label: String?) {
+        claudeSetupTask?.cancel()
+        claudeSetupWaiting = true
+        claudeSetupError = nil
+        // task-owner: SettingsModels.claudeSetupTask: one setup-token run; a new run or Cancel replaces it.
+        claudeSetupTask = Task { [weak self] in
+            let token: String
+            do {
+                token = try await capture()
+            } catch {
+                guard !Task.isCancelled else { return }
+                self?.endClaudeSetupToken(error: "claude setup-token printed no token. Paste it below instead.")
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            do {
+                try await self.addClaudeToken(token, label: label)
+                self.endClaudeSetupToken(error: nil)
+            } catch {
+                self.endClaudeSetupToken(error: "The token claude setup-token printed could not be saved.")
+            }
+        }
+    }
+
+    /// Ends the setup-token run (Cancel stops the CLI), with why it saved no token.
+    private func endClaudeSetupToken(error: String?) {
+        claudeSetupTask?.cancel()
+        claudeSetupTask = nil
+        claudeSetupWaiting = false
+        claudeSetupError = error
     }
 
     /// A connection id the last read listed.
