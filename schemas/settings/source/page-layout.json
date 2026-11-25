@@ -177,7 +177,7 @@
             {"group": "settings.group.workspaceRows"},
             {"title": {"key": "settings.pageGroup.sidebarExtras", "text": "Sidebar Buttons and Spaces"}, "keys": [
               "sidebar.showSpaces", "sidebar.spacesPosition", "sidebar.spacesVisibility", "sidebar.showProfileControl",
-              "sidebar.showSearchButton", "sidebar.showNewWorkspaceChooser", "sidebar.cards.tips", "sidebar.nowPlaying.enabled", "sidebar.nowPlaying.otherApps",
+              "sidebar.showSearchButton", "sidebar.showLiveToggle", "presence.live", "sidebar.showNewWorkspaceChooser", "sidebar.cards.tips", "sidebar.nowPlaying.enabled", "sidebar.nowPlaying.otherApps",
               "home.channelsEnabled"
             ]},
             {"title": {"key": "settings.pageGroup.workspaceCards", "text": "Workspace Hover Cards"}, "keys": [
