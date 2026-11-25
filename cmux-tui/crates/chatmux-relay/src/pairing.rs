@@ -8,7 +8,6 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use futures_util::{SinkExt as _, StreamExt as _};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::config::Config;
@@ -186,9 +185,10 @@ pub async fn await_ceremony(
     platform: &str,
 ) -> Result<PairedOutcome, RelayError> {
     let socket_url = websocket_url(&format!("{backend}/v2/pairing/{}/socket", started.pair_id));
-    let (mut socket, _response) = connect_async(socket_url.as_str())
-        .await
-        .map_err(|error| RelayError::transient(format!("pairing socket failed: {error}")))?;
+    let (mut socket, _response) =
+        cmux_egress::ws::connect_async(socket_url.as_str(), "chatmux_relay::pairing")
+            .await
+            .map_err(|error| RelayError::transient(format!("pairing socket failed: {error}")))?;
     let authenticate = serde_json::json!({
         "version": PAIRING_WIRE_VERSION,
         "type": "authenticate",
