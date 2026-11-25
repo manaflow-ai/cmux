@@ -14,10 +14,15 @@
 //! <- {"type":"ask","id":N,"question":{"session","agent","app":{"id","name"},"remember","from_machine"}}
 //! -> {"type":"answer","id":N,"answer":"allow_once|allow_session|always|deny|never|unavailable"}
 //! -> {"type":"session","action":"stop|resume","session":S,"label":L}
+//! <- {"type":"replaced"}
 //! ```
 //!
 //! The worker serves the agent socket ([`crate::server`]) until stdin
-//! closes, then stops serving and exits. A question nobody answers in
+//! closes, then stops serving and exits. It also exits when its own
+//! executable was replaced on disk (an updated helper or cmux-tui,
+//! [`crate::replaced`]): new calls are refused, the running ones finish, then
+//! it says `replaced` and exits, and the daemon starts the new executable at
+//! once. The bridge retries the refused calls there, so agents never notice. A question nobody answers in
 //! [`ASK_TIMEOUT`] is `unavailable` (the call is refused, nothing is saved).
 //! Grants and saved approvals live in `state_dir`, so a restarted worker
 //! keeps them.
@@ -26,7 +31,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{SyncSender, sync_channel};
+use std::sync::mpsc::{Sender, SyncSender, channel, sync_channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -199,17 +204,46 @@ fn prepare_state_dir(dir: &std::path::Path) -> Result<(), String> {
 }
 
 /// Runs the worker on the given control channel with this machine's desktop.
-pub fn run_stdio(input: impl BufRead, output: impl Write + Send + 'static) -> i32 {
+pub fn run_stdio(input: impl BufRead + Send + 'static, output: impl Write + Send + 'static) -> i32 {
     run(input, output, platform, ASK_TIMEOUT)
 }
 
-/// [`run_stdio`] with the platform and the question timeout given (tests).
+/// [`run_stdio`] with the platform and the question timeout given. It hands
+/// over to a replaced executable: this process's own, as it is now.
 pub fn run(
-    mut input: impl BufRead,
+    input: impl BufRead + Send + 'static,
     output: impl Write + Send + 'static,
     platform: impl FnOnce() -> Result<Platform, String>,
     ask_timeout: Duration,
 ) -> i32 {
+    run_watching(input, output, platform, ask_timeout, std::env::current_exe().ok())
+}
+
+/// One line of the control loop's input.
+enum Event {
+    Line(String),
+    /// stdin closed.
+    Closed,
+    /// The executable was replaced and the last admitted call ended.
+    Replaced,
+}
+
+/// [`run`] watching `executable` (None: never hands over; tests give a scratch file).
+pub fn run_watching(
+    mut input: impl BufRead + Send + 'static,
+    output: impl Write + Send + 'static,
+    platform: impl FnOnce() -> Result<Platform, String>,
+    ask_timeout: Duration,
+    executable: Option<PathBuf>,
+) -> i32 {
+    // The file as it is at start, before anything else can swap it.
+    let (events, inbox) = channel::<Event>();
+    let swap = executable.map(|path| {
+        let events = Mutex::new(events.clone());
+        crate::replaced::Swap::new(path, move || {
+            let _ = lock(&events).send(Event::Replaced);
+        })
+    });
     let out: Out = Arc::new(Mutex::new(Box::new(output)));
     let mut line = String::new();
     let configure = match input.read_line(&mut line) {
@@ -258,11 +292,16 @@ pub fn run(
     parts.approver = approver.clone();
     parts.machine_name = configure.machine;
     let engine = Arc::new(Engine::new(parts));
-    let server = match crate::server::serve(
-        Arc::clone(&engine),
-        &configure.socket,
-        &configure.secret,
-    ) {
+    let served = match &swap {
+        Some(swap) => crate::server::serve_replaceable(
+            Arc::clone(&engine),
+            &configure.socket,
+            &configure.secret,
+            Arc::clone(swap),
+        ),
+        None => crate::server::serve(Arc::clone(&engine), &configure.socket, &configure.secret),
+    };
+    let server = match served {
         Ok(server) => server,
         Err(error) => {
             emit(
@@ -272,19 +311,57 @@ pub fn run(
             return EXIT_UNAVAILABLE;
         }
     };
-    emit(&out, &json!({"type": "ready", "pid": std::process::id(), "socket": configure.socket}));
-    loop {
-        line.clear();
-        match input.read_line(&mut line) {
-            Ok(0) | Err(_) => break,
-            Ok(_) => {}
-        }
-        let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
-        control(&engine, &approver, &out, &message);
+    // stdin on its own thread, so a replaced executable can end the loop too.
+    if let Err(error) = read_control(input, events) {
+        emit(
+            &out,
+            &json!({"type": "unavailable", "reason": format!("cannot read stdin: {error}")}),
+        );
+        server.stop();
+        return EXIT_UNAVAILABLE;
     }
+    emit(&out, &json!({"type": "ready", "pid": std::process::id(), "socket": configure.socket}));
+    let replaced = loop {
+        match inbox.recv() {
+            Ok(Event::Line(line)) => {
+                let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
+                control(&engine, &approver, &out, &message);
+            }
+            Ok(Event::Replaced) => break true,
+            Ok(Event::Closed) | Err(_) => break false,
+        }
+    };
     approver.close();
     server.stop();
+    if replaced {
+        emit(&out, &json!({"type": "replaced"}));
+    }
     EXIT_OK
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Forwards the control lines after `configure` to the loop, then [`Event::Closed`].
+fn read_control(
+    mut input: impl BufRead + Send + 'static,
+    events: Sender<Event>,
+) -> std::io::Result<()> {
+    std::thread::Builder::new().name("cmux-cu-control".into()).spawn(move || {
+        loop {
+            let mut line = String::new();
+            match input.read_line(&mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+            if events.send(Event::Line(line)).is_err() {
+                return;
+            }
+        }
+        let _ = events.send(Event::Closed);
+    })?;
+    Ok(())
 }
 
 fn control(engine: &Engine, approver: &StdioApprover, out: &Out, message: &Value) {

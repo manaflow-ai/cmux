@@ -1,0 +1,12 @@
+{
+  "untitled": "未命名曲目",
+  "previous": "上一首",
+  "back": "后退 15 秒",
+  "pause": "暂停",
+  "play": "播放",
+  "forward": "前进 15 秒",
+  "next": "下一首",
+  "unavailable": "无法获取媒体",
+  "empty": "当前没有播放内容",
+  "start": "在 cmux 中播放音乐或视频。"
+}

@@ -6,7 +6,7 @@
 // the prompt waits for its agent to start, the same line already reads "Thinking", with no start
 // status and no Cancel (Leo, 2026-11-01), so the line keeps one place and one look from send to
 // the first output (cx-ncc.58). Only the status is the live region. While the chat waits on the person (an
-// ask above the composer, waitingOn.ts), the line says that instead, with no time and no sweep:
+// ask above the composer, waitingOn.ts), the line says that instead, with no time, under the same sweep (Leo, 2026-11-22: all in the thinking spot glimmers):
 // never "Thinking" while the agent is blocked on them. It reads as Claude desktop's "Needs your input"
 // pill: the attention dot and the words on a tinted pill. Once answered, the dot shrinks into the
 // Thinking line that takes its place (Leo, 2026-11-05: "there's a little animation that plays. It,
@@ -25,6 +25,7 @@ import { RunningTime } from "./RunningTime";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { LiveShimmer } from "./LiveShimmer";
+import { ThinkingGlyph } from "./ThinkingGlyph";
 import { JumpDots } from "./JumpDots";
 import { useThinkingLook } from "./thinkingLook";
 import { Slot } from "../../../slots/Slot";
@@ -43,6 +44,8 @@ import type { AcpmuxCompaction, AcpmuxTurnRetry } from "../model";
 import { retryParts, SILENT_MS, WRITING_MS, liveLead } from "./thinkingModel";
 import { CACHE_EXPIRY_REASON } from "./cacheCompaction";
 import type { LiveLinePulse } from "./liveLinePulse";
+import { type LiveWait, subagentsLabel, waitingLabel } from "./liveWait";
+import "../../../ui/motion/motion.css";
 /// False while `key` changed in the last `ms`, true once it held still that long (or there is none).
 /// `since`, when known, is when the key's text was written: a key that was already that old when the
 /// line mounted (a chat opened long after its reply paused) is quiet from the first frame, instead
@@ -364,7 +367,7 @@ function arriveMs(node: Element): number {
 
 /// `doing`, `doingAt`, `doingShell`, `draft`, `untimed`, `quietKey`: the Codex-style live line at the
 /// bottom of a running turn (conversation/turns.ts `codexLiveTurn`), the turn's one live block, which
-/// each step replaces in place: "Thinking 18s" (the turn's time), the call in flight ("Running bun test 13s", or what it says it does, "Run the
+/// each step replaces in place: "Thinking 18s" (the turn's time), the call in flight ("bun test 13s", or what it says it does, "Run the
 /// web tests 13s"), the latest finished step until the next starts (`done`, "Ran grep … 15s"), or
 /// "Writing a command 9s" while the agent still writes the command (`draft`). With no call it names
 /// what the turn does instead: "Waiting on 2 subagents", "Writing", else "Thinking" (`liveState`).
@@ -432,15 +435,13 @@ function LiveWords({
   const selected = useSlotVariant(thinkingIndicatorSlot);
   const builtIn = slotVariant(thinkingIndicatorSlot, selected)?.component === DefaultThinkingIndicator;
   if (decorative && !builtIn) return <Slot slot={thinkingIndicatorSlot} props={indicator} />;
-  return (
-    <LiveShimmer
-      label={indicator.label}
-      verbs={decorative ? indicator.verbs : undefined}
-      lead={lead}
-      elapsed={indicator.elapsed}
-    />
-  );
+  return <LiveShimmer label={indicator.label} verbs={decorative ? indicator.verbs : undefined} lead={lead} />;
 }
+
+/// The one shimmer every status in the live spot draws with (conversation.css `.cv-thinking.is-shimmer`):
+/// "Thinking", a step, "Sending message to …", "Waiting", "Writing", a compaction, a retry and a wait
+/// on the person alike.
+export const SHIMMER_CLASS = "is-shimmer";
 
 export function Thinking({
   starting = false,
@@ -458,10 +459,12 @@ export function Thinking({
   doneMs,
   liveState,
   liveAgents = 0,
+  liveAgentNames,
   liveCompaction,
   phaseAt,
   heardAt,
   heardKey,
+  liveWait,
   waitAt,
   turnTotal = false,
   untimed = false,
@@ -472,6 +475,7 @@ export function Thinking({
   command = false,
   retry,
   pulse,
+  glyphTrigger = starting ? "turnStart" : "thinking",
 }: {
   /// The prompt waits for its agent to start (harnessSwitch.ts): the start look's arm draws it.
   starting?: boolean;
@@ -501,6 +505,8 @@ export function Thinking({
   /// running, timed from `doingAt`). Otherwise it reads "Thinking".
   liveState?: "subagents" | "writing" | "compacting";
   liveAgents?: number;
+  /// The subagents' names (turns.ts `foregroundAgentNames`): "Waiting on subagent Explore auth".
+  liveAgentNames?: readonly string[];
   liveCompaction?: AcpmuxCompaction;
   /// "Thinking" past the first step: when this stretch of thinking began (turns.ts `liveClock`), the
   /// time beside the word ticking from it; and when the turn last heard anything (`heardAt`, and
@@ -508,6 +514,10 @@ export function Thinking({
   phaseAt?: number;
   heardAt?: number;
   heardKey?: string;
+  /// What a silent line waits on (liveWait.ts): "Waiting on the model after Read App.tsx", never a
+  /// bare "Waiting" (Leo, 2026-11-22: "everything that goes in there write more detailed things than
+  /// just waiting").
+  liveWait?: LiveWait;
   /// "Waiting on N subagents": when that wait began (turns.ts `codexLiveTurn`), the time beside the
   /// words ticking from it, or from when the line itself turned to the wait, whichever is later.
   waitAt?: number;
@@ -531,8 +541,11 @@ export function Thinking({
   retry?: AcpmuxTurnRetry;
   /// The transcript's live line hears its chunks and events here without a draw (liveLinePulse.ts).
   pulse?: LiveLinePulse;
+  /// What a look's thinking glyph plays (thinkingGlyphModel.ts `glyphTrigger`, from the row's activity).
+  glyphTrigger?: string;
 } = {}) {
   const t = useT();
+  const thinkingGlyph = useThinkingLook().glyph;
   const waiting = useContext(WaitingOnContext);
   const { jumpButton } = useThinkingLook();
   const [answered, settled] = useAnswered(waiting);
@@ -554,6 +567,8 @@ export function Thinking({
   // liveTurnClock.experiment.ts `top`) while it could fall silent, so it can say "Waiting".
   const listening = !waiting && turnTotal && heardAt !== undefined && doing === undefined;
   const time = useTicking(timed || listening, now);
+  // The countdown to the harness's next try ticks each second while a deadline is announced.
+  const retryNow = useTicking(retry?.retryAt !== undefined, now);
   const statusVerbConfig = useStatusVerbConfig();
   const thinkingVerbs = useContext(ThinkingVerbsContext);
   const verbs = useMemo(
@@ -599,34 +614,37 @@ export function Thinking({
   // 39 seconds").
   const waitFrom = waitAt === undefined ? stateChanged : Math.max(waitAt, stateChanged ?? waitAt);
   const decorative = thinkingNow && !silent;
+  const idleLabel = compacting
+    ? t(
+        liveCompaction?.reason === "account_switch"
+          ? "compaction.runningAccountSwitch"
+          : liveCompaction?.reason === CACHE_EXPIRY_REASON
+            ? "compaction.runningCacheExpiry"
+            : "turn.live.compacting",
+      )
+    : waitsOnAgents
+      ? subagentsLabel(t, liveAgents, liveAgentNames)
+      : writing
+        ? t("turn.live.writing")
+        : silent
+          ? waitingLabel(t, liveWait)
+          : (turnVerb ??
+            (statusVerbConfig.mode === "custom" ? statusVerbAt(elapsedMs, { mode: "custom", verbs }) : t("thinking")));
   const label =
     doing === undefined
-      ? compacting
-        ? t(
-            liveCompaction?.reason === "account_switch"
-              ? "compaction.runningAccountSwitch"
-              : liveCompaction?.reason === CACHE_EXPIRY_REASON
-                ? "compaction.runningCacheExpiry"
-                : "turn.live.compacting",
-          )
-        : waitsOnAgents
-          ? t("turn.live.waitingOnSubagents", { n: liveAgents })
-          : writing
-            ? t("turn.live.writing")
-            : silent
-              ? t("turn.live.waiting")
-              : (turnVerb ??
-                (statusVerbConfig.mode === "custom"
-                  ? statusVerbAt(elapsedMs, { mode: "custom", verbs })
-                  : t("thinking")))
+      ? idleLabel
       : sendName !== undefined
         ? t("send.sending", { target: sendName })
         : doingShell
           ? doing
-            ? t(done ? "tools.ranCommand" : "tools.runningCommand", { command: doing })
+            ? done
+              ? t("tools.ranCommand", { command: doing })
+              : doing
             : draft
               ? t("tools.writingCommand")
-              : t(done ? "tools.ranUnnamed" : "tools.runningUnnamed")
+              : done
+                ? t("tools.ranUnnamed")
+                : idleLabel
           : doing;
   const lead = doing === undefined ? undefined : liveLead(label, verbLeads(t), !doingShell && sendName === undefined);
   // A retry or a start look draws other words in place of the line: coming back rolls nothing.
@@ -702,12 +720,9 @@ export function Thinking({
           // turn's, which read 7m 39s for a two-minute wait (Leo, 2026-11-20).
           formatDuration(ownMs)
         : (own ?? turnTime);
-  // Background-work counts remain available when the running tray is off.
+  // What follows the time (the page a background command serves); the tray counts the running work.
   const counts = useContext(WorkingCountsContext);
-  // The label already names the subagents it waits on: no second count of them.
-  const parts = (counts && !waiting ? workingParts(t, counts) : []).filter(
-    (part) => !(liveState === "subagents" && part.key === "agents"),
-  );
+  const parts = counts && !waiting ? workingParts(counts) : [];
   // What follows the words, as text: their time, the turn's clock and counts, for the old line's copy
   // to roll out with them (`useRoll`).
   const tail = [
@@ -719,8 +734,9 @@ export function Thinking({
     .join(" · ");
   const roll = useRoll(away ? undefined : decorative ? "" : sameCall ? `\u0000${call}` : label, label, lead, tail);
   const lineRef = useRef<HTMLDivElement>(null);
-  // A wait draws its words plainly, like a calm compaction: no sweep says work goes on.
-  const calm = compactLook === "calm" || silent;
+  // Every status in this spot shimmers as "Thinking" does, a wait and each compaction look too: one
+  // look for the live spot, no plain or white special case (Leo, 2026-11-22: "the "waiting" also
+  // shouldnt be special cased as white. all in the "thinking" spot should glimmer like that").
   // Everything the line draws that sizes or places its words and counts; a streamed chunk changes
   // none of it (its `quietKey` and `heardKey` only time the line).
   const moved = useLineMoved(lineRef, [
@@ -728,7 +744,6 @@ export function Thinking({
     waiting,
     asked,
     answered,
-    calm,
     decorative,
     compacting,
     label,
@@ -750,21 +765,34 @@ export function Thinking({
   // A model the harness cannot reach: said calmly in the line's own box, so nothing moves when it
   // starts or ends (Leo, 2026-11-03). What the chat waits on the person for still comes first.
   if (retry && !waiting) {
-    const parts = retryParts(t, retry);
+    const parts = retryParts(t, retry, retryNow);
     return (
       <div
         className={`cv-worked cv-worked--live${below ? " is-below" : ""}`}
         data-find-skip
         data-lead-slot
         data-retrying=""
+        title={parts.detail}
       >
-        <output className="cv-thinking cv-retrying">{parts.label}</output>
+        <output className={`cv-thinking ${SHIMMER_CLASS} cv-retrying`}>
+          <span className="cv-shimmer__row">
+            <LiveShimmer label={parts.label} />
+          </span>
+        </output>
         <span className="cv-worked__count">
           <span className="cv-worked__sep" aria-hidden="true">
             ·
           </span>
           {parts.count}
         </span>
+        {parts.countdown && (
+          <span className="cv-worked__count" data-retry-countdown="">
+            <span className="cv-worked__sep" aria-hidden="true">
+              ·
+            </span>
+            {parts.countdown}
+          </span>
+        )}
         {parts.error && (
           <span className="cv-worked__count cv-retrying__error">
             <span className="cv-worked__sep" aria-hidden="true">
@@ -793,21 +821,30 @@ export function Thinking({
       className={`cv-worked cv-worked--live${below ? " is-below" : ""}`}
       data-find-skip
       data-compacting={compacting && !waiting ? "" : undefined}
-      // The line's tail rolls in with its words (conversation.css `cv-roll-*`).
+      // The line's tail rolls in with its words (conversation.css `cv-roll-*`), through the shared
+      // text roll's faded edges and on its clock (ui/motion/TextRoll.tsx, motion.css `data-text-roll`).
       data-roll={waiting || roll.turns === 0 ? undefined : roll.turns % 2 ? "odd" : "even"}
+      data-text-roll-host=""
+      data-text-roll={waiting || roll.turns === 0 ? undefined : roll.turns % 2 ? "odd" : "even"}
     >
       {waiting ? (
-        <output className="cv-thinking cv-waiting" data-waiting={waiting}>
+        <output className={`cv-thinking ${SHIMMER_CLASS} cv-waiting`} data-waiting={waiting}>
           <span
             className={`cv-needs-input-glyph${asked ? " is-asked" : ""}`}
             aria-hidden="true"
             onAnimationEnd={asked ? grown : undefined}
           />
-          <span className="cv-waiting__pill">{t(WAITING_LABEL[waiting])}</span>
+          <span className="cv-waiting__pill">
+            <span className="cv-shimmer__row">
+              <LiveShimmer label={t(WAITING_LABEL[waiting])} />
+            </span>
+          </span>
         </output>
       ) : (
         <span className="cv-shimmer__row">
-          {activityDots && jumpButton === "dots" && !calm && !done && !answered && <JumpDots inline />}
+          {/* A look's thinking dots before the words (thinkingLook.ts `glyph`, unset by default). */}
+          {thinkingGlyph && <ThinkingGlyph className="cv-thinking-glyph" doc={thinkingGlyph} trigger={glyphTrigger} />}
+          {activityDots && jumpButton === "dots" && !done && !answered && <JumpDots inline />}
           {answered && (
             <span className="cv-needs-input-glyph is-answered" aria-hidden="true" onAnimationEnd={settled} />
           )}
@@ -836,23 +873,19 @@ export function Thinking({
             />
           )}
           <output
-            className={`cv-thinking${calm ? "" : " is-shimmer"}`}
+            className={`cv-thinking ${SHIMMER_CLASS}`}
             data-roll={roll.turns === 0 ? undefined : roll.turns % 2 ? "odd" : "even"}
             aria-label={decorative ? t("thinking") : undefined}
             aria-live={decorative ? "off" : undefined}
           >
-            {calm ? (
-              label
-            ) : (
-              <LiveWords
-                decorative={decorative}
-                label={label}
-                lead={lead}
-                verbs={verbs}
-                elapsed={elapsed}
-                elapsedMs={elapsedMs}
-              />
-            )}
+            <LiveWords
+              decorative={decorative}
+              label={label}
+              lead={lead}
+              verbs={verbs}
+              elapsed={elapsed}
+              elapsedMs={elapsedMs}
+            />
           </output>
           {elapsed && (
             // tooltip-allow: a time; the tooltip is the one place the whole turn's time shows.

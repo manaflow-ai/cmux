@@ -113,18 +113,22 @@ pub fn open_decoder(codec: Codec, threads: u32) -> Res<Option<Box<dyn VideoDecod
     })
 }
 
-/// OpenH264's decoder (from source; the bench's and the Linux viewer's).
-pub struct H264Decoder(openh264::decoder::Decoder);
+/// OpenH264's decoder (from source; the bench's and the Linux viewer's), and the conversion the
+/// stream's last SPS asks for.
+pub struct H264Decoder(openh264::decoder::Decoder, cmux_encode::color::Yuv);
 
 impl H264Decoder {
     pub fn new() -> Res<Self> {
-        Ok(Self(openh264::decoder::Decoder::new()?))
+        Ok(Self(openh264::decoder::Decoder::new()?, cmux_encode::color::UNTAGGED.yuv()))
     }
 }
 
 impl VideoDecoder for H264Decoder {
     fn decode(&mut self, au: &[u8], out: &mut I420) -> Res<bool> {
         use openh264::formats::YUVSource;
+        if let Some(vui) = cmux_encode::color::sps_vui(au) {
+            self.1 = vui.yuv();
+        }
         let Some(yuv) = self.0.decode(au)? else { return Ok(false) };
         let (w, h) = yuv.dimensions();
         let (ys, us, vs) = yuv.strides();
@@ -147,6 +151,10 @@ impl VideoDecoder for H264Decoder {
 
     fn name(&self) -> String {
         "openh264 decoder (source)".into()
+    }
+
+    fn color(&self) -> cmux_encode::color::Yuv {
+        self.1
     }
 }
 

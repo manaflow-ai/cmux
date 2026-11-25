@@ -89,6 +89,6 @@ for name in "${wanted[@]}"; do
   args+=(--app "$name=$app")
 done
 
-python3 -I scripts/measure/idle-energy-compare.py "${args[@]}" --rounds "$rounds" --seconds "$seconds" \
+python3 -I scripts/measure/idle-energy-compare.py ${args[@]+"${args[@]}"} --rounds "$rounds" --seconds "$seconds" \
   --settle "$settle" --calibrate "$calibrate" --out "$out" 2>&1 | tee "$out/run.log"
 exit "${PIPESTATUS[0]}"

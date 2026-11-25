@@ -889,6 +889,47 @@ def own_pids(root: Path) -> list[int]:
     return sorted(set(pids_under(root)) | set(terminal_host_pids(root)) | set(terminal_host_pids(root / SEEDED)))
 
 
+LOCK_NOTE = "smoke.lock"  # under a run's root: the lock path the run held, so a later run reaps only its own kind
+
+
+def reap_stale_roots(bundle_id: str, root: Path, lock_path: str) -> list[int]:
+    """Stop what an earlier smoke of BUNDLE_ID left running under another cmux-fresh-* root beside ROOT. A smoke cut
+    off before its cleanup (a SIGKILL, a job timeout) leaves its app's daemon and terminal hosts running, and the
+    daemon keeps the channel's session socket in the account's temp dir, which every later launch of the bundle
+    shares: the next fresh launch gets server.different_state and never renders Home (cmux#48697). Called only
+    while this run holds LOCK_PATH, so no other root that held the same lock belongs to a live smoke; a root from
+    before the note existed counts as holding the default lock. Stops by exact pid, logged; leaves the folders."""
+    stopped = []
+    default_lock = os.path.join("/tmp", f"cmux-fresh-smoke-{bundle_id}.lock")
+    for other in sorted(root.parent.glob("cmux-fresh-*")):
+        if other == root or not other.is_dir():
+            continue
+        try:
+            held = (other / LOCK_NOTE).read_text().strip()
+        except OSError:
+            held = default_lock
+        if held != lock_path:
+            continue
+        same = False
+        for plist in other.glob("app/*.app/Contents/Info.plist"):
+            try:
+                with open(plist, "rb") as handle:
+                    same = plistlib.load(handle).get("CFBundleIdentifier") == bundle_id
+            except (OSError, ValueError, plistlib.InvalidFileException):
+                continue
+            if same:
+                break
+        if not same:
+            continue
+        pids = own_pids(other)
+        if pids:
+            log(f"FRESH-HOME stale: stopping {len(pids)} processes an earlier smoke of {bundle_id} left under {other}: "
+                f"{' '.join(map(str, pids))}")
+            stop(pids)
+            stopped += pids
+    return stopped
+
+
 def alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -1377,7 +1418,10 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
                        or os.path.expanduser("~/Library/Logs/DiagnosticReports"))
     if launch is not None:
         launch.update(app=app, bundle_id=bundle_id, executable=executable, diagnostics=diagnostics, out=out)
-    with DefaultsAside(bundle_id, root):
+    with DefaultsAside(bundle_id, root) as aside:
+        if aside.lock is not None:
+            (root / LOCK_NOTE).write_text(aside.lock_path)
+            report["stale_pids_stopped"] = reap_stale_roots(bundle_id, root, aside.lock_path)
         marks_read, marks_write = os.pipe()
         env = fresh_env(root, socket_path, marks_write)
         if PREPARE_HOME is not None:

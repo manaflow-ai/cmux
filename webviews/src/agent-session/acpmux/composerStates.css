@@ -73,9 +73,13 @@
      lighter than the page (near white, as Aside's and ChatGPT's are); in a dark theme one small step
      toward the text, as the theme's elevated surface. Solid on an opaque window; over art or a
      see-through window it is glass (below). */
-  --acpmux-composer-solid: light-dark(
-    color-mix(in srgb, var(--cmux-surface-solid, var(--acpmux-base)) 35%, var(--cmux-tone-light)),
-    color-mix(in srgb, var(--agent-text) 7%, var(--cmux-surface-solid, var(--acpmux-base)))
+  /* A theme's fill (--cmux-composer-fill) replaces the derived one; unset, the derivation. */
+  --acpmux-composer-solid: var(
+    --cmux-composer-fill,
+    light-dark(
+      color-mix(in srgb, var(--cmux-surface-solid, var(--acpmux-base)) 35%, var(--cmux-tone-light)),
+      color-mix(in srgb, var(--agent-text) 7%, var(--cmux-surface-solid, var(--acpmux-base)))
+    )
   );
   --acpmux-composer-surface: var(--acpmux-composer-solid);
   /* The glass's light rim, as iOS 26 draws it (Leo 2026-10-21, "a bit more glass on the input box"):
@@ -94,7 +98,7 @@
     );
   /* The composer's shadow (cg-design-judge, 10-14): the shared --elevation-1 in a light theme;
      none in a dark one, where a drop shadow on a dark page shows nothing. */
-  --acpmux-composer-shadow: var(--elevation-1);
+  --acpmux-composer-shadow: var(--cmux-composer-shadow, var(--elevation-1));
   --acpmux-menu-press: color-mix(in srgb, var(--agent-text) 20%, var(--acpmux-base));
 }
 
@@ -135,12 +139,43 @@
   --acpmux-chip-ink: var(--agent-muted);
 }
 /* All cards in the bottom stack use the input's material. Extra text washes on individual
-   cards otherwise change the wallpaper's tint at every seam. */
+   cards otherwise change the wallpaper's tint at every seam.
+   ONE MATERIAL FAMILY (Leo 2026-11-21: "our shitty multi layer glass + web view. we need to properly
+   do that once and for all."): the composer and the pickers and menus it opens are one glass. The
+   stack takes the popups' transient material (glass.css GLASS LEVELS, `.ui-popup.ui-glass`): their
+   share, --ds-transient-web-tint (80% light, 72% dark), under their blur (32 px, the one saturation),
+   on an opaque window and over art alike, their edge (the pane's --ui-popup-edge is
+   --acpmux-composer-edge, styles.css) and their drop (--elevation-2, glass.css
+   --glass-material-depth-composer), so a model picker or a slash menu opened from the card reads as
+   the same glass. Before, the popover level (72%, 50% over art) under a 24 px blur and a two-step
+   shadow of its own. The share mixes the composer's own solid, not the bare theme surface the popups
+   mix (--glass-surface): that solid is Leo's lift off the page (2026-10-14: "same bg kinda weird"; in a
+   light theme the page lifted toward white, in a dark one a small step toward the text,
+   newtab-quiet-focus.test.ts), and on the theme surface the card would be the page's own color.
+   The docked card stays the page's glass, not the App's (data-host-glass): its height animates
+   (growing with a draft, the send tuck, the dock's motion) and the App's glass follows a report a
+   frame or more behind, and its seams with the queue, the tray and the Goal banner are one rim the
+   App cannot draw. The prompt keeps 4.5:1 (composer-glass.test.ts). */
 .acpmux-shell {
+  --acpmux-stack-tint: var(
+    --cmux-composer-hat-fill,
+    color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-transient-web-tint), transparent)
+  );
+  --acpmux-stack-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
+}
+/* The material's frost where a stack card reads it (the running tray's, a paste's loading tile, the
+   card under Plain glass over art): the same transient blur. */
+:root:not([data-glass-levels="previous"]) :is(.acpmux-dock, .acpmux-composer) {
+  --glass-material-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
+}
+/* Previous glass (appearance.previousGlass, glass.css PREVIOUS GLASS) keeps the stack's numbers from
+   before the one material family: the popover level (its 70% under its 24 px blur and 1.25), and over
+   art the level's art share under the material's frost (its old 1.8). */
+:root[data-glass-levels="previous"] .acpmux-shell {
   --acpmux-stack-tint: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-tint), transparent);
   --acpmux-stack-backdrop: var(--ds-glass-popover-blur);
 }
-:root[data-cmux-see-through] .acpmux-shell {
+:root[data-glass-levels="previous"][data-cmux-see-through] .acpmux-shell {
   --acpmux-stack-tint: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-art-tint), transparent);
   --acpmux-stack-backdrop: var(--glass-material-backdrop);
 }
@@ -170,12 +205,15 @@
   /* glass-opaque-allow: the Reduce Transparency fill only */
   --glass-opaque: var(--acpmux-composer-solid);
   --glass-underlay: 0%;
-  --acpmux-stack-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
+  --acpmux-stack-shadow: var(--cmux-composer-hat-shadow, inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge));
 }
 @media not (prefers-reduced-transparency: reduce) {
   :root:not([data-reduce-transparency], [data-glass="off"]):not([data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]))
     .acpmux-stack-material {
-    --acpmux-stack-shadow: var(--glass-material-rim), inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
+    --acpmux-stack-shadow: var(
+      --cmux-composer-hat-shadow,
+      var(--glass-material-rim), inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge)
+    );
   }
 }
 /* The card and the queued prompts are the liquid glass (.ui-glass, ui/glass/glass.css;
@@ -197,21 +235,26 @@
   --glass-tint: var(--acpmux-composer-surface);
   --glass-backdrop: var(--ds-glass-popover-blur);
 }
-/* The card and its strip, the input box itself, are more glass than the stack around them (Leo
-   2026-10-21, "a bit more glass on the input box"). Glass is never opaque, and the transcript
-   scrolls under the card (Leo 2026-10-19), so on an opaque window too the card is glass: the
-   popover level, the composer surface at 70% under a 24px blur, so a row passing under it frosts while
-   the prompt remains at 4.5:1 or more over the brightest and the darkest page
-   (composer-glass.test.ts). The gallery keeps the previous 78% level and a clearer candidate beside
-   this choice. Over art or a see-through window under Plain glass it is clearer, at the level's art
-   tint (50%), under the same blur.
-   Lens and Spectrum keep the liquid glass's own tint and frost; Reduce Transparency the solid
-   surface (glass.css). The queued prompts keep the stack's tokens above. */
-:root:not([data-cmux-see-through]) :is(.nt-composer > .nt-composer-surface, .nt-popover.nt-composer-surface).ui-glass {
+/* New Tab's box and its suggestions are the popups' one material too (ONE MATERIAL FAMILY, above).
+   In a see-through Chromium page the box is the App's popover glass (data-host-glass="popover",
+   NewTabScreen.tsx), as its folder picker and its suggestions are: nothing scrolls under it. Where the
+   page draws the glass itself (an opaque window, WebKit, the App not drawing yet) it takes the
+   transient material's share and blur, as the popups beside it do, over the composer's own solid (the
+   lift above). Before, the popover level (72%, 50% over art) under a 24 px blur. Lens and Spectrum keep the liquid glass's
+   own tint and frost; Reduce Transparency the solid surface (glass.css). */
+:root:not([data-cmux-see-through]) :is(.nt-composer > .nt-composer-surface, .nt-popover.nt-composer-surface).ui-glass,
+:root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"])
+  .nt-composer-surface.ui-glass {
+  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-transient-web-tint), transparent);
+  --glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
+}
+/* Previous glass keeps New Tab's numbers from before: the popover level, its art share over art. */
+:root[data-glass-levels="previous"]:not([data-cmux-see-through])
+  :is(.nt-composer > .nt-composer-surface, .nt-popover.nt-composer-surface).ui-glass {
   --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-tint), transparent);
   --glass-backdrop: var(--ds-glass-popover-blur);
 }
-:root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"])
+:root[data-glass-levels="previous"][data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"])
   .nt-composer-surface.ui-glass {
   --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-art-tint), transparent);
   --glass-backdrop: var(--ds-glass-popover-blur);
@@ -243,6 +286,7 @@
 /* The strip has no glass class of its own (ComposerContext also draws the New Tab's plain strip):
    it takes the same fill and the same frost. */
 .acpmux-composer > .acpmux-composer-strip {
+  /* one-material-allow: the strip is the card's own glass continued above it (the card's tokens, one surface with one rim), not a second material; it carries no .ui-glass because ComposerContext also draws New Tab's bare strip */
   background: var(--glass-tint);
   -webkit-backdrop-filter: var(--glass-backdrop);
   backdrop-filter: var(--glass-backdrop);
@@ -275,7 +319,7 @@
 /* The lens draws the stack as one glass: a seam between the queue, its fold, the strip and the card
    bends nothing (--glass-join, ui/glass/lens.ts). By default the queue stands on the strip or the
    card; under the tray it tucks under the card, which draws its whole rim over it. */
-:root:not([data-top-strip]) .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-box {
+:root:not([data-top-strip]) .acpmux-composer[data-queue] > .acpmux-composer-box {
   /* glass-opaque-allow: a keyword (top, bottom, both) the lens reads, not a color */
   --glass-join: top;
 }
@@ -322,7 +366,11 @@
 /* The rim is a layer of its own only on glass: Reduce Transparency keeps the one opaque ring and
    shadow, while both composer cards use the shared glass material on every window. */
 @media not (prefers-reduced-transparency: reduce) {
-  :root:not([data-reduce-transparency], [data-glass="off"]) :is(.acpmux-composer-box, .acpmux-composer-box:has(:focus-visible)),
+  :root:not([data-reduce-transparency], [data-glass="off"]) :is(.acpmux-composer-box, .acpmux-composer-box[data-focused]) {
+    box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-rim), var(--acpmux-composer-shadow, var(--elevation-1));
+  }
+  /* New Tab's box and suggestions share the composer's material and drop. */
+  :root:not([data-reduce-transparency], [data-glass="off"]) .nt-composer-surface.ui-glass,
   :root[data-cmux-see-through]:not([data-reduce-transparency], [data-glass="off"]) .nt-composer-surface {
     box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-rim), var(--acpmux-composer-shadow, var(--elevation-1));
   }
@@ -330,7 +378,7 @@
      adds only the rim and the shadow. (0,6,0) here outranks the rule above whatever the stylesheet
      order. */
   :root:not([data-reduce-transparency], [data-glass="off"]):not([data-top-strip])
-    .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-box {
+    .acpmux-composer[data-queue] > .acpmux-composer-box {
     box-shadow: var(--acpmux-composer-rim), var(--acpmux-composer-shadow, var(--elevation-1));
   }
 }
@@ -547,6 +595,88 @@
   to { opacity: 0; filter: blur(3px); }
 }
 
+/* The send slot's reserved cell (composer/SendSlotGlyph.tsx SendSlot): Send, Stop or nothing stand
+   in it, so Stop coming and going never moves or refits the row (Leo, 2026-11-22: "so that the
+   composer isn't flickering with the stop button"). An empty slot keeps the control's width. What
+   leaves with nothing in its place is an inert copy over the cell that fades out. */
+.acpmux-send-slot {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: inherit;
+  min-width: var(--acpmux-composer-control, 28px);
+  min-height: var(--acpmux-composer-control, 28px);
+}
+.acpmux-send-slot > .acpmux-send-leaving {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  width: var(--acpmux-composer-control, 28px);
+  color: var(--agent-muted);
+  pointer-events: none;
+  opacity: 0;
+}
+.acpmux-send-slot > .acpmux-send-leaving > .acpmux-icon {
+  width: var(--acpmux-composer-glyph, 16px);
+  height: var(--acpmux-composer-glyph, 16px);
+}
+/* A turn's end keeps Stop a moment (turnPresence.ts linger): it dims there, so the end reads, and
+   comes back to full when the next turn starts. Color only: the box never changes. */
+.acpmux-composer-bar .acpmux-send.acpmux-cancel[data-stop-lingering] {
+  opacity: 0.55;
+}
+.acpmux-send.acpmux-cancel {
+  position: relative;
+}
+.acpmux-stop-pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-agent-motion="off"]) .acpmux-composer-bar .acpmux-send.acpmux-cancel {
+    transition:
+      background-color var(--agent-motion-hover) var(--agent-ease-out),
+      opacity var(--agent-motion-quick, 80ms) var(--agent-ease-out);
+  }
+  :root:not([data-agent-motion="off"]) .acpmux-send-slot > .acpmux-send-leaving {
+    animation: acpmux-send-leave var(--agent-motion-quick, 80ms) var(--agent-ease-out) both;
+  }
+  :root:not([data-agent-motion="off"]) .acpmux-stop-pulse[data-stop-pulse="ring"] {
+    box-shadow: 0 0 0 1.5px currentColor;
+    animation: acpmux-stop-ring var(--agent-motion-move, 180ms) var(--agent-ease-out) both;
+  }
+  :root:not([data-agent-motion="off"]) .acpmux-stop-pulse[data-stop-pulse="bump"] {
+    animation: acpmux-stop-bump-timer var(--agent-motion-move, 180ms) linear both;
+  }
+  /* The bump swells the glyph itself; the pulse span only times it. One button's own children: the
+     button carries the pulse's look while it plays (SendSlotGlyph.tsx StopPulse). */
+  :root:not([data-agent-motion="off"]) .acpmux-send.acpmux-cancel[data-stop-pulse="bump"] > :not(.acpmux-stop-pulse) {
+    animation: acpmux-stop-bump var(--agent-motion-move, 180ms) var(--agent-ease-out) both;
+  }
+}
+@keyframes acpmux-send-leave {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: scale(0.7); }
+}
+@keyframes acpmux-stop-ring {
+  from { opacity: 0.5; transform: scale(0.7); }
+  to { opacity: 0; transform: scale(1.15); }
+}
+@keyframes acpmux-stop-bump {
+  0% { transform: none; }
+  45% { transform: scale(1.15); }
+  100% { transform: none; }
+}
+@keyframes acpmux-stop-bump-timer {
+  from { opacity: 0; }
+  to { opacity: 0; }
+}
+
 /* Send off (the folder's trust question is open, useFolderTrustAsk.ts): the empty draft's dimmed
    glyph (styles.css, --acpmux-send-off-fg), one disabled look, with no pill on hover. */
 button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
@@ -715,19 +845,38 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 :root[data-borders="none"] :is(.acpmux-composer, .nt-composer, .nt-composer-surface) {
   --acpmux-composer-edge-focus: transparent;
 }
-.acpmux-composer-box:has(:focus-visible),
-.nt-box:has(:focus-visible),
-body:has(.nt-box :focus-visible) .nt-popover {
+/* Focus-visible in a card is the card owner's `data-focused` (ComposerBox.tsx, NewTabScreen.tsx;
+   focusVisibleMark.ts), and the New Tab popover's `nt-popover-focused`, never a `:has(:focus-visible)`
+   on the card, the form, the dock or `body`: those were checked again for every node a keystroke or a
+   streamed chunk inserted under them (transcript-motion-model step 7, I8). A repeated attribute or
+   class keeps the specificity of the `:has()` it replaced, so the cascade is as it was. */
+.acpmux-composer-box[data-focused],
+.nt-box[data-focused],
+body .nt-popover.nt-popover-focused.nt-popover-focused {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
+}
+/* The focused hairline eases in over the arrival step and out over the leave step (the motion scale's
+   own tokens). The hover has no ring or glow: the border stays the one plain hairline (Leo
+   2026-11-25: "why do we have glow in ring?"). */
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-composer-box,
+  .nt-box {
+    transition: box-shadow var(--agent-motion-out) var(--agent-ease-out);
+  }
+  .acpmux-composer-box[data-focused],
+  .nt-box[data-focused] {
+    transition-duration: var(--agent-motion-in);
+  }
 }
 /* The stack is one outline: a focused composer lifts the edge of every part joined to it (the Goal
    banner, the running tray, the queue, attachment tiles) with the card's, never the card's alone
-   (user 2026-11-20, "ensure all border colors are the same"). The dock is the `:has()` subject, as
-   bottomStack.css's rules are, never the pane. Under Increase Contrast, an inactive page and
+   (user 2026-11-20, "ensure all border colors are the same"). The dock's `data-focused` is written by
+   its owner (App.tsx) as the composer reports focus-visible in its card with no shell prompt
+   (Composer.tsx `onFocusEdge`); it is repeated to the `:has()`'s specificity. Under Increase Contrast, an inactive page and
    appearance.borders none the edge rests (the rules above). */
 @media not (prefers-contrast: more) {
   :root:not([data-page-inactive], [data-borders="none"])
-    .acpmux-dock:has(> .acpmux-composer:not([data-shell]) > .acpmux-composer-box :focus-visible) {
+    .acpmux-dock[data-focused][data-focused][data-focused][data-focused] {
     --acpmux-composer-edge: color-mix(in srgb, var(--agent-text) 26%, var(--agent-page-bg, var(--acpmux-base)));
   }
 }
@@ -740,8 +889,8 @@ body:has(.nt-box :focus-visible) .nt-popover {
 }
 /* Under a top strip variant the strip draws its own rim in --acpmux-strip-edge (composerLocation.css);
    by default the card's rim goes round the strip and takes the focused tone itself (below). */
-.acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-strip,
-.nt-composer:has(.nt-box :focus-visible) .acpmux-composer-strip {
+.acpmux-composer:not([data-shell])[data-focused][data-focused] > .acpmux-composer-strip,
+.nt-composer[data-focused][data-focused] .acpmux-composer-strip {
   --acpmux-strip-edge: var(--acpmux-composer-edge-focus);
 }
 /* The location controls live beside the card, so focusing one does not make the card
@@ -752,7 +901,7 @@ body:has(.nt-box :focus-visible) .nt-popover {
 }
 /* Queued prompts stack on the card's top edge (or the strip's) as part of the same outline, so their
    sides take the focused tone too (styles.css draws them in --acpmux-composer-edge). */
-.acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
+.acpmux-composer:not([data-shell])[data-focused][data-focused] > .acpmux-composer-queue {
   box-shadow:
     inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-composer-edge-focus),
     inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-composer-edge-focus),
@@ -783,8 +932,8 @@ body:has(.nt-box :focus-visible) .nt-popover {
 /* Under Increase Contrast the edge is already the text color, so the step above would not show:
    the box takes the shared focus ring, following its rounded corners. */
 @media (prefers-contrast: more) {
-  .acpmux-composer-box:has(:focus-visible),
-  .acpmux-composer[data-shell] .acpmux-composer-box:has(:focus-visible) {
+  .acpmux-composer-box[data-focused],
+  .acpmux-composer[data-shell] .acpmux-composer-box[data-focused] {
     --acpmux-card-ring: inset 0 0 0 var(--cmux-focus-ring-width) var(--cmux-focus-ring-color);
   }
 }
@@ -801,9 +950,9 @@ body:has(.nt-box :focus-visible) .nt-popover {
   caret-color: transparent;
 }
 @media (prefers-contrast: more) {
-  :root[data-page-inactive] .acpmux-composer-box:has(:focus-visible),
-  :root[data-page-inactive] .nt-box:is(:focus-visible, :has(:focus-visible)),
-  :root[data-page-inactive] body:has(.nt-box:focus-visible, .nt-box :focus-visible) .nt-popover {
+  :root[data-page-inactive] .acpmux-composer-box[data-focused],
+  :root[data-page-inactive] .nt-box:is(:focus-visible, [data-focused]),
+  :root[data-page-inactive] body .nt-popover.nt-popover-focused.nt-popover-focused {
     --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);
   }
 }
@@ -933,6 +1082,8 @@ body:has(.nt-box :focus-visible) .nt-popover {
     transition: max-height var(--agent-motion-move) var(--agent-ease-out);
   }
 }
+[data-composer-buttons-visible] .acpmux-queued-actions { opacity: 1; }
+
 /* A row the pointer opens or closes: its actions sit on its last line, and the list grows or shrinks
    at its top by exactly the row's change, at once (ComposerQueue.tsx `resized`), so nothing under
    the pointer moves (Leo, 2026-10-30: "its expansion animation makes the hovered buttons shift
@@ -940,6 +1091,16 @@ body:has(.nt-box :focus-visible) .nt-popover {
 .acpmux-queued > .acpmux-queued-actions,
 .acpmux-queued > .acpmux-queued-menu > .acpmux-queued-actions {
   align-self: end;
+}
+/* A queued row's last action (its menu) centres on the mic below it: the composer's inset plus half
+   of what the control box is wider than the action (cmux#56151: a literal 6 px put it 5 px right of
+   the mic). test/composer-stack-columns.test.ts measures it. */
+.acpmux-queued {
+  /* The actions' box (styles.css .acpmux-queued-action). */
+  --acpmux-queued-action-size: 22px;
+  padding-right: calc(
+    var(--acpmux-composer-inset) + (var(--acpmux-composer-control) - var(--acpmux-queued-action-size)) / 2
+  );
 }
 /* The fold's line continues the list's tray and side edges, down to the strip. */
 .acpmux-queue-foldbar {
@@ -1133,4 +1294,25 @@ body:has(.nt-box :focus-visible) .nt-popover {
    its words and placeholder sit at the muted ink until the Cloud chat opens. Color only: nothing moves. */
 .acpmux-composer-prompt.is-cloud-starting [contenteditable] {
   color: var(--agent-muted);
+}
+
+/* The vim mode (agentPane.composerVimKeys, composer/vimKeys.ts): NORMAL or INSERT in the box's top
+   right, drawn over the box and out of its grid. Quiet text, no fill; NORMAL reads a step stronger
+   as the mode that is not typing. */
+.acpmux-vim-mode {
+  position: absolute;
+  top: 4px;
+  right: var(--ds-space-3);
+  z-index: var(--layer-raised, 1);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: 0.04em;
+  color: var(--agent-text-secondary, color-mix(in srgb, var(--agent-text) 55%, transparent));
+  pointer-events: none;
+  user-select: none;
+}
+.acpmux-vim-mode[data-vim-mode="normal"] {
+  color: var(--agent-text);
 }
