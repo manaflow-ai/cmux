@@ -277,6 +277,9 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             }
         }
         collectionView = view
+        #if DEBUG
+        FeedShiftProbe.shared.attach(view)
+        #endif
         scale = view.traitCollection.displayScale > 0 ? view.traitCollection.displayScale : 3
         view.registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { [weak self] (view: FeedCollectionView, _: UITraitCollection) in
             guard let self else { return }
@@ -1163,7 +1166,11 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         let y = min(max(frame.minY - anchor.delta, minY), maxY)
         if abs(y - collectionView.contentOffset.y) > 0.25 {
             trace("restore \(Int(collectionView.contentOffset.y))->\(Int(y)) top=\(control.atTop)")
+            #if DEBUG
+            FeedShiftProbe.shared.correcting { collectionView.contentOffset.y = y }
+            #else
             collectionView.contentOffset.y = y
+            #endif
         }
     }
 
@@ -1293,6 +1300,9 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     // MARK: Scrolling
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        #if DEBUG
+        FeedShiftProbe.shared.scrolled(scrollView)
+        #endif
         // Back at the top: what scrolling brought back from disk goes back there.
         if syncAtTop(), !scrollView.isTracking { store.restoreWindow() }
         #if DEBUG
