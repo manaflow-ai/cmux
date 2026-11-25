@@ -610,7 +610,8 @@ fn a_websocket_connection_cannot_bind_a_proxy_identity() {
 /// with the bound author. A bind without it is today's: no presence capability, both refused.
 #[test]
 fn a_teammate_bind_with_presence_views_and_types_as_itself() {
-    let fake = FakeAcpmux::start("proxy-presence");
+    use crate::server::agent_session_attach_tests::WAIT;
+    let mut fake = FakeAcpmux::start("proxy-presence");
     let mux = mux_with(&fake, "proxy-presence");
     let surface = agent_tab(&mux, Some(SESSION));
     let author = json!({"id":"tailnet:person@example.com", "name":"person@example.com",
@@ -661,4 +662,17 @@ fn a_teammate_bind_with_presence_views_and_types_as_itself() {
             "permission_id":"perm_attach", "option_id":"allow"}))),
         "agent_session.not_trusted",
     );
+    // And who is here comes back to the teammate, so it sees the owner's face too.
+    let people = json!({"sessionId": SESSION, "participants": [
+        {"id": "owner", "name": "Owner", "viewing": true, "typing": false},
+        {"id": "tailnet:person@example.com", "name": "person@example.com", "viewing": true}]});
+    fake.notify("_acpmux/presence", people.clone());
+    let event = loop {
+        let event = on.event(WAIT).expect("the chat's presence reaches the teammate");
+        if event["event"] == "agent-session-presence" {
+            break event;
+        }
+    };
+    assert_eq!(event["surface"], json!(surface));
+    assert_eq!(event["presence"], people);
 }

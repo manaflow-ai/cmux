@@ -30,7 +30,8 @@ fn chat_multiplayer() -> bool {
 fn presence_verb(cmd: &str, role: Role) -> bool {
     match role {
         Role::Guest => cmd == "agent-session-view",
-        _ => matches!(cmd, "agent-session-typing" | "agent-session-view"),
+        // Named, not `_`: a new role decides its presence here before it compiles.
+        Role::Member => matches!(cmd, "agent-session-typing" | "agent-session-view"),
     }
 }
 

@@ -371,6 +371,21 @@ impl Attachment {
         })
     }
 
+    /// Whether acpmux's who-is-here set goes to this attachment: the owner's app that echoed
+    /// `agent-session-presence-v1`, or a tailnet teammate whose bind asked for presence
+    /// (`labs.chatMultiplayer`, design chat-multiplayer phase 1b), so both people see each
+    /// other's face. A link guest and a Cloud member hear it on no path here.
+    fn hears_presence(&self) -> bool {
+        match &self.author {
+            None => self.wants_presence(),
+            Some(author) if proxy::is_guest(author) || proxy::is_member(author) => false,
+            Some(_) => self
+                .mux
+                .upgrade()
+                .is_some_and(|mux| mux.control_clients.agent_sessions.proxy_presence(self.client)),
+        }
+    }
+
     fn stamp(&self, mut params: Value) -> Value {
         if let Some(author) = &self.author {
             params["_meta"]["acpmux"]["author"] = author.clone();
