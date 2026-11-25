@@ -1232,9 +1232,8 @@ export type DoctorRun =
   | { verb: "doctor-recover" };
 
 /** A fix the CLI runs (`open` has no CLI verb: the host opens the path). `restore` puts back the
- * last version of a broken file that loaded, the broken text moved aside first; `follow-default` drops
- * the person's value of a setting so it follows the default (a copy of the settings file is kept). */
-export type DoctorFixKind = "off" | "remove" | "restore" | "follow-default";
+ * last version of a broken file that loaded, the broken text moved aside first. */
+export type DoctorFixKind = "off" | "remove" | "restore";
 
 /** The report's way back (`cmux customize doctor recover`): the layers it turns off, whether it
  * turns the web-dev overlay off, the generation it puts back; `said` is the plan in one sentence. */
@@ -1266,8 +1265,7 @@ export type DoctorFindingKind =
   | "unknown-key"
   | "wrong-folder"
   | "old-build"
-  | "override"
-  | "not-default";
+  | "override";
 
 /** One fix of a finding; the first is the main one, and every `remove` has `confirm: true`. */
 export type DoctorFix = { kind: "open" | DoctorFixKind | (string & {}); label: string; confirm: boolean };
