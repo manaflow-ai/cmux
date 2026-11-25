@@ -107,6 +107,8 @@ public final class LiveCoordinator {
     #if canImport(CmuxMobileLinkFFI)
     /// Other devices waiting for a linked Mac's Allow, answered from this phone (ask-45c37458ea).
     public let pairRequests = MacPairRequests()
+    /// Each Mac's one-request catch-up cursors (`LiveCoordinator+CatchUp.swift`, off by default).
+    @ObservationIgnored let catchUps = MacCatchUps()
     #endif
     /// Every linked Mac's tabs as its `tabs` service pushes them: what the grid's cards show
     /// of tabs this phone never opened. The shell sets its sink (the phone's card store).
@@ -1373,6 +1375,7 @@ public final class LiveCoordinator {
         for session in sessions.values { session.link.send(away.map { .resumed(after: $0) } ?? .resume) }
         #if canImport(CmuxMobileLinkFFI)
         pairRequests.foreground()
+        catchUpOnForeground()
         #endif
     }
 

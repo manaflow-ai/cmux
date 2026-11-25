@@ -65,6 +65,7 @@ pub(crate) mod ls_far;
 pub(crate) mod ls_ssh;
 pub mod ls_table;
 pub mod machine_auth;
+pub mod memory;
 pub(crate) mod owned_child;
 pub mod scorecard;
 pub mod standing_grant;
