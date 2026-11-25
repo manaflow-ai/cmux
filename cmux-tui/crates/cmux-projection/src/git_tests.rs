@@ -330,6 +330,7 @@ fn object_reader_drains_non_blob_records_before_the_next_blob() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn a_commit_with_case_only_distinct_paths_stays_distinct() {
     use std::os::unix::ffi::OsStrExt as _;
     let dir = tempfile::tempdir().unwrap();
@@ -352,6 +353,7 @@ fn a_commit_with_case_only_distinct_paths_stays_distinct() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn a_non_utf8_git_path_is_unsupported() {
     use std::os::unix::ffi::OsStrExt as _;
     let dir = tempfile::tempdir().unwrap();

@@ -799,8 +799,9 @@ pub fn link_texts(git_dir: &Path, items: &[TreeItem]) -> anyhow::Result<HashMap<
     }
     let mut cat = CatFile::spawn(git_dir)?;
     for oid in oids {
-        let bytes =
-            cat.blob_limited(oid, 4095).map_err(|_| anyhow::anyhow!("no link blob {oid}"))?;
+        let bytes = cat.blob_limited(oid, 4095).map_err(|_| {
+            Unsupported(format!("link blob {oid} is missing or exceeds the 4095-byte target limit"))
+        })?;
         let text = String::from_utf8(bytes)
             .map_err(|_| Unsupported(format!("link blob {oid} is not UTF-8")))?;
         texts.insert(oid.to_owned(), text);
@@ -939,7 +940,9 @@ impl ObjectReader {
             Some(cat) => cat,
             None => self.cat.insert(CatFile::spawn_local(&self.git_dir).ok()?),
         };
-        let bytes = cat.blob_limited(oid, crate::peers::MAX_HTTP_BODY_BYTES as u64).ok();
+        // Local object readers serve S3 uploads and seed responses. Keep the local path
+        // unbounded; the peer receive path applies MAX_HTTP_BODY_BYTES independently.
+        let bytes = cat.blob(oid).ok();
         if bytes.is_none() {
             self.cat = None;
         }
