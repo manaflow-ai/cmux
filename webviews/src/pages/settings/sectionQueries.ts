@@ -8,14 +8,17 @@ import { resolveSettingsLink } from "./settingsLinks";
 import type {
   AgentsState,
   ChannelsState,
-  Checklist,
+  DoctorReport,
   KeysState,
   SharesState,
   TailnetState,
   LibraryListing,
-  DoctorReport,
+  LooksGallery,
+  LookPreview,
+  Checklist,
   ArchivedState,
 } from "./ops";
+import { asGallery, asPreview } from "./looksGallery";
 import { checklistFacts } from "./customizeProgress";
 import { settingsKeys } from "./queries";
 import { loadCards } from "./components/cardModules";
@@ -112,6 +115,19 @@ export function libraryQuery(store: SettingsStore) {
   });
 }
 
+export const STANDUP_KEY = [...settingsKeys.all, "customize-standup"] as const;
+
+/** Settings > Customize's PRs in My Build and Standup: one line per library entry, worded by the
+ * CLI (null: the host cannot run it). Each library change answers it again. */
+export function standupQuery(store: SettingsStore) {
+  return queryOptions({
+    queryKey: STANDUP_KEY,
+    queryFn: () => store.customizeStandup(),
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
 /** Settings > General > Customize cmux: the checklist at settings revision `revision` with the
  * connections `has` (null: no CLI). A write moves the revision, so the progress follows it. */
 /** The checklist's one key: the section read and the card share it whatever the revision and
@@ -130,6 +146,52 @@ export function checklistQuery(store: SettingsStore) {
 
 /** The library as read, and the CLI's refusal of the read in its own words. */
 export type LibraryRead = { library: LibraryListing | null; refusal: string | null };
+
+/** Settings > Appearance > Looks' key; every change the card makes reads the gallery again here. */
+export const LOOKS_KEY = [...settingsKeys.all, "looks"] as const;
+
+/** The gallery as read: the catalog and the stack (null: no Looks part or no CLI, so no card), and
+ * the CLI's refusal of the read in its own words. */
+export type LooksRead = { gallery: LooksGallery | null; refusal: string | null };
+
+/** Settings > Appearance > Looks: the catalog and every installed look, top first. The read is the
+ * CLI's catalog and receipts only (no network), so the list draws at once. */
+export function looksQuery(store: SettingsStore) {
+  return queryOptions<LooksRead | null>({
+    queryKey: LOOKS_KEY,
+    queryFn: async () => {
+      const outcome = await store.looks({ verb: "gallery" });
+      if (!outcome) return null;
+      if (outcome.kind === "value") return { gallery: asGallery(outcome.value), refusal: null };
+      return { gallery: null, refusal: outcome.kind === "refusal" ? outcome.message : null };
+    },
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
+/** Loads one look's golden-sample image for a scheme (null: the repo has none, or no CLI). */
+export type LookPreviewLoader = (id: string, scheme: "light" | "dark") => Promise<LookPreview | null>;
+
+/** The store's loader: `cmux setup preview ID --scheme S`. */
+export function storePreviewLoader(store: SettingsStore): LookPreviewLoader {
+  return async (id, scheme) => {
+    const outcome = await store.looks({ verb: "preview", id, scheme });
+    return outcome?.kind === "value" ? asPreview(outcome.value) : null;
+  };
+}
+
+/** One look's golden-sample image for `scheme`: each tile asks for its own once it is on screen.
+ * The CLI fetches the one file and caches it a day, so a revisit answers from its cache; the page
+ * keeps it for the session (a missing preview is null and is not asked again). */
+export function lookPreviewQuery(load: LookPreviewLoader, id: string, scheme: "light" | "dark") {
+  return queryOptions<LookPreview | null>({
+    queryKey: [...LOOKS_KEY, "preview", id, scheme],
+    queryFn: () => load(id, scheme),
+    staleTime: Infinity,
+    gcTime: Infinity,
+  });
+}
 
 /** The customize doctor's key; each fix and dismiss answers it again. */
 export const DOCTOR_KEY = [...settingsKeys.all, "customize-doctor"] as const;
@@ -187,6 +249,7 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
   if (cards.has("archivedWorkspaces")) reads.push({ options: archivedQuery(store), revalidate: true });
   if (cards.has("customizeLibrary") || cards.has("customizeChecklist"))
     reads.push({ options: libraryQuery(store), revalidate: true });
+  if (cards.has("looksGallery")) reads.push({ options: looksQuery(store), revalidate: true });
   if (cards.has("customizeProgress")) {
     // The checklist's connection steps read the Accounts and Models parts the store keeps.
     reads.push({ options: { queryKey: settingsKeys.accounts }, revalidate: false });
