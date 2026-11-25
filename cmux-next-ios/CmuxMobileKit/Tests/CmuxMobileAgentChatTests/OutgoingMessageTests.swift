@@ -95,4 +95,60 @@ import Testing
         #expect(try sentID(source) == id)
         #expect(store.outgoing.map(\.id) == [id])
     }
+    /// Leo 2026-11-24: "i also couldnt cancel out of the send. i need to be able to do that
+    /// otherwise i cant edit or anything to retry or delete and remove." A text message waiting
+    /// on its way gets a row with its exits; Delete drops it, Stop brings it back to edit.
+    @Test func aWaitingTextMessageHasARowToStopRetryOrDelete() throws {
+        let source = Recorder()
+        let store = AgentChatStore(source: source)
+        store.send(prompt: "hi")
+        let id = try sentID(source)
+        store.apply(.pendingSends([AgentPendingSend(promptID: id, text: "hi", waiting: true, canSendNow: true, stopping: false)]))
+        #expect(store.outgoing.map(\.id) == [id])
+        #expect(store.outgoing.first?.waiting == true)
+        #expect(store.outgoing.first?.canSendNow == true)
+
+        store.retrySend(promptID: id)
+        #expect(source.sent.last == .retrySend(promptID: id))
+
+        store.cancelSend(promptID: id)
+        #expect(source.sent.last == .cancelSend(promptID: id))
+        store.apply(.pendingSends([AgentPendingSend(promptID: id, text: "hi", waiting: false, canSendNow: false, stopping: true)]))
+        #expect(store.outgoing.first?.stopping == true)
+        store.apply(.promptNotSent(text: "hi", attachments: [], promptID: id, reason: "Not sent: you stopped it."))
+        store.apply(.pendingSends([]))
+        #expect(store.outgoing.isEmpty)
+
+        store.send(prompt: "again")
+        let second = try sentID(source)
+        store.apply(.pendingSends([AgentPendingSend(promptID: second, text: "again", waiting: true, canSendNow: false, stopping: false)]))
+        store.deleteSend(promptID: second)
+        #expect(source.sent.last == .deleteSend(promptID: second))
+        #expect(store.outgoing.isEmpty)
+        // A late row or its return does not bring a deleted message back.
+        store.apply(.pendingSends([AgentPendingSend(promptID: second, text: "again", waiting: true, canSendNow: false, stopping: false)]))
+        #expect(store.outgoing.isEmpty)
+    }
+
+    /// The outbox lists a text message only while it waits: the bubble shown at the tap stays
+    /// through the outbox's rows (quiet, then a row with exits, then quiet again) until the echo.
+    @Test func aTextMessageStaysFromTheTapThroughTheOutboxRowsUntilItsEcho() throws {
+        let source = Recorder()
+        let store = AgentChatStore(source: source)
+        store.send(prompt: "hi")
+        let id = try sentID(source)
+        store.apply(.pendingSends([]))
+        #expect(store.outgoing.map(\.id) == [id])
+        #expect(store.outgoing.first?.isQuietPending == true)
+
+        store.apply(.pendingSends([AgentPendingSend(promptID: id, text: "hi", waiting: true, canSendNow: true, stopping: false)]))
+        #expect(store.outgoing.first?.isQuietPending == false)
+
+        store.apply(.pendingSends([]))
+        #expect(store.outgoing.map(\.id) == [id])
+        #expect(store.outgoing.first?.isQuietPending == true)
+
+        store.apply(.userMessage(text: "hi", promptId: id, turnId: "t1", attachments: [], at: Date()))
+        #expect(store.outgoing.isEmpty)
+    }
 }

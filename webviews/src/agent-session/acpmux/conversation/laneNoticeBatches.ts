@@ -1,5 +1,6 @@
 import { isLineRow, LANE_NOTICE_BATCH, type AcpmuxRow } from "../model";
 import { PrefixFilter } from "./prefixFlatMap";
+import { noticeRowLook } from "./noticeRowLook";
 import { inboxText, senderKey, type InboxNotice } from "./inboxNotice";
 import {
   laneNotice,
@@ -45,6 +46,7 @@ const inboxLaneNotice = (notice: InboxNotice): LaneNotice => {
         : {}),
       ...(thread.fromHarness ? { fromHarness: thread.fromHarness } : {}),
       ...(thread.unverified ? { unverified: thread.unverified } : {}),
+      ...(thread.notice && noticeRowLook() !== "off" && { notice: thread.notice }),
       count: thread.count,
     };
   });
@@ -149,7 +151,13 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
   if (cached) return cached;
   const children: AcpmuxRow[] = [];
   for (const thread of notice.threads ?? []) {
-    for (const [index, delivery] of inboxDeliveries(thread).entries()) {
+    // A tool's notice (acpmux notice_read.rs) is one line for its thread: its newest message, its
+    // detector's name and severity, its title and its repeats (Leo, 2026-11-25, on a row per relayed
+    // `[notice from now on HOST · FIRE] …`: "how can we improve this?").
+    const tool = thread.notice;
+    const all = inboxDeliveries(thread);
+    const deliveries = tool ? all.slice(-1) : all;
+    for (const [index, delivery] of deliveries.entries()) {
       children.push({
         id: `${row.id}:inbox:${thread.id}:${index}`,
         version: row.version,
@@ -179,26 +187,45 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
           : {}),
         incoming: {
           kind: "message",
-          message: {
-            name: delivery.sender,
-            ...(delivery.lookup && { lookup: delivery.lookup }),
-            text: delivery.text,
-            raw: delivery.text,
-            threadId: thread.id,
-            ...(delivery.promptId ? { msgId: delivery.promptId } : {}),
-            ...(delivery.session
-              ? { sessionId: delivery.session }
-              : thread.fromSession && delivery.sender === thread.sender
-                ? { sessionId: thread.fromSession }
-                : {}),
-            ...(delivery.harness
-              ? { harness: delivery.harness }
-              : thread.fromHarness && delivery.sender === thread.sender
-                ? { harness: thread.fromHarness }
-                : {}),
-            ...(delivery.unverified ? { unverified: delivery.unverified } : {}),
-            ...(delivery.at !== undefined ? { at: delivery.at } : {}),
-          },
+          message: tool
+            ? {
+                name: tool.sender,
+                text: delivery.text,
+                raw: delivery.text,
+                threadId: thread.id,
+                ...(delivery.promptId ? { msgId: delivery.promptId } : {}),
+                notice: {
+                  // The line names the detector, not the machine it ran on (Mochi's spec, from
+                  // Leo's screenshot): the opened text still says the host.
+                  sender: tool.sender,
+                  severity: tool.severity,
+                  title: tool.title,
+                  links: [],
+                  ...(tool.repeats > 1 ? { repeats: tool.repeats } : {}),
+                  ...((tool.lastAt ?? delivery.at) !== undefined ? { lastAt: tool.lastAt ?? delivery.at } : {}),
+                },
+                ...(delivery.at !== undefined ? { at: delivery.at } : {}),
+              }
+            : {
+                name: delivery.sender,
+                ...(delivery.lookup && { lookup: delivery.lookup }),
+                text: delivery.text,
+                raw: delivery.text,
+                threadId: thread.id,
+                ...(delivery.promptId ? { msgId: delivery.promptId } : {}),
+                ...(delivery.session
+                  ? { sessionId: delivery.session }
+                  : thread.fromSession && delivery.sender === thread.sender
+                    ? { sessionId: thread.fromSession }
+                    : {}),
+                ...(delivery.harness
+                  ? { harness: delivery.harness }
+                  : thread.fromHarness && delivery.sender === thread.sender
+                    ? { harness: thread.fromHarness }
+                    : {}),
+                ...(delivery.unverified ? { unverified: delivery.unverified } : {}),
+                ...(delivery.at !== undefined ? { at: delivery.at } : {}),
+              },
         },
       });
     }
