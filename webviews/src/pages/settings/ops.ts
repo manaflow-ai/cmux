@@ -804,11 +804,22 @@ export type ModelsState = {
   /** `attempt`: a Continue with ChatGPT sign-in waiting on the browser; `error`: the last one's
    * failure code (`access_denied`, `no_chatgpt_account`, ...). */
   chatgpt: { attempt: string | null; error: string | null };
+  /** Connect Claude's one-click run (`connectClaudeToken`): the app runs `claude setup-token` itself,
+   * opens the sign-in page in cmux's browser and saves the token it prints, which the page never sees.
+   * `attempt`: the run in flight; `phase`: where it is; `error`: the last run's failure, as the host
+   * words it. Older hosts omit it. */
+  claudeToken?: ClaudeTokenState;
 };
+
+/** Where Connect Claude's run is: opening the sign-in page, waiting on the person, saving the token. */
+export type ClaudeTokenPhase = "starting" | "signing_in" | "saving";
+export type ClaudeTokenState = { attempt: string | null; phase: ClaudeTokenPhase | null; error: string | null };
 
 /** One Settings > Models gesture. `addKey`, `addClaudeToken` and `orgKey` carry a pasted secret once:
  * the app moves it into the Keychain and passes acpmux or the team only a reference.
- * `claudeSetupToken` opens a cmux terminal tab running `claude setup-token`. */
+ * `connectClaudeToken` is Connect Claude's one click (`claudeToken`); `cancelClaudeToken` stops it.
+ * `claudeSetupToken` runs the same on a host that has it, else opens a terminal tab running
+ * `claude setup-token`. */
 export type ModelsRun =
   | { action: "order"; ids: string[] }
   | { action: "spread"; on: boolean }
@@ -817,6 +828,8 @@ export type ModelsRun =
   | { action: "connectChatGPT"; id?: string }
   | { action: "cancelChatGPT" }
   | { action: "connectClaude" }
+  | { action: "connectClaudeToken"; label?: string }
+  | { action: "cancelClaudeToken" }
   | { action: "claudeSetupToken" }
   | { action: "addClaudeToken"; token: string; label?: string }
   | { action: "addKey"; provider: ModelProvider; key: string; label?: string }
@@ -1232,9 +1245,8 @@ export type DoctorRun =
   | { verb: "doctor-recover" };
 
 /** A fix the CLI runs (`open` has no CLI verb: the host opens the path). `restore` puts back the
- * last version of a broken file that loaded, the broken text moved aside first; `follow-default` drops
- * the person's value of a setting so it follows the default (a copy of the settings file is kept). */
-export type DoctorFixKind = "off" | "remove" | "restore" | "follow-default";
+ * last version of a broken file that loaded, the broken text moved aside first. */
+export type DoctorFixKind = "off" | "remove" | "restore";
 
 /** The report's way back (`cmux customize doctor recover`): the layers it turns off, whether it
  * turns the web-dev overlay off, the generation it puts back; `said` is the plan in one sentence. */
@@ -1266,8 +1278,7 @@ export type DoctorFindingKind =
   | "unknown-key"
   | "wrong-folder"
   | "old-build"
-  | "override"
-  | "not-default";
+  | "override";
 
 /** One fix of a finding; the first is the main one, and every `remove` has `confirm: true`. */
 export type DoctorFix = { kind: "open" | DoctorFixKind | (string & {}); label: string; confirm: boolean };
