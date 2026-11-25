@@ -48,6 +48,9 @@ struct TerminalComposer: View {
             card
         }
         .overlay(alignment: .topLeading) { floatingNotes }
+        #if DEBUG
+        .background(alignment: .bottomLeading) { KeyBarFiredProbe(model: model) }
+        #endif
         .padding(.horizontal, ComposerCardMetrics.horizontalInset)
         // Always its own height, never the hosting view's current one (kept
         // from #41900): the hosting view takes a taller row's height a pass
@@ -214,6 +217,7 @@ struct TerminalComposer: View {
             primaryButton
         }
         .foregroundStyle(look.ink)
+        .accessibilityIdentifier("terminal.composer.card")
     }
 
     /// The pane's colors: the Mac's terminal theme, else the app default.
@@ -386,6 +390,25 @@ struct TerminalComposer: View {
         return UIImage(cgImage: image)
     }
 }
+
+#if DEBUG
+/// DEBUG, for TerminalComposerTapBleedUITests: which key-row keys fired ("count:id") and how
+/// many touches reached the joystick, so a test can tell that a tap on the composer reached no
+/// key. Its own view: only it reads the counters, never the composer's body.
+private struct KeyBarFiredProbe: View {
+    let model: TerminalModel
+
+    var body: some View {
+        Color.clear
+            .frame(width: 1, height: 1)
+            .allowsHitTesting(false)
+            .accessibilityElement()
+            .accessibilityLabel("Key row probe")
+            .accessibilityValue("\(model.keyBarFired)|joystick:\(model.joystickEngine.touches)")
+            .accessibilityIdentifier("terminal.keyBar.fired")
+    }
+}
+#endif
 
 /// The composer's quiet chrome on the terminal theme's background.
 enum ComposerChrome {
