@@ -17,7 +17,9 @@ import { useNt } from "./strings";
 import { type NowPlayingCommand, nowPlayingMenuItems } from "./nowPlayingPlayerModel";
 function Glyph({ name }: { name: "play" | "pause" | "previous" | "next" | "note" }) {
   const paths = {
-    play: "M8 5.5v13a1 1 0 0 0 1.5.86l10.6-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z",
+    // Its ink centred in the Play disc (a hair right of centre, where a triangle's weight reads as
+    // centred), not 2.3 units right of it (the person, 2026-11-24).
+    play: "M6.3 5.5v13a1 1 0 0 0 1.5.86l10.6-6.5a1 1 0 0 0 0-1.72L7.8 4.64A1 1 0 0 0 6.3 5.5Z",
     pause: "M7 5h3.5v14H7zM13.5 5H17v14h-3.5z",
     previous: "M6 5h2v14H6zM19 5.8v12.4a.8.8 0 0 1-1.25.66L9.5 12.66a.8.8 0 0 1 0-1.32l8.25-6.2A.8.8 0 0 1 19 5.8Z",
     next: "M16 5h2v14h-2zM5 5.8v12.4a.8.8 0 0 0 1.25.66l8.25-6.2a.8.8 0 0 0 0-1.32L6.25 5.14A.8.8 0 0 0 5 5.8Z",

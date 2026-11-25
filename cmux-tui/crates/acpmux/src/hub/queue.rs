@@ -29,7 +29,7 @@ mod queue_restore;
 mod queue_approve;
 pub use queue_approve::Approver;
 pub(crate) use queue_approve::approved_prompts_error;
-pub(super) use queue_approve::{approved_error, declined_error, released};
+pub(super) use queue_approve::{HeldFold, approved_error, declined_error, released};
 
 // `_meta.acpmux.supersede`: a prompt replaces its sender's queued one under the same key.
 #[path = "supersede.rs"]
@@ -219,6 +219,10 @@ pub(super) enum Wait<'a> {
 /// another daemon (`transfer_out.rs`). One whose move committed keeps its move's mark for good
 /// (`MOVED_AWAY` after a restart), and answers where it went: no move of it is under way.
 pub(super) fn moving_error(session: &Session) -> RpcError {
+    // Auto mode froze it (`auto_hold.rs`): no move is under way.
+    if session.moving().as_deref() == Some(super::AUTO_AWAY) {
+        return super::auto_hold::away_error(session);
+    }
     match session.read_meta(|m| m.moved_to.clone()) {
         Some(to) => super::transfer_out::moved_error(&to),
         None => {
@@ -388,8 +392,9 @@ impl Hub {
                     }
                     // A rate limit's compaction goes ahead of what the hold queued: those go in
                     // after it, with the continuation (`rate_hold.rs`, `compact_first.rs`).
-                    let rate_compaction =
-                        p.after_turn && super::auto_resume::rate_compaction_runs(session);
+                    let rate_compaction = p.after_turn
+                        && (super::auto_resume::rate_compaction_runs(session)
+                            || super::cold_wake::goes_ahead_of_batch(session, p.provenance));
                     // A prompt that took the turn lock and has not shown its turn yet
                     // (`start_turn` runs after awaits) is a turn too. The count is read before
                     // the claim: a prompt counts in `queued` until it holds the claim.
@@ -407,8 +412,16 @@ impl Hub {
                     // right after it, to go in with them (`digest.rs` `gathers`).
                     let gather = !waiting && super::digest::gathers(session, &p);
                     if gather {
+                        // A cold chat's batch (`cold_wake.rs`): the message waits for it, a burst
+                        // window past its deadline, so the inbox's notice at the deadline leads
+                        // the turn and takes it (`take_joined`).
+                        let wait = self
+                            .cold_batch_due(session, &session.meta(), now_ms())
+                            .map_or(0, |due| due.saturating_sub(now_ms()));
                         let until = tokio::time::Instant::now()
-                            + std::time::Duration::from_millis(super::digest::AGENT_GATHER_MS);
+                            + std::time::Duration::from_millis(
+                                wait + super::digest::AGENT_GATHER_MS,
+                            );
                         *session.gathering.lock().unwrap_or_else(|e| e.into_inner()) =
                             Some((turn_id.clone(), until));
                     }
@@ -500,8 +513,9 @@ impl Hub {
                     // turn.
                     // A chat the rate limit holds starts nothing now (`rate_hold.rs`): it queues;
                     // only its compaction goes ahead of what the hold queued.
-                    let rate_compaction =
-                        p.after_turn && super::auto_resume::rate_compaction_runs(session);
+                    let rate_compaction = p.after_turn
+                        && (super::auto_resume::rate_compaction_runs(session)
+                            || super::cold_wake::goes_ahead_of_batch(session, p.provenance));
                     if (queue_waits_for(session, p.agent.is_some()) && !rate_compaction)
                         || Self::rate_holds(session, p.provenance)
                     {
@@ -796,6 +810,13 @@ impl Hub {
         }
         if let Some(key) = p.supersede {
             queued.set("supersede", json!(key));
+        }
+        // The person's steer that waits only for its turn to show (`QueuedPrompt::steer_on_start`):
+        // a client keeps its bubble in the transcript, never a queued row it leaves a moment later
+        // (Leo, 2026-11-24: "my message passes through the composer hat/composer area and it looks
+        // like it goes through the queue and THEN goes properly").
+        if p.steer_on_start {
+            queued.set("steerOnStart", json!(true));
         }
         // It waits for the owner (`queue_approve.rs`); a restart keeps it waiting.
         if awaiting_owner {

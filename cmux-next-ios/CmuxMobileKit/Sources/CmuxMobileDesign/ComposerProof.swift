@@ -14,12 +14,14 @@ import UIKit
     func proofSetText(_ text: String)
     func proofSetAttachments(_ count: Int)
     func proofSetKeyboard(_ up: Bool)
+    /// The composer's text field: is its caret line inside it?
+    var proofField: ComposerReturnTextView? { get }
 }
 
 /// The composer height cap and zero-shift proof (DEBUG, `-cmux-mobile-composer-proof`).
 /// It drives the screen's composer itself and reports on the `composer.proof.<screen>`
 /// element's value, which ComposerHeightCapUITests reads:
-/// - `h L=<lines> A=<attachments> kb=<up|down> card=<pt> frac=<card / space above the keyboard>`
+/// - `h L=<lines> A=<attachments> kb=<up|down> card=<pt> frac=<card / space above the keyboard> caret=<in|out>`
 ///   at 1, 5 and 20 lines with 0, 2 and 5 attachments;
 /// - `shift L=<lines> <add|remove> A=<n> frames=<frames the page's rows moved> max=<pt>` for
 ///   1, 2 and 5 attachments, sampled every display frame for 0.8 s after the change.
@@ -131,8 +133,9 @@ import UIKit
         let windowHeight = window?.bounds.height ?? UIScreen.main.bounds.height
         let keyboardTop = keyboard ? (window.map { keyboardMinY(in: $0) } ?? windowHeight) : windowHeight
         let frac = card.height / max(keyboardTop, 1)
-        return String(format: "h L=%d A=%d kb=%@ card=%.1f frac=%.3f", lines, attachments,
-                      keyboard ? "up" : "down", card.height, frac)
+        let caret = host.proofField.map { $0.caretInView ? "in" : "out" } ?? "-"
+        return String(format: "h L=%d A=%d kb=%@ card=%.1f frac=%.3f caret=%@", lines, attachments,
+                      keyboard ? "up" : "down", card.height, frac, caret)
     }
 
     /// The keyboard's top in the window, from its last frame notification (the window's
