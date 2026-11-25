@@ -40,10 +40,12 @@ fn plain(path: &str) -> bool {
 
 impl Layer {
     /// The layer kept in the projection's state folder `state` (its `upper/` and `whiteouts`);
-    /// empty when the projection never wrote anything. Follows no symlink; skips what is not a
+    /// empty when the projection never wrote anything. Expands the owned git swap link;
+    /// preserves every other symlink as a link. Skips what is not a
     /// file, folder or link, and names that are not UTF-8.
     pub fn collect(state: &Path) -> anyhow::Result<Self> {
         let root = state.join("upper");
+        let swapped_git = crate::git_swap::swapped_repository(state)?;
         let mut upper = Vec::new();
         let mut stack: Vec<(PathBuf, String)> = Vec::new();
         if fs::symlink_metadata(&root).is_ok_and(|meta| meta.is_dir()) {
@@ -57,7 +59,11 @@ impl Layer {
             names.sort();
             let mut below = Vec::new();
             for name in names {
-                let path = dir.join(&name);
+                let path = if relative.is_empty() && name == ".git" {
+                    swapped_git.clone().unwrap_or_else(|| dir.join(&name))
+                } else {
+                    dir.join(&name)
+                };
                 let Ok(meta) = fs::symlink_metadata(&path) else { continue };
                 let child = if relative.is_empty() { name } else { format!("{relative}/{name}") };
                 let kind = if meta.is_dir() {

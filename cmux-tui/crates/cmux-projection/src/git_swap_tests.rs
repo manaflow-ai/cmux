@@ -341,6 +341,18 @@ fn carry_preserves_public_private_and_local_repositories() {
         let base = sh(&repo.mac, &["rev-parse", "HEAD"]).trim().to_owned();
         sh(&repo.mac, &["checkout", "--detach", "--quiet"]);
         sh(&repo.mac, &["branch", "-f", "main", "HEAD~2"]);
+        sh(
+            &repo.mac,
+            &[
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                "160000,1111111111111111111111111111111111111111,uninitialized-submodule",
+            ],
+        );
+        std::fs::write(repo.mac.join("staged\nname.txt"), "staged with a newline in its path")
+            .unwrap();
+        sh(&repo.mac, &["add", "staged\nname.txt"]);
         let expected_log = sh(&repo.mac, &["log", "--format=%H"]);
         let expected_index = sh(&repo.mac, &["ls-files", "--stage"]);
         let expected_diff = sh(&repo.mac, &["diff", "--cached"]);
@@ -545,4 +557,44 @@ fn measure_carry_readiness_for_three_repository_kinds() {
             );
         }
     }
+}
+
+#[test]
+fn carry_swap_bring_back_transfers_new_commits_and_tracks_later_edits() {
+    let repo = repo(3, 64);
+    let Some(p) = mount(&repo.mac) else { return };
+    assert!(matches!(
+        run(&p.overlay, &p.forget(), p.at.path(), p.state.path()).unwrap(),
+        Outcome::Swapped(_)
+    ));
+    let before = crate::state::mark(p.state.path()).unwrap();
+    sh(p.at.path(), &["commit", "--quiet", "-m", "made on the machine"]);
+    let after = crate::state::mark(p.state.path()).unwrap();
+    assert_ne!(before, after, "the transfer mark must see commits outside the upper layer");
+    let expected = sh(p.at.path(), &["log", "--format=%H"]);
+    let layer = crate::layer::Layer::collect(p.state.path()).unwrap();
+    assert!(layer.upper.iter().any(|entry| entry.path == ".git" && entry.kind == Kind::Dir));
+    let paths: Vec<_> = layer
+        .upper
+        .iter()
+        .filter(|entry| entry.kind == Kind::File && entry.path.starts_with(".git/"))
+        .map(|entry| entry.path.clone())
+        .collect();
+    let mut wire = Vec::new();
+    crate::layer::send_files(p.state.path(), &paths, &mut wire).unwrap();
+    let received = tempfile::tempdir().unwrap();
+    assert!(
+        crate::layer::receive_files(&mut wire.as_slice(), &paths, received.path(), u64::MAX)
+            .unwrap()
+            .into_iter()
+            .all(|arrived| arrived)
+    );
+    let mut log = git(&received.path().join(".git"));
+    log.args(["log", "--format=%H"]);
+    assert_eq!(text(log).unwrap(), expected);
+    // An unrelated link must not be walked, even if it points at a directory.
+    std::os::unix::fs::symlink(&repo.public, p.state.path().join("upper/other-link")).unwrap();
+    let layer = crate::layer::Layer::collect(p.state.path()).unwrap();
+    assert!(layer.upper.iter().any(|entry| entry.path == "other-link" && entry.kind == Kind::Link));
+    assert!(!layer.upper.iter().any(|entry| entry.path.starts_with("other-link/")));
 }

@@ -1,36 +1,16 @@
-//! A projected repository's `.git` switching from the Mac to a carried pack (RFD 0007,
-//! seed bundles: "a repo with a public remote should still take its objects from the remote
-//! (C) ... The open part is the swap: serving `.git` by projection until the machine's own fetch
-//! lands, then switching to it").
+//! Projected `.git` switches to a repository prepared from the sender's carry pack.
 //!
-//! At session start `.git` is the projection's, its bytes from the Mac on first read. Beside it,
-//! [`prepare`] builds the machine's own repository on its disk (`<state>/git-local`):
-//! 1. the carried depth-1 pack is indexed into the machine's object store and its base is marked
-//!    shallow;
-//! 2. a fetch from the projected `.git` itself of every ref (`+refs/*:refs/*`) brings unpushed
-//!    commits, their trees and blobs, and the stash, without consulting a remote;
-//! 3. the Mac's `HEAD`, `index`, `config` and `info/` are copied as they read through the mount.
+//! [`prepare_carry`] indexes the depth-one commit/tree pack, then fetches refs, HEAD history,
+//! and staged blobs from the projection itself. It never contacts the configured remote.
+//! [`prepare`] retains the older public-remote path for its existing callers and benchmark.
 //!
-//! The old remote-fetch description follows for the helper functions retained below.
-//! 1. a blobless fetch (`--filter=blob:none`) from the repository's public remote of the branches
-//!    the Mac tracks there: history and trees from the remote, blobs on first use, from the remote
-//!    too (a `cmux-seed` promisor remote, so the Mac's own remote settings stay as they are);
-//! 2. a fetch from the projected `.git` itself of every ref (`+refs/*:refs/*`), negotiated against
-//!    what step 1 brought: only what the remote lacks crosses the Mac's link, which is the
-//!    unpushed commits, their trees and blobs, and the stash;
-//! 3. the Mac's `HEAD`, `index`, `config` (with the promisor remote added) and `info/` copied as
-//!    they read through the mount, the remote's refs of step 1 deleted.
+//! [`swap`] installs the prepared repository as one upper-layer symlink rename. Both packed
+//! and loose refs are kept so a Git reader crossing the rename can resolve either layout.
+//! HEAD, refs and index are fingerprinted before preparation and again before the rename.
+//! Busy, shallow, unsupported or failed preparations retain the projected repository.
 //!
-//! [`swap`] then puts a link to it at `.git` in the upper layer in one rename
-//! ([`crate::overlay::Overlay::swap_to_link`]) and has the kernel forget the old entry. The two
-//! repositories hold the same refs, HEAD and index, and the new one every object the old one
-//! reached, so a git process that read part of its state before the switch and part after
-//! still sees one repository. The Mac's state is fingerprinted ([`fingerprint`]) before step 2
-//! and again just before the rename; a change between (a commit on the machine meanwhile) runs
-//! steps 2 and 3 again.
-//!
-//! A repository is left on projection when carry is unavailable, when it is shallow, has submodules' repositories in
-//! `.git/modules`, or is mid-merge, rebase, cherry-pick or bisect.
+//! Bring Back expands this owned link and includes the local repository in its transfer mark,
+//! so commits and staged work made after the swap return to the Mac before the state is freed.
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -43,6 +23,28 @@ pub const SEED_REMOTE: &str = "cmux-seed";
 const SEED_REFS: &str = "refs/cmux-seed/";
 /// The machine's repository, in the projection's state folder.
 pub const LOCAL_DIR: &str = "git-local";
+/// The swap's owned repository, only while the upper `.git` link names it. Ordinary
+/// user symlinks remain links in Bring Back; they never cause a directory traversal.
+pub(crate) fn swapped_repository(state: &Path) -> std::io::Result<Option<PathBuf>> {
+    let target = state.join(LOCAL_DIR);
+    match std::fs::read_link(state.join("upper/.git")) {
+        Ok(link) if link == target => {
+            let metadata = std::fs::symlink_metadata(&target)?;
+            Ok(metadata.is_dir().then_some(target))
+        }
+        Ok(_) => Ok(None),
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::InvalidInput
+            ) =>
+        {
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+
 /// The virtual files a projection server adds for `git-seed-carry-v1`.
 pub const CARRY_PACK: &str = "cmux-carry.pack";
 pub const CARRY_BASE: &str = "cmux-carry.base";
@@ -369,20 +371,26 @@ fn copy_mac_state(projected: &Path, local: &Path, seed_url: Option<&str>) -> any
     // projected repository explicitly; the carry pack stays blobless while staged work still
     // survives the swap without consulting the configured remote.
     let mut staged = git(projected);
-    staged.args(["ls-files", "--stage"]);
-    let staged = text(staged)?
-        .lines()
-        .filter_map(|line| line.split_whitespace().nth(1))
-        .filter(|object| valid_object_name(object))
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
+    staged.args(["ls-files", "--stage", "-z"]);
+    let staged: std::collections::BTreeSet<String> = text(staged)?
+        .split('\0')
+        .filter_map(|entry| {
+            let (metadata, _) = entry.split_once('\t')?;
+            let mut fields = metadata.split_whitespace();
+            let mode = fields.next()?;
+            let object = fields.next()?;
+            // A gitlink belongs to the submodule's object store, not this repository.
+            (mode != "160000" && valid_object_name(object) && object.bytes().any(|b| b != b'0'))
+                .then(|| object.to_owned())
+        })
+        .collect();
     if !staged.is_empty() {
         let mut fetch = git(local);
-        fetch.args(["fetch", "--quiet", "--no-tags", "--no-write-fetch-head"]);
+        fetch.args(["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--stdin"]);
         fetch.args(["--recurse-submodules=no"]);
         fetch.env("GIT_NO_LAZY_FETCH", "1").arg(projected);
-        fetch.args(staged);
-        output(fetch)?;
+        // The index can contain millions of paths. Never put their object IDs in argv.
+        with_stdin(fetch, &staged.into_iter().collect::<Vec<_>>())?;
     }
     let mut mac = git(projected);
     mac.args(["for-each-ref", "--format=%(refname)"]);
@@ -441,12 +449,6 @@ fn copy_mac_state(projected: &Path, local: &Path, seed_url: Option<&str>) -> any
     }
     write_atomic(&local.join("HEAD"), &std::fs::read(projected.join("HEAD"))?)?;
     Ok(())
-}
-
-fn seed_url(local: &Path) -> anyhow::Result<String> {
-    let mut get = git(local);
-    get.args(["config", "--get", &format!("remote.{SEED_REMOTE}.url")]);
-    Ok(text(get)?.trim().to_owned())
 }
 
 fn write_atomic(file: &Path, bytes: &[u8]) -> anyhow::Result<()> {
@@ -524,14 +526,6 @@ pub fn swap(
         .map_err(|errno| anyhow::anyhow!("swapping .git: errno {errno}"))?;
     forget()?;
     Ok(())
-}
-
-fn is_unreachable(error: &anyhow::Error) -> bool {
-    let text = format!("{error:#}");
-    text.contains("ls-remote")
-        && ["could not read", "Authentication", "not found", "terminal prompts disabled"]
-            .iter()
-            .any(|needle| text.contains(needle))
 }
 
 #[cfg(all(test, target_os = "linux"))]

@@ -115,8 +115,8 @@ pub fn update(state: &Path, at: &Path, change: impl FnOnce(&mut Record)) -> io::
 
 /// What the agent wrote, as one value: a hash of every path in `upper/` (its kind, size, mode,
 /// inode, modification and change times) and of the `whiteouts` file. Any write, new file,
-/// delete, rename or `chmod` changes it. O(edits): only the upper layer is walked, never the
-/// projected folder. A path that cannot be read fails it, so nothing is freed on a guess.
+/// delete, rename or `chmod` changes it. Walks the upper layer and the swapped local git
+/// repository, never the projected folder. A path that cannot be read fails it, so nothing is freed on a guess.
 ///
 /// # Errors
 /// When the upper layer cannot be read.
@@ -125,6 +125,11 @@ pub fn mark(state: &Path) -> io::Result<String> {
     let upper = state.join("upper");
     if fs::symlink_metadata(&upper).is_ok_and(|meta| meta.is_dir()) {
         walk(&upper, "", &mut hash)?;
+        // Writes after the swap bypass FUSE and land in this owned repository. Include
+        // them so Bring Back cannot free commits made after it took its transfer mark.
+        if let Some(git) = crate::git_swap::swapped_repository(state)? {
+            walk(&git, "/.git", &mut hash)?;
+        }
     }
     match fs::read(state.join("whiteouts")) {
         Ok(bytes) => {
