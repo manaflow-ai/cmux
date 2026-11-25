@@ -40,6 +40,10 @@ export type GoldenLook = {
 
 export type Scheme = "light" | "dark";
 
+/** The sections the golden Settings page draws, each its own entry (`looks.golden.settings.<section>`,
+ * golden/settings.ts): Appearance, where a look's own rows are, and Chat, a long one. */
+export const GOLDEN_SETTINGS_SECTIONS = ["appearance", "chat"] as const;
+
 /** The scheme a stage draws: the env's, `auto` meaning dark (the gallery's default theme is dark). */
 export const schemeOf = (colorScheme: string): Scheme => (colorScheme === "light" ? "light" : "dark");
 
@@ -77,4 +81,22 @@ export function lookSetting<T>(look: GoldenLook | undefined, key: string, fallba
 export function lookComposerLook(look: GoldenLook): string | undefined {
   const value = look.settings["agentPane.composerLook"];
   return typeof value === "string" && value !== "auto" ? value : undefined;
+}
+
+/** The values Settings lists under a look in one scheme, as the app would read them once the setup is
+ * installed: the setup's settings, its composer look, and the theme file's appearance keys. The theme
+ * file's colors reach Settings as the stage's theme (frame/main.ts), which the host sends as the
+ * colors in effect (frame/settingsPasswords.ts). */
+export function lookSettingsValues(look: GoldenLook, scheme: Scheme): Record<string, unknown> {
+  const file = look.schemes[scheme];
+  return {
+    ...look.settings,
+    ...(look.composerLook && { "agentPane.composerLook": look.composerLook }),
+    ...(file.theme && { "appearance.theme": file.theme }),
+    ...(file.accent && { "appearance.accent": file.accent }),
+    ...(file.selection && { "appearance.selection": file.selection }),
+    ...(file.density && { "appearance.density": file.density }),
+    ...(file.surfaces?.sidebar && { "appearance.surfaces.sidebar.color": file.surfaces.sidebar }),
+    ...(file.surfaces?.agentPane && { "appearance.surfaces.agentPane.color": file.surfaces.agentPane }),
+  };
 }

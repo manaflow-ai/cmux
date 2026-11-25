@@ -449,17 +449,18 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     expect(cua).toContain("NoNewPrivileges=yes");
     expect(cua).toMatch(new RegExp(`Environment=PATH=${CUA_REFUSE_DIR}:`));
     const files = agentToolsFiles(rdLock).filter((f) => f.path.startsWith(`${CUA_REFUSE_DIR}/`));
-    expect(files.map((f) => path.basename(f.path)).sort()).toEqual(["apt", "apt-get", "sudo"]);
+    expect(files.map((f) => path.basename(f.path)).sort()).toEqual(["apt", "apt-get", "ffmpeg", "ffprobe", "sudo"]);
     const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-cua-refuse-"));
     try {
-      for (const name of ["sudo", "apt-get"]) {
+      for (const name of ["sudo", "apt-get", "ffmpeg", "ffprobe"]) {
         writeFileSync(path.join(dir, name), cuaRefuseScript(name));
         chmodSync(path.join(dir, name), 0o755);
       }
       const env = { ...process.env, PATH: `${dir}:${process.env.PATH ?? ""}` };
       const found = await runChild("sh", ["-c", "command -v apt-get"], { env, timeout: 20_000 });
       expect(found.stdout.trim()).toBe(path.join(dir, "apt-get"));
-      for (const argv of [["sudo", "-n", "apt-get", "install", "-y", "ffmpeg"], ["apt-get", "install", "-y", "ffmpeg"]]) {
+      // The image carries ffmpeg for people (graduated.json); the driver finds the refusing one first.
+      for (const argv of [["sudo", "-n", "apt-get", "install", "-y", "ffmpeg"], ["apt-get", "install", "-y", "ffmpeg"], ["ffmpeg", "-f", "x11grab", "-i", ":99", "out.mp4"], ["ffprobe", "-version"]]) {
         const r = await runChild(argv[0], argv.slice(1), { env, timeout: 20_000 });
         expect(r.status).not.toBe(0);
         expect(r.stderr).toContain("cua-video");
