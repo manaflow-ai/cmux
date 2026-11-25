@@ -1075,6 +1075,10 @@ export function QuickModelMenu({
           {children}
         </MenuButton>
         <MenuPopup
+          // The columns menu sizes itself (QuickModelColumns: the longest name of every tab, the
+          // person's dragged width and grip). The compact menu is settled by the shared rule; its
+          // rail hold above (railRef) only raises the same floor, so the two never disagree.
+          popupSettle={families ? "own" : undefined}
           scroll={families === undefined}
           footer={
             menu.updates ? (

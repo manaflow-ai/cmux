@@ -10,7 +10,7 @@
 import { expect, test } from "bun:test";
 import { AcpmuxDirectClient, type EventRecord } from "../direct";
 import type { AcpmuxRow } from "../model";
-import { turnView, WORKED } from "./turns";
+import { SHORT_NOTE_CHARS, turnView, WORKED } from "./turns";
 
 const ANSWER =
   "Sorry, that's frustrating. I did answer, but the chat drew the answer above your question, so it looked like I ignored you.\n\nMy answer was **no**, it shouldn't say cmux.";
@@ -340,7 +340,7 @@ function chat(seed: number): { events: EventRecord[]; stretches: Stretch[] } {
           const full = pick(2) === 0;
           const words = full
             ? `Reply ${seed}-${t}-${s}: the fix is in.\n\nCI is green at its head.`
-            : `Note ${seed}-${t}-${s}: checking.`;
+            : `Checking the logs for run ${seed}-${t}-${s}.`;
           turn.stepped = false;
           if (!open) {
             message = `msg-${seed}-${t}-${s}`;
@@ -348,7 +348,11 @@ function chat(seed: number): { events: EventRecord[]; stretches: Stretch[] } {
             turn.takeaways.push(full);
           } else {
             turn.replies[turn.replies.length - 1] += ` ${words}`;
-            turn.takeaways[turn.takeaways.length - 1] ||= full;
+            // Short notes streamed into one message read as a reply once the message is long or
+            // has more than two sentences (turns.ts `isTakeaway`, `isWorkNarration`).
+            const joined = turn.replies[turn.replies.length - 1]!;
+            turn.takeaways[turn.takeaways.length - 1] ||=
+              full || joined.length > SHORT_NOTE_CHARS || joined.split(". ").length > 2;
           }
           const cut = 1 + pick(words.length - 1);
           events.push(say(open ? ` ${words.slice(0, cut)}` : words.slice(0, cut), message));
@@ -416,6 +420,7 @@ test("each answer to the person draws closed, in order, never in a fold, for ran
     const closed = drawn(replay(events));
     const text = closed.map((row) => `${row.kind}:${(row.text ?? "").slice(0, 60)}`).join("\n");
     let floor = -1;
+    const answers: string[] = [];
     for (const stretch of stretches) {
       // The stretch's answer is its last words when the person steered after them or no step came
       // after them (turns.ts `steerDialogueIn`), else its last reply to the person; notes and work
@@ -431,7 +436,17 @@ test("each answer to the person draws closed, in order, never in a fold, for ran
       expect(at, `seed ${seed}: "${words}" not drawn, or drawn out of order\n${text}`).toBeGreaterThan(floor);
       expect(closed[at]!.foldedReply, `seed ${seed}: "${words}" drawn inside a fold`).toBeUndefined();
       floor = at;
+      answers.push(words);
     }
+    // Nothing else the agent wrote draws beside a closed fold: each turn's answer only (Lawrence,
+    // 2026-11-19: "in collapsed, literally everything but final assistant message should be collapsed").
+    // A steered turn also keeps the reply before each steer in sight (`steerDialogueIn`), so this
+    // count holds for chats the person never steered.
+    if (!stretches.some((stretch) => stretch.steered))
+      expect(
+        closed.filter((row) => row.kind === "assistant").length,
+        `seed ${seed}: an earlier message drew beside a closed fold\n${text}`,
+      ).toBe(answers.length);
   }
 });
 
