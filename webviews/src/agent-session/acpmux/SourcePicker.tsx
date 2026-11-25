@@ -275,6 +275,7 @@ export function SourcePicker({
       flip={false}
       className="acpmux-add-project-palette ui-glass-material"
       hostGlass={false}
+      data-page-glass="the source picker owns its page glass when the native host is unavailable"
       initialFocus={false}
       finalFocus={finalFocus}
     >

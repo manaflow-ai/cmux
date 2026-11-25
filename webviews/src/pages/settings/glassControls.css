@@ -39,6 +39,7 @@
    the knob tints with it. */
 :root[data-settings-look="refined"] .settings[data-glass-controls] .ui-switch .ui-switch-thumb,
 :root[data-settings-look="refined"] .settings[data-glass-controls] .ui-switch:not([data-checked]) .ui-switch-thumb {
+  /* one-material-allow: a switch knob is a control bead, not a floating surface */
   background: var(--glass-knob-fill);
   box-shadow: var(--glass-knob-edge);
   -webkit-backdrop-filter: var(--glass-knob-lens);
@@ -50,6 +51,7 @@
 
 /* SLIDER. The system slider's 16 px knob, drawn as glass over the filled track. */
 :root[data-settings-look="refined"] .settings[data-glass-controls] input[type="range"]::-webkit-slider-thumb {
+  /* one-material-allow: a slider knob is a control bead, not a floating surface */
   background: var(--glass-knob-fill);
   box-shadow: var(--glass-knob-edge);
   -webkit-backdrop-filter: var(--glass-knob-lens);

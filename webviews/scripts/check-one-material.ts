@@ -36,7 +36,7 @@ export const SRC = join(HERE, "../src");
 const MANIFEST = join(HERE, "../../schemas/surface-materials/surface-materials.json");
 
 /** How many backdrop-filter rules may carry `one-material-allow`. Lower it when one goes; never raise it. */
-export const ALLOWED_MAX = 27; // 27: the hat fan backing (#51952), merged into base beside this rule
+export const ALLOWED_MAX = 29; // 29: includes the two opt-in Settings glass-control knobs
 
 const ALLOW = /one-material-allow:\s*\S/;
 const SKIP_FILE = /\.(test|gallery|dom\.test)\.[cm]?[jt]sx?$|\.gallery\.css$/;

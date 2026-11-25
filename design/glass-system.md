@@ -119,7 +119,7 @@ Until cmux#49499 lands, the two "the App is not told" rows still get App glass u
 Checks, all in `bun run check:one-material` (in `check:pieces` and CI's web lint list):
 
 - `webviews/scripts/check-one-material.ts` (R1 to R3; `test/one-material.test.ts`). Allowed blurs
-  outside `.ui-glass`, each with a `one-material-allow:` reason: pinned at 25 (`ALLOWED_MAX`), counted
+  outside `.ui-glass`, each with a `one-material-allow:` reason: pinned at 29 (`ALLOWED_MAX`), counted
   per line. They are: the diff viewer's own film (`styles.css`, `acpmux/styles.css`,
   `pierre-options.ts`); modal scrims (file search, both lightboxes); sticky veils over scrolling rows
   (sidebar project headers, transcript header, the tab row, the notes chip row, the outputs edge
@@ -127,7 +127,7 @@ Checks, all in `bun run check:one-material` (in `check:pieces` and CI's web lint
   glass.css; a `.ui-glass` tip's arrow; the composer strip and the Updated card (the composer's
   material, one surface); the token sheet's specimen.
 - `webviews/scripts/check-no-nested-glass.ts` (R5; `test/no-nested-glass.test.ts`). One allowed:
-  the DiffToolbar submenu (`NESTED_ALLOWED_MAX = 1`).
+  the DiffToolbar and ContextMenu submenus (`NESTED_ALLOWED_MAX = 2`).
 - `webviews/scripts/check-one-stroke.ts` (R6, web; `test/one-stroke.test.ts`) and the `[hard-edge]`
   rule of `scripts/cmux-next/check-overlay-glass.py` (R6, native). No allowances
   (`EDGE_ALLOWED_MAX = 0`); in-flow edges (not floating surfaces) are listed there with reasons.

@@ -3079,6 +3079,7 @@ export function NewTabScreen(props: Props) {
             }${boxFocused ? " nt-popover-focused" : ""}`
           }
           hostGlass={false}
+          data-page-glass="the composer suggestions stay on the New Tab page glass under the host-glass box"
           // The rows are the live answer to what is typed in the field (ui/popupSettle.ts).
           popupSettle="results"
           initialFocus={false}
