@@ -61,6 +61,19 @@ public final class InputLatencyTrace {
     private var hitches8 = 0
     private var iterations4 = 0
     private var maxIterationMs = 0.0
+    /// The typing window: from a key typed in a composer until `typingTail`
+    /// after the last one. Its own hitch counts are what typing feels
+    /// (`ComposerLinkUITests`), apart from the scrolls and loads around it.
+    static let typingTail = 0.5
+    private var typingStart: CFTimeInterval?
+    private var typingUntil: CFTimeInterval = 0
+    private var typingHitches8 = 0
+    private var typingIterations4 = 0
+    private var typingMaxMs = 0.0
+    private var typingKeys = 0
+    /// Work counted while typing (`note`): draft files written on the main
+    /// thread, transcript scans, composer re-renders.
+    private var typingNotes: [String: Int] = [:]
 
     private init() {
         let url = Self.fileURL
@@ -100,6 +113,46 @@ public final class InputLatencyTrace {
         NextFrame.after { [weak self] in self?.sample(kind, since: start) }
     }
 
+    /// A sample from `start` to the end of this run-loop pass's Core Animation
+    /// commit: the keystroke's work done and its frame handed to the render
+    /// server (`<field>_key_commit`). Unlike `sampleAtNextFrame` it does not
+    /// include the wait for the next vsync (up to a frame at 60 Hz, Low Power
+    /// Mode's rate), so it says what the app itself spent on the key.
+    public func sampleAfterCommit(_ kind: String, since start: CFTimeInterval) {
+        // Core Animation commits at order 2_000_000 before the run loop waits.
+        let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue,
+                                                          false, 2_000_001) { _, _ in
+            MainActor.assumeIsolated { InputLatencyTrace.shared?.sample(kind, since: start) }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
+
+    /// Runs `action` at the next frame (a count read after the frame's layout).
+    public func atNextFrame(_ action: @escaping @MainActor () -> Void) {
+        NextFrame.after(action)
+    }
+
+    /// Runs `action` once, after this run-loop pass's Core Animation commit.
+    public func afterCommit(_ action: @escaping @MainActor () -> Void) {
+        let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue,
+                                                          false, 2_000_001) { _, _ in
+            MainActor.assumeIsolated { action() }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
+
+    /// Counts of events (a view body built, a size asked), read per key as deltas
+    /// (`<field>_key_<name>`); counting writes nothing.
+    public private(set) var counters: [String: Int] = [:]
+
+    public func count(_ name: String) { counters[name, default: 0] += 1 }
+
+    /// The calling thread's CPU time (ms): the main thread's work per key, which a busy host
+    /// stretches far less than wall time.
+    public nonisolated static func threadCPUms() -> Double {
+        Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)) / 1_000_000
+    }
+
     // MARK: Run loop
 
     private func installRunLoopObserver() {
@@ -124,6 +177,11 @@ public final class InputLatencyTrace {
         iterations4 += 1
         if ms >= 8 { hitches8 += 1 }
         maxIterationMs = max(maxIterationMs, ms)
+        if let typingStart, iteration.end >= typingStart, iteration.start <= typingUntil {
+            typingIterations4 += 1
+            if ms >= 8 { typingHitches8 += 1 }
+            typingMaxMs = max(typingMaxMs, ms)
+        }
         let labels = windows.filter { $0.contains(iteration.start) || $0.contains(iteration.end) }
         for index in windows.indices where windows[index].contains(iteration.start) || windows[index].contains(iteration.end) {
             windows[index].add(iteration)
@@ -140,6 +198,31 @@ public final class InputLatencyTrace {
         }
         InputLatencyBoard.shared?.update(summary)
     }
+
+    // MARK: Typing window
+
+    /// A key typed in a composer: opens the typing window or extends it.
+    public func typed() {
+        let now = CACurrentMediaTime()
+        if typingStart == nil { typingStart = watch.currentStart ?? now }
+        typingUntil = now + Self.typingTail
+        typingKeys += 1
+    }
+
+    /// One piece of `kind` work on the main thread; counted while typing.
+    public func note(_ kind: String) {
+        guard typingStart != nil, CACurrentMediaTime() <= typingUntil else { return }
+        typingNotes[kind, default: 0] += 1
+        // Never from inside a view update (a body notes its own render): on the next turn.
+        guard !boardPending else { return }
+        boardPending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.boardPending = false
+            InputLatencyBoard.shared?.update(self.summary)
+        }
+    }
+    private var boardPending = false
 
     // MARK: Keyboard windows
 
@@ -180,11 +263,16 @@ public final class InputLatencyTrace {
 
     /// The counts and per-kind p50/p95/max so far, as one JSON object.
     public var summary: String {
-        var parts = [#""hitches_8ms":\#(hitches8)"#, #""iterations_4ms":\#(iterations4)"#, #""max_iteration_ms":\#(Self.f(maxIterationMs))"#]
+        var parts = [#""hitches_8ms":\#(hitches8)"#, #""iterations_4ms":\#(iterations4)"#, #""max_iteration_ms":\#(Self.f(maxIterationMs))"#,
+                     #""typing_keys":\#(typingKeys)"#, #""typing_hitches_8ms":\#(typingHitches8)"#,
+                     #""typing_iterations_4ms":\#(typingIterations4)"#, #""typing_max_iteration_ms":\#(Self.f(typingMaxMs))"#]
+        for (kind, count) in typingNotes.sorted(by: { $0.key < $1.key }) {
+            parts.append(#""typing_\#(kind)":\#(count)"#)
+        }
         for (kind, values) in samples.sorted(by: { $0.key < $1.key }) {
             let sorted = values.sorted()
             func p(_ q: Double) -> Double { sorted[min(sorted.count - 1, max(0, Int((q * Double(sorted.count)).rounded(.up)) - 1))] }
-            parts.append(#""\#(kind)":{"n":\#(sorted.count),"p50":\#(Self.f(p(0.5))),"p95":\#(Self.f(p(0.95))),"max":\#(Self.f(sorted.last ?? 0))}"#)
+            parts.append(#""\#(kind)":{"n":\#(sorted.count),"p50":\#(Self.f(p(0.5))),"p95":\#(Self.f(p(0.95))),"p99":\#(Self.f(p(0.99))),"max":\#(Self.f(sorted.last ?? 0))}"#)
         }
         return "{" + parts.joined(separator: ",") + "}"
     }

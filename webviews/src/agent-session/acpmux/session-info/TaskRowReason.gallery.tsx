@@ -35,7 +35,7 @@ const ARM_CSS: Record<Arm, string> = {
   glyph: `[data-arm="glyph"] .acpmux-session-info-task[data-closed]::after {
     content: "i"; flex: none; box-sizing: border-box; width: 12px; height: 12px; margin-inline-end: var(--grid-gap);
     border: 1px solid currentColor; border-radius: 50%; color: var(--agent-muted);
-    font: 600 8px/10px var(--font-sans, system-ui); text-align: center; font-style: italic;
+    font-family: var(--font-sans, system-ui); font-weight: 600; font-size: var(--text-caption); line-height: 10px; text-align: center; font-style: italic;
   }`,
   line: `[data-arm="line"] .acpmux-session-info-task[data-closed] { flex-wrap: wrap; }
   [data-arm="line"] .acpmux-session-info-task[data-closed]::after {

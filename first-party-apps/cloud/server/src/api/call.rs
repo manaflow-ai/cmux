@@ -7,6 +7,21 @@ use crate::ops::Projection;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
+/// Transport provenance is kept separate from the public error code. Only
+/// credential-host refusals guaranteed to precede POST release a fresh intent.
+/// The error is boxed: `CloudError` is large and every op returns this
+/// on its error path (clippy::result_large_err).
+pub(crate) struct CallFailure {
+    pub(crate) error: Box<CloudError>,
+    pub(crate) not_sent: bool,
+}
+
+impl From<CloudError> for CallFailure {
+    fn from(error: CloudError) -> Self {
+        Self { error: Box::new(error), not_sent: false }
+    }
+}
+
 pub(crate) struct Ctx<'a, C> {
     control_plane: &'a mut C,
     pub(crate) projection: &'a mut Projection,
@@ -61,17 +76,66 @@ impl<'a, C: ControlPlane> Ctx<'a, C> {
             params,
             idempotency_key: key.map(str::to_owned),
             origin: key.and(self.origin),
+            expected_backend: None,
+            expected_team: None,
+            expected_revision: None,
         };
+        self.send(call).map_err(|failure| *failure.error)
+    }
+
+    pub(crate) fn origin(&self) -> Option<&'static str> {
+        self.origin
+    }
+
+    /// The host checks these non-secret fences against the exact credential
+    /// used for each POST; the app server never receives that credential.
+    pub(crate) fn fenced_wire(
+        &mut self,
+        op: &str,
+        params: Value,
+        scope: &cmux_cloud_client::machine::Scope,
+        mutation: Option<(&str, &str)>,
+    ) -> Result<WireResult, CallFailure> {
+        self.send(WireCall {
+            op: op.to_owned(),
+            params,
+            idempotency_key: mutation.map(|(key, _)| key.to_owned()),
+            origin: mutation.and(self.origin),
+            expected_backend: Some(scope.origin().to_owned()),
+            expected_team: scope.team().map(str::to_owned),
+            expected_revision: mutation.map(|(_, revision)| revision.to_owned()),
+        })
+    }
+
+    fn send(&mut self, call: WireCall) -> Result<WireResult, CallFailure> {
+        let op = call.op.as_str();
         match self.control_plane.call(&call) {
             Ok(WireReply::Result(result)) => Ok(result),
             Ok(WireReply::Error(error)) => {
+                // These are credential-host refusals before POST, not new
+                // backend catalog errors. Keep their final meaning intact.
+                if error.code == "credential.scope_refused" {
+                    return Err(CallFailure {
+                        error: Box::new(CloudError::new(codes::CONFLICT, error.message)),
+                        not_sent: true,
+                    });
+                }
+                if error.code == "credential.fence_invalid" {
+                    return Err(CallFailure {
+                        error: Box::new(CloudError::new(codes::INVALID_ARGS, error.message)),
+                        not_sent: true,
+                    });
+                }
+                if error.code == "credential.response_invalid" {
+                    return Err(CloudError::new(codes::BAD_RESPONSE, error.message).into());
+                }
                 let error = CloudError::from_wire_for(op, &error);
                 if error.code == codes::AUTH_REQUIRED {
                     self.projection.clear();
                 }
-                Err(error)
+                Err(error.into())
             }
-            Err(e) => Err(self.relay_error(e)),
+            Err(e) => Err(self.relay_error(e).into()),
         }
     }
 

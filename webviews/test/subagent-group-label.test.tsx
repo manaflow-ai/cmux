@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture subagent names, not shipped UI.
 // A batch of subagents says how many there are and what is still going in one phrase, in the
-// pane language's plural forms (Leo 2026-10-13): "1 subagent running", "2 subagents, 1 running".
+// pane language's plural forms (Leo 2026-10-13): "1 subagent", "2 subagents, 1 failed" (running is the count alone, Leo 2026-11-23).
 // Before: "1 subagents" over "1 running", the noun always plural and the count said twice.
 // The real transcript renders the group row, in English and in Russian (one, few and many forms).
 import { afterAll, expect, test } from "bun:test";
@@ -84,10 +84,10 @@ async function label(states: string[], language = "en"): Promise<string> {
 }
 
 test("one phrase says how many subagents there are and what is still going", async () => {
-  expect(await label(["running"])).toBe("1 subagent running");
-  expect(await label(["running", "running", "running"])).toBe("3 subagents running");
-  expect(await label(["running", "completed"])).toBe("2 subagents, 1 running");
-  expect(await label(["running", "failed", "completed"])).toBe("3 subagents, 1 failed, 1 running");
+  expect(await label(["running"])).toBe("1 subagent");
+  expect(await label(["running", "running", "running"])).toBe("3 subagents");
+  expect(await label(["running", "completed"])).toBe("2 subagents");
+  expect(await label(["running", "failed", "completed"])).toBe("3 subagents, 1 failed");
   expect(await label(["completed", "completed"])).toBe("2 subagents done");
   expect(await label(["completed", "failed"])).toBe("2 subagents, 1 failed, 1 done");
 });
@@ -97,12 +97,12 @@ test("one phrase says how many subagents there are and what is still going", asy
 test("cancelled and disconnected subagents count as stopped", async () => {
   expect(await label(["completed", "cancelled", "disconnected"])).toBe("3 subagents, 2 stopped, 1 done");
   expect(await label(["cancelled", "cancelled"])).toBe("2 subagents, 2 stopped");
-  expect(await label(["running", "cancelled"])).toBe("2 subagents, 1 running, 1 stopped");
+  expect(await label(["running", "cancelled"])).toBe("2 subagents, 1 stopped");
 });
 
 test("the count takes the pane language's plural form", async () => {
-  expect(await label(["running"], "ru")).toBe("1 субагент выполняется");
-  expect(await label(["running", "running"], "ru")).toBe("2 субагента выполняются");
-  expect(await label(Array(5).fill("running"), "ru")).toBe("5 субагентов выполняются");
+  expect(await label(["running"], "ru")).toBe("1 субагент");
+  expect(await label(["running", "running"], "ru")).toBe("2 субагента");
+  expect(await label(Array(5).fill("running"), "ru")).toBe("5 субагентов");
   expect(await label(["completed", "completed"], "ja")).toBe("サブエージェント 2 件完了");
 });

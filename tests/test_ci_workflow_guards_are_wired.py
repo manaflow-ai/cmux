@@ -45,6 +45,10 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
+    # Manual capture harness regression; the workflow path is an admission identity fixture,
+    # not a workflow file read. Run after changing the harness or its HQ workflow identity.
+    # Exit: remove if this test begins reading workflows or gains an approved CI execution lane.
+    "tests/test_ios_screen_sharing_proof.py",
     # lane = "manual" in tests/test-execution.d/other.toml. Checks that every job of
     # each workflow in its GATED set carries the draft-head condition and that its trigger lists ready_for_review (the
     # draft tier, scripts/ci/head_tier.py); it reads the workflows as data. Run it by hand when a workflow is added to
@@ -133,10 +137,6 @@ UNWIRED: set[str] = {
     # scripts only as data: which callers read reload.sh's App path after --build-only without --keep-app. Run it after
     # adding such a caller. Exit: as below.
     "tests/test_reload_build_only_app_path_readers.py",
-    # lane = "manual" (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). It reads workflows only as
-    # data: which files exist and which call a reusable declared workflow, for scripts/ci/hosted_light_rescue.py's
-    # scope. Exit: as below.
-    "tests/test_ci_hosted_light_rescue.py",
     # lane = "manual" in tests/test-execution.d/ci.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted
     # 2026-11-18). It runs scripts/ci/swiftpm_prefetch_binary_artifacts.py against a fake cache and reads the owned-Mac
     # workflows only as data (each SwiftPM step seeds first, #43932). Run it by hand when the seed or such a step
@@ -210,10 +210,10 @@ UNWIRED: set[str] = {
     # GitHub release, the rest of the tail dispatched, and the retry at the newest head; run it by hand after
     # changing decide, retry-nightly-next or dispatch-published-in.
     "tests/test_nightly_next_single_loop.py",
-    # lane = "manual" for the same rule. It checks the nightly-next build and sign stages (the push run builds,
-    # dispatch-nightly-next-sign hands the unsigned app to a sign run in its own group); run it by hand after
-    # changing decide, the sign-stage dispatch, retry-nightly-next or resume-unsigned-nightly.py.
-    "tests/test_nightly_next_pipeline.py",
+    # lane = "manual" for the same rule. It checks that retry-nightly-next's third failure in a row comments on the
+    # nightly-next-feed-stale issue (nightly_next_retry_exhausted.py) and that the job may write issues; run it by hand
+    # after changing retry-ask-push-group.sh, that script or the job's permissions.
+    "tests/test_nightly_next_retry_exhausted.py",
     # lane = "manual" for the same rule (tests/test-execution.d/nightly.toml). It checks the one-job nightly-next
     # path of nightly.yml (gate, concurrency, shared steps, the kept Zig cache and the single Zig install); run it
     # by hand after changing nightly-next-one or a step it shares with the split jobs.
@@ -243,9 +243,6 @@ UNWIRED: set[str] = {
     "tests/test_ci_blacksmith_linux_sizes.py",
     # a Linux runs-on or the RUNNER_POOLS.linux picker (#30878);
     "tests/test_ci_overflow_pick_reads_pool.py",
-    # scripts/ci/cloud_probe_rescue.py, run by the main controller's workflow_run adapter, not a PR job
-    # (#30796): python3 -m unittest tests.test_ci_cloud_probe_rescue from the repository root.
-    "tests/test_ci_cloud_probe_rescue.py",
     # lane = "manual" for the same rule. It checks the weekly rollback drill (nightly-next-rollback-drill.yml) and
     # its call into nightly-next-rollback.yml; run it by hand after changing either or
     # scripts/ci/nightly_next_rollback_drill.py.
@@ -314,6 +311,10 @@ UNWIRED: set[str] = {
     # lane-branch push of cmux-tui artifacts skips before it takes a Blacksmith runner (#45997). Run it by hand after
     # changing cmux-tui-artifacts.yml's gate. Exit: as above.
     "tests/test_cmux_tui_superseded_gate.py",
+    # lane = "manual" (no new CI tests, CLAUDE.md). It checks that feat-cmux-next tree publishing is latest-wins:
+    # tree-preflight's shared feat push group and supersede-feat-runs cancelling only never-started older push runs
+    # (#48296). Run it by hand after changing either or scripts/ci/cmux_tui_feat_supersede.py. Exit: as above.
+    "tests/test_cmux_tui_feat_latest_wins.py",
     # lane = "manual" (kept manual under the 2026-10-23 no-new-CI rule, since lifted). It checks that every git fetch
     # and curl in nightly.yml's nightly- next-one job has its own bound and the ones that fail it retry (nightly run
     # 44232805509). Run it by hand after changing a fetch or download there. Exit: as above.

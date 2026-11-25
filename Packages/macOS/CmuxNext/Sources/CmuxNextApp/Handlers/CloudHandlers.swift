@@ -25,12 +25,14 @@ enum CloudHandlers {
         bindNetworkActions(into: registry, context: context, reason: signedInReason)
         bindDomainActions(into: registry, context: context, reason: signedInReason)
         bindListActions(into: registry, context: context)
+        bindComputerControl(into: registry, context: context)
         CloudStartSession.bind(into: registry, context: context, reason: signedInReason)
         context.services.cloudTeam.bind(into: registry, reason: signedInReason)
         bindCreation(into: registry, context: context, reason: { cloud.unavailableReason })
         bindAccount(into: registry, context: context, reason: reason)
         bindMove(into: registry, context: context)
         bindSignInRecovery(into: registry, cloud: cloud)
+        PaletteVerbActions(host: context.services).bindSecretRemove(into: registry) // before the unavailable sweep below
         CloudMachineStage.gatePowerActions(into: registry, context: context)
         // Open Desktop on a machine without a desktop: out of its menu, its run refused with why.
         ActionTargetVisibility.gate("cloudOpenDesktop", in: registry) { invocation in

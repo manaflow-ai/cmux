@@ -66,7 +66,7 @@
 // prints `RESTART_SETTLED_JSON {...}` (bench/restartSettled.ts): first content, settled (the live chat showing the
 // newest answer with nothing in view moving after), shifts after first content and how far they moved, and the
 // bytes the daemon sent. scripts/measure/restart-settled-linux.sh runs it per link beside the terminal's reattach.
-// NO_TAIL=1 serves no kept tail; WIRE_TRACE=1 prints each daemon request as it arrives (ms from the round's start).
+// NO_TAIL=1 serves no kept tail; NO_COPY=1 no saved copy (with NO_TAIL=1, an update's revive: nothing kept); WIRE_TRACE=1 prints each daemon request as it arrives (ms from the round's start).
 // PANE_SOURCE_REF=<sha> loads that immutable App/direct/hostRetry revision under this same harness for a baseline.
 /// <reference types="bun" />
 import fs from "node:fs";
@@ -133,6 +133,9 @@ for (const [name, value] of [
 /// waits for the pipe and half a round trip. The copy and the kept tail are the app's own, so they do not cross it.
 const LINK_NAME = process.env.LINK ?? "local";
 const NO_TAIL = process.env.NO_TAIL === "1";
+/// NO_COPY=1 serves no saved copy in any mode: an update's relaunch, whose copy another build wrote, so the page
+/// refuses it. With NO_TAIL=1 that is a revive after an update: nothing of the chat is in the page or the host.
+const NO_COPY = process.env.NO_COPY === "1";
 const WIRE_TRACE = process.env.WIRE_TRACE === "1";
 const LINK = linkProfile(LINK_NAME);
 /// How long each relaunch is recorded from navigation: acpmux's absence, the page's next retry (at most
@@ -160,6 +163,11 @@ const TRACE = process.env.TRACE === "1";
 /// PROFILE=1 (MODE=reopen-spare): a CPU profile of each adopt, from the event to the newest answer drawn,
 /// printed as the functions with the most self time over all rounds (an unminified build).
 const PROFILE = process.env.PROFILE === "1";
+/// BOUND=1: each round also times its settled page drawn from scratch in the same page (the DOM copied, the scroll
+/// offset restored, to the next painted frame; median of BOUND_DRAWS draws) as `boundMs`, the settled-page bench's
+/// derived bound for open_recent and restart (settled-page.bench.ts `fromRestartBench`).
+const BOUND = process.env.BOUND === "1";
+const BOUND_DRAWS = Number(process.env.BOUND_DRAWS ?? 3);
 const SOURCES = process.env.SOURCES === "1";
 /// The theme key the copy is written under and the host says the page gets now (shared.ts `misfit`):
 /// the bench's host sends the page no theme, so any fixed key is the same theme on both loads.
@@ -503,7 +511,7 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
   const read = (): Frame => {
     // A copy still waiting for its sheets is laid out hidden (paint.ts) and paints nothing: not on top.
     const drawn = document.querySelector<HTMLElement>(hostTag);
-    const host = drawn && drawn.style.visibility !== "hidden" ? drawn : null;
+    const host = drawn && drawn.style.visibility !== "hidden" && drawn.style.opacity !== "0" ? drawn : null;
     const scope: ParentNode = host?.shadowRoot ?? document;
     // Under a copy the live root is held clear until the swap (chatSnapshot/paint.ts); with no copy over
     // it, a clear root shows nothing of the chat.
@@ -658,6 +666,8 @@ type Round = {
   socketOpenedMs: number | null;
   initializeAnsweredMs: number | null;
   attachAnsweredMs: number | null;
+  /// BOUND=1: the settled page drawn from scratch, ms (median of BOUND_DRAWS draws); else null.
+  boundMs: number | null;
   /// How many times the page asked for a socket, and when it made the ask that opened one (ms from
   /// navigation): the relink is the wait for that ask after acpmux came back, then the ask to the open.
   asks: number;
@@ -665,6 +675,47 @@ type Round = {
   /// Bytes the daemon sent the page over the link this round.
   bytesDown: number;
 };
+
+/** The settled page served as a static page (BOUND=1): the settled DOM, scripts removed, at the app's own origin
+ *  (its stylesheets, fonts), the scroll offset restored by an inline script before the first paint; ms from navigation
+ *  to its first contentful paint, the median of BOUND_DRAWS loads in fresh pages of the same context. No restart can
+ *  show the settled page sooner than its own HTML loads and paints. */
+async function drawBound(page: Page): Promise<number> {
+  const html = await page.evaluate(() => {
+    const clone = document.documentElement.cloneNode(true) as HTMLElement;
+    for (const node of clone.querySelectorAll("script")) node.remove();
+    const scrollTop = document.querySelector<HTMLElement>(".acpmux-scroll")?.scrollTop ?? 0;
+    const restore = document.createElement("script");
+    restore.textContent = `{const s=document.querySelector(".acpmux-scroll");if(s)s.scrollTop=${scrollTop}}`;
+    clone.querySelector("body")?.append(restore);
+    return `<!doctype html>${clone.outerHTML}`;
+  });
+  const at = new URL("/__settled-bound.html", page.url()).href;
+  const draws: number[] = [];
+  for (let draw = 0; draw < Math.max(1, BOUND_DRAWS); draw += 1) {
+    const one = await page.context().newPage();
+    await one.setViewportSize(page.viewportSize() ?? RELAUNCH_VIEWPORT);
+    try {
+      await one.route(at, (route) => route.fulfill({ contentType: "text/html", body: html }));
+      await one.goto(at, { waitUntil: "load" });
+      draws.push(
+        await one.evaluate(
+          () =>
+            new Promise<number>((resolve) => {
+              const paint = () =>
+                performance.getEntriesByName("first-contentful-paint")[0]?.startTime ??
+                performance.getEntriesByType("paint").at(-1)?.startTime;
+              requestAnimationFrame(() => setTimeout(() => resolve(paint() ?? performance.now()), 0));
+            }),
+        ),
+      );
+    } finally {
+      await one.close();
+    }
+  }
+  draws.sort((a, b) => a - b);
+  return draws[Math.floor(draws.length / 2)]!;
+}
 
 const releases: [string, () => unknown][] = [];
 const release = async () => {
@@ -781,7 +832,23 @@ try {
     logLevel: "error",
   });
   const bundle = async (entry: string): Promise<string> => {
-    const built = await Bun.build({ entrypoints: [entry], format: "iife", target: "browser" });
+    // At PANE_SOURCE_REF too: the boot script is a pane source like the bundle's.
+    const built = await Bun.build({
+      entrypoints: [entry],
+      format: "iife",
+      target: "browser",
+      plugins: [
+        {
+          name: "immutable-pane-baseline",
+          setup: (builder) => {
+            builder.onLoad({ filter: /\.tsx?$/ }, (args) => {
+              const contents = priorSources.get(args.path);
+              return contents === undefined ? undefined : { contents, loader: args.path.endsWith("x") ? "tsx" : "ts" };
+            });
+          },
+        },
+      ],
+    });
     if (!built.success) throw new Error(built.logs.map(String).join("\n"));
     return await built.outputs[0]!.text();
   };
@@ -795,6 +862,17 @@ try {
       "Object.assign(globalThis, { captureMiss, captureSnapshot });\n",
   );
   const captureScript = await bundle(captureEntry);
+  // The app's host is there before any page script runs (its WebKit handlers, or the page host's): the
+  // dev host stands in for it from the document's start here, not from the bundle's dev entry (dev.tsx,
+  // which installs it only when the bundle ran and leaves one already there), so a page script that
+  // asks the host first (boot.ts) is answered as in the app.
+  const hostEntry = path.join(work, "host-entry.ts");
+  fs.writeFileSync(
+    hostEntry,
+    `import { devHostParams, installDevHost } from ${JSON.stringify(path.join(webviews, "src/dev-host/host.ts"))};\n` +
+      "const params = devHostParams(location.hash);\nif (params) installDevHost(params);\n",
+  );
+  const hostScript = await bundle(hostEntry);
 
   // The page as the app serves it (build-agent-pane-web.sh): every sheet in one linked `pane.css`
   // (id cmux-pane-styles), which the writer leaves out of the copy and whose rules the copy draws under
@@ -874,9 +952,9 @@ try {
     },
   });
   releases.push(["static server", () => statics.stop(true)]);
-  const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${PAPERCUT_CHAT}`;
+  const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${PAPERCUT_CHAT}`;
   /// The prewarmed spare: a New Tab page with no chat yet (dev-host `newtab`; `new`: a new chat, not the latest one).
-  const spareUrl = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&newtab&new`;
+  const spareUrl = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&newtab&new`;
   const browser: Browser =
     ENGINE === "webkit"
       ? await webkit.launch({ headless: true })
@@ -984,6 +1062,8 @@ try {
     await installPaintedFrames(page);
     if (BRIDGE) await serveBridge(page);
     await page.addInitScript(installHost, { tail, readyDelayMs, refuseUntilMs, bridge: BRIDGE });
+    // After installHost, whose setter wraps the handlers it installs.
+    await page.addInitScript({ content: hostScript });
     await page.addInitScript(recordFrames, { windowMs, latest: LATEST, hostTag: SNAPSHOT_HOST_TAG });
   };
 
@@ -1032,6 +1112,17 @@ try {
         return { snapshot: snapshot ?? null, miss: snapshot ? "" : w.captureMiss() };
       }, THEME);
       if (TRACE) console.log(`warm bottom band:\n  ${(await page.evaluate(bottomBand)).join("\n  ")}`);
+      if (TRACE)
+        console.log(
+          `warm rows at the copy: ${(
+            await page.evaluate(() =>
+              Array.from(document.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]"))
+                .map((row) => [row.dataset.rowId, row.getBoundingClientRect()] as const)
+                .filter(([, box]) => box.bottom > 0 && box.top < innerHeight)
+                .map(([id, box]) => `${id}@${box.top.toFixed(0)}+${box.height.toFixed(0)}`),
+            )
+          ).join(" ")}`,
+        );
       if (!written.snapshot) throw new Error(`the settled page wrote no copy: ${written.miss}`);
       return written.snapshot;
     } finally {
@@ -1169,6 +1260,7 @@ try {
         socketOpenedMs: null,
         initializeAnsweredMs: null,
         attachAnsweredMs: null,
+        boundMs: null,
         // The spare connected before its adopt event: no socket ask is timed from the event.
         asks: 0,
         lastAskMs: null,
@@ -1181,7 +1273,7 @@ try {
   };
 
   const openPage = async (mode: Mode, copy: ChatSnapshot): Promise<Round> => {
-    servedCopy = ["native-ready-tail", "reopen-no-copy", "refused-no-copy"].includes(mode) ? null : copy;
+    servedCopy = NO_COPY || ["native-ready-tail", "reopen-no-copy", "refused-no-copy"].includes(mode) ? null : copy;
     // A reopen builds its page in the warm renderer; a relaunch in a cold context.
     const context =
       isReopen(mode) && warmContext ? warmContext : await browser.newContext({ viewport: RELAUNCH_VIEWPORT });
@@ -1245,6 +1337,7 @@ try {
       if (mode.startsWith("native-ready") && got.readyAnsweredAt < DOWN_MS - 20)
         throw new Error(`native ready delay was not exercised: ${got.readyAnsweredAt}`);
       const since = (epoch: number) => (epoch ? epoch - got.origin : null);
+      const boundMs = BOUND ? await drawBound(page) : null;
       return {
         mode,
         metrics: classifyFrames(got.frames),
@@ -1262,6 +1355,7 @@ try {
         socketOpenedMs: since(load.socketOpenedAt),
         initializeAnsweredMs: since(load.initializeAnsweredAt),
         attachAnsweredMs: since(load.attachAnsweredAt),
+        boundMs,
         asks: got.asks.length,
         bytesDown: load.bytesDown,
         lastAskMs: (() => {
@@ -1301,7 +1395,8 @@ try {
     layoutShift: (r: Round) => r.layoutShift,
     frames: (r: Round) => r.metrics.frames,
   } as const;
-  const json: Record<string, unknown> = { turns: TURNS, downMs: DOWN_MS, recordMs: RECORD_MS, rounds: ROUNDS };
+  // How long each round recorded is its mode's (`recordMs`: a refused mode records longer), so it goes with the mode.
+  const json: Record<string, unknown> = { turns: TURNS, downMs: DOWN_MS, rounds: ROUNDS };
   let failed = false;
   for (const [mode, rounds] of byMode) {
     console.log(
@@ -1473,6 +1568,13 @@ try {
               `composer ${composer}`,
               `scrollTop ${frame.scrollTop === null ? "-" : frame.scrollTop.toFixed(0)}`,
               ...(shifts.has(at) ? [shifts.get(at)!] : []),
+              // A shift names every row in view on both sides of it, so the row that came, went or moved shows.
+              ...(shifts.has(at) && at > 0
+                ? [
+                    `was ${worst.frames[at - 1]!.rows.map((row) => `${row.id}@${row.top.toFixed(0)}`).join(" ")}`,
+                    `now ${frame.rows.map((row) => `${row.id}@${row.top.toFixed(0)}`).join(" ")}`,
+                  ]
+                : []),
             ].join(" | "),
           );
         });
@@ -1507,6 +1609,7 @@ try {
       });
     }
     json[mode] = {
+      recordMs: recordMs(mode),
       rounds: rounds.map(({ frames: _frames, metrics: { blankAt: _blankAt, shiftAt, ...metrics }, ...rest }) => ({
         ...rest,
         ...metrics,

@@ -16,9 +16,10 @@ import { useScrollEdges } from "./scrollEdges";
 import { sessionSummary } from "./sessionSummary";
 import type { SubsessionRow } from "../subagents/subsessions";
 import { SubagentStatusList } from "./SubagentStatusList";
+import { CountLine } from "./LiveCount";
 import { SUBSESSION_STATUS, subagentStatus, waitingSubagents } from "./subagentStatusListModel";
 import { sessionStatus } from "../session-info/childSessionRowsModel";
-import { subagentCountParts } from "../session-info/subagentsSectionModel";
+import { orderedCountParts } from "../session-info/subagentsSectionModel";
 import { sessionRetry } from "../subagents/retryState";
 import { SubagentsTab } from "./SubagentsTab";
 import type { ResumeActions } from "../subagents/ResumeControl";
@@ -246,7 +247,9 @@ export function SummaryCard({
   const runningCommands = commands.filter((command) => command.state === "running").length;
   // A started chat whose turn runs is a running subagent too: one word, as the tray says.
   const runningCount = count("running") + children.filter((child) => sessionStatus(child) === "running").length;
-  const counts = subagentCountParts(
+  // What runs is its mark and its number (LiveCount.tsx); what waits on the person keeps its word, and
+  // a failure reads right after it (the shared order).
+  const counts = orderedCountParts(
     {
       waiting: waitingCount,
       failed: count("failed"),
@@ -344,7 +347,9 @@ export function SummaryCard({
             {/* The popover has no title row, but folded it keeps the live counts in view (its body, where Subagents
               carries them, is gone). */}
             {!tab && (card.column || card.collapsed) && counts.length > 0 && (
-              <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>
+              <span className="acpmux-summary-card__counts">
+                <CountLine parts={counts} />
+              </span>
             )}
             {!card.column && (
               <button
@@ -382,7 +387,7 @@ export function SummaryCard({
             {subagentList && (
               <SubagentStatusList
                 agents={agents}
-                counts={!card.column ? counts.join(" · ") : undefined}
+                counts={!card.column ? counts : undefined}
                 waiting={waiting}
                 current={subagents.current}
                 onOpen={subagents.onOpen}

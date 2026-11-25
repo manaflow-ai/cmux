@@ -35,6 +35,17 @@
 //!   the hat (`webviews/.../subagents/trayLinger.ts`, three minutes, never right after a look).
 //!   That is the client's: the daemon only makes sure the end exists.
 //!
+//! An end acpmux writes after the fact says so, and says when the subagent really ended, so a
+//! client draws it where it ended and never as news of the moment it was written (Leo,
+//! 2026-11-22, after a relaunch wrote 105 such ends into his coordinator's current turn, a
+//! tooltip reading "Disconnected · 0s": "and more bullshit somehow happened here"). Each carries
+//! `recovered: true`, `endedAt` (epoch ms: the notification that ended it, else its last own
+//! event) and `startedAt` (its first event of the run, when the log has it). One whose
+//! notification was heard ends with that status (`completed`, mostly), on every rule, a harness
+//! exit and a sweep included: it finished, it was not lost. A subagent below another one
+//! (Claude's nested agents, `spawn_depth` 2) is never in Claude's list of background tasks,
+//! which holds only the top-level ones, so the list never ends it (`task_gone`).
+//!
 //! Cost: one map entry per running subagent (its last event time), one per agent id, and the
 //! statuses heard for running ones; a task list is checked against the running ones only.
 
@@ -57,24 +68,92 @@ pub struct Ended {
     pub id: String,
     pub state: &'static str,
     pub reason: &'static str,
+    /// When it really ended (epoch ms): its notification, else its last own event.
+    pub ended_at: Option<u64>,
+    /// When its run started (epoch ms), when known.
+    pub started_at: Option<u64>,
 }
 
-/// What the tree keeps for expiry.
-#[derive(Debug, Default)]
+/// What a harness exit left of a subagent whose end the log never got.
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub(super) struct Orphan {
+    state: &'static str,
+    ended_at: Option<u64>,
+    started_at: Option<u64>,
+}
+
+/// An `Orphan` as a checkpoint holds it: its end state by name, read back as the same static
+/// state it was written from.
+#[derive(serde::Deserialize)]
+struct StoredOrphan {
+    state: String,
+    ended_at: Option<u64>,
+    started_at: Option<u64>,
+}
+
+impl<'de> serde::Deserialize<'de> for Orphan {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let o = StoredOrphan::deserialize(d)?;
+        Ok(Orphan { state: stored_state(&o.state), ended_at: o.ended_at, started_at: o.started_at })
+    }
+}
+
+/// What the tree keeps for expiry. It rides in the adoption checkpoint with the tree
+/// (`hub/hosts/checkpoint.rs`), so a resumed log read keeps its orphans and event times.
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct Expiry {
     /// When the update being read happened (epoch ms; 0 when unknown).
     clock: u64,
-    /// Each running subagent's last event time.
+    /// Each running subagent's last event time, and its run's first.
     last_event: HashMap<String, u64>,
+    first_event: HashMap<String, u64>,
     /// Each subagent by its agent id (Claude's task id), and each one's agent id.
     by_agent: HashMap<String, String>,
     agent_of: HashMap<String, String>,
-    /// The end Claude's notification gave a running subagent, by its id, kept until it leaves.
-    heard_end: HashMap<String, &'static str>,
+    /// The end Claude's notification gave a running subagent and when it came, by its id, kept
+    /// until it leaves or its task starts again (a SendMessage resume).
+    #[serde(with = "heard_end_serde")]
+    heard_end: HashMap<String, (&'static str, u64)>,
     /// Subagents a harness exit ended in a log read, with no end record of theirs after it.
-    orphans: HashSet<String>,
+    orphans: HashMap<String, Orphan>,
     /// When the aged-out check last ran.
     last_sweep: u64,
+}
+
+/// An end state read back from a checkpoint as the same static state `end_state` (or a harness
+/// exit's `disconnected`) gave it.
+fn stored_state(state: &str) -> &'static str {
+    match state {
+        "failed" => "failed",
+        "cancelled" => "cancelled",
+        "disconnected" => "disconnected",
+        _ => "completed",
+    }
+}
+
+/// `Expiry::heard_end` in a checkpoint: each end state by name and when it came, read back as
+/// the same static state `end_state` gives.
+mod heard_end_serde {
+    use std::collections::HashMap;
+
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(
+        map: &HashMap<String, (&'static str, u64)>,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        map.serialize(s)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        d: D,
+    ) -> Result<HashMap<String, (&'static str, u64)>, D::Error> {
+        let named = HashMap::<String, (String, u64)>::deserialize(d)?;
+        Ok(named
+            .into_iter()
+            .map(|(id, (state, at))| (id, (super::stored_state(&state), at)))
+            .collect())
+    }
 }
 
 /// The state a Claude task status ends a subagent in.
@@ -100,10 +179,28 @@ impl SubagentTree {
             let at = self.expiry.clock;
             if at > 0 {
                 self.expiry.last_event.insert(id.to_owned(), at);
+                self.expiry.first_event.entry(id.to_owned()).or_insert(at);
             }
         } else {
             self.expiry.last_event.remove(id);
+            self.expiry.first_event.remove(id);
             self.expiry.heard_end.remove(id);
+        }
+    }
+
+    /// The end `id` gets from a rule (`reason`): the status its notification gave, at that
+    /// notification's time, else `disconnected` at its last event.
+    fn expiry_end(&self, id: &str, reason: &'static str) -> Ended {
+        let heard = self.expiry.heard_end.get(id);
+        Ended {
+            id: id.to_owned(),
+            state: heard.map(|(state, _)| *state).unwrap_or("disconnected"),
+            reason,
+            ended_at: heard
+                .map(|(_, at)| *at)
+                .filter(|at| *at > 0)
+                .or_else(|| self.expiry.last_event.get(id).copied()),
+            started_at: self.expiry.first_event.get(id).copied(),
         }
     }
 
@@ -115,20 +212,41 @@ impl SubagentTree {
 
     /// Claude's `task_notification` for task `agent` said `status`: kept for the running subagent
     /// it is, so its end says how it ended even when the bridge could not tell (the module doc).
+    /// One a harness exit left an orphan is told too: Claude, resumed after the exit, often goes
+    /// on to finish the agent and says so, and the orphan then ends as it said, when it said.
     pub fn note_task_ended(&mut self, agent: &str, status: &str) {
         let Some(id) = self.expiry.by_agent.get(agent) else { return };
-        if self.running.iter().any(|(r, _)| r == id) {
-            self.expiry.heard_end.insert(id.clone(), end_state(status));
+        let at = self.expiry.clock;
+        if let Some(orphan) = self.expiry.orphans.get_mut(id) {
+            orphan.state = end_state(status);
+            orphan.ended_at = Some(at).filter(|at| *at > 0).or(orphan.ended_at);
+        } else if self.running.iter().any(|(r, _)| r == id) {
+            self.expiry.heard_end.insert(id.clone(), (end_state(status), at));
+        }
+    }
+
+    /// Claude's `task_started` for task `agent`: it runs again (a SendMessage resume), so an
+    /// earlier notification no longer says how it ends. An orphan that starts again and is never
+    /// heard of after is lost then, not at its last event before the exit.
+    pub fn note_task_started(&mut self, agent: &str) {
+        let Some(id) = self.expiry.by_agent.get(agent) else { return };
+        self.expiry.heard_end.remove(id);
+        let at = self.expiry.clock;
+        if let Some(orphan) = self.expiry.orphans.get_mut(id) {
+            orphan.state = "disconnected";
+            orphan.ended_at = Some(at).filter(|at| *at > 0).or(orphan.ended_at);
         }
     }
 
     /// Claude's whole list of live background tasks (their task ids) at `now`: every running
-    /// background subagent whose agent id is known, missing from it, and quiet for
-    /// [`TASK_GONE_GRACE_MS`] ends (`task_gone`).
+    /// top-level background subagent whose agent id is known, missing from it, and quiet for
+    /// [`TASK_GONE_GRACE_MS`] ends (`task_gone`). One below another subagent is background work
+    /// for acpmux but never in Claude's list (the module doc).
     pub fn reconcile_tasks(&self, live: &HashSet<&str>, now: u64) -> Vec<Ended> {
         self.running
             .iter()
             .filter(|(id, _)| self.background.contains(id))
+            .filter(|(id, _)| self.parents.get(id).is_none_or(Option::is_none))
             .filter(|(id, _)| {
                 self.expiry.agent_of.get(id).is_some_and(|agent| !live.contains(agent.as_str()))
             })
@@ -138,11 +256,7 @@ impl SubagentTree {
                     .get(id)
                     .is_none_or(|at| now.saturating_sub(*at) >= TASK_GONE_GRACE_MS)
             })
-            .map(|(id, _)| Ended {
-                id: id.clone(),
-                state: self.expiry.heard_end.get(id).copied().unwrap_or("disconnected"),
-                reason: "task_gone",
-            })
+            .map(|(id, _)| self.expiry_end(id, "task_gone"))
             .collect()
     }
 
@@ -158,28 +272,42 @@ impl SubagentTree {
         for (id, _) in &self.running {
             let at = *self.expiry.last_event.entry(id.clone()).or_insert(now);
             if now.saturating_sub(at) >= AGE_OUT_MS {
-                ended.push(Ended { id: id.clone(), state: "disconnected", reason: "aged_out" });
+                ended.push(id.clone());
             }
         }
-        ended
+        ended.iter().map(|id| self.expiry_end(id, "aged_out")).collect()
     }
 
     /// The subagents a harness exit ended while the log was read whose end the log never got
     /// (`harness_exit`), taken once.
     pub fn take_orphans(&mut self) -> Vec<Ended> {
-        let mut ids: Vec<String> = self.expiry.orphans.drain().collect();
-        ids.sort();
-        ids.into_iter()
-            .map(|id| Ended { id, state: "disconnected", reason: "harness_exit" })
+        let mut orphans: Vec<(String, Orphan)> = self.expiry.orphans.drain().collect();
+        orphans.sort_by(|a, b| a.0.cmp(&b.0));
+        orphans
+            .into_iter()
+            .map(|(id, o)| Ended {
+                id,
+                state: o.state,
+                reason: "harness_exit",
+                ended_at: o.ended_at,
+                started_at: o.started_at,
+            })
             .collect()
     }
 
-    /// A harness exit ends what ran: remembered as orphans until an end record of theirs follows.
+    /// A harness exit ends what ran: remembered as orphans until an end record of theirs follows,
+    /// each with the end it really had (its notification's, else lost at its last event).
     pub(super) fn expiry_harness_exit(&mut self) {
-        for (id, _) in &self.running {
-            self.expiry.last_event.remove(id);
-            self.expiry.heard_end.remove(id);
-            self.expiry.orphans.insert(id.clone());
+        let running: Vec<String> = self.running.iter().map(|(id, _)| id.clone()).collect();
+        for id in running {
+            let end = self.expiry_end(&id, "harness_exit");
+            self.expiry.last_event.remove(&id);
+            self.expiry.first_event.remove(&id);
+            self.expiry.heard_end.remove(&id);
+            self.expiry.orphans.insert(
+                id,
+                Orphan { state: end.state, ended_at: end.ended_at, started_at: end.started_at },
+            );
         }
     }
 
@@ -197,12 +325,17 @@ impl SubagentTree {
                 self.expiry.last_event.entry(id).or_insert(at);
             }
         }
+        for (id, at) in log.first_event {
+            if !known.contains(&id) {
+                self.expiry.first_event.entry(id).or_insert(at);
+            }
+        }
         for (id, state) in log.heard_end {
             if !known.contains(&id) {
                 self.expiry.heard_end.entry(id).or_insert(state);
             }
         }
-        self.expiry.orphans.extend(log.orphans.into_iter().filter(|id| !known.contains(id)));
+        self.expiry.orphans.extend(log.orphans.into_iter().filter(|(id, _)| !known.contains(id)));
     }
 }
 

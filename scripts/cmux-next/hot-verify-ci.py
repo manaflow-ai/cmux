@@ -73,6 +73,11 @@ class Refused(Exception):
     """A step result this side will not publish (the message says why, with no file content in it)."""
 
 
+class NoReceipt(Refused):
+    """The worker stopped before it wrote a receipt (its step.json says why): the look never judged the change, so
+    the workflow looks again once (main exits 3)."""
+
+
 # ---------------------------------------------------------------- plan
 
 
@@ -244,7 +249,7 @@ def stage(out: Path, pr: int, head: str, staging: Path, text_path: Path) -> dict
     if step.get("needs_build") or receipt.get("plan", {}).get("needs_build"):
         return {"needs_build": True, "staged": [], "withheld": []}
     if not receipt.get("marker") and step.get("error"):
-        raise Refused(worker_stop(step))
+        raise NoReceipt(worker_stop(step))
     check_marker(receipt, head)
     if step and str(step.get("head") or head) != head:
         raise Refused("step.json names another head")
@@ -601,7 +606,7 @@ def main(argv: list[str] | None = None) -> int:
             print(post(a.path.read_text(), a.pr, a.head, a.repo))
     except Refused as error:
         print(f"hot-verify-ci: {error}", file=sys.stderr)
-        return 1
+        return 3 if isinstance(error, NoReceipt) else 1
     return 0
 
 

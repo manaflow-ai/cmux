@@ -156,6 +156,18 @@ const GROUPS: &[Group] = &[
                 "マシンのデスクトップを新しいワークスペースに表示",
             ),
             verb(
+                "computer-control",
+                "--machine MACHINE_ID --action status|take_over|hand_back|request_human [--reason TEXT]",
+                "Read or change who drives the machine's desktop: the Chief or you",
+                "マシンのデスクトップを操作するのが Chief かあなたかを確認または変更",
+            ),
+            verb(
+                "chief-computer",
+                "--chief chief:<id> --op OP [--args JSON]",
+                "Run one of a Chief of this Mac's own verbs on its computer",
+                "この Mac の Chief が自分のコンピュータで操作を 1 つ実行",
+            ),
+            verb(
                 "setup-desktop",
                 "{target}",
                 "Set up the machine's desktop, then show it",
@@ -524,6 +536,10 @@ QUICK START
   cmux cloud resume dev
   cmux cloud rm dev
   (rm asks first at a terminal; --yes skips the question)
+
+  A machine's desktop (`cmux cloud computer --help`):
+  cmux cloud computer screenshot --target machine:MACHINE_ID --out screen.png
+  cmux cloud computer click --target machine:MACHINE_ID --x 200 --y 120
 ";
 
 const INTRO_JA: &str = "\
@@ -559,6 +575,10 @@ const INTRO_JA: &str = "\
   cmux cloud resume dev
   cmux cloud rm dev
   （rm はターミナルで確認します。--yes で確認を省略）
+
+  マシンのデスクトップ（`cmux cloud computer --help`）:
+  cmux cloud computer screenshot --target machine:MACHINE_ID --out screen.png
+  cmux cloud computer click --target machine:MACHINE_ID --x 200 --y 120
 ";
 
 const OUTRO_EN: &str = "\
@@ -713,13 +733,58 @@ EXAMPLES
   cmux cloud start-chat --agent codex --json
   cmux cloud start-chat --model claude-sonnet-5-5 --effort high --no-folder --prompt 'What is 1+1?' --wait
 
-FOLLOW-UPS (SESSION_ID from the answer)
+FOLLOW-UPS (MACHINE_ID and SESSION_ID from the answer)
   cmux chat send SESSION_ID 'next prompt' --wait
+  cmux cloud chat status --target machine:MACHINE_ID --session SESSION_ID --wait 20
+  cmux cloud chat last --target machine:MACHINE_ID --session SESSION_ID
 
 Run from an agent chat, it starts at once, as from a terminal: no card asks
 the person. Only when they turned off cloud.agentsStartWithoutAsking does the
 app ask first with a card in that chat (Start, Not now); `cmux agents dialog
 list` lists it.
+";
+
+/// `cmux cloud chat --help` (cloud_agent.rs runs it; the `cloud_chat_*` MCP tools share its code).
+pub(super) const CHAT_USAGE: &str = "\
+usage: cmux cloud chat send --target machine:MACHINE_ID --session SESSION_ID --prompt TEXT
+       cmux cloud chat status --target machine:MACHINE_ID --session SESSION_ID
+                              [--after TURN] [--wait SECONDS]
+       cmux cloud chat last --target machine:MACHINE_ID --session SESSION_ID
+
+Goes on with an agent chat that `cmux cloud start-chat` started (MACHINE_ID and
+SESSION_ID from its answer).
+
+  send     Send the next prompt (`--prompt -` reads it from stdin); answers after,
+           the turn before this prompt's
+  status   The newest turn after --after: state starting, running,
+           permission_waiting, ended (with reply) or failed; --wait (up to 20)
+           waits on the machine for it to end
+  last     The newest reply
+";
+
+/// `cmux cloud computer --help` (cloud_agent.rs; the `cloud_computer*` MCP tools share its code).
+pub(super) const COMPUTER_USAGE: &str = "\
+usage: cmux cloud computer OP [--target machine:MACHINE_ID] [flags]
+       cmux cloud computer control status|request|release [--target machine:MACHINE_ID]
+                                   [--reason TEXT]
+
+Uses a Cloud machine's desktop (1280x800) with its cmux-cua. Without
+--target it uses the machine attached to the Chief (its engine `computer`).
+
+  screenshot [--out FILE]                     Save the screen as a PNG
+  list-windows                                The desktop's windows
+  click --x N --y N [--button left|right|middle]
+  move --x N --y N
+  drag --x N --y N --to-x N --to-y N
+  scroll --x N --y N --direction up|down|left|right [--amount N]
+  type --text TEXT
+  key --keys KEYS                             Return, ctrl+l, shift+Tab
+  open-url --url URL                          Open it in a new Chrome window
+
+While the person has taken over the desktop, every op is refused with
+computer.human_has_control, screenshot and list-windows too.
+control status says who drives, control request asks the person to take
+over (--reason: a sign-in, a payment), control release hands it back.
 ";
 
 /// The CLI's own cleanup verbs, not app actions (cloud_retention.rs runs them).
@@ -800,9 +865,9 @@ pub(super) fn overview(japanese: bool) -> String {
         "\nCHAT REPOSITORIES (use --socket for the Cloud machine)\n  repo list --session CHAT [--query NAME]\n  repo add --session CHAT --repo NAME [--ref REF]\n  repo wait-github --session CHAT [--timeout-ms N]\n  repo attached --session CHAT\n  repo local\n  repo sync --repos-json JSON [--recent-json JSON] [--install-url URL] [--complete true|false]\n"
     });
     text.push_str(if japanese {
-        "\nクリーンアップ\n  pause-all                                管理する全マシンを一時停止し、自動再開を停止\n  keep-machine --target vm:VM_ID [--off]       自動で削除されないよう保持\n  archive-machine --target vm:VM_ID --yes      一時停止中のマシンをアーカイブして削除 (--yes)\n"
+        "\nチェック\n  preflight [--agent claude|codex] [--json]  Cloud チャットを今開始できるか、できない理由\n\nクリーンアップ\n  pause-all                                管理する全マシンを一時停止し、自動再開を停止\n  keep-machine --target vm:VM_ID [--off]       自動で削除されないよう保持\n  archive-machine --target vm:VM_ID --yes      一時停止中のマシンをアーカイブして削除 (--yes)\n"
     } else {
-        "\nCLEANUP\n  pause-all                                Pause all managed machines; hold automatic wakes\n  keep-machine --target vm:VM_ID [--off]       Keep a machine from automatic deletion\n  archive-machine --target vm:VM_ID --yes      Archive a paused machine's disk, then delete it (--yes)\n"
+        "\nCHECKS\n  preflight [--agent claude|codex] [--json]  Would a Cloud chat start now, and if not, why\n\nCLEANUP\n  pause-all                                Pause all managed machines; hold automatic wakes\n  keep-machine --target vm:VM_ID [--off]       Keep a machine from automatic deletion\n  archive-machine --target vm:VM_ID --yes      Archive a paused machine's disk, then delete it (--yes)\n"
     });
     text.push('\n');
     text.push_str(if japanese { OUTRO_JA } else { OUTRO_EN });
@@ -820,6 +885,12 @@ pub(super) fn verb_help(name: &str, japanese: bool) -> Option<String> {
     if name == START_CHAT {
         return Some(START_CHAT_USAGE.to_owned());
     }
+    if name == "chat" {
+        return Some(CHAT_USAGE.to_owned());
+    }
+    if name == "computer" {
+        return Some(COMPUTER_USAGE.to_owned());
+    }
     if name == KEEP {
         return Some(KEEP_USAGE.to_owned());
     }
@@ -828,6 +899,10 @@ pub(super) fn verb_help(name: &str, japanese: bool) -> Option<String> {
     }
     if name == ARCHIVE {
         return Some(ARCHIVE_USAGE.to_owned());
+    }
+    #[cfg(unix)]
+    if let Some(long) = super::vm_short::long_verb(name) {
+        return find(long).map(|verb| short_verb_help(name, verb, japanese));
     }
     let verb = find(name)?;
     let usage = usage_line(verb);
@@ -858,6 +933,62 @@ pub(super) fn verb_help(name: &str, japanese: bool) -> Option<String> {
             )
         },
     )
+}
+
+/// The short spelling's usage (vm_short.rs): the VM by name or id, or none when you have one.
+#[cfg(unix)]
+fn short_usage(name: &str, verb: &Verb) -> String {
+    let flags = verb.usage.replace("{target}", "").replace("--yes", "[--yes]");
+    let flags = flags.trim();
+    match name {
+        "ls" | "list" => format!("cmux vm {name}"),
+        "exec" => "cmux vm exec [NAME|ID] -- COMMAND...".to_owned(),
+        "rename" => "cmux vm rename [NAME|ID] NEW_NAME".to_owned(),
+        // `--all`: every running VM (vm_short.rs `pause_all`).
+        "pause" | "shutdown" => format!("cmux vm {name} [NAME|ID | --all]"),
+        _ if flags.is_empty() => format!("cmux vm {name} [NAME|ID]"),
+        _ => format!("cmux vm {name} [NAME|ID] {flags}"),
+    }
+}
+
+/// `cmux vm pause --help` (and `cmux cloud pause --help`): the short verb's own usage, then the
+/// long spelling it runs. Before, every short verb but `exec` and `ssh` printed the whole overview
+/// (CMUX-674 item 15: `vm status --help`).
+#[cfg(unix)]
+fn short_verb_help(name: &str, verb: &Verb, japanese: bool) -> String {
+    let short = short_usage(name, verb);
+    let long = usage_line(verb);
+    let shutdown = name == "shutdown";
+    // Only these fall back to the VM API without the app (vm_short.rs API_VERBS); `status`,
+    // `resize`, `rename`, `ssh` and `move` do not, so their help must not say they do.
+    let api = super::vm_short::API_VERBS.contains(&name);
+    if japanese {
+        let note = if shutdown {
+            "`shutdown` は `pause` と同じです（削除は `rm`）。\n"
+        } else {
+            ""
+        };
+        format!(
+            "使い方: {short}\n\n{}。VM は名前か ID で指定し、1 台なら省略できます。\n{note}\n同じ動作: {long}\n{}\n",
+            verb.ja,
+            if api {
+                "アプリがなければ cmux VM API の同名の動詞として動きます（`cmux vm --help`）。"
+            } else {
+                "この動詞には cmux アプリが必要です。アプリなしで使える VM API の動詞は `cmux vm --help` にあります。"
+            }
+        )
+    } else {
+        let note = if shutdown { "`shutdown` is `pause` (`rm` deletes the VM).\n" } else { "" };
+        format!(
+            "usage: {short}\n\n{}. Name the VM by its name or id, or leave it out when you have one.\n{note}\nSame as: {long}\n{}\n",
+            verb.en,
+            if api {
+                "Without the cmux app this is the cmux VM API's verb of the same name (`cmux vm --help`)."
+            } else {
+                "This verb needs the cmux app; the VM API verbs that work without it are in `cmux vm --help`."
+            }
+        )
+    }
 }
 
 /// The usage line alone, for a parse error that names the verb.

@@ -77,7 +77,7 @@ DOCS_ONLY_PATHS: tuple[str, ...] = (
     "docs/privacy.md",  # tests/test_outbound_hosts.py
     "**/notices/**",  # third-party notice inputs (hand-written.md, REVIEW.md) that the bundle and release tests read
     "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md",  # tests/test_supplychain_security.py
-    "cmux-tui/README.md",  # tests/test_testbox_demo_cleanup.sh -> scripts/blacksmith-testbox-demo.sh
+    "cmux-tui/README.md",  # the Testbox tour named its public fallback here
     # Compiled in by include_str! (the detector lists any new one).
     "docs/remote-agents-and-cloud.md",
     "docs/cmux-next/customize-recipes.md",
@@ -249,7 +249,7 @@ jobs:
     # Into feat-cmux-next a label event for any other label skips with no runner
     # (tests/test_ci_label_events_skip_full_ci.py).
     if: {gate_condition()}
-    runs-on: ${{{{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}}}
+    runs-on: ${{{{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}}}
     timeout-minutes: 5
     permissions:
       actions: read

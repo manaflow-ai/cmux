@@ -57,6 +57,7 @@ GATE_SCRIPTS = {
     "prepush gate": "scripts/cmux-next/prepush-gate.py",
     "crash-class rules": "scripts/ci/crash_class_fast_gate.py",
     "webviews checks": "scripts/ci/fast_gate_webviews_checks.py",
+    "protocol skew": "scripts/ci/protocol_skew_check.py",
 }
 CI_WEB = ROOT / ".github/workflows/ci-web.yml"
 WEBVIEWS_CHECKS = ROOT / "scripts/ci/fast_gate_webviews_checks.py"
@@ -71,6 +72,10 @@ def load(path: Path):
 
 def workflow() -> dict:
     return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+
+
+def fast_gates_source() -> str:
+    return (ROOT / "scripts/ci/cmux_next_fast_gates.py").read_text(encoding="utf-8")
 
 
 def triggers(doc: dict) -> dict:
@@ -89,8 +94,6 @@ def step_named(steps: list[dict], fragment: str) -> dict:
     return found[0]
 
 
-# Jobs that hold a write token stay on an ephemeral_only pool (tests/test_ci_ephemeral_pool_readers.py).
-WRITE_TOKEN_JOBS = {"receipt", "post"}
 
 
 class WorkflowShape(unittest.TestCase):
@@ -117,17 +120,14 @@ class WorkflowShape(unittest.TestCase):
                     self.assertTrue(runner.startswith(
                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == "
                         "'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && "
-                        "'blacksmith-"), runner)
+                        "(vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || "), runner)
                     self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", runner)
                     self.assertNotIn("needs.", runner)
                     self.assertNotIn("inputs.", runner)
-                    if key in WRITE_TOKEN_JOBS:
-                        # receipt and post hold write tokens: the ephemeral-only linux_4 pool, never the persistent
-                        # cmux-linux label (tests/test_ci_ephemeral_pool_readers.py, #49007).
-                        self.assertTrue(runner.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}"), runner)
-                    else:
-                        self.assertTrue(runner.endswith("|| 'cmux-linux' }}"), runner)
-                        self.assertNotIn("vars.", runner)
+                    # #48644 (2026-11-23): every own-branch Linux job, the write-token ones too, takes the one
+                    # cmux-linux label; only the fork branch reads a variable.
+                    self.assertTrue(runner.endswith("|| 'cmux-linux' }}"), runner)
+                    self.assertNotIn("vars.RUNNER_POOLS", runner)
                     self.assertNotIn("macos", runner.lower())
                     self.assertNotIn("vars.LINUX_RUNNER", runner)
         for key, each in doc["jobs"].items():
@@ -140,6 +140,19 @@ class WorkflowShape(unittest.TestCase):
                 self.assertTrue(cells, f"{key}: no runs-on, or a matrix value nothing resolves")
                 for runner in cells:
                     self.assertNotIn("macos", runner.lower())
+
+    def test_checkout_holds_every_gate_input_and_walks_commits_only(self):
+        inputs = json.loads((ROOT / "scripts/ci/fast-check-inputs.json").read_text())[
+            "workflows"][".github/workflows/cmux-next-fast-gates.yml"]["fast-gates"]["inputs"]
+        step = step_named(job(workflow())["steps"], "Checkout")
+        self.assertEqual(step["with"]["filter"], "blob:none")
+        patterns = step["with"]["sparse-checkout"].split()
+        for path in inputs:
+            with self.subTest(input=path):
+                # scripts/ and .github/ are whole; a bare file or a glob is named as it is.
+                self.assertTrue("/" + path in patterns or path.lstrip("*/") in "".join(patterns)
+                                or any(("/" + path).startswith(p) and p.endswith("/") for p in patterns), path)
+        self.assertIn("--filter=tree:0", fast_gates_source())
 
     def test_triggers_have_no_paths_filter(self):
         on = triggers(workflow())
@@ -338,6 +351,14 @@ class WorkflowShape(unittest.TestCase):
         gates = job(doc)
         self.assertNotIn("continue-on-error", gates)
         for step in gates["steps"]:
+            # The R2 cache reads (#51750) are best-effort: a miss or an error falls through to the GitHub store's
+            # restore step, so they are the one kind of step allowed to keep going; no gate is.
+            if step.get("uses") == "./.github/actions/cache-restore" and step.get("with", {}).get("backend") == "r2":
+                continue
+            # The GitHub store's Bun restore is bounded and best-effort too: past its bound the gates install cold,
+            # and the next step drops what it half extracted.
+            if step.get("id") == "bun-cache" and step.get("uses", "").startswith("actions/cache/restore@"):
+                continue
             self.assertNotIn("continue-on-error", step, step.get("name"))
         run = step_named(gates["steps"], "Fast gates")
         self.assertIn("scripts/ci/cmux_next_fast_gates.py run", run["run"])
@@ -544,13 +565,58 @@ class WorkflowShape(unittest.TestCase):
     def test_a_dispatch_never_saves_a_cache(self):
         # A dispatch runs on feat-cmux-next's ref after pull request code ran: a cache it saved would be the base's.
         steps = job(workflow())["steps"]
+        # #51100 (2026-11-23): restore only, on pull requests and dispatches alike; cmux-next-web-lint.yml's web-lint
+        # job saves the key on each feat-cmux-next push. So no step here saves a cache at all.
         for step in steps:
-            if step.get("uses", "").startswith("actions/cache@"):
-                self.assertIn("github.event_name == 'pull_request'", step["if"], step.get("name"))
+            self.assertFalse(step.get("uses", "").startswith("actions/cache@"), step.get("name"))
+        # #51750 reads R2 first (./.github/actions/cache-restore, backend r2), then the GitHub store's restore step.
+        restore = step_named([s for s in steps if not s["name"].endswith(" from R2")], "Restore the Bun package cache")
+        self.assertTrue(restore["uses"].startswith("actions/cache/restore@"))
         for name in ("Restore the Bun package cache", "Restore the pinned lint tools"):
-            restore = step_named(steps, name)
-            self.assertTrue(restore["uses"].startswith("actions/cache/restore@"), name)
-            self.assertIn("github.event_name == 'workflow_dispatch'", restore["if"], name)
+            r2 = step_named(steps, f"{name} from R2")
+            self.assertEqual(r2["uses"], "./.github/actions/cache-restore", name)
+            self.assertEqual(r2["with"]["backend"], "r2", name)
+        # The lint tools never change per PR and are off the GitHub store (RFD 0148 row 19): R2 only, and a miss
+        # is prepush-gate.py's sha256-checked download.
+        self.assertEqual([s["name"] for s in steps if s["name"].startswith("Restore the pinned lint tools")],
+                         ["Restore the pinned lint tools from R2"])
+
+    def test_the_bun_cache_restore_is_bounded_and_never_left_half_done(self):
+        # 2026-11-23: on a Freestyle VM the 710 MB restore ran at about 1 MB/s, and at 600 s its link expired.
+        # It failed every time, adding 605 s (median) to a job whose gates then installed cold anyway.
+        steps = job(workflow())["steps"]
+        restore = next(s for s in steps if s.get("id") == "bun-cache")
+        self.assertTrue(restore["uses"].startswith("actions/cache/restore@"))
+        self.assertLessEqual(restore["timeout-minutes"], 3)
+        self.assertIs(restore["continue-on-error"], True)
+        drop = step_named(steps, "Drop a partly restored Bun package cache")
+        self.assertIn(f"steps.{restore['id']}.outcome == 'failure'", drop["if"])
+        self.assertIn(f"steps.{restore['id']}.outcome == 'cancelled'", drop["if"])
+        self.assertIn("steps.bun-r2.outcome == 'failure'", drop["if"])
+        self.assertIn("~/.bun/install/cache", drop["run"])
+        self.assertEqual(steps.index(drop), steps.index(restore) + 1)
+        gates = step_named(steps, "Fast gates on the merge")
+        self.assertLess(steps.index(drop), steps.index(gates))
+
+    def test_every_step_before_the_gates_is_bounded(self):
+        # 2026-11-23: 255 fast gates jobs sat to the 25-minute limit (about 6.3k runner minutes), each in one setup
+        # step with no bound of its own: a checkout fetch, the base deepen, a cache restore or setup-node's download
+        # from GitHub at Freestyle's ~0.9 MB/s. Each step before the gates ends on its own bound, so the job fails
+        # then, naming the step, and the bounds together leave the gates room inside the job limit.
+        gates_job = job(workflow())
+        steps = gates_job["steps"]
+        gates = steps.index(step_named(steps, "Fast gates on the merge"))
+        total = 0
+        for step in steps[:gates]:
+            with self.subTest(step=step["name"]):
+                self.assertIn("timeout-minutes", step)
+                total += int(step["timeout-minutes"])
+        self.assertLessEqual(total, 40)
+        # Node never comes from GitHub's node-versions releases (setup-node's download): the tool cache or nodejs.org.
+        node = step_named(steps, "Setup Node")
+        self.assertNotIn("uses", node)
+        self.assertEqual(node["run"], "scripts/ci/ensure-setup-node.sh 24.22.1")
+        self.assertLessEqual(int(node["timeout-minutes"]), 3)
 
     def test_the_webviews_checks_are_ci_webs_fail_mode_checks(self):
         # The gate reruns what a pull request's ci-web fails on, so a check that landed after the PR's CI
@@ -567,6 +633,16 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn("check:fixed-waits", module.CHECKS)
         self.assertIn("check:effect-cleanup", module.CHECKS)
         self.assertIn("typecheck", module.CHECKS)  # #23763's TS2339 hid behind a red base
+        # The type check is its own job (ci-self-heal 0c, Leo 2026-11-19): a type error is a red of its own and
+        # never the test shard's; the same per-error base comparison runs there.
+        self.assertIn("--skip typecheck", steps[0]["run"])
+        typecheck = doc["jobs"]["webviews-typecheck"]
+        run = "\n".join(s.get("run", "") for s in typecheck["steps"])
+        self.assertIn('--base "$BASE_REF" --only typecheck', run)
+        self.assertEqual(typecheck["steps"][0]["with"]["fetch-depth"],
+                         "${{ github.event_name == 'pull_request' && '2' || '1' }}")
+        with self.assertRaises(SystemExit):
+            module.main(["--only", "not-a-check", "--no-install"])
 
     def test_no_web_check_waits_on_an_earlier_red(self):
         # #23763 (2026-10-21): the bundle build was red on the base, so `Build the web bundles` failed and every
@@ -585,8 +661,11 @@ class WorkflowShape(unittest.TestCase):
                 self.assertIs(step.get("continue-on-error"), True)
         # A red that keeps going must still fail the job: every continue-on-error step, an action's too, has an id
         # whose outcome the last step reads.
+        # The same-input receipt steps (#49946) are the exception: they fail open by design (an error runs the shard
+        # in full) and the last two run after the gate, so none of them is a verdict.
+        receipt_steps = ("same-input receipt", "the receipt's results")
         for step in steps:
-            if step.get("continue-on-error") is True:
+            if step.get("continue-on-error") is True and not any(r in step["name"] for r in receipt_steps):
                 with self.subTest(gated=step["name"]):
                     self.assertIn("id", step)
                     self.assertIn(f"${{{{ steps.{step['id']}.outcome }}}}", gated)
@@ -720,7 +799,7 @@ class ScriptBehavior(unittest.TestCase):
                "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
                "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
         if barrier is not None:
-            env.update({"FAKE_BARRIER": str(barrier), "FAKE_BARRIER_COUNT": "4"})
+            env.update({"FAKE_BARRIER": str(barrier), "FAKE_BARRIER_COUNT": "5"})
         extra = []
         if budget is not None:
             extra += ["--budget-seconds", str(budget)]
@@ -878,7 +957,7 @@ class ScriptBehavior(unittest.TestCase):
                              "--base", self.tip, "--output", str(self.tmp / "out.txt"))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.outputs()["merge"], git(work, "rev-parse", "HEAD"))
-        self.assertEqual(self.outputs()["checks"], "false")  # ci-web runs them on this same merge
+        self.assertEqual(self.outputs()["checks"], "false")  # it changes no input of the webviews checks
         self.assertEqual(self.outputs()["ratchet"], "false")  # cmux-tui-spec's clippy job ran it on this merge
         self.assertNotIn("head_sha", self.outputs(), "head and base come from resolve, not from here")
 
@@ -1020,9 +1099,12 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(re.findall(r"deepened by (\d+)", result.stderr), ["32"])
         merge = git(work, "rev-parse", "HEAD")
         self.assertEqual(git(work, "rev-list", "--reverse", "--no-merges", f"{base}..{merge}").split(), heads)
-        # The commit is here (the base side reaches it); its blob is not, and listing never fetches it.
-        listed = git(work, "rev-list", "--objects", "--missing=print", "-1", old_commit, "--", "old.txt").split()
-        self.assertIn(f"?{old}", listed, "the deepen brought a blob no gate read")
+        # The commit is here (the base side reaches it); its tree is not (tree:0), so neither is its blob, and
+        # listing never fetches them.
+        tree = git(seed, "rev-parse", f"{old_commit}^{{tree}}").strip()
+        listed = git(work, "rev-list", "--objects", "--missing=print", "-1", old_commit).split()
+        self.assertIn(f"?{tree}", listed, "the deepen brought a tree no gate read")
+        self.assertNotIn(old, listed, "the deepen brought a blob no gate read")
         # A gate that does read it gets it on demand: the fetch marked origin as the promisor.
         self.assertEqual(git(work, "show", f"{old_commit}:old.txt"), "newer 20")
 
@@ -1099,10 +1181,14 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("not the pull request head", result.stderr)
 
-    def test_a_catalog_or_protocol_spec_change_runs_the_webviews_checks_on_a_pull_request(self):
-        # ci-web runs them only for a webviews/ change; check:catalog-keys and acpmux-protocol:check read these.
+    def test_a_webviews_catalog_or_protocol_spec_change_runs_the_webviews_checks_on_a_pull_request(self):
+        # check:catalog-keys and acpmux-protocol:check read the catalogs and the spec. A webviews/ change too, though
+        # ci-web's webview suite runs them on the same merge: land-judge's merged-tree carry lands a base merge on this
+        # status and not on that suite, so cmux#49052's base merge would have landed its `foldsPrompt` type error
+        # (cmuxterm-hq#19108) with the type check run only inside a suite nothing waited for.
         seed = self.seed
-        for path in ("Resources/Localizable.xcstrings", "cmux-tui/crates/acpmux/spec/acpmux-protocol.json"):
+        for path in ("Resources/Localizable.xcstrings", "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
+                     "webviews/src/agent-session/acpmux/conversation/turns.ts"):
             with self.subTest(path=path):
                 git(seed, "checkout", "-q", "pr")
                 head = commit(seed, {path: f"{path}\n"}, f"change {path}")
@@ -1152,6 +1238,7 @@ class ScriptBehavior(unittest.TestCase):
         self.assertIn("--new-only", calls["web lint"]["argv"])  # per error over the base, not per job
         self.assertEqual(calls["prepush gate"]["argv"][:4], ["--base", base, "--head", merge])
         self.assertEqual(calls["webviews checks"]["argv"], ["--base", base])
+        self.assertEqual(calls["protocol skew"]["argv"], ["--base", base, "--head", merge])
         ratchet = calls["crash ratchet"]["argv"]
         self.assertEqual(ratchet[:2], ["--script", "scripts/cmux-next/crash_ratchet.py"])
         self.assertEqual(Path(ratchet[ratchet.index("--head") + 1]).resolve(), work.resolve())
@@ -1185,26 +1272,33 @@ class ScriptBehavior(unittest.TestCase):
         result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "true",
                              sleep=0.2, barrier=barrier)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        # The first batch cannot finish until all four markers exist. A serial implementation therefore fails
+        # The first batch cannot finish until all five markers exist. A serial implementation therefore fails
         # deterministically at the barrier instead of relying on a wall-clock threshold that flakes on loaded hosts.
-        self.assertEqual(len(list(barrier.glob("started-*"))), 4)
+        self.assertEqual(len(list(barrier.glob("started-*"))), 5)
         self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
 
-    def test_no_gate_started_has_a_critical_path_fallback(self):
+    def test_a_zero_budget_stops_every_started_gate_and_still_names_a_critical_path_gate(self):
+        # Gates start side by side (#50061), so a spent budget no longer leaves every gate unstarted: each lane's first
+        # gate starts and is stopped as stalled, and a gate queued behind another in its lane (webviews checks behind
+        # web lint) never starts. The summary still names a critical-path gate, never "no gate ran".
         work, _ = self.prepared()
         summary = self.tmp / "summary.md"
-        result = self.script(work, "run", "--base", self.tip, "--web", "false", "--checks", "false",
+        result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "true",
                              budget=0, summary=summary)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Critical-path gate: **no gate ran**", summary.read_text())
+        text = summary.read_text()
+        self.assertRegex(text, r"Critical-path gate: \*\*(?!no gate ran)[^*]+\*\* \(")
+        self.assertIn("failed (no time left)", text)
 
     def test_gate_logs_are_named_per_gate_across_batches(self):
         module = load(SCRIPT)
         with tempfile.TemporaryDirectory(prefix="fast-gates-logs-") as tmp:
             log_dir = Path(tmp)
-            first = module.run_gate_batch([("crash ratchet", [sys.executable, "-c", "pass"])],
+            # Each gate prints its own line: a runner without /usr/bin/time (timed_gate_argv) adds none, and a
+            # silent gate left an empty log there (tooling-tests on cmux-linux, runs 45339026481, 45350194064).
+            first = module.run_gate_batch([[("crash ratchet", [sys.executable, "-c", "print('crash ratchet')"])]],
                                           Path(tmp), None, log_dir)
-            second = module.run_gate_batch([("webviews checks", [sys.executable, "-c", "pass"])],
+            second = module.run_gate_batch([[("webviews checks", [sys.executable, "-c", "print('webviews checks')"])]],
                                            Path(tmp), None, log_dir)
             self.assertIn("crash-ratchet.log", {path.name for path in log_dir.iterdir()})
             self.assertIn("webviews-checks.log", {path.name for path in log_dir.iterdir()})
@@ -1218,7 +1312,7 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS) - {"web lint"})
         self.assertIn("web lint: skipped (no web path changed)", result.stdout)
 
-    def test_a_pull_request_event_skips_the_webviews_checks(self):
+    def test_checks_false_skips_the_webviews_checks(self):
         work, out = self.prepared()
         result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "false")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -1364,9 +1458,13 @@ class BunInstallScript(unittest.TestCase):
         steps = doc["jobs"]["complexity"]["steps"]
         self.assertEqual(step_named(steps, "Install web dependencies")["run"],
                          "bash ../scripts/ci/bun-install.sh --frozen-lockfile")
-        cache = step_named(steps, "Cache Bun package cache")
-        self.assertEqual(cache["with"]["path"], "~/.bun/install/cache")
-        self.assertLess(steps.index(cache), steps.index(step_named(steps, "Install web dependencies")))
+        # Base branches save the cache; every other ref restores it only (a save and a restore twin).
+        caches = [s for s in steps if s.get("name", "").startswith("Cache Bun package cache")]
+        self.assertEqual(len(caches), 2, [s.get("name") for s in caches])
+        install = steps.index(step_named(steps, "Install web dependencies"))
+        for cache in caches:
+            self.assertEqual(cache["with"]["path"], "~/.bun/install/cache")
+            self.assertLess(steps.index(cache), install)
 
 
 class BunInstallScriptWithoutGnuTimeout(BunInstallScript):
@@ -1771,6 +1869,14 @@ class WebviewsChecksGate(unittest.TestCase):
         known = type_error("TS2307", "Cannot find module './x.json'.", "src/a.ts:4:21")
         new = self.module.added(known + "error: Failed to resolve vite config: ENOENT\n", known)
         self.assertEqual(new, ["error: Failed to resolve vite config: ENOENT"])
+
+    def test_a_vite_config_stack_frame_keys_without_its_temp_stamp(self):
+        def frames(stamp: str) -> str:
+            return ("error: Failed to resolve vite config: ENOENT\n"
+                    f"    at markdownHost (file:///r/webviews/node_modules/.vite-temp/vite.config.ts.timestamp-{stamp}.mjs"
+                    ":3176:23)\n")
+        self.assertEqual(self.module.added(frames("1795522394672-bd727a4797f8c8"), frames("1795522301234-0a1b2c3d4e5f60")),
+                         [])
 
     def test_a_wrapped_message_compares_whole(self):
         def wrapped(detail: str) -> str:

@@ -92,6 +92,7 @@ impl NewWorkspacePlacement {
     /// not know and a file that does not parse give the default, as in the
     /// app (which reports the bad value as a diagnostic).
     pub fn from_config_text(text: &str) -> Self {
+        let text = text.trim_start_matches('\u{feff}');
         let Ok(document) = serde_json::from_str::<Value>(&strip_jsonc(text)) else {
             return Self::default();
         };
@@ -216,6 +217,54 @@ pub enum UltraConnection {
     Always,
 }
 
+/// Settings' Tailscale carrier policy (`transport.tailnetCarrier`). The
+/// default is deliberately off until a LocalAPI snapshot is available.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TailnetCarrier {
+    /// Do not add Tailscale addresses to races.
+    #[default]
+    Off,
+    /// Add only paths tailscaled currently reports as direct.
+    DirectOnly,
+    /// Accepted for forward compatibility. Relayed paths remain excluded by
+    /// the race helper until their cost is measured.
+    On,
+}
+
+/// Parse `transport.tailnetCarrier`, with an environment override for tests.
+pub fn tailnet_carrier_from_config_text(text: &str) -> TailnetCarrier {
+    let Ok(document) = serde_json::from_str::<Value>(&strip_jsonc(text)) else {
+        return TailnetCarrier::default();
+    };
+    match document.pointer("/transport/tailnetCarrier").and_then(Value::as_str) {
+        Some("direct-only") | Some("direct_only") => TailnetCarrier::DirectOnly,
+        Some("on") => TailnetCarrier::On,
+        _ => TailnetCarrier::Off,
+    }
+}
+
+/// Current Tailscale carrier policy. `CMUX_TAILNET_CARRIER` wins for hermetic
+/// tests and development runs.
+pub fn tailnet_carrier() -> TailnetCarrier {
+    if let Ok(value) = std::env::var("CMUX_TAILNET_CARRIER") {
+        return match value.trim() {
+            "direct-only" | "direct_only" => TailnetCarrier::DirectOnly,
+            "on" => TailnetCarrier::On,
+            _ => TailnetCarrier::Off,
+        };
+    }
+    if cfg!(test) {
+        return TailnetCarrier::default();
+    }
+    let path = config_path();
+    match std::fs::metadata(&path) {
+        Ok(metadata) if metadata.is_file() => std::fs::read_to_string(&path)
+            .map(|text| tailnet_carrier_from_config_text(&text))
+            .unwrap_or_default(),
+        _ => TailnetCarrier::default(),
+    }
+}
+
 /// [`UltraConnection`] of a settings file: `remote.ultra` (`"off"`,
 /// `"auto"`, `"always"`); without it, the retired toggle `remote.ultraMode`
 /// set to `true` is Always. Anything else, and a file that does not parse,
@@ -251,25 +300,100 @@ pub fn ultra() -> UltraConnection {
     }
 }
 
-/// Settings-file `agents.cmuxMcp` ("cmux Tools for Agents in cmux"): whether
+/// The default of `remote.agentShareIdleMinutes`: sharing an owner's agent turned on turns
+/// itself off after this many minutes with no viewer.
+pub const AGENT_SHARE_IDLE_MINUTES_DEFAULT: u64 = 15;
+/// The schema's range of `remote.agentShareIdleMinutes` (schemas/settings/source/machines.json).
+pub const AGENT_SHARE_IDLE_MINUTES_RANGE: std::ops::RangeInclusive<u64> = 1..=240;
+
+/// `remote.agentShareIdleMinutes` of a settings file: a whole number in the schema's range;
+/// anything else, and a file that does not parse, is the default (15).
+pub fn agent_share_idle_minutes_from_config_text(text: &str) -> u64 {
+    serde_json::from_str::<Value>(&strip_jsonc(text))
+        .ok()
+        .and_then(|document| {
+            document.pointer("/remote/agentShareIdleMinutes").and_then(Value::as_u64)
+        })
+        .filter(|minutes| AGENT_SHARE_IDLE_MINUTES_RANGE.contains(minutes))
+        .unwrap_or(AGENT_SHARE_IDLE_MINUTES_DEFAULT)
+}
+
+/// [`agent_share_idle_minutes_from_config_text`] of the settings file, read each time an agent's
+/// share arms its timer; the default without a file, and always the default in unit tests.
+pub fn agent_share_idle_minutes() -> u64 {
+    if cfg!(test) {
+        return AGENT_SHARE_IDLE_MINUTES_DEFAULT;
+    }
+    let path = config_path();
+    match std::fs::metadata(&path) {
+        Ok(metadata) if metadata.is_file() => std::fs::read_to_string(&path)
+            .map(|text| agent_share_idle_minutes_from_config_text(&text))
+            .unwrap_or(AGENT_SHARE_IDLE_MINUTES_DEFAULT),
+        _ => AGENT_SHARE_IDLE_MINUTES_DEFAULT,
+    }
+}
+
+/// The dotted settings key of AutoCloud (schemas/settings/source/machines.json, a hidden toggle,
+/// default off): Auto may start a chat on a Cloud machine, and the hybrid chat start is on
+/// (`cmux-tui` `feature_flags::hybrid_chat_start_flag`).
+pub const AUTO_CLOUD_KEY: &str = "cloud.autoCloud";
+
+/// `cloud.autoCloud` of a settings file, flat (`"cloud.autoCloud"`) or nested
+/// (`{"cloud": {"autoCloud": …}}`), under what an administrator set
+/// ([`cmux_config::managed::applied_to`]): `Some` of a boolean, a `false` in either form winning
+/// over a `true` in the other; None when no form holds a boolean or the file does not parse.
+pub fn auto_cloud_from_config_text(text: &str) -> Option<bool> {
+    auto_cloud_applied(auto_cloud_file_value(text))
+}
+
+fn auto_cloud_file_value(text: &str) -> Option<Value> {
+    let text = text.trim_start_matches('\u{feff}');
+    let document = serde_json::from_str::<Value>(&strip_jsonc(text)).ok()?;
+    let flat = document.get(AUTO_CLOUD_KEY).and_then(Value::as_bool);
+    let nested = document.pointer("/cloud/autoCloud").and_then(Value::as_bool);
+    match (flat, nested) {
+        (Some(false), _) | (_, Some(false)) => Some(Value::Bool(false)),
+        (flat, nested) => flat.or(nested).map(Value::Bool),
+    }
+}
+
+fn auto_cloud_applied(file: Option<Value>) -> Option<bool> {
+    cmux_config::managed::applied_to(AUTO_CLOUD_KEY, file).as_ref().and_then(Value::as_bool)
+}
+
+/// [`auto_cloud_from_config_text`] of the settings file at `path`; without a readable file, only
+/// what an administrator set.
+pub fn auto_cloud_from_config_file(path: &Path) -> Option<bool> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => auto_cloud_from_config_text(&text),
+        Err(_) => auto_cloud_applied(None),
+    }
+}
+
+/// [`auto_cloud_from_config_file`] of the app's settings file ([`config_path`]), read at each call
+/// so a change applies to the next chat start with no reload; always None in unit tests.
+pub fn auto_cloud() -> Option<bool> {
+    if cfg!(test) {
+        return None;
+    }
+    auto_cloud_from_config_file(&config_path())
+}
+
+/// Settings-file `agents.cmuxMcp` ("Give Agents cmux’s Tools"): whether
 /// agents cmux starts get its `cmux` MCP server (which carries cmux Computer
 /// Use): a Claude Code or Codex typed into a cmux terminal (the `claude` and
 /// `codex` shims, each launch) and the app's agent chats (acpmux, which reads
 /// the same key: `acpmux::agent_tools::agents_get_cmux`). Only through the
-/// launch: cmux never writes an agent's own config. The onboarding step asks,
-/// and Settings > Agents keeps the answer.
+/// launch: cmux never writes an agent's own config. On by default (cmux's
+/// tools come with the app); Settings > Agents turns it off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AgentsCmuxMcp {
-    /// Not answered yet (no value, `"ask"`, or anything else): agents cmux
-    /// starts get no `cmux` server until the person answers (whatever
-    /// `mcp.enabled` says). The app asks at launch (the cmux Tools step).
+    /// The default (no value, `"on"`, or anything but `"off"`): agents cmux
+    /// starts get the server, and it serves them (as `"mcp": {"enabled":
+    /// true}` does, unless that key says otherwise).
     #[default]
-    Ask,
-    /// The person said yes: agents cmux starts get the server, and it serves
-    /// them (as `"mcp": {"enabled": true}` does, unless that key says
-    /// otherwise).
     On,
-    /// The person said no: agents cmux starts get no `cmux` server.
+    /// The person turned it off: agents cmux starts get no `cmux` server.
     Off,
 }
 
@@ -279,23 +403,38 @@ impl AgentsCmuxMcp {
 
     /// The value in the settings text, flat (`"agents.cmuxMcp"`) or nested
     /// (`{"agents": {"cmuxMcp": …}}`), as the app's settings owner writes
-    /// either. A file that does not parse is `Ask`: the person's answer is
-    /// unknown, so nothing is added.
+    /// either, under what an administrator set ([`cmux_config::managed::applied_to`]).
+    /// Only `"off"` is `Off`, and an `"off"` in either form wins over the
+    /// other; a file that does not parse is `On`.
     pub fn from_config_text(text: &str) -> Self {
-        let Ok(document) = serde_json::from_str::<Value>(&strip_jsonc(text)) else {
-            return Self::Ask;
-        };
-        let value = document.get(Self::KEY).or_else(|| document.pointer("/agents/cmuxMcp"));
-        match value.and_then(Value::as_str) {
-            Some("on") => Self::On,
+        Self::applied(Self::file_value(text))
+    }
+
+    fn file_value(text: &str) -> Option<Value> {
+        let text = text.trim_start_matches('\u{feff}');
+        let document = serde_json::from_str::<Value>(&strip_jsonc(text)).ok()?;
+        let flat = document.get(Self::KEY).cloned();
+        let nested = document.pointer("/agents/cmuxMcp").cloned();
+        let off = Value::String("off".into());
+        if flat.as_ref() == Some(&off) || nested.as_ref() == Some(&off) {
+            return Some(off);
+        }
+        flat.or(nested)
+    }
+
+    fn applied(file: Option<Value>) -> Self {
+        match cmux_config::managed::applied_to(Self::KEY, file).as_ref().and_then(Value::as_str) {
             Some("off") => Self::Off,
-            _ => Self::Ask,
+            _ => Self::On,
         }
     }
 
-    /// The value in the settings file at `path`; `Ask` without one.
+    /// The value in the settings file at `path`; `On` without one.
     pub fn from_config_file(path: &Path) -> Self {
-        std::fs::read_to_string(path).map(|text| Self::from_config_text(&text)).unwrap_or_default()
+        match std::fs::read_to_string(path) {
+            Ok(text) => Self::from_config_text(&text),
+            Err(_) => Self::applied(None),
+        }
     }
 
     /// The value in the app's settings file ([`config_path`]), read at each
@@ -304,17 +443,57 @@ impl AgentsCmuxMcp {
         Self::from_config_file(&config_path())
     }
 
+    /// The per-agent switch under the answer (cmux#49395): `agents.cmuxMcpClaude`
+    /// for `claude`, `agents.cmuxMcpCodex` for `codex` (a `cmux setup mcp`
+    /// client id); `None` for any other agent, which follows the answer alone.
+    /// acpmux reads the same keys (`acpmux::agent_tools::agent_switch_key`).
+    pub fn agent_key(agent: &str) -> Option<&'static str> {
+        match agent {
+            "claude" => Some("agents.cmuxMcpClaude"),
+            "codex" => Some("agents.cmuxMcpCodex"),
+            _ => None,
+        }
+    }
+
+    /// The answer for one agent: `Off` when the answer is off or the person
+    /// switched that agent off (`false` at [`Self::agent_key`]); no value,
+    /// `true` or anything else keeps the answer.
+    pub fn from_config_text_for(text: &str, agent: &str) -> Self {
+        let choice = Self::from_config_text(text);
+        if choice != Self::On {
+            return choice;
+        }
+        let Some(key) = Self::agent_key(agent) else { return choice };
+        let text = text.trim_start_matches('\u{feff}');
+        let Ok(document) = serde_json::from_str::<Value>(&strip_jsonc(text)) else {
+            return choice;
+        };
+        let pointer = format!("/{}", key.replace('.', "/"));
+        let value = document.get(key).or_else(|| document.pointer(&pointer));
+        if value.and_then(Value::as_bool) == Some(false) { Self::Off } else { choice }
+    }
+
+    /// [`Self::from_config_text_for`] over the settings file at `path`.
+    pub fn from_config_file_for(path: &Path, agent: &str) -> Self {
+        std::fs::read_to_string(path)
+            .map(|text| Self::from_config_text_for(&text, agent))
+            .unwrap_or_default()
+    }
+
+    /// [`Self::current`] for one agent (the `claude` and `codex` shims).
+    pub fn current_for(agent: &str) -> Self {
+        Self::from_config_file_for(&config_path(), agent)
+    }
+
     /// Whether the shims pass the cmux server to an agent launched in a cmux
-    /// terminal: only once the person said yes (Aziz, 2026-11-11: cmux's MCP
-    /// is not given to the person's coding agents until they approve it).
+    /// terminal: unless the person turned it off.
     pub fn injects(self) -> bool {
         self == Self::On
     }
 
-    /// The settings value (`ask`, `on`, `off`).
+    /// The settings value (`on`, `off`).
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Ask => "ask",
             Self::On => "on",
             Self::Off => "off",
         }
@@ -426,27 +605,60 @@ mod tests {
     }
 
     #[test]
-    fn agents_cmux_mcp_is_ask_until_the_file_says_on_or_off() {
+    fn agents_cmux_mcp_is_on_unless_the_file_says_off() {
         use super::AgentsCmuxMcp as Choice;
-        assert_eq!(Choice::from_config_text(""), Choice::Ask);
-        assert_eq!(Choice::from_config_text("{}"), Choice::Ask);
-        assert_eq!(Choice::from_config_text(r#"{"agents": {"cmuxMcp": "ask"}}"#), Choice::Ask);
+        assert_eq!(Choice::from_config_text(""), Choice::On);
+        assert_eq!(Choice::from_config_text("{}"), Choice::On);
+        assert_eq!(Choice::from_config_text(r#"{"agents": {"cmuxMcp": "ask"}}"#), Choice::On);
         assert_eq!(Choice::from_config_text(r#"{"agents": {"cmuxMcp": "on"}}"#), Choice::On);
         assert_eq!(Choice::from_config_text(r#"{"agents.cmuxMcp": "off"}"#), Choice::Off);
         assert_eq!(
             Choice::from_config_text("{\n  // no\n  \"agents\": {\"cmuxMcp\": \"off\",},\n}"),
             Choice::Off
         );
-        assert_eq!(Choice::from_config_text(r#"{"agents": {"cmuxMcp": true}}"#), Choice::Ask);
-        assert_eq!(Choice::from_config_text("{not json"), Choice::Ask, "unknown is no answer yet");
-        assert!(
-            !Choice::Ask.injects() && Choice::On.injects() && !Choice::Off.injects(),
-            "nothing until the person says yes"
+        assert_eq!(Choice::from_config_text(r#"{"agents": {"cmuxMcp": true}}"#), Choice::On);
+        // Settings writes the nested key; an older flat value never outvotes its `off`.
+        assert_eq!(
+            Choice::from_config_text(r#"{"agents.cmuxMcp": "ask", "agents": {"cmuxMcp": "off"}}"#),
+            Choice::Off
         );
         assert_eq!(
-            Choice::from_config_file(std::path::Path::new("/nonexistent/cmux-next.json")),
-            Choice::Ask
+            Choice::from_config_text("\u{feff}{\"agents\": {\"cmuxMcp\": \"off\"}}"),
+            Choice::Off,
+            "a BOM reads as the settings owner reads it"
         );
+        assert_eq!(
+            Choice::from_config_text("{not json"),
+            Choice::On,
+            "only an explicit off turns it off"
+        );
+        assert!(Choice::On.injects() && !Choice::Off.injects());
+        assert_eq!(
+            Choice::from_config_file(std::path::Path::new("/nonexistent/cmux-next.json")),
+            Choice::On
+        );
+    }
+
+    #[test]
+    fn an_agent_switched_off_gets_no_cmux_tools_under_a_yes() {
+        use super::AgentsCmuxMcp as Choice;
+        let on = r#"{"agents": {"cmuxMcp": "on"}}"#;
+        assert_eq!(Choice::from_config_text_for(on, "claude"), Choice::On, "no switch: on");
+        let codex_off = r#"{"agents": {"cmuxMcp": "on", "cmuxMcpCodex": false}}"#;
+        assert_eq!(Choice::from_config_text_for(codex_off, "codex"), Choice::Off);
+        assert_eq!(Choice::from_config_text_for(codex_off, "claude"), Choice::On);
+        let flat = r#"{"agents.cmuxMcp": "on", "agents.cmuxMcpClaude": false}"#;
+        assert_eq!(Choice::from_config_text_for(flat, "claude"), Choice::Off, "flat key");
+        let kept = r#"{"agents": {"cmuxMcp": "on", "cmuxMcpClaude": true}}"#;
+        assert_eq!(Choice::from_config_text_for(kept, "claude"), Choice::On);
+        let not_bool = r#"{"agents": {"cmuxMcp": "on", "cmuxMcpClaude": "no"}}"#;
+        assert_eq!(Choice::from_config_text_for(not_bool, "claude"), Choice::On, "only false");
+        let unset = r#"{"agents": {"cmuxMcpClaude": false}}"#;
+        assert_eq!(Choice::from_config_text_for(unset, "claude"), Choice::Off, "on by default");
+        assert_eq!(Choice::from_config_text_for(unset, "codex"), Choice::On, "on by default");
+        let no = r#"{"agents": {"cmuxMcp": "off", "cmuxMcpClaude": true}}"#;
+        assert_eq!(Choice::from_config_text_for(no, "claude"), Choice::Off);
+        assert_eq!(Choice::from_config_text_for(codex_off, "gemini"), Choice::On, "no switch");
     }
 
     #[test]
@@ -468,6 +680,75 @@ mod tests {
         assert_eq!(ultra(r#"{"remote": {"ultra": true}}"#), Auto, "not a choice");
         assert_eq!(ultra("{not json"), Auto);
         assert_eq!(super::ultra(), Auto, "unit tests never read the developer's file");
+    }
+
+    #[test]
+    fn tailnet_carrier_is_off_unless_direct_only_or_on_is_named() {
+        use super::TailnetCarrier::{DirectOnly, Off, On};
+        use super::tailnet_carrier_from_config_text as carrier;
+        assert_eq!(carrier(""), Off);
+        assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"direct-only"}}"#), DirectOnly);
+        assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"on"}}"#), On);
+        assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"bogus"}}"#), Off);
+        assert_eq!(carrier("{not json"), Off);
+    }
+
+    #[test]
+    fn agent_share_idle_minutes_is_fifteen_unless_the_file_names_a_value_in_range() {
+        use super::agent_share_idle_minutes_from_config_text as minutes;
+        assert_eq!(minutes(""), 15);
+        assert_eq!(minutes("{}"), 15);
+        assert_eq!(minutes(r#"{"remote": {"agentShareIdleMinutes": 5}}"#), 5);
+        assert_eq!(
+            minutes("{\n  // short\n  \"remote\": {\"agentShareIdleMinutes\": 240,},\n}"),
+            240
+        );
+        assert_eq!(minutes(r#"{"remote": {"agentShareIdleMinutes": 0}}"#), 15, "below the range");
+        assert_eq!(minutes(r#"{"remote": {"agentShareIdleMinutes": 241}}"#), 15, "above it");
+        assert_eq!(minutes(r#"{"remote": {"agentShareIdleMinutes": "5"}}"#), 15, "not a number");
+        assert_eq!(minutes("{not json"), 15);
+        assert_eq!(
+            super::agent_share_idle_minutes(),
+            15,
+            "unit tests never read the developer's file"
+        );
+    }
+
+    #[test]
+    fn auto_cloud_is_the_files_boolean_flat_or_nested_and_false_wins() {
+        use super::auto_cloud_from_config_text as auto_cloud;
+        assert_eq!(auto_cloud(""), None);
+        assert_eq!(auto_cloud("{}"), None);
+        assert_eq!(auto_cloud(r#"{"cloud": {"autoCloud": true}}"#), Some(true));
+        assert_eq!(auto_cloud(r#"{"cloud": {"autoCloud": false}}"#), Some(false));
+        assert_eq!(auto_cloud(r#"{"cloud.autoCloud": true}"#), Some(true), "flat key");
+        assert_eq!(
+            auto_cloud("{\n  // AutoCloud\n  \"cloud\": {\"autoCloud\": true,},\n}"),
+            Some(true)
+        );
+        assert_eq!(auto_cloud("\u{feff}{\"cloud\": {\"autoCloud\": true}}"), Some(true), "a BOM");
+        assert_eq!(
+            auto_cloud(r#"{"cloud.autoCloud": true, "cloud": {"autoCloud": false}}"#),
+            Some(false),
+            "a false in either form wins"
+        );
+        assert_eq!(auto_cloud(r#"{"cloud": {"autoCloud": "yes"}}"#), None, "not a boolean");
+        assert_eq!(auto_cloud(r#"{"cloud": {"plan": "pro"}}"#), None);
+        assert_eq!(auto_cloud("{not json"), None);
+        assert_eq!(super::auto_cloud(), None, "unit tests never read the developer's file");
+    }
+
+    #[test]
+    fn auto_cloud_reads_the_file_again_at_each_call() {
+        use super::auto_cloud_from_config_file as read;
+        let path =
+            std::env::temp_dir().join(format!("cmux-auto-cloud-{}.json", std::process::id()));
+        std::fs::write(&path, r#"{"cloud": {"autoCloud": true}}"#).unwrap();
+        assert_eq!(read(&path), Some(true));
+        std::fs::write(&path, r#"{"cloud": {"autoCloud": false}}"#).unwrap();
+        assert_eq!(read(&path), Some(false));
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(read(&path), None, "no file: no value");
     }
 
     #[test]

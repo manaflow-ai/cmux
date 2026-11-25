@@ -40,7 +40,7 @@ jobs:
   due:
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
     name: Is a fast-tier seed due
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     permissions:
@@ -56,8 +56,15 @@ jobs:
       # nothing restores a hosted seed (Leo, 2026-10-27: "THE GITHUB HOSTED MACS / ARE
       # THE SLOWEST THINGS"; tests/test_ci_no_github_hosted_macos.py). That pool's seeds
       # were 21 hosted jobs and 891 hosted minutes a day (2026-10-27).
+      # blacksmith-root2 builds the same seed at the owned minis' second seed root
+      # (owned_spm_scratch.SECOND_SEED_WORKSPACE): SwiftPM's build records absolute paths, so a seed
+      # restores warm only at the path it was built at. Its job mirrors the checkout there
+      # ("Mirror the checkout to the pool's workspace"). vars.CI_FAST_TIER_SECOND_SEED_ROOT "0"
+      # drops it, as it drops the root on the minis.
       SEED_POOLS: >-
-        [{"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux/cmux", "timeout": 30}]
+        [{"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux/cmux", "timeout": 30},
+        {"pool": "blacksmith-root2", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux-2/cmux", "timeout": 30}]
+      SECOND_SEED_ROOT: ${{ vars.CI_FAST_TIER_SECOND_SEED_ROOT }}
     outputs:
       pools: ${{ steps.due.outputs.pools }}
     steps:
@@ -83,9 +90,122 @@ jobs:
           # cold 29 minutes). The index holds every path in a sparse checkout; Xcode is not on Linux and
           # only the inputs field is read. Unread inputs count every seed, as before.
           inputs="$(CMUX_FAST_CACHE_XCODE_VERSION=none scripts/cmux-next/fast-tier-cache-key.sh 2>/dev/null | sed -n 's/^swift-prefix=.*-\([0-9a-f]\{16\}\)-[0-9a-f]\{12\}-$/\1/p')" || inputs=""
+          pools="$SEED_POOLS"
+          if [[ "$SECOND_SEED_ROOT" == 0 ]]; then
+            pools="$(python3 -I -c 'import json, sys; print(json.dumps([p for p in json.loads(sys.argv[1]) if p["pool"] != "blacksmith-root2"]))' "$SEED_POOLS")"
+          fi
           python3 -I scripts/cmux-next/fast-tier-seed-due.py --minutes "$SEED_INTERVAL_MINUTES" \
             --endpoint-url "$CI_CACHE_R2_ENDPOINT" --bucket "$CI_CACHE_R2_BUCKET" \
-            --pools "$SEED_POOLS" --inputs "$inputs" | tee -a "$GITHUB_OUTPUT"
+            --pools "$pools" --inputs "$inputs" | tee -a "$GITHUB_OUTPUT"
+
+  # The ghostty-next git directory every init-submodule.sh caller restores before
+  # fetching. Freestyle runners read github.com at about 0.3-1 MB/s and the ~33 MB
+  # depth-1 pack outran the 120 s bound on all three attempts of 27 of 104 cargo
+  # fast tier jobs on 2026-11-23 (job 137511000146); with the pin cached they fetch
+  # nothing. A pin the bucket holds exits after one HEAD request.
+  ghostty-next-gitdir:
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
+    name: Seed the ghostty-next submodule cache
+    concurrency:
+      group: cmux-next-ghostty-next-gitdir-${{ github.ref }}
+      cancel-in-progress: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 20
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .gitmodules
+            scripts/ci/init-submodule.sh
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+            scripts/ci/zig-tarball-r2.sh
+            scripts/ci/zig-tarballs.sha256
+            scripts/install-zig-ci.sh
+            scripts/ghostty-zig-version.sh
+            cmux-tui/build-support/notices/toolchains/toolchains.json
+            cmux-tui/bindings/zig/build.zig.zon
+          sparse-checkout-cone-mode: false
+
+      - name: Save the ghostty-next git directory at its pin
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+          INIT_SUBMODULE_CACHE_URL: ${{ env.CI_CACHE_R2_PUBLIC_URL }}
+          INIT_SUBMODULE_ATTEMPT_TIMEOUT: "600"
+        run: bash scripts/ci/init-submodule.sh --seed ghostty-next
+
+      # The verified Zig tarball, for runners with no Zig installed (Freestyle): the owned fleet reuses its
+      # installed Zig and never fills the actions/cache entry, so the daemon tests job restores this copy
+      # (scripts/ci/zig-tarball-r2.sh). A key the bucket holds exits after one HEAD request. The Zig version
+      # is ghostty-next's, so its work tree comes first (from the git directory saved just above).
+      - name: Save the verified Zig tarball
+        # A failed seed is only a miss for the readers; it never reds this workflow.
+        continue-on-error: true
+        timeout-minutes: 12
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          bash scripts/ci/init-submodule.sh ghostty-next
+          bash scripts/ci/zig-tarball-r2.sh seed "$RUNNER_TEMP/cmux-zig-tarballs"
+
+  # The .deb files .github/actions/playwright-apt-cache restores, one key per week and engine set, in R2 instead
+  # of the GitHub store (one 1,020 MB copy there on 2026-11-24, a tenth of its 10 GB cap). Downloaded in a bare
+  # ubuntu:24.04 container, so the archive holds everything a runner image might lack and nothing older: the
+  # GitHub copy grew by carrying each week's leftovers into the next. A week's key R2 already has costs one
+  # HEAD request per push.
+  playwright-apt:
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
+    name: Seed Playwright's apt packages
+    concurrency:
+      group: cmux-next-playwright-apt-${{ github.ref }}
+      cancel-in-progress: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 15
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/playwright-apt-deps.sh
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+          sparse-checkout-cone-mode: false
+
+      - name: Save this week's Playwright apt packages
+        # A failed seed is only a miss for the readers (they download from the mirror); it never reds this workflow.
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        run: |
+          set -euo pipefail
+          week="$(date -u +%G-%V)"
+          # The engine sets the callers pass as `engines`.
+          for engines in chromium chromium-webkit; do
+            key="playwright-apt-$week-$engines"
+            if curl -fsI --max-time 30 "$CI_CACHE_R2_PUBLIC_URL/v1/$RUNNER_OS-$RUNNER_ARCH/objects/$key.tar.zst" >/dev/null; then
+              echo "$key is in R2"
+              continue
+            fi
+            dir="$RUNNER_TEMP/playwright-apt-$engines"
+            scripts/ci/playwright-apt-deps.sh seed "$engines" "$dir"
+            scripts/ci/r2-cache.sh save "$dir" "$key"
+            rm -rf "$dir"
+          done
 
   seed:
     needs: due
@@ -126,29 +246,38 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      # The due job judged this pool by its workspace path's seeds; a runner that
-      # checks out elsewhere would write a key no fast tier on the pool restores.
-      - name: Check the workspace is the pool's
+      # The due job judged this pool by its workspace path's seeds, so the build runs
+      # at that path: the checkout itself, or (blacksmith-root2) an APFS clone of it
+      # beside it, at the second seed root's path. Every step below runs there.
+      - name: Mirror the checkout to the pool's workspace
         env:
           POOL_WORKSPACE: ${{ matrix.workspace }}
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_WORKSPACE" != "$POOL_WORKSPACE" ]]; then
-            echo "::error title=fast-tier seed::workspace $GITHUB_WORKSPACE is not the pool's $POOL_WORKSPACE (SEED_POOLS)"
+          if [[ "$GITHUB_WORKSPACE" == "$POOL_WORKSPACE" ]]; then exit 0; fi
+          if [[ "$(dirname "$(dirname "$POOL_WORKSPACE")")" != "$(dirname "$(dirname "$GITHUB_WORKSPACE")")" ]]; then
+            echo "::error title=fast-tier seed::workspace $POOL_WORKSPACE is not beside $GITHUB_WORKSPACE (SEED_POOLS)"
             exit 1
           fi
+          rm -rf "$POOL_WORKSPACE"
+          mkdir -p "$(dirname "$POOL_WORKSPACE")"
+          cp -c -pR "$GITHUB_WORKSPACE" "$POOL_WORKSPACE"
 
       - name: Compute fast-tier cache keys
         id: fast-cache-key
+        working-directory: ${{ matrix.workspace }}
+        env:
+          CMUX_FAST_CACHE_WORKSPACE: ${{ matrix.workspace }}
         run: scripts/cmux-next/fast-tier-cache-key.sh >> "$GITHUB_OUTPUT"
 
       # Before the build: the times the products are built from. The fast tier
       # replays them onto every file whose content is unchanged.
       - name: Record the build's input times
+        working-directory: ${{ matrix.workspace }}
         run: |
           set -euo pipefail
           mkdir -p Packages/macOS/CmuxNext/.build
-          python3 -I scripts/ci/e2e_warm_derived_data.py record "$GITHUB_WORKSPACE" "$RUNNER_TEMP/cmux-fast-tier-input-mtimes.json"
+          python3 -I scripts/ci/e2e_warm_derived_data.py record "$PWD" "$RUNNER_TEMP/cmux-fast-tier-input-mtimes.json"
           mv "$RUNNER_TEMP/cmux-fast-tier-input-mtimes.json" Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json
 
       # The seed is the build. A red test entry still leaves a good build, so
@@ -156,6 +285,7 @@ jobs:
       - name: Run the fast tier
         id: tier
         continue-on-error: true
+        working-directory: ${{ matrix.workspace }}
         run: python3 -I scripts/cmux-next/fast-tier.py --kind swift --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
 
       # Also after a failure or a cancel: end the daemon of this job's home and
@@ -173,6 +303,7 @@ jobs:
 
       - name: Check that every build passed
         id: built
+        working-directory: ${{ matrix.workspace }}
         run: |
           set -euo pipefail
           python3 -I - "$RUNNER_TEMP/cmux-next-fast-tier.json" <<'EOF'
@@ -195,7 +326,7 @@ jobs:
           CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
         with:
           backend: r2
-          path: Packages/Shared/CmuxHomeRender/.build
+          path: ${{ matrix.workspace }}/Packages/Shared/CmuxHomeRender/.build
           key: ${{ steps.fast-cache-key.outputs.home-key }}
 
       - name: Save the CmuxNext build
@@ -207,7 +338,7 @@ jobs:
           CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
         with:
           backend: r2
-          path: Packages/macOS/CmuxNext/.build
+          path: ${{ matrix.workspace }}/Packages/macOS/CmuxNext/.build
           key: ${{ steps.fast-cache-key.outputs.swift-key }}
 
       - name: Prune seeds older than a day

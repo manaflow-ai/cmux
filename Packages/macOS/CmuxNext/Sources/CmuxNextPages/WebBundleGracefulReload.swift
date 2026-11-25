@@ -159,7 +159,8 @@ final class WebBundleGracefulReload {
         let id = ObjectIdentifier(view)
         let tree = tree
         let served = served ?? .shared
-        guard covers[id] == nil, Cover.shows(view) else {
+        // A host that holds the page itself (the agent chat, `AgentPaneView+ReloadCover`) keeps it on screen.
+        guard covers[id] == nil, !served.coversReload(of: view), Cover.shows(view) else {
             served.reload([view], to: tree)
             return
         }

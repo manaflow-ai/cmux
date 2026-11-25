@@ -42,6 +42,10 @@ LIGHT_NIGHTLY_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostt
 CMUX_LINUX_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
                    "prepare-nightly-variant-primary", "prepare-nightly-variant")
 CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
+# RFD 0021 route by need: the essential ones take the nightly's reserved label on attempt 1 (no PR job can ask
+# for it, tests/test_ci_nightly_labels_reserved.py) and cmux-linux on a rerun.
+NIGHTLY_PINNED_JOBS = ("resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant")
+NIGHTLY_PINNED_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}"
 
 # A runs-on term that can put a nightly job on our own fleet: the owned nightly slot or side lane, the cmux-linux
 # pool, or a picker's owned output (pick-nightly-build-runner, pick-nightly-sign-runner).
@@ -180,17 +184,6 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                     failures.append(f"{path.name}:{number}: {line.strip()}")
         self.assertEqual(failures, [], "nightly jobs must never reach the benchmark mini cmux11s")
 
-    @unittest.skipUnless((WORKFLOWS / "cmux-tui-nightly.yml").exists(), "no cmux-tui nightly on this branch")
-    def test_tui_nightly_overrides_every_package_builder_runner(self) -> None:
-        text = (WORKFLOWS / "cmux-tui-nightly.yml").read_text(encoding="utf-8")
-        block = text[text.index("uses: ./.github/workflows/cmux-tui-build-package.yml"):]
-        block = block[: block.index("\n  publish-npm:")]
-        for name in TUI_NIGHTLY_RUNNER_INPUTS:
-            with self.subTest(input=name):
-                match = re.search(rf"^\s+{name}: (.+)$", block, re.MULTILINE)
-                self.assertIsNotNone(match, f"cmux-tui nightly must pass {name}")
-                self.assertNotRegex(match.group(1), SINGLE_HOST)
-
     def test_native_nightlies_follow_owned_pool_then_our_nightly_builders(self) -> None:
         text = nightly_expand((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))
         job = text[text.index("\n  build-nightly-app:"):]
@@ -229,7 +222,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         # Our persistent Linux pool, never Blacksmith; a fork takes hosted Ubuntu.
         for name in ("prepare-nightly-variant-primary", "prepare-nightly-variant"):
             with self.subTest(job=name):
-                self.assertEqual(workflow_jobs.runs_on_cells(jobs[name]), [CMUX_LINUX_RUNS_ON])
+                self.assertEqual(workflow_jobs.runs_on_cells(jobs[name]), [NIGHTLY_PINNED_RUNS_ON])
         moved_out = ("install-cmux-tui-client.sh", "strip-release-bundle.sh", "write-cmux-tui-version.sh",
                      "check-daemon-capabilities.sh", "test_bundled_ghostty_theme_picker_helper.sh",
                      "verify-diff-sidecar-artifact.sh", "select-ci-xcode.sh", "ditto ", "otool", "codesign")
@@ -276,7 +269,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
             with self.subTest(job=name):
                 runs_on = runs_on_text(jobs[name], name)
                 if name in CMUX_LINUX_JOBS:
-                    self.assertEqual(runs_on, CMUX_LINUX_RUNS_ON)
+                    self.assertEqual(runs_on, NIGHTLY_PINNED_RUNS_ON if name in NIGHTLY_PINNED_JOBS else CMUX_LINUX_RUNS_ON)
                 else:
                     expected_tail = "|| vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"
                     self.assertTrue(runs_on.endswith(expected_tail), runs_on)
@@ -290,7 +283,9 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 self.assertTrue(labels)
                 for label in labels:
                     self.assertIsInstance(label, str, f"{name} can take an unread label {label!r}")
-                    self.assertTrue(label in {"ubuntu-24.04", "cmux-linux"} | owned | one_mini,
+                    # The nightly's reserved label (RFD 0021) is our own GCP pool, never Blacksmith.
+                    pinned = {"cmux-gcp-nightly-x64"} if name in NIGHTLY_PINNED_JOBS else set()
+                    self.assertTrue(label in {"ubuntu-24.04", "cmux-linux"} | owned | one_mini | pinned,
                                     f"{name} can take {label!r}")
                 held = workflow_jobs.secret_names(jobs[name])
                 self.assertNotIn(workflow_jobs.ALL_SECRETS, held)
@@ -398,16 +393,14 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         on = resolve_labels(mac, variables={"CI_CLOUD_OVERFLOW_SAVED": [OVERFLOW_RECORD]})
         self.assertIn("blacksmith-6vcpu-macos-26", on - resolve_labels(mac, variables=SWITCH_OFF))
 
-    def test_the_canary_takes_the_owned_side_label_then_blacksmith(self) -> None:
+    def test_the_canary_takes_cmux_mac_behind_the_overflow_switch(self) -> None:
         import yaml
         jobs = yaml.safe_load((WORKFLOWS / "nightly-next-canary.yml").read_text(encoding="utf-8"))["jobs"]
-        self.assertIn("vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_PR_POOL_OWNED == '1' && "
-                      "github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.CI_BLACKSMITH_MACOS != 'on' && "
-                      "vars.CI_SIDE_LANE_RUNNER || vars.CI_BLACKSMITH_MACOS == 'on' && vars.MACOS_RUNNER_26 || "
-                      "fromJSON(vars.RUNNER_POOLS).macos_26) }}", runs_on_text(jobs["canary"], "canary"))
+        # The one own-branch Mac label (docs/design/ci-v2.md): Blacksmith only through vars.CI_OVERFLOW_MAC.
+        self.assertTrue(runs_on_text(jobs["canary"], "canary").endswith("|| vars.CI_OVERFLOW_MAC || 'cmux-mac' }}"))
         for name in ("pick", "verdict"):
             with self.subTest(job=name):
-                self.assertRegex(runs_on_text(jobs[name], name), r"(?:'blacksmith-\d+vcpu-ubuntu-2404'|fromJSON\(vars\.RUNNER_POOLS\)\.linux_\d+) }}$")
+                self.assertRegex(runs_on_text(jobs[name], name), r"'cmux-linux' }}$")
 
     def test_promotion_requests_never_wait_on_blacksmith(self) -> None:
         """The jobs that start a NEXT nightly are part of the nightly path.

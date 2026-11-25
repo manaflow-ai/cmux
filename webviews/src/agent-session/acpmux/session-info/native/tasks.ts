@@ -25,7 +25,7 @@ import {
 import { COMMAND_STATE } from "../tasksSectionModel";
 import { scheduledTrailing, splitScheduled, type ScheduledEntry } from "../scheduled";
 import { TASK_ICONS } from "../taskIcons";
-import { subagentCountParts } from "../subagentsSectionModel";
+import { orderedCountWords } from "../subagentsSectionModel";
 import { compactTokens } from "../../conversation/compactionNoteModel";
 import type { NativeInfoActions, NativeInfoButton, NativeInfoRow, NativeInfoSection, NativeInfoTone } from "./model";
 import { nativeExternalUrl } from "./links";
@@ -231,7 +231,8 @@ export function tasksSection(
     id: "tasks",
     group: "running",
     title: t("summary.backgroundTasks"),
-    ...(runningCount > 0 ? { meta: t("rail.running", { count: runningCount }), metaTone: "running" as const } : {}),
+    // The number of what runs, no word (as the page's head and Also here's count).
+    ...(runningCount > 0 ? { meta: String(runningCount), metaTone: "running" as const } : {}),
     open: input.open,
     foldable: true,
     rows,
@@ -285,7 +286,7 @@ export function useNativeWorkflowPhases(workflows: readonly WorkflowSummary[]) {
 
 const workflowCounts = (t: Translate, agents: readonly WorkflowAgent[]) => {
   const counts = tally(agents);
-  return subagentCountParts(
+  return orderedCountWords(
     { failed: counts.failed, running: counts.running, queued: counts.queued, done: counts.done },
     t,
   );
@@ -427,12 +428,7 @@ function workflowRows(
       }
     }
   };
-  if (both)
-    rows.push({
-      id: "workflows.running",
-      title: t("rail.running", { count: running.length }),
-      tone: "muted",
-    });
+  // The running ones lead with no heading, as the page's WorkflowTasks.tsx: "running" needs no word.
   running.forEach(workflow);
   if (both)
     rows.push({

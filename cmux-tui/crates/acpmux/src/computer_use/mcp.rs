@@ -7,7 +7,8 @@
 //! (then each call says so). `tools/call` goes through [`Caller`]: a call id
 //! per request, the session key for the whole session, the endpoint from the
 //! cmux-tui daemon, and retries of the same call id across a worker restart.
-//! A worker result, refusals included, reaches the agent unchanged.
+//! A worker result, refusals included, reaches the agent unchanged, except a
+//! locked Mac, which becomes one typed state ([`super::locked`]).
 //!
 //! When the agent closes the pipe the server ends its session on the worker
 //! (`session/end`), which drops the session's approvals and cursor.
@@ -226,7 +227,8 @@ pub fn call<D: Daemon>(caller: &Caller<D>, params: &Value) -> Value {
     }
     let name = params["name"].as_str().unwrap_or_default();
     let arguments = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-    caller.call(name, &arguments, &super::client::new_call_id()).to_mcp()
+    // A locked Mac answers as one typed state, not a generic tool error ([`super::locked`]).
+    super::locked::to_mcp(caller.call(name, &arguments, &super::client::new_call_id()))
 }
 
 #[cfg(test)]

@@ -9,7 +9,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { RevealedMarkdown } from "./RevealedMarkdown";
 import { revealFrames } from "./revealedMarkdownModel";
-import { StreamReveal, wordEdge } from "../streamReveal";
+import { wordEdge } from "../streamReveal";
+import { acpmuxPerf } from "../perf";
 import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
@@ -20,6 +21,8 @@ const saved = new Map<string, unknown>();
 const KEYS = ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"];
 const savedFrames = { ...revealFrames };
 let queued: ((now: number) => void)[] = [];
+/// The reveal's clock: the time of the frame running, or of the last one.
+let clock = 0;
 
 beforeEach(() => {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
@@ -39,6 +42,8 @@ beforeEach(() => {
   queued = [];
   revealFrames.request = (callback) => queued.push(callback);
   revealFrames.cancel = () => {};
+  clock = 0;
+  revealFrames.now = () => clock;
 });
 
 afterEach(async () => {
@@ -63,6 +68,7 @@ function frames(from: number, count: number): string[] {
     const pending = queued;
     queued = [];
     act(() => {
+      clock = from + index * 16;
       for (const callback of pending) callback(from + index * 16);
     });
     seen.push(container.querySelector(".cv-md")?.textContent ?? "");
@@ -107,7 +113,8 @@ for (const strict of [false, true]) {
     const visible = () => container.querySelector(".cv-md")?.textContent ?? "";
     draw("", "assistant-1:old");
     draw("The old session is still streaming and has many words waiting for their first frame.", "assistant-1:old");
-    expect(visible()).toBe("");
+    // Its whole words show in the commit that brings them; the last word waits to be whole.
+    expect(visible()).toBe("The old session is still streaming and has many words waiting for their first");
     expect(pending.size).toBe(1);
     const oldHandle = [...pending.keys()][0]!;
 
@@ -120,15 +127,13 @@ for (const strict of [false, true]) {
     expect(frame(16)).toBe(replacement);
     expect(pending.size).toBe(0);
 
-    const appended = `${replacement} New words still arrive through the normal paced stream instead of appearing all at once.`;
+    const appended = `${replacement} New words arrive with the chunk that brings them, each fading in.`;
     draw(appended, "assistant-1:new");
-    expect(visible()).toBe(replacement);
+    // All of it but the last word, which may still grow, in the same commit; the new words fade in.
+    expect(visible()).toBe(appended.slice(0, appended.lastIndexOf(" ")));
     expect(pending.size).toBe(1);
-    const growing = [frame(32), frame(48), frame(64)];
-    expect(growing.at(-1)!.length).toBeGreaterThan(replacement.length);
-    expect(growing.at(-1)!.length).toBeLessThan(appended.length);
-    expect(growing.every((text) => text.startsWith(replacement))).toBe(true);
     expect(container.querySelectorAll(".cv-fresh").length).toBeGreaterThan(0);
+    expect([frame(32), frame(48), frame(64)].every((text) => text === visible())).toBe(true);
     for (let index = 0; index < 120; index++) frame(80 + index * 16);
 
     expect(visible()).toBe(appended);
@@ -161,17 +166,17 @@ test("a streaming reply grows by whole words with nothing after the last one", (
   const deltas = ["The che", "cks on the mer", "ged head are gr", "een and the release no", "tes are ready to se"];
   let text = "";
   const seen: string[] = [];
-  let clock = 0;
+  let at = 0;
   for (const delta of deltas) {
     text += delta;
     render(text, true);
-    seen.push(...frames(clock, 12));
-    clock += 12 * 16;
+    seen.push(...frames(at, 12));
+    at += 12 * 16;
   }
   // Frames until just before the last delta is StreamReveal.stallMs old: until then "se" (of
   // "send") has arrived but is not a whole word yet (after it, the last word shows; see below).
-  seen.push(...frames(clock, 24));
-  clock += 24 * 16;
+  seen.push(...frames(at, 24));
+  at += 24 * 16;
   expect(container.querySelector(".cv-caret")).toBeNull();
   const words = new Set(reply.split(" "));
   for (const shown of seen) {
@@ -182,7 +187,7 @@ test("a streaming reply grows by whole words with nothing after the last one", (
   }
   // The stream ends: the rest shows.
   render(`${text}nd`, false);
-  frames(clock, 30);
+  frames(at, 30);
   expect(container.querySelector(".cv-md")?.textContent).toBe(reply);
   expect(container.querySelector(".cv-caret")).toBeNull();
 });
@@ -195,7 +200,7 @@ test("the newest words fade in, each word whole", () => {
   const shown = frames(0, 30);
   expect(shown.at(-1)).toBe("Hello there");
   render("Hello there world, again", true);
-  frames(30 * 16, 8);
+  frames(30 * 16, 1);
   const fresh = [...container.querySelectorAll(".cv-fresh")].map((span) => span.textContent ?? "");
   // Only whole words fade in: " world," arrived whole; "again" may still grow.
   expect(fresh.length).toBeGreaterThan(0);
@@ -222,7 +227,7 @@ test("words after a code span, a parenthesis or a line break still fade in", () 
     render(before, true);
     frames(0, 30);
     render(after, true);
-    frames(30 * 16, 8);
+    frames(30 * 16, 1);
     const fresh = [...container.querySelectorAll(".cv-fresh")].map((span) => span.textContent ?? "").join("");
     expect(fresh.length).toBeGreaterThan(0);
     // The word held back while the first text waited (StreamReveal.stallMs) fades in first.
@@ -254,53 +259,48 @@ test("fresh text expires with the host fade-in token", () => {
   expect(container.querySelectorAll(".cv-fresh").length).toBeGreaterThan(0);
 });
 
-/// Runs a display frame `gap` ms after the one before for each of `gaps`, from `from`; returns how
-/// many ran a reveal step (StreamReveal.advance), the frames that commit.
-function steps(from: number, gaps: number[]): number {
-  const advance = StreamReveal.prototype.advance;
-  let count = 0;
-  StreamReveal.prototype.advance = function (this: StreamReveal, ...args: Parameters<typeof advance>) {
-    count += 1;
-    return advance.apply(this, args);
-  };
-  try {
-    let now = from;
-    for (const gap of gaps) {
-      now += gap;
-      const pending = queued;
-      queued = [];
-      act(() => {
-        for (const callback of pending) callback(now);
-      });
-    }
-  } finally {
-    StreamReveal.prototype.advance = advance;
-  }
-  return count;
-}
-
 const LONG_REPLY = "The checks on the merged head are green and the notes are ready. ".repeat(30);
 
-// WebKit's frame times are whole milliseconds and jitter: a 14 or 15 ms frame follows a 17 to 19
-// ms one. Each frame is still a 60 Hz display frame, and one with no step is a frame the reply did
-// not grow while text waited (the streaming-text harness counted 64 to 119 a reply in WebKit).
-test("on a 60 Hz display the reveal steps on every frame, with WebKit's jittery frame times", () => {
+// Text shows in the commit that brings it, which acpmux's snapshots make once per display frame
+// (cmuxterm-hq docs/design/agent-transcript-clean-slate.md, step 3). No pacer lets it through over
+// the frames after: they change nothing on screen, so the reply's height changes only when text
+// arrives, and its newest words only fade in.
+test("a chunk's text shows in the commit that brings it, and the frames after it change nothing", () => {
   root = createRoot(container);
   render("", true);
   render(LONG_REPLY, true);
-  const gaps = [17, 19, 14, 17, 15, 18, 16, 17, 14, 19, 17, 16, 15, 18];
-  expect(steps(0, gaps)).toBe(gaps.length);
+  const drawn = container.querySelector(".cv-md")?.textContent ?? "";
+  expect(drawn).toBe(LONG_REPLY.trim());
+  expect(container.querySelectorAll(".cv-fresh").length).toBeGreaterThan(0);
+  for (const shown of frames(0, 14)) expect(shown).toBe(drawn);
 });
 
-// Fades run on the compositor, so a faster display commits no more than 60 times a second.
-test("on a 120 Hz display the reveal steps on every other frame", () => {
-  root = createRoot(container);
-  render("", true);
-  render(LONG_REPLY, true);
-  const frameGaps = (count: number) => Array.from({ length: count }, () => 1000 / 120);
-  // The loop learns the display's frame time over its first few frames.
-  steps(0, frameGaps(8));
-  expect(steps(8000 / 120, frameGaps(12))).toBe(6);
+// A closed block (before the reply's last safe boundary, incrementalMarkdown.ts) is drawn once:
+// neither a later chunk nor a fade ending draws it again, also while it is the reply's last block
+// (a table whose rows the tail holds back, safeTail.ts).
+test("a streaming reply draws each closed Markdown block once", () => {
+  acpmuxPerf.enabled = true;
+  acpmuxPerf.resetRenders();
+  try {
+    root = createRoot(container);
+    render("", true);
+    const reply =
+      "Intro paragraph with a few words.\n\n```ts\nconst a = 1;\nconst b = 2;\n```\n\n" +
+      "Second paragraph that keeps going for a while.\n\n| Step | Clients per second |\n| --- | ---: |\n| one | 5,000 |\n\nThe end of it all.";
+    let at = 0;
+    for (let end = 6; end < reply.length; end += 6) {
+      render(reply.slice(0, end), true);
+      frames(at, 3);
+      at += 48;
+    }
+    render(reply, true);
+    frames(at, 60);
+    expect(acpmuxPerf.renders.get("markdown.closed") ?? 0).toBeGreaterThan(0);
+    expect(acpmuxPerf.renders.get("markdown.closed.rerender") ?? 0).toBe(0);
+  } finally {
+    acpmuxPerf.enabled = false;
+    acpmuxPerf.resetRenders();
+  }
 });
 
 // The last word shows only once the stream ends, a frame after the row stops streaming. Until it
@@ -364,6 +364,7 @@ function cancellableFrames() {
   };
   revealFrames.cancel = (handle) => void pending.delete(handle);
   const frame = (now: number) => {
+    clock = now;
     const due = [...pending.values()];
     pending.clear();
     act(() => {
@@ -442,4 +443,23 @@ test("wordEdge ends at a whole word, keeps what shows, and lets a long word thro
   expect(wordEdge(url, url.length, false, 0)).toBe(url.length);
   // Once part of a long word shows, the rest grows as it arrives, not in 48-character jumps.
   expect(wordEdge(url, 60, false, 53)).toBe(60);
+});
+
+test("a reply's stream end shows all of it in that commit, with nothing left to grow after it", () => {
+  // cmux#50299: the reply's last lines revealed over the frames after the turn's end grew it under the
+  // fold that had just settled the turn. The commit that ends the stream shows them all, so the turn
+  // end's fold (turnEndFold.ts) carries them in its one motion.
+  root = createRoot(container);
+  const text = "The answer has a first sentence. And a second one that is still waiting to show.";
+  const draw = (streaming: boolean, body = text) =>
+    act(() => {
+      root!.render(<RevealedMarkdown text={body} streaming={streaming} artifactIdentity="assistant-1" />);
+    });
+  draw(true, "");
+  draw(true);
+  frames(0, 3);
+  draw(false);
+  expect(container.querySelector(".cv-md")?.textContent).toBe(text);
+  // No frame after it changes what shows.
+  expect(frames(48, 30).every((seen) => seen === text)).toBe(true);
 });

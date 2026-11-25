@@ -25,7 +25,7 @@ pub(crate) fn host_build_differs(host_build: Option<&str>, daemon: &str) -> bool
 
 /// The build `session`'s live agent host runs, from the host record. None without one, and while
 /// a start or stop holds the child's slot: a summary never waits on it.
-pub(super) fn live_host_build(session: &Session) -> Option<String> {
+pub(crate) fn live_host_build(session: &Session) -> Option<String> {
     session.child.try_lock().ok()?.as_ref()?.host_build()
 }
 
