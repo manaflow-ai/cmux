@@ -195,14 +195,24 @@ impl Supervisor {
             if !inner.mirror.apps.get(&app).is_some_and(|r| r.installed) {
                 return Err(error("scope.missing", "the app is not installed"));
             }
-            let storage = self.storage();
-            let storage = storage
-                .as_ref()
-                .ok_or_else(|| error("operation.failed", "app storage is unavailable"))?;
-            return storage
-                .call(&app, &op, &params)
-                .map(|value| json!({ "value": value }))
-                .map_err(|e| error(e.code, e.message));
+            let answer = {
+                let storage = self.storage();
+                let storage = storage
+                    .as_ref()
+                    .ok_or_else(|| error("operation.failed", "app storage is unavailable"))?;
+                storage
+                    .call(&app, &op, &params)
+                    .map(|value| json!({ "value": value }))
+                    .map_err(|e| error(e.code, e.message))
+            };
+            drop(inner);
+            let rebinds = matches!(op.as_str(), "app.storage.set" | "app.storage.delete")
+                && params.get("key").and_then(Value::as_str)
+                    == Some(super::page_keys::OVERRIDES_KEY);
+            if answer.is_ok() && rebinds {
+                self.page_keys_changed(&app);
+            }
+            return answer;
         }
         drop(inner);
         if signal_sources::owns(&op) {
