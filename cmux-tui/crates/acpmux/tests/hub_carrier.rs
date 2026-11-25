@@ -3651,6 +3651,7 @@ async fn hub_carrier_a_chat_moved_around_a_ring_comes_home_with_every_turn() {
     let keys = [random_key(), random_key(), random_key()];
     let ids: Vec<String> = keys.iter().map(public).collect();
     let names = ["machine-a", "machine-b", "machine-c"];
+    let stores = tempfile::tempdir().unwrap();
     let mut hubs = Vec::new();
     let mut serving = Vec::new();
     for (i, key) in keys.iter().enumerate() {
@@ -3659,7 +3660,12 @@ async fn hub_carrier_a_chat_moved_around_a_ring_comes_home_with_every_turn() {
             profile.env.insert("FAKE_SESSION_PREFIX".into(), "fake-session-".into());
         }
         cfg.web_roots = vec![root_text.clone()];
-        let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        // On disk, as a daemon's store is: the chat coming home replaces its moved-away copy's
+        // folder (`transfer_in.rs` `folder_to_replace`), which a memory store has none of.
+        cfg.store.mode = StoreMode::Local;
+        let store_dir = stores.path().join(names[i]);
+        std::fs::create_dir_all(&store_dir).unwrap();
+        let store = acpmux::store::open(&cfg.store, &store_dir).unwrap();
         let h = Hub::new(cfg, store);
         let others: Vec<String> = (0..3).filter(|j| *j != i).map(|j| ids[j].clone()).collect();
         let carrier = HubCarrier::new(
