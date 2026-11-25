@@ -3,7 +3,7 @@
 
 Usage:
   rust-workspaces.py check [--repo ROOT]
-  rust-workspaces.py plan [--repo ROOT] [--base SHA] [--own-only]
+  rust-workspaces.py plan [--repo ROOT] [--base SHA] [--own-only | --reads-only]
   rust-workspaces.py run ROOT [--repo ROOT]
 
 Only cmux-tui's own workspace had PR clippy (cmux-tui-spec.yml), and the
@@ -25,7 +25,12 @@ this check changes, it plans every one. With --own-only (pull requests since 202
 workspace only when the change touches its own packages, a file those read from elsewhere or its `inputs`,
 not a path dependency: a feat-cmux-next push still plans the whole reach, so a red a dependency causes
 shows on the tip (CI 10x: 1.9% of pull request runner-minutes went to the cmux-tui crate and sample
-workspaces with no red only they caught in a week, 1.11% to optchat-chief for 0.26%). `run` lints and tests one workspace:
+workspaces with no red only they caught in a week, 1.11% to optchat-chief for 0.26%). With --reads-only (a pull
+request into feat-cmux-next, which skips this workflow's jobs: affected-jobs.json pull_request_skip) it plans a
+workspace only when the change touches a file its own packages read by literal path from outside their tree (an
+include_str! target): a Swift author never thinks of the Rust test that compares their file, and the post-merge
+batch found it only after the merge (#53827 changed DaemonLanePolicy.swift, which cmux-mobile-host's
+mirrors_the_swift_allowlist reads; base went red until #53860). `run` lints and tests one workspace:
 `cargo clippy --workspace --all-targets -- -D warnings`, then `cargo test --workspace`,
 with --locked when it tracks a Cargo.lock; both run, and either failing fails it.
 """
@@ -291,17 +296,19 @@ def under(path: str, directory: str) -> bool:
     return directory == "." or path == directory or path.startswith(directory + "/")
 
 
-def plan(repo: Path, base: str, own_only: bool = False) -> list[dict]:
-    return plan_paths(repo, changed(repo, base), own_only=own_only)
+def plan(repo: Path, base: str, own_only: bool = False, reads_only: bool = False) -> list[dict]:
+    return plan_paths(repo, changed(repo, base), own_only=own_only, reads_only=reads_only)
 
 
-def plan_paths(repo: Path, paths: list[str] | None, own_only: bool = False) -> list[dict]:
+def plan_paths(repo: Path, paths: list[str] | None, own_only: bool = False, reads_only: bool = False) -> list[dict]:
     """The `run = true` workspaces these changed paths reach (None: every one). scripts/ci/affected_tests.py
     plans the same workspaces for a change, so `cmux-ci test --affected` runs what this workflow would.
     OWN_ONLY: a workspace counts only when a path is its own (its packages, what they read, its `inputs`), not a
-    path dependency's; the build still uses the whole reach."""
+    path dependency's; the build still uses the whole reach.
+    READS_ONLY: a workspace counts only when a path is a file its own packages read from outside their tree (not its
+    own files, its `inputs` or the planner's own files): the workspaces a pull request into feat-cmux-next tests."""
     tree = Tree(repo)
-    if paths is not None and any(path in EVERYTHING for path in paths):
+    if paths is not None and not reads_only and any(path in EVERYTHING for path in paths):
         paths = None
     jobs = []
     for entry in load_list(repo):
@@ -311,6 +318,11 @@ def plan_paths(repo: Path, paths: list[str] | None, own_only: bool = False) -> l
         reach = tree.reach(root)
         if paths is not None:
             own = tree.members(root) | {root}
+            if reads_only:
+                if not any(under(path, read) for path in paths for read in tree.read_paths(own)):
+                    continue
+                jobs.append(job(tree, entry, reach))
+                continue
             scope = own if own_only else reach
             # A dependency outside the workspace may inherit from its own workspace's manifest.
             watched = scope | {f"{above}/Cargo.toml" for above in map(tree.workspace_above, scope) if above}
@@ -321,12 +333,16 @@ def plan_paths(repo: Path, paths: list[str] | None, own_only: bool = False) -> l
             if not any(tree.owns(directory, path) for path in paths for directory in watched) \
                     and not any(under(path, named) for path in paths for named in explicit):
                 continue
-        jobs.append({
-            "root": root,
-            "ghostty": tree.uses_package(reach, "ghostty-vt-sys"),
-            "apt": " ".join(entry.get("apt", [])),
-        })
+        jobs.append(job(tree, entry, reach))
     return jobs
+
+
+def job(tree: Tree, entry: dict, reach: set[str]) -> dict:
+    return {
+        "root": entry["root"],
+        "ghostty": tree.uses_package(reach, "ghostty-vt-sys"),
+        "apt": " ".join(entry.get("apt", [])),
+    }
 
 
 # The words every spelling of cargo's stale-lock refusal ends with (scripts/cmux-next/cargo-locks.py knows them all).
@@ -404,6 +420,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base", default="")
     parser.add_argument("--own-only", action="store_true",
                         help="plan: a workspace only for a change to its own paths, not a path dependency's")
+    parser.add_argument("--reads-only", action="store_true",
+                        help="plan: a workspace only for a change to a file its own packages read from elsewhere")
     args = parser.parse_args(argv)
     repo = (args.repo or Path(git(Path.cwd(), "rev-parse", "--show-toplevel").strip())).resolve()
     if args.command == "check":
@@ -414,7 +432,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"rust-workspaces: {LIST} lists every Cargo workspace")
         return 1 if problems else 0
     if args.command == "plan":
-        print(json.dumps(plan(repo, args.base.strip(), own_only=args.own_only)))
+        print(json.dumps(plan(repo, args.base.strip(), own_only=args.own_only, reads_only=args.reads_only)))
         return 0
     if not args.root:
         parser.error("run needs a workspace root")

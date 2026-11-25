@@ -73,6 +73,18 @@ const ALLOWED: { file: string; keyframes: string; selector: string; why: string;
     why: "the gallery's pulse variant of the loading skeleton, a look to compare rather than a status dot; the app never loads this sheet",
   },
   {
+    file: "apps/scene/scene.css",
+    keyframes: "cmux-app-scene-pulse",
+    selector: '.cmux-app-scene-node[data-loop="pulse"]',
+    why: 'an extension\'s own `.loop({effect: "pulse"})` (js/ABI.md Motion): content the extension author asked for, never app chrome or a status dot; Reduce Motion and the motion gate stop it',
+  },
+  {
+    file: "apps/scene/scene.css",
+    keyframes: "cmux-app-scene-breathe",
+    selector: '.cmux-app-scene-node[data-loop="breathe"]',
+    why: 'an extension\'s own `.loop({effect: "breathe"})` (js/ABI.md Motion): content the extension author asked for, never app chrome or a status dot; Reduce Motion and the motion gate stop it',
+  },
+  {
     file: "pages/cloud/styles.css",
     keyframes: "cloud-store-packet",
     selector: ".cloud-store-art-packet",
