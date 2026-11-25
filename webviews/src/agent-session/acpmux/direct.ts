@@ -905,6 +905,9 @@ const PROMPT_COACH_CAPABILITY = "prompt-coach-v1";
 /// The feature a chat on another machine names (Cloud, SSH: the app's RemoteAcpmuxWire) where that
 /// machine opens the chat's side chats there, with `_acpmux/side_chat`.
 const SIDE_CHAT_FEATURE = "side_chat";
+/// acpmux takes a `requestId` on every fork and answers a retry with the fork the first request
+/// made (cmux-tui acpmux hub/fork_request.rs, #50084); an older one refuses it without a boundary.
+const FORK_REQUEST_FEATURE = "forkRequestId";
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
 /// The capability id an acpmux that keeps a turn's before and after picture of the chat's page names
 /// (`_acpmux/turn_shots`, hub/turn_shots.rs): without it no turn reads its pictures.
@@ -15397,7 +15400,8 @@ export class AcpmuxDirectClient {
     }
     try {
       const boundary = throughSeq === "live" ? { sessionId, live: true } : { sessionId, throughSeq };
-      const result = await this.request(FORK_OP, cancelToken ? { ...boundary, cancelToken } : boundary);
+      const params = { ...boundary, ...this.forkRequestId(), ...(cancelToken ? { cancelToken } : {}) };
+      const result = await this.request(FORK_OP, params);
       if (this.forkCancelled) {
         if (result?.sessionId) this.takeBackFork(String(result.sessionId));
         return undefined;
@@ -15447,6 +15451,11 @@ export class AcpmuxDirectClient {
     }
     this.emit();
   }
+  /// One id for one person's fork (a click), where acpmux takes it: the same request sent again
+  /// (a reconnect's resend) gets the fork the first one made, never a second chat (#50084).
+  private forkRequestId(): { requestId?: string } {
+    return this.features.has(FORK_REQUEST_FEATURE) ? { requestId: crypto.randomUUID() } : {};
+  }
   /// Removes a fork nobody used: its chat, and the conversation copy its agent made (acpmux
   /// `hub/fork_cancel.rs`). Not waited on: the pane already went back to the chat.
   private takeBackFork(sessionId: string): void {
@@ -15465,7 +15474,7 @@ export class AcpmuxDirectClient {
     const generation = this.selectionGeneration;
     try {
       const boundary = throughSeq === "live" ? { sessionId, live: true } : { sessionId, throughSeq };
-      const result = await this.request(FORK_OP, boundary);
+      const result = await this.request(FORK_OP, { ...boundary, ...this.forkRequestId() });
       if (!result?.sessionId) return undefined;
       if (generation !== this.selectionGeneration) {
         this.takeBackFork(String(result.sessionId));
@@ -15499,6 +15508,7 @@ export class AcpmuxDirectClient {
         live: true,
         harness: target.harness,
         ...(target.model ? { model: target.model } : {}),
+        ...this.forkRequestId(),
       });
       const forked = typeof result?.sessionId === "string" ? result.sessionId : "";
       // l10n-allow: as above.

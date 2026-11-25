@@ -366,6 +366,9 @@ export type DiffPageVariant = VariantBase & {
    * key (`cmux.diff.summary`, after `summaryDelayMs`), or a refusal reason `summaryCheck` answers.
    * Absent, the host serves no summary op. */
   summaries?: { sentences: Record<string, string>; delayMs?: number } | { refused: string };
+  /** Experiment arms the variant pins, by experiment id (experiments/experiment.ts), set before the
+   *  page's scripts run: a variant about one arm's look keeps it when the default moves. */
+  experiments?: Record<string, string>;
 };
 
 /** The App Store page on an in-page cmuxPage host serving its supervisor projection. */
