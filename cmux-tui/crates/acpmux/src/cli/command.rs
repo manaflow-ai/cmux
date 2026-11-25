@@ -1060,6 +1060,14 @@ pub enum Command {
         answer: Vec<String>,
     },
     #[command(hide = true)]
+    Place {
+        session: String,
+        #[arg(long)]
+        on: String,
+        #[arg(long)]
+        reason: Option<String>,
+    },
+    #[command(hide = true)]
     Export {
         session: String,
         #[arg(long)]
@@ -1625,6 +1633,20 @@ pub enum SessionCmd {
         #[arg(long = "answer", value_name = "QUESTION=CHOICE")]
         answer: Vec<String>,
     },
+    /// Move a chat between Local (this Mac), Cloud (stays in cmux Cloud) and AutoCloud (here
+    /// while the Mac is up, in the Cloud while it sleeps), through Auto mode's fenced handoff. The
+    /// person may make any move; a chat's own agent may move it off the Mac only while the
+    /// AutoCloud setting is on, and back to local never (the answer says needs_person and the
+    /// command). `cmux chat move SESSION --on PLACE` runs this.
+    Place {
+        session: String,
+        /// local, cloud or auto (autocloud).
+        #[arg(long)]
+        on: String,
+        /// Why, for the log.
+        #[arg(long)]
+        reason: Option<String>,
+    },
     /// Export a session bundle.
     Export {
         session: String,
@@ -2157,6 +2179,7 @@ pub fn flatten(c: Command) -> Command {
             }
             SessionCmd::Deny { session } => Command::Deny { session },
             SessionCmd::Answer { session, answer } => Command::Answer { session, answer },
+            SessionCmd::Place { session, on, reason } => Command::Place { session, on, reason },
             SessionCmd::Export { session, dest } => Command::Export { session, dest },
             SessionCmd::Import { path, name } => Command::Import { path, name },
             SessionCmd::Transfer { session, to, cwd, name, interrupt, after_turn } => {
