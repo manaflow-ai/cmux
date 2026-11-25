@@ -20,9 +20,9 @@
 //!   Only the skill descriptions reach the prompt (progressive disclosure).
 //!   `cmux-computer-use` is model-invocable: its description claims tasks
 //!   in a desktop app; the person's Computer Use settings decide what runs.
-//!   Known limit: `skills/` is not a cmux-tui tree-key input
-//!   (scripts/cmux-next/cmux-tui-tree-inputs.txt), so a skills-only change
-//!   reaches a published cmux-tui build with the next cmux-tui change.
+//!   Each embedded skill file is a `blob` line in scripts/cmux-next/cmux-tui-tree-inputs.txt,
+//!   so a skills-only change builds a new tree (scripts/ci/check_cmux_tui_tree_inputs.py
+//!   fails when one is missing).
 //! - Computer Use (`computer_use/mcp.rs`): every session gets
 //!   `acpmux computer-use-mcp` (server `cmux-computer-use`), whatever
 //!   `computerUse.mode` says: tools are fixed when a chat spawns, and Computer
@@ -68,9 +68,10 @@
 //!   itself). It gets the session as [`AGENT_SESSION_ENV`], the provenance
 //!   of the notes it saves.
 //! - Hosted MCP (`cmux-hosted`, `hosted_mcp.rs`): cmux's hosted MCP server with the signed-in
-//!   person's GitHub connectors and their own remote MCP servers, only while the daemon's
-//!   `CMUX_HOSTED_MCP` is `1` (default off) and not on a cmux Cloud VM. Its env holds only the
-//!   `cmux` CLI's path; the person's token never enters a config, an env or argv.
+//!   person's GitHub connectors and their own remote MCP servers, on by default (the daemon's
+//!   `CMUX_HOSTED_MCP=0` or cmux.json `agents.hostedMcp.enabled: false` turns it off). On a Mac
+//!   its env holds only the `cmux` CLI's path; on a cmux Cloud machine it holds nothing and the
+//!   machine agent adds the bearer. No token ever enters a config, an env or argv.
 //! - Kept servers (`ACPMUX_AGENT_TOOL_SERVERS`, a profile or preset env):
 //!   only the named MCP servers; the Chief's turns keep `cmux` (cx-4a5w2).
 
@@ -85,6 +86,8 @@ use serde_json::{Map, Value, json};
 pub mod claude_plugin_dirs;
 mod cmux_mcp;
 pub mod project_mcp;
+#[cfg(unix)]
+pub mod shared_servers;
 mod upstreams;
 
 pub use claude_plugin_dirs::{CLAUDE_PLUGIN_DIRS_ENV, without_cmux_tui_plugins};
@@ -221,7 +224,8 @@ pub const CHIEF_TURN_TOOLS: &str = "agents_snapshot,agents_workspace_create,\
     agents_dialog_list,agents_dialog_answer,agents_events,agents_wait,render,\
     agents_terminal_list,agents_terminal_send,agents_chat_send,agents_chat_read,\
     agents_chat_state,acpmux_send,acpmux_send_status,acpmux_ls,acpmux_last,acpmux_info,\
-    acpmux_inbox_read,acpmux_inbox_reply,cloud_machines,cloud_chat_start,cloud_chat_send,\
+    acpmux_inbox_read,acpmux_inbox_reply,acpmux_watch_add,acpmux_watch_ls,acpmux_watch_rm,\
+    cloud_machines,cloud_chat_start,cloud_chat_send,\
     cloud_chat_status,cloud_computer,cloud_computer_control,workspace_list,workspace_rename,workspace_move,\
     workspace_place,workspace_group_list,workspace_group_create,workspace_group_update";
 /// What every agent chat is told about asking the person, in the cmux MCP
@@ -409,6 +413,8 @@ const SKILL_FILES: &[(&str, &str)] = &[
         include_str!("../../../../skills/cmux-customization/references/viewer-types.md"),
     ),
     ("cmux-live/SKILL.md", include_str!("../../../../skills/cmux-live/SKILL.md")),
+    // UI work shown in the chat: live mode, the preview tab turn shots capture, how to try it (hq RFD 0150).
+    ("cmux-ui-preview/SKILL.md", include_str!("../../../../skills/cmux-ui-preview/SKILL.md")),
     // Diagrams, charts, math, decks, documents and opening pages beside the chat (hq
     // docs/design/next-rich-output.md). The deck template is a file the agent copies.
     ("cmux-rich-output/SKILL.md", include_str!("../skills/cmux-rich-output/SKILL.md")),
@@ -457,8 +463,9 @@ pub struct AgentTools {
     pub servers: Vec<McpServer>,
     /// The Claude Code plugin folder holding the skills.
     pub plugin_dir: Option<PathBuf>,
-    /// The person's own skills (`~/.config/cmux/skills`) as a second plugin, `cmux-user`
-    /// (`agent_guidance.rs`), while `agents.guidance.userSkills` is on and there are any.
+    /// The person's own skills (`~/.config/cmux/skills`, `cmux-next` on macOS) as a second
+    /// plugin, `cmux-user` (`agent_guidance.rs`), while `agents.guidance.userSkills` is on and
+    /// there are any.
     pub user_plugin_dir: Option<PathBuf>,
     /// The display allocation folder, only in per-workspace display mode
     /// (`agent_displays.rs`): [`AgentTools::scoped`] then leaves the
@@ -473,6 +480,10 @@ pub struct AgentTools {
     /// Servers the daemon serves for this chat over loopback HTTP ([`AgentTools::via_gateway`]),
     /// by name: the harness reaches them there instead of starting their stdio launch.
     pub http: BTreeMap<String, crate::mcp_gateway::Endpoint>,
+    /// `optchat-chief`, for a chat whose memory followed it here from another machine
+    /// ([`crate::memory_follow`]): [`AgentTools::scoped`] gives it the memory server even when
+    /// this machine's settings name no memory. `None` when this machine turned memory off.
+    pub memory_follow: Option<PathBuf>,
 }
 
 /// Where the tools come from; `current()` reads them from this process.
@@ -506,14 +517,19 @@ pub struct Inputs {
     /// per-workspace displays (`agent_displays.rs`), else `None`.
     pub displays: Option<PathBuf>,
     /// Sessions get cmux's hosted MCP server with the signed-in person's tools
-    /// (`hosted_mcp.rs`): [`crate::hosted_mcp::SWITCH_ENV`] is `1` (default off).
+    /// (`hosted_mcp.rs`): on unless [`crate::hosted_mcp::SWITCH_ENV`] is `0` or cmux.json's
+    /// [`crate::hosted_mcp::SETTING_ENABLED`] is `false`.
     pub hosted: bool,
+    /// This is a cmux Cloud machine: the hosted server goes through its agent socket and needs
+    /// no `cmux` CLI.
+    pub hosted_cloud: bool,
     /// Sessions get GitHub's own MCP server through the team's cmux GitHub connection
-    /// (`github_mcp.rs`): on a cmux Cloud machine whose Cloud agent mints GitHub tokens.
+    /// (`github_mcp.rs`): on a cmux Cloud machine whose Cloud agent mints GitHub tokens, or a
+    /// machine a Mac lends GitHub (`github_session_env.rs`).
     pub github: bool,
     /// The `desktop-lease` binary when [`DESKTOP_LEASE_ENV`] names one (default off):
     /// sessions get [`DESKTOP_LEASE_SERVER`], computer use on a leased desktop the host's
-    /// pool suspends while the model thinks (crates/desktop-lease, cmuxterm-hq#8741).
+    /// pool suspends while the model thinks (cmuxterm-hq#8741).
     pub desktop_lease: Option<PathBuf>,
 }
 
@@ -560,7 +576,8 @@ impl Inputs {
             displays: crate::agent_displays::per_workspace()
                 .then(|| crate::agent_displays::dir(&crate::config::home())),
             hosted: crate::hosted_mcp::enabled(),
-            github: crate::github_mcp::available(),
+            hosted_cloud: crate::hosted_mcp::cloud_socket().is_some(),
+            github: crate::github_mcp::available() || crate::github_session_env::lent(),
             desktop_lease: var(DESKTOP_LEASE_ENV).map(PathBuf::from).filter(|p| is_executable(p)),
         }
     }
@@ -753,7 +770,19 @@ pub fn acp_servers_for(
     }
     let tools = acp_tools_with(current(), env, session_id, all_tools, codex);
     let tools = if http { tools.via_gateway(session_id, cwd) } else { tools };
-    tools.acp_servers()
+    let servers = tools.acp_servers();
+    // The person's own Codex servers they share run once for every chat (`mcp_pool.rs`).
+    #[cfg(unix)]
+    let servers = match (codex, servers) {
+        (Some(_), Value::Array(mut list)) => {
+            let taken: std::collections::BTreeSet<String> =
+                list.iter().filter_map(|s| s["name"].as_str().map(str::to_owned)).collect();
+            list.extend(shared_servers::codex(env, cwd, &taken, &crate::config::home()));
+            Value::Array(list)
+        }
+        (_, servers) => servers,
+    };
+    servers
 }
 
 /// The person's own stdio `cmux` entry, whole, with the env keys, for a Codex chat whose servers
@@ -1036,15 +1065,38 @@ pub fn claude_args_for(
     session_id: &str,
     cwd: &Path,
 ) -> (Vec<String>, Option<String>) {
+    let (args, prompt, _) = claude_args_and_hooks_for(remote_origin, env, args, session_id, cwd);
+    (args, prompt)
+}
+
+/// Whether the session included cmux’s own plugin also controls its stream callbacks.
+pub(crate) fn claude_args_and_hooks_for(
+    remote_origin: bool,
+    env: &BTreeMap<String, String>,
+    args: &[String],
+    session_id: &str,
+    cwd: &Path,
+) -> (Vec<String>, Option<String>, bool) {
     // Under `--strict-mcp-config` Claude starts no project server; a remote origin's config
     // stays empty (`left_out`).
     let strict = args.iter().any(|a| a == "--strict-mcp-config");
     let project_servers =
         if remote_origin || strict { Map::new() } else { project_servers_at_head(env, cwd) };
+    // The person's own servers they share run once for every chat (`mcp_pool.rs`); a server
+    // wrapped for a checkout still filling stays wrapped.
+    #[cfg(unix)]
+    let shared = if remote_origin || strict {
+        Map::new()
+    } else {
+        let taken = project_servers.keys().cloned().collect();
+        shared_servers::claude(env, cwd, &taken, &crate::config::home())
+    };
+    #[cfg(not(unix))]
+    let shared = Map::new();
     let mut prompt = None;
     let tools = if left_out(remote_origin, env, args) {
-        if project_servers.is_empty() {
-            return (Vec::new(), None);
+        if project_servers.is_empty() && shared.is_empty() {
+            return (Vec::new(), None, false);
         }
         AgentTools::default()
     } else {
@@ -1062,9 +1114,17 @@ pub fn claude_args_for(
         }
         tools.via_gateway(session_id, cwd)
     };
+    let callbacks = tools.plugin_dir.is_some();
+    let mut project_servers = project_servers;
+    for (name, entry) in shared {
+        // cmux's own server of a name keeps it.
+        if !tools.servers.iter().any(|s| s.name == name) && !tools.http.contains_key(&name) {
+            project_servers.entry(name).or_insert(entry);
+        }
+    }
     let args = AgentTools { project_servers, ..tools }
         .claude_args(&mcp_config_path(&crate::config::home(), session_id));
-    (args, prompt)
+    (args, prompt, callbacks)
 }
 
 /// The heading Claude Code gives MCP server instructions (2.1.330), so the moved text reads as
@@ -1228,7 +1288,16 @@ fn resolve_servers(inputs: &Inputs) -> AgentTools {
             env: vec![],
         });
     }
-    if inputs.hosted
+    if let (true, true, Some(acpmux)) = (inputs.hosted, inputs.hosted_cloud, &inputs.acpmux) {
+        // cmux's hosted MCP on a cmux Cloud machine (`hosted_mcp.rs`): the machine agent adds
+        // its own bearer to each message, so nothing goes in the env.
+        servers.push(McpServer {
+            name: crate::hosted_mcp::SERVER_NAME.into(),
+            command: acpmux.exe.clone(),
+            args: acpmux.args_lossy(&["hosted-mcp"]),
+            env: vec![],
+        });
+    } else if inputs.hosted
         && let (Some(acpmux), Some(cmux)) = (&inputs.acpmux, executable("cmux"))
     {
         // cmux's hosted MCP (`hosted_mcp.rs`): only the `cmux` CLI's path goes in its env; the
@@ -1301,6 +1370,8 @@ fn resolve_servers(inputs: &Inputs) -> AgentTools {
         cmux_for_agents: agents_get_cmux(inputs.cmux_json.as_deref()),
         project_servers: Map::new(),
         http: BTreeMap::new(),
+        memory_follow: executable("optchat-chief")
+            .filter(|_| crate::memory_follow::enabled(inputs.cmux_json.as_deref()) != Some(false)),
     }
 }
 
@@ -1327,6 +1398,29 @@ impl AgentTools {
         };
         if !yes && !session_env.contains_key(MCP_TOOLS_ENV) {
             self.servers.retain(|s| s.name != CMUX_SERVER);
+        }
+        // A chat whose memory followed it here keeps it, reaching the owner it used
+        // (`memory_follow.rs`), before the server filter below narrows the list.
+        if let Some(followed) = crate::memory_follow::followed(session_env)
+            && let Some(chief) = self.memory_follow.clone()
+        {
+            if !self.servers.iter().any(|s| s.name == MEMORY_SERVER_NAME) {
+                self.servers.push(McpServer {
+                    name: MEMORY_SERVER_NAME.into(),
+                    command: chief,
+                    args: vec!["agent-memory".into(), "mcp".into()],
+                    env: vec![],
+                });
+            }
+            let env = crate::memory_follow::server_env(&followed);
+            for server in self.servers.iter_mut().filter(|s| s.name == MEMORY_SERVER_NAME) {
+                let followed_key = |k: &str| {
+                    k == crate::memory_follow::OWNER_ENV
+                        || k == crate::memory_follow::OWNER_ARGS_ENV
+                };
+                server.env.retain(|(k, _)| !followed_key(k));
+                server.env.extend(env.iter().cloned());
+            }
         }
         let keep = session_env.get(SERVERS_ENV).map(|v| v.trim()).filter(|v| !v.is_empty());
         if let Some(keep) = keep {
@@ -1777,8 +1871,6 @@ fn materialize(state_dir: &Path, keep: impl Fn(&str) -> bool) -> anyhow::Result<
         all.extend_from_slice(text.as_bytes());
         all.push(0);
     }
-    let hooks = bg_hooks();
-    all.extend_from_slice(hooks.as_bytes());
     let hash = crate::sha256::sha256_hex(&all);
     let dir = state_dir.join(&hash[..16]);
     if dir.join(".claude-plugin/plugin.json").is_file() {
@@ -1796,7 +1888,6 @@ fn materialize(state_dir: &Path, keep: impl Fn(&str) -> bool) -> anyhow::Result<
     });
     let mut files = vec![(".claude-plugin/plugin.json".to_owned(), manifest.to_string())];
     files.extend(skill_files.iter().map(|(p, t)| (format!("skills/{p}"), (*t).to_owned())));
-    files.push(("hooks/hooks.json".to_owned(), hooks));
     for (path, text) in files {
         let file = tmp.join(path);
         if let Some(parent) = file.parent() {
@@ -1816,48 +1907,6 @@ fn materialize(state_dir: &Path, keep: impl Fn(&str) -> bool) -> anyhow::Result<
             Err(e.into())
         }
     }
-}
-
-/// The plugin's `hooks/hooks.json`: `bg_hook.rs` before every `Bash` call, and for a subagent's
-/// calls only ([`hook_command`]) after its `Bash` calls, around its acpmux MCP calls
-/// (`bg_hook::MCP_CALLS`, `subagent_call.rs`) and as it stops (the notices left for a subagent,
-/// `subagent_notice.rs`), run by this binary
-/// with this daemon's home as its argument: the harness's env carries no `ACPMUX_HOME`
-/// (`agent::harness_command` removes every `ACPMUX_` name it inherits), so a tagged build or a
-/// daemon with its own home still finds its chats' MCP configs. The plugin's folder is named by
-/// its content's hash, so each home has its own. Leo, 2026-10-27: "also when it comes to
-/// hibernation...can't you hibernate the agent but not hibernate the bg tasks?"
-fn bg_hooks() -> String {
-    let this = crate::self_command::SelfCommand::current()
-        .unwrap_or_else(|_| crate::self_command::SelfCommand::new("acpmux".into(), Vec::new()));
-    let mut words = vec![this.exe.to_string_lossy().into_owned()];
-    let home = crate::config::home().to_string_lossy().into_owned();
-    words.extend(this.args_lossy(&[crate::bg_hook::HOOK_ARG, home.as_str()]));
-    let bash = hook_command(&words, &crate::bg_hook::bash_patterns());
-    let hook = json!([{"type": "command", "command": bash, "timeout": 10}]);
-    // Only a subagent's call has work there: the lead's never starts this binary.
-    let sub = hook_command(&words, &[crate::bg_hook::SUBAGENT_PATTERN.to_owned()]);
-    let subagent = json!([{"type": "command", "command": sub, "timeout": 10}]);
-    let mcp = crate::bg_hook::mcp_matcher();
-    json!({"hooks": {
-        "PreToolUse": [{"matcher": "Bash", "hooks": hook}, {"matcher": mcp, "hooks": subagent}],
-        "PostToolUse": [{"matcher": format!("Bash|{mcp}"), "hooks": subagent}],
-        "PostToolUseFailure": [{"matcher": mcp, "hooks": subagent}],
-        "SubagentStop": [{"hooks": subagent}],
-    }})
-    .to_string()
-}
-
-/// A hook's shell command: the shell reads Claude Code's input and starts `words` with it only when
-/// it matches one of `patterns` (shell `case` patterns), so a call the binary has nothing to say
-/// about starts no process (`bg_hook::bash_patterns`; a subagent's call names `agent_id`). It ends
-/// `true`: Claude Code blocks the call when a PreToolUse hook exits 2, and the hook turns a call
-/// away only through the JSON it prints, so a failure (a binary that is gone, or one that does not
-/// know `__bg-hook`, such as the cmux CLI, whose usage errors exit 2) lets the call run instead of
-/// refusing every Bash call of the chat (gcp-codex-swarm-09, 2026-11-02).
-pub(crate) fn hook_command(words: &[String], patterns: &[String]) -> String {
-    let (read, when, run) = ("input=$(cat); case \"$input\" in", patterns.join("|"), quoted(words));
-    format!("{read} {when}) printf '%s' \"$input\" | {run} ;; esac; true")
 }
 
 /// `words` as single-quoted shell words.

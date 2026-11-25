@@ -42,6 +42,8 @@ struct LinkConnectivityEvents: Sendable {
             "transport": .code(transport.rawValue),
             "relay_only": .flag(endpoint.relayOnly),
             "block_udp": .flag(endpoint.blockUDP),
+            "proxy_only": .flag(endpoint.proxyOnly),
+            "drop_wireguard": .flag(endpoint.dropWireGuard),
             "mac_id": .text(endpoint.macDeviceID),
             "team_id": .text(endpoint.teamID),
         ], detail: endpoint.baseURL.absoluteString)

@@ -29,6 +29,9 @@ final class FieldTextView: NSTextView {
     /// cmux: a draft attachment's file, named like it: Copy of a selection holding attachments
     /// writes the files (ComposeSelectionCopy.swift). Nil: none here.
     var draftAttachmentFile: (ID) -> URL? = { _ in nil }
+    /// cmux: a click on a picture in the field opens it large (issue 51939): its id, its box in the field and its
+    /// thumbnail; true when it opened. With no host nothing opens.
+    var onOpenDraftPicture: (ID, CGRect, CGImage?) -> Bool = { _, _, _ in false }
     /// cmux: the field became (true) or stopped being (false) the target of a drag the host's
     /// intake takes: the pane's drop highlight follows it.
     var onDropTargetChange: (Bool) -> Void = { _ in }
@@ -44,7 +47,10 @@ final class FieldTextView: NSTextView {
         pickerAnchor = nil  // cmux
         onPress(event)
         super.mouseDown(with: event)
-        if let up = NSApp.currentEvent, up.type == .leftMouseUp { onRelease(up) }
+        if let up = NSApp.currentEvent, up.type == .leftMouseUp {
+            onRelease(up)
+            openPictureClicked(down: event, up: up)  // cmux: issue 51939 (FieldTextView+PictureClick.swift)
+        }
     }
 
     /// The inset above the first line (UITextView's 6.24 pt). `textContainerInset.height` is half of
@@ -660,7 +666,11 @@ final class ComposeTextView {
     var onEscape: () -> Void { get { view.onEscape } set { view.onEscape = newValue } }
     var text: String { view.string }
     private var scrolled: NSObjectProtocol?
-    init() {
+    /// cmux: tells assistive apps (VoiceOver's cursor) that the field moved or changed size: AppKit posts
+    /// no notice for a view's frame, so VoiceOver kept the field's first frame. Tests pass a recorder.
+    private let announce: (NSView, NSAccessibility.Notification) -> Void
+    init(announce: @escaping (NSView, NSAccessibility.Notification) -> Void = ComposeTextView.post) {
+        self.announce = announce
         // cmux: TextKit 1, not Catalyst's TextKit 2: TextKit 2 lays out and draws an edited paragraph
         // whole, so a key at the end of a long one cost the whole paragraph (NSTextView+TextKit1Lines.swift).
         view = FieldTextView(usingTextLayoutManager: false)
@@ -694,6 +704,13 @@ final class ComposeTextView {
     }
     deinit { scrolled.map(NotificationCenter.default.removeObserver) }
 
+    /// Posts `notification` for `view`. A layout change goes on the view's window and names the view: VoiceOver then
+    /// reads the frames again, its cursor's too, whichever element of the field it is on.
+    static func post(_ view: NSView, _ notification: NSAccessibility.Notification) {
+        guard notification == .layoutChanged else { return NSAccessibility.post(element: view, notification: notification) }
+        NSAccessibility.post(element: view.window ?? view, notification: notification, userInfo: [.uiElements: [view]])
+    }
+
     /// The field's frame whose width waits for the end of a live resize (nil: none waits).
     private(set) var widthWaiting: CGRect?
     /// Whether `place(frame)` may keep the field's width now (see `place`): it then moves the clip
@@ -725,7 +742,14 @@ final class ComposeTextView {
     /// The clip at FRAME (host coordinates): the document is at least the clip's height, as wide
     /// as it; a size change keeps the caret line in view (a live resize rewraps the lines).
     func place(_ frame: CGRect) {
-        guard clip.frame != frame else { return }
+        let old = clip.frame
+        guard old != frame else { return }
+        // VoiceOver's cursor follows the field only when it hears of each move and size change.
+        defer {
+            if clip.frame.size != old.size { announce(view, .resized) }
+            if clip.frame.origin != old.origin { announce(view, .moved) }
+            if clip.frame != old { announce(view, .layoutChanged) }
+        }
         // A live resize that changes only the field's width while the draft is empty: no pixel of
         // the empty field depends on its width (the caret stands at the left inset of an empty
         // left-to-right line; the placeholder is the compose bar's own layer), so the clip keeps its
