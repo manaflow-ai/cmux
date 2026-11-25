@@ -84,6 +84,19 @@ struct PagedListAnchorPickTests {
         #expect(instead == 2, "the guard kept the 319 pt pick instead of the in-place row that moved 2 pt")
     }
 
+    /// The guard rejects the pick but no other in-place row moved less (the only other survivor moved
+    /// more, or is not in place): the pick is kept, B's own choice, never a larger correction.
+    @Test func whenNoInPlaceRowMovedLessTheGuardKeepsThePick() {
+        // Two in place, both over the bound; the pick moved less of the two.
+        let both = [Row(oldIndex: 11, newIndex: 14, moved: 300), Row(oldIndex: 12, newIndex: 15, moved: 420)]
+        #expect(PagedListAnchorPick.guardVerdict(both, pick: 0, updateMove: -100, sized: 0) == .keepRejected)
+        // The only other row moved far and is out of place (the reader moved to the newest end).
+        let alone = [Row(oldIndex: 30, newIndex: 2, moved: -45364), Row(oldIndex: 31, newIndex: 34, moved: 319)]
+        #expect(PagedListAnchorPick.guardVerdict(alone, pick: 1, updateMove: -163, sized: 0) == .keepRejected)
+        // Within the bound: kept with no verdict against it.
+        #expect(PagedListAnchorPick.guardVerdict(both, pick: 0, updateMove: -400, sized: 0) == .keep)
+    }
+
     /// One row left: it is kept.
     @Test func aLoneRowIsKept() {
         #expect(PagedListAnchorPick.pick(rows([(10, 12)])) == 0)

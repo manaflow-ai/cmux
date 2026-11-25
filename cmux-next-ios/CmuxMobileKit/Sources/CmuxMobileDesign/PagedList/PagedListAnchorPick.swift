@@ -23,10 +23,27 @@ enum PagedListAnchorPick {
     /// another row IN PLACE that moved least, never a row the run excluded (the reader included: it
     /// may have moved far, 6c578603: falling back to it shifted 45,969 pt). nil keeps the pick.
     static func guarded(_ rows: [Row], pick: Int, updateMove: CGFloat, sized: CGFloat) -> Int? {
-        guard rows.indices.contains(pick), abs(rows[pick].moved) > abs(updateMove) + abs(sized) + 0.5 else { return nil }
+        if case .instead(let row) = guardVerdict(rows, pick: pick, updateMove: updateMove, sized: sized) { return row }
+        return nil
+    }
+
+    enum GuardVerdict: Equatable {
+        /// The pick's move is within what the update explains: keep it.
+        case keep
+        /// The pick left its place, and another in-place row moved less: keep that one instead.
+        case instead(Int)
+        /// The pick left its place, but no in-place row moved less (each is over the bound too, or the
+        /// pick is the only one): keep the pick, which is B's own choice and no worse than before the
+        /// guard, rather than any larger correction. The controller notes it `g0`.
+        case keepRejected
+    }
+
+    static func guardVerdict(_ rows: [Row], pick: Int, updateMove: CGFloat, sized: CGFloat) -> GuardVerdict {
+        guard rows.indices.contains(pick), abs(rows[pick].moved) > abs(updateMove) + abs(sized) + 0.5 else { return .keep }
         let inPlace = inPlace(rows)
         let others = rows.indices.filter { $0 != pick && inPlace.contains($0) && abs(rows[$0].moved) < abs(rows[pick].moved) }
-        return others.min { abs(rows[$0].moved) < abs(rows[$1].moved) }
+        guard let best = others.min(by: { abs(rows[$0].moved) < abs(rows[$1].moved) }) else { return .keepRejected }
+        return .instead(best)
     }
 
     /// The rows in place: the longest run that kept its order (sorted by where they were, their new

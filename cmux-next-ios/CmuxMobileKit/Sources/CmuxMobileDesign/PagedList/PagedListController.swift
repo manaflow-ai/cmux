@@ -790,9 +790,17 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         // larger than that move plus the update's size changes left its place; another row in place
         // that moved least is kept instead (never a row the run excluded). Noted "g" with the rejected
         // correction.
-        if updating, let instead = PagedListAnchorPick.guarded(rows, pick: at, updateMove: lastUpdateMove, sized: lastUpdateSized) {
-            note("g", rows[at].moved)
-            at = instead
+        if updating {
+            switch PagedListAnchorPick.guardVerdict(rows, pick: at, updateMove: lastUpdateMove, sized: lastUpdateSized) {
+            case .keep:
+                break
+            case .instead(let row):
+                note("g", rows[at].moved)
+                at = row
+            case .keepRejected:
+                // No in-place row moved less: keep the pick (B's choice), never a larger correction.
+                note("g0", rows[at].moved)
+            }
         }
         let pick = survivors[at].0
         guard let now = windowY(of: pick.id, bottom: anchor.fromBottom) else { return nil }
