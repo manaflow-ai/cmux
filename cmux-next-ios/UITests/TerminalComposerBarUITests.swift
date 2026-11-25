@@ -31,7 +31,7 @@ final class TerminalComposerBarUITests: XCTestCase {
     private static let scrollerKeys = [
         "control", "alt", "command", "shift", "paste", "tab", "escape", "return", "ctrl-c", "ctrl-d",
         "up", "down", "left", "right", "launcher-claude", "launcher-codex", "launcher-ollama", "ctrl-l",
-        "ctrl-z", "home", "end", "page-up", "page-down", "zoom-out", "zoom-in", "hide-chrome",
+        "ctrl-z", "home", "end", "page-up", "page-down", "wide", "zoom-out", "zoom-in", "hide-chrome",
     ]
 
     @MainActor

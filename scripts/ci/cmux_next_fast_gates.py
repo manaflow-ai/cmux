@@ -36,6 +36,9 @@ The gates, each the same invocation as its push-time job:
                   ci-web's webview suite, which runs them too). A merger
                   dispatches when a check path (scripts/ci/check-paths.txt) changed on the base after the
                   pull request's last fast-gates base, so a check that landed since runs before the merge.
+  protocol skew   scripts/ci/protocol_skew_check.py --base BASE --head MERGE: the merge's chat page, relay and
+                  decoders against the base's and the shipped nightly's, both directions; fails on a refusal
+                  that would stop a chat from opening (cmux#46563) and on a new decoder that refuses unknown fields
 
 The panic ratchet is the workflow's own job (panic-ratchet: it needs Rust and a cmux-tui build, so it is
 not a gate here). cmux-tui-spec.yml's clippy job judges a pull request's Rust against the
@@ -71,10 +74,14 @@ IDENTITY = ("-c", "user.name=cmux fast gates", "-c", "user.email=fast-gates@user
 RATCHET_PATHS = ("Packages", "cmux-tui/crates", "scripts/cmux-next")
 FETCH_DEPTH = 50
 # A pull request a few dozen commits from the tip needs only the first step. Each deepen brings commits and trees but
-# no blobs (--filter=blob:none; git fetches a blob a gate reads on demand): on 2026-11-13 a --deepen=200 with blobs
+# no blobs (git fetches a blob a gate reads on demand): on 2026-11-13 a --deepen=200 with blobs
 # took 87 to 108 s of a 160 to 233 s job (runs 43473169308, 43474564309) for heads 9 and 32 commits from their base.
 DEEPEN_STEPS = (32, 200, 1000, 5000)
-DEEPEN_FILTER = "--filter=blob:none"
+# The walk to the merge base reads commits only, so a deepen asks for commits alone (--filter=tree:0): the trees of
+# the commits it passes are fetched on demand, for the few a gate diffs. On 2026-11-23 a PR forked 200+ commits behind
+# the tip spent 835 s in one --deepen=1000 with blob:none (every commit's trees came along) and the job then sat to
+# its cancel (8 such jobs at 25 min, 74% of the Merge step's 7,237 runner minutes a day; run 45236775245).
+DEEPEN_FILTER = "--filter=tree:0"
 
 
 def log(message: str) -> None:
@@ -335,8 +342,10 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
                            "--head", str(repo), "--base", str(base_tree)] if ratchet else None),
         # --advisory: the hook-only layers as ::warning annotations, never this gate's result (prepush-gate.py).
         ("prepush gate", [py, "-I", "scripts/cmux-next/prepush-gate.py", "--base", base, "--head", merge, "--advisory"]),
-        ("crash-class rules", [py, "scripts/ci/crash_class_fast_gate.py", "--base", str(base_tree)]),
+        ("crash-class rules", [py, "scripts/ci/crash_class_fast_gate.py", "--base", str(base_tree), "--base-rev", base]),
         ("webviews checks", [py, "scripts/ci/fast_gate_webviews_checks.py", "--base", base] if checks else None),
+        # Every pull request: a page-only change can refuse an older relay as surely as a relay change (cmux#46563).
+        ("protocol skew", [py, "scripts/ci/protocol_skew_check.py", "--base", base, "--head", merge]),
     ]
 
 
