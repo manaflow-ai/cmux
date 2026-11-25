@@ -842,6 +842,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             // it to be written (or held) before its own goes (an upload can take a while).
             let sentAt = now()
             let previous = promptChain
+            // The files already uploading since their pick go with this prompt; emptying the
+            // composer after Send does not cancel them.
+            let prestaged = prestager.claim(attachments)
             let task = Task { [weak self] in
                 await previous?.value
                 guard let self else { return }
@@ -849,9 +852,12 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 let blocks: [JSONValue]
                 do {
                     try Task.checkCancellation()
-                    blocks = try await self.promptBlocks(text: text, attachments: attachments, promptID: promptID, hub: hub)
+                    blocks = try await self.promptBlocks(text: text, attachments: attachments, promptID: promptID, hub: hub,
+                                                         prestaged: prestaged)
                     try Task.checkCancellation()
                 } catch {
+                    // Stopped or failed before every early upload was linked: none of them is wanted now.
+                    for entry in prestaged.values { entry.task.cancel() }
                     let reason = error is CancellationError ? "Not sent: you stopped it." : AcpmuxSessionSource.message(error)
                     self.emit(.promptNotSent(text: text, attachments: attachments, promptID: promptID, reason: reason))
                     return
@@ -993,6 +999,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private var promptChain: Task<Void, Never>?
     /// Each message's send until it is written or held, by prompt id: Stop cancels its upload.
     private var sendTasks: [String: Task<Void, Never>] = [:]
+    /// The composer's files, uploading to the Mac since they were picked (``prestageAttachments(_:)``).
+    private let prestager = AttachmentPrestager()
 
     /// Sends a prompt now, or after the ones held before it (the Mac gets them in order).
     /// Returns once it is written or held; its answer is awaited apart.
@@ -1128,6 +1136,20 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// This phone's Full-access setting, for the chat's mode menus.
     func fullAccessChanged(_ on: Bool) { emit(.fullAccess(on)) }
 
+    /// The composer's attachments changed: files a prompt would upload start uploading now, into the
+    /// same folder Send uploads to; files taken off stop (``AttachmentPrestager``).
+    public func prestageAttachments(_ attachments: [AgentAttachment]) {
+        let cwd = baseDirectory
+        let macName = summary.macName
+        var upload: AttachmentPrestager.Upload?
+        if let link: any MacLink = hub?.macLink {
+            upload = { @Sendable (payload: LinkUpload.Payload, name: String) async throws -> String in
+                try await AcpmuxSessionSource.upload(payload, name: name, cwd: cwd, link: link, macName: macName)
+            }
+        }
+        prestager.sync(attachments, upload: upload)
+    }
+
     /// ACP prompt content: the text, then per attachment
     /// - an image: an `image` block (base64 data and its MIME type);
     /// - a file: uploaded to the Mac over the link's `upload` service into the
@@ -1138,18 +1160,20 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// Each upload shows on the message as it starts (``AgentSessionEvent/promptUploading(promptID:_:)``).
     /// Its bounds, resume and byte progress are the upload engine's (`AttachmentUploadClient`,
     /// lane/ios-attachment-send).
-    func promptBlocks(text: String, attachments: [AgentAttachment], promptID: String, hub: AcpmuxHub) async throws -> [JSONValue] {
+    func promptBlocks(text: String, attachments: [AgentAttachment], promptID: String, hub: AcpmuxHub,
+                      prestaged: [String: AttachmentPrestager.Entry] = [:]) async throws -> [JSONValue] {
         let progress: @Sendable (AgentUploadProgress) -> Void = { [weak self] step in
             Task { @MainActor in self?.emit(.promptUploading(promptID: promptID, step)) }
         }
         return try await Self.promptBlocks(text: text, attachments: attachments, link: hub.macLink, cwd: baseDirectory,
-                                           macName: summary.macName, progress: progress)
+                                           macName: summary.macName, progress: progress, prestaged: prestaged)
     }
 
     /// A prompt's content for any session in `cwd`, without a chat source: PDFs inline when
     /// they fit, other files uploaded to `cwd` (or the Mac's uploads folder) and linked.
     static func promptBlocks(text: String, attachments: [AgentAttachment], link: (any MacLink)?, cwd: String?,
-                             macName: String, progress: (@Sendable (AgentUploadProgress) -> Void)? = nil) async throws -> [JSONValue] {
+                             macName: String, progress: (@Sendable (AgentUploadProgress) -> Void)? = nil,
+                             prestaged: [String: AttachmentPrestager.Entry] = [:]) async throws -> [JSONValue] {
         var uploaded: [String: String] = [:]
         // A PDF small enough goes whole as a `document` block (the Mac's), read here, not uploaded;
         // past the prompt's inline budget the rest go as links to their uploaded copies.
@@ -1169,6 +1193,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             } else {
                 throw AgentFeatureUnavailable("\(attachment.name) has no contents to send. Attach it again.")
             }
+            if let early = prestaged[attachment.id], let path = await Self.prestagedPath(early, attachment: attachment, progress: progress) {
+                uploaded[attachment.id] = path
+                continue
+            }
+            try Task.checkCancellation()
             guard let link else { throw LinkError(code: "offline", message: "Connect to \(macName) to send \(attachment.name).") }
             progress?(AgentUploadProgress(name: attachment.name, sent: 0, total: attachment.byteCount ?? attachment.data?.count ?? 0,
                                           phase: .opening, attempt: 1))
@@ -1178,6 +1207,25 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         return await Task.detached(priority: .userInitiated) {
             Self.promptBlocks(text: text, attachments: attachments, uploaded: uploaded, inlineDocuments: inline)
         }.value
+    }
+
+    /// The Mac path of a file that began uploading when it was picked, once that upload ends; nil
+    /// when it failed (Send uploads the file afresh). Stopping the send stops the upload. Logs how
+    /// long Send waited and the file's pick-to-available time (`upload` category).
+    static func prestagedPath(_ early: AttachmentPrestager.Entry, attachment: AgentAttachment,
+                              progress: (@Sendable (AgentUploadProgress) -> Void)?) async -> String? {
+        let waitStart = ContinuousClock.now
+        progress?(AgentUploadProgress(name: attachment.name, sent: 0, total: attachment.byteCount ?? attachment.data?.count ?? 0,
+                                      phase: .opening, attempt: 1))
+        let task = early.task
+        let path = await withTaskCancellationHandler {
+            try? await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        let end = ContinuousClock.now
+        AttachmentPrestager.log.info("prestage send waited_ms=\(AttachmentPrestager.ms(end - waitStart)) pick_to_available_ms=\(AttachmentPrestager.ms(end - early.started)) ok=\(path != nil)")
+        return path
     }
 
     /// The most PDF bytes one prompt carries inline: their base64 stays well under acpmux's
