@@ -309,7 +309,7 @@ fn fullscreen_box(chrome: &Chrome, running: bool, fresh: bool, width: usize) -> 
         if let Some(text) = chrome.placeholder.as_deref() {
             let room = width.saturating_sub(4);
             let text: String = text.chars().take(room).collect();
-            d.push(&text, Style::PLAIN.with(crate::FAINT));
+            d.push(&text, Style::PLAIN.with(FAINT));
         }
         out.push(d);
     }
@@ -371,7 +371,7 @@ fn elide_path(path: &str, room: usize) -> String {
     }
     let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
     for skip in 1..parts.len() {
-        let candidate = format!("/…/{}", parts[skip..].join("/"));
+        let candidate = format!("/…/{}", parts.get(skip..).unwrap_or_default().join("/"));
         if crate::str_width(&candidate) <= room {
             return candidate;
         }
