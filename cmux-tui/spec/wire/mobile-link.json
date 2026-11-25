@@ -113,6 +113,7 @@
     "field:hello#you",
     "field:link_stat#ack",
     "field:link_stat#echo",
+    "field:link_stat#egress",
     "field:link_stat#end",
     "field:link_stat#lib",
     "field:link_stat#lost",
@@ -292,6 +293,10 @@
     "browser-video-track-v1": [
       "param:browser#video",
       "param:browser#video_tag"
+    ],
+    "bundle-v1": [
+      "param:bundle#op",
+      "service:bundle"
     ],
     "classes": [
       "control:liveness/class=3",
