@@ -486,9 +486,14 @@ impl Mux {
         mode: Mode,
     ) -> Result<Value, ResourceError> {
         use plan::{Decision, SkipReason};
-        let mut reply = json!({"available": false, "ledger": "none", "decision": null, "source": null,
-            "backups": [], "error": null, "classic_running": false, "plan": null, "preview": null});
-        let Some(places) = places else { return Ok(reply) };
+        let mut reply = match json!({"available": false, "ledger": "none", "decision": null,
+            "source": null, "backups": [], "error": null, "classic_running": false, "plan": null,
+            "preview": null})
+        {
+            Value::Object(reply) => reply,
+            _ => Map::new(),
+        };
+        let Some(places) = places else { return Ok(Value::Object(reply)) };
         let load = places.folder(bundle_id)?.load();
         let files = places.finder(bundle_id).session_metadata();
         let settings = places.classic_settings_present(bundle_id);
@@ -503,9 +508,9 @@ impl Mux {
             stamp.update(nanos.to_le_bytes());
         }
         let observed = format!("{:x}", stamp.finalize());
-        reply["ledger"] = json!(load.name());
-        reply["available"] = json!(available);
-        reply["observed"] = json!(&observed);
+        reply.insert("ledger".to_owned(), json!(load.name()));
+        reply.insert("available".to_owned(), json!(available));
+        reply.insert("observed".to_owned(), json!(&observed));
         if mode == Mode::Automatic {
             let decision = match &load {
                 Load::Newer(_) | Load::Unreadable | Load::Failed(_) => {
@@ -526,9 +531,9 @@ impl Mux {
                 Load::None => Decision::FirstRun,
             };
             if decision == Decision::Resume {
-                reply["available"] = json!(true);
+                reply.insert("available".to_owned(), json!(true));
             }
-            reply["decision"] = json!(decision);
+            reply.insert("decision".to_owned(), json!(decision));
         } else {
             match &load {
                 Load::Ledger(ledger)
@@ -538,23 +543,29 @@ impl Mux {
                 {
                     // Settings can offer a closed or partially restored workspace again, using NEXT state alone.
                     let live = self.classic_live_workspaces();
-                    reply["already_imported"] = json!(ledger.workspaces.values().all(|entry| {
-                        entry.stage == Stage::Skipped
-                            || (entry.stage == Stage::Done
-                                && entry
-                                    .next_workspace
-                                    .as_ref()
-                                    .is_some_and(|id| live.contains(id)))
-                    }));
+                    reply.insert(
+                        "already_imported".to_owned(),
+                        json!(ledger.workspaces.values().all(|entry| {
+                            entry.stage == Stage::Skipped
+                                || (entry.stage == Stage::Done
+                                    && entry
+                                        .next_workspace
+                                        .as_ref()
+                                        .is_some_and(|id| live.contains(id)))
+                        })),
+                    );
                 }
-                Load::Newer(_) => reply["error"] = json!(NEWER_LEDGER),
+                Load::Newer(_) => {
+                    reply.insert("error".to_owned(), json!(NEWER_LEDGER));
+                }
                 Load::Failed(error) => {
-                    reply["error"] = json!(format!("{UNREADABLE_LEDGER}: {error}"))
+                    reply
+                        .insert("error".to_owned(), json!(format!("{UNREADABLE_LEDGER}: {error}")));
                 }
                 _ => {}
             }
         }
-        Ok(reply)
+        Ok(Value::Object(reply))
     }
 
     pub(crate) fn classic_import_plan(
