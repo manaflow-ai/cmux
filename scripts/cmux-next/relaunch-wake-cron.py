@@ -15,7 +15,12 @@ kind):
     launch.relaunch.<mode>.chat_painted_ms        the shown chat drawn, budget 600;
     launch.relaunch.<mode>.chat_live_ms           the shown chat's first live event, budget 600 (cmuxterm-hq goal
                                            restart-to-chat: "the open chat is drawn live within 600 ms");
-    launch.relaunch.<mode>.chat_missing_runs      relaunches whose chat never went live, budget 0.
+    launch.relaunch.<mode>.chat_missing_runs      relaunches whose chat never went live, budget 0;
+    launch.relaunch.<mode>.chat_seen_ms           the shown chat's transcript on screen (its saved picture or its rows),
+                                           from the window's first frame, budget 50: "the first frame is the final
+                                           frame" (Leo, 2026-11-04, relaunch-shift-bench.py). A pane that opens blank
+                                           waits for the page to paint (Leo, 2026-11-24: "the agent pane blanked").
+  The update mode quits through the updater's relaunch path (`debug.updater relaunch`), as Restart to Update does.
   quit-launch-bound.py's session restore (workspaces with terminals, quit and reopened) is not in this part: on the
   measure Macs its seeding launch never draws a terminal (step ab0db3de, 2026-11-19), so it would only leave the part
   incomplete. Its rows come back when that launch draws.
@@ -44,6 +49,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 MS_FLOOR = 20.0
 WINDOW_BUDGET_MS = 1000
 CHAT_BUDGET_MS = 600
+CHAT_SEEN_BUDGET_MS = 50
 WAKE_BUDGET_MS = 1000
 RECONNECT_MODES = ("warm", "update")
 
@@ -79,6 +85,10 @@ def reconnect_rows(report: dict) -> list[dict]:
             row = ms_row(f"launch.relaunch.{mode}.{name}", [p.get(column) for p in mine], budget)
             if row:
                 rows.append(row)
+        seen = ms_row(f"launch.relaunch.{mode}.chat_seen_ms",
+                      [(r.get("seen") or {}).get("(c) chat rows") for r in rounds if r.get("mode") == mode], CHAT_SEEN_BUDGET_MS)
+        if seen:
+            rows.append(seen)
         missing = sum(1 for p in mine if not isinstance(p.get("first live event"), (int, float)))
         rows.append(count_row(f"launch.relaunch.{mode}.chat_missing_runs", missing, "runs"))
     return rows
