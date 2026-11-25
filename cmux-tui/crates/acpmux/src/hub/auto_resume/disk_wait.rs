@@ -81,8 +81,13 @@ impl Hub {
         }
         {
             let mut pending = session.auto_resume.lock();
-            if pending.is_some() {
-                return;
+            // An earlier turn's wait is past: this newer turn took the chat, and that wait would
+            // skip as superseded when it fires, leaving this one stranded. This one waits
+            // instead. A Stop's mark, or a continuation that is firing or ending, holds.
+            match pending.as_ref() {
+                None => {}
+                Some(Mark::Waiting { turn, .. }) if turn != turn_id => {}
+                Some(_) => return,
             }
             pending.replace(Mark::Ending(turn_id.to_owned()));
         }
