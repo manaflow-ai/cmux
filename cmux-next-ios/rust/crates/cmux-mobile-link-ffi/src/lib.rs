@@ -1612,6 +1612,35 @@ pub fn record_key_echo(echo_ms: u32, ack_ms: Option<u32>) {
     cmux_mobile_link::key_echo::record_echo(echo_ms, ack_ms);
 }
 
+/// A typed key's echo was painted `paint_ms` after its tap (the terminal's
+/// first frame showing the Mac's echo of it, `TerminalViewController`).
+/// Counted in the key-to-paint histogram under the current network and route.
+#[uniffi::export]
+pub fn record_key_paint(paint_ms: u32) {
+    cmux_mobile_link::key_paint::record(paint_ms);
+}
+
+/// The device's network now, `wifi`, `lte` (any cellular), `wired` or
+/// `other` (iOS `NWPathMonitor`, every path update): the key-to-paint tag.
+#[uniffi::export]
+pub fn set_network_kind(kind: String) {
+    cmux_mobile_link::key_paint::set_network(&kind);
+}
+
+/// The key-to-paint histogram as JSON: per network and route p50/p95/p99,
+/// max and bucket counts; the newest spikes, the gaps between them and the
+/// period they share, if any (named by the link timer it matches).
+#[uniffi::export]
+pub fn key_paint_snapshot() -> String {
+    cmux_mobile_link::key_paint::snapshot_json()
+}
+
+/// Empty the key-to-paint histogram.
+#[uniffi::export]
+pub fn reset_key_paint() {
+    cmux_mobile_link::key_paint::reset();
+}
+
 /// This process's build space (`set_build_space`); nil: none (no header).
 static BUILD_SPACE: Mutex<Option<BuildSpace>> = Mutex::new(None);
 
