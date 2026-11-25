@@ -23,6 +23,13 @@ public nonisolated struct CloudNewWorkspaceSetting: Sendable {
         root.value(at: Self.turnCheckpointsPath)?.boolValue ?? Self.turnCheckpointsDefault
     }
 
+    /// The Cloud environment a new Cloud chat starts from (`cloud.defaultImage`, Settings > Cloud >
+    /// Default Image): `auto` or an environment id; a missing, empty or non-string value is `auto`.
+    public func defaultImage(in root: JSONValue) -> String {
+        guard let image = root.value(at: Self.defaultImagePath)?.stringValue, !image.isEmpty else { return Self.defaultImageDefault }
+        return image
+    }
+
     /// What a new Cloud workspace starts with; a missing or unknown value inherits.
     public func folder(in root: JSONValue) -> CloudWorkspaceFolder {
         root.value(at: Self.folderPath)?.stringValue.flatMap(CloudWorkspaceFolder.init(rawValue:)) ?? Self.folderDefault
