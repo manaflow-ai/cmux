@@ -16,6 +16,7 @@ import { ToolRows } from "./TurnRows";
 import { ToolRow } from "./ToolRow";
 import { ToolVerbColumn } from "./ToolVerb";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { visibleLabelText } from "../../../../test/support/factsCard";
 import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
@@ -92,10 +93,7 @@ function ColumnRows({ row }: { row: AcpmuxRow }) {
 const turn = (items: AcpmuxActivity[]): AcpmuxRow => ({ id: "row1", version: 1, at: 0, kind: "activity", items });
 
 function rowWords(row: Element): string {
-  const label = row.querySelector(".cv-tool__text, .cv-command__text")!.cloneNode(true) as Element;
-  // Full paths in aria-describedby are read on demand and are not part of the visible label.
-  for (const hidden of label.querySelectorAll("[hidden]")) hidden.remove();
-  return label.textContent!.trim();
+  return visibleLabelText(row.querySelector(".cv-tool__text, .cv-command__text")!);
 }
 
 test("a turn's tool rows put their verbs in one column as wide as the widest", async () => {
