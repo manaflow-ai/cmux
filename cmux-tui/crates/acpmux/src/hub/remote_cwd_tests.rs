@@ -65,8 +65,9 @@ fn only_a_new_remote_claude_session_is_checked() {
     use crate::config::HarnessKind;
     let f = fixture();
     let projects = f.home.join("Projects");
-    let gate =
-        |remote, trigger, kind| admit_new(NewSession { remote, trigger, kind }, &projects, &f.tmp, None);
+    let gate = |remote, trigger, kind| {
+        admit_new(NewSession { remote, trigger, kind }, &projects, &f.tmp, None)
+    };
     let err = gate(true, false, HarnessKind::ClaudeStdio).unwrap_err();
     assert_eq!(err.data.unwrap()["reason"], "remote.cwd_not_checkout");
     assert!(gate(false, false, HarnessKind::ClaudeStdio).is_ok(), "a local session is unchanged");
