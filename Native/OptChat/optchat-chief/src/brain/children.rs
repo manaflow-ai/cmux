@@ -18,6 +18,8 @@ use super::{Brain, Source};
 use crate::acpmux::AgentEvent;
 use crate::state::{ChildRecord, ChildStatus};
 
+pub(super) const NO_REPLY_TEXT: &str = "(no reply text)";
+
 fn busy(status: SessionStatus) -> bool {
     matches!(status, SessionStatus::Running | SessionStatus::Waiting)
 }
@@ -446,7 +448,7 @@ impl Brain {
             Ok(events) => {
                 let (mut replies, last_end, _) = ended_replies(&events);
                 if replies.is_empty() {
-                    replies.push("(no reply text)".to_owned());
+                    replies.push(NO_REPLY_TEXT.to_owned());
                 }
                 let text = replies
                     .iter()
@@ -831,7 +833,7 @@ pub(super) fn report_of(replies: &[String], cancelled: bool) -> String {
     let last = replies.last().map_or("", |r| r.as_str());
     if !cancelled {
         return if last.is_empty() {
-            "(no reply text)".to_owned()
+            NO_REPLY_TEXT.to_owned()
         } else {
             last.to_owned()
         };
