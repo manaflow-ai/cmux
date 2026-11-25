@@ -116,7 +116,6 @@ export function UpdatedNotes({
           {goBackLook === "header" && <GoBackHeaderLink goBack={data.goBack} strings={strings} actions={actions} />}
           <button type="button" className="wn-notes-whatsnew" onClick={() => actions.openChangelog()}>
             {strings.t("changelog.page.title")}
-            <span aria-hidden="true"> ↗</span>
           </button>
         </span>
         {/* The full version under the title, unless the title already says it (a release). */}

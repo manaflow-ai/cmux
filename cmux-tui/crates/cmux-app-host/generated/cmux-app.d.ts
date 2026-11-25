@@ -2138,7 +2138,7 @@ interface CmuxView {
   fontDesign(v: Bindable<"default" | "rounded" | "serif" | "monospaced">): this
   color(v: Bindable<string | null>): this; secondary(): this; lineLimit(v: Bindable<number>): this; truncation(v: Bindable<"head" | "middle" | "tail">): this
   strikethrough(v?: Bindable<boolean>): this; marquee(delaySeconds?: number): this; fade(width: Bindable<number>): this
-  transition(v: "opacity" | "slide" | "scale" | "move"): this; contentTransition(v: "numericText" | "opacity"): this; animation(v?: "smooth" | "snappy" | "none"): this
+  contentTransition(v: "numericText" | "opacity"): this
   padding(v?: Bindable<number | Record<string, number>>): this; paddingHorizontal(v: Bindable<number>): this; paddingVertical(v: Bindable<number>): this
   frame(v: Bindable<Record<string, number | string>>): this; layoutPriority(v: Bindable<number>): this; fixedSize(axis?: "both" | "horizontal" | "vertical"): this
   background(v: Bindable<CmuxFill | null>): this; hoverBackground(v: Bindable<string | null>): this; glass(level?: Bindable<"chrome" | "popover" | "menu" | "chip" | null>): this; cornerRadius(v: Bindable<number>): this
@@ -2153,9 +2153,73 @@ interface CmuxView {
   position(v: Bindable<{ x?: number; y?: number; unit?: "points" | "fraction" }>): this
   cursor(v: "pointer" | "default"): this; help(v: Bindable<string>): this
   fixed(): this; destructive(): this; disabled(v?: Bindable<boolean>): this; onTap(fn: () => unknown): this; contextMenu(items: CmuxView[] | (() => CmuxView[])): this
+  /** Animate this node's own prop changes from the value on screen: `smooth` (the default), `snappy` and `none` (the motion scale's steps) its opacity, colors, rotation and strikethrough; a motion token, spring or timed curve every animatable prop (opacity, rotation, scale, offset, blur, trim, frame size, colors, glow, ProgressView value). */
+  animation(v?: Bindable<CmuxMotion | null>): this
+  /** Scale about the node's center (1 = identity). */
+  scale(v: Bindable<number>): this
+  /** Move the drawing by points without changing layout. */
+  offset(v: Bindable<CmuxOffset>): this
+  /** Gaussian blur radius in points. */
+  blur(v: Bindable<number>): this
+  /** A colored, zero-offset shadow around the node's shape; `null` removes it. */
+  glow(v: Bindable<CmuxGlow | null>): this
+  /** A linear gradient fill (shapes) or background (stacks, panels): angle 0 = left to right, 90 (default) = top to bottom. */
+  gradient(v: Bindable<CmuxLinearGradient | null>): this
+  /** Draw only this fraction of a stroked Circle, Capsule, Rectangle or RoundedRectangle outline (a circle starts at 12 o'clock, clockwise). */
+  trim(v: Bindable<CmuxTrim | null>): this
+  /** A host-run effect that repeats forever with no JS; `null` stops it. Stops under Reduce Motion. */
+  loop(v: Bindable<CmuxLoop | null>): this
+  /** How the node enters when a render adds it (not on the first scene) and leaves when one removes it (kept on screen until its exit ends): opacity, slide (up from below), scale (from 90 %), move (from the leading edge), pop (from 60 %, past full size). */
+  transition(v: Bindable<CmuxTransition | null>): this
+  /** Clip the node's content (children, a sliding transition, a glow) to its frame and corner radius. */
+  clipped(v?: Bindable<boolean>): this
   /** How an Icon's layers take color, as SF Symbols draw them: monochrome (the default), hierarchical, palette (1 to 3 colors, in layer order) or multicolor (the symbol's own colors, the tint where it has none). */
   symbolRendering(mode: "monochrome" | "hierarchical" | "palette" | "multicolor", colors?: readonly string[]): this
 }
+/** `smooth`, `snappy`, `none`: the motion scale's standard and micro steps, or none; `move`, `appear`, `disappear`, `fade`: the design-token springs and fade; `bouncy` = spring 0.45 s / 0.6. Times in seconds, clamped to [0.05, 10]; damping to [0.3, 1]. */
+type CmuxMotion =
+  | "smooth" | "snappy" | "none"
+  | "move" | "appear" | "disappear" | "fade" | "bouncy"
+  | { spring: { response: number; dampingFraction: number } }
+  | { duration: number; curve?: "easeOut" | "easeInOut" | "linear" }
+type CmuxOffset = { x?: number; y?: number }
+type CmuxGlow = { color: string; radius: number; opacity?: number }
+/** The `gradient` modifier: angle 0 = left to right, 90 (default) = top to bottom. */
+type CmuxLinearGradient = { colors: string[]; angle?: number }
+type CmuxTrim = { from?: number; to: number }
+type CmuxLoopEffect = "pulse" | "breathe" | "spin" | "float" | "wiggle" | "bounce" | "shimmer"
+/** `period` in seconds; `amount` scales the effect's default amplitude. */
+type CmuxLoop = { effect: CmuxLoopEffect; period?: number; amount?: number }
+type CmuxTransition = "opacity" | "slide" | "scale" | "move" | "pop"
+type CmuxParticlePreset = "confetti" | "sparkles" | "rain" | "snow" | "embers" | "stars"
+/** `rate` multiplies a continuous preset's emission (default 1); each increase of `burst` fires one burst. */
+/** A choreography curve: the Motion curves, a spring, or a cubic Bezier. A frame's `ease` shapes the segment that ends at it. */
+type CmuxChoreographyEase = "linear" | "easeIn" | "easeOut" | "easeInOut" | "smooth" | "snappy" | { spring: { response: number; dampingFraction?: number } } | { bezier: [number, number, number, number] }
+/** `[x, y, scale]`: points from the glyph's centre (+y down), scale 0 to 4 over `particle.size`. */
+type CmuxChoreographyDot = [number, number, number]
+type CmuxChoreographyFrame = { at: number; dots?: CmuxChoreographyDot[]; formation?: string; ease?: CmuxChoreographyEase }
+type CmuxChoreographyPhase = {
+  duration: number
+  ease?: CmuxChoreographyEase
+  frames?: CmuxChoreographyFrame[]
+  sites?: [number, number][]
+  spawn?: { every: number; order: number[]; life: number }
+  lifeFrames?: { at: number; pos: "centre" | "site" | "between"; offset?: [number, number]; s: number; ease?: CmuxChoreographyEase }[]
+}
+/** The acpmux tool kinds and session states a choreography's `triggers` may name (`cycle` plays for any other kind). */
+type CmuxChoreographyTrigger = "read" | "edit" | "delete" | "move" | "search" | "execute" | "think" | "fetch" | "switch_mode" | "other" | "sendMessage" | "turnStart" | "thinking" | "idle" | "cursor" | "cycle"
+/** A `cmux.particles/1` document (ABI.md "Particles choreography"). The host refuses unknown keys and anything past a limit (16 dots, 32 phases, 64 frames, 50 ms to 30 s, scale 0 to 4, 32 KiB). */
+type CmuxParticleChoreography = {
+  $schema: "cmux.particles/1"
+  particle: { shape?: "circle" | "square"; size: number; color?: string; max?: number }
+  phases: Record<string, CmuxChoreographyPhase>
+  formations?: Record<string, CmuxChoreographyDot[]>
+  triggers?: Partial<Record<CmuxChoreographyTrigger, string[] | { intro?: string[]; loop: string[] }>>
+}
+/** `rate` multiplies a continuous preset's emission (default 1); each increase of `burst` fires one burst. With `choreography` the node plays that glyph instead: `trigger` picks the phases by acpmux kind (read when a phase ends), `phase` loops one phase, `size` (points) and `colors[0]` override the document's particle. */
+type CmuxParticlesProps = { preset?: Bindable<CmuxParticlePreset>; colors?: Bindable<string[] | null>; rate?: Bindable<number>; burst?: Bindable<number>; choreography?: Bindable<CmuxParticleChoreography | null>; trigger?: Bindable<CmuxChoreographyTrigger | string | null>; phase?: Bindable<string | null>; size?: Bindable<number> }
+/** A particle field (confetti, sparkles, rain, snow, embers, stars) that fills its frame and takes no input, or a choreographed glyph of dots (`choreography`) centred in it; first in a ZStack, it draws behind its siblings. Host-run; stops off screen and under Reduce Motion. */
+declare function Particles(props: CmuxParticlesProps): CmuxView
 type CmuxChildren = Array<CmuxView | (() => unknown) | null | undefined | false>
 interface CmuxListSpec<T> { items: () => readonly T[] | null | undefined; key: (item: T, index: number) => string | number; onMove?: (id: string, index: number, extra: { side?: string; block?: boolean }) => unknown; onDragChange?: (state: unknown) => unknown; spacing?: number }
 declare function VStack(propsOrChildren?: Record<string, unknown> | CmuxChildren, children?: CmuxChildren): CmuxView
