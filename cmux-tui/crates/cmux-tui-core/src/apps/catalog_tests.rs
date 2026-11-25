@@ -123,3 +123,34 @@ fn setup_layers_load_from_the_index_in_its_order_only() {
     assert!(impostor_refused, "a setup layer id outside the setups folder is refused");
     assert!(escape_refused, "a row naming a folder outside the setups folder is refused");
 }
+
+#[test]
+fn contributed_keybindings_list_in_keybindings_json_form() {
+    let package = Package {
+        id: "local/branchy".into(),
+        version: "1.0.0".into(),
+        tier: Tier::Unverified,
+        source: Source::Local,
+        dir: std::env::temp_dir(),
+        manifest: json!({ "activation": ["onKeybinding"], "contributes": { "keybindings": [
+            { "key": "Cmd+Shift+B", "command": "local.branchy.copy_branch", "when": "terminalFocused" },
+            { "key": "ctrl+k s", "command": "newTab", "args": { "name": "scratch" } },
+            { "key": "b", "command": "newTab" }
+        ] } }),
+        fragment: None,
+    };
+    assert_eq!(
+        package.keybindings(),
+        vec![
+            json!({ "key": "cmd+shift+b", "command": "app.command.run",
+                    "args": { "app": "local/branchy", "command": "local.branchy.copy_branch" }, "when": "terminalFocused" }),
+            json!({ "key": "ctrl+k s", "command": "newTab", "args": { "name": "scratch" } }),
+        ],
+        "a bare first stroke the validator refuses is left out"
+    );
+    assert_eq!(
+        super::super::activation::Activation::of(&package),
+        Default::default(),
+        "onKeybinding keeps no host up"
+    );
+}
