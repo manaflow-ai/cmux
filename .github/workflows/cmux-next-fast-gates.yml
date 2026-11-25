@@ -329,16 +329,53 @@ jobs:
     permissions:
       contents: read
     steps:
+      # Only what the gates read: scripts/ci/fast-check-inputs.json's inputs for this job (the router skips the gates for
+      # a change outside them, and tests/test_cmux_next_fast_gates.py holds this list to that file), the top-level
+      # files, and scripts/ whole. Blobs come on demand (filter: blob:none) and only for these paths: the full tree
+      # was 930 MB, 6,708 runner minutes a day in this step.
+      #
+      # Every step before the gates has its own bound (2026-11-23: 255 of these jobs sat to the 25-minute limit, about
+      # 6.3k runner minutes, each in one setup step with none: a checkout fetch or a base deepen that stopped moving,
+      # the GitHub cache or a node download at Freestyle's ~0.9 MB/s). A step past its bound fails the job then and
+      # names itself, instead of the job idling to its limit with no verdict.
       - name: Checkout
+        timeout-minutes: 8
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           # A pull request's merge commit and both parents. A dispatch fetches
           # the PR head and the tip itself and deepens until they meet.
           fetch-depth: 2
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/*/
+            /scripts/
+            /.github/
+            /Packages/
+            /cmux-tui/
+            /webviews/
+            # webviews/vite.config.ts loads the markdown host plugin, which resolves this folder: without it the
+            # webviews type check fails on ENOENT before it checks a file (14 files, 6.7 MB).
+            /Resources/markdown-viewer/
+            /web/
+            /config/vite-plus/
+            /cmux-next-ios/
+            /schemas/
+            /release-notes/next/
+            /first-party-apps/
+            /Native/OptChat/
+            /plans/cmux-next/
+            /cmux.xcodeproj/project.pbxproj
+            /tests/workflow_jobs.py
+            /docs/mdm/
+            /backend/apps/api/
+            *.xcstrings
 
       - name: Merge with the base
         id: prepare
+        timeout-minutes: 8
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR: ${{ inputs.pr }}
@@ -358,6 +395,7 @@ jobs:
       # none of this runs.
       - name: Setup Bun
         if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
+        timeout-minutes: 4
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -389,24 +427,40 @@ jobs:
           key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
           restore-keys: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-
 
+      # The GitHub fallback is bounded at 2 minutes; past it the gates install cold. On 2026-11-23 04:15-06:15Z a pool
+      # VM restored this 710 MB cache in 22 s (median of 104; p90 30-39 s). A Freestyle VM (fsr-*) pulled it at about
+      # 1 MB/s, and at 600 s the download link expired ("Server failed to authenticate the request"), so the restore
+      # failed and the gates installed cold anyway: 605 s median over 84 jobs. An R2 miss on Freestyle still lands here.
       - name: Restore the Bun package cache
+        id: bun-cache
         if: ${{ (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') && steps.bun-r2.outputs.cache-matched-key == '' }}
+        timeout-minutes: 2
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
 
+      # A restore stopped at its bound can leave a half-extracted cache. Bun would trust it, so the install
+      # starts from an empty one instead.
+      - name: Drop a partly restored Bun package cache
+        if: ${{ steps.bun-cache.outcome == 'failure' || steps.bun-cache.outcome == 'cancelled' || steps.bun-r2.outcome == 'failure' || steps.bun-r2.outcome == 'cancelled' }}
+        timeout-minutes: 1
+        run: rm -rf ~/.bun/install/cache
+
       # `vp check` runs on Node and needs ^22.18 or ^24.11; bun still installs.
+      # Node comes from the runner's tool cache, else nodejs.org (scripts/ci/ensure-setup-node.sh: sha256 checked, curl
+      # bounded), not actions/setup-node: on a Freestyle VM its download from GitHub's node-versions releases took
+      # 175 to 428 s, or ran into the job limit (job 137555099878, 2026-11-23), while nodejs.org is not GitHub egress.
       - name: Setup Node
         if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: "24.22.1"
+        timeout-minutes: 3
+        run: scripts/ci/ensure-setup-node.sh 24.22.1
 
-      # prepush-gate.py downloads its pinned tools (sha256 checked) when they are missing. Restore only, as with the
-      # Bun cache above: cmux-next-web-lint.yml's web-lint job saves this key on each feat-cmux-next push. On
-      # 2026-11-22 the store held 14 pull request copies of it (65 MB each) and none on feat-cmux-next.
-      # R2 first, as the Bun cache above: this 62 MB restore took 1.5 minutes on Freestyle.
+      # prepush-gate.py downloads its pinned tools (sha256 checked) when they are missing. Restore only, from R2
+      # (cmux-next-web-lint.yml's web-lint job saves this key on each feat-cmux-next push); never the GitHub store:
+      # on 2026-11-22 it held 14 pull request copies (65 MB each), and this 62 MB restore took 1.5 minutes there on
+      # Freestyle. A miss is the gate's own download.
       - name: Restore the pinned lint tools from R2
         id: lint-tools-r2
         timeout-minutes: 2
@@ -416,13 +470,6 @@ jobs:
           CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
           backend: r2
-          path: ~/.cache/cmux-lint-tools
-          key: cmux-lint-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/cmux-next/lint-tools.lock') }}
-
-      - name: Restore the pinned lint tools
-        if: ${{ steps.lint-tools-r2.outputs.cache-hit != 'true' }}
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
           path: ~/.cache/cmux-lint-tools
           key: cmux-lint-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/cmux-next/lint-tools.lock') }}
 
