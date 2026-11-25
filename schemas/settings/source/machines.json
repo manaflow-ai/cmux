@@ -625,6 +625,32 @@
           }
         },
         {
+          "key": "cloud.defaultImage",
+          "name": "defaultImage",
+          "note": "The Cloud environment (image) a new Cloud chat boots from when the chat names none: `auto` (the default; cloud.startChat sends no environment and the platform derives one from the repository) or one of the account's Cloud environment ids (`cloud.environment.list`). Replaces the composer's Environment chip (PR 51769). Auto reuses the person's own Cloud machine for a new chat; a named environment makes a new machine per chat, as a machine boots in its image only when made (cmux-tui start_chat_cli.rs `reusable`). The chat page follows it (AgentPaneDisplaySetting.followedAppPaths; webviews chatCloudEnvironment.ts); Settings draws it as a menu of Auto and the environments (webviews settings editors/DefaultImageEditor.tsx).",
+          "title": {
+            "key": "settings.cloud.defaultImage",
+            "text": "Default Image"
+          },
+          "help": {
+            "key": "settings.cloud.defaultImage.help",
+            "text": "The Cloud environment new Cloud chats start from. Auto picks one from the chat's repository. Any other environment gives each new chat its own machine."
+          },
+          "kind": "text",
+          "default": "auto",
+          "keywords": [
+            "cloud",
+            "image",
+            "environment",
+            "default",
+            "auto",
+            "snapshot",
+            "vm",
+            "machine",
+            "new chat"
+          ]
+        },
+        {
           "key": "cloud.agentsStartWithoutAsking",
           "title": {
             "key": "settings.cloud.agentsStartWithoutAsking",

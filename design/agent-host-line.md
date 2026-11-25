@@ -48,7 +48,10 @@ Each state is drawn in the same zero-height slot, so one turning into another mo
   or the handshake's wait (a machine rebooting, an
   agent service starting). acpmux's words, codes and commands never show. A message sent meanwhile
   stays in the composer ("Sending when ready") and goes once acpmux answers (sendWhenReady.ts, no
-  deadline).
+  deadline). Where the composer's
+  status dot is mounted (every chat but a remote one on an older acpmux), the dot says
+  "Reconnecting…" and "Restoring sessions…" in its card and `HostRecoveringLine` draws nothing
+  over the transcript (design/composer-status-dot.md).
 - **Failure** (`HostUnavailableLine` with `selfRetrying` false): only for what asking again can't
   change (a chat too large to open, another build's acpmux holding the socket): the plain reason
   (hostLine.ts) with its one action (Retry, or Restart acpmux) and Details.
