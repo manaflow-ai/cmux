@@ -36,6 +36,11 @@ pub enum PeerCmd {
         #[arg(long)]
         build: bool,
     },
+    /// The lane hosts as one cell (RFD 0181): each one's live sessions against its lane cap,
+    /// the hosts past it, and the ones fleet-registry.json keeps work off (held or stopped)
+    /// while sessions still run there. Read-only: it reads the fleet listing `acpmux ls` reads
+    /// and the registry, and changes nothing.
+    Cells,
     /// Whether a machine is dedicated: it runs agents with no per-session
     /// sandbox, the VM is the boundary (vmHost). Claude runs there without the
     /// sandbox only for a session whose caller asked, once the Cloud API said
