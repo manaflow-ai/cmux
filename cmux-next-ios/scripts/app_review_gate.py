@@ -1484,6 +1484,14 @@ def asc_findings(path: Path) -> list[dict]:
         sev = str(c.get("severity", "")).lower()
         blocking = c.get("blocking") in (True, "true") or sev in ("error", "warning")
         code = str(c.get("code") or c.get("id") or c.get("checkId") or c.get("check") or "")
+        message = str(c.get("message") or c.get("title") or "")
+        submitted = re.search(r'non-editable state "?([A-Z_]+)', message) if code == ASC_EDITABLE else None
+        if submitted and submitted.group(1) in SUBMITTED_STATES:
+            # asc's "Use an editable version state before submission" is advice
+            # for a submit; a version Apple already has is no blocker. Run
+            # 45615832158 read 1.0.0 WAITING_FOR_REVIEW as one, so readiness
+            # stayed red for the whole review.
+            blocking = False
         finding = {
             "rule": f"asc.{code or 'check'}",
             "guideline": guideline_for_asc(code),
@@ -1499,6 +1507,15 @@ def asc_findings(path: Path) -> list[dict]:
         seen.add(key)
         out.append(finding)
     return out
+
+
+ASC_EDITABLE = "version.state.editable"
+# A version in one of these states is submitted: Apple has it, nothing on it
+# can be edited, and asc's editable-state check only says so.
+SUBMITTED_STATES = frozenset({
+    "WAITING_FOR_REVIEW", "IN_REVIEW", "PENDING_DEVELOPER_RELEASE", "PENDING_APPLE_RELEASE",
+    "PROCESSING_FOR_APP_STORE", "READY_FOR_SALE", "READY_FOR_DISTRIBUTION",
+})
 
 
 # An App Store version in one of these states has been on sale: after it,
