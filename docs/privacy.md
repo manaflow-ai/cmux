@@ -96,6 +96,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `*.*.wdev.cmux.dev` | connects | a cmux developer's preview stack, only when the iPhone app's backend override names one |
 | `api.*.wdev.cmux.dev` | connects | the API of a cmux developer's preview stack, only when the iPhone app's backend override names one |
 | `stun.cloudflare.com` | connects | a STUN server for the phone and remote-desktop links when the link names none: it learns only the device's public address, no session traffic |
+| `turn.cloudflare.com` | connects | a TURN relay for the phone link when a direct path fails, with credentials the cmux API issues: it carries only the link's encrypted traffic |
 | `stun.l.google.com` | connects | the second fallback STUN server for the remote-desktop link: it learns only the public address, no session traffic |
 | `claude.ai` | connects | Claude sign-in and the Claude Code installer, when you install or sign in Claude Code |
 | `opencode.ai` | connects | OpenCode's config schema and installer, when you install OpenCode |
@@ -382,6 +383,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | Host | Kind | What for |
 |---|---|---|
 | `command.io` | not-a-host | an error code for a custom command's file error |
+| `git-lfs.github.com` | not-a-host | the version line of a Git LFS pointer file, matched when a seeded repo's files are read |
 | `acpmux.io` | not-a-host | an error code for a failed write to the local acpmux socket in the SSH benchmark |
 | `cmux.app` | not-a-host | the app bundle name `cmux app try` builds and copies |
 | `failed.app` | not-a-host | the app bundle `cmux app try` sets aside when a swap fails |
