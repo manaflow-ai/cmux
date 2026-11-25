@@ -336,7 +336,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private func toggleStack(fold id: String) {
         guard let head = FeedStacks.head(ofFold: id) else { return }
         setStack(head: head, expanded: !control.expandedStacks.contains(head))
-        UISelectionFeedbackGenerator().selectionChanged()
+        CmuxMobileTheme.standard.haptics.selectionChanged()
     }
 
     func setStack(head: String, expanded: Bool) {
@@ -1196,7 +1196,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         case .failed(let reason):
             mutateState(id) { $0.replyFailure = reason; $0.replying = false; $0.replyDraft = "" }
         }
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        CmuxMobileTheme.standard.haptics.impact(.light, intensity: 1)
     }
 
     /// The chat the reply went to: its refusal (the Mac's reason) shows under the reply.
@@ -1214,7 +1214,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     func rowCopy(_ id: String) {
         guard let item = items[id] else { return }
         UIPasteboard.general.string = item.markdown
-        if states[id]?.copied != true { UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7) }
+        if states[id]?.copied != true { CmuxMobileTheme.standard.haptics.impact(.light, intensity: 0.7) }
         mutateState(id, animated: false) { $0.copied = true }
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(1.5))
@@ -1225,7 +1225,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     func rowCopyCommand(_ id: String) {
         guard let item = items[id], case .permission(let request) = item.kind else { return }
         UIPasteboard.general.string = request.toolCall.command
-        UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7)
+        CmuxMobileTheme.standard.haptics.impact(.light, intensity: 0.7)
     }
 
     func rowShare(_ id: String, from source: UIView) {
