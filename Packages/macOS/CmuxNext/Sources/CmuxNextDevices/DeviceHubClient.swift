@@ -1,3 +1,4 @@
+import CmuxEgress
 import CmuxNextCompat
 public import Foundation
 
@@ -68,7 +69,7 @@ public actor DeviceHubClient {
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.httpCookieStorage = nil
         configuration.timeoutIntervalForRequest = 30
-        return URLSession(configuration: configuration)
+        return CmuxEgress.session(site: "CmuxNextDevices.DeviceHubClient", configuration: configuration)
     }()
 
     // MARK: Account
