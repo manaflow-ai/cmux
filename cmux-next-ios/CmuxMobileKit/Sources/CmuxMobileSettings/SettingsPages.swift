@@ -799,6 +799,7 @@ struct Acknowledgement: Sendable {
             Acknowledgement("marked", "MIT", "Markdown in the Feed", "https://github.com/markedjs/marked"),
             Acknowledgement("Temml", "MIT", "Math", "https://github.com/ronkok/Temml"),
             Acknowledgement("highlight.js", "BSD 3-Clause", "Code highlighting", "https://github.com/highlightjs/highlight.js"),
+            Acknowledgement("Geist", "SIL OFL 1.1", "The welcome screen's wordmark and tagline", "https://github.com/vercel/geist-font"),
         ]),
     ]
 }

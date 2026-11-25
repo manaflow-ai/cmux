@@ -19,6 +19,7 @@ mod classic_leftovers;
 mod composer_outbox;
 mod follow_camera;
 mod link_side;
+pub mod local_link;
 mod mac_screen;
 mod pair_requests;
 mod share_approval;
@@ -687,6 +688,13 @@ impl ChannelHandle {
         self.id
     }
 
+    /// Payload bytes this channel has queued for the transport so far. It moves while a long
+    /// write is taken by the link and stops when the link stalls: a request's deadline reads it
+    /// as progress, not a wall clock (`DaemonClient` on iOS).
+    pub fn sent_bytes(&self) -> u64 {
+        self.sender.sent_bytes()
+    }
+
     pub async fn send(&self, data: Vec<u8>) -> Result<(), CmuxMobileError> {
         let sender = Arc::clone(&self.sender);
         on_runtime(async move { sender.send(data.into()).await }).await?;
@@ -906,9 +914,22 @@ async fn connect_on(
             return Err(error);
         }
     };
+    finish_link(pool, &request, connected, signaling, timeline, observer).await
+}
+
+/// A dialed link's handle: its watcher, first ping and path report.
+async fn finish_link(
+    pool: &Arc<Warm>,
+    request: &ConnectRequest,
+    connected: cmux_mobile_link::Connected,
+    signaling: Arc<WarmSocket>,
+    timeline: Timeline,
+    observer: Option<Arc<dyn LinkObserver>>,
+) -> Result<Arc<LinkHandle>, CmuxMobileError> {
+    let transport = request.transport;
     let mut path = connected.path.clone();
     emit(&observer, LinkEvent::Connected { transport, path: (*path.borrow()).into() });
-    let media = connected.webrtc_media.then(|| media_manager(pool, &request, &connected, &signaling));
+    let media = connected.webrtc_media.then(|| media_manager(pool, request, &connected, &signaling));
     let mut media_status = media.as_ref().map(cmux_mobile_link::hybrid::MediaManager::status);
     let link = connected.link.clone();
     let watcher = tokio::spawn(async move {
@@ -1000,13 +1021,16 @@ fn current_signaling(
 ) -> cmux_mobile_link::hybrid::SignalingSource {
     let key = socket.key.clone();
     let fallback = socket.client.clone();
+    let local = socket.local;
     let pool = Arc::clone(pool);
     Arc::new(move || {
         let key = key.clone();
         let fallback = fallback.clone();
         let pool = Arc::clone(&pool);
         Box::pin(async move {
-            match pool.pooled(&key).await {
+            // A local link signals through its own hub, not the service's socket.
+            let pooled = if local { None } else { pool.pooled(&key).await };
+            match pooled {
                 Some(socket) => Some(socket.client.clone()),
                 None => (fallback.closed_reason().is_none()).then_some(fallback),
             }
@@ -1072,6 +1096,8 @@ struct SocketKey {
 pub struct WarmSocket {
     key: SocketKey,
     client: SignalingClient,
+    /// A socket to a Mac's local hub (`local_link`): never pooled, never replaced by the service's.
+    local: bool,
 }
 
 impl Drop for WarmSocket {
@@ -1389,7 +1415,7 @@ impl Warm {
         client: SignalingClient,
         timeline: &Timeline,
     ) -> Arc<WarmSocket> {
-        let socket = Arc::new(WarmSocket { key: key.clone(), client });
+        let socket = Arc::new(WarmSocket { key: key.clone(), client, local: false });
         let mut pool = self.sockets.lock().await;
         pool.retain(|s| s.key != *key && s.client.closed_reason().is_none());
         pool.push(Arc::clone(&socket));
@@ -1606,6 +1632,7 @@ mod redial_tests {
             transport: Transport::WireGuard,
             include_loopback: true,
             relay_only: true,
+            force_relay: false,
             block_udp: false,
             proxy_only: false,
             drop_wireguard: false,
@@ -1843,40 +1870,9 @@ pub async fn reset_warm_state() {
     WarmPool::shared().reset().await;
 }
 
-async fn dial(
-    pool: &Arc<Warm>,
-    request: &ConnectRequest,
-    timeline: &Timeline,
-) -> Result<(cmux_mobile_link::Connected, Arc<WarmSocket>), CmuxMobileError> {
-    for (name, value) in [
-        ("base_url", &request.base_url),
-        ("team_id", &request.team_id),
-        ("device_id", &request.device_id),
-        ("mac_device_id", &request.mac_device_id),
-    ] {
-        if value.trim().is_empty() {
-            return Err(CmuxMobileError::InvalidArgument { message: format!("{name} is empty") });
-        }
-    }
-    let key = SocketKey {
-        base_url: request.base_url.clone(),
-        team_id: request.team_id.clone(),
-        device_id: request.device_id.clone(),
-        build_space: build_space(),
-    };
-    // ICE servers and the signaling socket are independent: get both at once.
-    let socket = async {
-        let (socket, reused) = pool.pooled_or_open(&key, &request.token, timeline).await?;
-        if reused {
-            timeline.mark("signaling_reused");
-        }
-        Ok::<_, CmuxMobileError>((socket, reused))
-    };
-    let (ice_servers, socket) =
-        tokio::join!(pool.ice_servers(&request.base_url, &request.token, timeline), socket);
-    let (socket, reused) = socket?;
-    let ice_servers = without_turn_if_asked(ice_servers);
-    let options = DialOptions {
+/// The dial's options for `request` (the service's ICE servers; none for a hub dial).
+fn dial_options(request: &ConnectRequest, ice_servers: Vec<IceServer>, timeline: &Timeline) -> DialOptions {
+    DialOptions {
         ice_servers,
         // cmux's WebSocket relay, on the service the phone signs in and signals
         // through: the last way to the Mac (PROTOCOL.md "WebSocket relay").
@@ -1916,7 +1912,77 @@ async fn dial(
         aligned_keepalives: cmux_mobile_link::keepalive::aligned(),
         timeline: timeline.clone(),
         ..DialOptions::default()
+    }
+}
+
+async fn dial(
+    pool: &Arc<Warm>,
+    request: &ConnectRequest,
+    timeline: &Timeline,
+) -> Result<(cmux_mobile_link::Connected, Arc<WarmSocket>), CmuxMobileError> {
+    // A Mac found nearby (its ad matches the Mac the phone paired with) is also dialed through its
+    // own hub: no service round trip, and a link even with no route out. The two race from the
+    // same instant and the first link up wins (the loser is dropped), so an ad that outlived its
+    // network (Wi-Fi gone, the Mac asleep) costs the service dial nothing.
+    let local = local_link::dial_local(request, timeline);
+    let service = dial_service(pool, request, timeline);
+    tokio::pin!(local, service);
+    let mut local_done = false;
+    loop {
+        tokio::select! {
+            result = &mut local, if !local_done => {
+                local_done = true;
+                if let Some(ok) = result {
+                    return Ok(ok);
+                }
+            }
+            result = &mut service => {
+                return match result {
+                    Ok(ok) => Ok(ok),
+                    Err(error) if local_done => Err(error),
+                    // No service (no route out, no account): the hub is the only way left.
+                    Err(error) => local.await.map(Ok).unwrap_or(Err(error)),
+                };
+            }
+        }
+    }
+}
+
+/// `dial` through the service: its signaling socket and ICE servers.
+async fn dial_service(
+    pool: &Arc<Warm>,
+    request: &ConnectRequest,
+    timeline: &Timeline,
+) -> Result<(cmux_mobile_link::Connected, Arc<WarmSocket>), CmuxMobileError> {
+    for (name, value) in [
+        ("base_url", &request.base_url),
+        ("team_id", &request.team_id),
+        ("device_id", &request.device_id),
+        ("mac_device_id", &request.mac_device_id),
+    ] {
+        if value.trim().is_empty() {
+            return Err(CmuxMobileError::InvalidArgument { message: format!("{name} is empty") });
+        }
+    }
+    let key = SocketKey {
+        base_url: request.base_url.clone(),
+        team_id: request.team_id.clone(),
+        device_id: request.device_id.clone(),
+        build_space: build_space(),
     };
+    // ICE servers and the signaling socket are independent: get both at once.
+    let socket = async {
+        let (socket, reused) = pool.pooled_or_open(&key, &request.token, timeline).await?;
+        if reused {
+            timeline.mark("signaling_reused");
+        }
+        Ok::<_, CmuxMobileError>((socket, reused))
+    };
+    let (ice_servers, socket) =
+        tokio::join!(pool.ice_servers(&request.base_url, &request.token, timeline), socket);
+    let (socket, reused) = socket?;
+    let ice_servers = without_turn_if_asked(ice_servers);
+    let options = dial_options(request, ice_servers, timeline);
     let attempt = dial_on(&socket, request, &options, reused).await;
     match attempt {
         Ok(connected) => Ok((connected, socket)),

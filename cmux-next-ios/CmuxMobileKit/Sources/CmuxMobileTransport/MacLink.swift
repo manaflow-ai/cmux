@@ -182,10 +182,15 @@ public protocol LinkChannel: AnyObject, Sendable {
     func close(code: String, reason: String) async
     /// Why the Mac closed the channel, once `receive()` returned nil (nil: unknown).
     var closedBy: LinkError? { get }
+    /// Payload bytes the link has taken from this channel so far; it moves while a long write
+    /// drains and stops when the link stalls (nil: not known). ``DaemonClient/submit`` reads it
+    /// as progress.
+    var sentBytes: UInt64? { get }
 }
 
 public extension LinkChannel {
     var closedBy: LinkError? { nil }
+    var sentBytes: UInt64? { nil }
 }
 
 public struct LinkError: Error, Equatable, Sendable {
