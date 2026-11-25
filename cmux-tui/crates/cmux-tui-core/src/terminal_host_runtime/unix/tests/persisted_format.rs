@@ -85,7 +85,7 @@ fn cmux_next_persisted_terminal_host_record_every_older_shape_loads() {
         fs::write(&record_path, &text).unwrap();
         fs::set_permissions(&record_path, fs::Permissions::from_mode(0o600)).unwrap();
 
-        let loaded = crate::terminal_host_runtime::load_terminal_host_records(&root).unwrap();
+        let loaded = load_terminal_host_records(&root).unwrap();
         let _ = fs::remove_dir_all(&root);
         assert_eq!(
             loaded.len(),
