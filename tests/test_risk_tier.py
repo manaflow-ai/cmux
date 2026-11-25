@@ -285,9 +285,18 @@ class ClassifyTests(unittest.TestCase):
             NEXT + "CmuxNextApp/AppOnboardingServices+ClassicMigration.swift",
             "cmux-tui/crates/acpmux/src/hub/place_migrate.rs", "web/drizzle/0001_x.sql",
             NEXT + "CmuxNextDaemon/Conversations/ChiefSecureStore.swift",
+            # The measure and repo-archive exemptions name files: a new release script there stays high.
+            "scripts/measure/sign-release.sh", "scripts/measure/nightly-notarize.sh",
+            "scripts/measure/publish-nightly.sh", "scripts/repo-archive/sign.sh", "scripts/repo-archive/deploy.sh",
+            # Each branch of the auth word: at the path start, a file-name word, a directory.
+            "auth/x.ts", "cmux-tui/crates/x/src/oauth_callback.rs", "web/app/sign-in/page.tsx",
+            "cmux-tui/crates/x/src/login/mod.rs",
         ):
             with self.subTest(path=path):
                 self.assertEqual(self.tier(path), "high")
+        # Only an image is spared the auth word; the word inside a longer word is not the auth word.
+        self.assertNotEqual(self.tier("web/auth.png"), "high")
+        self.assertNotEqual(self.tier("cmux-tui/crates/x/src/author.rs"), "high")
 
     def test_harness_code_and_own_temp_file_cleanup_are_not_new_deletes(self):
         cases = {

@@ -183,9 +183,12 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         # Named one by one: a *-nightly.yml suffix would also catch ios-internal-nightly.yml, a release.
         ".github/workflows/nightly-speed.yml", ".github/workflows/nightly-interaction-latency.yml",
         ".github/workflows/billing-nightly.yml", ".github/workflows/cmux-next-ios-energy-nightly.yml",
-        ".github/workflows/webviews-sampled-nightly.yml", "scripts/measure/*",
-        # Publishes the docs site or the fleet's repo mirror, not the app.
-        ".github/workflows/docs-deploy-reusable.yml", "scripts/repo-archive/*",
+        ".github/workflows/webviews-sampled-nightly.yml",
+        # A measure script named for the nightly it measures; any other release word there stays high.
+        r"re:^scripts/measure/(?![^/]*(sign|notari|appcast|sparkle|release|publish|deploy|promote|rollback))[^/]*nightly[^/]*$",
+        # Publishes the docs site or the fleet's repo mirror, not the app. Named one by one.
+        ".github/workflows/docs-deploy-reusable.yml", "scripts/repo-archive/publish.sh",
+        "scripts/repo-archive/cmux-repo-archive-publish.service", "scripts/repo-archive/cmux-repo-archive-publish.timer",
         # A star prompt and copy that live in the updater module.
         NEXT + "CmuxNextUpdater/GitHubStar/*", NEXT + "CmuxNextUpdater/UpdaterStrings.swift",
         # An auth test run and a health probe, a login(1) shell, and CLI message strings.
