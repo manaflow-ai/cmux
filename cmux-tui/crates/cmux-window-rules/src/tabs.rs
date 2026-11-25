@@ -18,6 +18,8 @@ pub mod panes;
 pub mod place;
 #[path = "tabs_plus_menu.rs"]
 pub mod plus_menu;
+#[path = "tabs_selection.rs"]
+pub mod selection;
 
 // MARK: New tab kind
 

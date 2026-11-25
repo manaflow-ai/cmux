@@ -45,6 +45,7 @@
 //! `cloud_create_*`, `cloud_power_retries`),
 //! `cmux-window-rules`' window handler rules (`window_*`: what a close asks
 //! and whether it earns an undo toast),
+//! the tab strip's multi-selection (`tab_selection*`, cmux-window-rules `tabs::selection`),
 //! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
 //! the small Cloud API models (`cloud_model_*`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
@@ -97,6 +98,7 @@ pub mod sidebar_face;
 pub mod sidebar_mirror;
 mod tab_discard;
 pub mod tab_drag;
+mod tab_selection;
 pub mod typed;
 pub mod window_close_selection;
 mod window_rules;
@@ -614,6 +616,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
+            }
+            operation if tab_selection::handles(operation) => {
+                tab_selection::respond(operation, request)?
             }
             _ => return Err(ERR_INVALID),
         };
