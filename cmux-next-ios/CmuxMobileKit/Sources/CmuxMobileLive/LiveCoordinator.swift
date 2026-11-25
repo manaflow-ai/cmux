@@ -107,6 +107,8 @@ public final class LiveCoordinator {
     #if canImport(CmuxMobileLinkFFI)
     /// Other devices waiting for a linked Mac's Allow, answered from this phone (ask-45c37458ea).
     public let pairRequests = MacPairRequests()
+    /// Each Mac's one-request catch-up cursors (`LiveCoordinator+CatchUp.swift`, off by default).
+    @ObservationIgnored let catchUps = MacCatchUps()
     #endif
     /// Every linked Mac's tabs as its `tabs` service pushes them: what the grid's cards show
     /// of tabs this phone never opened. The shell sets its sink (the phone's card store).
@@ -1373,6 +1375,7 @@ public final class LiveCoordinator {
         for session in sessions.values { session.link.send(away.map { .resumed(after: $0) } ?? .resume) }
         #if canImport(CmuxMobileLinkFFI)
         pairRequests.foreground()
+        catchUpOnForeground()
         #endif
     }
 
@@ -1416,7 +1419,7 @@ final class PendingAgentSource: AgentSessionSource {
     /// `AcpmuxSessionSource.heldPromptWindow`, so a send while the chat loads rides out a blip
     /// the way a send on a loaded chat does (Leo, 2026-11-14: "i also want all our connectivity
     /// stuff to shut the fuck up and load faster").
-    var holdWindow: Duration = .seconds(10) {
+    var holdWindow: Duration = .milliseconds(Int64(clamping: chatPromptDefaultHoldMs())) {
         didSet {
             #if canImport(CmuxMobileLinkFFI)
             outbox.setHoldMs(holdMs: ChatPromptClock.milliseconds(holdWindow))
@@ -1429,7 +1432,7 @@ final class PendingAgentSource: AgentSessionSource {
     #if canImport(CmuxMobileLinkFFI)
     /// The prompts sent before the chat loaded (Rust, `cmux_composer_send::chat`, its link never
     /// up): their order, their hold, and the ones given back past it.
-    private let outbox = ChatPromptOutbox(holdMs: 10_000, seed: 0)
+    private let outbox = ChatPromptOutbox(holdMs: chatPromptDefaultHoldMs(), seed: 0)
     private var wake: Task<Void, Never>?
 
     /// Prompts sent before the chat loaded, oldest first, with when each was sent.
