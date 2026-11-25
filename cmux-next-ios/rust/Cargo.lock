@@ -544,6 +544,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cloud-disk"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-cloud-handlers"
+version = "0.1.0"
+dependencies = [
+ "cmux-cloud-disk",
+ "cmux-cloud-start-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-cloud-start-core"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "toml",
+]
+
+[[package]]
 name = "cmux-cloud-wire"
 version = "0.1.0"
 dependencies = [
@@ -738,6 +767,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "cmux-auto-session",
+ "cmux-cloud-handlers",
  "cmux-composer-send",
  "cmux-follow-cam",
  "cmux-mobile-auto",
