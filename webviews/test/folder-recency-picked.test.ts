@@ -5,7 +5,15 @@ import { expect, test } from "bun:test";
 import { FolderRecency, pickedFolder, type AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 
 const entry = (sessionId: string, cwd: string, at: number, extra: Partial<AcpmuxSessionEntry> = {}) =>
-  ({ sessionId, cwd, harness: "claude", status: "ready", lastActivityAt: at, updatedAt: at, ...extra }) as AcpmuxSessionEntry;
+  ({
+    sessionId,
+    cwd,
+    harness: "claude",
+    status: "ready",
+    lastActivityAt: at,
+    updatedAt: at,
+    ...extra,
+  }) as AcpmuxSessionEntry;
 
 test("recent folders list only the chats the person started", () => {
   const recency = new FolderRecency(pickedFolder);

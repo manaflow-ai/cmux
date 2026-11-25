@@ -275,8 +275,8 @@ export function FolderPopover({
           rememberAddedRepo({
             fullName: currentRepo,
             private:
-              github?.state.repos?.find((repo) => repo.fullName.toLowerCase() === currentRepo.toLowerCase())
-                ?.private ?? false,
+              github?.state.repos?.find((repo) => repo.fullName.toLowerCase() === currentRepo.toLowerCase())?.private ??
+              false,
           });
           setAdded(readAddedRepos());
         } else setAdded(known);

@@ -216,6 +216,7 @@ test("a folder grant the host never answers holds a Cloud send no longer than th
   await act(async () => void promptField()!.type(PROMPT));
   await until(() => promptField()?.value() === PROMPT, "the composer takes the prompt");
   // Past CLOUD_FOLDER_GRANT_WAIT_MS (3 s) the composer sends again, as every grant wait ends.
+  // fixed-wait: the bound is the behaviour under test; the real app timer must run out, nothing signals it.
   await act(async () => new Promise((done) => setTimeout(done, 3_300)));
   await pressSend();
   await until(() => pane.starts.length === 1, "the send starts the chat in Cloud once the wait is over");

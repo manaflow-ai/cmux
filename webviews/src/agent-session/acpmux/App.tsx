@@ -4571,7 +4571,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const folderGrantSeq = useRef(0);
   useEffect(() => {
     if (!folderGranting) return;
-    const timer = setTimeout(() => setFolderGranting((now) => (now === folderGranting ? 0 : now)), CLOUD_FOLDER_GRANT_WAIT_MS);
+    const timer = setTimeout(
+      () => setFolderGranting((now) => (now === folderGranting ? 0 : now)),
+      CLOUD_FOLDER_GRANT_WAIT_MS,
+    );
     return () => clearTimeout(timer);
   }, [folderGranting]);
   const pickComposerMode = (mode: RunMode) => {

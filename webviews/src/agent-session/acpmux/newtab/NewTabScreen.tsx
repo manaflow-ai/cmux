@@ -859,13 +859,16 @@ export function NewTabScreen(props: Props) {
   useLayoutEffect(() => {
     grantDefault.current = props.onProjectPicked;
   });
-  const cloudDefaultHere = cloudMode && cloudDefault !== undefined && !githubFolderRepo(cloudDefault) ? cloudDefault : undefined;
+  const cloudDefaultHere =
+    cloudMode && cloudDefault !== undefined && !githubFolderRepo(cloudDefault) ? cloudDefault : undefined;
   useEffect(() => {
     if (cloudDefaultHere) grantDefault.current?.(cloudDefaultHere);
   }, [cloudDefaultHere]);
   const cloudFolder =
     cloudDefault ??
-    (picked && project !== undefined && localAskFolder === project && !githubFolderRepo(project) ? project : undefined) ??
+    (picked && project !== undefined && localAskFolder === project && !githubFolderRepo(project)
+      ? project
+      : undefined) ??
     cloudRepositoryPick(
       localAskFolder,
       (localGitHubPick?.cwd === localAskFolder ? localGitHubPick?.name : undefined) ??
