@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.files.textEditor.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An app name, bundle ID or app path. Empty uses Open in Editor's app, else your source code app."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "اسم تطبيق أو معرّف حزمة أو مسار تطبيق. الفارغ يستخدم تطبيق «فتح في المحرر»، وإلا تطبيق الشفرة المصدرية."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Naziv aplikacije, ID paketa ili putanja aplikacije. Prazno koristi aplikaciju za Otvori u uređivaču, inače vašu aplikaciju za izvorni kod."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Et appnavn, bundle-id eller en appsti. Tom bruger appen til Åbn i editor, ellers din kildekodeapp."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ein App-Name, eine Bundle-ID oder ein App-Pfad. Leer verwendet die App von „Im Editor öffnen“, sonst deine Quellcode-App."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un nombre de app, un ID de paquete o una ruta de app. Vacío usa la app de Abrir en el editor o, si no, tu app de código fuente."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un nom d’app, un identifiant de paquet ou un chemin d’app. Vide utilise l’app d’Ouvrir dans l’éditeur, sinon votre app de code source."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un nome di app, un ID bundle o un percorso dell’app. Vuoto usa l’app di Apri nell’editor, altrimenti la tua app per il codice sorgente."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "アプリ名、バンドル ID、またはアプリのパス。空の場合は「エディタで開く」のアプリ、なければソースコード用のアプリを使います。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ឈ្មោះកម្មវិធី លេខសម្គាល់បណ្ដុំ ឬផ្លូវកម្មវិធី។ ទទេ ប្រើកម្មវិធីរបស់ បើកក្នុងកម្មវិធីកែ បើមិនមាន ប្រើកម្មវិធីកូដប្រភពរបស់អ្នក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "앱 이름, 번들 ID 또는 앱 경로입니다. 비워 두면 편집기에서 열기의 앱을, 없으면 소스 코드 앱을 사용합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Et appnavn, en pakke-ID eller en appbane. Tom bruker appen til Åpne i redigerer, ellers kildekodeappen din."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nazwa aplikacji, identyfikator pakietu lub ścieżka aplikacji. Puste używa aplikacji z Otwórz w edytorze, a w przeciwnym razie aplikacji do kodu źródłowego."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Um nome de app, ID de pacote ou caminho de app. Vazio usa o app de Abrir no editor, senão seu app de código-fonte."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Имя приложения, идентификатор пакета или путь к приложению. Пустое значение — приложение «Открыть в редакторе», иначе приложение для исходного кода."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ชื่อแอป รหัสบันเดิล หรือพาธของแอป ถ้าว่างจะใช้แอปของ เปิดในโปรแกรมแก้ไข หรือแอปซอร์สโค้ดของคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir uygulama adı, paket kimliği veya uygulama yolu. Boş bırakılırsa Düzenleyicide Aç'ın uygulaması, yoksa kaynak kod uygulamanız kullanılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Назва застосунку, ідентифікатор пакета або шлях до застосунку. Порожнє — застосунок «Відкрити в редакторі», інакше застосунок для вихідного коду."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tên ứng dụng, ID gói hoặc đường dẫn ứng dụng. Để trống sẽ dùng ứng dụng của Mở trong trình soạn thảo, nếu không thì ứng dụng mã nguồn của bạn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "App 名称、Bundle ID 或 App 路径。留空则使用“在编辑器中打开”的 App，否则使用你的源代码 App。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "App 名稱、Bundle ID 或 App 路徑。留空則使用「在編輯器中開啟」的 App，否則使用你的原始碼 App。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
