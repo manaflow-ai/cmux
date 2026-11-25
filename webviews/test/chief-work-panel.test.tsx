@@ -90,3 +90,42 @@ test("completed commands stay in a closed history fold while active and unknown 
   expect(html.indexOf("Verify page")).toBeGreaterThan(fold);
   expect(html).toContain("Finished <span>2</span>");
 });
+
+test("plans show only on an opted-in arm: off by default, inline, steps and plans first", () => {
+  const snapshot: HomeChiefWork = {
+    agents: [
+      {
+        id: "a",
+        name: "Build page",
+        state: "working",
+        plan: { source: "harness", done: 2, total: 5, current: "Write hero", next: "Add preview" },
+      },
+    ],
+    plans: [
+      { id: "c", name: "Ship page", state: "working", plan: { source: "chief", done: 1, total: 3, current: "Check" } },
+    ],
+    tasks: [],
+    truncated: false,
+  };
+  const at = (plans?: "off" | "inline" | "steps" | "section") =>
+    renderToStaticMarkup(
+      <ChiefWorkPanel
+        snapshot={snapshot}
+        loading={false}
+        strings={strings}
+        plans={plans}
+        onRefresh={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+  expect(at()).not.toContain("Write hero");
+  expect(at("off")).not.toContain("Write hero");
+  expect(at("inline")).toContain("2/5");
+  expect(at("inline")).toContain("Write hero");
+  expect(at("inline")).not.toContain("Add preview");
+  expect(at("steps")).toContain("Add preview");
+  expect(at("steps")).toContain("<progress");
+  expect(at("section")).toContain(">Plans<");
+  expect(at("section")).toContain("Ship page");
+  expect(at("section").indexOf("Ship page")).toBeLessThan(at("section").indexOf(">Subagents<"));
+});
