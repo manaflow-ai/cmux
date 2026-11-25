@@ -4,8 +4,12 @@
 //! [`RacePolicy::attempt_timeout`], and return the first that connects. The losers are
 //! dropped. A fast failure starts the next attempt at once.
 //!
-//! The last attempt has no timeout of its own: on a saturated uplink where every connect is
-//! slower than the timeout it still connects inside the caller's own budget.
+//! The last attempt gets the longer [`RacePolicy::last_attempt_timeout`]: on a saturated uplink
+//! where every connect is slower than [`RacePolicy::attempt_timeout`] it still connects slowly.
+//! It is still bounded, because a caller with no budget of its own (the direct TCP dialer under
+//! the terminal client) would otherwise wait out the operating system's connect timeout, over a
+//! minute, on a black-holed address. A caller with a shorter budget (the relay's 10 s connect)
+//! ends the race first.
 
 use std::future::Future;
 use std::io;
@@ -22,6 +26,8 @@ pub struct RacePolicy {
     pub stagger: Duration,
     /// How long one attempt but the last may take before it is dropped.
     pub attempt_timeout: Duration,
+    /// How long the last attempt may take, unless the caller's own budget ends the race first.
+    pub last_attempt_timeout: Duration,
     /// Attempts in flight at once.
     pub max_in_flight: usize,
     /// Attempts in all; the last one's failure is the answer once they ran out.
@@ -30,10 +36,13 @@ pub struct RacePolicy {
 
 impl RacePolicy {
     /// For a host that connects in 10 to 50 ms: a second attempt after 400 ms, at most three
-    /// at a time, each but the last given 3 s, six in all.
+    /// at a time, each but the last given 3 s, six in all. When every one is black-holed the
+    /// sixth starts after about 3.8 s and gets 8 s, so a race with no other budget fails after
+    /// about 11.8 s; the relay's 10 s connect budget ends sooner.
     pub const INTERNET: Self = Self {
         stagger: Duration::from_millis(400),
         attempt_timeout: Duration::from_secs(3),
+        last_attempt_timeout: Duration::from_secs(8),
         max_in_flight: 3,
         max_attempts: 6,
     };
@@ -106,20 +115,21 @@ where
                 return Err(io::Error::new(io::ErrorKind::NotFound, "no addresses to connect to"));
             };
             let attempt = connect(target);
-            // The last attempt may connect slowly: only the caller's budget ends it.
-            let timeout = (launched + 1 < max_attempts).then_some(policy.attempt_timeout);
+            // The last attempt may connect slowly, within its own longer bound.
+            let timeout = if launched + 1 < max_attempts {
+                policy.attempt_timeout
+            } else {
+                policy.last_attempt_timeout
+            };
             let index = launched;
             running.push(async move {
                 let begun = Instant::now();
-                let result = match timeout {
-                    None => attempt.await,
-                    Some(timeout) => match tokio::time::timeout(timeout, attempt).await {
-                        Ok(result) => result,
-                        Err(_) => Err(io::Error::new(
-                            io::ErrorKind::TimedOut,
-                            format!("no answer within {} ms", timeout.as_millis()),
-                        )),
-                    },
+                let result = match tokio::time::timeout(timeout, attempt).await {
+                    Ok(result) => result,
+                    Err(_) => Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        format!("no answer within {} ms", timeout.as_millis()),
+                    )),
                 };
                 (index, target_index, begun.elapsed(), result)
             });
