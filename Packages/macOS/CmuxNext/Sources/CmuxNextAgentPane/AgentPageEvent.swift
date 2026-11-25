@@ -8,7 +8,7 @@ public import Foundation
 /// ``AgentPageProvider/hostEvents``. Each kind replaces a script the old host evaluated; the
 /// page's `hostEvents.ts` runs the same `cmuxAcpmuxBridge` function with `value`.
 public nonisolated struct AgentPageEvent: Equatable, Sendable {
-    /// `theme`, `shortcuts`, `preview`, `sessionStatus`, `editedFiles`, `customization`, `registry`, `dictation`, `revealTurn`,
+    /// `theme`, `shortcuts`, `preview`, `liveTree`, `sessionStatus`, `editedFiles`, `customization`, `registry`, `dictation`, `revealTurn`,
     /// `command`, `stopTurn`, `sideQuestion`, `focusLocation` or `transport`.
     public let kind: String
     public let value: JSONValue
@@ -41,6 +41,8 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
 
     /// Whether preview features show.
     public static func preview(_ on: Bool) -> AgentPageEvent { AgentPageEvent(kind: "preview", value: .bool(on)) }
+    /// Whether the live-tree experiment shows.
+    public static func liveTree(_ on: Bool) -> AgentPageEvent { AgentPageEvent(kind: "liveTree", value: .bool(on)) }
     /// Whether agents suggest tasks (``AgentPaneSuggestedTasks``, cx-lo9yf).
     public static func suggestedTasks(_ on: Bool) -> AgentPageEvent { AgentPageEvent(kind: "suggestedTasks", value: .bool(on)) }
 
@@ -96,7 +98,7 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
 
     /// A batch of the host socket's frames, or its close (``AgentPaneTransport``, bridgeSocket.ts).
     public static func transport(_ event: AgentPaneTransportEvent) -> AgentPageEvent {
-        AgentPageEvent(kind: "transport", value: JSONValue(foundation: event.object) ?? .null)
+        AgentPageEvent(kind: "transport", value: event.value)
     }
 
     /// A newly listening port on the Cloud machine running this chat.

@@ -481,7 +481,7 @@ def notarized_probe_body(root, adhoc_app, result):
         result["error"] = f"download failed: {err.strip()[:200]}"
         return
     os.makedirs(mount, exist_ok=True)
-    code, _, err = run(["hdiutil", "attach", "-nobrowse", "-readonly", "-noautoopen", "-mountpoint", mount, dmg], timeout=300)
+    code, _, err = run(["hdiutil", "attach", "-nobrowse", "-readonly", "-noautoopen", "-noautofsck", "-mountpoint", mount, dmg], timeout=300)
     if code != 0:
         result["error"] = f"hdiutil attach: {err.strip()[:200]}"
         return

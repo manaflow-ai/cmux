@@ -179,6 +179,12 @@ pub(super) fn parse_resource_layout_document(
     if !snapshot.layout_columns.is_empty() {
         sync_layout_column_projection(&mut snapshot);
     }
+    // `floating-panes-v1`: a floating pane that the document puts into a stack, a docked column or a column
+    // with rows is tiled; a floating pane that the document gives the focus comes to the front.
+    snapshot.settle_floating_panes();
+    if active_pane != current.active_pane {
+        snapshot.raise_floating_pane(active_pane);
+    }
     // Normalization drops rows whose compat chain the document's tree does
     // not hold: such a document is refused, so no apply loses a row.
     for (column, count) in kept_rows {

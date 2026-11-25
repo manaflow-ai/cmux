@@ -87,6 +87,20 @@ pub fn install_openh264(opts: &crate::args::Opts) -> Res<()> {
     Ok(())
 }
 
+/// The host enable flow's OpenH264 step without a separate command (`windows-host enable`):
+/// Cisco's library in the per-user data directory, downloaded from Cisco when it is not there
+/// yet. Its path. `dir` is the installer's directory (`cmux_encode::cisco::default_dir()`;
+/// `None`: there is none).
+#[cfg(feature = "openh264")]
+pub fn ensure_openh264_in(dir: Option<PathBuf>) -> Res<PathBuf> {
+    let platform = Platform::current().ok_or("Cisco publishes no OpenH264 for this platform")?;
+    let dir = dir.ok_or("no per-user data directory")?;
+    if let Some(path) = installed_library(Some(&dir), platform) {
+        return Ok(path);
+    }
+    Ok(cmux_encode::cisco::install(&dir, platform)?)
+}
+
 /// Cisco's library from `--openh264-lib`, else the installer's per-user copy.
 #[cfg(feature = "openh264")]
 fn cisco_api(lib: Option<&str>) -> Res<Option<OpenH264Api>> {
@@ -252,10 +266,5 @@ pub fn open(cfg: &EncCfg<'_>) -> Res<Box<dyn H264Encoder>> {
 }
 
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn eight_cores_encode_on_four_threads_and_fewer_on_two() {
-        let threads: Vec<u16> = [1, 2, 4, 6, 8, 16].map(super::threads_for_cores).to_vec();
-        assert_eq!(threads, [2, 2, 2, 2, 4, 4]);
-    }
-}
+#[path = "encoder_tests.rs"]
+mod tests;

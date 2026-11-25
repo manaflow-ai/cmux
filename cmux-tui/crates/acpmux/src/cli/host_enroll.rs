@@ -138,7 +138,12 @@ pub(crate) async fn run(client: Arc<Client>, plan: Plan, fix: bool, json_out: bo
         emit(&result);
         done.push(result);
     }
-    // Last: whether an agent is ready there, with the install and sign-in offers.
+    // Last: install missing agent CLIs during Add Machine (safe and
+    // non-secret), then report readiness and the person-owned sign-in offer.
+    // `host doctor` remains read-only and calls `step` directly.
+    if plan.lends_github && fix && gate(Step::Agents, &done).is_none() {
+        let _ = crate::cli::host_agents::install_missing(&remote, &plan.name, &mut emit);
+    }
     let agents = gate(Step::Agents, &done)
         .unwrap_or_else(|| crate::cli::host_agents::step(&remote, &plan.name));
     emit(&agents);
@@ -202,6 +207,18 @@ pub(crate) fn pick_target(peers: &[Value], target: &str) -> (String, String, Opt
         .or_else(|| ssh_peers.iter().find(|(_, host, _)| host == target))
         .cloned()
         .unwrap_or_else(|| (hosts::short_name(target), target.to_owned(), None))
+}
+
+/// A line for `doctor NAME` when the hub already carries NAME: its chats work over the hub, and
+/// the ssh steps that follow test a direct route from this machine, which the hub makes optional.
+pub(crate) fn hub_route_note(peers: &[Value], name: &str) -> Option<String> {
+    let row = peers.iter().find(|p| p.get("name").and_then(Value::as_str) == Some(name))?;
+    let connected = row.get("state").and_then(Value::as_str) == Some("connected");
+    (connected && row.get("via").and_then(Value::as_str) == Some("hub")).then(|| {
+        format!(
+            "note   route     {name} is connected through the hub (cmux Remote), so its chats work without ssh from here. The steps below test a direct ssh route from this machine; a failure there does not mean the hub link is down."
+        )
+    })
 }
 
 /// How a running daemon stays current: [`update_step::update`], given the
@@ -433,6 +450,32 @@ fn tailnet_acl_hint(host: &str) -> Option<String> {
     ))
 }
 
+/// The reach failure's class, and the stderr that shows it. Under OpenSSH's default policy
+/// (`StrictHostKeyChecking ask`) with `BatchMode`, a never-seen host prints only "Host key
+/// verification failed.", which a CheckHostIP conflict or another verification error also
+/// prints, so that line alone is never taken as an unknown key. Without the opt-in, that bare
+/// failure is asked again under strict checking (records and updates nothing), which names an
+/// unknown key outright; only then does the fix offer first-contact acceptance. With the opt-in,
+/// OpenSSH would have recorded an unknown key, so a bare failure there is something else.
+fn with_unknown_key_evidence(
+    r: &dyn Remote,
+    accept_new_host_key: bool,
+    stderr: String,
+) -> (SshFailure, String) {
+    let class = SshFailure::of(&stderr);
+    if class != SshFailure::HostKeyUntrusted || accept_new_host_key {
+        return (class, stderr);
+    }
+    match r.strict_host_key_check() {
+        Ok(strict)
+            if !strict.ok && SshFailure::of(&strict.stderr) == SshFailure::HostKeyUnknown =>
+        {
+            (SshFailure::HostKeyUnknown, strict.stderr)
+        }
+        _ => (class, stderr),
+    }
+}
+
 fn reach(r: &dyn Remote, accept_new_host_key: bool) -> StepResult {
     let host = r.host();
     match r.first_contact(accept_new_host_key) {
@@ -440,8 +483,8 @@ fn reach(r: &dyn Remote, accept_new_host_key: bool) -> StepResult {
             StepResult::new(Step::Reach, StepState::Ok, format!("ssh {host} works"))
         }
         Ok(out) => {
-            let class = SshFailure::of(&out.stderr);
-            let last = out.stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("");
+            let (class, stderr) = with_unknown_key_evidence(r, accept_new_host_key, out.stderr);
+            let last = stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("");
             let detail = format!("{}: {}", class.label(), last.trim());
             if class != SshFailure::KeyRejected {
                 return fail(Step::Reach, detail, class.fix(host));
@@ -466,7 +509,7 @@ fn reach(r: &dyn Remote, accept_new_host_key: bool) -> StepResult {
 }
 
 /// The build in a `--version` line: `acpmux 0.1.0 (BUILD)`.
-fn build_of(line: &str) -> Option<&str> {
+pub(super) fn build_of(line: &str) -> Option<&str> {
     let (_, rest) = line.split_once('(')?;
     rest.trim_end().strip_suffix(')').map(str::trim).filter(|b| !b.is_empty())
 }
@@ -486,7 +529,7 @@ const PROBE_BINS: &str = r#"seen=; for b in "$(command -v acpmux 2>/dev/null)" ~
 /// starts there runs in (`linux_sandbox::bwrap::probe`'s flags): `ok`,
 /// `broken` (installed, but too old or user namespaces are off), `missing`,
 /// or `n/a` off Linux.
-const PROBE_BWRAP: &str = r#"printf 'bwrap\t%s\n' "$(if [ "$(uname -s)" != Linux ]; then echo n/a; elif /usr/bin/bwrap --unshare-user --unshare-net --disable-userns --ro-bind / / true >/dev/null 2>&1; then echo ok; elif [ -x /usr/bin/bwrap ]; then echo broken; else echo missing; fi)"; "#;
+const PROBE_BWRAP: &str = super::host_sandbox::PROBE;
 
 /// [`PROBE_BWRAP`], [`PROBE_BINS`], then the remote daemon config.
 fn probe_script() -> String {

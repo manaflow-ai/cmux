@@ -6,6 +6,8 @@ const HELP: &str = "cmux-mobile-host: serve this Mac to cmux-next-ios phones.
 Configuration is read from the environment; see cmux-next-ios/rust/README.md.
 Required: CMUX_MOBILE_BASE_URL, CMUX_MOBILE_TEAM_ID, and CMUX_MOBILE_REFRESH_TOKEN(_FILE) or
 CMUX_MOBILE_ACCESS_TOKEN(_FILE).
+A dev build also sets CMUX_BUILD_SPACE=dev:<slug> (sent as X-Cmux-Build-Space; the older
+CMUX_MOBILE_BUILD_SPACE still works). A malformed value stops the host at start.
 
   --print-device-id   print this Mac's device id and exit
 
@@ -45,8 +47,8 @@ async fn main() -> Result<()> {
     let supplied = cmux_mobile_host::control::enabled().then(cmux_mobile_host::control::spawn_stdin_reader);
     let config = cmux_mobile_host::config::HostConfig::from_env(supplied)?;
     tracing::info!(device_id = config.device_id, team = config.team_id, "starting");
-    // `run` returns only when the owner removed this Mac: exit with its own status so
-    // a supervisor never restarts it.
-    cmux_mobile_host::host::run(config).await?;
-    std::process::exit(cmux_mobile_host::host::EXIT_REMOVED)
+    // `run` returns only when retrying cannot help (the owner removed this Mac, or another
+    // account owns its device id): exit with that status so a supervisor does not restart it as is.
+    let stopped = cmux_mobile_host::host::run(config).await?;
+    std::process::exit(stopped.exit_status())
 }

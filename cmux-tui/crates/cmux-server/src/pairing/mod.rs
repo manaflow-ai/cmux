@@ -13,6 +13,7 @@ pub(crate) mod messages;
 mod native;
 mod network;
 mod protect;
+pub mod unpair;
 
 use std::path::Path;
 
@@ -24,6 +25,7 @@ use crate::error::{Error, Result};
 
 pub use credentials::EnrolledIdentity;
 pub use network::Network;
+pub use unpair::unpair;
 
 pub const DEFAULT_API: &str = "https://cloud-api.cmux.dev";
 // A lost begin reply may have made a code. It expires within ten minutes,

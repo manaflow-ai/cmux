@@ -180,6 +180,24 @@ class GitLedgerTests(unittest.TestCase):
                 os.environ.update(old)
 
 
+class FleetStepTests(unittest.TestCase):
+    def test_a_fleet_step_outside_actions_passes_a_key(self):
+        """`cmux-ci run` refuses a step with no --key outside Actions; every fleet bench then read an empty log."""
+        import contextlib
+        import io
+        from benchlib.bench import BenchError
+        ctx = Context(bench=Fake(), build={"sha": "b" * 40}, host_role="fleet", dry_run=True)
+        old = os.environ.pop("GITHUB_RUN_ID", None)
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out), self.assertRaises(BenchError):
+                ctx.fleet_step("scripts/measure/launch-ready.sh", ref="c" * 40)
+        finally:
+            if old is not None:
+                os.environ["GITHUB_RUN_ID"] = old
+        self.assertIn(f"--key {ctx.run_id}-launch-ready", out.getvalue())
+
+
 class RegistryAndCliTests(unittest.TestCase):
     def test_every_bench_loads_and_is_described(self):
         benches = load_all()

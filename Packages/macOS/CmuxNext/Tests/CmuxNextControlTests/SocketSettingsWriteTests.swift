@@ -122,13 +122,13 @@ import Testing
     }
 
     /// SECURITY: a write to a parent object that holds a user-only key (`cloud` with the person's
-    /// Claude login consent) is the person's to confirm too, never a raw write past the leaf's policy.
+    /// Cloud delegation) is the person's to confirm too, never a raw write past the leaf's policy.
     @Test func aParentObjectWriteCannotSetAUserOnlyKeyUnderIt() async throws {
         let (router, settings, directory) = try make()
         defer { try? FileManager.default.removeItem(at: directory) }
         var asked: [String] = []
         settings.userOnlyConfirmation = { key, _ in asked.append(key); return false }
-        let value: JSONValue = ["useMyClaudeLoginOnMyCloudMachines": true]
+        let value: JSONValue = ["agentsStartWithoutAsking": true]
         guard case .failure(let refused) = await call(router, "settings.set", ["path": "cloud", "value": value]) else {
             Issue.record("a parent write set a user-only key")
             return
@@ -139,7 +139,7 @@ import Testing
             return
         }
         #expect(asked.count == 1)
-        #expect(try await settings.file.value(at: ["cloud", "useMyClaudeLoginOnMyCloudMachines"]) == nil)
+        #expect(try await settings.file.value(at: ["cloud", "agentsStartWithoutAsking"]) == nil)
     }
 
     /// cmux-browser mutes a workspace through settings.set as `script` (a separate process is
@@ -262,6 +262,7 @@ extension SettingDescriptor {
         case .theme: return .string("Dracula")
         case .fontFamily: return .string("Menlo")
         case .text: return .string("TextEdit")
+        case .json(let shape): return shape["type"]?.stringValue == "object" ? .object([:]) : .array([])
         }
     }
 
@@ -297,6 +298,10 @@ extension SettingDescriptor {
         case .theme: return [.string("Dracula"), .string("Nord")]
         case .fontFamily: return [.string("Menlo"), .string("Monaco")]
         case .text: return [.string("TextEdit"), .string("Xcode")]
+        case .json(let shape):
+            // A sidebar row layout, and one per kind or agent (`agent` is both a kind and an id).
+            let layout: JSONValue = .array([.array([.string("name"), .string("branch")])])
+            return shape["type"]?.stringValue == "object" ? [.object([:]), .object(["agent": layout])] : [.array([]), layout]
         }
     }
 }

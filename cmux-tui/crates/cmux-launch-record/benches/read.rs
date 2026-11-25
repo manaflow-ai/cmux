@@ -18,11 +18,17 @@ fn main() {
             display_id: 1,
             background_rgba: [0, 0, 0, 255],
             bar_rgba: [32, 32, 32, 255],
-            image_path: "/saved/frame.png".into(),
+            image_key: "1-abc/front/1".into(),
             image_pixel_width: 2560,
             image_pixel_height: 1600,
+            backing_scale: 2.0,
+            appearance: 1,
+            appearance_follows_system: 1,
+            fullscreen: 0,
+            screen_frame: Frame { x: 0., y: 0., width: 1512., height: 982. },
             visible_workspace_id: "visible".into(),
             visible_tab_ids: vec!["chat".into()],
+            sidebar_width: 220.0,
         }],
         sidebar_rows: (0..60)
             .map(|i| SidebarRow {
@@ -32,6 +38,8 @@ fn main() {
             })
             .collect(),
         session_socket_path: String::new(),
+        session_registry_id: String::new(),
+        written_at_ms: 0,
     };
     write_atomic(&path, &data).unwrap();
     let length = std::fs::metadata(&path).unwrap().len() as usize;

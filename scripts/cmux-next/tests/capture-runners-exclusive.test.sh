@@ -58,12 +58,13 @@ bounded 60 bash "$ROOT/scripts/cmux-next/perceived-speed-slot.sh" --job 01234567
 grep -q '^release slot-fakehost-0123456789ab' "$CAPTURE_HOST_ARGS_LOG" ||
   { echo "FAIL: perceived-speed-slot.sh did not release its lease: $(cat "$CAPTURE_HOST_ARGS_LOG")" >&2; exit 1; }
 # A stop between acquire printing the lease and the runner reading it (the runner polls every 2 s): the
-# runner's cleanup must still release that lease. The stand-in prints at 1 s and stays up; TERM at 1.5 s.
+# runner's cleanup must still release that lease. The stand-in prints at 1 s, marks that it printed, and
+# stays up (slot-info fails, so the runner keeps polling); TERM once the mark exists.
 cat >"$tmp/bin/capture-host" <<'SH'
 #!/bin/sh
 printf '%s\n' "$*" >>"$CAPTURE_HOST_ARGS_LOG"
 case "$1" in
-  acquire) sleep 1; echo slot-fakehost-0123456789ab; sleep 30; exit 0 ;;
+  acquire) sleep 1; echo slot-fakehost-0123456789ab; : >"$CAPTURE_HOST_ARGS_LOG.printed"; sleep 30; exit 0 ;;
   slot-info) exit 1 ;;
 esac
 exit 0
@@ -71,9 +72,13 @@ SH
 stop_after_print() { # stop_after_print NAME ARGS...: TERM the runner just after the lease is printed
   local name=$1 pid; shift
   : >"$CAPTURE_HOST_ARGS_LOG"
+  rm -f "$CAPTURE_HOST_ARGS_LOG.printed"
   bash "$ROOT/scripts/cmux-next/$name" "$@" >/dev/null 2>&1 &
   pid=$!
-  sleep 1.5
+  # Until the stand-in acquire has printed the lease (20 s deadline).
+  for _ in $(seq 200); do [ -e "$CAPTURE_HOST_ARGS_LOG.printed" ] && break; sleep 0.1; done
+  [ -e "$CAPTURE_HOST_ARGS_LOG.printed" ] ||
+    { kill -TERM "$pid" 2>/dev/null; echo "FAIL: $name: the stand-in acquire never printed a lease within 20 s" >&2; exit 1; }
   kill -TERM "$pid" 2>/dev/null || true
   wait "$pid" 2>/dev/null || true
   grep -q '^release slot-fakehost-0123456789ab' "$CAPTURE_HOST_ARGS_LOG" ||

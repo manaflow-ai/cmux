@@ -18,6 +18,7 @@ const pairs: Array<[string, unknown, unknown]> = [
   ["person_holds frames", web.acpmuxPersonHoldsFrames(nonce), worker.acpmuxPersonHoldsFrames(nonce)],
   ["team machine exit", web.ACPMUX_EXIT_TEAM_VM, worker.ACPMUX_EXIT_TEAM_VM],
   ["unsupported exit", web.ACPMUX_EXIT_UNSUPPORTED, worker.ACPMUX_EXIT_UNSUPPORTED],
+  ["no work user exit", web.ACPMUX_EXIT_NO_WORK_USER, worker.ACPMUX_EXIT_NO_WORK_USER],
   ["stdin exec timeout", web.ACPMUX_STDIN_EXEC_TIMEOUT_MS, worker.ACPMUX_STDIN_EXEC_TIMEOUT_MS],
   ["prepare timeout", web.ACPMUX_PREPARE_TIMEOUT_MS, worker.ACPMUX_PREPARE_TIMEOUT_MS]
 ]

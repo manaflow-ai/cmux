@@ -26,6 +26,8 @@ export interface NativeRowMenus {
   extra?: readonly RowToolBinding[];
   /// The worktree, pull request and Needs You tools the header hands to the native row.
   extras?: NativeRowExtras;
+  /// Draw native controls on the host's chrome glass while the glass toolbar arm is on.
+  glass?: boolean;
   t?: Translate;
 }
 
@@ -37,12 +39,14 @@ export function useNativeRowTools(
   const enabled = host?.enabled === true;
   const callNative = host?.callNative;
   const [menuKeys] = useState(createNativeMenuKeys);
-  const baseBindings = nativeRowToolBindings(quick, host?.panel, menus?.extras, menus?.t, menuKeys).map((binding) => {
-    const context = menus?.customize?.get(binding.tool.id);
-    return context
-      ? { ...binding, tool: { ...binding.tool, contextMenu: context.items }, runMenu: context.invoke }
-      : binding;
-  });
+  const baseBindings = nativeRowToolBindings(quick, host?.panel, menus?.extras, menus?.t, menuKeys, menus?.glass).map(
+    (binding) => {
+      const context = menus?.customize?.get(binding.tool.id);
+      return context
+        ? { ...binding, tool: { ...binding.tool, contextMenu: context.items }, runMenu: context.invoke }
+        : binding;
+    },
+  );
   const extraBindings = (menus?.extra ?? []).slice(0, 16);
   // Reserve room for host-owned controls such as the chat menu so the 16-tool protocol cap
   // cannot silently discard the extra that supplies the native overflow button.

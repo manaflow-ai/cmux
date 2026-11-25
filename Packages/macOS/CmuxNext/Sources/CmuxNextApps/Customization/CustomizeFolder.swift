@@ -4,7 +4,7 @@ public import Foundation
 /// The user's customization folder, the package of the `local/customize` app.
 ///
 /// It resolves the path the daemon watches (`customize_dir` in cmux-tui-core): `$CMUX_CUSTOMIZE_DIR`,
-/// else `$XDG_CONFIG_HOME/cmux/customize`, else `~/.config/cmux/customize`. The daemon installs the
+/// else `$XDG_CONFIG_HOME/cmux-next/customize`, else `~/.config/cmux-next/customize`. The daemon installs the
 /// app by itself the first time the folder holds a manifest, so writing the starter is all it takes
 /// to make one.
 ///
@@ -33,7 +33,7 @@ public nonisolated struct CustomizeFolder: Sendable, Hashable {
         }
         guard let config = value("XDG_CONFIG_HOME").map({ URL(filePath: $0, directoryHint: .isDirectory) })
             ?? value("HOME").map({ URL(filePath: $0, directoryHint: .isDirectory).appending(path: ".config") }) else { return nil }
-        url = config.appending(path: "cmux").appending(path: "customize")
+        url = config.appending(path: BuildStatePaths.nextFolder).appending(path: "customize")
     }
 
     /// The app's manifest, `cmux-app.json`.
@@ -91,20 +91,46 @@ nonisolated private let starterScript = """
 // Show or hide this sidebar with Toggle Custom Sidebar (Cmd+Shift+P) or Ctrl+Opt+Cmd+B.
 
 // State lives in signals; a view that reads one redraws when it changes.
-const [count, setCount] = signal(0)
+const [tasks, setTasks] = signal([
+  { id: 1, title: "Review pull requests", note: "3 waiting on you", done: true },
+  { id: 2, title: "Answer the design thread", note: "Since this morning", done: false },
+  { id: 3, title: "Write the release notes", note: "Due Friday", done: false }
+])
+const done = computed(() => tasks().filter((t) => t.done).length)
+const left = computed(() => tasks().length - done())
+const flip = (id) => setTasks((list) => list.map((t) => (t.id === id ? { ...t, done: !t.done } : t)))
 
-// One render function per implementation in cmux-app.json (its "export").
+// One render function per implementation in cmux-app.json (its "export"). The shape: one lead
+// line, then rows with a symbol each, actions in a menu, every state drawn. Tones, never colors.
 function renderSection() {
   return VStack([
-    Panel({ title: "Hello" }, [
-      Text(() => `Clicked ${count()} times`).font("headline"),
+    Panel({ title: "Today" }, [
       HStack([
-        Button("Click", () => setCount((n) => n + 1)),
+        VStack({ alignment: "leading" }, [
+          Text(() => (left() === 0 ? "All done" : `${left()} left today`)).font("headline"),
+          Text(() => `${done()} of ${tasks().length} done`).font("caption").color("secondary")
+        ]),
         Spacer(),
-        Button("Say hi", () => cmux.toast({ title: "Hi from my section", tone: "success" }))
+        Menu("More", [
+          Button("Clear done", () => setTasks((list) => list.filter((t) => !t.done))),
+          Divider(),
+          Button("Say hi", () => cmux.toast({ title: "Hi from my section", tone: "success" }))
+        ])
+      ]),
+      ProgressView(() => done() / Math.max(1, tasks().length)),
+      VStack([
+        ForEach({ items: tasks, key: (t) => t.id }, (t) =>
+          Row({
+            title: () => t().title,
+            subtitle: () => t().note,
+            symbol: () => (t().done ? "checkmark.circle.fill" : "circle"),
+            tint: () => (t().done ? cmux.theme.success : cmux.theme.text.tertiary)
+          }).onTap(() => flip(t().id))
+        ),
+        () => (tasks().length === 0 ? EmptyState({ title: "Nothing left", symbol: "checkmark.circle" }) : null)
       ])
     ]),
-    Row({ title: "Edit ~/.config/cmux/customize/main.js", symbol: "pencil", tint: cmux.theme.text.secondary })
+    Row({ title: "Edit ~/.config/cmux-next/customize/main.js", symbol: "pencil", tint: cmux.theme.text.secondary })
   ])
 }
 

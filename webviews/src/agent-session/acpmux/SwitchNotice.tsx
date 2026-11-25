@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { StartRecovery } from "./StartRecovery";
 import { useT } from "./i18n";
 import { type MachineShareProps, useMachineShare } from "./MachineShareAction";
 import type { AcpmuxSnapshot } from "./model";
@@ -22,9 +23,10 @@ export type SwitchNoticeAction = StartRefusalAction | "install";
 /// agent's sign-in. A teammate's machine also offers Share with Me, then Ask the Owner
 /// (MachineShareAction.tsx).
 /// An agent that is not signed in on the machine (hq#11225) is named ("Cursor isn't signed in on
-/// this machine."), and its sign-in leads: on another machine the machine's own sign-in card
-/// (CloudSignIn.tsx: Sign in to Cursor, Grok's code, Gemini's key) inside this card, on this Mac
-/// Sign in to <agent>, its login in a terminal tab (no ellipsis: it runs at once, as Install does).
+/// this machine."), and its sign-in leads: the machine's own sign-in card (CloudSignIn.tsx: Sign in
+/// to Cursor, Grok's code, Gemini's key) inside this card, on another machine and on this Mac where
+/// its daemon runs the login (logins done right); else, on this Mac, Sign in to <agent>, its login
+/// in a terminal tab (no ellipsis: it runs at once, as Install does).
 /// Retry then starts it signed in, and stays beside the sign-in while the card shows its page,
 /// code or key (styles.css). A machine with no sign-in for it says to sign it in on this machine,
 /// the chat's, as its first line names it.
@@ -50,7 +52,8 @@ export function SwitchNotice({
   /// Whether Install may be offered: the installer runs in a terminal tab of this Mac, so a chat on
   /// another machine never offers it (its sentence still says the agent is not installed there).
   installs?: boolean;
-  /// The refused agent's sign-in on the chat's machine (cloudAgentLogin.ts), for a chat elsewhere.
+  /// The refused agent's sign-in on the chat's machine (cloudAgentLogin.ts): a chat elsewhere's, or
+  /// this Mac's own (`localAgentLogin`), which then leads instead of the terminal login.
   agentSignIn?: CloudSignInActions;
   /// A chat on this Mac whose refused agent has a login command: Sign in runs it (`onAction("signIn")`).
   runsLogin?: boolean;
@@ -58,9 +61,8 @@ export function SwitchNotice({
   const t = useT();
   const actionsRef = useRef<HTMLDivElement>(null);
   const machineShare = useMachineShare(share, switching?.phase === "failed" ? switching : undefined, onRetry, onShared);
-  if (!switching || switching.phase === "starting") return null;
-  if (switching.phase === "deferred")
-    return <output className="acpmux-switch-notice">{t("switch.deferred", { agent: switching.name })}</output>;
+  // A switch picked mid-turn (`deferred`) says nothing: the agent chip already shows the pick.
+  if (!switching || switching.phase !== "failed") return null;
   const view = startFailureView(t, switching);
   const refusal = startRefusalAction(switching.code);
   const signIn =
@@ -77,6 +79,17 @@ export function SwitchNotice({
   const hint = refusal === "signIn" && signIn === undefined && !installs ? t("switch.signInElsewhere") : undefined;
   return (
     <div className="acpmux-host-error acpmux-switch-failed" role="alert">
+      {(action === "install" || action === "signIn") && onAction && (
+        <StartRecovery
+          key={`${switching.harness}:${switching.code ?? ""}:${switching.error ?? ""}`}
+          kind={action}
+          sentence={view.sentence}
+          label={
+            action === "signIn" ? t("switch.action.signInTo", { harness: switching.name }) : t("switch.action.install")
+          }
+          onAction={() => onAction(action)}
+        />
+      )}
       <div className="acpmux-host-error-card">
         <p className="acpmux-host-error-message">{view.sentence}</p>
         {(machineShare.line ?? hint) && <p className="acpmux-host-error-hint">{machineShare.line ?? hint}</p>}

@@ -1,9 +1,15 @@
 //! A screen host's device hub identity and account, kept like the Mac's Keychain items but in
-//! files only this user can read (on Linux `$XDG_CONFIG_HOME/cmux/screen-host/`, 0700), with
-//! `device.json` (the device id, name and its two P-256 keys as PKCS#8) and `account.json`
-//! (the hub, the user id and when the anchor ends), each 0600. Writes go through a
+//! files only this user can read, with `device.json` (the device id, name and its two P-256
+//! keys as PKCS#8) and `account.json` (the hub, the user id and when the anchor ends).
+//!
+//! Unix: `$XDG_CONFIG_HOME/cmux/screen-host/` (0700), each file 0600. Writes go through a
 //! same-directory temp file created with `O_EXCL | O_NOFOLLOW` and a rename; reads refuse a
 //! symlink, a file another user owns, or one any other user can read.
+//!
+//! Windows: `%APPDATA%\cmux\screen-host\`. A user profile's folders inherit an ACL that gives
+//! only this user, SYSTEM and the Administrators group access, so the files carry no mode of
+//! their own; writes still go through a new temp file and a rename, and reads refuse a symlink
+//! or any other reparse point (a junction planted in place of the file).
 
 use crate::b64;
 use crate::Res;
@@ -12,30 +18,97 @@ use ring::signature::{EcdsaKeyPair, KeyPair, ECDSA_P256_SHA256_FIXED_SIGNING};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
+#[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
-/// `$XDG_CONFIG_HOME/cmux/screen-host`, else `~/.config/cmux/screen-host`.
+/// A non-empty environment variable as a path.
+fn env_dir(name: &str) -> Option<PathBuf> {
+    std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from)
+}
+
+/// cmux's folder under the config base: `cmux-next` on macOS, where `cmux`
+/// is cmux Classic's; `cmux` elsewhere.
+#[cfg(unix)]
+const CONFIG_DIR_NAME: &str = if cfg!(target_os = "macos") { "cmux-next" } else { "cmux" };
+
+/// `$XDG_CONFIG_HOME/cmux/screen-host`, else `~/.config/cmux/screen-host`
+/// (`cmux-next` instead of `cmux` on macOS).
+#[cfg(unix)]
 pub fn config_dir() -> Res<PathBuf> {
-    let base = match std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()) {
-        Some(dir) => PathBuf::from(dir),
-        None => PathBuf::from(std::env::var_os("HOME").ok_or("HOME is not set")?).join(".config"),
+    let base = match env_dir("XDG_CONFIG_HOME") {
+        Some(dir) => dir,
+        None => env_dir("HOME").ok_or("HOME is not set")?.join(".config"),
     };
+    Ok(base.join(CONFIG_DIR_NAME).join("screen-host"))
+}
+
+/// `%APPDATA%\cmux\screen-host` (the roaming profile's application data).
+#[cfg(windows)]
+pub fn config_dir() -> Res<PathBuf> {
+    let base = env_dir("APPDATA").ok_or("APPDATA is not set: run the host as the desktop user")?;
     Ok(base.join("cmux").join("screen-host"))
 }
 
 /// `$XDG_RUNTIME_DIR/cmux-screen-host`: the session's private runtime directory (pending
 /// requests). No fallback: without the login session's runtime directory there is no
 /// private place for them, and the host refuses to run.
+#[cfg(unix)]
 pub fn runtime_dir() -> Res<PathBuf> {
-    let base = std::env::var_os("XDG_RUNTIME_DIR")
-        .filter(|v| !v.is_empty())
+    let base = env_dir("XDG_RUNTIME_DIR")
         .ok_or("XDG_RUNTIME_DIR is not set: run the host in the desktop user's login session")?;
-    Ok(PathBuf::from(base).join("cmux-screen-host"))
+    Ok(base.join("cmux-screen-host"))
+}
+
+/// `%LOCALAPPDATA%\cmux\screen-host\run`: this machine's private state of the running host
+/// (pending requests, the capture check). Local, never roamed to another PC.
+#[cfg(windows)]
+pub fn runtime_dir() -> Res<PathBuf> {
+    let base = env_dir("LOCALAPPDATA")
+        .ok_or("LOCALAPPDATA is not set: run the host as the desktop user")?;
+    Ok(base.join("cmux").join("screen-host").join("run"))
+}
+
+/// Creates `dir` (and its parents) under this user's profile; refuses a symlink or junction.
+#[cfg(windows)]
+pub fn private_dir(dir: &Path) -> Res<()> {
+    fs::create_dir_all(dir)?;
+    let meta = fs::symlink_metadata(dir)?;
+    if !meta.is_dir() || is_reparse_point(&meta) {
+        return Err(format!("{} is not a plain directory", dir.display()).into());
+    }
+    Ok(())
+}
+
+/// Whether `meta` (from `symlink_metadata`) is a symlink, junction or other reparse point.
+#[cfg(windows)]
+fn is_reparse_point(meta: &fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+    meta.file_type().is_symlink() || meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+/// A new file at `path` that only this user may read (`O_EXCL`, 0600, no symlink followed).
+#[cfg(unix)]
+fn create_private(path: &Path) -> std::io::Result<fs::File> {
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)
+}
+
+/// A new file at `path` (`CREATE_NEW`: never an existing file or a link's target), with the
+/// profile folder's inherited ACL.
+#[cfg(windows)]
+fn create_private(path: &Path) -> std::io::Result<fs::File> {
+    OpenOptions::new().write(true).create_new(true).open(path)
 }
 
 /// Creates `dir` (and its parents) and makes it this user's 0700 directory; refuses a symlink
 /// or a directory another user owns.
+#[cfg(unix)]
 pub fn private_dir(dir: &Path) -> Res<()> {
     fs::create_dir_all(dir)?;
     let meta = fs::symlink_metadata(dir)?;
@@ -50,7 +123,7 @@ pub fn private_dir(dir: &Path) -> Res<()> {
     Ok(())
 }
 
-/// Writes `bytes` to `path` as this user's 0600 file, atomically.
+/// Writes `bytes` to `path` as this user's private file, atomically.
 pub fn write_private(path: &Path, bytes: &[u8]) -> Res<()> {
     let dir = path.parent().ok_or("no parent directory")?;
     private_dir(dir)?;
@@ -62,14 +135,11 @@ pub fn write_private(path: &Path, bytes: &[u8]) -> Res<()> {
         crate::hex(&nonce)
     ));
     let written = (|| -> std::io::Result<()> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-            .open(&tmp)?;
+        let mut file = create_private(&tmp)?;
         file.write_all(bytes)?;
         file.sync_all()?;
+        drop(file);
+        // Windows: MoveFileEx with MOVEFILE_REPLACE_EXISTING, so an older file is replaced.
         fs::rename(&tmp, path)
     })();
     if let Err(e) = written {
@@ -81,6 +151,7 @@ pub fn write_private(path: &Path, bytes: &[u8]) -> Res<()> {
 
 /// Reads this user's private file: None when it does not exist; an error for a symlink, a file
 /// of another user, or one with group or other permissions.
+#[cfg(unix)]
 pub fn read_private(path: &Path) -> Res<Option<Vec<u8>>> {
     let mut file = match OpenOptions::new()
         .read(true)
@@ -99,6 +170,28 @@ pub fn read_private(path: &Path) -> Res<Option<Vec<u8>>> {
             path.display()
         )
         .into());
+    }
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    Ok(Some(bytes))
+}
+
+/// Reads this user's private file: None when it does not exist; an error for a symlink,
+/// junction or anything but a plain file. The file is opened without following a reparse
+/// point (`FILE_FLAG_OPEN_REPARSE_POINT`), and the opened handle is the one checked.
+#[cfg(windows)]
+pub fn read_private(path: &Path) -> Res<Option<Vec<u8>>> {
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    let mut file =
+        match OpenOptions::new().read(true).custom_flags(FILE_FLAG_OPEN_REPARSE_POINT).open(path) {
+            Ok(f) => f,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(format!("{}: {e}", path.display()).into()),
+        };
+    let meta = file.metadata()?;
+    if !meta.is_file() || is_reparse_point(&meta) {
+        return Err(format!("{} must be a plain file (remove it)", path.display()).into());
     }
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)?;
@@ -247,6 +340,7 @@ fn uuid_v4(rng: &SystemRandom) -> Res<String> {
 }
 
 /// This machine's name for a new device (the kernel host name).
+#[cfg(unix)]
 pub fn host_name() -> String {
     fs::read_to_string("/proc/sys/kernel/hostname")
         .ok()
@@ -255,104 +349,16 @@ pub fn host_name() -> String {
         .unwrap_or_else(|| "Linux".to_owned())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn temp_dir(tag: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("cmux-screen-host-{tag}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        dir
-    }
-
-    #[test]
-    fn device_file_is_private_and_round_trips() {
-        let dir = temp_dir("device");
-        let device = Device::generate("desk").unwrap();
-        device.save(&dir).unwrap();
-        let mode = fs::metadata(dir.join("device.json")).unwrap().mode() & 0o777;
-        assert_eq!(mode, 0o600);
-        assert_eq!(fs::metadata(&dir).unwrap().mode() & 0o777, 0o700);
-        let back = Device::load(&dir).unwrap().unwrap();
-        assert_eq!(back.id, device.id);
-        assert_eq!(back.id.len(), 36);
-        assert_eq!(b64::decode(&back.signer().unwrap().public_key()).unwrap().len(), 65);
-        assert_ne!(back.signer().unwrap().public_key(), back.agreement_key().unwrap());
-        fs::remove_dir_all(&dir).unwrap();
-    }
-
-    /// An RNG for the test's sealing side, from ring's system randomness.
-    struct TestRng(SystemRandom);
-
-    impl hpke::rand_core::RngCore for TestRng {
-        fn next_u32(&mut self) -> u32 {
-            let mut b = [0; 4];
-            self.fill_bytes(&mut b);
-            u32::from_le_bytes(b)
-        }
-        fn next_u64(&mut self) -> u64 {
-            let mut b = [0; 8];
-            self.fill_bytes(&mut b);
-            u64::from_le_bytes(b)
-        }
-        fn fill_bytes(&mut self, dest: &mut [u8]) {
-            self.0.fill(dest).unwrap();
-        }
-    }
-
-    impl hpke::rand_core::CryptoRng for TestRng {}
-
-    #[test]
-    fn relay_secrets_sealed_to_the_agreement_key_open() {
-        use hpke::{Deserializable, Serializable};
-        type Kem = hpke::kem::DhP256HkdfSha256;
-        let device = Device::generate("desk").unwrap();
-        // What a viewer does with the registered agreement key (base64 X9.63, 65 bytes).
-        let public = b64::decode(&device.agreement_key().unwrap()).unwrap();
-        let public = <Kem as hpke::Kem>::PublicKey::from_bytes(&public).unwrap();
-        let info = b"cmux-device-hub relay v1 relay-1";
-        let secret = br#"{"username":"u","credential":"c"}"#;
-        let (encapsulated, ciphertext) =
-            hpke::single_shot_seal::<hpke::aead::AesGcm256, hpke::kdf::HkdfSha256, Kem, _>(
-                &hpke::OpModeS::Base,
-                &public,
-                info,
-                secret,
-                &[],
-                &mut TestRng(SystemRandom::new()),
-            )
-            .unwrap();
-        let encapsulated = encapsulated.to_bytes();
-        assert_eq!(encapsulated.len(), 65);
-        let opened = device.open_sealed(&ciphertext, &encapsulated, info).unwrap();
-        assert_eq!(opened, secret);
-        // Another relay's info, another device, or a changed byte opens nothing.
-        assert!(device
-            .open_sealed(&ciphertext, &encapsulated, b"cmux-device-hub relay v1 relay-2")
-            .is_err());
-        let other = Device::generate("other").unwrap();
-        assert!(other.open_sealed(&ciphertext, &encapsulated, info).is_err());
-        let mut tampered = ciphertext.clone();
-        tampered[0] ^= 1;
-        assert!(device.open_sealed(&tampered, &encapsulated, info).is_err());
-        assert!(device.open_sealed(&ciphertext, &encapsulated[1..], info).is_err());
-    }
-
-    #[test]
-    fn readable_or_symlinked_files_are_refused() {
-        let dir = temp_dir("perms");
-        Account { hub: "https://hub".into(), user_id: "p:u".into(), anchored_until: 0 }
-            .save(&dir)
-            .unwrap();
-        let path = dir.join("account.json");
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
-        assert!(Account::load(&dir).is_err());
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
-        assert!(Account::load(&dir).unwrap().is_some());
-        let link = dir.join("device.json");
-        std::os::unix::fs::symlink(&path, &link).unwrap();
-        assert!(Device::load(&dir).is_err());
-        fs::remove_dir_all(&dir).unwrap();
-    }
+/// This machine's name for a new device (the computer name Windows shows in Settings > System).
+#[cfg(windows)]
+pub fn host_name() -> String {
+    std::env::var("COMPUTERNAME")
+        .ok()
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "Windows".to_owned())
 }
+
+#[cfg(test)]
+#[path = "identity_tests.rs"]
+mod tests;

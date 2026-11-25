@@ -115,7 +115,6 @@ pub(crate) const CONVERSATION_TAB_SPLIT_CAPABILITY: &str = "conversation-tab-spl
 /// `new-frontend-browser-tab {pane, split}` (`frontend-browser-tab-split-v1`)
 /// takes the same object.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(super) struct ConversationTabSplitParams {
     direction: String,
     #[serde(default)]
@@ -171,7 +170,6 @@ impl ConversationTabSplitParams {
 /// session (absent for a new chat), the agent kind and the display name of
 /// the host machine.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(super) struct AgentSessionParams {
     host: String,
     #[serde(default)]
@@ -909,6 +907,10 @@ mod page_tabs_tests;
 #[cfg(test)]
 #[path = "conversation_tab_split_tests.rs"]
 mod conversation_tab_split_tests;
+
+#[cfg(test)]
+#[path = "conversation_tab_chat_only_tests.rs"]
+mod conversation_tab_chat_only_tests;
 
 #[cfg(test)]
 #[path = "closed_conversation_tabs_tests.rs"]

@@ -52,6 +52,8 @@ sch_netem. On the fleet: cmuxterm-hq `cmux-ci test --setup netem` (README.md her
 from __future__ import annotations
 
 import argparse
+import ctypes
+import ctypes.util
 import json
 import math
 import os
@@ -200,6 +202,17 @@ def pct_over(sample_times, ms: float):
     return round(sum(v > ms for v in g2g) * 100 / len(g2g), 1) if g2g else None
 
 
+def first_seconds_max(sample_times, seconds: float = 2.0):
+    """The slowest key-to-decoded time, ms, among the presses sent in the session's first `seconds`
+    (from its first press): what a new session's start keyframe costs. None without samples."""
+    rows = [(t["sent_ns"], (t["decoded_ns"] - t["sent_ns"]) / 1e6) for t in sample_times or []
+            if _num(t.get("decoded_ns")) is not None and _num(t.get("sent_ns")) is not None]
+    if not rows:
+        return None
+    first = min(sent for sent, _ in rows)
+    return round(max(ms for sent, ms in rows if sent - first < seconds * 1e9), 1)
+
+
 def summarize_key(report: dict | None) -> dict:
     """Key press to decoded marker from a `--input key` bench line."""
     if not report:
@@ -216,6 +229,7 @@ def summarize_key(report: dict | None) -> dict:
         "mbit_per_s": _num(report.get("mbit_per_s")),
         "frames_per_s": _num(report.get("frames_per_s")),
         "pct_over_50ms": pct_over(report.get("sample_times"), 50),
+        "first_2s_max_ms": first_seconds_max(report.get("sample_times")),
         "target_kbps_last": _num(stats.get("kbps")),
         "host_loss_pct_last": _num(stats.get("loss_pct")),
         "ended": report.get("ended"),
@@ -690,6 +704,61 @@ def wait_for(path: Path, needle: str, proc: subprocess.Popen, seconds: float) ->
     return False
 
 
+def x_root_children(display: str) -> int | None:
+    """How many windows the X server at DISPLAY has under its root, through libX11; None while it does not
+    accept a connection."""
+    x = ctypes.CDLL(ctypes.util.find_library("X11") or "libX11.so.6")
+    x.XOpenDisplay.restype = ctypes.c_void_p
+    x.XOpenDisplay.argtypes = [ctypes.c_char_p]
+    x.XDefaultRootWindow.restype = ctypes.c_ulong
+    x.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+    x.XQueryTree.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong),
+                             ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.c_void_p),
+                             ctypes.POINTER(ctypes.c_uint)]
+    x.XFree.argtypes = [ctypes.c_void_p]
+    x.XCloseDisplay.argtypes = [ctypes.c_void_p]
+    dpy = x.XOpenDisplay(display.encode())
+    if not dpy:
+        return None
+    try:
+        root, parent, children, count = ctypes.c_ulong(), ctypes.c_ulong(), ctypes.c_void_p(), ctypes.c_uint()
+        if not x.XQueryTree(dpy, x.XDefaultRootWindow(dpy), ctypes.byref(root), ctypes.byref(parent),
+                            ctypes.byref(children), ctypes.byref(count)):
+            return 0
+        if children:
+            x.XFree(children)
+        return count.value
+    finally:
+        x.XCloseDisplay(dpy)
+
+
+def wait_x(display: str, proc: subprocess.Popen, seconds: float, window: bool = False) -> str | None:
+    """Until the X server at DISPLAY accepts a connection (and, with WINDOW, has a window under its root: the
+    testapp's). None when it did; else what never happened."""
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            return f"{'testapp' if window else 'Xvfb'} on {display} exited ({proc.returncode})"
+        count = x_root_children(display)
+        if count is not None and (not window or count > 0):
+            return None
+        time.sleep(0.05)
+    return (f"no window on {display} in {seconds:g} s (the testapp never mapped one)" if window
+            else f"Xvfb on {display} accepted no connection in {seconds:g} s")
+
+
+def wait_port_free(rig: Rig, seconds: float = 10.0) -> bool:
+    """Until nothing in the host namespace listens on PORT (the stopped host let it go)."""
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        listed = run(priv(["ip", "netns", "exec", rig.host_ns, "ss", "-Hlntu", f"sport = :{PORT}"]), check=False)
+        if listed.returncode == 0 and not listed.stdout.strip():
+            return True
+        time.sleep(0.05)
+    print(f"rd-netem-linux: port {PORT} still bound {seconds:g} s after the host stopped", file=sys.stderr, flush=True)
+    return False
+
+
 def bench(rig: Rig, binary: Path, token: Path, args: list[str], timeout: float,
           loopback: bool = False) -> tuple[dict | None, str]:
     addr = f"127.0.0.1:{PORT}" if loopback else f"{HOST_IP}:{PORT}"
@@ -752,7 +821,7 @@ def measure_profile(rig: Rig, binary: Path, commit: str, profile: str, scratch: 
         return row
     finally:
         stop(host)
-        time.sleep(0.5)  # the next host binds the same port
+        wait_port_free(rig)  # the next host binds the same port
 
 
 def measure_lo(rig: Rig, binary: Path, row: dict, scratch: Path, display: str, passive_s: int,
@@ -812,7 +881,7 @@ def measure_lo(rig: Rig, binary: Path, row: dict, scratch: Path, display: str, p
         driver.stop()
         stop(host)
         rig.unshape_lo()
-        time.sleep(0.5)
+        wait_port_free(rig)  # the next host binds the same port
 
 
 def openh264_lib(binary: Path, scratch: Path) -> list[str]:
@@ -852,11 +921,15 @@ def measure_binary(binary: Path, commit: str, profiles: list[str], out: Path, ar
             return rows
         display = f":{170 + os.getpid() % 50}"
         procs.append(rig.spawn(rig.host_ns, ["Xvfb", display, "-screen", "0", "1920x1080x24", "-nolisten", "tcp"]))
-        time.sleep(1.5)
-        procs.append(rig.spawn(rig.host_ns, [str(binary), "testapp", "--display", display, "--workload", "motion"]))
-        time.sleep(1.5)
+        x_error = wait_x(display, procs[-1], 20)
+        if x_error is None:
+            procs.append(rig.spawn(rig.host_ns, [str(binary), "testapp", "--display", display, "--workload",
+                                                 "motion"]))
+            x_error = wait_x(display, procs[-1], 20, window=True)
         for profile in profiles:
             try:
+                if x_error:
+                    raise RuntimeError(x_error)
                 row = measure_profile(rig, binary, commit, profile, scratch, display, args.passive_s, args.samples)
             except Exception as error:  # noqa: BLE001 - one profile's failure is that row's data
                 row = {"schema": SCHEMA, "commit": commit, "profile": profile, "error": repr(error)}

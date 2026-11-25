@@ -53,7 +53,17 @@ pub(crate) async fn route(request: Request, env: Env) -> Result<Response> {
     }
 
     match admission {
-        AdmissionRoute::DaemonControl { slot } | AdmissionRoute::ClientControl { slot } => {
+        AdmissionRoute::DaemonControl { slot } => {
+            // A slot the daemon creates is placed near the daemon (`crate::placement`).
+            let namespace = env.durable_object("RELAY_SLOTS")?;
+            let id = namespace.id_from_name(slot)?;
+            let stub = match crate::placement::hint_of(&request) {
+                Some(hint) => id.get_stub_with_location_hint(hint)?,
+                None => id.get_stub()?,
+            };
+            stub.fetch_with_request(request).await
+        }
+        AdmissionRoute::ClientControl { slot } => {
             let namespace = env.durable_object("RELAY_SLOTS")?;
             let stub = namespace.id_from_name(slot)?.get_stub()?;
             stub.fetch_with_request(request).await
@@ -146,6 +156,7 @@ mod tests {
             generation: None,
             issued_at_unix: 50,
             expires_at_unix: 100,
+            grant: None,
         }
     }
 

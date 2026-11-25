@@ -10,12 +10,24 @@ import UniformTypeIdentifiers
 /// It shares the AppsClient's transport callback, so panel scene events cannot replace the App
 /// Store's event handling.
 ///
-/// Ops: `list`, `composer` (the composer's extension slash commands and mention providers, as the
-/// daemon answers `apps.composer.list`), `mount {surface, app, section?, context}` (answers `{mount_id, asset_base?}`),
+/// Ops: `list`, `route {key, tool | app+props}` (the daemon's chat widget for a tool call or a widget
+/// part, `apps.chat_widgets.route`: the page mounts what it answers on the `chatWidget` surface),
+/// `composer` (the composer's extension slash commands and mention providers, as the
+/// daemon answers `apps.composer.list`), `mentions {query, prefix?, limit?}` (the extension `@` items
+/// that match, as the daemon ranks them in `apps.composer.mentions`), `mount {surface, app, section?, context}` (answers `{mount_id, asset_base?}`),
 /// `dispatch` and `reload {mount_id}` (both only from the person's own click or key), `layout
 /// {mount_id, height}` and `unmount`. The `scene` stream carries each mount's ops batches and its
 /// status, `{mount_id, status: loading|ready|failed|disconnected, reason?}`, as the host model has it.
 /// The page's `__appbundle/<mount_id>/<path>` resources are the mount's bundle images.
+///
+/// Widgets (`cmux.widget/1`, the New Tab grid): `widgets.list {place?}`, `widgets.layout.edit
+/// {place, edit, idempotency_key}` (only from the person's own click, drop or key: it is the user's
+/// edit), `widgets.visible {mount_id, visible}` and `widgets.meters {}` pass through to the daemon's
+/// `apps-store {op: "apps.widgets.*"}`; the daemon owns the layout, the sizes and the refresh budget,
+/// and the page only draws. `widgets.visible` and `widgets.meters` reach only this page's own mounts.
+/// The `widgets.changed` stream carries `apps-widgets-changed {revision, place}` (every page lists
+/// again) and `widgets.health` carries this page's `apps-widget-health {mount_id, stale, reason?,
+/// retry_ms?}`.
 @MainActor
 public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSource {
     public static let namespace = "cmux.apps.panels."
@@ -30,6 +42,8 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
     private var unheard: [String: [AppSceneOp]] = [:]
     private var sceneListeners: [UUID: (mountID: String?, callback: @MainActor (JSONValue) -> Void)] = [:]
     private var changedListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
+    private var widgetsChangedListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
+    private var widgetHealthListeners: [UUID: (mountID: String?, callback: @MainActor (JSONValue) -> Void)] = [:]
     /// The status each mount's page last heard (or would hear on subscribe), so a status goes out once per change.
     private var statuses: [String: AppSceneModel.Status] = [:]
     /// Each mount's drawn height, as its page last reported it (`layout`).
@@ -62,6 +76,8 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
         statusWatches.removeAll()
         sceneListeners.removeAll()
         changedListeners.removeAll()
+        widgetsChangedListeners.removeAll()
+        widgetHealthListeners.removeAll()
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
@@ -73,6 +89,12 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
             } catch {
                 throw PageError.failed(error, code: "cmux.apps.panels.failed", retryable: true)
             }
+        case Self.namespace + "route":
+            do {
+                return pageJSON(try await client.chatWidgetRoute(appJSON(params)))
+            } catch {
+                throw PageError.failed(error, code: "cmux.apps.panels.failed", retryable: true)
+            }
         case Self.namespace + "composer":
             // The daemon decides what the composer lists; the page gets its reply as it is.
             do {
@@ -80,8 +102,21 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
             } catch {
                 throw PageError.failed(error, code: "cmux.apps.panels.failed", retryable: true)
             }
+        case Self.namespace + "mentions":
+            // The daemon matches and ranks the items; the page gets its reply as it is.
+            guard let query = params["query"]?.stringValue else {
+                throw PageError.invalidParams("query is required")
+            }
+            var args: [String: AppJSON] = ["query": .string(query)]
+            if let prefix = params["prefix"]?.stringValue { args["prefix"] = .string(prefix) }
+            if let limit = params["limit"]?.intValue { args["limit"] = .number(Double(limit)) }
+            do {
+                return try await pageJSON(client.composerMentions(.object(args)))
+            } catch {
+                throw PageError.failed(error, code: "cmux.apps.panels.failed", retryable: true)
+            }
         case Self.namespace + "mount":
-            return try mount(params)
+            return try await mount(params)
         case Self.namespace + "dispatch":
             guard context.userGesture else {
                 throw PageError(code: PageNativeOp.userOnlyCode, message: "This app panel action can only be used by a person")
@@ -96,6 +131,17 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
             return try layout(params)
         case Self.namespace + "unmount":
             return try unmount(params)
+        case Self.namespace + "widgets.list":
+            return try await widgetsList(params)
+        case Self.namespace + "widgets.layout.edit":
+            guard context.userGesture else {
+                throw PageError(code: PageNativeOp.userOnlyCode, message: "Only a person can change where widgets are")
+            }
+            return try await widgetsEdit(params)
+        case Self.namespace + "widgets.visible":
+            return try widgetVisible(params)
+        case Self.namespace + "widgets.meters":
+            return try await widgetMeters()
         default:
             throw PageError.unknownOp(op)
         }
@@ -103,10 +149,19 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
 
     public func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
-        guard stream == Self.namespace + "scene" || stream == Self.namespace + "changed" else {
+        let id = UUID()
+        switch stream {
+        case Self.namespace + "widgets.changed":
+            widgetsChangedListeners[id] = onEvent
+            return PageSubscription { [weak self] in self?.widgetsChangedListeners.removeValue(forKey: id) }
+        case Self.namespace + "widgets.health":
+            widgetHealthListeners[id] = (filter["mount_id"]?.stringValue, onEvent)
+            return PageSubscription { [weak self] in self?.widgetHealthListeners.removeValue(forKey: id) }
+        case Self.namespace + "scene", Self.namespace + "changed":
+            break
+        default:
             throw PageError.unknownOp(stream)
         }
-        let id = UUID()
         if stream == Self.namespace + "scene" {
             let mountID = filter["mount_id"]?.stringValue
             sceneListeners[id] = (mountID, onEvent)
@@ -126,14 +181,15 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
 
     /// Mounts the app's implementation for `surface` (``AppMountSurface``), resolved as that surface's
     /// AppKit host resolves it; `section` names the section of a sidebar or Session Info mount.
-    private func mount(_ params: JSONValue) throws -> JSONValue {
+    /// An app the mirror does not hold yet is listed again before the mount is refused (``AppsClient/listedApp(_:)``).
+    private func mount(_ params: JSONValue) async throws -> JSONValue {
         guard let rawSurface = params["surface"]?.stringValue, let surface = AppMountSurface(rawValue: rawSurface),
               let app = params["app"]?.stringValue,
               let rawContext = params["context"], case .object = rawContext else {
-            throw PageError.invalidParams("surface (pane, sidebarSection, hoverCard, sessionInfoSection or newTab), app and object context are required")
+            throw PageError.invalidParams("surface (pane, sidebarSection, hoverCard, sessionInfoSection, chatWidget, newTab or widget), app and object context are required")
         }
         let section = params["section"]?.stringValue
-        guard let record = client.app(app), let implementation = surface.implementation(of: record, id: section) else {
+        guard let record = await client.listedApp(app), let implementation = surface.implementation(of: record, id: section) else {
             throw PageError(code: "cmux.apps.panels.not_found", message: "No \(surface.rawValue) of \(app)\(section.map { "#" + $0 } ?? "") shows")
         }
         let context = appJSON(rawContext)
@@ -193,6 +249,58 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
         return .object([:])
     }
 
+    // MARK: Widgets
+
+    /// `widgets.list {place?}`: the widgets the person can place and the layout, as the daemon answers.
+    private func widgetsList(_ params: JSONValue) async throws -> JSONValue {
+        var args: [String: AppJSON] = [:]
+        if let place = params["place"] {
+            guard let name = place.stringValue else { throw PageError.invalidParams("place is newtab or sidebar") }
+            args["place"] = .string(name)
+        }
+        return try await widgetCall("apps.widgets.list", args: .object(args), origin: .script)
+    }
+
+    /// `widgets.layout.edit {place, edit, idempotency_key}`: the person's one edit (add, remove, resize,
+    /// move, configure); the daemon checks it against the widget, saves it and tells every page.
+    private func widgetsEdit(_ params: JSONValue) async throws -> JSONValue {
+        guard let place = params["place"]?.stringValue, let edit = params["edit"], case .object = edit,
+              let key = params["idempotency_key"]?.stringValue, !key.isEmpty else {
+            throw PageError.invalidParams("place, an edit object and an idempotency_key are required")
+        }
+        let args: AppJSON = ["place": .string(place), "edit": appJSON(edit), "idempotency_key": .string(key)]
+        return try await widgetCall("apps.widgets.layout.edit", args: args, origin: .user)
+    }
+
+    /// `widgets.visible {mount_id, visible}`: one of this page's widget tiles scrolled in or out, or
+    /// the page was shown or hidden. Sent after the mount, on the client's mount chain.
+    private func widgetVisible(_ params: JSONValue) throws -> JSONValue {
+        guard let mountID = params["mount_id"]?.stringValue, let visible = params["visible"]?.boolValue else {
+            throw PageError.invalidParams("mount_id and visible are required")
+        }
+        guard let mount = mounts[mountID] else { throw PageError(code: "cmux.apps.panels.not_found", message: "No such mount") }
+        client.setWidgetVisible(mount, visible)
+        return .object([:])
+    }
+
+    /// `widgets.meters {}`: this page's widget mounts with their refresh interval, ticks and held
+    /// batches (the edit mode's meter). The daemon counts per connection; the page sees its own.
+    private func widgetMeters() async throws -> JSONValue {
+        let reply = try await widgetCall("apps.widgets.meters", args: .object([:]), origin: .script)
+        let meters = (reply["meters"]?.arrayValue ?? []).filter { meter in
+            meter["mount_id"]?.stringValue.map { mounts[$0] != nil } ?? false
+        }
+        return .object(["meters": .array(meters)])
+    }
+
+    private func widgetCall(_ op: String, args: AppJSON, origin: AppOrigin) async throws -> JSONValue {
+        do {
+            return try await pageJSON(client.widgets(op, args: args, origin: origin))
+        } catch {
+            throw PageError.failed(error, code: "cmux.apps.widgets.failed", retryable: op != "apps.widgets.layout.edit")
+        }
+    }
+
     private func handle(_ event: AppsTransportEvent) {
         switch event {
         case let .scene(mountID, ops, reset):
@@ -206,6 +314,20 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
             for listener in listeners { listener.callback(data) }
         case .changed:
             for listener in changedListeners.values { listener(.null) }
+        case let .widgetsChanged(revision, place):
+            var value: [String: JSONValue] = [:]
+            if let revision { value["revision"] = .number(Double(revision)) }
+            if let place { value["place"] = .string(place) }
+            for listener in widgetsChangedListeners.values { listener(.object(value)) }
+        case let .widgetHealth(mountID, stale, reason, retryMilliseconds):
+            // Only this page's own tiles: another page's widget is not drawn here.
+            guard mounts[mountID] != nil else { break }
+            var value: [String: JSONValue] = ["mount_id": .string(mountID), "stale": .bool(stale)]
+            if let reason { value["reason"] = .string(reason) }
+            if let retryMilliseconds { value["retry_ms"] = .number(retryMilliseconds) }
+            for listener in widgetHealthListeners.values where listener.mountID == nil || listener.mountID == mountID {
+                listener.callback(.object(value))
+            }
         default:
             break
         }
