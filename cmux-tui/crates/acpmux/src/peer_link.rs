@@ -418,6 +418,30 @@ where
     wake_probe.map_or(end, |probe| probe.min(end))
 }
 
+/// How a frame write is bounded: by `budget` of silence on the transport's writes (`wrote`, the
+/// bytes it took), so a large frame on a slow uplink that keeps moving is never cut off, and one
+/// that moved nothing for `budget` is. A running wake probe's deadline stays a total cap, so a
+/// write to a link that died while the computer slept never holds the probe past it. With no
+/// `wrote` (a test transport), `budget` counts from the start (`write_deadline`).
+pub async fn write_within<F, T>(
+    write: F,
+    budget: Duration,
+    wake_probe: Option<tokio::time::Instant>,
+    wrote: Option<&cmux_deadline::Progress>,
+) -> Option<T>
+where
+    F: std::future::Future<Output = T>,
+{
+    let now = tokio::time::Instant::now();
+    match wrote {
+        Some(wrote) => {
+            let cap = wake_probe.map(|probe| probe.saturating_duration_since(now));
+            cmux_deadline::progress_timeout(budget, cap, wrote, write).await.ok()
+        }
+        None => tokio::time::timeout_at(write_deadline(now, budget, wake_probe), write).await.ok(),
+    }
+}
+
 /// When the transport under a link last read a byte, and the longest gap between two reads
 /// since `take_gap` last asked. A link is alive while bytes arrive, also in
 /// the middle of a large frame that takes longer than the silence budget to come in, so the
@@ -427,6 +451,10 @@ pub struct Heard {
     origin: tokio::time::Instant,
     at_ms: std::sync::Arc<std::sync::atomic::AtomicU64>,
     gap_ms: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    /// Bytes the transport took from a write (`cmux_deadline::ProgressIo`): a frame write ends
+    /// on `send` of silence since the last byte went out, not `send` after it started
+    /// (`write_within`).
+    wrote: cmux_deadline::Progress,
 }
 
 impl Default for Heard {
@@ -435,6 +463,7 @@ impl Default for Heard {
             origin: tokio::time::Instant::now(),
             at_ms: Default::default(),
             gap_ms: Default::default(),
+            wrote: cmux_deadline::Progress::new(),
         }
     }
 }
@@ -458,15 +487,25 @@ impl Heard {
         self.origin.elapsed().saturating_sub(at)
     }
 
+    /// The transport's write progress: each byte it took from a write.
+    pub fn wrote(&self) -> &cmux_deadline::Progress {
+        &self.wrote
+    }
+
     pub fn wrap<S>(&self, inner: S) -> HeardStream<S> {
-        HeardStream { inner, heard: self.clone(), early: Vec::new(), pending: Vec::new() }
+        self.wrap_early(inner, Vec::new())
     }
 
     /// [`Self::wrap`], with `early` (a whole WebSocket frame, `masked_text_frame`) written right
     /// behind the first write, which is the HTTP upgrade request: the peer's first request
     /// travels in the request's own flight instead of a round trip after its 101.
     pub fn wrap_early<S>(&self, inner: S, early: Vec<u8>) -> HeardStream<S> {
-        HeardStream { inner, heard: self.clone(), early, pending: Vec::new() }
+        HeardStream {
+            inner: cmux_deadline::ProgressIo::new(inner, self.wrote.clone()),
+            heard: self.clone(),
+            early,
+            pending: Vec::new(),
+        }
     }
 }
 
@@ -547,7 +586,8 @@ impl<F> Drop for Listen<'_, F> {
 
 /// A stream that marks its `Heard` on each read that returned bytes.
 pub struct HeardStream<S> {
-    inner: S,
+    /// Its writes count toward `Heard::wrote`.
+    inner: cmux_deadline::ProgressIo<S>,
     heard: Heard,
     /// Bytes to send behind the first write (`Heard::wrap_early`).
     early: Vec<u8>,

@@ -32,9 +32,11 @@
 
 use super::*;
 use crate::mesh::{
-    Ack, HubError, InMessage, Kind, MAX_READ_RESULT_BYTES, Mode, OutMessage, Sender, Target,
+    Ack, HubError, InMessage, Kind, MAX_READ_RESULT_BYTES, Mode, OutMessage, Receipt, Sender,
+    Target,
 };
 use base64::Engine;
+use cmux_deadline::IdleDeadline;
 use std::time::Duration;
 
 #[path = "mesh_read_parts.rs"]
@@ -97,8 +99,23 @@ const READ_PAGE_BYTES: u64 = 40 * 1024;
 /// The smallest budget a read halves to before it gives up on a page.
 const MIN_READ_PAGE_BYTES: u64 = 4 * 1024;
 
-/// How long a read waits for its answer. The hub expires an unanswered read after a minute.
+/// How long a read waits for its answer with no progress: the hub taking it, or its receipt
+/// moving (leased, a lease renewed, read, another attempt). Each restarts the wait, so a
+/// receiver that is slow but working is not cut off; one that does nothing for this long is.
+/// Leo, 2026-11-24: "if it's making good progress, it shiukd be allowed to keep going?" The hub
+/// still expires a read no one took (`expired`).
 pub(crate) const READ_WAIT: Duration = Duration::from_secs(50);
+
+/// What of a receipt counts as the read moving: a change in any of these.
+fn moved(receipt: &Receipt) -> (String, u32, Option<u64>, Option<u64>, Option<u64>) {
+    (
+        receipt.state.clone(),
+        receipt.attempt,
+        receipt.leased_until,
+        receipt.delivered_at,
+        receipt.read_at,
+    )
+}
 
 /// One wait on the receipt (the hub holds it at most 25 s).
 // timeout: one long-poll on the receipt (the hub holds it 25 s); READ_WAIT bounds the read.
@@ -681,21 +698,21 @@ const READ_ROUNDS: usize = 2;
 
 /// One read message to `HOST/KEY` through the hub, and the receiver's answer text. Each hub call
 /// is tried again on a failure that passes (`mesh_retry`), and a read whose receipt the hub let
-/// go of is sent again once, all within `READ_WAIT`: no try runs past it, and nothing is sent
-/// again once it has passed.
+/// go of is sent again once, all within `READ_WAIT` of the read's last progress (`moved`): no
+/// try runs past it, and nothing is sent again once it has passed.
 async fn ask(
     mesh: &dyn crate::mesh::MeshHub,
     host: &str,
     key: &str,
     body: String,
 ) -> Result<String, RpcError> {
-    let deadline = tokio::time::Instant::now() + READ_WAIT;
+    let mut wait = IdleDeadline::<tokio::time::Instant>::new(READ_WAIT, None);
     let mut round = 1;
     loop {
-        match ask_once(mesh, recipient(host, key), host, key, body.clone(), deadline).await {
+        match ask_once(mesh, recipient(host, key), host, key, body.clone(), &mut wait).await {
             Ok(text) => return Ok(text),
             // A read sent again once its wait has run out is one no one waits for.
-            Err(Asked::Gone(_)) if tokio::time::Instant::now() >= deadline => {
+            Err(Asked::Gone(_)) if wait.stalled().is_some() => {
                 return Err(unanswered(host));
             }
             Err(Asked::Gone(e)) if round < READ_ROUNDS => {
@@ -721,10 +738,10 @@ async fn ask_once(
     host: &str,
     key: &str,
     body: String,
-    deadline: tokio::time::Instant,
+    wait: &mut IdleDeadline<tokio::time::Instant>,
 ) -> Result<String, Asked> {
     // A failure once the read's wait has run out (a try it cut short among them) is no answer.
-    let failed = |e| {
+    let failed = |e, deadline: tokio::time::Instant| {
         Asked::Failed(if tokio::time::Instant::now() >= deadline {
             unanswered(host)
         } else {
@@ -741,10 +758,19 @@ async fn ask_once(
         idempotency_key: format!("read-{}", uuid::Uuid::now_v7()),
     };
     // One idempotency key for every try, so a send the hub took before a lost answer is one read.
+    let deadline = wait.end();
     let mut receipt = crate::mesh_retry::retry_within(true, deadline, || mesh.send(&message))
         .await
-        .map_err(failed)?;
+        .map_err(|e| failed(e, deadline))?;
+    // The hub took it: progress.
+    wait.progressed();
+    let mut seen = moved(&receipt);
     loop {
+        let now_moved = moved(&receipt);
+        if now_moved != seen {
+            seen = now_moved;
+            wait.progressed();
+        }
         match receipt.state.as_str() {
             "delivered" => break,
             "refused" => {
@@ -758,6 +784,7 @@ async fn ask_once(
             "expired" => return Err(Asked::Failed(unanswered(host))),
             _ => {}
         }
+        let deadline = wait.end();
         let left = deadline.saturating_duration_since(tokio::time::Instant::now());
         if left.is_zero() {
             return Err(Asked::Failed(unanswered(host)));
@@ -769,7 +796,11 @@ async fn ask_once(
             mesh.answer(&id, left.min(ANSWER_WAIT))
         };
         receipt = crate::mesh_retry::retry_within(false, deadline, call).await.map_err(|e| {
-            if e.code.as_deref() == Some("mesh.not_found") { Asked::Gone(e) } else { failed(e) }
+            if e.code.as_deref() == Some("mesh.not_found") {
+                Asked::Gone(e)
+            } else {
+                failed(e, deadline)
+            }
         })?;
     }
     receipt.result.ok_or_else(|| {
