@@ -306,7 +306,13 @@ name = "hub_carrier"
 path = "tests/hub_carrier.rs"
 required-features = ["hub-carrier"]
 
+
+# Relay re-homing: the relay a host serves on dies and the host and its dialers move to the next.
 [[test]]
 name = "pair_matrix_desktop"
 path = "tests/pair_matrix_desktop.rs"
+required-features = ["hub-carrier"]
+[[test]]
+name = "hub_carrier_rehome"
+path = "tests/hub_carrier_rehome.rs"
 required-features = ["hub-carrier"]

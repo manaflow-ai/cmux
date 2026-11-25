@@ -32,7 +32,7 @@ use crate::handshake_retry::HandshakeRetry;
 use crate::pacing::{DropCounters, Pacer, Priority};
 use crate::probing;
 use crate::stream::WgStream;
-use crate::tcp_stack::{Accepted, TcpStack};
+use crate::tcp_stack::{Accepted, TcpStack, user_timeout};
 use crate::timers::TimerSchedule;
 use crate::ultra::{UltraCounters, UltraMode, UltraStats, UltraUnderlay};
 use crate::ultra_auto::{self, AutoUltra, UltraChoice};
@@ -423,7 +423,64 @@ struct Driver {
     /// When this side last sent a handshake initiation of its own (see
     /// [`INITIATION_PENDING`]).
     initiated_at: Option<Instant>,
+    /// The last WireGuard handshake's round trip: from this side's
+    /// initiation to its response, or from this side's response to the
+    /// peer's first data. Until a tunnel TCP connection has measured one, it
+    /// sets the RTO new connections start with ([`Driver::path_rtt`]).
+    handshake_rtt: Option<Duration>,
+    /// When this side last answered an initiation, and the session index it
+    /// gave in that response, until the peer's first data on that session
+    /// times the round trip.
+    responded_at: Option<(Instant, u32)>,
+    /// Dials waiting for a session ([`Driver::begin_connect`]).
+    held_connects: Vec<HeldConnect>,
     scratch: Vec<u8>,
+}
+
+/// A dial made before the tunnel had a session. Its SYN is made once the
+/// handshake completes, so it starts with an RTO from the handshake's
+/// round trip: made before, its retransmit timer ran through the handshake
+/// with no RTT to go on, and on a 400 ms path a 300 ms RTO resent the SYN
+/// before its answer could arrive (Karn then took no RTT sample from it).
+struct HeldConnect {
+    remote: SocketAddr,
+    reply: oneshot::Sender<Result<WgStream, WgError>>,
+    since: Instant,
+}
+
+/// A handshake round trip longer than boringtun's REKEY_TIMEOUT answered an
+/// initiation boringtun resent on its own, not the one timed.
+const HANDSHAKE_SAMPLE_MAX: Duration = Duration::from_secs(5);
+
+/// The session index at bytes 4..8 of a WireGuard message: the sender's
+/// own in a response, the receiver's in a data message.
+fn wg_index(message: &[u8]) -> Option<u32> {
+    message.get(4..8).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+}
+
+/// The peer's first data on a session this side answered: the handshake's
+/// round trip. Only data addressed to the answered session counts. When both
+/// sides initiate at once (a relay's round trip is long enough for the
+/// handshakes to cross), the first data to arrive can belong to the session
+/// the peer initiated, sent before this side's response reached it; timed
+/// from the response, that sample was under the path's round trip (153 ms on
+/// a 400 ms relay) and new connections resent their SYN-ACK early.
+fn note_answered(
+    datagram: &[u8],
+    responded_at: &mut Option<(Instant, u32)>,
+    handshake_rtt: &mut Option<Duration>,
+) {
+    let Some((at, index)) = *responded_at else {
+        return;
+    };
+    if classify(datagram) != DatagramClass::WireGuardData || wg_index(datagram) != Some(index) {
+        return;
+    }
+    *responded_at = None;
+    let rtt = Instant::now().saturating_duration_since(at);
+    if rtt < HANDSHAKE_SAMPLE_MAX {
+        *handshake_rtt = Some(rtt);
+    }
 }
 
 /// After this side sent a handshake initiation, a segment queued with no
@@ -522,6 +579,9 @@ impl Driver {
             wakeups: Arc::new(AtomicU64::new(0)),
             reassert_at_release: false,
             initiated_at: None,
+            handshake_rtt: None,
+            responded_at: None,
+            held_connects: Vec::new(),
             scratch: vec![0u8; BUFFER_BYTES + 32],
         })
     }
@@ -626,8 +686,9 @@ impl Driver {
     fn handle_datagram(&mut self, datagram: &[u8], origin: Origin) {
         let mut input = datagram;
         let source = origin.addr.map(|addr| addr.ip());
+        let input_kind = classify(datagram);
         let handshake = matches!(
-            classify(datagram),
+            input_kind,
             DatagramClass::WireGuardInitiation | DatagramClass::WireGuardResponse
         );
         let mut replay = Vec::new();
@@ -640,6 +701,7 @@ impl Driver {
                     if !input.is_empty() && classify(input) == DatagramClass::WireGuardData {
                         self.underlay.authenticated(origin);
                         note_inbound(&mut self.watchdog, &mut self.last_inbound, &mut self.resumed);
+                        note_answered(datagram, &mut self.responded_at, &mut self.handshake_rtt);
                     }
                     break;
                 }
@@ -652,6 +714,7 @@ impl Driver {
                     // Nor does it begin a session: the handshake it
                     // answers is unchecked, so it leaves the watchdog armed.
                     let kind = classify(packet);
+                    let index = wg_index(packet);
                     let cookie = kind == DatagramClass::WireGuardCookieReply;
                     if kind == DatagramClass::WireGuardResponse {
                         self.wait_for_handshake_until
@@ -665,6 +728,7 @@ impl Driver {
                     // An answered handshake message begins a new session.
                     if handshake && !cookie && !input.is_empty() {
                         replay = self.watchdog.on_new_session();
+                        self.time_handshake(input_kind, kind, index);
                     }
                     input = &[];
                 }
@@ -693,6 +757,7 @@ impl Driver {
                     }
                     self.underlay.authenticated(origin);
                     note_inbound(&mut self.watchdog, &mut self.last_inbound, &mut self.resumed);
+                    note_answered(datagram, &mut self.responded_at, &mut self.handshake_rtt);
                     if hello.is_some() || off_path.is_some() {
                         // Taken above; neither is activity.
                     } else if let Some(probe) = probing::decode(packet).filter(|_| allowed) {
@@ -747,15 +812,16 @@ impl Driver {
         // last initiation: duplicated copies of a crossed initiation would
         // otherwise restart both ends until REKEY_TIMEOUT.
         let no_session = self.tunn.time_since_last_handshake().is_none();
+        let waiting = self.pacer.has_queued() || !self.held_connects.is_empty();
         if no_session
-            && self.pacer.has_queued()
+            && waiting
             && self.wait_for_handshake_until.is_none()
             && self.initiated_at.is_none_or(|at| now.duration_since(at) >= INITIATION_PENDING)
         {
             self.initiate_handshake();
         }
         if no_session {
-            self.handshake_retry.set_waiting(now, self.pacer.has_queued());
+            self.handshake_retry.set_waiting(now, waiting);
         } else {
             self.handshake_retry.on_session();
         }
@@ -793,6 +859,9 @@ impl Driver {
         if std::mem::take(&mut self.resumed) | roamed {
             self.stack.path_changed();
         }
+        let path_rtt = self.path_rtt();
+        self.stack.set_path_rtt(path_rtt);
+        self.release_held_connects();
         loop {
             let progressed = self.stack.step();
             self.flush_tx();
@@ -888,7 +957,53 @@ impl Driver {
         }
     }
 
-    /// Start a connection from this side's address in `remote`'s family.
+    /// The path's round trip for a new connection's first RTO: the tunnel
+    /// TCP's own estimate once a connection measured one, else the last
+    /// handshake's.
+    fn path_rtt(&self) -> Option<Duration> {
+        self.pacer.srtt().or(self.handshake_rtt)
+    }
+
+    /// Time the handshake that `input` (an initiation or response) just
+    /// completed or answered, `output` being what this side sent back and
+    /// `index` its session index.
+    fn time_handshake(&mut self, input: DatagramClass, output: DatagramClass, index: Option<u32>) {
+        let now = Instant::now();
+        if input == DatagramClass::WireGuardResponse {
+            let rtt = self.initiated_at.map(|at| now.saturating_duration_since(at));
+            if let Some(rtt) = rtt.filter(|rtt| *rtt < HANDSHAKE_SAMPLE_MAX) {
+                self.handshake_rtt = Some(rtt);
+            }
+        } else if output == DatagramClass::WireGuardResponse {
+            self.responded_at = index.map(|index| (now, index));
+        }
+    }
+
+    /// Make the SYNs of dials held for a session once there is one; fail
+    /// one held past its user timeout, as its SYN would have.
+    fn release_held_connects(&mut self) {
+        if self.held_connects.is_empty() {
+            return;
+        }
+        let session = self.tunn.time_since_last_handshake().is_some();
+        let now = Instant::now();
+        for held in std::mem::take(&mut self.held_connects) {
+            let waited = now.saturating_duration_since(held.since);
+            if held.reply.is_closed() {
+                continue;
+            } else if session {
+                self.connect_now(held.remote, held.reply);
+            } else if waited >= user_timeout(held.remote.port()) {
+                let _ = held.reply.send(Err(WgError::HandshakeTimeout(waited)));
+            } else {
+                self.held_connects.push(held);
+            }
+        }
+    }
+
+    /// Start a connection to `remote`; with no session yet, hold it until
+    /// the handshake gives its RTO a round trip ([`HeldConnect`]). The
+    /// held dial starts the handshake as a queued segment would.
     fn begin_connect(
         &mut self,
         remote: SocketAddr,
@@ -897,6 +1012,19 @@ impl Driver {
         if reply.is_closed() {
             return;
         }
+        if self.tunn.time_since_last_handshake().is_none() {
+            self.held_connects.push(HeldConnect { remote, reply, since: Instant::now() });
+            return;
+        }
+        self.connect_now(remote, reply);
+    }
+
+    /// Start a connection from this side's address in `remote`'s family.
+    fn connect_now(
+        &mut self,
+        remote: SocketAddr,
+        reply: oneshot::Sender<Result<WgStream, WgError>>,
+    ) {
         match self.config.local_address_for(remote.ip()) {
             Some(local) => self.stack.begin_connect(local, remote, None, reply),
             None => {
