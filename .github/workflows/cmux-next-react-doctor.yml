@@ -71,6 +71,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /scripts/ci/
+            /.gitmodules
       # A router failure leaves the output empty, and the gate runs.
       - name: Route the pull request (scripts/ci/fast_check_route.py)
         id: route

@@ -64,6 +64,7 @@ jobs:
             scripts/ci
             cmux-next-ios/project.yml
             cmux-next-ios/CmuxMobileKit/Package.swift
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Decide
