@@ -2,6 +2,7 @@
 import CmuxMobileDesign
 import CmuxMobileModel
 import SwiftUI
+import UIKit
 
 /// What a terminal tab's page needs to know from the tabs chrome.
 public struct TerminalTabContext {
@@ -89,6 +90,12 @@ public protocol TerminalTabContent: AnyObject {
     /// Mac; a nil tab: any terminal of that Mac may have, its event stream
     /// started again) while `owner` lives. One handler per owner.
     func observeOutput(_ owner: AnyObject, _ handler: @escaping @MainActor (String?, String) -> Void)
+    /// The person leaves `tab` (for the grid or another tab) or the app goes to the background:
+    /// `keep` hears the tab's card picture as last drawn, once it is ready, and the source keeps
+    /// it as the tab's last-known picture (`TabCardSnapshots`). `fresh`: the page is still on
+    /// screen, so it is copied now and composed off the main thread first. Nothing for a tab
+    /// with no host, nor one whose page never drew the Mac's output.
+    func captureCard(for tab: WorkspaceTab, fresh: Bool, keep: @escaping @MainActor (UIImage) -> Void)
 }
 
 extension TerminalTabContent {
@@ -105,6 +112,7 @@ extension TerminalTabContent {
     public func statusSubtitle(for tab: WorkspaceTab) -> String? { nil }
     public func sceneActiveChanged(_ active: Bool) {}
     public func observeOutput(_ owner: AnyObject, _ handler: @escaping @MainActor (String?, String) -> Void) {}
+    public func captureCard(for tab: WorkspaceTab, fresh: Bool, keep: @escaping @MainActor (UIImage) -> Void) {}
 }
 
 /// A page menu row a terminal tab adds.

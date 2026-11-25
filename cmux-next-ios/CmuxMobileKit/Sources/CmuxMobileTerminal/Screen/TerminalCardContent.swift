@@ -16,24 +16,33 @@ public enum TerminalCardContent: Equatable, Sendable {
     /// greyed, Leo 2026-11-24), but not counted as the current screen (VERIFY-round8 Claim 8: old Codex output shown while
     /// the Mac had moved on).
     case savedFrame
+    /// The tab's last-known picture (`TabCardSnapshots`: the card as drawn when the person last
+    /// left the tab or the app went to the background), for a tab whose page has no picture and
+    /// the Mac no screen yet: an unhosted terminal after a relaunch, never an empty card when the
+    /// phone has shown the tab (Leo, 2026-11-24: "there are too many empty previews in the safari
+    /// grid thing"). Not counted as the current screen.
+    case lastKnown
     /// Nothing is known of the tab yet: the card is the terminal's background.
     case nothing
 
     /// `screenTextIsNewer`: the Mac's screen text arrived after the page's
     /// last snapshot (a started tab whose page is off screen while the grid
     /// shows, D6): the text is the current screen then.
+    /// `hasLastKnown`: the tab has a last-known picture (`TabCardSnapshots`), drawn where the card
+    /// would otherwise show nothing.
     public static func choose(sessionStarted: Bool, hasSnapshot: Bool, screenText: String?,
-                              screenTextIsNewer: Bool = false) -> Self {
+                              screenTextIsNewer: Bool = false, hasLastKnown: Bool = false) -> Self {
         let text = screenText.map { $0.contains(where: { !$0.isWhitespace }) } ?? false
+        let empty: Self = hasLastKnown ? .lastKnown : .nothing
         if sessionStarted {
             if screenTextIsNewer, text { return .screenText }
             if hasSnapshot { return .snapshot }
-            return text ? .screenText : .nothing
+            return text ? .screenText : empty
         }
         // Not opened in this launch: a saved frame may be from long ago (or a
         // blank first frame); the Mac's screen now is the truth.
         if text { return .screenText }
-        return hasSnapshot ? .savedFrame : .nothing
+        return hasSnapshot ? .savedFrame : empty
     }
 
     /// How strongly the card's picture is drawn: always full. A last-known frame is not greyed
@@ -45,7 +54,7 @@ public enum TerminalCardContent: Equatable, Sendable {
     public var isCurrent: Bool {
         switch self {
         case .snapshot, .screenText: true
-        case .savedFrame, .nothing: false
+        case .savedFrame, .lastKnown, .nothing: false
         }
     }
 }

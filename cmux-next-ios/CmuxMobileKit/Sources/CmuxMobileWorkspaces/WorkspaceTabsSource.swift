@@ -553,7 +553,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         guard workspaceTab(id) != nil else { return }
         // verify/e2e: the touch that switches tabs (the rig's tab_switch t0).
         ConnectTimeline.shared.event("tab_activate", detail: id)
-        if id != activeTabID { snapshotPage(activeTabID) }
+        if id != activeTabID { keepLastKnownPicture(of: activeTabID, when: .leftForTab) }
         selectedTabID = id
         store.noteOpened(tabID: id, in: workspaceID)
         if heldTranscriptTab != nil { holdActiveTranscript(true) }
@@ -1344,6 +1344,90 @@ public final class WorkspaceTabsSource: TabsDataSource {
         snapshotPage(id, freezingStreams: true)
         freezeStreams(true)
         if let tab = workspaceTab(id), tab.kind == .terminal { terminal.overviewWillAppear(active: tab) }
+        // The page just left for the grid: its terminal or agent picture is kept too (the
+        // browser's is the snapshot above). The terminal's still was just copied above.
+        keepLastKnownPicture(of: id, when: .leftForGrid)
+    }
+
+    /// When a tab's picture is kept as its last-known one (`keepLastKnownPicture`).
+    enum PictureMoment {
+        /// A tap or swipe to another tab: the page is still on screen.
+        case leftForTab
+        /// The grid opens on the tab (its page was copied by the grid's opening already).
+        case leftForGrid
+        /// The app goes to the background.
+        case background
+    }
+
+    /// Agent pictures waiting to be drawn after a tab switch settles (`keepLastKnownPicture`).
+    @ObservationIgnored private var pendingAgentPictures: [String: Task<Void, Never>] = [:]
+    /// How long after a tab switch a left agent tab's picture is drawn: past the switch's
+    /// animation, so its render is never in a moving frame.
+    static let agentPictureDelay: Duration = .milliseconds(500)
+
+    /// Every kind of tab keeps the picture its card shows as its last-known picture
+    /// (`TabCardSnapshots`) when the person leaves it, for the grid or another tab, and when the
+    /// app goes to the background, so a card whose content is not ready on a later launch (a
+    /// chat awaiting its history, a terminal with no host yet) draws it rather than nothing.
+    /// Leo, 2026-11-24: "there are too many empty previews in the safari grid thing we ought to
+    /// be able to simply capture them before they get hibernated maybe". Before, only the grid
+    /// drew agent pictures and only a browser page kept one on leave; a terminal kept none here.
+    func keepLastKnownPicture(of id: String?, when moment: PictureMoment) {
+        guard let id, let workspace = workspaceSnapshot ?? listedWorkspace,
+              let tab = workspace.tabs.first(where: { $0.id == id }) else { return }
+        switch tab.kind {
+        case .browser, .simulator:
+            // The grid's opening took it already (`overviewWillAppear`).
+            if moment != .leftForGrid { snapshotPage(id) }
+        case .terminal:
+            terminal.captureCard(for: tab, fresh: moment != .leftForGrid) { [weak self] image in
+                self?.keepPicture(image, of: id, macID: workspace.macID)
+            }
+        case .agent:
+            let feed = cardFeed(tab, workspace)
+            switch moment {
+            case .leftForGrid:
+                // The grid draws it as it rests (`want`), and keeps it then.
+                feed.catchUp()
+                rasterizer.keepLastKnown(feed, agentCardKey(feed, tab), drawNow: false)
+            case .background:
+                feed.catchUp()
+                rasterizer.keepLastKnown(feed, agentCardKey(feed, tab), drawNow: true)
+            case .leftForTab:
+                pendingAgentPictures[id]?.cancel()
+                pendingAgentPictures[id] = Task { @MainActor [weak self, weak feed] in
+                    try? await Task.sleep(for: Self.agentPictureDelay)
+                    guard let self, let feed, !Task.isCancelled else { return }
+                    self.pendingAgentPictures[id] = nil
+                    // Back on the tab meanwhile: kept when it is left again.
+                    guard self.activeTabID != id else { return }
+                    feed.catchUp()
+                    // The grid opened meanwhile: drawn as it rests, never in its zoom.
+                    self.rasterizer.keepLastKnown(feed, self.agentCardKey(feed, tab), drawNow: !self.gridShown)
+                }
+            }
+        }
+    }
+
+    /// A tab's card picture becomes its last-known picture, at a card's resolution.
+    private func keepPicture(_ image: UIImage, of tabID: String, macID: String) {
+        guard let key = snapshots.key(macID: macID, tabID: tabID) else { return }
+        snapshots.put(image, for: key, pixelWidth: (image.size.width * image.scale * cardScale).rounded(.up))
+    }
+
+    /// The key an agent card is drawn at: the grid's (`AgentCardRasterizer.lastKey`) once it drew
+    /// a card, else the page's size, scheme and text size now (a grid not opened in this launch).
+    func agentCardKey(_ feed: AgentCardFeed, _ tab: WorkspaceTab) -> AgentCardRasterKey {
+        let traits = UITraitCollection.current
+        let template = rasterizer.lastKey
+        let page = template?.page ?? CGSize(width: pageWidth, height: pageHeight)
+        return AgentCardRasterKey.current(
+            feed, colorScheme: template?.colorScheme ?? (traits.userInterfaceStyle == .light ? .light : .dark),
+            page: page, visibleHeight: template?.visibleHeight ?? min(page.height, page.width * AgentTabCard.cardAspect),
+            topInset: lastInsets.top + 8,
+            bottomInset: WorkspaceTabPage.bottomInset(surface: surface(tab.id)),
+            scale: template?.scale ?? max(1, traits.displayScale) * cardScale,
+            textSize: template?.textSize ?? DynamicTypeSize(traits.preferredContentSizeCategory) ?? .large)
     }
 
     /// A browser or simulator page takes the picture its card shows while it is still on screen:
@@ -1473,6 +1557,16 @@ public final class WorkspaceTabsSource: TabsDataSource {
         return nil
     }
 
+    /// The app goes to the background: the tab on screen keeps its picture, and every terminal
+    /// with a page this launch keeps its card's (each a JPEG encoded off the main thread). Other
+    /// agent cards kept theirs when the grid drew them.
+    private func keepLastKnownPictures() {
+        keepLastKnownPicture(of: activeTabID, when: .background)
+        for tab in workspaceSnapshot?.tabs ?? [] where tab.kind == .terminal && tab.id != activeTabID {
+            keepLastKnownPicture(of: tab.id, when: .leftForGrid)
+        }
+    }
+
     /// The app went to the background (false) or came back (true): `WorkspaceScreen`'s
     /// scene phase. The grid's view stays "visible" while the app is in the background.
     /// The workspace screen went away: TabsView sends no `overviewVisibilityChanged(false)`
@@ -1485,6 +1579,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     public func sceneActiveChanged(_ active: Bool) {
         guard active != sceneActive else { return }
         sceneActive = active
+        if !active { keepLastKnownPictures() }
         terminal.sceneActiveChanged(active)
         if active {
             // Output in the background was not read: the grid reads as it opens.
