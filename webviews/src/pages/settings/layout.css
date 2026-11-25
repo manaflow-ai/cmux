@@ -1257,6 +1257,29 @@
   box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
 }
 
+/* Beta chips (appearance.settingsBetaChips, off by default; betaChips.ts): a compact accent-tinted
+   chip beside an experimental row's title and the Experimental sidebar entry. Off, none is drawn. */
+.beta-chip {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  margin-inline-start: var(--page-size-6);
+  padding: 0 var(--page-size-6);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--ds-color-accent);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis);
+  line-height: var(--page-size-18);
+  letter-spacing: 0.02em;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+
+.section-link .beta-chip {
+  margin-inline-start: 0;
+}
+
 /* Settings > Customize (components/CustomizeChecklist.tsx): one search over dense groups, each a
    header with its count and one switch per row. */
 .checklist-search {
