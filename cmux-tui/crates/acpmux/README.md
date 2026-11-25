@@ -457,7 +457,12 @@ id `<promptId>~resume-<n>` and `_meta.provenance.kind` `auto_resume`. Stop, clos
 anything else run in it meanwhile cancels it, and a continuation that completes resumes the
 prompts the cut turn held (`hub/auto_resume.rs`). While it waits the session row's `retry` is
 `{attempt, of, reason, nextAt, promptId, turnId}` (`reason` `capacity`, `rate_limit`, `transport`,
-`agent_exited` or `disk`), null otherwise. A turn a full disk cut ("No space left on device")
+`agent_exited` or `disk`), null otherwise. A capacity error, a rate limit and a refused connection
+(`ECONNREFUSED`: the inference gateway is down) never run out of attempts (`untilCapacity: true`
+on their `auto_resume_scheduled`): a capacity error's or a refused connection's waits are the
+configured ones, then the last one doubling, each at most 5 min; a rate limit's are the chat's
+backoff below. Any other connection error stops after the configured attempts
+(`auto_resume_exhausted`). A turn a full disk cut ("No space left on device")
 waits past its delay until the chat's folder has `autoResumeDiskFreeBytes` free (default 16 MiB,
 re-checked every 15 s), then goes on the same way. From the `capacityFallbackAfter`th capacity attempt of one prompt
 on (default 1, `0` never; Settings' `agents.autoRetry.capacityFallbackAfter` when config.json has
