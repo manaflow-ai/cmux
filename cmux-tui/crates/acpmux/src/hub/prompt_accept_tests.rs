@@ -133,6 +133,48 @@ async fn an_idle_prompt_is_deferred_if_dispatch_blocks_before_first_acceptance()
     assert_eq!(messages, [json!("idle-config-deadline")]);
 }
 
+#[tokio::test]
+async fn dropping_an_unaccepted_turn_lock_wait_retires_its_queue_count() {
+    let (hub, session) = chat().await;
+    let _held = session.turn_lock.lock().await;
+    let blocks = [json!({"type": "text", "text": "waiting"})];
+    let replaced = std::sync::OnceLock::new();
+    let slot = super::queue::Slot {
+        text: "waiting",
+        blocks: &blocks,
+        display_parts: None,
+        client: "test",
+        prompt_id: "unaccepted-wait",
+        control: Control::Local,
+        cloud_mobile: false,
+        trust_gate: false,
+        interrupt: false,
+        interrupt_turn: None,
+        provenance: None,
+        agent: None,
+        class: None,
+        supersede: None,
+        full_access_device: None,
+        replaced: &replaced,
+        no_queue: false,
+        admitted: false,
+        after_turn: false,
+        steer_on_start: false,
+        answer_due: None,
+    };
+    let mut accept = |_| panic!("the prompt has not reached acceptance");
+    let mut setup = Box::pin(hub.queue_slot(&session, slot, &mut accept));
+    tokio::select! {
+        biased;
+        _ = &mut setup => panic!("the turn lock is held"),
+        () = std::future::ready(()) => {}
+    }
+    assert_eq!(session.queued(), 1);
+    drop(setup);
+    assert_eq!(session.queued(), 0);
+    assert!(session.queue().is_empty());
+}
+
 /// Two prompts sent while a turn is ahead of them both queue. The first of them waits in
 /// `queue_slot` for that whole turn; it must not keep the admission order's lock while it
 /// waits, or the second is never accepted (ten live moves: "q-2 never queued").

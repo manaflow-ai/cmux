@@ -11,6 +11,18 @@ use super::*;
 use cmux_json::JsonSet as _;
 use std::sync::atomic::Ordering;
 
+/// The speculative queue count while a prompt waits for the turn lock. If its
+/// admission deadline drops that wait, no queue entry exists to retire the count.
+struct TurnLockWait<'a>(Option<&'a std::sync::atomic::AtomicU64>);
+
+impl Drop for TurnLockWait<'_> {
+    fn drop(&mut self) {
+        if let Some(count) = self.0 {
+            count.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+}
+
 // A prompt dequeued for a turn that never started goes back at the head (`restore_queue`).
 #[path = "lost_start.rs"]
 mod lost_start;
@@ -509,6 +521,7 @@ impl Hub {
                             tokio::time::Instant::now() + super::prompt_admission::TURN_LOCK_WAIT,
                         )
                     });
+                    let mut pending = TurnLockWait(Some(&session.queued));
                     let guard = loop {
                         let done = session.restore_done.notified();
                         tokio::pin!(done);
@@ -535,6 +548,8 @@ impl Hub {
                             None => done.await,
                         }
                     };
+                    // The synchronous claim or enqueue below now owns this count.
+                    pending.0.take();
                     // `waiting` was read before the lock: a prompt the owner approved (or a
                     // resumed one) since then waits in the queue ahead of this one and keeps its
                     // place (`queue_approve.rs`). This one queues behind it, never claiming the
