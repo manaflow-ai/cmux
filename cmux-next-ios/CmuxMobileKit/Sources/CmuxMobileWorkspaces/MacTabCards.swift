@@ -410,7 +410,9 @@ public final class MacTabCards {
                     switch part.slot {
                     case .screen: return Loaded(part: part, text: bytes.map { String(decoding: $0, as: UTF8.self) })
                     case .favicon: return Loaded(part: part, image: bytes.flatMap { UIImage(data: $0) })
-                    case .thumb: return Loaded(part: part, image: bytes.flatMap { UIImage(data: $0) }?.preparingForDisplay())
+                    // A Mac thumbnail that is a placeholder (`CardPictureGate`) is never shown.
+                    case .thumb: return Loaded(part: part, image: bytes.flatMap { UIImage(data: $0) }
+                        .flatMap { CardPictureGate.isPlaceholder($0) ? nil : $0 }?.preparingForDisplay())
                     }
                 }
             }.value
