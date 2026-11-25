@@ -546,6 +546,63 @@ def test_ci_runs_this_guard_in_workflow_guard_tests() -> None:
     assert "python3 tests/test_ci_reusable_workflow_permissions.py" in reached, job
 
 
+def test_issue_55503_a_second_caller_of_the_same_callee_without_its_grant_fails() -> None:
+    # #55503's shape: base-coalesce.yml's coalesce job asks for actions: read (skipped by an `if:` on the
+    # mark_failed call); cmux-tui-artifacts.yml's coalesce job granted it, its new coalesce-failed job, under the
+    # workflow's `permissions: {}`, did not. GitHub failed every run of the caller at startup, with no check posted.
+    callee = """\
+        on:
+          workflow_call:
+            inputs:
+              mark_failed:
+                type: boolean
+                default: false
+        permissions: {}
+        jobs:
+          coalesce:
+            if: ${{ !inputs.mark_failed }}
+            permissions:
+              actions: read
+            runs-on: ubuntu-latest
+            steps:
+              - run: echo decide
+          mark:
+            if: ${{ inputs.mark_failed }}
+            runs-on: ubuntu-latest
+            steps:
+              - run: echo mark
+        """
+    caller = textwrap.dedent("""\
+        on: push
+        permissions: {}
+        jobs:
+          coalesce:
+            permissions:
+              actions: read
+            uses: ./.github/workflows/base-coalesce.yml
+          coalesce-failed:
+            needs: [coalesce]
+            uses: ./.github/workflows/base-coalesce.yml
+            with:
+              mark_failed: true
+        """)
+    failures = failures_for({"artifacts.yml": caller, "base-coalesce.yml": callee})
+    assert len(failures) == 1, failures
+    assert "job 'coalesce-failed'" in failures[0] and "requests 'actions: read'" in failures[0], failures
+    fixed = caller.replace("    needs: [coalesce]\n", "    needs: [coalesce]\n    permissions:\n      actions: read\n")
+    assert failures_for({"artifacts.yml": fixed, "base-coalesce.yml": callee}) == []
+
+
+def test_every_pull_request_head_runs_the_check_over_every_workflow() -> None:
+    # A PR's own CI often runs none of the workflows it changes, so the check runs in the pr router's route job
+    # (every head into feat-cmux-next), over the merge commit's whole .github/workflows.
+    router = (WORKFLOWS_DIR / "pr-router.yml").read_text(encoding="utf-8")
+    route = router.split("\n  route:\n", 1)[1].split("\n  size-budget:\n", 1)[0]
+    assert "            .github/workflows/\n" in route, "the route job's sparse checkout lacks .github/workflows/"
+    assert "python3 -I scripts/ci/check_reusable_workflow_permissions.py --workflows-dir .github/workflows" in route
+    assert route.index("check_reusable_workflow_permissions.py --workflows-dir") < route.index("pr_router.py route")
+
+
 if __name__ == "__main__":
     for name, value in sorted(globals().items()):
         if name.startswith("test_") and callable(value):

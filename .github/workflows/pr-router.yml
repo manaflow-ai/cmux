@@ -79,7 +79,15 @@ jobs:
             scripts/ci/check_reusable_workflow_permissions.py
             scripts/ci/deadline_http.py
             ci/steps.toml
+            .github/workflows/
           sparse-checkout-cone-mode: false
+      # A workflow whose reusable-workflow call asks for more permissions than its caller grants fails at startup on
+      # every run, and a startup failure posts no check: #55503 merged green over two such calls to base-coalesce.yml
+      # (cmux-tui-artifacts.yml coalesce-failed, cmux-next.yml pure-checks-coalesce), and from 19:08Z 2026-11-25 every
+      # push of both workflows ended startup_failure, so no tree was published for an hour. The workflows a PR changes
+      # are often not ones its own CI runs, so this reads every workflow of the merge commit, here, on every head.
+      - name: Every reusable-workflow call stays within its caller's permissions
+        run: python3 -I scripts/ci/check_reusable_workflow_permissions.py --workflows-dir .github/workflows
       - name: Route
         id: route
         # A draft head starts only callees marked `draft` (scripts/ci/head_tier.py); 0 turns that off.
