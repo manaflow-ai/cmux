@@ -221,6 +221,13 @@ final class MacScreenCardView: MacScreenThemedView {
         stack.addArrangedSubview(spinner)
     }
 
+    private func glyph(_ symbol: String, ink: KeyPath<MacScreenColors, NSColor>) {
+        let font = MacScreenType.glyph
+        let glyph = MacScreenGlyph(symbol, font: font, ink: ink)
+        glyph.heightAnchor.constraint(equalToConstant: ceil(font.ascender - font.descender)).isActive = true
+        stack.addArrangedSubview(glyph)
+    }
+
     private func buttons(_ buttons: [NSView]) {
         stack.addArrangedSubview(MacScreenStack.make(.horizontal, spacing: 8, alignment: .centerY, buttons))
     }

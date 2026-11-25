@@ -438,7 +438,6 @@ public final class MacScreenSession {
                         default: end(String(describing: why))
                         }
                     }
-                    }
                     return
                 case .connecting, .waitingForConsent:
                     continue
@@ -522,7 +521,6 @@ public final class MacScreenSession {
         disconnect()
         timedOutStage = stage
         phase = .failed(message: detail, needsSignIn: false)
-    }
     }
 
     /// Whether a `path.kind` of `cmux rd` is a relayed path (the hub's `path` signal says so).

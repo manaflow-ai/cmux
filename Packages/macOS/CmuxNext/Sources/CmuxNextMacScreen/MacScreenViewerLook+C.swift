@@ -128,6 +128,12 @@ struct MacScreenFullPaneState {
         case .waitingForPicture:
             return Spec(symbol: symbol, headline: String(format: L.t("macScreen.full.connectingTitle", "Connecting to %@"), name),
                         steps: sessionSteps, activeStep: 2, secondary: cancel { $0.disconnect() })
+        case let .cantShare(sentence):
+            return Spec(symbol: "rectangle.slash", ink: \.attention,
+                        headline: String(format: L.t("macScreen.card.cantShareTitle", "%@ can’t share its screen"), name),
+                        why: sentence ?? String(format: L.t("macScreen.card.noPictureBody", "No picture has come from %@ yet."), name),
+                        secondary: closeTab(id: "macScreen.card.cantShare.closeTab"),
+                        primary: primary(L.t("macScreen.card.retry", "Try Again"), hint: .return, id: "macScreen.card.cantShare.retry") { $0.connect() })
         case .failed:
             return failed()
         case .ended:
