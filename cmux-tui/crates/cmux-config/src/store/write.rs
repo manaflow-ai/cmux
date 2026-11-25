@@ -66,6 +66,8 @@ pub(super) fn apply_write(
         return Err(Refusal::RevisionConflict { expected, actual: state.revision });
     }
     let source = state.source.as_str();
+    // Undo and restore write a saved text back as it was: no background note.
+    let recovers = matches!(op, Op::Undo { .. } | Op::Restore { .. });
     let mut undoes = None;
     let (text, applied_edits) = match op {
         Op::Set { target, value, meta } => {
@@ -112,12 +114,16 @@ pub(super) fn apply_write(
         }
         next.recompute();
         // Once per write, so an edit batch records the background it started from.
-        let text = match record_background(state, &next, text)? {
-            Recorded::Same(text) => text,
-            Recorded::Changed(text) => {
-                next.read_file(super::FileRead::Text(text.clone()));
-                next.recompute();
-                text
+        let text = if recovers {
+            text
+        } else {
+            match record_background(state, &next, text)? {
+                Recorded::Same(text) => text,
+                Recorded::Changed(text) => {
+                    next.read_file(super::FileRead::Text(text.clone()));
+                    next.recompute();
+                    text
+                }
             }
         };
         next.revision = state.revision + 1;

@@ -53,7 +53,7 @@ export const PermissionCardFrame = React.forwardRef<HTMLFieldSetElement, Permiss
     const titleId = React.useId();
     // The ask role's shell (ui/surface): the content material, the card corner, the hairline, the
     // type and the padding are the role's, the same as every other card in the transcript. The
-    // `acpmux-permission-card` class is a hook for keys.css and the tests, with no shell rules.
+    // `acpmux-permission-card` class is a hook for styles.css and the tests, with no shell rules.
     return (
       <Surface
         as="fieldset"

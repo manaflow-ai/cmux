@@ -187,8 +187,31 @@ body {
   overflow: hidden;
 }
 
-:root[data-cmux-editor-status-bar="false"] .ed-status {
+:root[data-cmux-editor-status-bar="false"] .ed-status:not([data-vim]) {
   display: none;
+}
+
+/* Vim's mode line (`editor.vimMode`, vimMode.ts): the mode, its `:` prompt, notices, pending keys. */
+.ed-vim-slot {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.ed-vim {
+  font-family: var(--cmux-editor-font-family);
+  color: var(--page-text);
+}
+.ed-vim > span + span {
+  margin-left: var(--ds-space-3);
+}
+.ed-vim input {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0;
+  width: 40ch;
 }
 
 /* Monaco reads its fonts from options (settings.ts); its widgets follow the page's UI font. */

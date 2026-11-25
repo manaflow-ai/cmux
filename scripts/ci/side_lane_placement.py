@@ -1037,8 +1037,34 @@ def gateway_taken(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] |
     return taken
 
 
+# cmux-next.yml fast-tier-fleet's `cmux-ci ... --queue-timeout`: past it the client gives up with no verdict.
+FLEET_CLIENT_QUEUE_WAIT_S = 1200
+FLEET_CONTROLLER = "http://100.89.225.106:18765"
+
+
+def fleet_queue_p90(env: Mapping[str, str], read: Any = None) -> float | None:
+    """The build fleet's light-class queue-wait p90 in seconds (its /v1/status), or None when unread.
+
+    Why: docs/ci/cmux-next-workflow-notes.md note-558. None fails open: placement lists the job as before.
+    """
+    import json
+    import urllib.request
+    base = (env.get("CMUX_FLEET_CONTROLLER") or FLEET_CONTROLLER).rstrip("/")
+    try:
+        if read is None:
+            with urllib.request.urlopen(f"{base}/v1/status", timeout=5) as response:
+                body = response.read()
+        else:
+            body = read(f"{base}/v1/status")
+        value = json.loads(body).get("step_queue_wait_p90_seconds", {}).get("light")
+        return float(value) if value is not None else None
+    except Exception:
+        return None
+
+
 def fleet_gateway(placed: Any, env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
-                  gateway: str, taken: Mapping[str, int] | None = None) -> Any:
+                  gateway: str, taken: Mapping[str, int] | None = None,
+                  queue_p90: float | None = None) -> Any:
     """`placed` with its fleet_jobs kept only while `gateway` has an idle runner for each of them.
 
     A listed job's build-fleet client (cmux-next.yml's <job>-fleet) runs on gateway_runner beside
@@ -1050,9 +1076,16 @@ def fleet_gateway(placed: Any, env: Mapping[str, str], runners: Sequence[Mapping
 
     A kept job that a Blacksmith macOS label also took (next_macos_cascade.place() lists it so the fleet
     builds it warm) leaves that label; a dropped one keeps it.
+
+    A fleet whose light queue p90 (`queue_p90`) is past the client's wait lists nothing: the client would
+    give up with no verdict while its steps kept their place and ran for nobody (note-558).
     """
     if not placed.fleet_jobs:
         return placed
+    if queue_p90 is not None and queue_p90 > FLEET_CLIENT_QUEUE_WAIT_S:
+        return dataclasses.replace(placed, fleet_jobs=(), why=(
+            f"{placed.why}; the build fleet's light queue p90 is {round(queue_p90 / 60)} min, past its client's "
+            f"{FLEET_CLIENT_QUEUE_WAIT_S // 60}-minute wait, so {', '.join(placed.fleet_jobs)} keep their route"))
     want = len((env.get("GATEWAY_JOBS") or "").split()) + len(placed.fleet_jobs)
     room = (pool.live_owned_free(runners, [gateway])[gateway] - (taken or {}).get(gateway, 0)
             if gateway and runners is not None else 0)
@@ -1552,7 +1585,8 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
     placed = cascade.place(env, owned, live, waiting, seen, promote_busy=promotion_busy,
                            saturated=runners is not None, route_wait=route_wait(route, runners, seen))
     # A job listed for the build fleet runs its client on the gateway only with an idle runner of its own there.
-    placed = fleet_gateway(placed, env, runners, gateway, taken)
+    placed = fleet_gateway(placed, env, runners, gateway, taken,
+                           fleet_queue_p90(env) if placed.fleet_jobs else None)
     # With no GUI route that has room, the GUI jobs take the largest Blacksmith macOS size that starts them now,
     # after the slots this run's cascade just took (gui_overflow()). An unread fleet vouches for no owned GUI
     # queue either, so it overflows too, as it did before (the step's synthesized `runner` sent it to 6 vCPU).

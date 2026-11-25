@@ -338,6 +338,7 @@
     },
     "cloud-chat-proof.yml#proof-staging": {"class": "apple-app-build"},
     "cloud-chat-proof.yml#proof-prod": {"class": "apple-app-build"},
+    "cloud-composer-journey.yml#journey": {"class": "apple-app-build"},
     "cloud-rd-link-readback.yml#readback": {"class": "macos-runtime-tests", "picker_followup": "builds cmux-tui and launches it on a Mac behind NAT to dial the Cloud desktop's UDP link while holding the dev stack pair: an ephemeral Blacksmith Mac from the declared macos_26 pool only, as cloud-chat-proof.yml#proof; manual dispatch"},
     "cmux-mobile-ffi.yml#apple": {
       "class": "apple-swift-tests",
@@ -368,6 +369,10 @@
     "cmux-next-fast-tier-seed.yml#seed": "apple-app-build",
     "cmux-next-frame-pacing.yml#bench": "apple-gui",
     "cmux-next-ios-kit.yml#kit-tests": "apple-swift-tests",
+    "cmux-next-ios-energy-nightly.yml#bench": {
+      "class": "apple-ios",
+      "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the simulator step to the controller with cmux-ci run"
+    },
     "cmux-next-iphone-clips.yml#record": {
       "class": "apple-gui",
       "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the simulator step to the controller with cmux-ci run"
@@ -479,6 +484,7 @@
       "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"
     },
     "ios-reliability-matrix.yml#ios": "apple-ios",
+    "pr-pipeline.yml#ios": "apple-ios",
     "ios-screenshots.yml#screenshots": "apple-ios",
     "ios-streamed-validate.yml#validate": {
       "class": "apple-ios",

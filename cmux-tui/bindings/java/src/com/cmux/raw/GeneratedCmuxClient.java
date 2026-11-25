@@ -1056,6 +1056,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final ReleaseWorkspaceNamesResult releaseWorkspaceNames() throws CmuxException {
+        Object result = execute(Commands.RELEASE_WORKSPACE_NAMES, Map.of());
+        return ReleaseWorkspaceNamesResult.fromWire(result);
+    }
+
     public final ReloadConfigResult reloadConfig() throws CmuxException {
         Object result = execute(Commands.RELOAD_CONFIG, Map.of());
         return ReloadConfigResult.fromWire(result);
