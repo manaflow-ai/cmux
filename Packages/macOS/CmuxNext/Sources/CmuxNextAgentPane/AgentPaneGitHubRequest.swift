@@ -213,15 +213,52 @@ public struct AgentPaneGitHub {
 
     /// The App's: `picker` reads and connects as the person in the team a Cloud start's machine is made in, `open`
     /// opens the page its Connect GitHub answers in the person's browser, and a person signed out gets the app's own
-    /// cmux sign-in (``CloudAuth/beginSignIn(selectAccount:)``, which joins one already in progress).
+    /// cmux sign-in (``CloudAuth/beginSignIn(selectAccount:)``, which joins one already in progress). Once that sign-in
+    /// succeeds, the same connect request is replayed so the person does not need to press Connect again.
     @MainActor public static func live(_ picker: CloudGitHubPicker, open: @escaping @MainActor (URL) -> Void) -> AgentPaneGitHub {
         var gitHub = AgentPaneGitHub(status: { await picker.status() },
-                                     connectRepo: { AgentPaneGitHubConnect(await picker.connect(repo: $0), open: open) { _ = picker.auth.beginSignIn() } },
+                                     connectRepo: { repo in
+                                         AgentPaneGitHubConnect(await picker.connect(repo: repo), open: open) {
+                                             _ = Self.signInAndRetry(beginSignIn: { picker.auth.beginSignIn() },
+                                                                     connect: { await picker.connect(repo: repo) }, open: open,
+                                                                     connected: { picker.auth.gitHubChanges.recordConnected() })
+                                         }
+                                     },
                                      repos: { await picker.repos(query: $0) },
                                      checkout: AgentPaneGitHubCheckout { await picker.cloneToken(repo: $0)?.token },
                                      changes: picker.auth.gitHubChanges)
-        gitHub.addAccount = { AgentPaneGitHubConnect(await picker.connect(addAccount: true), open: open) { _ = picker.auth.beginSignIn() } }
+        gitHub.addAccount = {
+            AgentPaneGitHubConnect(await picker.connect(addAccount: true), open: open) {
+                _ = Self.signInAndRetry(beginSignIn: { picker.auth.beginSignIn() },
+                                        connect: { await picker.connect(addAccount: true) }, open: open,
+                                        connected: { picker.auth.gitHubChanges.recordConnected() })
+            }
+        }
         return gitHub
+    }
+
+    /// Starts cmux sign-in for a signed-out Connect GitHub request and replays the request after it succeeds.
+    /// The task is returned so tests and callers that own the flow can observe its completion.
+    @MainActor @discardableResult
+    static func signInAndRetry(beginSignIn: @escaping @MainActor () -> Task<Bool, Never>,
+                               connect: @escaping @MainActor () async -> CloudGitHubPicker.Connect,
+                               open: @escaping @MainActor (URL) -> Void,
+                               connected: @escaping @MainActor () -> Void = {}) -> Task<Void, Never> {
+        let signIn = beginSignIn()
+        return Task { await finishSignInAndRetry(signIn: signIn, connect: connect, open: open, connected: connected) }
+    }
+
+    @MainActor
+    private static func finishSignInAndRetry(signIn: Task<Bool, Never>,
+                                             connect: @escaping @MainActor () async -> CloudGitHubPicker.Connect,
+                                             open: @escaping @MainActor (URL) -> Void,
+                                             connected: @escaping @MainActor () -> Void) async {
+        guard await signIn.value else { return }
+        switch await connect() {
+        case .open(let page): open(page)
+        case .connected: connected()
+        case .unavailable, .failed: break
+        }
     }
 }
 
@@ -259,7 +296,7 @@ public enum AgentPaneGitHubConnect: Equatable, Sendable {
     }
 
     /// The picker's own Connect GitHub (``CloudGitHubPicker/connect()``): its page opened with `open`, a person signed
-    /// out sent to `signIn` (the cmux sign-in; Connect GitHub again once signed in), or why neither.
+    /// out sent to `signIn` (the cmux sign-in, then the same request is replayed), or why neither.
     @MainActor public init(_ connect: CloudGitHubPicker.Connect, open: (URL) -> Void, signIn: (@MainActor () -> Void)? = nil) {
         switch connect {
         case .open(let url): open(url); self = .opened
