@@ -25,9 +25,10 @@ Interface: `cmux.pane/1`
 `src/main.ts`:
 
 ```ts src/main.ts
-import { Button, computed, Panel, pane, signal, Text, VStack } from "cmux-extension-sdk"
+import { Button, cmux, computed, Panel, pane, Text, VStack } from "cmux-extension-sdk"
 
-const [count, setCount] = signal(0)
+// cmux.state keeps the value while `cmux ext dev` reloads the pane on a save.
+const [count, setCount] = cmux.state("count", 0)
 const label = computed(() => (count() === 1 ? "1 note" : `${count()} notes`))
 
 export const renderPane = pane(() =>
@@ -41,8 +42,11 @@ export const renderPane = pane(() =>
 )
 ```
 
-Rules: one pane per extension; it opens with no arguments; keep what must survive a reload in
-`cmux.storage` (scope `storage:local`), not in a global.
+Rules: one pane per extension; it opens with no arguments. Scene state (a scroll offset, the
+focused field, expanded rows, a count) goes in `cmux.state(key, initial)`: a signal cmux hands to
+the restarted script on a reload, so a save keeps the view where it was. It lives in memory only (a
+crash, an uninstall or a daemon restart drops it; JSON values, 256 keys, 64 KiB); keep what must
+outlive those in `cmux.storage` (scope `storage:local`), not in a global.
 
 ```sh
 cmux ext dev --once --json
