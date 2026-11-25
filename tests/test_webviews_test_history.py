@@ -96,10 +96,21 @@ class ShardSize(unittest.TestCase):
 
     def test_the_webview_jobs_take_the_one_linux_label(self):
         # Leo, 2026-11-20: no workflow sizes its CI; every own-branch run takes cmux-linux, a fork GitHub-hosted Ubuntu.
+        # cmux#50078 put the React shards behind vars.CI_REACT_SHARD_RUNNER, read just before the one label: unset, an
+        # own-branch run still takes cmux-linux; set, it takes the variable's runner. A fork never reads it.
+        label = f"'{one_linux_label.LABEL}' }}}}"
+        self.assertTrue(one_linux_label.CANONICAL.endswith(f" || {label}"))
+        expected = one_linux_label.CANONICAL.removesuffix(label) + f"vars.CI_REACT_SHARD_RUNNER || {label}"
         for name in WEBVIEW_JOBS:
             runs_on = self.jobs[name]["runs-on"]
             self.assertNotIn("linux_16", runs_on, name)
-            self.assertEqual(runs_on, one_linux_label.CANONICAL, name)
+            self.assertEqual(runs_on, expected, name)
+            for kind in ("push", "same-repository pull request"):
+                knob = {**EVENTS[kind], "vars.CI_REACT_SHARD_RUNNER": "cmux-linux-react"}
+                self.assertEqual(evaluate(runs_on, knob), "cmux-linux-react", f"{name} {kind}")
+            for kind in ("fork pull request", "fork repository"):
+                knob = {**EVENTS[kind], "vars.CI_REACT_SHARD_RUNNER": "cmux-linux-react"}
+                self.assertEqual(evaluate(runs_on, knob), "ubuntu-24.04", f"{name} {kind}")
             self.assertEqual(evaluate(runs_on, EVENTS["push"]), "cmux-linux", name)
             self.assertEqual(evaluate(runs_on, EVENTS["same-repository pull request"]), "cmux-linux", name)
             self.assertEqual(evaluate(runs_on, EVENTS["fork pull request"]), "ubuntu-24.04", name)
