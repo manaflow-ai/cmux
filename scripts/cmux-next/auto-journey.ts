@@ -309,7 +309,7 @@ async function main(): Promise<number> {
     }
     const machine = await J.step("Cloud machine for this run (create, running)", async () => {
       const name = `auto journey ${tag}`;
-      const v = await api.op("cloud.machine.create", { name, size: CHAT_START_SIZE }, `${tag}-create`, CREATE_TIMEOUT_MS).catch(async (e) => {
+      const v = await api.op("cloud.machine.create", { name, size: CHAT_START_SIZE }, `${tag}-create`, {}, CREATE_TIMEOUT_MS).catch(async (e) => {
         // A create that errored or timed out may still have made the machine: find it by this run's name so cleanup deletes it.
         const rows = await listAllMachines((params) => api.read("cloud.machine.list", params)).catch(() => []);
         const made = rows.find((r: any) => r?.name === name && r.status !== "deleted" && r.status !== "deleting");
