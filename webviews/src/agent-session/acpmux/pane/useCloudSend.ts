@@ -2,7 +2,7 @@ import { type Dispatch, type RefObject, type SetStateAction } from "react";
 import { type ComposerAttachment } from "../attachments";
 import { callNative } from "../callNative";
 import { type CloudComposeReservation } from "../cloudComposeReservation";
-import { type useChatCloudEnvironment } from "../CloudEnvironmentChip";
+import { type useChatCloudEnvironment } from "../chatCloudEnvironment";
 import { currentCloudPlan, readCloudPlanFresh } from "../cloudMachines";
 import { cloudPlanHoldsSend } from "../cloudPlans";
 import {
