@@ -565,9 +565,11 @@
         "experiments.menuRowStates",
         "experiments.composerHatGroups",
         "experiments.toastsV2",
+        "experiments.toastGlass",
         "experiments.foldSummaryCounts",
         "experiments.cloudDiskBar",
         "experiments.terminalHistoryFind",
+        "experiments.themedPrompts",
         "experiments.terminalHistory",
         "experiments.quietConnect",
         "experiments.threadMinimapRestReveal",
@@ -1022,7 +1024,8 @@
         "agentPane.spellChecking",
         "agentPane.composerVimKeys",
         "agentPane.attachmentView",
-        "agentPane.showMachineLoadWarnings"
+        "agentPane.showMachineLoadWarnings",
+        "developerTools.overloadNotice"
       ]
     },
     {
