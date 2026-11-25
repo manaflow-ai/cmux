@@ -5775,5 +5775,13 @@
     "unavailableTitle": "無法確認你的登入",
     "unavailableBody": "我們的登入服務忙碌中。請稍候幾秒鐘後再次開啟邀請。你不需要重新登入。",
     "retry": "重試"
+  },
+  "analyticsConsent": {
+    "label": "分析",
+    "message": "我們可以使用分析來了解網站的使用情況嗎？除非你允許，否則不會收集任何資訊，也不會設定分析 Cookie。",
+    "privacy": "隱私權政策",
+    "accept": "允許",
+    "decline": "不用了",
+    "settings": "分析設定"
   }
 }
