@@ -23,7 +23,7 @@ struct AgentPaneProjectInstructionsTests {
             try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
             let root = folder
             model.workspaceRoots = { [root] }
-            model.onOpenFile = { [weak self] url, target in
+            model.onOpenFile = { [weak self] url, target, _ in
                 self?.opened.append((url.path, target))
                 return true
             }
@@ -84,7 +84,7 @@ struct AgentPaneProjectInstructionsTests {
     /// A tab that can't open leaves no empty file behind: the folder is as it was.
     @Test func aFailedOpenLeavesNoEmptyFile() async throws {
         let rig = try Rig()
-        rig.model.onOpenFile = { _, _ in false }
+        rig.model.onOpenFile = { _, _, _ in false }
         #expect(Self.errorCode(await rig.ask()) == "open_failed")
         #expect(!FileManager.default.fileExists(atPath: rig.folder + "/CLAUDE.md"))
     }

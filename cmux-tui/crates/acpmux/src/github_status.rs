@@ -34,13 +34,9 @@ use zeroize::Zeroizing;
 pub const TOOL: &str = "github_status";
 
 /// What a chat with the tool is told, in the server's instructions and `cmux_exec`'s description.
-pub const STEER: &str = "When the person asks about their GitHub (can you see my GitHub, which \
-account, is it connected), call github_status first, instead of running gh (`gh auth status`, \
-`gh api user`) or reading git config: it also covers cmux Cloud machines and the GitHub account \
-their cmux team connected, which gh may not see with no repository picked. It lists the GitHub \
-accounts cmux can see for this chat and how cmux checked each, with no token. Answer with those \
-logins and say they are connected through cmux; an organization account is the one their cmux \
-team connected, not the person.";
+pub const STEER: &str = "When asked about the person's GitHub, call github_status instead of \
+running gh or reading git config (it covers cmux Cloud machines too); answer with its logins, \
+connected through cmux; an organization account is their cmux team's, not the person's.";
 
 /// The Cloud agent's socket (`cmux_host::cloud::wire::AGENT_SOCKET`).
 pub const CLOUD_AGENT_SOCKET: &str = "/run/cmux-vm-agent/agent.sock";
@@ -268,7 +264,8 @@ async fn from_platform(platform: &Platform) -> Option<Value> {
         let bearer = platform.bearer.get().await?;
         // reqwest is built without a default TLS provider (as `mesh_http::HttpHub::new` does).
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = reqwest::Client::builder()
+        let http = crate::happy_dial::http_client()
+            .default_headers(cmux_build_space::headers().ok()?)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
             .build()

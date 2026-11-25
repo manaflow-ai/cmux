@@ -434,7 +434,7 @@ class BeaconStall(unittest.TestCase):
             while time.monotonic() < deadline:
                 run.pump(0.01)
             os.kill(run.pid, signal.SIGSTOP)
-            time.sleep(0.06)
+            time.sleep(0.06)  # sleep-ok: the stall itself, 60 ms stopped (several 240 Hz frames missed)
             os.kill(run.pid, signal.SIGCONT)
             _, code = run.collect(20)
             self.assertEqual(code, 0)
@@ -556,9 +556,18 @@ class Flood(unittest.TestCase):
 
     def test_sigterm_never_cuts_a_line(self):
         proc = subprocess.Popen([PY, KIT, "flood", "--seed", "5", "--duration", "0"], stdout=subprocess.PIPE)
-        time.sleep(0.5)
+        # The first line out means the flood set its stop handlers (they come before its first write). Read from
+        # the fd itself: communicate() with a timeout reads the fd too, so a buffered reader would drop bytes.
+        first = b""
+        while b"\n" not in first:
+            chunk = os.read(proc.stdout.fileno(), 65536)
+            if not chunk:
+                break
+            first += chunk
+        self.assertIn(b"\n", first, "the flood wrote no line")
         proc.send_signal(signal.SIGTERM)
-        out, _ = proc.communicate(timeout=20)
+        rest, _ = proc.communicate(timeout=20)
+        out = first + rest
         lines = out.decode().splitlines()
         self.assertEqual(proc.returncode, 0)
         self.assertRegex(lines[-1], r"^\x1b\[0mtuikit flood end lines=\d+$")

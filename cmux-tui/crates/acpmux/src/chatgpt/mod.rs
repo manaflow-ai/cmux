@@ -16,6 +16,7 @@
 //!
 //! Every OAuth URL comes from [`Endpoints`], so tests run the whole flow against a local server.
 
+mod import;
 mod jwt;
 mod oauth;
 pub(crate) mod store;
@@ -29,6 +30,12 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::watch;
 
+use crate::routes::{self, RouteKind};
+
+pub(crate) use import::codex_auth as import_codex_auth;
+#[cfg(test)]
+pub(crate) use import::test_auth_json as import_test_auth;
+pub use import::{ENV as CI_IMPORT_ENV, enabled as ci_import_enabled};
 pub use oauth::Endpoints;
 
 /// Codex's OAuth client (the one `codex login` signs in with).
@@ -145,6 +152,11 @@ fn io(code: &str) -> impl Fn(std::io::Error) -> Failure + '_ {
     move |e| Failure::new(code, e.to_string())
 }
 
+/// Whether route `id` in `dir` is a Sign in with ChatGPT connection.
+pub(crate) fn is_chatgpt_route(dir: Option<&Path>, id: &str) -> bool {
+    routes::find(dir, id).is_ok_and(|r| r.file.kind == RouteKind::ChatgptPlan)
+}
+
 impl Service {
     pub fn new(endpoints: Endpoints) -> Self {
         Self {
@@ -167,12 +179,17 @@ impl Service {
         reauth: Option<String>,
         on_finish: impl FnOnce(&Status) + Send + 'static,
     ) -> Result<Begun, Failure> {
+        // A route with no sign-in in this home (the route folder is every cmux's on the Mac, the
+        // record is this acpmux's; another build or the retired token-sharing client wrote it) reads
+        // signed out, and signing in again there signs in on that route (cmux#45774).
         let prior = match &reauth {
-            Some(id) => {
-                Some(store::read(&places.home, id).map_err(io("storage"))?.ok_or_else(|| {
-                    Failure::new("not_found", format!("no ChatGPT sign-in {id:?}"))
-                })?)
-            }
+            Some(id) => match store::read(&places.home, id).map_err(io("storage"))? {
+                Some(record) => Some(record),
+                None if is_chatgpt_route(places.routes.as_deref(), id) => None,
+                None => {
+                    return Err(Failure::new("not_found", format!("no ChatGPT sign-in {id:?}")));
+                }
+            },
             None => None,
         };
         // Codex's client redirects only to its registered loopback port: a newer sign-in ends any

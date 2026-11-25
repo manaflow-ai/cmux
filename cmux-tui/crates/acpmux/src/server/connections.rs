@@ -42,6 +42,7 @@ pub(super) const METHODS: &[&str] = &[
     method::MUX_CONNECTIONS_CHATGPT_WAIT,
     method::MUX_CONNECTIONS_CHATGPT_CANCEL,
     method::MUX_CONNECTIONS_CHATGPT_TOKEN,
+    method::MUX_CONNECTIONS_CHATGPT_IMPORT,
     method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD,
     method::MUX_CONNECTIONS_CREDENTIAL,
 ];
@@ -525,6 +526,18 @@ fn unreachable_kind(id: &str) -> Result<&'static str, RpcError> {
         .with_data(json!({"reason": "connections.not_cloud", "id": id})))
 }
 
+/// The value a connection of KIND sends: a Claude setup token with every whitespace character
+/// taken out, inner ones too (a terminal wraps `claude setup-token`'s long line and pads it, and a
+/// copy kept before the app stripped pastes still has it; a token has no whitespace of its own),
+/// so the launch's token check (`agent_credentials::token_shaped`) takes it. Others as stored.
+fn delivered(kind: &str, value: String) -> String {
+    if kind == "claude-token" && value.chars().any(char::is_whitespace) {
+        value.chars().filter(|c| !c.is_whitespace()).collect()
+    } else {
+        value
+    }
+}
+
 /// The secret a reference names; the error says why it did not resolve, never a value.
 fn resolve(id: &str, reference: &str) -> Result<String, RpcError> {
     routes::resolve_reference(reference).map_err(|why| {
@@ -566,6 +579,43 @@ pub(super) fn announce_later(hub: &Arc<Hub>) {
 fn announce_scope() -> &'static cmux_scope::Scope {
     static SCOPE: std::sync::OnceLock<cmux_scope::Scope> = std::sync::OnceLock::new();
     SCOPE.get_or_init(|| cmux_scope::Scope::new("connections announce"))
+}
+
+/// `_acpmux/connections/chatgpt.import`: refused on any connection but the local socket (the
+/// remote relay and the web listener never reach a login file here) and unless the daemon's
+/// environment turned it on (`enabled`, [`chatgpt::CI_IMPORT_ENV`]); the connection's id.
+fn import_chatgpt(
+    origin: Origin,
+    enabled: bool,
+    dir: Option<PathBuf>,
+    home: PathBuf,
+    secret_file: &str,
+) -> Result<String, RpcError> {
+    if origin != Origin::Local {
+        return Err(RpcError::invalid_params(
+            "chatgpt.import is read from the local unix socket only, never a remote",
+        )
+        .with_data(json!({"reason": "chatgpt.import_local_only"})));
+    }
+    if !enabled {
+        return Err(RpcError::invalid_params(format!(
+            "chatgpt.import is a CI-only method: set {} in the daemon's environment",
+            chatgpt::CI_IMPORT_ENV
+        ))
+        .with_data(json!({"reason": "chatgpt.import_disabled"})));
+    }
+    chatgpt::import_codex_auth(
+        &chatgpt::Places { routes: dir, home },
+        std::path::Path::new(secret_file),
+    )
+    .map_err(failure)
+}
+
+/// The listed connection `id`, as `chatgpt.wait` answers a finished sign-in.
+fn connection_state(dir: Option<&Path>, home: &Path, id: &str) -> Result<Value, RpcError> {
+    let b = routes::bindings(home);
+    let found = list(dir, home, &b).into_iter().find(|c| c.id == id);
+    Ok(json!({"connection": found}))
 }
 
 pub(super) async fn handle(
@@ -727,11 +777,23 @@ pub(super) async fn handle(
                     (token, Some(expires_at))
                 }
                 // The keychain may ask: off the runtime's threads.
-                Some(reference) => (blocking(move || resolve(&id, &reference)).await??, None),
+                Some(reference) => (
+                    delivered(kind, blocking(move || resolve(&id, &reference)).await??),
+                    None,
+                ),
             };
             Ok(
                 json!({"family": family, "kind": kind, "env": {var: value}, "expires_at": expires_at}),
             )
+        }
+        method::MUX_CONNECTIONS_CHATGPT_IMPORT => {
+            let secret_file = need("secret_file")?;
+            let enabled = chatgpt::ci_import_enabled();
+            let (d, h) = (dir.clone(), home.clone());
+            let id =
+                blocking(move || import_chatgpt(origin, enabled, d, h, &secret_file)).await??;
+            announce_later(hub);
+            blocking(move || connection_state(dir.as_deref(), &home, &id)).await?
         }
         method::MUX_CONNECTIONS_CHATGPT_TOKEN => {
             let id = need("id")?;
@@ -983,6 +1045,20 @@ mod tests {
     }
 
     #[test]
+    fn a_claude_token_with_whitespace_inside_is_delivered_without_it() {
+        let d = dirs();
+        let reference = secret_file(&d, "claude-token", " sk-ant-oat01-ab\n  cd\t\u{a0}ef \r");
+        add_claude_token(Some(&d.routes), &d.home, &reference, None).unwrap();
+        let (_, kind, _, secret) =
+            credential_plan(Some(&d.routes), &d.home, "claude-token").unwrap();
+        let value = delivered(kind, resolve("claude-token", &secret.unwrap()).unwrap());
+        assert_eq!(value, "sk-ant-oat01-abcdef");
+        let env = json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": value}});
+        assert!(crate::agent_credentials::AgentCredential::parse(&env).is_ok());
+        assert_eq!(delivered("api-key", "a b".into()), "a b", "only a Claude token is reshaped");
+    }
+
+    #[test]
     fn keys_are_delivered_in_their_providers_variable_and_logins_not_at_all() {
         let d = dirs();
         let anthropic = secret_file(&d, "a", "sk-ant-api-1");
@@ -1062,5 +1138,94 @@ mod tests {
             routes::env_for(&route, "codex", &d.home),
             Err(routes::RouteError::Unavailable(_))
         ));
+    }
+
+    fn auth_file(d: &Dirs, text: &str) -> PathBuf {
+        std::fs::create_dir_all(&d.home).unwrap();
+        let path = d.home.join("auth.json");
+        std::fs::write(&path, text).unwrap();
+        path
+    }
+
+    fn import(d: &Dirs, origin: Origin, enabled: bool, text: &str) -> Result<String, RpcError> {
+        let path = auth_file(d, text);
+        import_chatgpt(
+            origin,
+            enabled,
+            Some(d.routes.clone()),
+            d.home.clone(),
+            path.to_str().unwrap(),
+        )
+    }
+
+    fn codex_auth(refresh: Option<&str>) -> String {
+        chatgpt::import_test_auth(chatgpt::CODEX_CLIENT_ID, refresh, true)
+    }
+
+    fn reason(e: &RpcError) -> String {
+        e.data.as_ref().and_then(|d| d["reason"].as_str()).unwrap_or_default().to_owned()
+    }
+
+    #[test]
+    fn chatgpt_import_is_refused_unless_the_switch_is_set() {
+        let d = dirs();
+        let error = import(&d, Origin::Local, false, &codex_auth(Some("rt"))).unwrap_err();
+        assert_eq!(reason(&error), "chatgpt.import_disabled");
+        assert!(chatgpt::store::all(&d.home).is_empty(), "nothing stored");
+        assert!(routes::find(Some(&d.routes), "chatgpt").is_err(), "no route written");
+    }
+
+    #[test]
+    fn chatgpt_import_is_refused_off_the_local_socket_even_with_the_switch() {
+        let d = dirs();
+        for origin in [Origin::Web, Origin::Peer, Origin::LocalApp] {
+            let error = import(&d, origin, true, &codex_auth(Some("rt"))).unwrap_err();
+            assert_eq!(reason(&error), "chatgpt.import_local_only", "{origin:?}");
+        }
+        assert!(chatgpt::store::all(&d.home).is_empty(), "nothing stored");
+    }
+
+    #[test]
+    fn chatgpt_import_refuses_another_client_and_a_missing_refresh_token() {
+        let d = dirs();
+        let other = chatgpt::import_test_auth("app_someone_else", Some("rt"), true);
+        let error = import(&d, Origin::Local, true, &other).unwrap_err();
+        assert_eq!(reason(&error), "chatgpt.wrong_client");
+        let error = import(&d, Origin::Local, true, &codex_auth(None)).unwrap_err();
+        assert_eq!(reason(&error), "chatgpt.no_refresh_token");
+        let no_account = chatgpt::import_test_auth(chatgpt::CODEX_CLIENT_ID, Some("rt"), false);
+        let error = import(&d, Origin::Local, true, &no_account).unwrap_err();
+        assert_eq!(reason(&error), "chatgpt.no_chatgpt_account");
+        let error = import(&d, Origin::Local, true, "not json").unwrap_err();
+        assert_eq!(reason(&error), "chatgpt.import_invalid");
+        assert!(chatgpt::store::all(&d.home).is_empty(), "nothing stored");
+    }
+
+    #[test]
+    fn an_imported_codex_login_lists_as_a_cloud_serving_chatgpt_plan() {
+        let d = dirs();
+        let id = import(&d, Origin::Local, true, &codex_auth(Some("rt-1"))).unwrap();
+        assert_eq!(id, "chatgpt");
+        let record = chatgpt::store::read(&d.home, &id).unwrap().unwrap();
+        assert!(record.signed_in());
+        assert_eq!(record.client_id, chatgpt::CODEX_CLIENT_ID);
+        assert_eq!(record.refresh_token, "rt-1");
+        assert_eq!(record.sub, "user-1");
+        assert_eq!(record.plan.as_deref(), Some("plus"));
+        let route = routes::find(Some(&d.routes), &id).unwrap();
+        assert_eq!(route.file.kind, RouteKind::ChatgptPlan);
+        assert_eq!(route.file.families, vec!["codex".to_owned()]);
+        let list = list(Some(&d.routes), &d.home, &routes::bindings(&d.home));
+        let plan = list.iter().find(|c| c.id == "chatgpt").unwrap();
+        assert_eq!(plan.kind, "chatgpt-plan");
+        assert!(plan.serves_cloud && plan.signed_in);
+        assert_eq!(plan.email.as_deref(), Some("ci@example.com"));
+        // Importing the same account again replaces its record: no second connection.
+        let again = import(&d, Origin::Local, true, &codex_auth(Some("rt-2"))).unwrap();
+        assert_eq!(again, "chatgpt");
+        assert_eq!(
+            chatgpt::store::read(&d.home, "chatgpt").unwrap().unwrap().refresh_token,
+            "rt-2"
+        );
     }
 }

@@ -147,6 +147,12 @@ extension AgentPaneView {
         await page?.debugPress(x: x, y: y, beforeRelease: beforeRelease) ?? false
     }
 
+    /// Trusted DevTools key events into the chat shown in Chromium (``PageWebView/debugDevToolsKeys(_:)``); false otherwise.
+    /// - Parameter events: Each `Input.dispatchKeyEvent` call's parameters, in order.
+    public func debugDevToolsKeys(_ events: [[String: any Sendable]]) async -> Bool {
+        await page?.debugDevToolsKeys(events) ?? false
+    }
+
     /// The chat's file input `selector` takes the files at `paths`, as a pick in Chromium's open panel
     /// (``PageWebView/debugSetFiles(selector:paths:)``); nil when it did, else why not. On WebKit the next
     /// file input the page opens (a click on + then Attach files) takes them instead of the panel.

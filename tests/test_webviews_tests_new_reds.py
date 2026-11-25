@@ -23,6 +23,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
@@ -444,6 +445,7 @@ class Workflow(unittest.TestCase):
             (bins / "bun").chmod(0o755)
             shutil.copy(ROOT / "scripts/ci/run-webviews-tests.sh", head / "scripts/ci/run-webviews-tests.sh")
             shutil.copy(ROOT / "scripts/ci/timeout.sh", head / "scripts/ci/timeout.sh")  # the runner's GNU timeout stand-in
+            shutil.copy(ROOT / "scripts/ci/webviews_retry_pool.py", head / "scripts/ci/webviews_retry_pool.py")
             # The old base reaches a named assertion after its former long deadline. It must
             # not supply a different file-level verdict from the head's bounded runner.
             (base / "scripts/ci/run-webviews-tests.sh").write_text('#!/bin/sh\nprintf \'{"test/hang.test.ts > late assertion": false}\\n\' > "$CMUX_WEB_TEST_RESULTS"\nexit 1\n')
@@ -546,10 +548,43 @@ class Workflow(unittest.TestCase):
         # #27425: a fixed 300 s budget still cut accent-glass-invariants' retry and skipped two more
         # files. The step's retry deadline bounds every retry, inside the job's 40 min, and no smaller
         # budget cuts a retry before it.
-        budget = int(re.search(r'CMUX_WEB_TEST_RETRY_BUDGET: "(\d+)"', step).group(1))
-        deadline = int(re.search(r'CMUX_WEB_TEST_RETRY_DEADLINE: "(\d+)"', step).group(1))
-        self.assertGreaterEqual(budget, deadline)
-        self.assertLessEqual(deadline, 34 * 60)
+        # The step reads the job's timeout-minutes (one YAML anchor) and ends its retries a fixed
+        # reserve before them: a 40 min job still stops retrying by 34 min, and longer ones scale.
+        self.assertIn("timeout-minutes: &webview-shard-minutes ", text)
+        self.assertIn("CMUX_WEB_TEST_JOB_MINUTES: *webview-shard-minutes", step)
+        # The budget is the deadline, so no smaller budget cuts a retry before it.
+        self.assertIn('export CMUX_WEB_TEST_RETRY_BUDGET="$CMUX_WEB_TEST_RETRY_DEADLINE"', step)
+        # #46488 F1: timeout-minutes count from the job's start, and the runner counts its deadline from
+        # its own, about 8 min of setup later. The shard's first step stamps the job's start, and the
+        # step's deadline is what is left of the job's minutes, so a fully retried job still has 6 min
+        # for its uploads however long its setup took.
+        job = text[text.index("  react-apps-check-shard:\n"):]
+        first_step = job[job.index("    steps:\n"):].split("\n      - name:", 2)[1]
+        self.assertIn('echo "CMUX_WEB_TEST_JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"', first_step)
+        run = step[step.index("        run: |\n"):]
+        block = run[run.index('          if [ -n "${CMUX_WEB_TEST_JOB_MINUTES:-}" ]; then\n'):]
+        block = textwrap.dedent(block[: block.index("\n          fi\n") + len("\n          fi\n")])
+
+        def deadline(minutes, setup=None):
+            env = {"PATH": os.environ["PATH"], "CMUX_WEB_TEST_JOB_MINUTES": str(minutes)}
+            if setup is not None:
+                env["CMUX_WEB_TEST_JOB_STARTED"] = str(int(time.time()) - setup)
+            out = subprocess.run(["bash", "-euc", block + 'echo "$CMUX_WEB_TEST_RETRY_DEADLINE $CMUX_WEB_TEST_RETRY_BUDGET"'],
+                                 env=env, check=True, capture_output=True, text=True).stdout.split()
+            self.assertEqual(out[0], out[1])
+            return int(out[0])
+
+        for minutes in (40, 90, 150):
+            for setup in (0, 120, 480, 900):
+                left = deadline(minutes, setup)
+                self.assertGreater(left, 0, f"{minutes} min, {setup} s setup")
+                # 2 s of slack for the clock ticking between the stamp here and the step's date.
+                self.assertLessEqual(setup + left, (minutes - 6) * 60 + 2, f"{minutes} min, {setup} s setup")
+            # No stamp (the script run on its own, set -u): still a deadline, never an unset or negative one.
+            self.assertGreater(deadline(minutes), 0)
+            self.assertLessEqual(deadline(minutes), (minutes - 6) * 60)
+        # A job whose setup ate its minutes retries nothing rather than reading a negative deadline as none.
+        self.assertEqual(deadline(40, 40 * 60), 0)
 
 
     def test_a_head_red_the_merge_parent_has_is_a_base_red_even_when_the_old_base_passed(self):

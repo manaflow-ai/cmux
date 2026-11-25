@@ -3,6 +3,7 @@
 // same rules (plans/cmux-next/diff-host.md, "Empty state"), so this file is its reference.
 import { fuzzyFilter } from "./fuzzy";
 import { isMarkdownName, type PickerEntry, type PickerMode } from "./ops";
+import { intl } from "../ui/intl";
 
 export interface PickerRow extends PickerEntry {
   recent: boolean;
@@ -11,7 +12,7 @@ export interface PickerRow extends PickerEntry {
 /** Rows to render at most; the rest are reached by typing. */
 export const PICKER_ROW_LIMIT = 300;
 
-const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+const byName = intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
 /**
  * The rows of one level: folders (and markdown files in file mode), recent ones first, then

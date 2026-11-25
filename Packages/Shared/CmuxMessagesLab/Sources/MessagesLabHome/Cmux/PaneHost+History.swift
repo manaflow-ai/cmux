@@ -102,6 +102,7 @@ extension FieldTextView {
 
     /// The vertical middle of the caret's line at UTF-16 offset `index`.
     private func lineY(at index: Int) -> CGFloat? {
+        if textLayoutManager == nil { return textKit1CaretSegment(at: index, upstream: false)?.midY }  // the composer field
         guard let tlm = textLayoutManager, let tcm = tlm.textContentManager,
               let loc = tcm.location(tcm.documentRange.location, offsetBy: index) else { return nil }
         tlm.ensureLayout(for: NSTextRange(location: loc))

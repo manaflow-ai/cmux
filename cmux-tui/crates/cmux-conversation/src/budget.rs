@@ -1,7 +1,9 @@
 //! The agent turn budget (plans/cmux-next/home.md section 5): in one thread
-//! (the replies of one root, or the conversation's top level) agents may post
-//! at most [`MAX_AGENT_TURNS`] text messages after the last person's text in
-//! that thread, and agent text messages are at least [`MIN_AGENT_GAP_MS`]
+//! (the replies of one root, or the conversation's top level) of a
+//! conversation with two or more agents, agents may post at most
+//! [`MAX_AGENT_TURNS`] text messages after the last person's text in that
+//! thread (a lone agent, the person's own Chief chat, has no cap: there is no
+//! agent to loop with), and agent text messages are at least [`MIN_AGENT_GAP_MS`]
 //! apart in the conversation, so agents (Chiefs) cannot loop. Agents in two
 //! threads do not spend each other's budget; only a person's text (or a
 //! person's question answer) resets one. Pure: the host passes the head or the
@@ -28,6 +30,14 @@ pub const BUDGET_WINDOW: usize = MAX_AGENT_TURNS + 1;
 /// after a person's text (a local head drops a participant who leaves).
 pub fn agent_count(participants: &[Participant]) -> usize {
     participants.iter().filter(|p| p.kind == ParticipantKind::Agent).count()
+}
+
+/// Whether the turn cap applies: only where two or more agents share the
+/// conversation, so they could loop with each other. A lone agent (the
+/// person's own Chief chat) has no cap; the gap still spaces its texts.
+// Keep this decision in one place so both budget guards share the same rule.
+fn capped(agents: usize) -> bool {
+    agents >= 2
 }
 
 /// Whether `message` is in thread `thread_root` (None: the top level).
@@ -121,10 +131,11 @@ pub fn check_agent_budget(
         return Ok(());
     }
     let streak = thread_agent_streak(&head.participants, recent, thread_root);
-    if streak >= MAX_AGENT_TURNS {
+    let agents = agent_count(&head.participants);
+    if capped(agents) && streak >= MAX_AGENT_TURNS {
         return Err(Reject::AgentBudget);
     }
-    if streak < agent_count(&head.participants) {
+    if streak < agents {
         return Ok(());
     }
     // A clock that moved back (now before the last agent message) never blocks.
@@ -157,10 +168,11 @@ pub fn check_agent_streak(
         return Ok(());
     }
     let streak = streak_of(head, thread_root) as usize;
-    if streak >= MAX_AGENT_TURNS {
+    let agents = agent_count(&head.participants);
+    if capped(agents) && streak >= MAX_AGENT_TURNS {
         return Err(Reject::AgentBudget);
     }
-    if streak < agent_count(&head.participants) {
+    if streak < agents {
         return Ok(());
     }
     let too_soon = head

@@ -107,12 +107,15 @@ fn now_ms() -> u64 {
 /// current state); five failed connects in a row are an error.
 pub fn wait(api: &str, code: &str, secret: &str, deadline_ms: u64) -> Result<Waited, String> {
     let url = wait_url(api, code)?;
+    let space = crate::build_space::process();
+    // Refused before any socket: a dev build pairs only in its own space.
+    wait_request(&url, secret, &space)?;
     let mut failures = 0;
     loop {
         if now_ms() >= deadline_ms {
             return Ok(Waited::Expired);
         }
-        match wait_once(&url, secret, deadline_ms) {
+        match wait_once(&url, secret, &space, deadline_ms) {
             Ok(Some(done)) => return Ok(done),
             Ok(None) => failures = 0,
             Err(e) => {
@@ -127,16 +130,12 @@ pub fn wait(api: &str, code: &str, secret: &str, deadline_ms: u64) -> Result<Wai
     }
 }
 
-fn set_read_timeout(ws: &WebSocket<MaybeTlsStream<std::net::TcpStream>>, t: Duration) {
-    let _ = match ws.get_ref() {
-        MaybeTlsStream::Plain(s) => s.set_read_timeout(Some(t)),
-        MaybeTlsStream::Rustls(s) => s.sock.set_read_timeout(Some(t)),
-        _ => Ok(()),
-    };
-}
-
-/// One wait socket: `Some` when it ended the wait, `None` when it closed without a result.
-fn wait_once(url: &str, secret: &str, deadline_ms: u64) -> Result<Option<Waited>, String> {
+/// The wait socket's upgrade: the collect secret as its protocol, and this build's space.
+fn wait_request(
+    url: &str,
+    secret: &str,
+    space: &crate::build_space::Resolved,
+) -> Result<tungstenite::handshake::client::Request, String> {
     let mut request = url
         .into_client_request()
         .map_err(|e| format!("pair wait: {e}"))?;
@@ -146,6 +145,26 @@ fn wait_once(url: &str, secret: &str, deadline_ms: u64) -> Result<Option<Waited>
     request
         .headers_mut()
         .insert("Sec-WebSocket-Protocol", protocols);
+    crate::build_space::insert(request.headers_mut(), space)?;
+    Ok(request)
+}
+
+fn set_read_timeout(ws: &WebSocket<MaybeTlsStream<std::net::TcpStream>>, t: Duration) {
+    let _ = match ws.get_ref() {
+        MaybeTlsStream::Plain(s) => s.set_read_timeout(Some(t)),
+        MaybeTlsStream::Rustls(s) => s.sock.set_read_timeout(Some(t)),
+        _ => Ok(()),
+    };
+}
+
+/// One wait socket: `Some` when it ended the wait, `None` when it closed without a result.
+fn wait_once(
+    url: &str,
+    secret: &str,
+    space: &crate::build_space::Resolved,
+    deadline_ms: u64,
+) -> Result<Option<Waited>, String> {
+    let request = wait_request(url, secret, space)?;
     // The error never carries the request, so the secret stays out of logs.
     let (mut ws, _) = tungstenite::connect(request).map_err(|e| format!("pair wait: {e}"))?;
     set_read_timeout(&ws, Duration::from_millis(500));
@@ -389,5 +408,24 @@ fn find_chief(
         }
         std::thread::sleep(delay.min(opts.wait_chief.saturating_sub(started.elapsed())));
         delay = (delay * 2).min(opts.poll * 8);
+    }
+}
+
+#[cfg(test)]
+mod build_space_tests {
+    use crate::build_space::testing::{dev, unusable};
+
+    /// `cloud pair` from a dev build waits in the build's own PairingDO.
+    #[test]
+    fn a_dev_chiefs_pair_wait_upgrade_carries_its_build_space() {
+        let url = "wss://cloud-api.example/v1/pair/wait?code=ABCD";
+        let request = super::wait_request(url, "s3cret", &dev()).unwrap();
+        assert_eq!(
+            request.headers().get("x-cmux-build-space").unwrap(),
+            "dev:my-tag"
+        );
+        let nightly = super::wait_request(url, "s3cret", &Ok(None)).unwrap();
+        assert!(nightly.headers().get("x-cmux-build-space").is_none());
+        assert!(super::wait_request(url, "s3cret", &unusable()).is_err());
     }
 }

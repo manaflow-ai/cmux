@@ -1,7 +1,9 @@
 import { memo } from "react";
+import { OpenTab } from "../conversation/icons";
 import { useT } from "../i18n";
 import { PermissionAsk } from "../rows/PermissionAsk";
 import type { ChildAsk as ChildAskModel } from "./childAsks";
+import "../conversation/cardFit.css";
 import "../conversation/PendingAsks.css";
 
 /// A sub-session's ask, in the chat above it (childAsks.ts): the line the pinned asks use, naming the
@@ -28,13 +30,32 @@ export const ChildAsk = memo(function ChildAsk({
 }) {
   const t = useT();
   const from = t(child.direct ? "message.from.subsession" : "message.from.descendant", { name: child.name });
+  const open = t("subagents.open", { name: child.name });
   return (
     <section className="acpmux-pending-ask" aria-label={from} data-child-ask={child.ask.sessionId}>
-      <div className="acpmux-pending-ask__head">
-        <span className="acpmux-pending-ask__label">{from}</span>
-        <button type="button" className="acpmux-pending-ask__dismiss" onClick={() => onOpen(child.ask.sessionId)}>
-          {t("subagents.open", { name: child.name })}
-        </button>
+      {/* The line's own width decides its layout (cardFit.css): in a narrow pane Open moves under the
+          sub-session's name, and in a narrower one it is its icon. The head, not the section, is the
+          size container, so the ask card under it keeps the container it measures. */}
+      <div className="acpmux-pending-ask__head cv-fit cv-fit-row" data-dock-clear="">
+        <span
+          className="acpmux-pending-ask__label cv-fit-text"
+          // tooltip-allow: a long sub-session name is cut to the line; its whole text is the tooltip
+          title={from}
+        >
+          {from}
+        </span>
+        <span className="acpmux-pending-ask__actions cv-fit-actions">
+          <button
+            type="button"
+            className="acpmux-pending-ask__dismiss"
+            title={open}
+            aria-label={open}
+            onClick={() => onOpen(child.ask.sessionId)}
+          >
+            <OpenTab size={14} />
+            <span className="cv-fit-label">{open}</span>
+          </button>
+        </span>
       </div>
       <PermissionAsk
         key={child.ask.permission.permissionId}

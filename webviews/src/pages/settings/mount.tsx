@@ -1,5 +1,5 @@
-// Mounts the Settings page on a page client. The locale is the document's language (set by
-// the page host) or the browser's; the theme comes from the one web theme (--cmux-*); the
+// Mounts the Settings page on a page client. The locale is the app's language (the Language
+// setting's, else the browser's; shared/appLanguage.ts) and follows it live; the theme comes from the one web theme (--cmux-*); the
 // route comes from the URL fragment (#/settings/<section>?focus=<key>).
 import { createRoot } from "react-dom/client";
 import { SettingsPage } from "./components/SettingsPage";
@@ -9,7 +9,7 @@ import type { SettingsClient } from "./ops";
 import { parseLocation } from "./router";
 import { ensureSection } from "./sectionQueries";
 import { SettingsStore } from "./store";
-import { setLocale, t } from "./strings";
+import { appLocale, setLocale, subscribeLocale, t } from "./strings";
 import { holdPaintUntil } from "../shared/paintGate";
 import { PARKED_NAME } from "../shared/pageClient";
 import { setHarnessSymbolHost } from "../../agent-session/shared/harnessIcons";
@@ -19,11 +19,16 @@ const parked = () => (globalThis as Record<string, unknown>)[PARKED_NAME] === tr
 
 /** Renders the page and starts its store; the returned function unmounts both. */
 export async function mountSettingsPage(root: HTMLElement, client: SettingsClient): Promise<() => void> {
-  setLocale(document.documentElement.lang || navigator.language);
+  // The app's language (shared/appLanguage.ts) among the tables the head loaded; the page follows
+  // its changes live (SettingsPage re-renders, the title follows here).
+  setLocale(appLocale());
   // The one look (refined.css over layout.css): section nav, grouped cards, the app drawn as an
   // illustration in the Theme preview (Lucas #21120; the only look, Lawrence 2026-10-16).
   document.documentElement.dataset.settingsLook = "refined";
   document.title = t("settingsPage.title");
+  const releaseTitle = subscribeLocale(() => {
+    document.title = t("settingsPage.title");
+  });
   const store = new SettingsStore(client);
   // A custom harness's SF Symbol icon: the host draws it (`agents.run {action: "symbol"}`).
   const releaseSymbolHost = setHarnessSymbolHost(async (name) => {
@@ -48,6 +53,7 @@ export async function mountSettingsPage(root: HTMLElement, client: SettingsClien
   return () => {
     reactRoot.unmount();
     releaseSymbolHost();
+    releaseTitle();
     store.dispose();
   };
 }

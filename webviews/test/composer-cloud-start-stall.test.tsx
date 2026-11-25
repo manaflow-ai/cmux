@@ -209,7 +209,7 @@ test("measure: a no-folder start copies nothing, and a repeating stuck copy stal
 
 test("the stalled card says plainly that what is typed moves to the chat as a draft", () => {
   const markup = renderToStaticMarkup(<CloudStartView start={{ ...begun(), step: "machine", stalled: true }} bubble />);
-  expect(markup).toContain("what you type here moves to it as a draft");
+  expect(markup).toContain("What you type here moves to the chat as a draft.");
   expect(markup).not.toContain("is lost");
   expect(markup).not.toContain("You can type again");
 });

@@ -169,6 +169,8 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
         var scanDropped = 0
         /// Why the movie writer or a side file failed, if one did.
         var writeError: String?
+        /// Why ScreenCaptureKit's stop failed (it did not answer within ``callLimit``), if it did.
+        var stopError: String?
     }
 
     /// Seconds any one ScreenCaptureKit call may take (a disconnected replayd never answers; the animation pixel
@@ -225,7 +227,9 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
                 throw Failure(description: "ScreenCaptureKit lists no display \(displayID) for this process (\(content.value.displays.count) listed)")
             }
             // Every on-screen window of this app on that display: page child windows and panels show as on screen.
-            let own = content.value.windows.filter { $0.isOnScreen && $0.frame.intersects(display.frame) }
+            // Never a window only the person may see (CaptureExcludedWindows: the join consent ask).
+            let excluded = CaptureExcludedWindows().windowIDs
+            let own = content.value.windows.filter { $0.isOnScreen && $0.frame.intersects(display.frame) && !excluded.contains($0.windowID) }
             filter = SCContentFilter(display: display, including: own.isEmpty ? [target] : own)
         } else {
             filter = SCContentFilter(desktopIndependentWindow: target)
@@ -267,19 +271,27 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
         return configuration
     }
 
-    /// Ends the capture once, then closes the movie and the side files on `queue` (`written` in the counts).
-    /// Any thread; the stop and the files run off the main actor.
+    /// Ends the capture once: closes the movie and the side files on `queue` now (`written` in the counts), and stops
+    /// the stream off the main actor. Any thread.
+    ///
+    /// The files do not wait for the stream's stop: once `ending` is set, a frame that comes takes no part (each frame
+    /// looks at it first, on `queue`), and a frame already on `queue` ends before `close()` there. ScreenCaptureKit's
+    /// stop can take up to ``callLimit`` (film 4x2-close-0 of pane-perf --film on cmux20-bench, 2026-11-21: its files
+    /// came 10 s after the stop, past the bench's wait), and the movie was complete all the same.
     nonisolated func finish() {
         guard !state.withLock({ state -> Bool in defer { state.ending = true }; return state.ending }) else { return }
         limit.cancel()
+        queue.async { [self] in close() }
         let handed = streamSlot.withLock { slot -> Handed<SCStream>? in defer { slot = nil }; return slot }
+        guard let stream = handed?.value else { return }
         Task.detached(priority: .userInitiated) { [self] in
-            if let stream = handed?.value {
-                let _: Bool? = try? await deadline("stop the capture") { done in
+            do {
+                let _: Bool = try await deadline("stop the capture") { done in
                     stream.stopCapture { error in done(error.map { .failure($0) } ?? .success(true)) }
                 }
+            } catch {
+                state.withLock { $0.stopError = "\(error)" }
             }
-            queue.async { [self] in close() }
         }
     }
 
@@ -316,7 +328,7 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
                 "encoder_not_ready": state.notReady, "first_t": state.frames.first?.time ?? 0,
                 "last_t": state.frames.last?.time ?? 0, "stopped_by": state.stoppedBy ?? "", "callbacks": state.callbacks,
                 "filter": options.display == nil ? "window" : "display", "scan_dropped": state.scanDropped,
-                "write_error": state.writeError ?? ""]
+                "write_error": state.writeError ?? "", "stop_error": state.stopError ?? ""]
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {

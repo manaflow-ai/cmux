@@ -56,6 +56,9 @@ impl Brain {
                         }
                         self.state.awaiting.clear();
                         self.state.stopped_reply = None;
+                        // The guard counts per conversation (budget_hold.rs).
+                        self.guard_rows.clear();
+                        self.state.budget_hold = false;
                     }
                     self.state.conversation = Some(conversation.id.clone());
                     self.save();
@@ -268,6 +271,7 @@ impl Brain {
         if message.author == self.settings.membership.participant {
             self.mux_messages.insert(message.id.clone());
         }
+        self.guard_row(&message);
         if self.daemon.is_none() || message.seq <= self.handled {
             return;
         }
@@ -320,6 +324,11 @@ impl Brain {
                 }
                 self.summary = Some(summary);
                 self.handled = from;
+                // The guard's count from what the snapshot holds (a host that
+                // starts with the guard closed holds at once, budget_hold.rs).
+                for m in messages.iter().chain(pending.iter()) {
+                    self.guard_row(m);
+                }
                 // A deletion made while the brain was not listening (a restart,
                 // a lost connection): the newest page's retracted messages go
                 // through the live path, which writes each one once.
@@ -445,6 +454,24 @@ impl Brain {
                 .filter(|s| self.chief.trusts_agent(&s.name))
                 .map(|s| s.name.clone());
             let framed = agent_framed(sender.as_ref(), relay.is_some(), &text);
+            // Words that are not the owner's (another agent's, another
+            // person's) are marked, so the nightly review never takes a rule
+            // or a fact about the owner from them (dream.rs).
+            let author = if sender.is_some() {
+                Some("agent")
+            } else if !owner_msg && !lifts_floor {
+                Some("other")
+            } else {
+                None
+            };
+            if let (Some(kind), Some(files), Some(main)) = (
+                author,
+                self.memory_files.as_ref(),
+                self.state.conversation.as_deref(),
+            ) && let Err(e) = files.mark_author(&format!("{main}#{}", message.seq), kind)
+            {
+                (self.log)(&format!("marking message {} as {kind}: {e}", message.seq));
+            }
             // A person's `/name` runs that skill on this message: the turn reads
             // its SKILL.md (slash_skills.rs). Agents' messages invoke nothing.
             let framed = if sender.is_none() {

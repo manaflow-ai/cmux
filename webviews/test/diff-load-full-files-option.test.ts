@@ -7,7 +7,15 @@ import { NO_HOST_CAPABILITIES, overflowMenuItems } from "../src/toolbar-model";
 
 const row = (loadFullFiles: boolean, fullFiles = true) =>
   overflowMenuItems(
-    { hideImports: false, hideWhitespace: false, loadFullFiles, richPreview: false, wordDiffs: true },
+    {
+      collapsed: false,
+      hideImports: false,
+      hideWhitespace: false,
+      loadFullFiles,
+      richPreview: false,
+      wordDiffs: true,
+      wordWrap: false,
+    },
     { ...NO_HOST_CAPABILITIES, fullFiles },
   ).find((item) => item.id === "load-full-files")!;
 

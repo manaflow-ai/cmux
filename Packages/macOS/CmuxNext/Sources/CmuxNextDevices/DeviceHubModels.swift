@@ -5,17 +5,18 @@ public import Foundation
 /// field is nil, so a newer server never breaks an older app.
 
 /// A device's platform. `linux` is a Linux desktop that hosts its screen
-/// (`cmux-rd linux-host`); it is viewed like a Mac and never views.
+/// (`cmux-rd linux-host`); it is viewed like a Mac and never views. `windows` is a Windows
+/// PC on the account (`cmux-rd windows-host`): listed, not yet viewable.
 public enum DevicePlatform: String, Codable, Sendable, Equatable {
-    case macos, ios, linux
+    case macos, ios, linux, windows
 
     /// Whether this Mac can view a screen this platform hosts: a Mac or a Linux desktop, never an iPhone.
-    /// Settings > Devices and the sidebar's screen actions ask this, and the switch is exhaustive, so a new
-    /// platform says here whether the Mac views it.
+    /// A Windows PC is listed but not viewed yet. Settings > Devices and the sidebar's screen actions ask
+    /// this, and the switch is exhaustive, so a new platform says here whether the Mac views it.
     public var hostsScreenThisMacViews: Bool {
         switch self {
         case .macos, .linux: true
-        case .ios: false
+        case .ios, .windows: false
         }
     }
 }
@@ -262,6 +263,33 @@ public struct HubMe: Codable, Sendable, Equatable {
         userId = try c.decode(String.self, forKey: .userId)
         plan = c.lenient(DevicePlan.self, .plan) ?? .free
         device = c.lenient(HubDevice.self, .device)
+    }
+}
+
+/// The account's settings (`GET /v1/settings`): one value per account, read by every device.
+public struct HubAccountSettings: Codable, Sendable, Equatable {
+    /// "My agents can turn screen sharing and control on my machines" (off unless a person turned it on).
+    public var agentsMayShare: Bool
+
+    public init(agentsMayShare: Bool) {
+        self.agentsMayShare = agentsMayShare
+    }
+
+    enum CodingKeys: String, CodingKey { case agentsMayShare }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        agentsMayShare = c.flag(.agentsMayShare)
+    }
+}
+
+/// The owner's agent session behind a sharing change (the hub's audit detail).
+public struct HubAgentActor: Codable, Sendable, Equatable {
+    public var session: String
+    public var device: String
+
+    public init(session: String, device: String) {
+        self.session = session; self.device = device
     }
 }
 
