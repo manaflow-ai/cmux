@@ -858,8 +858,13 @@ async fn run_control(
         Ok(body) => body,
         Err(e) => return Some(Ack::refused(format!("invalid control body: {e}"))),
     };
-    if body.get("version").and_then(serde_json::Value::as_u64) != Some(1) {
-        return Some(Ack::refused("unsupported control body version"));
+    // Version 2 is a `move` whose manifest the target pulls over the circuit
+    // (`hub/transfer_pull.rs` `MANIFEST_PULL_WIRE_VERSION`); every other op stays at 1.
+    let version = body.get("version").and_then(serde_json::Value::as_u64);
+    let pulled_move = op == crate::mesh_relay_config::MOVE_OP
+        && version == Some(crate::hub::transfer_pull::MANIFEST_PULL_WIRE_VERSION);
+    if version != Some(1) && !pulled_move {
+        return Some(Ack::refused(crate::hub::transfer_pull::OLD_VERSION_REFUSAL));
     }
     // A chat pulled here from the sender (`hub/transfer_pull.rs`), as a local actor: the source
     // is the daemon the hub stamped, never one the body names. The hook admitted only this

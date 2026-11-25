@@ -1588,6 +1588,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cas"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "blake3",
+ "cmux-signed-envelope",
+ "ring",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "zstd",
+]
+
+[[package]]
 name = "cmux-chat-index"
 version = "0.1.0"
 dependencies = [
@@ -2345,7 +2359,7 @@ dependencies = [
 name = "cmux-local-url"
 version = "0.1.0"
 dependencies = [
- "regex",
+ "regex-automata",
 ]
 
 [[package]]
@@ -3178,6 +3192,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-signed-bundle",
  "cmux-stack-auth",
+ "cmux-sync",
  "cmux-tailnet-join",
  "cmux-terminal-client",
  "cmux-theme-pack",
