@@ -47,7 +47,20 @@ jobs:
         with:
           node-version: "24"
       - name: Cache Bun package cache
+        timeout-minutes: 3
+        continue-on-error: true
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-cmux-actions-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('workers/cmux-actions/bun.lock') }}
+          restore-keys: |
+            bun-cmux-actions-${{ runner.os }}-${{ runner.arch }}-
+      - name: Cache Bun package cache (restore only off base branches)
+        timeout-minutes: 3
+        continue-on-error: true
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-cmux-actions-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('workers/cmux-actions/bun.lock') }}

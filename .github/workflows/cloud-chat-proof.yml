@@ -1,5 +1,5 @@
 name: Cloud chat proof (staging and production, tagged DEV app)
-run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', inputs.request_id) || inputs.flow == 'share-two-accounts' && 'Two-account chat sharing (staging)' || inputs.flow == 'github-pr-app' && format('GitHub main path recording (staging, {0}){1}', inputs.build, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || inputs.cleanup_machine != '' && format('Cloud machine cleanup ({0})', inputs.cleanup_machine) || inputs.paused_capture && format('Cloud paused price capture (staging, {0}){1}', inputs.build, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || inputs.matrix && format('{0}Cloud workspace matrix ({1}, {2}){3}', inputs.projection_kinds && 'Projection ' || '', inputs.build, inputs.agent, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || format('Cloud chat proof ({0}, {1}{2}){3}', inputs.build, inputs.agent, inputs.from_folder && ', from a folder' || '', inputs.request_id != '' && format(' {0}', inputs.request_id) || '') }}
+run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', inputs.request_id) || inputs.flow == 'share-two-accounts' && 'Two-account chat sharing (staging)' || inputs.flow == 'github-pr-app' && format('GitHub main path recording (staging, {0}){1}', inputs.build, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || inputs.cleanup_machine != '' && format('Cloud machine cleanup ({0})', inputs.cleanup_machine) || inputs.paused_capture && format('Cloud paused price capture (staging, {0}){1}', inputs.build, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || inputs.matrix && format('{0}Cloud workspace matrix ({1}, {2}){3}', inputs.projection_kinds && 'Projection ' || '', inputs.build, inputs.agent, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || format('Cloud chat proof ({0}, {1}{2}){3}', inputs.build, inputs.agent, inputs.empty_folder && ', from an empty folder' || inputs.from_folder && ', from a folder' || '', inputs.request_id != '' && format(' {0}', inputs.request_id) || '') }}
 
 # One manual trip through a Cloud chat from one tagged DEV build of the dispatched commit, signed in as
 # the agent test account on staging and production. The bundle is built (or downloaded) once per backend job,
@@ -101,6 +101,11 @@ on:
         type: string
       from_folder:
         description: Start the chat from a new plain folder on the runner (no Git), copied the composer's way; the reply must name a word only its file holds
+        required: false
+        default: false
+        type: boolean
+      empty_folder:
+        description: Start the chat from a new empty folder on the runner; the agent must find it projected (this_folder) and its written file must come back on Bring Back
         required: false
         default: false
         type: boolean
@@ -829,7 +834,7 @@ jobs:
           PROOF_AGENT: ${{ inputs.agent }}
           # The agent test account's Claude login, cached for the run's own app only (--cache-claude-login).
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          PROOF_FROM_FOLDER: ${{ inputs.from_folder && '--from-folder' || '' }}
+          PROOF_FROM_FOLDER: ${{ inputs.empty_folder && '--empty-folder' || inputs.from_folder && '--from-folder' || '' }}
         run: |
           set -euo pipefail
           credentials="$CMUX_PROOF_CREDENTIALS"
@@ -1133,7 +1138,7 @@ jobs:
           PROOF_AGENT: ${{ inputs.agent }}
           # The agent test account's Claude login, cached for the run's own app only (--cache-claude-login).
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          PROOF_FROM_FOLDER: ${{ inputs.from_folder && '--from-folder' || '' }}
+          PROOF_FROM_FOLDER: ${{ inputs.empty_folder && '--empty-folder' || inputs.from_folder && '--from-folder' || '' }}
         run: |
           set -euo pipefail
           credentials="$CMUX_PROOF_CREDENTIALS"
