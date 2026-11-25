@@ -1101,6 +1101,20 @@ class WebUiTests(unittest.TestCase):
                          "a chat bench that gave nothing marks the report incomplete")
         self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": ["no launch.relaunch.warm.chat_live_ms"]}))
 
+    def test_the_relaunch_part_times_the_chat_seen_from_the_first_frame(self):
+        """Leo 2026-11-24, Restart to Update: "the agent pane blanked". The chat's transcript (its saved picture or its
+        rows) is on screen in the window's first frame, or the row is over its budget."""
+        rw = self.relaunch_wake()
+        reconnect = {"rounds": [
+            {"mode": "update", "phases": {"first window frame": 900.0}, "seen": {"(c) chat rows": 8.0}},
+            {"mode": "update", "phases": {"first window frame": 900.0}, "seen": {"(c) chat rows": 1700.0}},
+            {"mode": "warm", "phases": {"first window frame": 450.0}, "seen": {"(c) chat rows": None}}]}
+        rows = {r["name"]: r for r in rw.reconnect_rows(reconnect)}
+        self.assertEqual(rows["launch.relaunch.update.chat_seen_ms"]["p95"], 1700.0)
+        self.assertEqual(rows["launch.relaunch.update.chat_seen_ms"]["budget"], 50)
+        self.assertNotIn("launch.relaunch.warm.chat_seen_ms", rows, "no value, no row")
+        self.assertTrue(cron.over_target("launch.relaunch.update.chat_seen_ms@h", rows["launch.relaunch.update.chat_seen_ms"], 8.33))
+
     def test_the_wake_part_owns_its_proxy_rows(self):
         """A measure Mac can't sleep in a step: the wake rows are a freeze proxy and say so in their name."""
         rw = self.relaunch_wake()
