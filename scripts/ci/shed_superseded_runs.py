@@ -78,7 +78,14 @@ BASE_KEEP_PATHS = frozenset({".github/workflows/cmux-tui-artifacts.yml"})
 # Lane events a newer push to the same branch replaces. workflow_run runs carry the triggering run's branch and
 # head, so a follow-up of a replaced head (attribution, PR media) reads a commit nobody looks at any more.
 LANE_EVENTS = ("push", "pull_request", "workflow_run")
-SHED_VERDICTS = ("superseded", "superseded-base", "branch-gone")
+# Pull request runs of a workflow whose PR Mac jobs moved elsewhere, created before the move: the run, even at its
+# branch tip, asks for a Mac route no current run asks for. cmux#53487 (merged 2026-11-25T00:59:59Z) moved the PR
+# fast tier and Swift gates to pr-pipeline.yml's mac job; at 01:20Z 191 jobs still waited on
+# glaeda-side-std-xcode-26.6 for those old runs (median 39 min, oldest 143 min), 184 of 187 queued cmux-next runs
+# predating the move, ahead of every newer job on that label. Shedding one stops only jobs that never started; the
+# PR's next head (a push or land's base update) runs the new route. Leo, 2026-11-25: "do not catch-22 yourselves".
+RETIRED_PR_ROUTES = {".github/workflows/cmux-next.yml": "2026-11-25T00:59:59Z"}
+SHED_VERDICTS = ("superseded", "superseded-base", "branch-gone", "retired-route")
 
 
 def unstarted(jobs: list[dict[str, Any]]) -> bool:
@@ -130,6 +137,9 @@ def verdict(run: dict[str, Any], repo: str, tips: dict[str, str],
         return "keep:base-unread" if base else "branch-gone"
     if tip != run.get("head_sha"):
         return "superseded-base" if base else "superseded"
+    retired = RETIRED_PR_ROUTES.get(run.get("path") or "")
+    if not base and event == "pull_request" and retired and (run.get("created_at") or "9") < retired:
+        return "retired-route"
     return f"keep:current-{event}"
 
 
