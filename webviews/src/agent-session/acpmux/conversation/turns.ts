@@ -108,6 +108,16 @@ export const THINKING = "thinking";
 /// changes id when acpmux echoes it, the line keeps its place (cx-ncc.58).
 /// The running turn's line, its last row from the send to the turn's end (turnEndFold.ts reads it).
 export const LIVE_THINKING = `${THINKING}-live`;
+/// The frame a running turn's line draws in (model.ts `rowFrameKey`): one per prompt, so the line
+/// keeps its element from the send through the turn (the prompt's acpmux id, the same before and
+/// after acpmux's echo renames its row), and the next prompt's turn draws a line of its own. One
+/// frame for every turn carried a /compact's "Compacting conversation" line on as the queued
+/// prompt's "Thinking" line: that element moved down the room the queue card left, a layout shift
+/// of a row on screen (snappy-bench mid_compaction).
+export function liveLineFrame(prompt: AcpmuxRow): string {
+  const id = prompt.promptId ?? (prompt.id.startsWith("local-") ? prompt.id.slice("local-".length) : prompt.id);
+  return `${LIVE_THINKING}:${id}`;
+}
 /// The older live line at a running turn's bottom (`below`, WorkingFor.tsx). The running turn's header
 /// over its work is a WORKED row in its running phase (`turnHeaderId`), never this kind.
 export const WORKING = "working";
@@ -1365,6 +1375,7 @@ function shapedTurn(
       at: user.at,
       kind: THINKING,
       verbKey: user.id,
+      frame: liveLineFrame(user),
       // The running turn's slot from the send (`LIVE_SLOT`): the turn opening never resizes the line.
       ...LIVE_SLOT,
     };
@@ -1641,6 +1652,7 @@ function sentLine(sent: AcpmuxRow): AcpmuxRow {
     at: sent.at,
     kind: THINKING,
     verbKey: sent.id,
+    frame: liveLineFrame(sent),
     ...LIVE_SLOT,
   };
   if (sent.queued) Object.assign(line, { queued: sent.queued, untimed: true });
@@ -3727,7 +3739,15 @@ function codexLiveTurn(
   // The one live block sits at the turn's bottom, as the ChatGPT and Codex apps draw it: no
   // "Working for" over the turn (with steers it stood above all of them, far from the line; Leo,
   // 2026-10-21). Between steps it reads "Thinking 18s", timed from the prompt.
-  const line: AcpmuxRow = { id: LIVE_THINKING, version: 1, at, kind: THINKING, below: true, verbKey: user.id };
+  const line: AcpmuxRow = {
+    id: LIVE_THINKING,
+    frame: liveLineFrame(user),
+    version: 1,
+    at,
+    kind: THINKING,
+    below: true,
+    verbKey: user.id,
+  };
   // A /compact (typed, a Compact button's, the cache timer's) compacts from its send: the line reads
   // "Compacting conversation" from the first frame, never "Thinking" until the harness's own
   // compaction row comes (Leo, 2026-11-25: "the compaction starting from idle should not go from
