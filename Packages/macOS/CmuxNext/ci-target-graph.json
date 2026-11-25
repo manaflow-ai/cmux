@@ -1328,6 +1328,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFavicons",
       "targets": [
         "CmuxNextBrowser",
+        "CmuxNextCompat",
         "CmuxNextTabs",
         "CmuxNextWakeups"
       ],
