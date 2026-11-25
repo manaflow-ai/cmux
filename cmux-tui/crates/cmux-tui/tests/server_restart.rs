@@ -325,3 +325,72 @@ fn daemon_upgrade_restart_returns_when_every_kept_terminal_runs() {
     }
     assert_eq!(restarted["terminals"]["running"], 6, "{restarted}");
 }
+
+/// Leo, 2026-11-24: "i thought this already happened [relaunch keeps agents
+/// running in terminal tabs alive]". A relaunch keeps a terminal's agent: the
+/// same process, its scrollback, and no tool call's bound in its environment.
+/// A relaunch run by a bounded command (a timer, an agent's tool call) put
+/// its `CMUX_DEADLINE` in the app's and the daemon's environment, the app
+/// forwards its `CMUX_*` keys into every terminal it opens, and the fleet's
+/// orphan reaper ends a process past its deadline (exit 143): the agents in
+/// the terminal tabs were gone minutes after the relaunch.
+#[test]
+fn a_relaunch_keeps_a_terminal_agent_with_no_tool_call_bound() {
+    let fixture = Fixture::new("restart-agent");
+    let past = (SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() - 3600).to_string();
+    let bounded = |action: &str| {
+        let output = fixture
+            .command(action, &[])
+            .env("CMUX_DEADLINE", &past)
+            .env("CMUX_DEADLINE_OWNER", "timer_run")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "a bounded server {action} failed: {output:?}");
+    };
+    // The daemon is started by a bounded command, and the terminal is opened
+    // the way the app opens one, its own CMUX_* keys in the launch env.
+    bounded("ensure");
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0x200);
+    let serial = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let terminal_id = format!("{:08x}00004000800{:013x}", std::process::id(), serial);
+    let created = fixture.request(json!({
+        "cmd": "new-tab", "terminal_id": terminal_id, "cols": 100, "rows": 24,
+        "env": {"SHELL": "/bin/sh", "CMUX_DEADLINE": past, "CMUX_DEADLINE_OWNER": "glaeda-gh"},
+        "shell_args": ["-c", "echo agent-pid=$$ bound=[${CMUX_DEADLINE-}${CMUX_DEADLINE_OWNER-}]; exec sleep 600"],
+    }));
+    let surface = created["surface"].clone();
+    wait_for("the agent's first line", || fixture.screen_has(&surface, "agent-pid="));
+    let screen = fixture.request(json!({"cmd": "read-screen", "surface": surface}));
+    let text = screen["text"].as_str().unwrap_or_default().to_string();
+    let line = text.lines().find(|line| line.contains("agent-pid=")).unwrap().to_string();
+    assert!(line.contains("bound=[]"), "the agent inherited a tool call's bound: {line}");
+    let agent: i32 = line
+        .split("agent-pid=")
+        .nth(1)
+        .and_then(|rest| rest.split_whitespace().next())
+        .and_then(|pid| pid.parse().ok())
+        .unwrap_or_else(|| panic!("no pid in {line}"));
+    // The reaper reads a process's initial environment.
+    #[cfg(target_os = "linux")]
+    {
+        let environ = fs::read(format!("/proc/{agent}/environ")).unwrap();
+        let environ = String::from_utf8_lossy(&environ);
+        assert!(!environ.contains("CMUX_DEADLINE"), "the agent's environment holds a bound");
+    }
+
+    // The relaunch (an update's daemon swap), again by a bounded command.
+    let resolved_before =
+        fixture.request(json!({"cmd": "resolve-terminal", "terminal_id": terminal_id}));
+    bounded("restart");
+    assert!(running(agent), "the agent {agent} did not survive the relaunch");
+    let resolved = fixture.request(json!({"cmd": "resolve-terminal", "terminal_id": terminal_id}));
+    assert_eq!(resolved["lifecycle"], "running", "{resolved}");
+    assert_eq!(
+        resolved["terminal_incarnation"], resolved_before["terminal_incarnation"],
+        "{resolved}"
+    );
+    assert!(
+        fixture.screen_has(&resolved["surface"], &format!("agent-pid={agent}")),
+        "scrollback lost"
+    );
+}
