@@ -300,6 +300,19 @@ async fn run_with_changes(
     } else {
         None
     };
+    // The relay cache's copy of this Mac's chats for phones to read while it sleeps
+    // (`relay_feed.rs`); only with `LINK_RELAY_CACHE=on` and the app's identity key.
+    let _relay_feed = (crate::relay_feed::enabled() && services.pairing.is_some()).then(|| {
+        AbortTask(tokio::spawn(crate::relay_feed::run(
+            Arc::clone(&services),
+            config.base_url.clone(),
+            config.build_space.clone(),
+            config.device_id.clone(),
+            Arc::clone(&tokens),
+            config.session_exposure.clone(),
+            crate::relay_feed::FeedTiming::default(),
+        )))
+    });
     let mailbox = mailbox_for(&services, config.session_exposure.clone());
     // Phones beside this Mac link through its local hub with no Worker and
     // no internet (local_link.rs); it outlives every Worker reconnect.
