@@ -59,6 +59,7 @@ import { turnCopyParts, turnCallParts, turnCopySaid } from "./turnCopy";
 import { turnEndActions } from "./turnEndActions.experiment";
 import { turnWork } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
+import { agentCall } from "./agentCalls";
 import { hidesEveryCall } from "./mcpPresentation";
 import { isThought, isQuietThought, thoughtDuration } from "./thoughts";
 import { SILENT_MS } from "./thinkingModel";
@@ -215,14 +216,10 @@ export const isStopped = (row: AcpmuxRow) =>
 export function footerLabel(t: Translate, row: AcpmuxRow): string | undefined {
   return (footerSays(row) && workedLabel(t, row)) || undefined;
 }
-
-/// A fold whose line would have nothing to say (`workedLabel` empty): no time, no calls, no messages.
-/// It is no fold; its rows draw as they ran (cmux#54927).
-const saysNothing = (row: Pick<AcpmuxRow, "durationMs" | "toolCount" | "previous" | "workedMessages">) =>
-  row.previous === undefined && row.durationMs === undefined && !row.toolCount && !row.workedMessages;
 const footerSays = (row: AcpmuxRow) =>
   !row.folded &&
   (row.previous !== undefined || row.durationMs === undefined || row.durationMs >= 1000 || row.status === "cancelled");
+
 
 /// A footer with nothing to show at rest and only hover controls (Pin, Fork, its time): no answer to
 /// copy or read aloud and the turn did not fail. A stopped turn resumes from the composer.
@@ -1718,6 +1715,44 @@ const callsIn = (rows: readonly AcpmuxRow[]) =>
     .flatMap(withoutDrafts)
     .reduce((n, row) => n + (row.kind === "activity" ? (row.items ?? []).filter((item) => item.tool).length : 0), 0);
 
+/// The names of the subagents `body` draws a row for (its groups, started lines and done lines).
+const shownAgentNames = (body: readonly AcpmuxRow[]): ReadonlySet<string> =>
+  new Set(
+    body.flatMap((row) =>
+      isSubagentGroup(row) || row.kind === SUBAGENT_STARTED || row.kind === SUBAGENT_DONE
+        ? (row.subagents ?? []).map((agent) => agent.name.trim())
+        : [],
+    ),
+  );
+
+/// An activity row whose every item is an Agent call (agentCalls.ts) for a subagent `shown` draws a
+/// row of its own, matched by the name the call gave it: the call says nothing that row does not. An
+/// Agent call no subagent row answers (it failed before acpmux named one) is never one.
+const onlySpawnsShownAgents = (row: AcpmuxRow, shown: ReadonlySet<string>) =>
+  row.kind === "activity" &&
+  (row.items?.length ?? 0) > 0 &&
+  row.items!.every((item) => {
+    const call = item.tool && agentCall(item.tool);
+    return call !== undefined && shown.has(call.description.trim());
+  });
+
+/// A segment's work that is one or more subagents and nothing else: their rows, and the Agent calls
+/// that spawned them (`onlySpawnsShownAgents`). A subagent's started and failed lines stay in sight
+/// beside the fold (`staysOut`), so its work may hold only the call.
+const subagentsOnly = (work: readonly AcpmuxRow[], shown: ReadonlySet<string>) => {
+  const rows = work.flatMap(withoutDrafts);
+  return (
+    rows.length > 0 &&
+    rows.every(
+      (row) =>
+        isSubagentGroup(row) ||
+        row.kind === SUBAGENT_STARTED ||
+        row.kind === SUBAGENT_DONE ||
+        onlySpawnsShownAgents(row, shown),
+    )
+  );
+};
+
 const isUnsent = (row: AcpmuxRow) => Boolean(row.pending || row.failed);
 
 /// The tagged ask (nextStepAsk.ts) of the reply right before a message that was not the person's
@@ -2147,14 +2182,26 @@ function shapeTurn(
           ? undefined
           : Math.max(0, (segment.until ?? firstFinal?.at ?? summary.at) - segment.anchor.at);
     // A fold with no time and nothing counted would read "0 tool calls" over, say, a subagent's end
-    // alone: it draws no fold, its rows in place (`outside`), as Claude's and Codex's apps draw a
-    // lone subagent. Only where its work holds no call and no message between agents to count.
+    // alone: it draws no fold, its rows in place (`outside`). Nor does a turn whose only work was
+    // subagents and that took under a second, which read "Worked for 0s" (no news, `footerSays`) with
+    // its rule through the subagent's row (cmux#54927): the subagent's own row says it all, as
+    // Claude's and Codex's apps draw a lone subagent.
+    const shown = shownAgentNames(body);
+    // Only with no reply of its own: a reply's turn folds a subagent's end under its Worked for, as a
+    // call (Leo, 2026-11-24: "we can indeed treat them as tool calls").
+    const lone = said === undefined && subagentsOnly(work, shown);
     const unlabeled =
-      saysNothing({ durationMs, toolCount, previous, ...(named && { workedMessages: messages }) }) &&
-      callsIn(work) === 0 &&
-      messages.sent + messages.received === 0;
+      previous === undefined &&
+      messages.sent + messages.received === 0 &&
+      ((durationMs === undefined && !toolCount && callsIn(work) === 0) ||
+        ((durationMs === undefined || durationMs < 1000) && lone));
     if ((work.length && !dialogue && !unlabeled) || promptOnly) {
       if (!promptOnly) folded = style.conclusion;
+    } else if (lone) {
+      // Its footer says no count or time under the subagent's row either (`footerSays`).
+      folded = style.conclusion;
+    }
+    if ((work.length && !dialogue && !unlabeled) || promptOnly) {
       const from = segment.anchor.at;
       // The `header` arm names the work on the line itself ("Worked for 5m 15s · Finished 2 background
       // tasks and ran 8 commands"), as every arm of workedLine but `time` does for any turn.
@@ -2247,9 +2294,10 @@ function shapeTurn(
             ? [endedPlan(row)]
             : dialogue
               ? [row]
-              : // An unfolded segment's rows draw as they ran; its edits draw in the card (`editsCard`).
+              : // An unfolded segment's rows draw as they ran; its edits draw in the card (`editsCard`),
+                // and an Agent call whose subagent's row is in sight draws as that row alone.
                 unlabeled
-                ? withoutDrafts(row).filter((part) => !isEdit(part))
+                ? withoutDrafts(row).filter((part) => !isEdit(part) && !onlySpawnsShownAgents(part, shown))
                 : renderRows([row], version),
       );
     // Closed over a turn that said something before its answer, the replies read in order and the
