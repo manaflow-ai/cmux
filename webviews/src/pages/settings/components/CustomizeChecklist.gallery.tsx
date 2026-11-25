@@ -63,14 +63,29 @@ async function load() {
       name: "pr-43496",
       position: library.entries.length + 2,
       on: true,
-      code: { pr: 43496, repo: "manaflow-ai/cmux", title: "Cat icon in the dock", note: "newer head 9c1e2f0" },
+      code: {
+        pr: 43496,
+        repo: "manaflow-ai/cmux",
+        title: "Cat icon in the dock",
+        head: "8b0d3a4",
+        base: "",
+        note: "newer head 9c1e2f0",
+      },
     },
     {
       ...library.entries[0]!,
       name: "branch-lane-glass-chrome",
       position: library.entries.length + 3,
       on: false,
-      code: { kind: "branch", repo: "manaflow-ai/cmux", source: "lane/glass-chrome", title: "Glass chrome" },
+      code: {
+        kind: "branch",
+        repo: "manaflow-ai/cmux",
+        source: "lane/glass-chrome",
+        pr: 0,
+        title: "Glass chrome",
+        head: "5e9f1c2",
+        base: "",
+      },
     },
   ];
   const standup: Standup = {
