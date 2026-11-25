@@ -110,12 +110,13 @@ pub fn enabled_in_settings() -> bool {
 }
 
 /// The app-owned bundle folder: `ACPMUX_CODEX_BUNDLE_DIR`, else
-/// `<data dir>/cmux/codex-app-server`.
+/// `<data dir>/<NEXT_DIR>/codex-app-server` (`Application Support/cmux-next/...`
+/// on macOS, [`cmux_config::NEXT_DIR`]).
 pub fn bundle_dir() -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os(DIR_ENV).filter(|v| !v.is_empty()) {
         return Some(PathBuf::from(dir));
     }
-    dirs::data_dir().map(|d| d.join("cmux").join("codex-app-server"))
+    dirs::data_dir().map(|d| d.join(cmux_config::NEXT_DIR).join("codex-app-server"))
 }
 
 /// The launch for `argv` as the settings and the bundle folder say now.

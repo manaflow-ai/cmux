@@ -208,6 +208,10 @@ jobs:
       key: cmux-tui-artifacts
       hold_minutes: ${{ fromJSON(vars.NEXT_TUI_ARTIFACTS_HOLD_MINUTES || '60') }}
       no_coalesce: ${{ format('{0}', vars.NEXT_TUI_ARTIFACTS_COALESCE) == '0' }}
+      # The gate decides whether the window's tree builds at all, so it takes the preflight's pool (below), not the
+      # shared cmux-linux: on 2026-11-25 04:26Z this gate queued 44 min behind PR CI, the queued-run supersede then
+      # cancelled the run, and that window published no tree, so the nightly-next tick refused every newer commit.
+      runner: ${{ github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || '' }}
 
   # A superseded lane-branch push stops here, before it takes a preflight-sized runner.
   # On 2026-11-18 at 06:35Z 418 runs of this workflow sat queued, the oldest since
@@ -2282,7 +2286,7 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: ${{ runner.os == 'macOS' && 'cmux-tui-macos' || 'cmux-tui-linux' }}
+          shared-key: ${{ runner.os == 'macOS' && 'cmux-tui-macos' || 'cmux-tui-linux' }}-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           cache-all-crates: true
           # A red or cut test step still saves the compile, so the next run is warm
           # (job 137459375926: a cut run saved nothing and the next ones compiled cold).
