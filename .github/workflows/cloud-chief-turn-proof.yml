@@ -2,9 +2,10 @@ name: Cloud Chief turn proof (staging)
 
 # One Chief turn on a cmux Cloud machine of staging, read back (Cloud Chiefs, workstream 12).
 # scripts/cmux-next/cloud-chief-turn-proof.ts signs in as the staging agent test account, creates
-# `cmux-test-chief-<run>`, copies the optchat-chief built here to it, runs measure/chief_driver.py there
-# (one turn, the machine's own cmux-tui and acpmux) without and with OPTCHAT_CHIEF_TURN_CREDENTIALS=1, and
-# deletes the machine, pass or fail. The summary quotes the Chief's replies.
+# `cmux-test-chief-<run>`, copies the optchat-chief built here to it, makes that machine's model route resolve
+# (to a refusing 127.0.0.1, the state OPTCHAT_CHIEF_TURN_CREDENTIALS=1 is for: the script's header), runs
+# measure/chief_driver.py there (one turn, the machine's own cmux-tui and acpmux) without the opt-in (expected:
+# no model reply) and with it (expected: "OK"), and deletes the machine, pass or fail. The summary quotes the replies.
 #
 # Secrets: CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD in cmux-next-vm-image-dev; the Claude token is the journey's.
 # Runs on a same-repo pull request that changes this file, the script, or optchat-chief's credential code, and by
@@ -18,6 +19,7 @@ on:
       - .github/workflows/cloud-chief-turn-proof.yml
       - scripts/cmux-next/cloud-chief-turn-proof.ts
       - Native/OptChat/optchat-chief/src/turn_credential.rs
+      - Native/OptChat/optchat-chief/tests/turn_model_route.rs
 
 permissions:
   contents: read

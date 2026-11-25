@@ -4,18 +4,29 @@
  *
  *   bun scripts/cmux-next/cloud-chief-turn-proof.ts --bundle chief.tgz --out DIR
  *
- * Staging machines have no shared model route (cmux-platform CoderouterEdge.ts installs it only in development), so a
- * Chief turn there answered "Claude is not signed in here". optchat-chief now sends its host's Claude credential with
- * its own Claude sessions when the host has OPTCHAT_CHIEF_TURN_CREDENTIALS=1 (src/turn_credential.rs).
+ * What OPTCHAT_CHIEF_TURN_CREDENTIALS=1 (optchat-chief src/turn_credential.rs) is for: a Chief host whose own environment
+ * has a Claude credential, on a machine whose shared model route RESOLVES. acpmux fills the route from
+ * /etc/cmux/model-plane.env into every agent it starts, for each name the agent lacks (cloud_model_plane.rs `missing`,
+ * login_env.rs `apply_tokio_for`), so an inherited CLAUDE_CODE_OAUTH_TOKEN still gets ANTHROPIC_BASE_URL (the edge) and
+ * the placeholder ANTHROPIC_API_KEY, which Claude Code uses before the token: the turn goes to the edge and fails when the
+ * edge does not serve the machine. With the opt-in the host sends its credential as `_meta.acpmux.credentials`, and
+ * acpmux unsets the route for that agent (agent_credentials.rs `apply`, agent/command.rs route unset). Where the route
+ * does NOT resolve (staging and production today, cmux-platform#1839), acpmux drops it (`machine_plane`) and an
+ * inherited credential reaches Claude with or without the opt-in (run 45566468249: both runs answered "OK").
+ * tests/turn_model_route.rs pins which sessions get the credential.
+ *
+ * Staging has no resolving route, so this script makes one on its own test machine: it maps the hosts the image's
+ * /etc/cmux/model-plane.env names to 127.0.0.1 in that machine's /etc/hosts (sudo -n), so the route resolves and
+ * refuses, as an edge that does not serve the machine does.
  *
  * It signs in as the staging agent test account (CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD), creates a machine named
  * `cmux-test-chief-<tag>`, copies the bundle (an optchat-chief built from this checkout and its measure/ driver) to it
  * through fs/write, and runs measure/chief_driver.py there twice, one turn each ("Reply with exactly one word: OK").
  * Both runs use the machine's own cmux-tui and an acpmux daemon of the machine's acpmux binary that the host starts (the
  * machine's running daemon is not dumpable, so optchat-chief's peer check, acpmux_peer.rs, refuses a host that did not
- * start it: run 45011412959), and both hosts have
- * CLAUDE_CODE_OAUTH_TOKEN in their environment (a 0600 file the driver deletes). The machine has no Claude sign-in.
- *   control: without the opt-in; expected: the "not signed in" answer.
+ * start it: run 45011412959), and both hosts have the Claude credential in their environment (a 0600 file the driver
+ * deletes). The machine has no Claude sign-in.
+ *   control: without the opt-in; expected: no model reply (the turn goes to the refusing route).
  *   proof:   with OPTCHAT_CHIEF_TURN_CREDENTIALS=1; expected: a model reply.
  * Then it deletes the machine (also on a signal), and machines of an earlier run of this script over an hour old,
  * by their exact name. proof.json and summary.md go to --out. Secrets are scrubbed from every line printed.
@@ -43,10 +54,10 @@ export const MODEL_OK = /^\W*ok\W*$/i;
 
 export type RunResult = { label: string; exit: string; replies: string[]; timeout: boolean | null; why: string };
 
-/** A run's verdict: the proof wants a model reply ("OK"), the control the sign-in answer. */
+/** A run's verdict: the proof wants a model reply ("OK"), the control none (its turn went to the refusing route). */
 export function judge(label: "control" | "proof", r: RunResult): boolean {
   const text = r.replies.join("\n");
-  if (label === "control") return NOT_SIGNED_IN.test(text);
+  if (label === "control") return !r.replies.some((x) => MODEL_OK.test(x.trim()));
   return r.replies.some((x) => MODEL_OK.test(x.trim())) && !NOT_SIGNED_IN.test(text);
 }
 
@@ -170,6 +181,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (r.code !== 0) throw new Error(`install: exit ${r.code} ${(r.stdout + r.stderr).slice(-400)}`);
       return { value: null, detail: r.stdout.trim().split("\n").pop() ?? "" };
     });
+    // The state the opt-in is for: the machine's model route resolves (header). Every host the image's route names goes
+    // to 127.0.0.1 in this test machine's /etc/hosts; nothing listens there on 443, so the route refuses.
+    await J.step("make the machine's model route resolve (and refuse)", async () => {
+      const r = await run(`f=/etc/cmux/model-plane.env; [ -r "$f" ] || { echo "no $f"; exit 3; }; ` +
+        `hosts=$(sed -n "s/^export \\(ANTHROPIC_BASE_URL\\|OPENAI_BASE_URL\\|CMUX_CODEROUTER_URL\\)='https:\\/\\/\\([^/:']*\\).*/\\2/p" "$f" | sort -u | tr '\\n' ' '); ` +
+        `[ -n "$hosts" ] || { echo "no base URL host in $f"; exit 3; }; ` +
+        `for h in $hosts; do getent hosts "$h" >/dev/null || echo "127.0.0.1 $h" | sudo -n tee -a /etc/hosts >/dev/null || exit 4; done; ` +
+        `for h in $hosts; do getent hosts "$h" >/dev/null || { echo "$h still does not resolve"; exit 5; }; echo "resolves=$h"; done`);
+      if (r.code !== 0) throw new Error(`route: exit ${r.code} ${(r.stdout + r.stderr).trim().slice(-400)}`);
+      report.route = r.stdout.trim();
+      return { value: null, detail: r.stdout.trim().replace(/\n/g, "; ") };
+    });
     // The driver's bins: this checkout's optchat-chief, the machine's cmux-tui, and acpmux as the machine runs it.
     const acpmux = facts.acpmux ? `ln -sf ${shq(facts.acpmux)} ${DIR}/bin/acpmux` : `printf '#!/bin/sh\\nexec %s acp "$@"\\n' ${shq(facts["cmux-tui"])} > ${DIR}/bin/acpmux && chmod +x ${DIR}/bin/acpmux`;
     await run(`ln -sf ${shq(facts["cmux-tui"])} ${DIR}/bin/cmux-tui && ${acpmux}`);
@@ -217,10 +240,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     say(`proof replies: ${JSON.stringify(proof.replies)}`);
     const cOk = judge("control", control);
     const pOk = judge("proof", proof);
-    J.record({ step: "control: no opt-in answers not signed in", status: cOk ? "pass" : "fail", ms: 0, detail: JSON.stringify(control.replies).slice(0, 400) });
+    J.record({ step: "control: no opt-in, resolving route: no model reply", status: cOk ? "pass" : "fail", ms: 0, detail: JSON.stringify(control.replies).slice(0, 400) });
     J.record({ step: "proof: opted-in host gets a model reply", status: pOk ? "pass" : "fail", ms: 0, detail: JSON.stringify(proof.replies).slice(0, 400) });
-    verdict = pOk ? `PASS: the Chief replied ${JSON.stringify(proof.replies.join(" ").slice(0, 200))}${cOk ? " (control: not signed in)" : " (control did not show the sign-in answer)"}` : "FAIL: no model reply from the opted-in Chief";
-    return pOk ? 0 : 1;
+    verdict = pOk && cOk
+      ? `PASS: the opted-in Chief replied ${JSON.stringify(proof.replies.join(" ").slice(0, 200))}; the control got no model reply`
+      : !pOk ? "FAIL: no model reply from the opted-in Chief" : "FAIL: the control got a model reply, so the route did not take over";
+    return pOk && cOk ? 0 : 1;
   } finally {
     if (machine) {
       await remove(machine);
