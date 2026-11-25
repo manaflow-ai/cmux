@@ -3,8 +3,8 @@
 // link reads them ahead of the click, and the card that draws them (useQuery with the same
 // options) finds them in the cache: no card mounts empty and fills in a frame later.
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
-import { categoryById, homes, categoryOf } from "./categories";
-import { legacyPart } from "./legacyLinks";
+import { categoryById } from "./categories";
+import { resolveSettingsLink } from "./settingsLinks";
 import type {
   AgentsState,
   ChannelsState,
@@ -172,13 +172,10 @@ export function keysQuery(store: SettingsStore) {
   });
 }
 
-/** The section a route shows: the focused key's home, else the path's category or schema section. */
+/** The section a route shows: where the link resolves (settingsLinks.ts): the focused key's home,
+ * else the path's category, card, row or connection. */
 export function routeSection(section: string | undefined, focus: string | undefined | null): string {
-  // An old Personalization part link opens the page that draws that part now (legacyLinks.ts).
-  const legacy = legacyPart(section, focus);
-  if (legacy) return legacy.section;
-  const home = focus ? homes.get(focus) : undefined;
-  return home?.category ?? categoryOf(section);
+  return resolveSettingsLink(section, focus).section;
 }
 
 /** One read a section draws from: its query options, and whether a stale copy refreshes. */
