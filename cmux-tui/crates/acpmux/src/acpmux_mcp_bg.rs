@@ -361,7 +361,7 @@ fn trim_echo(name: &str, structured: &mut Value) {
     }
     // An end that has not happened, no spool error, the lead as starter, no output yet: null and
     // default fields cost every answer bytes and say nothing (`bg_list::is_default`).
-    o.retain(|k, v| !super::bg_list::is_default(k, v) && !(k == "tail" && v == &json!("")));
+    o.retain(|k, v| !(super::bg_list::is_default(k, v) || (k == "tail" && v == &json!(""))));
     if let Some(command) = o.get("command").and_then(Value::as_str)
         && command.chars().count() > CMD_KEPT
     {

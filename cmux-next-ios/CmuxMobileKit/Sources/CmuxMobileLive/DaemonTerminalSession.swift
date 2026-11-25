@@ -1,6 +1,7 @@
 #if canImport(CmuxMobileLinkFFI)
 import CmuxMobileLinkFFI
 #endif
+import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileTerminal
 import CmuxMobileTransport
