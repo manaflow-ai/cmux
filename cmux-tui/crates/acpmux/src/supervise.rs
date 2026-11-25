@@ -155,7 +155,10 @@ pub(crate) fn panic_point_with(point: &str, text: impl FnOnce() -> String) {
 #[inline(always)]
 pub(crate) fn panic_point_with(_point: &str, _text: impl FnOnce() -> String) {}
 
-#[cfg(debug_assertions)]
+// Test builds keep the seam with debug assertions off too (`cargo test --release`): the
+// `cfg(test)` helpers below read it; only `panic_point` itself is debug-only.
+#[cfg(any(test, debug_assertions))]
+#[cfg_attr(not(debug_assertions), allow(dead_code))]
 #[derive(Default)]
 struct Armed {
     point: String,
@@ -164,13 +167,14 @@ struct Armed {
     passes: usize,
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(test, debug_assertions))]
+#[cfg_attr(not(debug_assertions), allow(dead_code))]
 struct PanicSeam {
     read_env: bool,
     armed: Vec<Armed>,
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(test, debug_assertions))]
 static PANIC_SEAM: std::sync::Mutex<PanicSeam> =
     std::sync::Mutex::new(PanicSeam { read_env: false, armed: Vec::new() });
 
