@@ -53,8 +53,16 @@ export type Diagnostic = { path: string | string[]; message: string; kind?: stri
  */
 export type RowNoteData = { path: string; kind: string; file?: string };
 
-/** `recent_fonts`: font families written lately to any font setting, newest first (RecentFonts.swift). */
-export type Domains = { themes: string[]; font_families: string[]; sounds: string[]; recent_fonts: string[] };
+/** `recent_fonts`: font families written lately to any font setting, newest first (RecentFonts.swift).
+ * `ui_font_families`: every installed family, proportional ones too, for the App Font row
+ * (`domain:ui_font_family`); `font_families` holds the fixed-pitch ones. */
+export type Domains = {
+  themes: string[];
+  font_families: string[];
+  ui_font_families: string[];
+  sounds: string[];
+  recent_fonts: string[];
+};
 
 /** Published value domains; `null` for a domain the app never published. */
 export type PublishedDomains = { [K in keyof Domains]: string[] | null };

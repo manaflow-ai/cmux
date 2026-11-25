@@ -186,6 +186,16 @@ export const mockDomains: Domains = {
     "Tokyo Night",
   ],
   font_families: ["Berkeley Mono", "Iosevka", "JetBrains Mono", "Menlo", "SF Mono"],
+  ui_font_families: [
+    "Avenir Next",
+    "Georgia",
+    "Helvetica Neue",
+    "Iosevka",
+    "JetBrains Mono",
+    "Menlo",
+    "New York",
+    "SF Pro",
+  ],
   sounds: ["default", "Basso", "Funk", "Glass", "Ping", "Submarine", "none"],
   recent_fonts: ["JetBrains Mono"],
 };
@@ -2531,7 +2541,13 @@ export class MockSettingsProvider {
         [...this.managed].map(([key, { source, reason, team }]) => [key, { source, reason, team: team ?? null }]),
       ),
       diagnostics: this.diagnostics,
-      domains: this.domains ?? { themes: null, font_families: null, sounds: null, recent_fonts: null },
+      domains: this.domains ?? {
+        themes: null,
+        font_families: null,
+        ui_font_families: null,
+        sounds: null,
+        recent_fonts: null,
+      },
     };
   }
 
