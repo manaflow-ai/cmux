@@ -380,7 +380,12 @@ async fn hub_carrier_a_turn_streams_over_the_relay_and_survives_a_relay_reconnec
         .await
         .unwrap();
     until_state(&a, true, Duration::from_secs(30)).await;
-    assert!(carrier_a.stats().dials.load(Ordering::Relaxed) >= 1, "A dialed over the carrier");
+    // A peer link rides the pair's kept circuit as a stream (#52580), else a plain circuit.
+    let carried = |carrier: &HubCarrier| {
+        carrier.stats().dials.load(Ordering::Relaxed)
+            + carrier.stats().kept_opens.load(Ordering::Relaxed)
+    };
+    assert!(carried(&carrier_a) >= 1, "A dialed over the carrier");
     assert!(carrier_b.stats().accepted.load(Ordering::Relaxed) >= 1, "B took the circuit");
     let connected_bytes = proxy.bytes.load(Ordering::Relaxed);
 
@@ -434,7 +439,7 @@ async fn hub_carrier_a_turn_streams_over_the_relay_and_survives_a_relay_reconnec
     .await
     .expect("B's turn never ended");
     tokio::time::sleep(Duration::from_millis(300)).await;
-    let dials_before = carrier_a.stats().dials.load(Ordering::Relaxed);
+    let dials_before = carried(&carrier_a);
     proxy.resume();
 
     // A reconnects over the carrier and replays what it missed, once, with the prompt's answer.
@@ -447,10 +452,7 @@ async fn hub_carrier_a_turn_streams_over_the_relay_and_survives_a_relay_reconnec
     .await
     .expect("the missed events never arrived after the relay came back");
     assert_eq!(answer.as_ref().unwrap()["stopReason"], "end_turn");
-    assert!(
-        carrier_a.stats().dials.load(Ordering::Relaxed) > dials_before,
-        "redialed over the carrier"
-    );
+    assert!(carried(&carrier_a) > dials_before, "redialed over the carrier");
     until_state(&a, true, Duration::from_secs(5)).await;
     // Nothing more arrives late: each event came exactly once.
     let _ = tokio::time::timeout(Duration::from_millis(500), async {
@@ -969,6 +971,9 @@ async fn hub_carrier_a_replayed_or_reordered_record_closes_the_stream() {
         key_a,
         fast,
     );
+    // A plain circuit, one Noise record per line: on a kept circuit (where acpmux dials go since
+    // #52580) the next record A sends may be a PING or WINDOW record, not the request.
+    carrier_a.acpmux_streams(false);
 
     for (tamper, sent) in [(Tamper::Duplicate, 1), (Tamper::Reorder, 2)] {
         ran.lock().unwrap().clear();
@@ -2128,6 +2133,8 @@ async fn hub_carrier_pipe_bulk_layers() {
 /// reading never applies its acknowledgements, so each full delivery window ends in a liveness
 /// reconnect; the frame a send held across one went missing and the next took its sequence
 /// (frame 7 of 32 arrived as 8 before the fix), here over plain TCP and through the pipe alike.
+/// The transfer is 16 MiB: past two of the 7 MiB windows a lane has had since #49037 (1 MiB
+/// fit in one and never reconnected).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn hub_carrier_no_bulk_frame_is_lost_across_a_reconnect() {
     let _ = HERMETIC;
@@ -2137,7 +2144,7 @@ async fn hub_carrier_no_bulk_frame_is_lost_across_a_reconnect() {
     let tcp = Arc::new(cmux_remote::provider::OsTcpDialer);
     let client = connect_over(&fixture, &identity, true, tcp).await;
     let daemon_client = within("the connect", fixture.accepted.recv()).await.unwrap();
-    bulk_down(&client, &daemon_client, 1 << 20, false).await.unwrap();
+    bulk_down(&client, &daemon_client, 16 << 20, false).await.unwrap();
     assert!(client.snapshot().await.generation > 1, "the transfer never crossed a reconnect");
 }
 
@@ -3114,20 +3121,25 @@ async fn hub_carrier_later_dials_to_a_machine_ride_its_kept_circuit_as_streams()
     assert_eq!(fixture.kept_opens() - opens, 4);
 }
 
-/// One circuit per host pair: the acpmux peer link and its hub probe (two acpmux dials) ride
-/// the kept circuit as streams beside the cmux-tui ones, and no plain circuit opens.
+/// One cheap circuit per host pair: the acpmux peer link and its hub probe (two acpmux dials)
+/// ride the cheap kept circuit as streams, cmux-tui rides the bulk one, and no plain circuit
+/// opens.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn hub_carrier_acpmux_links_ride_the_kept_circuit_as_streams() {
     let _ = HERMETIC;
+    // The fixture's own cmux-tui dials (until B served) opened the bulk circuit.
     let fixture = kept_fixture(Duration::ZERO, true, true).await;
+    let bulk = fixture.kept_circuits();
     let mut link = within("the peer link", fixture.a.dial(&fixture.b_key)).await.unwrap();
     let mut probe = within("the hub probe", fixture.a.dial(&fixture.b_key)).await.unwrap();
     echo(&mut link, b"link\n").await;
     echo(&mut probe, b"probe\n").await;
+    assert_eq!(fixture.kept_circuits(), bulk + 1, "the links rode the one cheap circuit");
+    assert_eq!(fixture.a.kept_streams(&fixture.b_key), Some(2));
     let _tui = fixture.dial_to_banner().await;
-    assert_eq!(fixture.kept_circuits(), 1, "the links rode the one cheap circuit");
-    assert_eq!(fixture.plain_dials(), 0, "no plain circuit beside it");
-    assert_eq!(fixture.a.kept_circuits(&fixture.b_key), 1);
+    assert_eq!(fixture.kept_circuits(), bulk + 1, "cmux-tui rode the bulk circuit");
+    assert_eq!(fixture.plain_dials(), 0, "no plain circuit beside them");
+    assert_eq!(fixture.a.kept_circuits(&fixture.b_key), 2);
     assert_eq!(fixture.a.kept_streams(&fixture.b_key), Some(3));
 }
 
@@ -3407,6 +3419,117 @@ async fn hub_carrier_a_lane_gh_broker_stream_reaches_the_owners_broker_socket() 
         .await
         .unwrap_err();
     assert!(refused.contains("service.unknown_machine"), "{refused}");
+}
+
+/// A stand-in lane-gh broker at a fresh socket: each line in comes back as `broker:<line>`, and
+/// `seen` counts the lines it read.
+#[cfg(unix)]
+fn standin_broker(socket: &std::path::Path) -> Arc<AtomicU64> {
+    let listener = tokio::net::UnixListener::bind(socket).unwrap();
+    let seen = Arc::new(AtomicU64::new(0));
+    let counted = seen.clone();
+    tokio::spawn(async move {
+        while let Ok((conn, _)) = listener.accept().await {
+            let seen = counted.clone();
+            tokio::spawn(async move {
+                let (read, mut write) = conn.into_split();
+                let mut lines = tokio::io::BufReader::new(read).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    seen.fetch_add(1, Ordering::SeqCst);
+                    if write.write_all(format!("broker:{line}\n").as_bytes()).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    seen
+}
+
+/// A lane-gh call over the carrier costs one relay round trip on a kept circuit, not two: its
+/// request rides behind the stream's OPEN (`dial_service_early`) instead of waiting for the
+/// OPEN's ANSWER. Measured on a lane VM before this, a broker ping over the carrier took two hub
+/// round trips (the stream open, about 100-200 ms, then the request and reply) where `ssh -R`
+/// took one direct round trip. Here A's leg is 60 ms away each way (a 120 ms round trip): the
+/// call with its request sent early answers in about one round trip, the one that waits for the
+/// answer first in about two, and the broker reads every request exactly once. A refused
+/// stream's early bytes never reach the broker.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_broker_call_with_early_bytes_costs_one_round_trip() {
+    let _ = HERMETIC;
+    let delay = Duration::from_millis(60);
+    let rtt = delay * 2;
+    let fixture = kept_fixture(delay, true, true).await;
+    let broker = CircuitService::LaneGhBroker;
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("client-a.sock");
+    let seen = standin_broker(&socket);
+    fixture.b.set_lane_gh_broker_gate(Arc::new(TestBrokerGate {
+        admits: fixture.a.public_key(),
+        socket: socket.clone(),
+    }));
+    let request = b"{\"op\":\"ping\"}\n";
+    let reply = b"broker:{\"op\":\"ping\"}\n";
+    let read_reply = |mut stream: acpmux::hub_carrier::HubStream| async move {
+        let mut back = vec![0u8; reply.len()];
+        within("the broker's answer", stream.read_exact(&mut back)).await.unwrap();
+        assert_eq!(back, reply);
+    };
+    // The kept circuit is open (the fixture's dials opened it); one call warms the broker path.
+    let (stream, _) =
+        within("a warm-up call", fixture.a.dial_service_early(&fixture.b_key, broker, request))
+            .await
+            .unwrap();
+    read_reply(stream).await;
+
+    let (mut answer_first, mut early) = (Vec::new(), Vec::new());
+    for _ in 0..5 {
+        let started = std::time::Instant::now();
+        let (mut stream, report) =
+            within("a call", fixture.a.dial_service_reported(&fixture.b_key, broker))
+                .await
+                .unwrap();
+        assert!(report.kept && report.early == 0);
+        stream.write_all(request).await.unwrap();
+        read_reply(stream).await;
+        answer_first.push(started.elapsed());
+
+        let started = std::time::Instant::now();
+        let (stream, report) =
+            within("an early call", fixture.a.dial_service_early(&fixture.b_key, broker, request))
+                .await
+                .unwrap();
+        assert!(report.kept, "the call rode the kept circuit");
+        assert_eq!(report.early, request.len());
+        assert_eq!(report.to_json()["early"], request.len());
+        read_reply(stream).await;
+        early.push(started.elapsed());
+    }
+    let (answer_first, early) = (percentile(&mut answer_first, 0.5), percentile(&mut early, 0.5));
+    eprintln!(
+        "BROKER-EARLY rtt={}ms answer-first p50={:.1}ms early p50={:.1}ms n=5",
+        rtt.as_millis(),
+        answer_first.as_secs_f64() * 1e3,
+        early.as_secs_f64() * 1e3
+    );
+    assert!(answer_first >= rtt * 2, "the answer-first call took {answer_first:?}");
+    assert!(early < rtt * 3 / 2, "the early call took {early:?}, over one round trip ({rtt:?})");
+    assert_eq!(seen.load(Ordering::SeqCst), 11, "every request reached the broker once");
+    assert_eq!(fixture.plain_dials(), 0, "every call rode the kept circuit");
+
+    // Refused: the early bytes are dropped unread, and the refusal is the dial's answer.
+    fixture.b.set_lane_gh_broker_gate(Arc::new(TestBrokerGate {
+        admits: "someone else".to_owned(),
+        socket,
+    }));
+    let refused =
+        within("a refused call", fixture.a.dial_service_early(&fixture.b_key, broker, request))
+            .await
+            .unwrap_err();
+    assert!(refused.contains("service.unknown_machine"), "{refused}");
+    tokio::time::sleep(rtt).await;
+    assert_eq!(seen.load(Ordering::SeqCst), 11, "a refused stream's bytes reached the broker");
 }
 
 #[path = "hub_carrier_cases/held_ssh.rs"]
