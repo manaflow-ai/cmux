@@ -22877,6 +22877,11 @@ Result<Json> Codec<ConversationInboxOpRequest>::encode(const ConversationInboxOp
     } else {
         object.emplace("op", Json(nullptr));
     }
+    if (!value.op_id.is_absent()) {
+        auto encoded = encode_value(value.op_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("op_id", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -22904,6 +22909,16 @@ Result<ConversationInboxOpRequest> Codec<ConversationInboxOpRequest>::decode(con
             auto decoded = decode_value<JsonValue>(*field_op);
             if (!decoded) return std::move(decoded).error();
             result.op = std::move(decoded).value();
+        }
+    }
+    const Json* field_op_id = value.find("op_id");
+    if (field_op_id) {
+        if (field_op_id->is_null()) {
+            result.op_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_op_id);
+            if (!decoded) return std::move(decoded).error();
+            result.op_id = Field<std::string>(std::move(decoded).value());
         }
     }
     return result;
