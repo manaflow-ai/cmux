@@ -98,12 +98,14 @@ jobs:
           name: cloud-vm-dogfood-public-cmux
           path: ${{ runner.temp }}/public-cmux
 
-      # Only main's tip, for the attestation helper: a full-history fetch of every branch and tag outran the
-      # job's 10 minutes on pool runners (runs 45596156615, 45596705573). Ancestry is asked of GitHub below.
-      - name: Checkout trusted main
+      # Only the protected feat-cmux-next tip's scripts/ci, for the attestation helper (#48350 put it there and
+      # main never got it; run 45620842266 failed on a pool runner's apt gh 2.45 without it). A full-history
+      # fetch outran the job's 10 minutes on pool runners (runs 45596156615, 45596705573): ancestry against
+      # main is asked of GitHub below.
+      - name: Checkout the trusted CI helpers
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: refs/heads/main
+          ref: refs/heads/feat-cmux-next
           fetch-depth: 1
           sparse-checkout: scripts/ci
           persist-credentials: false
@@ -116,8 +118,8 @@ jobs:
           public="$RUNNER_TEMP/public-cmux/cmux"
           test -f "$public" && test ! -L "$public"
           attestation="$RUNNER_TEMP/cmux-tui-attestation.json"
-          # A pool VM's apt gh (2.45) has no `gh attestation`; this checkout is main, which has the helper once it lands there.
-          if [[ -f scripts/ci/ensure-gh-attestation.sh ]]; then source scripts/ci/ensure-gh-attestation.sh; fi
+          # A pool VM's apt gh (2.45) has no `gh attestation`; the helper installs a pinned gh that has it.
+          source scripts/ci/ensure-gh-attestation.sh
           gh attestation verify "$public" \
             --repo manaflow-ai/cmux \
             --signer-workflow manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml \
@@ -130,7 +132,7 @@ jobs:
           [ "$workflow" = .github/workflows/cmux-tui-artifacts.yml ]
           [ "$ref" = refs/heads/main ]
           # The attested commit is main itself or behind it (an ancestor of main's tip).
-          relation="$(gh api "repos/$GITHUB_REPOSITORY/compare/$commit...$(git rev-parse HEAD)" --jq .status)"
+          relation="$(gh api "repos/$GITHUB_REPOSITORY/compare/$commit...main" --jq .status)"
           [[ "$relation" = ahead || "$relation" = identical ]]
           digest="$(sha256sum "$public" | awk '{print $1}')"
           [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
