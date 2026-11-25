@@ -1,8 +1,14 @@
+import Foundation
+
 /// Chrome's tab multi-selection for one strip (`ui::ListSelectionModel`, Leo 2026-10-19: "we need
 /// to be able to multi select those tabs"). Cmd-click adds a tab or takes it out, Shift-click
 /// selects the range from the anchor to the clicked tab, and a plain click or Esc goes back to the
 /// one active tab. The active tab (`TabStripModel.selectedID`) is always one of the selected tabs;
 /// `ids` is empty while only the active tab is selected, which is the usual state.
+///
+/// The rules are cmux-window-rules' (`tabs::selection`, op `tab_selection` of the app FFI's JSON
+/// channel); `TabSelectionVectorTests` checks them against the vectors the Swift rules wrote
+/// before they moved.
 public struct TabMultiSelection: Hashable, Sendable {
     /// Every selected tab, the active one included. Never a single tab: empty instead.
     public private(set) var ids: Set<TabID> = []
@@ -13,7 +19,7 @@ public struct TabMultiSelection: Hashable, Sendable {
     public init() {}
 
     /// The click's kind, from its modifiers.
-    public enum Click: Hashable, Sendable {
+    public enum Click: String, Hashable, Sendable {
         /// No modifier: the clicked tab alone.
         case plain
         /// Cmd: the clicked tab joins the selection or leaves it.
@@ -39,36 +45,7 @@ public struct TabMultiSelection: Hashable, Sendable {
     /// Applies a click on `id` in `order` (display order) while `active` is the active tab. Returns
     /// the tab to make active, nil to leave the active tab as it is.
     public mutating func click(_ id: TabID, _ click: Click, order: [TabID], active: TabID?) -> TabID? {
-        let current = isMultiple ? ids : Set(active.map { [$0] } ?? [])
-        switch click {
-        case .plain:
-            ids = []
-            anchor = id
-            return id
-        case .toggle:
-            anchor = id
-            guard current.contains(id) else {
-                set(current.union([id]))
-                return id
-            }
-            // The last selected tab stays selected (Chrome).
-            guard current.count > 1 else { return nil }
-            let rest = current.subtracting([id])
-            set(rest)
-            guard id == active else { return nil }
-            // The active tab left: the nearest selected tab after it becomes active, else the one before.
-            let index = order.firstIndex(of: id) ?? order.count
-            let next = order[min(index + 1, order.count)...].first(where: rest.contains) ?? order[..<min(index, order.count)].last(where: rest.contains)
-            anchor = next
-            return next
-        case .range, .addRange:
-            let start = anchor.flatMap { order.contains($0) ? $0 : nil } ?? active ?? id
-            guard let a = order.firstIndex(of: start), let b = order.firstIndex(of: id) else { return nil }
-            let range = Set(order[min(a, b)...max(a, b)])
-            set(click == .range ? range : current.union(range))
-            anchor = start
-            return id
-        }
+        change(.click(id: id.rawValue, click: click.rawValue, order: order.map(\.rawValue), active: active?.rawValue))
     }
 
     /// Back to the active tab alone.
@@ -79,20 +56,47 @@ public struct TabMultiSelection: Hashable, Sendable {
     /// Tabs that left the strip leave the selection; fewer than two left is no selection.
     public mutating func follow(order: [TabID]) {
         guard !ids.isEmpty || anchor != nil else { return }
-        let present = Set(order)
-        if let anchor, !present.contains(anchor) { self.anchor = nil }
-        set(ids.intersection(present))
+        change(.follow(order: order.map(\.rawValue)))
     }
 
     /// The active tab changed (a click, a shortcut, the CLI, a close): a tab outside the selection
     /// ends it, as in Chrome; a selected tab keeps it.
     public mutating func activated(_ id: TabID?) {
-        if let id, ids.contains(id) { return }
-        ids = []
+        guard !ids.isEmpty else { return }
+        change(.activated(id: id?.rawValue))
     }
 
-    private mutating func set(_ selection: Set<TabID>) {
-        ids = selection.count > 1 ? selection : []
+    /// Sends the selection and `change` to the rule and takes the selection it answers; the tab a
+    /// click makes active. A refused call leaves the selection as it was.
+    @discardableResult
+    private mutating func change(_ change: Change) -> TabID? {
+        let request = ChangeRequest(selection: Wire(ids: ids.map(\.rawValue).sorted(), anchor: anchor?.rawValue), change: change)
+        guard let reply: ChangeReply = TabRules.call("tab_selection", request) else { return nil }
+        ids = Set(reply.selection.ids.map { TabID($0) })
+        anchor = reply.selection.anchor.map { TabID($0) }
+        return reply.active.map { TabID($0) }
+    }
+
+    private nonisolated struct Wire: Codable {
+        var ids: [String]
+        var anchor: String?
+    }
+
+    /// Encodes as the rule reads it: `{"click": {"id": …, "click": …, "order": […], "active": …}}`.
+    private nonisolated enum Change: Encodable {
+        case click(id: String, click: String, order: [String], active: String?)
+        case follow(order: [String])
+        case activated(id: String?)
+    }
+
+    private nonisolated struct ChangeRequest: Encodable {
+        var selection: Wire
+        var change: Change
+    }
+
+    private nonisolated struct ChangeReply: Decodable {
+        var selection: Wire
+        var active: String?
     }
 }
 
@@ -100,7 +104,7 @@ public struct TabMultiSelection: Hashable, Sendable {
 /// where `index` counts the strip's tabs without the selected ones. The selected tabs keep their
 /// order and stay in their section: pinned ones go to `index` among the pinned tabs (the end of
 /// them when `index` is past them), unpinned ones to `index` among the unpinned tabs (their start
-/// when `index` is among the pinned tabs).
+/// when `index` is among the pinned tabs). The rule is cmux-window-rules' (`tab_selection_move`).
 public struct TabSelectionMove: Hashable, Sendable {
     /// Display order, pinned tabs first.
     public var order: [TabID]
@@ -116,33 +120,24 @@ public struct TabSelectionMove: Hashable, Sendable {
     }
 
     public func moving(_ selection: Set<TabID>, to index: Int) -> [TabID] {
-        let rest = order.filter { !selection.contains($0) }
-        let restPinned = rest.filter(pinned.contains), restUnpinned = rest.filter { !pinned.contains($0) }
-        let movedPinned = order.filter { selection.contains($0) && pinned.contains($0) }
-        let movedUnpinned = order.filter { selection.contains($0) && !pinned.contains($0) }
-        let pinnedAt = min(max(index, 0), restPinned.count)
-        let unpinnedAt = min(max(index - restPinned.count, 0), restUnpinned.count)
-        var result = Array(restPinned[..<pinnedAt])
-        result += movedPinned
-        result += restPinned[pinnedAt...]
-        result += restUnpinned[..<unpinnedAt]
-        result += movedUnpinned
-        result += restUnpinned[unpinnedAt...]
-        return result
+        nonisolated struct Request: Encodable { var order: [String], pinned: [String], selection: [String], index: Int }
+        nonisolated struct Reply: Decodable { var order: [String] }
+        let request = Request(order: order.map(\.rawValue), pinned: pinned.map(\.rawValue).sorted(),
+                              selection: selection.map(\.rawValue).sorted(), index: index)
+        guard let reply: Reply = TabRules.call("tab_selection_move", request) else { return order }
+        return reply.order.map { TabID($0) }
     }
 
     /// The next one-tab move (the tab and its final display index) that brings `current` closer to
     /// `target`, nil once they agree. The App moves a multi-tab drop one tab at a time (the daemon
-    /// moves one tab per command), reading the order each move left. Tabs only one side has are left out.
+    /// moves one tab per command), reading the order each move left. Tabs only one side has are left
+    /// out. The rule is cmux-window-rules' (`tab_selection_next_step`).
     public static func nextStep(from current: [TabID], toward target: [TabID]) -> (id: TabID, index: Int)? {
-        let shared = Set(current).intersection(target)
-        let now = current.filter(shared.contains), goal = target.filter(shared.contains)
-        guard let index = now.indices.first(where: { now[$0] != goal[$0] }) else { return nil }
-        // Its index in `current`, which can hold tabs `target` does not.
-        let id = goal[index]
-        let before = index > 0 ? now[index - 1] : nil
-        let position = before.flatMap { current.firstIndex(of: $0) }.map { $0 + 1 } ?? 0
-        let from = current.firstIndex(of: id) ?? 0
-        return (id, from < position ? position - 1 : position)
+        nonisolated struct Request: Encodable { var current: [String], target: [String] }
+        nonisolated struct Step: Decodable { var id: String, index: Int }
+        nonisolated struct Reply: Decodable { var step: Step? }
+        let request = Request(current: current.map(\.rawValue), target: target.map(\.rawValue))
+        guard let step = (TabRules.call("tab_selection_next_step", request) as Reply?)?.step else { return nil }
+        return (TabID(step.id), step.index)
     }
 }
