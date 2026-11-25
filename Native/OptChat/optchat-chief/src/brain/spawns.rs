@@ -770,6 +770,8 @@ impl Brain {
         // Never below an id already handed out: a reset or unreadable
         // counter must not give `a<N>` twice (persistent-ids-DESIGN.md).
         let prior = self.state.next_subagent;
+        // Queued before this spawn: its own queued ids come after them.
+        let queued_ahead = self.queued_count();
         let first = free_subagent_run(
             self.state
                 .next_subagent
@@ -896,6 +898,7 @@ impl Brain {
             spawn,
             ids,
             queued,
+            queued_ahead,
             limit: self.live_cap_source(),
             engine: self.spawn_engine(),
             peer: chosen.iter().flatten().next().cloned(),
@@ -2771,6 +2774,16 @@ impl Brain {
             .state
             .sub(id)
             .is_some_and(|(_, s)| matches!(s.status, SubStatus::Running | SubStatus::Starting));
+        // A read-now tell stops the agent's current step, and while it waits
+        // on the person's approval that step is the request: acpmux would
+        // cancel it, and the person's card would read "no longer open" with
+        // nobody told (Leo, 2026-10-20: "no silent auto-deny on newer
+        // messages"). Such a tell waits for the step instead.
+        let awaits_approval = self
+            .state
+            .sub(id)
+            .is_some_and(|(_, s)| s.permission.is_some());
+        let interrupt = !queue && !awaits_approval;
         let (agents, forward, sub_id) = (self.agents.clone(), self.tx.clone(), id.to_owned());
         let text = message.to_owned();
         let steered = if running {
@@ -2785,13 +2798,13 @@ impl Brain {
                 // for it, as the pane's Send now does (Lawrence 2026-10-26: "interrupt by
                 // default"; a long `cmux-ci wait` no longer holds it). A `queue` tell (a
                 // peer's message, an FYI) waits for the step.
-                let steered = if queue {
-                    agents.steer(&session, blocks.clone(), &prompt_id)
-                } else {
+                let steered = if interrupt {
                     agents.steer_now(&session, blocks.clone(), &prompt_id)
+                } else {
+                    agents.steer(&session, blocks.clone(), &prompt_id)
                 };
                 if let Err(e) = steered {
-                    if !queue {
+                    if interrupt {
                         log(&format!(
                             "subagent {sub_id}: the tell could not be steered ({e}); its turn is interrupted"
                         ));
@@ -2847,7 +2860,11 @@ impl Brain {
             "tell",
             json!({"id": id, "spawn": spawn, "from": "chief", "steered": steered, "queue": queue, "message": self.trace.text(message)}),
         );
-        let answer = if steered && queue {
+        let answer = if steered && awaits_approval && !queue {
+            format!(
+                "sent to {id}; it waits on the person's approval card in Home, so it reads this once that approval is answered (the approval stays open)"
+            )
+        } else if steered && queue {
             format!("sent to {id}; read between tool calls or after its turn")
         } else if steered {
             format!(
@@ -2882,6 +2899,9 @@ impl Brain {
             return;
         }
         let pending = sub.after_stop.is_some();
+        // Interrupting a turn that waits on the person's approval cancels the
+        // request behind their back: the tell goes after the turn instead.
+        let awaits_approval = sub.permission.is_some();
         if let Some(sub) = self.state.sub_mut(id) {
             sub.after_stop = Some(match sub.after_stop.take() {
                 Some(earlier) => format!("{earlier}\n\n{message}"),
@@ -2894,7 +2914,12 @@ impl Brain {
                 .emit("tell.interrupt", json!({"id": id, "joined": true}));
             return;
         }
-        match self.agents.cancel(session) {
+        let cancelled = if awaits_approval {
+            Err("it waits on the person's approval".to_owned())
+        } else {
+            self.agents.cancel(session)
+        };
+        match cancelled {
             Ok(()) => self
                 .trace
                 .emit("tell.interrupt", json!({"id": id, "joined": false})),
@@ -3071,8 +3096,51 @@ impl Brain {
         match self.state.live_cap {
             Some(0) => None,
             Some(n) => Some(LiveCap::Control(n)),
-            None => self.max_live.map(LiveCap::Env),
+            None => self.max_live.map(LiveCap::Env).or_else(|| {
+                // The machine's own limit (machine_limits.rs): its ceiling,
+                // and while it is over budget no new start past the floor.
+                let m = self.machine_limit.as_ref()?;
+                let over = self.machine_over.is_some();
+                let n = crate::machine_limits::allowed(m.ceiling, self.live_subs(), over);
+                Some(if over {
+                    LiveCap::Busy(n)
+                } else {
+                    LiveCap::Machine(n)
+                })
+            }),
         }
+    }
+
+    /// Reads the machine's load again (each subagent tick); a machine back
+    /// within budget starts its queued helpers.
+    pub(super) fn read_machine_load(&mut self) {
+        let Some(m) = self.machine_limit.as_ref() else {
+            return;
+        };
+        let over = (m.load)();
+        if over != self.machine_over {
+            match &over {
+                Some(why) => (self.log)(&format!(
+                    "machine over budget ({why}): new helpers wait in the queue"
+                )),
+                None => (self.log)("machine within budget again: queued helpers start"),
+            }
+        }
+        let freed = self.machine_over.is_some() && over.is_none();
+        self.machine_over = over;
+        if freed {
+            self.start_queued();
+        }
+    }
+
+    /// Helpers queued now, in the order they will start (`start_queued`'s).
+    pub(super) fn queued_count(&self) -> usize {
+        self.state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter(|s| s.status == SubStatus::Queued && !s.cancelled && !s.paused)
+            .count()
     }
 
     /// Subagents starting or running now on this machine (cloud ones, on a
@@ -3726,11 +3794,13 @@ impl Brain {
             }
             self.cancel_home_approval(&id);
             if let Some(sub) = self.state.sub_mut(&id) {
+                let asked_by = Some(sub.title.trim().to_owned()).filter(|t| !t.is_empty());
                 sub.permission = Some(crate::state::PendingPermission {
                     id: permission_id.to_owned(),
                     request: request.clone(),
                     home_message: None,
                     home_closed: false,
+                    asked_by,
                 });
             }
         }

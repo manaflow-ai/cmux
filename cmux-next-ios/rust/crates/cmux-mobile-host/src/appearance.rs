@@ -125,6 +125,16 @@ pub struct Theme {
     /// `background-opacity` with `appearance.backgroundOpacity` over it, 0...1.
     #[serde(default = "opaque")]
     pub background_opacity: f64,
+    /// `background-blur` with `appearance.backgroundBlur` over it, as the Mac resolved it, in
+    /// Ghostty's encoding: 0 none, a radius in points, -1 regular Liquid Glass, -2 clear Liquid
+    /// Glass. The phone blurs the wallpaper by it. 0 from a Mac that predates it.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub background_blur: i32,
+}
+
+/// No blur: the frame leaves the field out, as before it existed.
+fn is_zero(value: &i32) -> bool {
+    *value == 0
 }
 
 // JSON has no NaN, and `sanitize` drops any non-finite value: equality is total here.
@@ -381,7 +391,16 @@ pub fn sanitize(theme: Theme) -> Option<Theme> {
         accent: if ACCENTS.contains(&theme.accent.as_str()) { theme.accent } else { neutral() },
         accent_color: optional(theme.accent_color),
         background_opacity: unit(theme.background_opacity)?,
+        background_blur: blur(theme.background_blur),
     })
+}
+
+/// The largest blur radius kept, in points (Ghostty's blur is far below it).
+const MAX_BLUR: i32 = 200;
+
+/// `background_blur` when it is a radius up to ``MAX_BLUR`` or a glass (-1, -2), else none (0).
+fn blur(value: i32) -> i32 {
+    if (-2..=MAX_BLUR).contains(&value) { value } else { 0 }
 }
 
 /// The text of `value` when it is one of `known`.
@@ -608,7 +627,29 @@ mod tests {
             accent: "magenta".into(),
             accent_color: None,
             background_opacity: 0.9,
+            background_blur: 20,
         }
+    }
+
+    #[test]
+    fn sanitize_keeps_the_macs_blur_and_drops_an_impossible_one() {
+        assert_eq!(sanitize(theme()).unwrap().background_blur, 20);
+        for glass in [-1, -2, 0, MAX_BLUR] {
+            let mut t = theme();
+            t.background_blur = glass;
+            assert_eq!(sanitize(t).unwrap().background_blur, glass);
+        }
+        for bad in [-3, MAX_BLUR + 1, i32::MIN] {
+            let mut t = theme();
+            t.background_blur = bad;
+            assert_eq!(sanitize(t).unwrap().background_blur, 0);
+        }
+        // A Mac that predates it sends none: 0.
+        let old: Theme = serde_json::from_value(serde_json::json!({
+            "background": "#000000", "foreground": "#ffffff", "palette": vec!["#000000"; 8]
+        }))
+        .unwrap();
+        assert_eq!(old.background_blur, 0);
     }
 
     #[test]

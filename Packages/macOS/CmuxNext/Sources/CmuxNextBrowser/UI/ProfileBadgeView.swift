@@ -93,7 +93,7 @@ final class ProfileBadgeView: NSView {
         return NSImage(systemSymbolName: name, accessibilityDescription: nil)
     }
 
-    override func menu(for event: NSEvent) -> NSMenu? { makeMenu?() }
+    override func menu(for event: NSEvent) -> NSMenu? { NSMenu.withoutSystemItems(makeMenu?()) }
 
     override func mouseDown(with event: NSEvent) {
         guard let menu = makeMenu?() else { return super.mouseDown(with: event) }

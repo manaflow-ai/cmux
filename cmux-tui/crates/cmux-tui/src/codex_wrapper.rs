@@ -63,7 +63,7 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
         let child_path = path_without_shims(&path, shim_dir.as_deref());
         match prepare_hooks(args, &codex, &child_path) {
             Ok(Some(injected)) => {
-                launch_args = injected;
+                launch_args = with_chat_config(injected);
                 command.env("CMUX_TUI_CODEX_WRAPPER_ACTIVE", "1");
             }
             Ok(None) => {}
@@ -73,6 +73,30 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
     let _error = command.args(&launch_args).exec();
     eprintln!("{}", messages.agent_start_failed);
     126
+}
+
+/// `args` with the config overrides an agent chat's Codex starts with
+/// (`acpmux::harness_limits::codex_args`: thread and depth limits, the plan tool, the configured
+/// model), each only where the launch or Codex's own config leaves it unset (Leo 2026-11-24: "in
+/// terminals and guis alike perhaps terminal simply needs to also have the fixes and
+/// enhancements"). Only a session launch gets them (the one the hooks go into); a management
+/// command or an opted-out launch goes as given, as does one with an argument that is not UTF-8.
+fn with_chat_config(args: Vec<OsString>) -> Vec<OsString> {
+    let Some(words) =
+        args.iter().map(|a| a.to_str().map(str::to_owned)).collect::<Option<Vec<_>>>()
+    else {
+        return args;
+    };
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let env: std::collections::BTreeMap<String, String> = std::env::var("CODEX_HOME")
+        .ok()
+        .map(|h| ("CODEX_HOME".to_string(), h))
+        .into_iter()
+        .collect();
+    acpmux::harness_limits::launch_args(true, &words, Some((&cwd, &env)))
+        .into_iter()
+        .map(OsString::from)
+        .collect()
 }
 
 fn current_executable() -> anyhow::Result<PathBuf> {
@@ -122,7 +146,7 @@ fn prepare_hooks(
     }
     let settings = mcp_settings(
         &McpLaunch { cwd: &cwd, executable: &executable, socket: &socket },
-        cmux_tui_core::user_settings::AgentsCmuxMcp::current(),
+        cmux_tui_core::user_settings::AgentsCmuxMcp::current_for("codex"),
         &|name| std::env::var_os(name),
         &entry,
     );

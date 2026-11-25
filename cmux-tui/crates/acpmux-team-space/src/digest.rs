@@ -220,7 +220,7 @@ fn fold_keys(event: &Event) -> Vec<String> {
 
 fn digits(s: &str) -> Option<&str> {
     let end = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
-    (end > 0 && end <= 9).then(|| &s[..end])
+    if end > 0 && end <= 9 { s.get(..end) } else { None }
 }
 
 /// The subject a token names: `repo#N` for a pull request or issue (as `owner/repo#N`, `repo#N`
@@ -229,7 +229,7 @@ fn digits(s: &str) -> Option<&str> {
 fn subject_ref(token: &str) -> Option<String> {
     let lower = token.to_lowercase();
     if let Some(at) = lower.find("github.com/") {
-        let mut parts = lower[at + "github.com/".len()..].split('/');
+        let mut parts = lower.get(at + "github.com/".len()..)?.split('/');
         let (_owner, repo, kind, number) =
             (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
         if !repo.is_empty() && (kind == "pull" || kind == "issues") {
@@ -246,14 +246,13 @@ fn subject_ref(token: &str) -> Option<String> {
             && repo.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
             && repo.chars().any(|c| c.is_ascii_alphabetic());
         let number = digits(after)?;
-        let whole = after[number.len()..].chars().all(|c| !c.is_alphanumeric());
+        let whole = after.get(number.len()..)?.chars().all(|c| !c.is_alphanumeric());
         return (named && whole).then(|| format!("{repo}#{number}"));
     }
     for prefix in ["c-", "ask-"] {
-        if let Some(id) = lower.strip_prefix(prefix) {
-            if id.len() == 10 && id.chars().all(|c| c.is_ascii_hexdigit()) {
-                return Some(lower);
-            }
+        let is_id = |id: &str| id.len() == 10 && id.chars().all(|c| c.is_ascii_hexdigit());
+        if lower.strip_prefix(prefix).is_some_and(is_id) {
+            return Some(lower);
         }
     }
     None
@@ -438,9 +437,8 @@ pub fn build(
         let subject = subject_key(&event.text);
         let same_wording = keys.iter().find_map(|k| by_key.get(k).copied());
         let folded = same_wording.or_else(|| subject.as_ref().and_then(|k| by_key.get(k).copied()));
-        let index = match folded {
-            Some(index) => {
-                let group = &mut groups[index];
+        let index = match folded.and_then(|i| groups.get_mut(i).map(|group| (i, group))) {
+            Some((index, group)) => {
                 group.entry.attributions.push(attribution);
                 for reason in reasons {
                     if !group.entry.reasons.contains(&reason) {
@@ -473,7 +471,7 @@ pub fn build(
                 groups.push(Group {
                     entry: DigestEntry {
                         id,
-                        fold_key: keys[0].clone(),
+                        fold_key: keys.first().cloned().unwrap_or_default(),
                         space: space.to_owned(),
                         thread: event.thread.clone(),
                         seq: event.seq,
@@ -586,9 +584,9 @@ pub fn read(
 pub const REST_LINE_CHARS: usize = 100;
 
 fn who(entry: &DigestEntry) -> String {
-    let first = &entry.attributions[0].author;
+    let first = entry.attributions.first().map(|a| a.author.as_str()).unwrap_or_default();
     match entry.attributions.len() {
-        1 => first.clone(),
+        1 => first.to_owned(),
         n => format!("{first} +{} more", n - 1),
     }
 }

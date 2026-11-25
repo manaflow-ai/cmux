@@ -79,7 +79,7 @@ fn pause_all_snapshots_every_page_and_preserves_partial_results() {
         "cloud.machine.list",
         json!({"limit": 100}),
         None,
-        json!({"machines": [first.clone()], "next_cursor": "next"}),
+        json!({"machines": [first], "next_cursor": "next"}),
     );
     s.control_plane_mut().answer(
         "cloud.machine.list",
@@ -267,6 +267,23 @@ fn create_options_reach_backend_and_preserve_its_capability_refusal() {
     assert_eq!(error["message"], "Bootstrap is unavailable on this backend");
     assert_eq!(error["upstream_code"], "validation.invalid");
     assert_eq!(s.projection().len(), 0, "a refused option never creates a machine");
+}
+
+#[test]
+fn create_origin_and_ttl_reach_backend_unchanged() {
+    let mut s = server();
+    let args = json!({"name":"probe", "size":{"cpu":2,"memory_mb":4096,"disk_mb":16384},
+        "origin":{"kind":"workflow","label":"cloud round trip","url":"https://example.com/runs/1"},
+        "ttl_seconds":3600});
+    s.control_plane_mut().answer(
+        "cloud.machine.create",
+        args.clone(),
+        Some("origin-key"),
+        json!({"error":{"code":"validation.invalid","message":"invalid params","retryable":false}}),
+    );
+    let error = err_json(s.handle(&mutation("cloud.machine.create", args.clone(), "origin-key")));
+    assert_eq!(s.control_plane().calls.last().unwrap().params, args);
+    assert_eq!(error["upstream_code"], "validation.invalid");
 }
 
 #[test]
@@ -721,6 +738,12 @@ fn snapshots_plan_billing_migration_and_upgrade() {
     assert_eq!(plan["limits"]["max_active"], 5);
     assert_eq!(plan["usage"]["active"], 2, "usage folds into the plan");
     assert_eq!(plan["upgrade_plan"], "max", "the plan that lifts the limits (See plans)");
+    let usage = s.handle(&Request::new("cloud.usage.current", json!({})));
+    assert!(usage.is_ok(), "{usage:?}");
+    let usage = usage.unwrap();
+    assert_eq!(usage["usd"]["total"], 0.84, "the billing owner's price passes through");
+    assert_eq!(usage["payment_method"]["last4"], "4242");
+    assert_eq!(usage["stripe_mode"], "test");
     let checkout =
         s.handle(&mutation("cloud.billing.checkout", json!({ "plan": "pro" }), "key-checkout-1"));
     assert_eq!(
