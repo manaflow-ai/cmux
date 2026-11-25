@@ -162,7 +162,9 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
         let mut attempt = 0;
         let captured = loop {
             attempt += 1;
-            let captured = surface.try_with_terminal(|terminal| {
+            // A parked mirror (a quiet or ended tab) stays parked: the
+            // capture reads a scratch rebuild of it.
+            let captured = surface.try_with_terminal_kept_parked(|terminal| {
                 let size = (terminal.cols(), terminal.rows());
                 let Some(digest) = content_digest(terminal) else {
                     // No digest: the screen cannot be read now. It names no
