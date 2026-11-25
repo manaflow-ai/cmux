@@ -73,15 +73,22 @@ pub async fn cut_mid_tool(world: &World, laptop: &Daemon, id: &str) -> Cut {
     let tool = |log: &[EventRecord]| log.iter().any(|event| event.kind == "tool_call");
     log_when(&laptop.hub, id, "the tool call", tool).await;
     send(&laptop.hub, &session, "p-second", SECOND).await;
+    // The record that put it in the queue. A snapshot names the queue as the chat has it when
+    // the snapshot is made, which may be a record ahead of the log it was stored with, and the
+    // machine builds its queue from the log alone.
+    let waits = |event: &EventRecord| event.kind == "queued" && event.msg["promptId"] == "p-second";
+    let log = log_when(&laptop.hub, id, "the second prompt waits", |log| log.iter().any(waits));
+    let queued_at = log.await.iter().find(|event| waits(event)).map(|event| event.seq).unwrap();
 
-    // The copy the machine goes on from: the open turn with its tool call, and the queue.
+    // The copy the machine goes on from: the open turn with its tool call, and the queue with
+    // the record that made it.
     let deadline = std::time::Instant::now() + super::logs::DEADLINE;
     let manifest = loop {
         let view = world.view(id);
         let manifest = world.manifest(id).await.expect("the chat has a snapshot");
         let open = manifest.open_turn.as_ref().is_some_and(|turn| turn.tool.is_some());
-        if view.needs_run && manifest.queue.len() == 1 && open && manifest.last_seq == view.last_seq
-        {
+        let covers = manifest.last_seq == view.last_seq && manifest.last_seq >= queued_at;
+        if view.needs_run && manifest.queue.len() == 1 && open && covers {
             break manifest;
         }
         assert!(
