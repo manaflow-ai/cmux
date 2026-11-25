@@ -440,6 +440,9 @@ pub struct Overlay {
     pub peer_ip: std::net::IpAddr,
 }
 
+/// Runs once the link exists (see [`Dialed::on_link`]).
+pub type OnLink = Box<dyn FnOnce(&Link) + Send>;
+
 /// A dialed or answered transport.
 pub struct Dialed {
     pub stream: Box<dyn LinkStream>,
@@ -462,7 +465,7 @@ pub struct Dialed {
     pub liveness: Option<crate::link::LivenessDatagrams>,
     /// Runs once the link exists (a WireGuard tunnel's lease learns how its
     /// link closes, [`wireguard::dormant`]).
-    pub on_link: Option<Box<dyn FnOnce(&Link) + Send>>,
+    pub on_link: Option<OnLink>,
     /// Both sides listed [`crate::RELIABLE_LANE`].
     pub reliable: bool,
     /// The tunnel's static keys (WireGuard); `None` on WebRTC.
@@ -969,6 +972,29 @@ pub async fn answer(
     })
 }
 
+/// Run a link on a stream dialed or accepted off signaling (the LAN path,
+/// [`crate::lan`]): no session to unsubscribe and no media beside it.
+pub(crate) fn run_dialed(
+    dialed: Dialed,
+    role: Role,
+    link_config: LinkConfig,
+    transport: TransportKind,
+) -> Connected {
+    let link = Link::new(dialed.stream, role, link_config, Some(dialed.guard));
+    follow_lane(&link, dialed.lane);
+    Connected {
+        link,
+        transport,
+        path: dialed.path,
+        peer: dialed.peer,
+        session_id: uuid::Uuid::new_v4().to_string(),
+        webrtc_media: false,
+        resumed: false,
+        tunnel_keys: dialed.tunnel_keys,
+        overlay: dialed.overlay,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1086,7 +1112,7 @@ mod tests {
                 channel.send(Bytes::from(vec![round; 1000])).await.unwrap();
                 match tokio::time::timeout(std::time::Duration::from_secs(5), channel.recv()).await {
                     Ok(Some(ChannelEvent::Data(bytes))) => {
-                        assert_eq!(&bytes[..], &[round; 1000][..], "{label}")
+                        assert_eq!(&bytes[..], &[round; 1000][..], "{label}");
                     }
                     other => panic!("{label}: unexpected {other:?}"),
                 }

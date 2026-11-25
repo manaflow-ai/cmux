@@ -159,7 +159,7 @@ final class CloudMachineUpdates {
 
 extension CloudLegacyMachineUpdate {
     /// The guest script, from the app's resources.
-    static var script: String? {
+    nonisolated static var script: String? {
         Bundle.module.url(forResource: "cmux-tui-upgrade", withExtension: "sh").flatMap { try? String(contentsOf: $0, encoding: .utf8) }
     }
 }
