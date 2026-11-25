@@ -172,6 +172,17 @@ fn outcome_token(outcome: &PromptOutcome) -> usize {
     Arc::as_ptr(outcome) as usize
 }
 
+fn prompt_outcome_token(session: &Session, prompt_id: &str) -> usize {
+    session
+        .prompts
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .find(|(id, _)| id == prompt_id)
+        .map(|(_, outcome)| outcome_token(outcome))
+        .expect("a duplicate prompt always has a pending outcome")
+}
+
 /// Return the existing outcome, or create a new attempt and retire any receipt for an
 /// older attempt with the same client id. The ledger is bounded and can forget a completed
 /// outcome while the larger acceptance cache still remembers it; leaving that receipt live
@@ -438,7 +449,7 @@ impl Hub {
                     if let Some(kept) = Box::pin(first_acceptance(
                         session,
                         &prompt_id,
-                        outcome_token(&outcome),
+                        prompt_outcome_token(session, &prompt_id),
                         &mut first,
                     ))
                     .await
