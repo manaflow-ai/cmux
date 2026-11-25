@@ -52,7 +52,7 @@ struct Counts {
 impl Counts {
     fn of(digest: &Digest) -> Self {
         Self {
-            raised: digest.needs_you.len() + digest.affects_you.len(),
+            raised: digest.needs_you.len().saturating_add(digest.affects_you.len()),
             more: digest.rest.iter().map(|g| g.posts).sum(),
             duplicates: digest.duplicates_folded,
         }
@@ -83,7 +83,7 @@ fn author(entry: &DigestEntry) -> String {
     let first: String = first.chars().take(AUTHOR_CHARS).collect();
     match entry.attributions.len() {
         0 | 1 => first,
-        n => format!("{first} +{} more", n - 1),
+        n => format!("{first} +{} more", n.saturating_sub(1)),
     }
 }
 
