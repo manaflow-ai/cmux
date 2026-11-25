@@ -458,8 +458,8 @@ struct WorkspaceHoverCardContent: Equatable {
     /// grey when paused (it resumes on attach).
     static func connectionTone(_ status: SidebarMachine.Status) -> HoverCardTone {
         switch status {
-        case .connected, .updateAvailable: .success
-        case .connecting, .reconnecting, .installing, .updateRequired, .installRequired, .pausing, .resuming, .deleting, .disconnected: .attention
+        case .connected, .updateAvailable, .connecting, .reconnecting: .success
+        case .installing, .updateRequired, .installRequired, .pausing, .resuming, .deleting, .disconnected: .attention
         case .offline, .authFailed, .unreachable, .failed: .danger
         case .paused, .pausedIdle: .secondary
         }
@@ -468,9 +468,8 @@ struct WorkspaceHoverCardContent: Equatable {
     /// What a machine that is not plainly connected is doing, nil when connected.
     static func connectionWord(_ status: SidebarMachine.Status) -> String? {
         switch status {
-        case .connected, .updateAvailable: nil
+        case .connected, .updateAvailable, .connecting, .reconnecting: nil
         case .offline: Strings.statusOffline
-        case .connecting: Strings.statusConnecting
         case .installing: Strings.statusInstalling
         default: Strings.attentionStatus(status)
         }

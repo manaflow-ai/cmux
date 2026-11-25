@@ -127,7 +127,6 @@ export type TranscriptShellDeps = {
   sinceRow: AcpmuxRow | undefined;
   clearTop: number;
   sinceIndex: number;
-  sinceHasNews: boolean;
   jumpUp: boolean;
   upShown: boolean;
   jumpBackHeld: boolean;
@@ -199,7 +198,6 @@ export function drawTranscriptShell({
   sinceRow,
   clearTop,
   sinceIndex,
-  sinceHasNews,
   jumpUp,
   upShown,
   jumpBackHeld,
@@ -266,7 +264,6 @@ export function drawTranscriptShell({
               // Its own MinimapSource takes these values each render; the rail draws only when what it
               // draws changes (ThreadMinimapRail).
               <ThreadMinimap
-                cutoverRow={sinceHasNews ? sinceIndex : undefined}
                 rows={rows}
                 layout={layout}
                 scrollTop={renderScroll.top - origin}
