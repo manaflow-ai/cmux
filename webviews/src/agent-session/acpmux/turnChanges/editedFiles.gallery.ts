@@ -3,7 +3,10 @@
 // (D7): the file rows, "Show N more" past agentPane.editedFiles.maxRows, the hash-checked Undo and
 // its confirmation, a file that changed since the turn, an edit Undo cannot reverse, and the
 // collapsed and never settings. turn.undo answers come from the variant's `native` map, the shape
-// the Swift host (AgentPaneTurnUndo.swift) sends.
+// the Swift host (AgentPaneTurnUndo.swift) sends. A change opens one way, inside the card (Leo,
+// 2026-11-22: "it should be able to just open inline inside the fucking existing agent chat
+// situation."): the header or its chevron opens a file's diff inline, a file row its own, and the
+// opened diff's Open in Changes icon is the way to the changes pane; no View changes button.
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { Play } from "../../../gallery/play";
@@ -123,7 +126,7 @@ const expandAll: Play = async (ctx) => {
 
 const variants: Record<string, AgentPaneVariant> = {
   "earlier-at-rest": {
-    note: "Two turns that edited files: only the latest card shows Undo and View changes at rest; the earlier card's wait for hover or focus.",
+    note: "Two turns that edited files: each card shows its Undo at rest and opens a change inside itself (a file row, or the one-file header); no View changes button.",
     height: 700,
     snapshot: twoTurns(),
     play: async ({ waitFor, document }) => {
@@ -131,26 +134,44 @@ const variants: Record<string, AgentPaneVariant> = {
     },
   },
   "earlier-hovered": {
-    note: "The pointer on the earlier card: its Undo and View changes fade in where they always sit.",
+    note: "The pointer on the earlier card's header: the whole header washes and its chevron lights, the one sign it opens. The counts stay counts.",
     height: 700,
     snapshot: twoTurns(),
     play: async ({ hover, waitFor, document }) => {
       await waitFor(() => document.querySelector(EARLIER));
       await hover({ selector: `${EARLIER} .acpmux-edited-head` });
+      if (document.querySelector(".acpmux-review-changes, .acpmux-edited-summary-link"))
+        throw new Error("the card shows a second way to its changes");
     },
   },
   "earlier-focused": {
-    note: "Tab onto the earlier card's View changes: its buttons show for the keyboard too.",
+    note: "Tab onto the earlier card's first file row, the keyboard way into that file's diff; Undo stays where it sits.",
     height: 700,
     snapshot: twoTurns(),
     play: async ({ focus, waitFor, document }) => {
-      await waitFor(() => document.querySelector(`${EARLIER} .acpmux-review-changes`));
-      await focus({ selector: `${EARLIER} .acpmux-review-changes` });
+      await waitFor(() => document.querySelector(`${EARLIER} button.acpmux-edited-file`));
+      await focus({ selector: `${EARLIER} button.acpmux-edited-file` });
     },
   },
   "one-file": {
-    note: "One edited file: the card names it; Undo and View changes.",
+    note: "One edited file: the card names it, its counts, Undo and the chevron that opens its diff inside the card.",
     snapshot: turn([FILES[0]!], "Wrap fetch in withRetry"),
+  },
+  "inline-diff-open": {
+    note: "Play: click the one-file card's header; the file's diff opens inside the card, its Open in Changes icon in the diff's header.",
+    height: 640,
+    snapshot: turn([FILES[0]!], "Wrap fetch in withRetry"),
+    play: async ({ click, waitFor, document }) => {
+      await waitFor(() => document.querySelector(".acpmux-edited-head"));
+      await click({ selector: ".acpmux-edited-head" });
+      await waitFor(() => document.querySelector(".acpmux-edited-diff .cv-edit-diff"));
+      if (!document.querySelector(".acpmux-edited-diff .acpmux-edited-open"))
+        throw new Error("the opened diff has no Open in Changes");
+    },
+  },
+  narrow: {
+    note: "One edited file with a long name; at the narrow width (240 px for this entry) Undo shrinks to its icon and the name ends in an ellipsis, never under a button.",
+    snapshot: turn([{ ...FILES[0]!, path: "src/net/backoff/policy/jitter/exponentialWithDecorrelatedJitter.ts" }]),
   },
   "markdown-one": {
     note: "One Markdown file the agent wrote: Open beside View changes shows it in cmux's Markdown page.",
@@ -291,5 +312,7 @@ export default agentPaneEntry({
   title: "Edited files card",
   area: "Agent pane",
   covers: ["agent-session/acpmux/conversation/EditedFilesCard.tsx"],
+  // Narrow is the card's narrowest layout (cardFit.css: under 260 px Undo is its icon alone).
+  widths: { narrow: 240 },
   variants,
 });

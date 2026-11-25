@@ -89,9 +89,14 @@ mod tests {
         assert!(owner(Origin::Peer, ConnAuth::PeerToken, &via("app")));
         assert!(!owner(Origin::Peer, ConnAuth::PeerToken, &via("web")));
         assert!(!owner(Origin::Peer, ConnAuth::PeerToken, &via("device")));
-        for auth in
-            [ConnAuth::Device, ConnAuth::ReadOnlyDevice, ConnAuth::ListenerToken, ConnAuth::None]
-        {
+        // A control the mesh hub relayed below the owner's grant is never the owner.
+        for auth in [
+            ConnAuth::Device,
+            ConnAuth::ReadOnlyDevice,
+            ConnAuth::ListenerToken,
+            ConnAuth::MeshControl,
+            ConnAuth::None,
+        ] {
             assert!(!owner(Origin::Peer, auth, &plain), "{auth:?}");
             assert!(!owner(Origin::Peer, auth, &via("app")), "{auth:?}");
         }
