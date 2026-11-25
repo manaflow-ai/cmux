@@ -498,6 +498,7 @@ pub use agent_pairs::PairGuard;
 pub use auto_background::AUTO_BACKGROUND_ENV;
 pub(crate) use auto_hold::{AUTO_AWAY, AUTO_CLIENT};
 pub use bg_tasks::{BgScope, bg_owner_words};
+pub use cloud_offload::HistoryOffloadRequest;
 pub(crate) use cold_archive::COLD_CHANGED;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 /// The windowed upload sender (`file_uploads/window.rs`), for the upload bench.
@@ -505,6 +506,7 @@ pub use file_uploads::window as file_put_window;
 pub use fork::Retarget;
 pub(crate) use fork::offers_fork;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
+pub use history_delete::HistoryDeleteRequest;
 pub(crate) use idle::SessionAtWork;
 pub(crate) use idle_census::LaunchServers;
 pub use idle_census::{Sidecar, StoredLaunch};
@@ -515,8 +517,6 @@ pub(crate) use log_load::AdoptionReady;
 pub(crate) use log_load::test_hold;
 #[cfg(test)]
 pub(crate) use log_load::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
-pub use cloud_offload::HistoryOffloadRequest;
-pub use history_delete::HistoryDeleteRequest;
 pub use media_read::FEATURE as MEDIA_READ_FEATURE;
 pub use model_options::{
     current_effort, current_model, current_option, resolve_config_id, spawn_effort, web_url,
