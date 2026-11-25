@@ -46,7 +46,6 @@ ENV_COPY = {
     "ci-macos.yml#macos-compile-admission": "CMUX_PRODUCT_RUNNER",
     "ci-macos.yml#tests-build-and-lag": "REQUESTED_RUNNER",
     "ci-macos.yml#release-build": "CMUX_PRODUCT_RUNNER",
-    "iroh-v2.yml#client": "REQUESTED_RUNNER",
 }
 # Arrays the variable may hold: what a std side job needs today (any side runner with Xcode 26.6; every one
 # has at least 16 GiB, the measured std footprint), and a job that needs a 48 GiB host.

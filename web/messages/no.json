@@ -5773,5 +5773,13 @@
     "unavailableTitle": "Vi kunne ikke bekrefte innloggingen din",
     "unavailableBody": "Innloggingstjenesten vår er opptatt. Vent noen sekunder, og åpne invitasjonen igjen. Du trenger ikke å logge inn på nytt.",
     "retry": "Prøv igjen"
+  },
+  "analyticsConsent": {
+    "label": "Analyse",
+    "message": "Kan vi bruke analyse for å se hvordan nettstedet brukes? Ingenting samles inn, og ingen analyseinformasjonskapsel settes med mindre du tillater det.",
+    "privacy": "Personvernerklæring",
+    "accept": "Tillat",
+    "decline": "Nei takk",
+    "settings": "Analyseinnstillinger"
   }
 }
