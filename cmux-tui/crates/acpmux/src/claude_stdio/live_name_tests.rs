@@ -102,6 +102,26 @@ async fn one_rename_at_a_time_and_only_a_one_line_name() {
     assert_eq!(result_of(&[reply], 5).unwrap().unwrap_err(), RENAME_IN_FLIGHT);
 }
 
+/// Each rename given up on lets the next be written, however many have no result: past the old
+/// limit of 4, the sixth is written too, and an echo of the last drains the ones before it.
+#[tokio::test]
+async fn renames_given_up_on_never_stop_the_next() {
+    let t = translator().await;
+    let mut last = Vec::new();
+    for n in 0..6 {
+        last = written(&t, &rename(10 + n, &format!("name-{n}"))).await;
+        let past = std::time::Instant::now()
+            .checked_sub(std::time::Duration::from_secs(60))
+            .expect("past");
+        t.renaming.lock().await.back_mut().expect("held").at = past;
+    }
+    assert_eq!(t.renaming.lock().await.len(), 6);
+    for line in renamed_lines(&last[0], "name-5") {
+        t.inbound(&line).await;
+    }
+    assert!(t.renaming.lock().await.is_empty());
+}
+
 /// The hub's prompt went out before Claude Code answered the rename: Claude Code reads its
 /// stdin in order, so the rename's lines come first, and the prompt's turn is untouched.
 #[tokio::test]

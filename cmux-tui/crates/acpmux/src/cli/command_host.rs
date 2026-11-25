@@ -351,9 +351,11 @@ pub enum PeerCmd {
     /// `LANE_GH_SOCKET=PATH lane-gh ...` uses it. OWNER serves it once its owner sets
     /// `acpmux config --set lane_gh_broker=PATH`. Runs until stopped.
     BrokerForward {
-        /// The machine whose broker to reach (its name in the hub's address book).
-        #[arg(value_name = "OWNER")]
-        owner: String,
+        /// The machines whose broker to reach (names in the hub's address book), in order of
+        /// preference: each connection goes to the first whose broker answered its last
+        /// progress check, and fails over before any of its bytes are sent.
+        #[arg(value_name = "OWNER", required = true, num_args = 1..)]
+        owners: Vec<String>,
         /// Where to listen (a stale socket there is replaced; a served one is left alone).
         #[arg(long, value_name = "PATH")]
         socket: std::path::PathBuf,
