@@ -91,8 +91,8 @@ private func runReconnects(drops target: Int, seed: UInt64) -> ReconnectRun {
                 run.worst = max(run.worst, took)
                 run.worstOverBound = max(run.worstOverBound, took - (base + slack))
                 backAt = nil
-                // Backoff: an outage of T seconds costs at most T/15 + 10 dials.
-                if Double(dialsThisOutage) > outage.tickSeconds / 15 + 10 { run.excessDials += 1 }
+                // Backoff: an outage of T seconds costs at most `LinkMachine.dialBudget` dials.
+                if Double(dialsThisOutage) > LinkMachine.dialBudget(outageSeconds: outage.tickSeconds) { run.excessDials += 1 }
                 if run.drops < target {
                     clock.schedule(.networkDown, after: random.logDuration(Duration.seconds(1)...(.seconds(600))))
                 }
@@ -342,7 +342,7 @@ struct TickHarnessCellsTests {
     /// reconnect within its bound after the network is back (2 s with a path
     /// change, the longest backoff step and a dial without, plus what the
     /// injected faults cost); no stale result moves the machine; backoff
-    /// holds (at most outage/15 + 10 dials); connected at the end; the same
+    /// holds (at most `LinkMachine.dialBudget` dials); connected at the end; the same
     /// seed replays the same run, another seed does not.
     @Test func cellTickTenThousandReconnects() {
         let seed = TickRandom.seed(default: 40_960)

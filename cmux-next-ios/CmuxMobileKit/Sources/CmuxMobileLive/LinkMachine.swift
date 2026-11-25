@@ -61,6 +61,10 @@ public struct LinkMachine: Sendable {
         case mediaUpdated(generation: Int, VideoMediaState)
         case linkDropped(generation: Int, reason: String)
         case retryDue(generation: Int)
+        /// A dial in the foreground has run for ``dialPatience`` with no
+        /// answer: it may hang on a path that died under it (an elevator, a
+        /// dead cell) and only time out after 25 s. Redial beside it.
+        case dialOverdue(generation: Int)
         /// The app came to the foreground (or the network came back).
         case foreground
         /// A surface of this Mac opened on screen (a terminal tab, a browser
@@ -173,8 +177,35 @@ public struct LinkMachine: Sendable {
     /// say the Mac went to sleep) clears it, so the line never blames the
     /// network for a failure it did not cause.
     private var networkBlockGeneration: Int?
-    /// Retry delays in seconds after the silent retries; the last one repeats.
-    public var backoff: [Int] = [1, 2, 4, 8, 15, 30]
+    /// Retry delays after the silent retries while the app is in front: 250 ms doubling to 5 s,
+    /// the last one repeating for ``fastRetries`` tries (about five minutes), then ``lateBackoff``.
+    /// Leo, 2026-11-25, after an elevator: "iOS doesn't retry connections aggressively enough".
+    public var backoff: [Duration] = [.milliseconds(250), .milliseconds(500), .seconds(1), .seconds(2), .seconds(4), .seconds(5)]
+    /// Tries on ``backoff`` before a long outage in front slows to ``lateBackoff``.
+    public static let fastRetries = 64
+    /// The wait once an outage in front outlasted ``fastRetries`` tries: a dial every 20 s
+    /// keeps an hours-long outage within the matrix's dial budget (T/15 + 10).
+    public static let lateBackoff: Duration = .seconds(20)
+    /// Retry delays in the background (iOS suspends the app soon anyway); the last one repeats.
+    public var backgroundBackoff: [Duration] = [1, 2, 4, 8, 15, 30].map { Duration.seconds($0) }
+    /// The longest wait between retries in front: what a network that comes back with no
+    /// path change waits at most, plus one dial.
+    public var longestForegroundWait: Duration { max(backoff.max() ?? .seconds(5), Self.lateBackoff) }
+    /// The most dials an outage of `seconds` in front may cost: the fast schedule (about a dial
+    /// every 5 s for five minutes) then one every ``lateBackoff``, plus the hedges and the silent
+    /// retries. The matrix and tick cells hold every outage to it.
+    public static func dialBudget(outageSeconds seconds: Double) -> Double {
+        let fast = 300.0
+        return seconds <= fast ? seconds / 5 + 16 : Double(fastRetries) + (seconds - fast) / 15 + 13
+    }
+    /// Hedges of the current outage's dials (``Event/dialOverdue``); reset on a link.
+    private var overdueHedges = 0
+    /// How long a dial in front runs before a redial goes beside it: 6 s, doubling with each
+    /// hedge in the same outage to the full dial timeout, so a slow network still gets one
+    /// whole try.
+    public var dialPatience: Duration {
+        min(.seconds(6) * (1 << min(overdueHedges, 3)), .seconds(25))
+    }
     /// A background shorter than this keeps the link: a quick probe, no redial.
     public static let shortSuspend: Duration = .seconds(30)
     /// Failed dials retried at once, before any failure shows.
@@ -315,6 +346,7 @@ public struct LinkMachine: Sendable {
         case .dialSucceeded(let gen, let path):
             guard gen == generation, case .connecting = phase else { return [] }
             networkBlock = nil
+            overdueHedges = 0
             phase = .connected(transport, path, rttMillis: nil)
             // The new link is up: the old one beside it has nothing left to do.
             return dropStandby()
@@ -399,8 +431,17 @@ public struct LinkMachine: Sendable {
             // dial timeout (25 s) and then a backoff step after the network
             // was back (iOS reliability matrix, network_back_during_inflight_dial).
             case .connecting(_, let attempt): return dial(attempt: attempt, closing: false)
+            // The link roamed onto the new path (the controller moved it first): check at once
+            // that it carries, so a path that came back dead is found in one probe, not by the
+            // next heartbeat.
+            case .connected: return isParked ? [] : [.quickProbe(generation: generation)]
             default: return []
             }
+        case .dialOverdue(let gen):
+            guard gen == generation, !isBackgrounded, case .connecting(_, let attempt) = phase,
+                  dialPatience < .seconds(25) else { return [] }
+            overdueHedges += 1
+            return dial(attempt: attempt + 1, closing: false)
         case .retryDue(let gen):
             guard gen == generation, case .waiting(_, let attempt, _, _) = phase else { return [] }
             return dial(attempt: attempt + 1, closing: false)
@@ -458,9 +499,18 @@ public struct LinkMachine: Sendable {
     private mutating func wait(attempt: Int, reason: String) -> [Effect] {
         generation += 1
         media = .off
-        let seconds = backoff[min(max(attempt - 1 - Self.silentRetries, 0), backoff.count - 1)]
-        phase = .waiting(transport, attempt: attempt, reason: reason, retryIn: .seconds(seconds))
-        return [.scheduleRetry(generation: generation, after: .seconds(seconds))]
+        let delay = retryDelay(attempt: attempt)
+        phase = .waiting(transport, attempt: attempt, reason: reason, retryIn: delay)
+        return [.scheduleRetry(generation: generation, after: delay)]
+    }
+
+    /// The wait before retry `attempt` (counting the silent ones): the fast schedule in front,
+    /// the slow one in the background.
+    public func retryDelay(attempt: Int) -> Duration {
+        let step = max(attempt - 1 - Self.silentRetries, 0)
+        if isBackgrounded { return backgroundBackoff[min(step, backgroundBackoff.count - 1)] }
+        if step >= Self.fastRetries { return Self.lateBackoff }
+        return backoff[min(step, backoff.count - 1)]
     }
 }
 
@@ -530,7 +580,7 @@ extension LinkMachine.Phase {
             ["Connected", "\(transport.displayName) \(path.displayName)", media.statusLabel, rtt.map { "\($0) ms" }]
                 .compactMap { $0 }.joined(separator: " · ")
         case .waiting(let transport, _, let reason, let retryIn):
-            "\(transport.displayName) failed: \(reason) · retrying in \(retryIn.components.seconds) s"
+            "\(transport.displayName) failed: \(reason) · retrying in \(retryIn < .seconds(1) ? "\(retryIn.components.attoseconds / 1_000_000_000_000_000) ms" : "\(retryIn.components.seconds) s")"
         }
     }
 

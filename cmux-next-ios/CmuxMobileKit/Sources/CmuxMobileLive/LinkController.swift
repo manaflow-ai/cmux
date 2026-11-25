@@ -219,6 +219,8 @@ public final class LinkController {
     /// the roam waits this long for the burst to end.
     nonisolated static let networkSettle: Duration = .milliseconds(150)
     @ObservationIgnored private var networkTask: Task<Void, Never>?
+    /// The pending ``LinkMachine/Event/dialOverdue`` check of the dial in flight.
+    @ObservationIgnored private var dialOverdueTask: Task<Void, Never>?
 
     /// The phone's network changed or came back: the live link moves onto it
     /// without a redial (WireGuard roams in place), and a link that already
@@ -321,6 +323,7 @@ public final class LinkController {
             parkTask = nil
             parkedAt = nil
             retryTask?.cancel()
+            dialOverdueTask?.cancel()
             prepared = nil
             if let link {
                 self.link = nil
@@ -330,6 +333,16 @@ public final class LinkController {
         case .dial(let generation, let macID, let transport):
             dialTask?.cancel()
             retryTask?.cancel()
+            dialOverdueTask?.cancel()
+            // In front, a dial that hangs past its patience gets a redial beside it (the machine
+            // decides; a dial that answered first moved the generation on and the event is stale).
+            if !machine.isBackgrounded, machine.dialPatience < .seconds(25) {
+                let clock = clock, patience = machine.dialPatience
+                dialOverdueTask = Task { [weak self] in
+                    do { try await clock.sleep(for: patience) } catch { return }
+                    self?.send(.dialOverdue(generation: generation))
+                }
+            }
             guard var endpoint = endpoint(macID) else {
                 events.dialSkipped(macID: macID)
                 send(.dialFailed(generation: generation, reason: "not registered yet"))
@@ -395,6 +408,7 @@ public final class LinkController {
                 }
             }
         case .scheduleRetry(let generation, let delay):
+            dialOverdueTask?.cancel()
             retryTask?.cancel()
             let clock = clock
             retryTask = Task { [weak self] in

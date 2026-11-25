@@ -63,11 +63,11 @@ import Testing
         // The first failure retries at once and shows nothing (a reset signaling socket).
         #expect(machine.handle(.dialFailed(generation: 1, reason: "signaling reset")) == [.dial(generation: 2, macID: "m1", transport: .webRTC)])
         #expect(machine.phase == .connecting(.webRTC, attempt: 2))
-        #expect(machine.handle(.dialFailed(generation: 2, reason: "ICE timed out")) == [.scheduleRetry(generation: 3, after: .seconds(1))])
-        #expect(machine.phase == .waiting(.webRTC, attempt: 2, reason: "ICE timed out", retryIn: .seconds(1)))
+        #expect(machine.handle(.dialFailed(generation: 2, reason: "ICE timed out")) == [.scheduleRetry(generation: 3, after: .milliseconds(250))])
+        #expect(machine.phase == .waiting(.webRTC, attempt: 2, reason: "ICE timed out", retryIn: .milliseconds(250)))
         #expect(machine.phase.statusLine(macName: "Studio") == nil)
         #expect(machine.handle(.retryDue(generation: 3)) == [.dial(generation: 4, macID: "m1", transport: .webRTC)])
-        #expect(machine.handle(.dialFailed(generation: 4, reason: "x")) == [.scheduleRetry(generation: 5, after: .seconds(2))])
+        #expect(machine.handle(.dialFailed(generation: 4, reason: "x")) == [.scheduleRetry(generation: 5, after: .milliseconds(500))])
         // A stale timer is ignored.
         #expect(machine.handle(.retryDue(generation: 3)) == [])
     }
@@ -166,11 +166,49 @@ import Testing
     /// dial starts again on the new path at once, instead of waiting out its
     /// 25 s timeout and then a backoff step. A waiting machine dials now; a
     /// live link is left to roam.
+    /// In front, retries start at 250 ms and double to 5 s, which repeats for about five minutes
+    /// before a long outage slows to 20 s; in the background the old 1 s to 30 s schedule holds
+    /// (Leo, 2026-11-25: "iOS doesn't retry connections aggressively enough").
+    @Test func foregroundRetriesStartAt250msAndCapAt5s() {
+        var machine = LinkMachine(transport: .wireGuard)
+        let s = LinkMachine.silentRetries
+        #expect((1...7).map { machine.retryDelay(attempt: $0 + s) }
+                == [.milliseconds(250), .milliseconds(500), .seconds(1), .seconds(2), .seconds(4), .seconds(5), .seconds(5)])
+        #expect(machine.retryDelay(attempt: LinkMachine.fastRetries + s + 1) == LinkMachine.lateBackoff)
+        #expect(machine.longestForegroundWait == .seconds(20))
+        _ = machine.handle(.background)
+        #expect(machine.retryDelay(attempt: 1 + s) == .seconds(1))
+        #expect(machine.retryDelay(attempt: 10 + s) == .seconds(30))
+    }
+
+    /// A dial in front that hangs past its patience (a path that died under it, no path event)
+    /// gets a redial; the patience doubles with each hedge to the full dial timeout, and a stale,
+    /// backgrounded or answered dial gets none.
+    @Test func anOverdueDialInFrontIsRedialed() {
+        var machine = LinkMachine(transport: .wireGuard)
+        _ = machine.handle(.target(mac))
+        #expect(machine.dialPatience == .seconds(6))
+        #expect(machine.handle(.dialOverdue(generation: 1)) == [.dial(generation: 2, macID: "m1", transport: .wireGuard)])
+        #expect(machine.dialPatience == .seconds(12))
+        #expect(machine.handle(.dialOverdue(generation: 1)) == [], "stale")
+        #expect(machine.handle(.dialOverdue(generation: 2)) == [.dial(generation: 3, macID: "m1", transport: .wireGuard)])
+        #expect(machine.dialPatience == .seconds(24))
+        #expect(machine.handle(.dialOverdue(generation: 3)) == [.dial(generation: 4, macID: "m1", transport: .wireGuard)])
+        #expect(machine.dialPatience == .seconds(25))
+        #expect(machine.handle(.dialOverdue(generation: 4)) == [], "the last try runs its whole timeout")
+        _ = machine.handle(.dialSucceeded(generation: 4, path: .direct))
+        #expect(machine.dialPatience == .seconds(6))
+        #expect(machine.handle(.dialOverdue(generation: 4)) == [], "answered")
+        _ = machine.handle(.background)
+        _ = machine.handle(.linkDropped(generation: 4, reason: "x"))
+        #expect(machine.handle(.dialOverdue(generation: machine.generation)) == [], "backgrounded")
+    }
+
     @Test func networkChangeRestartsADialInFlightAndEndsTheBackoff() {
         var machine = LinkMachine(transport: .wireGuard)
         _ = machine.handle(.target(mac))
         _ = machine.handle(.dialSucceeded(generation: 1, path: .direct))
-        #expect(machine.handle(.networkChanged) == [], "a live link roams in place")
+        #expect(machine.handle(.networkChanged) == [.quickProbe(generation: 1)], "a live link roams in place, then is checked")
         #expect(machine.handle(.linkDropped(generation: 1, reason: "network lost")) == [.close, .dial(generation: 2, macID: "m1", transport: .wireGuard)])
         // The redial is on the dead path; the network comes back.
         #expect(machine.handle(.networkChanged) == [.dial(generation: 3, macID: "m1", transport: .wireGuard)])
