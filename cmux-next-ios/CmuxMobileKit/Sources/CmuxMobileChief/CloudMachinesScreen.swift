@@ -262,10 +262,10 @@ struct CloudMachineAlerts: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .alert("Couldn't do that", isPresented: Binding(get: { showsFailure && model.failure != nil }, set: { if !$0 { model.failure = nil } })) {
+            .alert("Couldn't do that", isPresented: Binding(get: { showsFailure && model.shownFailure != nil }, set: { if !$0 { model.dismissFailure() } })) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text(model.failure ?? "")
+                Text(model.shownFailure ?? "")
             }
     }
 }
