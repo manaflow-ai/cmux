@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.connections.disconnectBody" : {
+      "comment" : "Settings > Integrations > Connections: confirmation before removing a connection; the argument is the service.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@'s tools leave every agent chat. You can connect it again any time."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ستُزال أدوات %@ من كل محادثات الوكلاء. يمكنك الاتصال به مجددًا في أي وقت."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alati usluge %@ nestaju iz svih razgovora s agentima. Možete je ponovo povezati bilo kada."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Værktøjerne fra %@ forsvinder fra alle agentchats. Du kan forbinde igen når som helst."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die Werkzeuge von %@ verschwinden aus allen Agent-Chats. Du kannst den Dienst jederzeit wieder verbinden."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Las herramientas de %@ dejan de estar en todos los chats de agente. Puedes volver a conectarlo cuando quieras."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les outils de %@ quittent toutes les discussions d’agent. Vous pouvez le reconnecter à tout moment."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gli strumenti di %@ spariscono da tutte le chat con gli agenti. Puoi ricollegarlo in qualsiasi momento."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ のツールはすべてのエージェントチャットから外れます。いつでも再接続できます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ឧបករណ៍របស់ %@ នឹងចេញពីរាល់ការជជែកជាមួយភ្នាក់ងារ។ អ្នកអាចភ្ជាប់វាម្ដងទៀតបានគ្រប់ពេល។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@의 도구가 모든 에이전트 채팅에서 빠집니다. 언제든지 다시 연결할 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Verktøyene fra %@ forsvinner fra alle agentchatter. Du kan koble til igjen når som helst."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Narzędzia %@ znikną ze wszystkich czatów z agentami. Możesz połączyć je ponownie w dowolnej chwili."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "As ferramentas de %@ saem de todos os chats de agente. Você pode conectá-lo de novo quando quiser."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Инструменты %@ пропадут из всех чатов с агентами. Подключить его снова можно в любой момент."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เครื่องมือของ %@ จะหายไปจากทุกแชทกับเอเจนต์ คุณเชื่อมต่อใหม่ได้ทุกเมื่อ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ araçları tüm ajan sohbetlerinden kalkar. İstediğiniz zaman yeniden bağlayabilirsiniz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Інструменти %@ зникнуть з усіх чатів з агентами. Підключити його знову можна будь-коли."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Công cụ của %@ sẽ rời khỏi mọi cuộc trò chuyện với tác tử. Bạn có thể kết nối lại bất cứ lúc nào."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ 的工具将从所有智能体聊天中移除。你可以随时重新连接。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ 的工具將從所有代理程式聊天中移除。你可以隨時重新連線。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
