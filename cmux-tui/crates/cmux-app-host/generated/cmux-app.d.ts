@@ -543,6 +543,8 @@ declare namespace Cmux {
   type ThemeSchemeFromImageResult = { appearance: "dark" | "light"; accent: string; glassTint: string; swatches: Array<Cmux.ThemeSchemeSwatch>; format: "ghostty" | "base16" | "iterm2" | "windows-terminal" | "vscode"; text: string; scheme: Cmux.ThemeScheme }
   type ThemeSchemeSwatch = { color: string; share: number }
   type ThemeSchemeText = { from?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | "vscode" | null; name?: string | null; format: "ghostty" | "base16" | "iterm2" | "windows-terminal" | "vscode"; text: string; scheme: Cmux.ThemeScheme }
+  type ThemeSlotsDiagnostic = { kind: "unreadable_file" | "invalid_value" | "corrected_value"; path: string; message: string; line: number | null }
+  type ThemeSlotsResolveResult = { slots: Record<string, string>; diagnostics: Array<Cmux.ThemeSlotsDiagnostic> }
   type Timestamp = string
   type Trigger = { id: Cmux.TriggerId; status: "active" | "not_yet_supported"; spec: Cmux.TriggerInput; next_at: number | null }
   type TriggerId = string
@@ -599,6 +601,10 @@ interface CmuxFetchResponse { status: number; ok: boolean; headers: Record<strin
 type CmuxActionId = string
 
 interface CmuxAppContext { readonly [key: string]: unknown }
+/** What `cmux.app.openPane` resolves with: the pane's `ctx.close(result)` value, or `dismissed` when the person closed the pane first or a newer open replaced this one. */
+interface CmuxPaneResult<T = unknown> { result: T | null; dismissed: boolean }
+/** A `cmux.pane/1` mount's context: `args` are the open's arguments (`cmux.app.openPane`), null when the person opened the pane themselves. `close(result)` answers the opener (the tab stays open: closing it is the person's); `onOpen(fn)` runs after the render with the arguments of an open; `onClose(fn)` runs when this mount ends (the tab closed, a newer open, a reload). */
+interface CmuxPaneContext extends CmuxAppContext { readonly args: Record<string, unknown> | null; close(result?: unknown): Promise<{ closed: boolean }>; onOpen(fn: (args: Record<string, unknown>) => void): void; onClose(fn: () => void): void }
 
 /** One block of a page's main text (`page.read`): a heading has `level` (1-6), an image `src` and its alt text. */
 interface CmuxPageBlock { kind: "heading" | "paragraph" | "list_item" | "quote" | "code" | "image"; text: string; level?: number; src?: string }
@@ -2002,7 +2008,7 @@ interface CmuxGlobal {
   timer: { after(ms: number, fn: () => void): number; every(ms: number, fn: () => void): number; clear(id: number): void }
   /** Time zones. The sandbox has no Intl and `toLocaleString` ignores `timeZone`: `zone(name, at?)` gives an IANA zone's offset (minutes east of UTC) and short name at `at` (epoch ms, default now). An unknown name throws CmuxError `zone.unknown`. Local time is `new Date(utcMs + offsetMinutes * 60000)` read with the getUTC* methods. */
   time: { zone(name: string, at?: number): { zone: string; offsetMinutes: number; abbreviation: string } }
-  app: { readonly id: string; readonly version: string; readonly apiVersion: string; readonly locale: string; settings: { (): Record<string, unknown>; set(values: Record<string, unknown>): Promise<unknown> }; context(): CmuxAppContext }
+  app: { readonly id: string; readonly version: string; readonly apiVersion: string; readonly locale: string; settings: { (): Record<string, unknown>; set(values: Record<string, unknown>): Promise<unknown> }; context(): CmuxAppContext; openPane<T = unknown>(args?: Record<string, unknown>, options?: CmuxCallOptions): Promise<CmuxPaneResult<T>> }
   /** The current user-gesture token, else null. On a command's ctx.cmux: the invocation's token while the command runs. On the global: the event token, only inside a user event handler before its first await; pass it as options.gesture later. */
   gesture(): string | null
   /** The app's string for key in the user's locale, else fallback; {name} placeholders. */
@@ -2169,8 +2175,8 @@ interface CmuxView {
   trim(v: Bindable<CmuxTrim | null>): this
   /** A host-run effect that repeats forever with no JS; `null` stops it. Stops under Reduce Motion. */
   loop(v: Bindable<CmuxLoop | null>): this
-  /** How the node enters when a render adds it (not on the first scene) and leaves when one removes it (kept on screen until its exit ends): opacity, slide (up from below), scale (from 90 %), move (from the leading edge), pop (from 60 %, past full size). */
-  transition(v: Bindable<CmuxTransition | null>): this
+  /** How the node enters when a render adds it (not on the first scene) and leaves when one removes it (kept on screen until its exit ends): opacity, slide (up from below), scale (from 90 %), move (from the leading edge), pop (from 60 %, past full size); `{kind, motion}` times it with a motion token, spring or timed curve. */
+  transition(v: Bindable<CmuxTransition | CmuxTimedTransition | null>): this
   /** Clip the node's content (children, a sliding transition, a glow) to its frame and corner radius. */
   clipped(v?: Bindable<boolean>): this
   /** How an Icon's layers take color, as SF Symbols draw them: monochrome (the default), hierarchical, palette (1 to 3 colors, in layer order) or multicolor (the symbol's own colors, the tint where it has none). */
@@ -2191,6 +2197,8 @@ type CmuxLoopEffect = "pulse" | "breathe" | "spin" | "float" | "wiggle" | "bounc
 /** `period` in seconds; `amount` scales the effect's default amplitude. */
 type CmuxLoop = { effect: CmuxLoopEffect; period?: number; amount?: number }
 type CmuxTransition = "opacity" | "slide" | "scale" | "move" | "pop"
+/** A transition on its own timing: `motion` times the move and the fade, in and out (the bare kind keeps the renderer's springs). */
+type CmuxTimedTransition = { kind: CmuxTransition; motion?: CmuxMotion | null }
 type CmuxParticlePreset = "confetti" | "sparkles" | "rain" | "snow" | "embers" | "stars"
 /** `rate` multiplies a continuous preset's emission (default 1); each increase of `burst` fires one burst. */
 /** A choreography curve: the Motion curves, a spring, or a cubic Bezier. A frame's `ease` shapes the segment that ends at it. */

@@ -187,6 +187,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `perf-lab-build.sh` | Builds another commit's bench app with this checkout's harness. | p12 | 2026-10-31 | active |
 | `tab-hibernation.sh` | Tab hibernation keep rule on 48 Chromium tabs. | msg 9103 | 2026-11-03 | active |
 | `infinite-tabs.sh` | The app with 500 browser tabs, 200 workspaces and 100 agent chats hibernated, over the empty app: RSS, CPU, wakeups, switch times. | cmuxterm-hq goals/infinite-tabs-flat.md | 2026-11-22 | active |
+| `settled-page-linux.sh` | Time to a settled page after a chat switch, workspace switch, open recent and restart, against its derived bound (webviews/bench/settled-page.bench.ts); prints SETTLED_PAGE_SCORE, NOW's settled_page_score_max, for a pinned hand measure. | cmuxterm-hq goals/settled-page-ceiling.md | 2026-11-25 | active |
 | `renderer-sharing.sh` | Chromium renderer sharing across 100 same-site tabs. | - | 2026-10-27 | active |
 | `tab-spinner-cost.sh` | The tab-strip spinner's cost while a load never ends: app, GPU and WindowServer CPU and wakeups, spinner on vs. `showPageLoading` off. | hq#13463 | 2026-11-24 | active |
 | `cef-pump-wakes.sh` | Main-thread wakes from the Chromium message pump with busy hidden terminals. | STATUS 9946 | 2026-11-04 | active |
@@ -222,6 +223,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `remote-agent-path.sh` | What an agent on another machine feels through cmux Remote. | - | 2026-11-15 | active |
 | `relay-path-probe.sh` | Every path the iPhone link can take to a Mac (WireGuard direct, TURN/UDP, TURN/TLS 443, WebRTC direct and relay): setup p50/p95, link RTT p50/p95/p99 and loss, hub colo, ICE and TURN allocation times, as JSON and a table (`cmux-mobile-path-probe`). | Leo ask-6242128727, relay-path-latency | 2026-11-21 | active |
 | `cloud-machine-directory.py` | Before and after CLI directory benchmark with a guest-program provider. | - | 2026-11-12 | active |
+| `git-cache-bench.sh` | A clone straight from GitHub against the per-VM git cache proxy (cold, then the second clone), n=3, and 4 clones at once; capped, bytes pulled per clone. | Leo ask-6b8661d57a | 2026-11-25 | active |
 | `cloud-machine-read.py` | Two built binaries through the same fake-provider file-read route. | - | 2026-11-12 | active |
 
 ## Agents and chat
