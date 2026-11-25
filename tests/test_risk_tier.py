@@ -851,6 +851,30 @@ class RecentRevertTests(unittest.TestCase):
             self.assertEqual(unread, ["App.tsx"])
 
 
+    def test_a_registry_split_into_one_file_per_entry_takes_nothing_back(self):
+        # cmux#56291 (2026-11-25) moved agent-policy.json into agent-policy/<key>.json: its deleted lines live on in
+        # the new files, and the check named 56 pull requests as taken back.
+        now = time.time()
+        with tempfile.TemporaryDirectory() as repo:
+            self.git(repo, "init", "-q")
+            path = os.path.join(repo, "policy.json")
+            open(path, "w").write('"a": 1\n')
+            self.git(repo, "add", ".")
+            self.git(repo, "commit", "-qm", "feat: old (#100)", when=now - 30 * 86400)
+            open(path, "w").write('"a": 1\n"b": 2\n')
+            self.git(repo, "commit", "-qam", "feat: add b (#200)", when=now - 86400)
+            base = self.git(repo, "rev-parse", "HEAD").strip()
+            removed = {"filename": "policy.json", "status": "removed",
+                       "patch": '@@ -1,2 +0,0 @@\n-"a": 1\n-"b": 2'}
+            split = [removed, {"filename": "policy/a.json", "status": "added", "patch": "@@ -0,0 +1 @@\n+{}"},
+                     {"filename": "policy/b.json", "status": "added", "patch": "@@ -0,0 +1 @@\n+{}"}]
+            self.assertEqual(risk.recent_reverts(split, repo, base, own=300, now=now), {})
+            catalog = [dict(removed, filename="policy.json"), {"filename": "policy.json.d/b.json", "status": "added"}]
+            self.assertEqual(risk.recent_reverts(catalog, repo, base, own=300, now=now), {})
+            # Deleting it with no directory in its place still takes #200's line back.
+            self.assertEqual(risk.recent_reverts([removed], repo, base, own=300, now=now), {200: ["policy.json"]})
+
+
 class MergeBaseTests(unittest.TestCase):
     """The merge base comes from git when the base history has both ends, not a `compare` call."""
 

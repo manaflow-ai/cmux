@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "git.commit.hookFailed" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "رفض خطاف إيداع عملية الإيداع. راجع مخرجاته أدناه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Commit hook je odbio commit. Pogledajte njegov izlaz ispod."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En commit-hook afviste committet. Se dens output nedenfor."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ein Commit-Hook hat den Commit abgelehnt. Siehe die Ausgabe unten."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A commit hook refused the commit. See its output below."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un hook de commit ha rechazado el commit. Consulta su salida abajo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un hook de commit a refusé la validation. Consultez sa sortie ci-dessous."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un hook di commit ha rifiutato il commit. Consulta il suo output qui sotto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コミットフックがコミットを拒否しました。下の出力を確認してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hook របស់ Commit បានបដិសេធ Commit ។ សូមមើលលទ្ធផលរបស់វាខាងក្រោម។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "커밋 훅이 커밋을 거부했습니다. 아래 출력을 확인하십시오."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En commit-hook avviste commiten. Se utdataene nedenfor."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hook commitu odrzucił commit. Zobacz jego wyjście poniżej."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Um hook de commit recusou o commit. Veja a saída abaixo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Хук коммита отклонил коммит. Смотрите его вывод ниже."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ฮุกของคอมมิตปฏิเสธคอมมิต ดูเอาต์พุตด้านล่าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir commit hook'u commit'i reddetti. Aşağıdaki çıktısına bakın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Хук коміту відхилив коміт. Див. його вивід нижче."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Một commit hook đã từ chối commit. Xem đầu ra bên dưới."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "提交钩子拒绝了此次提交。请查看下方输出。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "提交掛鉤拒絕了此次提交。請查看下方輸出。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
