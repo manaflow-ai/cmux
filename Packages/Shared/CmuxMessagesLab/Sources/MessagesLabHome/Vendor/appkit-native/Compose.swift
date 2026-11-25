@@ -663,7 +663,7 @@ final class ComposeTextView {
     /// cmux: tells assistive apps (VoiceOver's cursor) that the field moved or changed size: AppKit posts
     /// no notice for a view's frame, so VoiceOver kept the field's first frame. Tests pass a recorder.
     private let announce: (NSView, NSAccessibility.Notification) -> Void
-    init(announce: @escaping (NSView, NSAccessibility.Notification) -> Void = { NSAccessibility.post(element: $0, notification: $1) }) {
+    init(announce: @escaping (NSView, NSAccessibility.Notification) -> Void = ComposeTextView.post) {
         self.announce = announce
         // cmux: TextKit 1, not Catalyst's TextKit 2: TextKit 2 lays out and draws an edited paragraph
         // whole, so a key at the end of a long one cost the whole paragraph (NSTextView+TextKit1Lines.swift).
@@ -697,6 +697,13 @@ final class ComposeTextView {
         }
     }
     deinit { scrolled.map(NotificationCenter.default.removeObserver) }
+
+    /// Posts `notification` for `view`. A layout change goes on the view's window and names the view: VoiceOver then
+    /// reads the frames again, its cursor's too, whichever element of the field it is on.
+    static func post(_ view: NSView, _ notification: NSAccessibility.Notification) {
+        guard notification == .layoutChanged else { return NSAccessibility.post(element: view, notification: notification) }
+        NSAccessibility.post(element: view.window ?? view, notification: notification, userInfo: [.uiElements: [view]])
+    }
 
     /// The field's frame whose width waits for the end of a live resize (nil: none waits).
     private(set) var widthWaiting: CGRect?
@@ -735,6 +742,7 @@ final class ComposeTextView {
         defer {
             if clip.frame.size != old.size { announce(view, .resized) }
             if clip.frame.origin != old.origin { announce(view, .moved) }
+            if clip.frame != old { announce(view, .layoutChanged) }
         }
         // A live resize that changes only the field's width while the draft is empty: no pixel of
         // the empty field depends on its width (the caret stands at the left inset of an empty

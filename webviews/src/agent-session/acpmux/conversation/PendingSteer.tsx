@@ -54,13 +54,12 @@ export function PendingSteer({
   return (
     <div className="cv-user__pending">
       <MessageFooterRow>
-        {/* Copy, Retry, Fork, Save and the X show on hover, in the sent row's order; Send now stays
+        {/* Copy, Retry, Fork and the X show on hover, in the sent row's order; Send now stays
             (Leo, 2026-11-03: "the copy is always showing for no reason... plus the order is wrong"). */}
         <span className="cv-user__queued-hover">
           {row.text?.trim() && <MessageCopy text={row.text} />}
           {queued?.retry}
           {queued?.fork}
-          {queued?.save}
           {promptId && unsteer && (
             <button
               type="button"
@@ -80,7 +79,15 @@ export function PendingSteer({
             </button>
           )}
         </span>
-        {kept && <span className="cv-user__kept">{t("message.readAfterStep")}</span>}
+        {kept && (
+          <span
+            className="cv-user__kept"
+            // tooltip-allow: in a narrow pane the note is cut to the row so Send now stays clear of it
+            title={t("message.readAfterStep")}
+          >
+            {t("message.readAfterStep")}
+          </span>
+        )}
         {promptId && offersSendNow && (
           <button
             type="button"
