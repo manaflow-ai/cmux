@@ -47,13 +47,20 @@ scripts/mobile-bench/compare-mobile keyboard-show --ref "$(git rev-parse HEAD)" 
 
 ## The competitors' clips
 
-- They come from the weekly capture (leo-workspace `machines/scheduled-briefs/mobile-reference-bench.md`):
-  iPhone apps that the App Store offers on the Mac run on a fleet Mac mini at 120 Hz
-  (`scripts/measure/mobile-bench-mac-capture.sh`). Claude's iPhone app is not offered on the Mac,
-  so its clips need a test iPhone.
-- Each clip is `apps/<app>-mobile/bench/<flow>/clip.mp4` with `meta.json` and `result.json`, listed
-  in the references' `index.json` (`kind: video`, topic `motion`), and every app folder has a
-  `bench/TIMINGS.md`. The side-by-side table is `research/mobile-bench.md` there.
+Use the same flow ID, stimulus and end state from `scripts/mobile-bench/flows.json` for both apps.
+Keep comparison recordings in the private reference checkout. Screenshots can document layout.
+Timing a transition needs the original recording and the time of the input on its timeline.
+
+- For an iPhone app installed on a test Mac, run `scripts/measure/mobile-bench-mac-capture.sh` via
+  the fleet. Its header gives the command and the `profile=` argument for the app's private input
+  profile. Check the returned recorder rate and input timestamps.
+- On a test iPhone, record the flow with idle frames on both sides. Record the input time relative
+  to the first video frame. If that timestamp is unavailable, keep the clip as a visual reference.
+- Save each timed recording as `apps/<app>-mobile/bench/<flow>/clip.mp4` with its `meta.json`.
+  Use the clip contract in the benchmark README for device, OS, app version, source and
+  `stimulus_t`. Run `compare-mobile <flow> --ours DIR --refs REFS --out OUT` to measure the
+  saved clips and write `OUT/table.md` without starting another simulator. Inspect both clips
+  at the reported response and settle frames before sharing a comparison.
 - Compare like with like: the `Source` column says simulator, Mac-hosted iPhone app or device.
   A simulator runs on a Mac GPU and its input comes through XCUITest; read small differences
   (a frame or two) as noise, and confirm a real gap on a phone before calling it a regression.
