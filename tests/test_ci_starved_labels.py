@@ -401,6 +401,19 @@ class CarrierTests(unittest.TestCase):
         self.assertEqual(self.state(both, gates(**{STD: gate_row(busy=3), "glaeda-ios-sim": gate_row(down=2)})),
                          "offline")
 
+    def test_a_missing_or_stale_reading_says_why_and_how_old(self) -> None:
+        # cmux#55737, #55844: the pages said "no fleet gate reading" while the janitor had refused one, and a stale
+        # reading named only a clock time with no day.
+        refused = starved_labels.carriers(SIDE, None, NOW, "CI_FLEET_GATES label 'x' is out of shape")
+        self.assertEqual(refused["state"], "unknown")
+        self.assertEqual(refused["why"],
+                         "the janitor could not read the fleet gates: CI_FLEET_GATES label 'x' is out of shape")
+        self.assertIn("no fleet gate reading (CI_FLEET_GATES)", starved_labels.carriers(SIDE, None, NOW)["why"])
+        stale = starved_labels.carriers(SIDE, gates(minutes_ago=4 * 24 * 60, **{SIDE: gate_row(busy=1)}), NOW)
+        self.assertEqual(stale["state"], "unknown")
+        self.assertIn(f"from {(NOW - dt.timedelta(days=4)).strftime('%Y-%m-%d %H:%M:%SZ')}, ", stale["why"])
+        self.assertIn(starved_labels.format_minutes(4 * 24 * 60) + " old, stale", stale["why"])
+
     def test_the_stale_bound_matches_the_janitors(self) -> None:
         text = (ROOT / "scripts/ci/queue_janitor.py").read_text(encoding="utf-8")
         self.assertIn(f"FLEET_GATES_STALE_S = {starved_labels.CARRIER_READING_STALE_S}\n", text)

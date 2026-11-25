@@ -4445,6 +4445,32 @@ class FleetGatesTests(unittest.TestCase):
         self.assertEqual(gates["version"], 1)
         self.assertNotIn("disk", gates)
 
+    def test_the_dashboards_live_reading_with_an_owned_linux_label_is_read(self):
+        # The 2026-11-21 CI_FLEET_GATES carried `cmux-fleet-linux-x64` (native Linux listeners, owned fleet capacity
+        # beside the glaeda pools), with other_by and a disk inventory. This reader took glaeda- labels alone and
+        # refused that reading whole, so every starved-label page (cmux#55737, #55844) said "no fleet gate reading".
+        row = dict(gates_reading()["labels"]["glaeda-std-xcode-26.6"],
+                   held_offline={"total": 2, "units": 1, "cpu": 0, "livelock": 0, "other": 1,
+                                 "other_by": {"host_lock": 1, "memory": 0, "restart": 0, "rest": 0}})
+        linux = {"listening": 3, "busy": 40, "held_offline": {"total": 0, "units": 0, "cpu": 0, "livelock": 0,
+                                                              "other": 0}, "down": 2, "unreported": 0, "queued": 19,
+                 "oldest_queued_s": 900, "as_of": "2026-09-22T16:58:00Z"}
+        live = dict(gates_reading(), version=2, disk={"hosts": [{"host": "m1", "free_gib": 80}]},
+                    labels={"glaeda-std-xcode-26.6": row, "cmux-fleet-linux-x64": linux})
+        gates, why = janitor.fleet_gates(json.dumps(live))
+        self.assertIsNone(why)
+        self.assertEqual(sorted(gates["labels"]), ["cmux-fleet-linux-x64", "glaeda-std-xcode-26.6"])
+        self.assertEqual(gates["labels"]["cmux-fleet-linux-x64"]["busy"], 40)
+        self.assertNotIn("other_by", gates["labels"]["glaeda-std-xcode-26.6"]["held_offline"])
+        # the dashboard's cut body (no disk, other_by or per-label as_of) reads the same
+        cut = {"version": 2, "as_of": live["as_of"], "labels": {
+            label: {k: v for k, v in dict(r, held_offline={k: v for k, v in r["held_offline"].items()
+                                                           if k != "other_by"}).items() if k != "as_of"}
+            for label, r in live["labels"].items()}}
+        self.assertEqual(janitor.fleet_gates(json.dumps(cut)), (gates, None))
+        self.assertTrue(janitor.fleet_gates_label("cmux-fleet-linux-x64"))
+        self.assertFalse(janitor.fleet_gates_label("cmux-fleet-linux-x64-big"))
+
     def test_a_reading_out_of_shape_is_refused_whole(self):
         bad = {
             "": "no CI_FLEET_GATES reading",

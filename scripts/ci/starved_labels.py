@@ -269,7 +269,8 @@ def _carrier_state(row: Mapping[str, Any]) -> str:
     return "none"
 
 
-def carriers(label: str, gates: Mapping[str, Any] | None, now: dt.datetime) -> dict[str, Any]:
+def carriers(label: str, gates: Mapping[str, Any] | None, now: dt.datetime,
+             gates_error: str | None = None) -> dict[str, Any]:
     """What the label's carriers are doing, from the fleet gates' own reading (the snapshot's `gates`).
 
     GitHub lists a runner whose gate holds its listener off as offline, the same as a dead one, so the jobs alone
@@ -282,13 +283,20 @@ def carriers(label: str, gates: Mapping[str, Any] | None, now: dt.datetime) -> d
       none       the reading lists the label with no carrier at all
       unknown    no fresh reading, the label or a part of it is not in it, or its minis' probes failed (also down
                  carriers beside unreported ones)
+    `gates_error` is the sweep's reason it carries no reading (the snapshot's `gates_error`: none set, or the janitor
+    refused it), which the unknown says instead of a bare "no reading"; a stale one says its date and age.
     """
     reading = (gates or {}).get("labels") if isinstance(gates, Mapping) else None
     as_of = parse_time(str((gates or {}).get("as_of") or "")) if isinstance(gates, Mapping) else None
     if not isinstance(reading, Mapping) or as_of is None:
+        if gates_error:
+            return {"state": "unknown", "why": f"the janitor could not read the fleet gates: {str(gates_error)[:200]}"}
         return {"state": "unknown", "why": "no fleet gate reading (CI_FLEET_GATES) in this sweep"}
-    if (now - as_of).total_seconds() > CARRIER_READING_STALE_S:
-        return {"state": "unknown", "why": f"the fleet gate reading is from {as_of.strftime('%H:%M:%SZ')}, stale"}
+    age_s = (now - as_of).total_seconds()
+    if age_s > CARRIER_READING_STALE_S:
+        return {"state": "unknown", "why": f"the fleet gate reading is from {as_of.strftime('%Y-%m-%d %H:%M:%SZ')}, "
+                                           f"{format_minutes(int(age_s // 60))} old, stale "
+                                           "(the dashboard has not written CI_FLEET_GATES since)"}
     parts = [(part, reading.get(part)) for part in label.split("+")]
     if not any(isinstance(row, Mapping) for _, row in parts):
         return {"state": "unknown", "why": "the fleet gate reading does not list this label"}
@@ -522,7 +530,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     generated_at = str(snapshot.get("generated_at") or "")
     # The gate reading is judged against the sweep that wrote it (the snapshot is read seconds later, same job).
     now = parse_time(generated_at) or dt.datetime.now(dt.timezone.utc)
-    found = [{**entry, "carriers": carriers(str(entry["label"]), snapshot.get("gates"), now)}
+    found = [{**entry, "carriers": carriers(str(entry["label"]), snapshot.get("gates"), now,
+                                                  snapshot.get("gates_error"))}
              for entry in snapshot["starved"]]
     lines = ["", "### Starved runner labels", ""]
     for entry in found:
