@@ -100,8 +100,8 @@ impl Hub {
             }
         }
         let (hub, followed) = (self.clone(), session.clone());
-        // The hub's scope owns it: a closing hub ends it.
-        self.scope.spawn_named("auto-activate", async move {
+        // Owned by the hub's scope: its close ends a follow still running (check-spawn-owner).
+        self.scope.spawn_named("auto-activate-follow", async move {
             hub.follow_policy(&followed).await;
             followed.queue_moved.notify_waiters();
         });
