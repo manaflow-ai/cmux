@@ -335,6 +335,16 @@ class TriageTests(unittest.TestCase):
         self.assertIn("supersedes", out["why"])
         self.assertFalse(any("jobs" in p for _, p, _ in api.calls))
 
+    def test_unread_logs_report_instead_of_a_blind_fix(self):
+        # The 2026-11-25 nightly duplicate-key red (run 45589942841): gh refused every log, the fixer ran blind.
+        refused = RuntimeError("gh api GET logs: the response contains terminal escape sequences")
+        job = {"id": 9, "name": "nightly-next-one", "conclusion": "failure", "steps": []}
+        out, _ = self.run_triage({("GET", "repos/o/r/actions/runs/7"): self.RUN,
+                                  ("GET", "repos/o/r/actions/runs/7/jobs"): {"jobs": [job]},
+                                  ("GET", "repos/o/r/actions/jobs/9/logs"): refused}, "")
+        self.assertEqual(out["action"], "report")
+        self.assertIn("escape sequences", out["why"])
+
     def test_stale_open_fix_is_refreshed_and_current_one_stops(self):
         # CodeRabbit 4691805846: a fix refused for a moved base is rebuilt on the new tip by the red's next run.
         report = {"target": "main", "existing": [{"number": 5, "state": "open", "url": "u", "sha": "c" * 40,
@@ -469,6 +479,56 @@ class FakeApi:
         if isinstance(value, Exception):
             raise value
         return value
+
+
+class GhApiTests(unittest.TestCase):
+    @staticmethod
+    def runner(answers):
+        calls = []
+
+        def run(argv, **_):
+            calls.append(list(argv))
+            code, err, out = answers.pop(0)
+            return subprocess.CompletedProcess(argv, code, out, err)
+        return run, calls
+
+    def test_raw_log_read_allows_escape_sequences(self):
+        run, calls = self.runner([(0, "", "\x1b[31merror\x1b[0m")])
+        self.assertIn("error", ra.gh_api("repos/o/r/actions/jobs/9/logs", raw=True, run=run))
+        self.assertIn("--allow-escape-sequences", calls[0])
+
+    def test_old_gh_without_the_flag_retries_without_it(self):
+        run, calls = self.runner([(1, "unknown flag: --allow-escape-sequences", ""), (0, "", "log")])
+        self.assertEqual(ra.gh_api("p", raw=True, run=run), "log")
+        self.assertNotIn("--allow-escape-sequences", calls[1])
+
+    def test_installation_rate_limit_is_waited_out(self):
+        # Runs 45598154329 and 45600895404 died on "API rate limit exceeded for installation" at their first read.
+        run, calls = self.runner([(1, "gh: API rate limit exceeded for installation (HTTP 403)", ""), (0, "", "{}")])
+        with mock.patch.object(ra, "_api_waited", 0.0), mock.patch.object(ra.time, "sleep") as slept, \
+                mock.patch("sys.stderr"):
+            self.assertEqual(ra.gh_api("p", run=run), {})
+        slept.assert_called_once_with(60)
+        self.assertEqual(len(calls), 2)
+
+    def test_waits_share_one_budget_that_fits_the_job(self):
+        # Run 45612343778: per-call waits of up to 15 min, silent, ran triage past its 10-minute job timeout.
+        limited = (1, "gh: API rate limit exceeded for installation (HTTP 403)", "")
+        run, calls = self.runner([limited] * 12)
+        with mock.patch.object(ra, "_api_waited", 0.0), mock.patch.object(ra, "API_WAIT_BUDGET_S", 240), \
+                mock.patch.object(ra.time, "sleep") as slept, mock.patch("sys.stderr"):
+            with self.assertRaisesRegex(RuntimeError, "wait budget of 240s spent"):
+                ra.gh_api("a", run=run)
+            with self.assertRaisesRegex(RuntimeError, "wait budget"):
+                ra.gh_api("b", run=run)  # a second call has nothing left to wait
+        self.assertEqual(sum(c.args[0] for c in slept.call_args_list), 240)
+        self.assertEqual(len(calls), 5, "a: 60 + 120 + 60 (capped), then refused; b: refused at its first limit")
+
+    def test_a_real_refusal_raises_at_once(self):
+        run, calls = self.runner([(1, "HTTP 404: Not Found", "")])
+        with self.assertRaises(RuntimeError):
+            ra.gh_api("p", run=run)
+        self.assertEqual(len(calls), 1)
 
 
 BASE = "e" * 40
