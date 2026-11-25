@@ -137,3 +137,29 @@ fn subset(a: &Value, b: &Value) -> bool {
         _ => a == b,
     }
 }
+
+/// A request's W3C trace context (cmux#55505, one trace id per user action)
+/// passes the strip and the params rule; a malformed one is refused, not
+/// passed on to the daemon's trace.
+#[test]
+fn a_traceparent_rides_any_request_and_must_be_w3c_shaped() {
+    let tp = "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01";
+    let prompt = json!({"method": "session/prompt", "params": {
+        "sessionId": "s", "prompt": [], "_meta": {"acpmux": {"promptId": "p"}, "traceparent": tp},
+    }});
+    assert!(strip(prompt.clone(), &[]).is_none(), "nothing to strip");
+    assert!(!breaks_params_rule(prompt.as_object().unwrap(), None));
+    let new =
+        json!({"method": "session/new", "params": {"cwd": "/", "_meta": {"traceparent": tp}}});
+    assert!(!breaks_params_rule(new.as_object().unwrap(), None));
+    for bad in [json!("00-xyz-0123456789abcdef-01"), json!(7), json!(tp.to_uppercase())] {
+        let frame =
+            json!({"method": "session/new", "params": {"cwd": "/", "_meta": {"traceparent": bad}}});
+        assert!(breaks_params_rule(frame.as_object().unwrap(), None), "{frame}");
+    }
+    // A ticket frame still carries nothing but its ticket (R1).
+    let answer = json!({"method": "_acpmux/permission_respond", "params": {
+        "sessionId": "s", "_meta": {"cmuxGesture": "t", "traceparent": tp},
+    }});
+    assert!(breaks_params_rule(answer.as_object().unwrap(), None));
+}
