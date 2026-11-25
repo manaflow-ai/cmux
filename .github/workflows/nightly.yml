@@ -7596,7 +7596,11 @@ jobs:
   # Why: docs/ci/nightly-workflow-notes.md#note-22
   published-build:
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly, nightly-next-one]
-    if: "always() && (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/nightly-next' && inputs.nightly_next_post_publish != '' || needs.decide.outputs.should_publish == 'true' && (needs.publish-nightly.result == 'success' || needs.nightly-next-one.result == 'success' && needs.nightly-next-one.outputs.left != 'true'))"
+    if: "always() && (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/nightly-next' && inputs.nightly_next_post_publish != '' || needs.decide.outputs.should_publish == 'true' && (needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' || needs.nightly-next-one.result == 'success' && needs.nightly-next-one.outputs.left != 'true' && needs.nightly-next-one.outputs.refused != 'true'))"
+    # A refused publication (the final gate, a superseded recheck, a refused feed write) is a green publish job that
+    # moved no feed: run 45607031207's gate refused on a red App Store shelf, yet this job, the dispatch and the
+    # "Finish a published nightly-next build" run all went green. So it runs only for a publication that went out,
+    # and reads the feed back (below) before it says so.
     # Secret-free (python3 and the run's own token), so on Leo's ask (ask-c0123d25e8, "why so long that they didnt
     # publish either tho") it takes the nightly's reserved Linux label: on the nightly-only minis it queued 8-17 min
     # behind 25-min tail pollers before the GitHub release could start (runs 45572455172, 45575194160).
@@ -7686,6 +7690,14 @@ jobs:
         env:
           RECORD_FILE: ${{ runner.temp }}/published-build/published-build.json
         run: python3 scripts/ci/nightly_published_build.py outputs
+      # The job's own claim, read back: the build it says went out is on the live nightly-next feed (Leo's app reads
+      # it), as its newest item or under a newer build that already published. Red here stops the dispatch and the tail.
+      - name: Read the published build back from the live feed
+        if: steps.record.outputs.track == 'nightly-next' && steps.record.outputs.should_publish == 'true' && steps.record.outputs.no_publish != 'true' && steps.record.outputs.publish_already_published != 'true'
+        env:
+          BUILD: ${{ steps.record.outputs.publish_build }}
+          FEED_BASE: ${{ steps.record.outputs.feed_base || env.NIGHTLY_NEXT_FEED_BASE }}
+        run: set -o pipefail; python3 scripts/ci/nightly_next_delta_check.py published --feed-url "$FEED_BASE/appcast-arm64.xml" --build "$BUILD" | tee -a "$GITHUB_STEP_SUMMARY"
 
   # Why: docs/ci/nightly-workflow-notes.md#note-49
   dispatch-published-in:
