@@ -134,6 +134,57 @@ export function summarizeArms(cycles: WakeCycle[]) {
   });
 }
 
+/**
+ * Wake on intent (cmux#55110, hq#21300): the app starts the wake at the person's intent (focus, a terminal shown, an
+ * unlock) instead of at the first key, `lead` ms before that key. The hint changes when the start is sent, never the
+ * wake itself, so each measured cycle gives its intent arm too, paired, with no extra machine: on a client-side timer
+ * the key lands at wake_at + lead and its echo is seen at echo_at. Before the guest is ready the key waits in the client
+ * and echoes at echo_at (key-to-echo = echo - lead); once it is ready the key's echo takes the cycle's own echo phase
+ * (echo - input). So key-to-echo = echo - min(input, lead); lead 0 is the baseline (the typing prewarm wakes at the key):
+ * echo - 0 = wake-to-first-echo.
+ */
+export const INTENT_TARGET_MS = 1000;
+/** The leads each table shows: until hq#21300 has the app's own `wake hint outcome ... tag=used ... ms=` lines (the
+ *  hint's resume to the first input, which is the lead), a sweep of plausible focus-to-first-key gaps. */
+export const INTENT_LEADS_MS = [500, 1000, 2000, 4000];
+/** Idle bound of a hint wake nobody used (cmux-cloud-handlers `wake_hint::IDLE_BOUND_MS`). */
+export const INTENT_IDLE_BOUND_MS = 30_000;
+export function keyToEcho(c: Pick<WakeCycle, "ok" | "marks_ms">, leadMs: number): number | null {
+  const { echo, input } = c.marks_ms;
+  if (!c.ok || echo === undefined || input === undefined) return null;
+  return Math.round(echo - Math.min(input, Math.max(0, leadMs)));
+}
+/** The four arms (prefetch off/on x hint at lead 0 / `leadMs`) over cycles of a prefetch A/B run, n and p50/p95 each. */
+export function intentArms(cycles: WakeCycle[], leadMs: number, targetMs = INTENT_TARGET_MS) {
+  const arms = [
+    { arm: "baseline", prefetch: "off" as Arm, lead: 0 },
+    { arm: "prefetch", prefetch: "on" as Arm, lead: 0 },
+    { arm: "wake-on-intent", prefetch: "off" as Arm, lead: leadMs },
+    { arm: "both", prefetch: "on" as Arm, lead: leadMs },
+  ];
+  return arms.map((a) => {
+    const xs = cycles.filter((c) => (c.arm ?? "off") === a.prefetch).map((c) => keyToEcho(c, a.lead)).filter((x): x is number => x !== null);
+    return { ...a, n: xs.length, p50: percentile(xs, 50), p95: percentile(xs, 95), under_target: xs.filter((x) => x <= targetMs).length };
+  });
+}
+/**
+ * What one false hint wake (no input within the bound, re-paused) costs, per measured cycle: the wait from the start's
+ * answer to running (the bound counts from running), the bound, and the pause until it lands.
+ */
+export function falseWakeCost(cycles: WakeCycle[]) {
+  const xs = cycles.filter((c) => c.ok && typeof c.phases.restore === "number" && c.answered_ms !== null && c.paused_ms !== null)
+    .map((c) => Math.max(0, c.phases.restore! - c.answered_ms!) + INTENT_IDLE_BOUND_MS + c.paused_ms!);
+  return { n: xs.length, p50: percentile(xs, 50), p95: percentile(xs, 95) };
+}
+export function intentMarkdown(cycles: WakeCycle[], leadsMs: number[], targetMs = INTENT_TARGET_MS): string {
+  const f = (x: number | null) => (x === null ? "-" : (x / 1000).toFixed(2));
+  const lines = ["### Wake on intent: key-to-echo by arm (client timer, paired cycles)", "", `Target ${f(targetMs)} s. Lead: the hint's start before the first key.`, "", "| lead | arm | n | p50 | p95 | under target |", "|---|---|---|---|---|---|"];
+  for (const lead of leadsMs) for (const a of intentArms(cycles, lead, targetMs)) lines.push(`| ${f(lead)} | ${a.arm} | ${a.n} | ${f(a.p50)} | ${f(a.p95)} | ${a.under_target}/${a.n} |`);
+  const cost = falseWakeCost(cycles);
+  lines.push("", `A false wake (no input in ${INTENT_IDLE_BOUND_MS / 1000} s) costs ${f(cost.p50)} s awake p50, ${f(cost.p95)} s p95 (n ${cost.n}): wait to running + the bound + the pause.`);
+  return `${lines.join("\n")}\n`;
+}
+
 /** Slow restores: the platform's own share of cloud.machine.start (total - provider) beside the restore. */
 export const SLOW_RESTORE_MS = 3000;
 export function serverTimingSplit(cycles: WakeCycle[]) {
@@ -174,6 +225,7 @@ export function wakeEchoMarkdown(cycles: WakeCycle[], meta: Record<string, unkno
     for (const a of arms) for (const r of a.rows) lines.push(`| ${a.arm} | ${r.phase === "total" ? "**wake-to-first-echo**" : r.phase} | ${r.n} | ${f(r.p50)} | ${f(r.p95)} | ${f(r.max)} |`);
     for (const a of arms) lines.push("", `${a.arm}: ${a.cycles} cycles, ${a.echoed} echoed.${a.prefetch ? ` Prefetch (n ${a.prefetch.n}): ${a.prefetch.pages_p50} pages p50, ${f(a.prefetch.ms_p50)} s p50, ${f(a.prefetch.ms_p95)} s p95, cut by the deadline ${a.prefetch.cut}.` : ""}`);
   }
+  if (arms.length) lines.push("", intentMarkdown(cycles, INTENT_LEADS_MS).trimEnd());
   const st = serverTimingSplit(cycles);
   if (st.timed) {
     lines.push("", `### cloud.machine.start Server-Timing (${st.timed} of ${st.of} cycles)`, "", `p50 ms: ${Object.entries(st.p50).map(([k, v]) => `${k} ${v}`).join(", ")}.`);
@@ -442,3 +494,14 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
 }
 
 export { awaitPaused, parseServerTiming };
+
+// `bun scripts/cmux-next/cloud-wake-echo.ts intent wake-echo.json... [--lead MS]...`: the wake-on-intent table over runs'
+// artifacts (cycles pooled), with no machine.
+if (import.meta.main && process.argv[2] === "intent") {
+  const args = process.argv.slice(3);
+  const leads: number[] = [];
+  const files: string[] = [];
+  for (let i = 0; i < args.length; i++) if (args[i] === "--lead") leads.push(Number(args[++i])); else files.push(args[i]!);
+  const cycles = files.flatMap((f) => (JSON.parse(readFileSync(f, "utf8")).cycles ?? []) as WakeCycle[]);
+  process.stdout.write(intentMarkdown(cycles, leads.length ? leads : INTENT_LEADS_MS));
+}
