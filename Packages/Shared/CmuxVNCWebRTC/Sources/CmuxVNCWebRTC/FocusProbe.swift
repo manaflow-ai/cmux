@@ -82,6 +82,10 @@ final class SystemFocusProbe: FocusProbe, @unchecked Sendable {
         guard let focused = Self.copy(app, kAXFocusedUIElementAttribute), CFGetTypeID(focused) == AXUIElementGetTypeID() else { return nil }
         let element = unsafeDowncast(focused, to: AXUIElement.self)
         AXUIElementSetMessagingTimeout(element, Self.axTimeout)
+        let role = Self.copy(element, kAXRoleAttribute) as? String
+        let subrole = Self.copy(element, kAXSubroleAttribute) as? String
+        // Where someone types a password is not sent: Follow uses the pointer, window and damage there.
+        guard !Self.isSecureTextField(role: role, subrole: subrole) else { return nil }
         guard let selection = Self.copy(element, kAXSelectedTextRangeAttribute).flatMap({ Self.value($0, .cfRange, CFRange()) }) else { return nil }
         let end = selection.location + selection.length
         if let rect = Self.bounds(element, CFRange(location: end, length: 0)) { return rect }
@@ -92,6 +96,12 @@ final class SystemFocusProbe: FocusProbe, @unchecked Sendable {
             return CGRect(x: previous.maxX, y: previous.minY, width: 0, height: previous.height)
         }
         return nil
+    }
+
+    /// A password field, by its Accessibility role or subrole (`AXSecureTextField`).
+    static func isSecureTextField(role: String?, subrole: String?) -> Bool {
+        let secure = "AXSecureTextField"
+        return role == secure || subrole == secure
     }
 
     private static func copy(_ element: AXUIElement, _ attribute: String) -> CFTypeRef? {

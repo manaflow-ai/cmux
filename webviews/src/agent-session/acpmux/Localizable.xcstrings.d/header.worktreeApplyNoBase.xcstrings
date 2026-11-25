@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "header.worktreeApplyNoBase" : {
+      "comment" : "Chat header: why the worktree pill's Apply did not apply; {main} is the main checkout's folder, {files} paths",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لا تحتوي شجرة العمل هذه على أساس مسجل للمقارنة به"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ovo radno stablo nema zabilježenu osnovu za poređenje"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denne worktree har ingen registreret base at sammenligne med"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Worktree hat keine gespeicherte Basis zum Vergleichen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This worktree has no recorded base to compare with"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este worktree no tiene una base registrada con la que comparar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce worktree n'a aucune base enregistrée à laquelle se comparer"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questo worktree non ha una base registrata con cui confrontarsi"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このワークツリーには比較する記録済みのベースがありません"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "worktree នេះគ្មានមូលដ្ឋានដែលបានកត់ត្រាសម្រាប់ប្រៀបធៀបទេ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 워크트리에는 비교할 기록된 베이스가 없습니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denne worktree har ingen registrert base å sammenligne med"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "To drzewo robocze nie ma zapisanej bazy do porównania"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este worktree não tem uma base registrada para comparar"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "У этого рабочего дерева нет записанной базы для сравнения"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เวิร์กทรีนี้ไม่มีฐานที่บันทึกไว้สำหรับเปรียบเทียบ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu çalışma ağacının karşılaştırılacak kayıtlı bir tabanı yok"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Це робоче дерево не має записаної бази для порівняння"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Worktree này không có base đã ghi để so sánh"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此工作树没有可用于比较的已记录基准"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此工作樹沒有可用於比較的已記錄基準"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

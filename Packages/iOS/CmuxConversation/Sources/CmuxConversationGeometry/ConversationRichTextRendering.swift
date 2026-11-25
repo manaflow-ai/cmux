@@ -1,3 +1,4 @@
+#if canImport(QuartzCore)  // Core Animation: Apple only (the Linux CI package build skips this file)
 import CmuxConversationCore
 import QuartzCore
 #if canImport(UIKit)
@@ -520,3 +521,4 @@ private final class EffectRenderJob: @unchecked Sendable {
         self.layer = layer
     }
 }
+#endif
