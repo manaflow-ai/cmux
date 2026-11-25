@@ -1711,10 +1711,15 @@ fn a_claude_code_scroll_step_costs() {
 // The target is each program run at the phone's grid from its start (what
 // the Mac's pane would show had it been that size); the phone path is the
 // projection of the same program run at the Mac's 120x40, its PTY never
-// resized. Every screen counts, the alternate one too (no scaled-view
-// exemption): the phone's grid against the target's, every row of the screen
-// and of scrollback, cell by cell, with wrap flags and the cursor
-// (`compare_grid`). Target: 0 mismatched cells per case and width.
+// resized. On the primary screen, the phone's grid against the target's,
+// every row of the screen and of scrollback, cell by cell, with wrap flags
+// and the cursor (`compare_grid`), in compact mode (the default view; exact
+// mode is Ghostty's reflow of the Mac's rows, reported for reference). On
+// the alternate screen (vim, htop) the phone shows the Mac's grid scaled:
+// only the app knows its frame at another width, and the only other route
+// is resizing the Mac's pane, which the phone no longer does. Those steps
+// are compared with the Mac's grid (`compare_alternate`). Target: 0
+// mismatched cells per case and width.
 
 /// iPhone grids at 12 pt: the largest text 33x30, a small phone 43x33,
 /// portrait 52x38, landscape 112x17.
@@ -1782,7 +1787,7 @@ const TOOL_OUT: &str = "test result: ok. 214 passed; 0 failed; 3 ignored; 0 meas
 
 /// Claude Code's pane (model of its Ink layout): transcript paragraphs
 /// wrapped at the width with a `⏺` gutter, a tool call with its `⎿` result
-/// cut to the width, a rounded input box across the width, a status row;
+/// wrapped under a hanging indent, a rounded input box across the width, a status row;
 /// typing redraws the box.
 fn claude_code_pane(
     cols: usize,
@@ -1799,6 +1804,14 @@ fn claude_code_pane(
                     if i == 0 { format!("{color}{first}\x1b[0m {l}") } else { format!("  {l}") }
                 },
             )
+            .collect()
+    };
+    // A tool's result: `⎿` and a hanging indent, wrapped at the width.
+    let result = |text: &str| -> Vec<String> {
+        wrap_words(text.trim(), cols.saturating_sub(5))
+            .into_iter()
+            .enumerate()
+            .map(|(i, l)| if i == 0 { format!("  ⎿  {l}") } else { format!("     {l}") })
             .collect()
     };
     let frame = |typed: &str| -> Vec<String> {
@@ -1829,11 +1842,8 @@ fn claude_code_pane(
     history.push(String::new());
     history.extend(gutter("⏺", REPLY, "\x1b[37m"));
     history.push(String::new());
-    history.push(format!(
-        "\x1b[32m⏺\x1b[0m \x1b[1mBash\x1b[0m(cargo test -p cmux-terminal-projection)"
-    ));
-    let cut: String = TOOL_OUT.chars().take(cols.saturating_sub(5)).collect();
-    history.push(format!("  ⎿  {cut}"));
+    history.extend(gutter("⏺", "Bash(cargo test -p cmux-terminal-projection)", "\x1b[32m"));
+    history.extend(result(TOOL_OUT));
     app.frame(&mut out, &history, &frame(""));
     steps.push(std::mem::take(&mut out).into_bytes());
     let mut typed = String::new();
@@ -1843,13 +1853,7 @@ fn claude_code_pane(
             Vec::new()
         } else {
             let per = log.len() / typed_steps.len().max(1);
-            log[i * per..(i + 1) * per]
-                .iter()
-                .flat_map(|l| {
-                    let cut: String = l.chars().take(cols.saturating_sub(5)).collect();
-                    [format!("  ⎿  {cut}")]
-                })
-                .collect()
+            log[i * per..(i + 1) * per].iter().flat_map(|l| result(l)).collect()
         };
         app.frame(&mut out, &lines, &frame(&typed));
         steps.push(std::mem::take(&mut out).into_bytes());
@@ -2105,10 +2109,20 @@ fn run_width_case(case: &WidthCase, grid: (usize, usize)) -> WidthRow {
             }
             target.vt_write(phone);
             run.load_all();
-            let score = compare_grid(&snapshot(&target), &snapshot(&run.phone));
+            let mac_now = snapshot(&run.mac);
+            let score = if mac_now.alternate {
+                // A full-screen app draws for one grid: the phone shows the
+                // Mac's, scaled (only the app knows its frame at another
+                // width, and the phone never resizes the Mac for it).
+                compare_alternate(&mac_now, &snapshot(&run.phone))
+            } else {
+                compare_grid(&snapshot(&target), &snapshot(&run.phone))
+            };
             row.steps += 1;
             row.cells += score.cells;
-            row.cursor += score.cursor_mismatches;
+            if compact {
+                row.cursor += score.cursor_mismatches;
+            }
             if compact {
                 row.compact += score.mismatched;
             } else {
@@ -2131,7 +2145,7 @@ fn run_width_case(case: &WidthCase, grid: (usize, usize)) -> WidthRow {
 #[test]
 fn phone_width_matches_the_program_drawn_at_the_phones_width() {
     let mut table = String::from(
-        "| case | phone | bytes | steps | cells compared | mismatched (exact) | mismatched (compact, default) | cursor | projection ms (compact) |\n|---|---|---:|---:|---:|---:|---:|---:|---:|\n",
+        "| case | phone | bytes | steps | cells compared | mismatched (exact, info) | mismatched (compact, default) | cursor (compact) | projection ms (compact) |\n|---|---|---:|---:|---:|---:|---:|---:|---:|\n",
     );
     let mut json = Vec::new();
     let mut details = String::new();
@@ -2139,7 +2153,9 @@ fn phone_width_matches_the_program_drawn_at_the_phones_width() {
     for case in width_cases() {
         for grid in PHONE_WIDTH_GRIDS {
             let row = run_width_case(&case, grid);
-            bad += row.exact + row.compact + row.cursor;
+            // Compact is the default view; exact is Ghostty's reflow of the
+            // Mac's rows (the resize table pins it), reported for reference.
+            bad += row.compact + row.cursor;
             let _ = writeln!(
                 table,
                 "| {} | {}x{} | {} | {} | {} | {} | {} | {} | {:.1} |",
