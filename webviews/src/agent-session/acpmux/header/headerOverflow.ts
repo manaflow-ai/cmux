@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { flushSync } from "react-dom";
 import { TAB_ROW_ACCESSORY } from "./tabRow";
 
 /// One quick-action button's share of the row at the default interface size: its 24px square and
@@ -81,10 +82,16 @@ export function useHeaderFold(tools: RefObject<HTMLElement | null>, count: numbe
       const pitch = tools.current ? measuredPitch(tools.current) : HEADER_TOOL_PITCH;
       setFold(headerFoldCount(width, folded.current, room, count, pitch));
     };
-    const observer = new ResizeObserver(measure);
+    // The observer's first delivery measures at the first frame's layout (its first callback,
+    // made before that frame paints, renders the fold in it): no style pass of its own here.
+    let first = true;
+    const observer = new ResizeObserver(() => {
+      if (!first) return measure();
+      first = false;
+      flushSync(measure);
+    });
     observer.observe(header);
     observer.observe(element);
-    measure();
     return () => observer.disconnect();
   }, [tools, count]);
   return Math.min(fold, count);
