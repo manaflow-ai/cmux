@@ -32,6 +32,10 @@ export const fakeGitHub = () => {
     // The installation itself (GET /app/installations/99), after its access_tokens route so that one matches first: a
     // status read verifies the installation still exists, and an unrouted 404 would read as a deleted installation.
     "https://api.github.com/app/installations/99": () => ok({ id: 99, account: { login: "acme", type: "Organization" }, permissions: {} }),
+    // The installation itself (GET /app/installations/:id), which a status read verifies (cmux#55104): GitHub's 404
+    // means the installation is gone, so an unrouted read would mark the live connection needs_reauth. After
+    // access_tokens, so that route's longer prefix matches first.
+    "https://api.github.com/app/installations/99": () => ok({ id: 99, account: { login: "acme", type: "Organization" } }),
     "https://api.github.com/installation/token": () => new Response(null, { status: 204 }),
     // The linking user (GET /user); last, so the /user/installations routes above match first.
     "https://api.github.com/user": () => ok({ id: LINKING_GITHUB_ID, login: "linker" })
