@@ -608,6 +608,8 @@ export function Combobox({
               <Autocomplete.Popup
                 ref={host ? setPopup : undefined}
                 className="ui-popup ui-glass ui-combobox-popup"
+                // Its whole box is the answer to what is typed (popupSettle.ts).
+                data-popup-settle="results"
                 data-host-glass="menu"
                 data-host-glass-cover=""
               >
@@ -694,10 +696,16 @@ function VirtualRows({
       // A row that mounts again (scrolled back, or the menu reopened) has no resize entry: its slot is the one
       // measured here before, margins and all. The library's own answer is its border box alone, which would
       // let a row with a heading in its margin cover the next row (#46018).
-      const cached = entry ? undefined : instance.itemSizeCache.get(instance.options.getItemKey(instance.indexFromElement(element)));
+      const cached = entry
+        ? undefined
+        : instance.itemSizeCache.get(instance.options.getItemKey(instance.indexFromElement(element)));
       return virtualRowSlot(cached, () => {
         const style = element.ownerDocument.defaultView?.getComputedStyle(element);
-        return virtualRowSize(measureElement(element, entry, instance), style?.marginTop ?? "", style?.marginBottom ?? "");
+        return virtualRowSize(
+          measureElement(element, entry, instance),
+          style?.marginTop ?? "",
+          style?.marginBottom ?? "",
+        );
       });
     },
   });

@@ -272,7 +272,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Start a plan checkout: an https URL the client opens in the browser. No card data enters cmux. Agent principals are refused; the client asks a person first.
+    /// Start a checkout: an https URL the client opens in the browser. With a plan it changes the plan; without one it attaches a payment method. No card data enters cmux. cloud.billing.off: payments are not open for this deployment. Agent principals are refused; the client asks a person first.
     CloudBillingCheckoutOp {
         name: "cloud.billing.checkout",
         class: Mutation,
@@ -288,7 +288,8 @@ wire_op! {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudBillingCheckoutParams {
-    pub plan: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -303,6 +304,7 @@ wire_errors! {
         AuthSsoRequired = "auth.sso_required",
         AuthUnauthenticated = "auth.unauthenticated",
         ClientTooOld = "client.too_old",
+        CloudBillingOff = "cloud.billing.off",
         IdempotencyConflict = "idempotency.conflict",
         OwnerUnreachable = "owner.unreachable",
         RevisionConflict = "revision.conflict",
