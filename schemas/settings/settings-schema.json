@@ -87603,13 +87603,8 @@
         "text" : "Sidebar"
       },
       "help" : {
-<<<<<<< ours
-        "key" : "settings.sidebar.workspacesAsTabs.help",
-        "text" : "Each workspace is one line in the sidebar, which stays a list (not a tab strip), and Cmd-Shift-[ and ] switch workspaces as they switch tabs."
-=======
         "key" : "settings.sidebar.hoverCards.groups.order.help",
         "text" : "Which part of a group's card comes first."
->>>>>>> theirs
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.hoverCards.groups.order",
