@@ -533,6 +533,9 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "feed-local-handoff-done",
     "feed-local-list",
     "float-pane",
+    // The launch snapshot is a file beside the local daemon's registry; the
+    // app asks its local daemon only, at quit.
+    "flush-launch-snapshot",
     "forget-session",
     "get-blob",
     "get-frontend-browser-history",
