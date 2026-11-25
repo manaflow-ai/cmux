@@ -232,15 +232,53 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 2
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      # The web-bundles producer keys every tracked web input, the lockfile and each
+      # build script through web-bundle-key.py. Reuse that exact result when this PR's
+      # head has already been built by the base push or another workflow.
+      - name: Source key of the web bundles
+        id: web-bundle-key
+        env:
+          CMUX_WEB_NODE_VERSION: "24.22.1"
+        run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the published web bundles
+        id: web-bundle-r2
+        continue-on-error: true
+        timeout-minutes: 4
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          CI_CACHE_R2_NAMESPACE: any
+        with:
+          backend: r2
+          path: ${{ runner.temp }}/web
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+
+      - name: Restore the web bundles from the source-keyed cache
+        id: web-bundle-cache
+        if: steps.web-bundle-r2.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/web
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+          enableCrossOsArchive: true
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         with:
           node-version: "24.22.1"
       - name: Build and measure
         id: measure
+        env:
+          WEB_BUNDLE_HIT: ${{ steps.web-bundle-r2.outputs.cache-hit == 'true' || steps.web-bundle-cache.outputs.cache-hit == 'true' }}
         run: |
           set -euo pipefail
           # The base's counter, written out before the head's code runs.
@@ -253,8 +291,12 @@ jobs:
             git show HEAD^1:scripts/cmux-next/web-entry-js-budget.json > "$RUNNER_TEMP/web-entry-js-budget.json" 2>/dev/null; then
             entry_js=true
           fi
-          (cd webviews && bun install --frozen-lockfile >/dev/null)
-          ./scripts/cmux-next/build-web-bundles.sh --out-root "$RUNNER_TEMP/web"
+          if [[ "$WEB_BUNDLE_HIT" != true ]]; then
+            (cd webviews && bun install --frozen-lockfile >/dev/null)
+            ./scripts/cmux-next/build-web-bundles.sh --out-root "$RUNNER_TEMP/web"
+          else
+            echo "web bundles: reused source-keyed cache ${{ steps.web-bundle-key.outputs.key }}"
+          fi
           bytes="$(python3 -I "$RUNNER_TEMP/bundle-size-pr.py" web-bytes "$RUNNER_TEMP/web" --budget "$RUNNER_TEMP/bundle-size-budget.json")"
           echo "bytes=$bytes" >> "$GITHUB_OUTPUT"
           if [[ "$entry_js" == true ]]; then
@@ -282,12 +324,18 @@ jobs:
     steps:
       # The checker reads the two commits through git only (ls-tree, show, log; the web counts arrive
       # as files in RUNNER_TEMP), so no working tree beyond its own folder is written.
+      # It needs every blob of both commits: `ls-tree -r -l` reads each blob's size. A sparse checkout
+      # with no filter is blob:none (actions/checkout), and the checker then fetched those blobs one
+      # lazy fetch at a time: from 18Z 11-24 the check ran 3.3 min a run on average, and 86 of 101
+      # runs on Freestyle runners hit the 10-minute timeout (872 runner-min in 5 h). blob:limit=1g
+      # takes every blob in the one depth-2 fetch, as the full checkout did, and writes only this folder.
       - name: Checkout
         if: ${{ needs.plan.outputs.tool == 'true' }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           fetch-depth: 2
+          filter: blob:limit=1g
           sparse-checkout: |
             scripts/cmux-next
 
