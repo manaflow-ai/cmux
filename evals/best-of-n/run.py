@@ -44,11 +44,20 @@ HERE = Path(__file__).resolve().parent
 TASKS = HERE / "tasks"
 # Task sets: `tasks` (small, saturated for current models), `tasks_hard` (aimed at single ~0.3-0.5, but single 0.85
 # for haiku) and `tasks_real` (real cmux bug fixes ported to Python: the buggy code, its bug report and the spec;
-# saturated too: haiku solved 36 of 36 at effort low, results/ holds the runs) and `tasks_deep` (modules where the
-# reported symptom is one site of a bug class, plus perf bounds, counter-default rules and random op sequences checked
-# against a model; 27 tasks). haiku still solves tasks_deep at 0.92 single (gain +0.05); codex/gpt-5.6-luna at effort
-# low solves 0.70 single, 0.96 picked by a sonnet judge (gain +0.26, judge gap 0; results/tasks_deep-*.json).
-SETS = ("tasks", "tasks_hard", "tasks_real", "tasks_deep")
+# saturated too: haiku solved 36 of 36 at effort low, results/ holds the runs), `tasks_report` (the same nine fixes
+# with only the bug report a user would file: no spec, the buggy code, hidden tests limited to what the report implies;
+# haiku x4 at effort low, two runs of 9: single 0.75 and 0.78, pick 0.78 and 0.89, pass@4 0.89, gain +0.03 and +0.11,
+# pooled +0.07 over 18 races) and `tasks_deep` (modules where the reported symptom is one site of a bug class, plus
+# perf bounds, counter-default rules and random op sequences checked against a model; 27 tasks). haiku still solves
+# tasks_deep at 0.92 single (gain +0.05); codex/gpt-5.6-luna at effort low solves 0.70 single, 0.96 picked by a sonnet
+# judge (gain +0.26, judge gap 0; results/tasks_deep-*.json).
+SETS = ("tasks", "tasks_hard", "tasks_real", "tasks_report", "tasks_deep")
+REPORT_SETS = ("tasks_report",)
+
+
+def brief_name() -> str:
+    """The file each task folder's prompt.md is copied to: a spec, or a bug report for the report-only sets."""
+    return "ISSUE.md" if TASKS.name in REPORT_SETS else "SPEC.md"
 
 
 def use_set(work: Path, chosen: str | None = None) -> str:
@@ -102,8 +111,9 @@ def setup(work: Path, only: str | None = None) -> Path:
     for name in tasks(only):
         (repo / name).mkdir()
         shutil.copy(TASKS / name / "starter.py", repo / name / f"{name}.py")
-        shutil.copy(TASKS / name / "prompt.md", repo / name / "SPEC.md")
-    (repo / "README.md").write_text("Small functions, one folder each; SPEC.md in each folder is its spec.\n")
+        shutil.copy(TASKS / name / "prompt.md", repo / name / brief_name())
+    (repo / "README.md").write_text(f"Small functions, one folder each; {brief_name()} in each folder is its "
+                                    f"{'bug report' if brief_name() == 'ISSUE.md' else 'spec'}.\n")
     git(repo, "add", "-A")
     git(repo, "commit", "-q", "-m", "starters")
     return repo
@@ -118,6 +128,9 @@ def acpmux(*args: str, timeout: float = 120) -> dict:
 
 def prompt_for(name: str) -> str:
     spec = (TASKS / name / "prompt.md").read_text().strip()
+    if brief_name() == "ISSUE.md":
+        return (f"In this repository, fix the bug reported in `{name}/ISSUE.md` (repeated here) in `{name}/{name}.py`. "
+                f"Write your own checks if you want; do not add dependencies.\n\n{spec}")
     return (f"In this repository, edit only `{name}/{name}.py` (its spec is `{name}/SPEC.md`, repeated here). "
             f"Write your own checks if you want; do not add dependencies.\n\n{spec}")
 

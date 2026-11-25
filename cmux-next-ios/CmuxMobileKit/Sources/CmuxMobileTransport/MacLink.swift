@@ -18,6 +18,9 @@ public enum LinkPathKind: String, Sendable {
     case direct, turn
     /// TURN whose leg to the server is TLS (a network that blocks UDP).
     case turnTLS
+    /// cmux's own WebSocket relay over HTTPS (WireGuard): neither UDP nor
+    /// the TURN host gets through (PROTOCOL.md "WebSocket relay").
+    case httpsRelay
     /// No working route at the moment (WireGuard).
     case noPath
 }
@@ -52,6 +55,7 @@ extension LinkPathKind {
         case .direct: "direct"
         case .turn: "TURN"
         case .turnTLS: "TURN over TLS"
+        case .httpsRelay: "cmux relay"
         case .noPath: "no path"
         }
     }
@@ -178,10 +182,15 @@ public protocol LinkChannel: AnyObject, Sendable {
     func close(code: String, reason: String) async
     /// Why the Mac closed the channel, once `receive()` returned nil (nil: unknown).
     var closedBy: LinkError? { get }
+    /// Payload bytes the link has taken from this channel so far; it moves while a long write
+    /// drains and stops when the link stalls (nil: not known). ``DaemonClient/submit`` reads it
+    /// as progress.
+    var sentBytes: UInt64? { get }
 }
 
 public extension LinkChannel {
     var closedBy: LinkError? { nil }
+    var sentBytes: UInt64? { nil }
 }
 
 public struct LinkError: Error, Equatable, Sendable {
@@ -191,6 +200,10 @@ public struct LinkError: Error, Equatable, Sendable {
     /// The code for the cmux service refusing the access token (a 401), as the
     /// Rust link sends it (`cmux_mobile_link_ffi::UNAUTHORIZED`).
     public static let unauthorized = "unauthorized"
+    /// The code for a dial that found no way to the Mac, each way's failure
+    /// known (`cmux_mobile_link_ffi::NETWORK_BLOCKED`); the message is the
+    /// record as JSON (``NetworkBlock``).
+    public static let networkBlocked = "network_blocked"
 
     public init(code: String, message: String) {
         self.code = code
@@ -213,6 +226,9 @@ extension LinkError: LocalizedError {
             return (reason: "the Mac is offline", sentence: "Your Mac isn't connected. Open cmux on your Mac, then try again.")
         case LinkError.unauthorized:
             return (reason: "the cmux service refused the request", sentence: "Your session expired. Sign in again.")
+        case LinkError.networkBlocked:
+            let block = NetworkBlock(json: message)
+            return (reason: block.reason, sentence: block.sentence)
         default:
             return nil
         }
@@ -251,6 +267,100 @@ extension LinkError: LocalizedError {
     }
 }
 
+/// Why a WireGuard dial found no way to the Mac (PROTOCOL.md "When no path
+/// works"): what plain UDP, TURN and cmux's relay each did, from the record
+/// the Rust link returns (`network_blocked`). The person reads one line
+/// they can act on: another network, an update on the Mac, or what IT must
+/// allow, with the hosts named.
+public struct NetworkBlock: Equatable, Sendable, Decodable {
+    public var udp: String?
+    public var turn: String?
+    public var turnHost: String?
+    public var relay: String?
+    public var relayHost: String?
+    public var relayStatus: Int?
+    public var relayDetail: String?
+
+    public init(udp: String? = nil, turn: String? = nil, turnHost: String? = nil, relay: String? = nil,
+                relayHost: String? = nil, relayStatus: Int? = nil, relayDetail: String? = nil) {
+        self.udp = udp
+        self.turn = turn
+        self.turnHost = turnHost
+        self.relay = relay
+        self.relayHost = relayHost
+        self.relayStatus = relayStatus
+        self.relayDetail = relayDetail
+    }
+
+    /// The record in `json`; an unreadable one reads as "everything blocked".
+    public init(json: String) {
+        self = (try? JSONDecoder().decode(NetworkBlock.self, from: Data(json.utf8))) ?? NetworkBlock()
+    }
+
+    /// What blocks the link, which decides what the person can do.
+    public enum Cause: Equatable, Sendable {
+        /// The Mac's cmux has no relay: update it.
+        case macNeedsUpdate
+        /// A proxy re-signs TLS (inspection): IT must exempt cmux's hosts.
+        case tlsInspection
+        /// The relay is turned off for now: another network.
+        case relayPaused
+        /// Something on the network refused the relay's request (an HTTP status).
+        case refused(status: Int?)
+        /// Nothing answered at all: another network, or IT allows the hosts.
+        case blocked
+    }
+
+    public var cause: Cause {
+        switch relay {
+        case "peer_cannot": .macNeedsUpdate
+        case "tls_rejected": .tlsInspection
+        case "off": .relayPaused
+        case "refused": .refused(status: relayStatus)
+        default: .blocked
+        }
+    }
+
+    private var hosts: String {
+        let names = [relayHost ?? "mobile-api.cmux.dev", turnHost ?? "turn.cloudflare.com"]
+        return names.joined(separator: " and ")
+    }
+
+    /// A status-line fragment (lower case, no period).
+    public var reason: String {
+        switch cause {
+        case .macNeedsUpdate: "this network needs a newer cmux on your Mac"
+        case .tlsInspection: "this network's proxy blocks cmux"
+        case .relayPaused, .refused, .blocked: "this network blocks cmux"
+        }
+    }
+
+    /// The section header's line: what blocks it and the one thing to do.
+    public var statusLine: String {
+        switch cause {
+        case .macNeedsUpdate: "Update cmux on your Mac to connect on this network"
+        case .tlsInspection: "This network's proxy blocks cmux · Ask IT to allow it"
+        case .relayPaused, .refused, .blocked: "This network blocks cmux · Try another network"
+        }
+    }
+
+    /// The full sentence for alerts and the connection details, with the hosts.
+    public var sentence: String {
+        switch cause {
+        case .macNeedsUpdate:
+            "This network blocks direct and TURN connections to your Mac. Update cmux on your Mac so it can use the cmux relay, or try another network."
+        case .tlsInspection:
+            "A proxy on this network intercepts cmux's secure connections. Ask your IT team to exempt \(hosts) from TLS inspection, or try another network."
+        case .relayPaused:
+            "This network blocks direct and TURN connections, and the cmux relay is paused right now. Try another network, such as cellular."
+        case .refused(let status):
+            "This network refused the cmux relay\(status.map { " (HTTP \($0))" } ?? ""). Ask your IT team to allow \(relayHost ?? "mobile-api.cmux.dev") on port 443, or try another network."
+        case .blocked:
+            "This network blocks every way cmux reaches your Mac: UDP, \(turnHost ?? "turn.cloudflare.com") and \(relayHost ?? "mobile-api.cmux.dev"). Try another network, or ask your IT team to allow them (cmux.com/docs/nightly/next/network-requirements)."
+        }
+    }
+}
+
 /// Everything needed to dial a Mac.
 public struct LinkEndpoint: Sendable, Hashable {
     public var baseURL: URL
@@ -264,6 +374,9 @@ public struct LinkEndpoint: Sendable, Hashable {
     /// Debug "simulate a network that blocks UDP": WireGuard rides TURN over
     /// TLS (path `turnTLS`). WebRTC ignores it.
     public var blockUDP: Bool
+    /// Debug "Relay via cmux (HTTPS) only": WireGuard rides cmux's WebSocket
+    /// relay alone (path `httpsRelay`). WebRTC ignores it.
+    public var forceRelay: Bool = false
     /// Debug baseline: do not offer the media lane, so browser video rides
     /// its reliable channel even over WebRTC (verify/browser-video-track.md).
     public var browserVideoOnChannel: Bool

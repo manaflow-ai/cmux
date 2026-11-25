@@ -187,6 +187,14 @@ public protocol TerminalSession: AnyObject {
     /// answer came in time: it may have been typed, so the text stays out of
     /// the composer (a second Send would type it twice).
     func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool
+    /// The composer's Send of a one-line draft to a full-screen program:
+    /// `text` typed and Return, in one request to where the terminal runs
+    /// (a Mac daemon's `send {text, submit:true}` with `send-typed-submit-v1`),
+    /// never the text and a separate Return a link blip can split. Returns
+    /// false when this session cannot: the screen then types through its
+    /// mirror. `notSent` and `maybeSent` as for
+    /// ``sendPasteAndSubmit(_:notSent:maybeSent:)``.
+    func sendTypedAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool
     /// The screen's grid in cells: what a TUI should draw (rows between the
     /// toolbar and the composer with the keyboard down).
     func resize(columns: Int, rows: Int)
@@ -259,8 +267,24 @@ public protocol TerminalSession: AnyObject {
     /// A projection keeps those lines when it re-wraps at a new width.
     /// Called as the page scrolls; others ignore it.
     func noteReaderRowsFromEnd(_ rows: Int)
+    /// A vertical pan over a full-screen app (the alternate screen), `rows`
+    /// positive toward older content: the rows of wheel that still go to the
+    /// app. A session that holds the rows the app scrolled off paints a pan
+    /// within them itself (`cmux-terminal-projection` decides) and returns
+    /// 0; others send all of it, as before.
+    func panHeldRows(_ rows: Double) -> Double
+    /// A key or a tap: a session showing held rows shows the app's live
+    /// screen again. Others ignore it.
+    func returnToLiveScreen()
     /// The session itself, under any session wrapping it (the projection).
     var underlyingSession: AnyObject { get }
+    /// Fit to Phone for the program in the foreground, the projection's one
+    /// exception (``TerminalProjectingSession``): whether the phone claims its
+    /// grid for it now; nil for a session that does not project.
+    var fitsToPhone: Bool? { get }
+    /// The title menu's Fit to Phone: fits the foreground program now (and
+    /// remembers it), or gives the Mac its grid back (and forgets it).
+    func toggleFitToPhone()
     /// One pan of the screen ended: its frame intervals, for a session with a Mac to log
     /// there (`phone-frames`). Others ignore it.
     func reportScrollFrames(_ pan: TerminalPanFrames)
@@ -278,6 +302,9 @@ extension TerminalSession {
 
     /// Sessions with no Mac daemon paste through the screen's mirror.
     public func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool { false }
+
+    /// Sessions with no Mac daemon type through the screen's mirror.
+    public func sendTypedAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool { false }
 
     /// Rows of the remote screen this session mirrors, when it mirrors one
     /// (a terminal on the Mac). The screen then maps the remote primary
@@ -313,8 +340,16 @@ extension TerminalSession {
 
     public func noteReaderRowsFromEnd(_ rows: Int) {}
 
+    public func panHeldRows(_ rows: Double) -> Double { rows }
+
+    public func returnToLiveScreen() {}
+
     public var underlyingSession: AnyObject { self }
     public func reportScrollFrames(_ pan: TerminalPanFrames) {}
+
+    public var fitsToPhone: Bool? { nil }
+
+    public func toggleFitToPhone() {}
 
     public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {}
 

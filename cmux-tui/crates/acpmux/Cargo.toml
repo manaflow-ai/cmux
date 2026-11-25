@@ -99,6 +99,8 @@ chrono.workspace = true
 chrono-tz.workspace = true
 cmux-server = { path = "../cmux-server" }
 cmux-json.workspace = true
+# Deadlines on silence since the last progress, not a wall clock (peer frame writes, mesh reads).
+cmux-deadline = { workspace = true, features = ["tokio"] }
 cmux-netwatch.workspace = true
 # The settings file's path and JSONC reader (src/user_settings.rs), the settings owner's.
 cmux-config.workspace = true
@@ -165,6 +167,7 @@ serde = { version = "1", features = ["derive", "rc"] }
 # raw_value: an OpenCode config keeps its keys as written (src/opencode_ask.rs).
 serde_json = { version = "1", features = ["raw_value"] }
 jsonschema.workspace = true
+sha1.workspace = true
 sha2.workspace = true
 # Diffs of a proposed carried-memory change (src/agent_home.rs).
 diffy.workspace = true
@@ -304,4 +307,10 @@ required-features = ["sim"]
 [[test]]
 name = "hub_carrier"
 path = "tests/hub_carrier.rs"
+required-features = ["hub-carrier"]
+
+# Relay re-homing: the relay a host serves on dies and the host and its dialers move to the next.
+[[test]]
+name = "hub_carrier_rehome"
+path = "tests/hub_carrier_rehome.rs"
 required-features = ["hub-carrier"]

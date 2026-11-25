@@ -12,7 +12,13 @@ on:
     inputs:
       runs:
         description: "How many forks to time (1 to 10)"
+        default: "10"
+      duress:
+        description: "Forks of one parent at once after the timed runs (0 to 8)"
         default: "5"
+      split:
+        description: "Non-empty: also time the fork's steps one at a time"
+        default: ""
   pull_request:
     branches: [feat-cmux-next]
     paths:
@@ -50,10 +56,12 @@ jobs:
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
-          RUNS: ${{ inputs.runs || '5' }}
+          RUNS: ${{ inputs.runs || '10' }}
+          DURESS: ${{ inputs.duress || '5' }}
+          SPLIT: ${{ inputs.split || '' }}
         run: |
           set -o pipefail
-          bun scripts/cmux-next/cloud-fork-placement.ts --backend staging --runs "$RUNS" --out "$RUNNER_TEMP/fork-placement.json"
+          bun scripts/cmux-next/cloud-fork-placement.ts --backend staging --runs "$RUNS" ${SPLIT:+--split} --duress "$DURESS" --out "$RUNNER_TEMP/fork-placement.json"
       - name: Verdict in the summary
         if: always()
         run: |
