@@ -6361,14 +6361,14 @@ class NoVerdictCompileStatus(InheritedCompileRed):
 class CompileReceiptRead(unittest.TestCase):
     """The receipt read: one anonymous GET; a 404 is no receipt, every other failure refuses."""
 
-    def answer(self, body=None, code=None):
+    def answer(self, body=None, code=None, said=None):
         def urlopen(request, timeout):
             url = request.full_url
             self.assertIn("?repo=manaflow-ai%2Fcmux&wait=0", url)
             # The proxy refuses Python's default User-Agent with a 403: the read always names its client.
             self.assertEqual(request.get_header("User-agent"), excuse.COMPILE_RECEIPT_USER_AGENT)
             if code is not None:
-                raise urllib.error.HTTPError(url, code, "x", {}, None)
+                raise urllib.error.HTTPError(url, code, "x", {}, None if said is None else io.BytesIO(said))
             return contextlib.closing(io.BytesIO(json.dumps(body).encode()))
         return unittest.mock.patch("urllib.request.urlopen", urlopen)
 
@@ -6383,6 +6383,18 @@ class CompileReceiptRead(unittest.TestCase):
             REAL_COMPILE_RECEIPT(REPO, HEAD)
         with self.answer(dict(self.RECEIPT, sha=BASE_SHA)), self.assertRaisesRegex(excuse.Refused, "another commit"):
             REAL_COMPILE_RECEIPT(REPO, HEAD)
+
+    def test_a_refused_client_signature_says_so_and_is_not_the_host_down(self):
+        """The CDN's 403 "error code: 1010" is the edge refusing the reader, not the receipts host answering or being
+        down: it refuses (never hands the red to GitHub as ReceiptUnreachable) and says to name the client."""
+        with self.answer(code=403, said=b"error code: 1010"), self.assertRaises(excuse.Refused) as refused:
+            REAL_COMPILE_RECEIPT(REPO, HEAD)
+        self.assertNotIsInstance(refused.exception, excuse.ReceiptUnreachable)
+        self.assertIn("HTTP 403: error code: 1010: the CDN refused this reader's signature", str(refused.exception))
+        self.assertIn("User-Agent", str(refused.exception))
+        with self.answer(code=403, said=b"forbidden"), self.assertRaises(excuse.Refused) as plain:
+            REAL_COMPILE_RECEIPT(REPO, HEAD)
+        self.assertTrue(str(plain.exception).endswith(": HTTP 403"), str(plain.exception))
 
     def test_a_receipt_of_another_recipe_or_configuration_refuses(self):
         """The workflow trusts only recipe 2's release-onone receipt (cmux-next.yml's compile-status step): a receipt
@@ -8281,6 +8293,27 @@ class WsCheckPerTest(unittest.TestCase):
         del self.gh.statuses[self.gh.TIP]
         self.assertIn("a per-suite base red", "\n".join(self.judge()))
 
+    def test_a_red_under_a_step_label_the_pr_moved_is_still_the_bases_red(self):
+        # 2026-11-25: leo-workspace#10806 split one catch-all tools-tests step into 1130 steps, so every head after it
+        # carried step labels main's verdict did not have. Keyed on the label, has() returned False at once and the
+        # base's own red read as the head's: 13 land stops that day ("N failure(s) not on main"), every one naming
+        # that step. A failure's identity is its test name and failure text, not the workflow step label it ran under.
+        split = self.DEPLOY + " [test_a.py 1/2]"
+        self.gh.verdict(HEAD, 1, {split: self.ws_deploy("test_a")})
+        self.gh.verdict(self.gh.TIP, 2, {self.DEPLOY: self.ws_deploy("test_a")})
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", audit[0])
+        self.assertIn(f"excused 'ws-check' test '{split} :: test_a (__main__.FastForward.test_a)': red on main "
+                      f"{self.gh.TIP[:12]} too (https://github.com/{self.gh.HOST}/actions/runs/2)", audit)
+
+    def test_a_head_only_red_under_a_moved_step_label_is_still_refused(self):
+        # The fallback matches by test name and failure text, so a test the base never failed is still the head's own.
+        split = self.DEPLOY + " [test_a.py 1/2]"
+        self.gh.verdict(HEAD, 1, {split: self.ws_deploy("test_a", "test_b")})
+        self.gh.verdict(self.gh.TIP, 2, {self.DEPLOY: self.ws_deploy("test_a")})
+        with self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: .*test_b"):
+            self.judge()
+
     def test_a_step_not_split_into_suites_is_still_read_per_test(self):
         # A whole-step test or lint keeps its strict reading (test_another_test_of_a_step_red_on_main_is_not_excused):
         # only a "STEP [SUITE]" unit is judged as a suite.
@@ -8432,6 +8465,62 @@ class WsCheckPerTest(unittest.TestCase):
                 self.discounted_red(description, **kwargs)
                 with self.assertRaisesRegex(excuse.Refused, "does not match run 1's WS_CHECK_RESULT"):
                     self.judge()
+
+    def own_base_red(self, *, on_main=("test_a.py", "test_b.py")):
+        """HEAD red on DEPLOY's units test_a.py and test_b.py, its own run's base pass having reran both in main's
+        tree and seen ON_MAIN fail there too; no main commit has a ws-check verdict at all."""
+        self.gh.verdict(HEAD, 1, {self.DEPLOY: {"test_a.py": self.ws_deploy("test_a"),
+                                                "test_b.py": self.ws_deploy("test_b")}},
+                        description=f"base red (main {self.gh.TIP[:8]} fails it too) 1 of 77 steps failed: "
+                                    f"{self.DEPLOY}"[:139])
+        self.gh.statuses.pop(self.gh.TIP, None)  # main carries no ws-check verdict to compare with
+        log = self.gh.logs[11].split("\n")
+        at = next(n for n, line in enumerate(log) if "WS_CHECK_RESULT=" in line)
+        stamp = "2026-11-05T04:39:27.9954759Z "
+        log[at:at] = [stamp + f"ws-check base pass whole: main {self.gh.TIP}, {len(on_main)} of 2 failed units fail on "
+                              "main too (9.0 s)",
+                      *(stamp + f"ws-check step FAILED on main too: {self.DEPLOY} [{unit}] (exit 1, ran 4, skipped 0, "
+                                "gh calls 0)" for unit in on_main)]
+        self.gh.logs[11] = "\n".join(log)
+
+    def test_the_runs_own_base_pass_is_the_base_verdict_when_no_main_commit_has_one(self):
+        # 2026-11-25: lw#8742 at 712f2b07 was refused "not excused: 'ws-check': none of the 30 newest main commits has
+        # a ws-check verdict to compare with" though its own run (45550954791) had rerun every red unit (test_reach.py
+        # shards the PR does not touch) in main's tree and seen them fail there. Since leo-workspace#9404 that rerun is
+        # the base evidence: most main commits get no ws-check verdict at all, so every tools/ PR waited on one.
+        self.own_base_red()
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red in main {self.gh.TIP[:12]}'s tree "
+                      "too, in this run's own base pass", audit[0])
+        self.assertIn("2 unit(s) whose suites this PR does not touch: "
+                      f"{self.DEPLOY} [test_a.py], {self.DEPLOY} [test_b.py]", audit[0])
+        self.assertIn(f"excused 'ws-check' test '{self.DEPLOY} :: [test_a.py] test_a (__main__.FastForward.test_a)': "
+                      f"red in main {self.gh.TIP[:12]}'s tree too, in this run's own base pass", audit)
+        # Its verdict for the lane-gh broker is base_red too.
+        self.assertEqual(excuse.ws_check_red(self.gh.REPO, "main", HEAD, self.gh)["kind"], "base_red")
+
+    def test_a_red_the_runs_own_base_pass_does_not_cover_is_still_refused(self):
+        refused = f"'ws-check': none of the {excuse.WS_CHECK_COMMITS} newest main commits has a ws-check verdict"
+        # A unit that passed in main's tree is the head's own red, so nothing is excused by the rerun.
+        self.own_base_red(on_main=("test_a.py",))
+        with self.assertRaisesRegex(excuse.Refused, re.escape(refused)):
+            self.judge()
+        # Nor is a suite this PR changes: its red there may be the PR's own (ws_check_suite_touched).
+        self.own_base_red()
+        self.gh.pr_files = ["tools/test_b.py"]
+        with self.assertRaisesRegex(excuse.Refused, re.escape(refused)):
+            self.judge()
+        # Nor a red naming no suite (a lint, a whole step): its new offender would be the head's own.
+        self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint()})
+        self.gh.statuses.pop(self.gh.TIP, None)
+        log = self.gh.logs[11].split("\n")
+        at = next(n for n, line in enumerate(log) if "WS_CHECK_RESULT=" in line)
+        stamp = "2026-11-05T04:39:27.9954759Z "
+        log[at:at] = [stamp + f"ws-check base pass whole: main {self.gh.TIP}, 1 of 1 failed units fail on main too (9.0 s)",
+                      stamp + f"ws-check step FAILED on main too: {self.RELAY} (exit 1, ran 4, skipped 0, gh calls 0)"]
+        self.gh.logs[11] = "\n".join(log)
+        with self.assertRaisesRegex(excuse.Refused, re.escape(refused)):
+            self.judge()
 
     def test_a_global_git_config_write_is_read_from_its_own_line(self):
         # ws_check_run.py adds "global git config changed by a step" to `failed` with no step line, only "ws-check: a
@@ -17070,7 +17159,7 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "app-platform.yml", "auth-refresh-tests.yml", "automation-bench.yml", "backend-migrations.yml",
             # The Billing lane (cmux#42867): billing web, DB and iOS package tests.
             "billing.yml",
-            "backend.yml", "ci.yml", "cloud-journey-pr.yml", "cloud-vm-guest-install.yml", "cloud-vm-image-lock.yml",
+            "backend.yml", "ci.yml", "cloud-composer-journey.yml", "cloud-journey-pr.yml", "cloud-vm-guest-install.yml", "cloud-vm-image-lock.yml",
             "cloudflare-relay.yml", "device-hub.yml", "cmux-cloud-cli.yml", "cmux-next-crash-class.yml",
             "cmux-next-media.yml", "cmux-next-hot-verify.yml", "cmux-next-motion-golden.yml", "cmux-next-remote-daemon.yml",
             "cmux-next-shell-integration.yml", "cmux-next-shim-cpp.yml", "cmux-tui-sdks.yml", "cmux-tui-spec.yml",

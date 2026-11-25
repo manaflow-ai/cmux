@@ -6,7 +6,7 @@ import UIKit
 /// The composer's text field: a UITextView, so the screen controls what a
 /// SwiftUI TextField does not expose: the dark keyboard (iOS 27 no longer
 /// derives it from the field's trait), terminal-safe text traits, and growth
-/// upward from 1 to 14 lines before it scrolls inside (classic cmux iOS; the
+/// upward from 1 to 6 lines before it scrolls inside (the agent chat's; the
 /// height rule is `ComposerFieldHeight`, shared with the agent chat composer).
 ///
 /// Return starts a new line from either keyboard and only the send button
@@ -35,10 +35,14 @@ struct ComposerTextView: UIViewRepresentable {
     /// on, the keyboard corrects, spell-checks and predicts as in the chat
     /// composer; off (the default), a shell line is typed as is.
     var autocorrect = false
+    /// Points of the card over the field taken by the attachment strip: the field gives them up
+    /// (`ComposerReturnTextView.shareCard`), so attaching never makes the card taller than its tallest.
+    var reservedTop: CGFloat = 0
 
-    /// Classic cmux iOS's 14 lines (#41900 cut it to six; the iOS owner
-    /// kept the classic design, 2026-11-13).
-    static let maxLines = 14
+    /// Six lines, the agent chat's: 14 (classic cmux iOS) covered most of the terminal over the
+    /// keyboard (Leo, 2026-11-23: "composer growth in terminal view on ios is most certainly too
+    /// high").
+    static let maxLines = ComposerFieldHeight.defaultMaxLines
     /// Read so a live text size change updates the view (Codex QA F10): the
     /// insets follow the new line height and SwiftUI measures it again.
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -52,11 +56,9 @@ struct ComposerTextView: UIViewRepresentable {
         view.backgroundColor = .clear
         view.textColor = .label
         view.tintColor = .label
-        // The view runs the field's full height (`textVerticalInset`): one
-        // line is 40 pt, as tall as the paperclip and voice circles beside
-        // it (classic), and a scrolled draft is cut at the field's edge.
-        let inset = TerminalDockMetrics.textVerticalInset
-        view.textContainerInset = UIEdgeInsets(top: inset, left: 0, bottom: inset, right: 0)
+        // No inset, as the agent chat's field: the card (`ComposerCard`)
+        // places the text, one line centered on the row of 36 pt circles.
+        view.textContainerInset = .zero
         view.textContainer.lineFragmentPadding = 0
         view.keyboardAppearance = .dark
         Self.applyAutocorrect(autocorrect, to: view)
@@ -92,7 +94,8 @@ struct ComposerTextView: UIViewRepresentable {
             view.invalidateIntrinsicContentSize()
             view.setNeedsLayout()
         }
-        if view.text != text { view.text = text }
+        if view.differs(from: text) { view.takeDraft(text) }
+        if view.shareCard(reserved: reservedTop, baseMaxLines: Self.maxLines) { view.setNeedsLayout() }
         view.placeholder = placeholder
         view.onPasteAttachments = onPasteAttachments == nil ? nil : { [weak coordinator = context.coordinator] in
             coordinator?.parent.onPasteAttachments?()
@@ -150,7 +153,8 @@ struct ComposerTextView: UIViewRepresentable {
         }
 
         func textViewDidChange(_ textView: UITextView) {
-            parent.text = textView.text
+            // A native copy, so a long draft compares as a buffer downstream (`draftText()`).
+            parent.text = (textView as? ComposerReturnTextView)?.draftText() ?? textView.text
             (textView as? ComposerUITextView)?.updatePlaceholder()
             // The height is settled once per edit, and SwiftUI asked again only when it changed.
             (textView as? ComposerReturnTextView)?.settleAfterEdit()

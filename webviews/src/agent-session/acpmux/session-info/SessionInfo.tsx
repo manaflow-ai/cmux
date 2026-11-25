@@ -38,6 +38,7 @@
 // "Subagent · <name>" with a back button (subagentScope.ts, SubagentScopeHeader.tsx).
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
+import { useConnectionQuiet } from "../../../ui/lasting";
 import "../../../ui/controls.css";
 import { useChatCut } from "./chatCut";
 import { chatGlass, chatUnderGlass } from "../chatUnderGlass";
@@ -60,6 +61,8 @@ import { ConnectorsSection } from "./ConnectorsSection";
 import { summarizeConnectors } from "./connectorState";
 import { useIMessage, type IMessageView } from "./imessage";
 import { EnvironmentSection, type ProjectRowLook } from "./EnvironmentSection";
+import type { SessionInfoCloudControl } from "../hybrid/SessionInfoCloud";
+
 import { SessionInfoSectionList, type SessionInfoCompactLook } from "./SessionInfoGroup";
 import { sectionOrder, tuckedSections } from "./sectionOrder";
 import { SessionInfoSection } from "./SessionInfoSection";
@@ -92,6 +95,8 @@ import { producedLinks, type ProducedLink } from "./producedLinks";
 import { openOnGitHub } from "./pullRequestDiff";
 import { useMissingPaths } from "../chips/linkStore";
 import { TasksSection } from "./TasksSection";
+import { AgentSideRows } from "./AgentSideRows";
+import type { AgentSideRow } from "./agentSide";
 import { ProgressSection } from "./ProgressSection";
 import { planDone, type SessionInfoPlan } from "./progressSectionModel";
 import { attributeCommands } from "../summary/workflowView";
@@ -338,6 +343,8 @@ export const MemoSessionInfoSections = memo(function MemoSessionInfoSections(pro
   return <SessionInfo {...props} />;
 });
 
+const NO_AGENT_SIDE: readonly AgentSideRow[] = [];
+
 /// The sections for one chat.
 export function SessionInfo({
   summary,
@@ -362,6 +369,7 @@ export function SessionInfo({
   processes = [],
   listed = false,
   transcriptTasks = [],
+  agentSide = NO_AGENT_SIDE,
   sessions = [],
   workflows = [],
   onStopWorkflow,
@@ -380,6 +388,7 @@ export function SessionInfo({
   readPromptImage,
   onOpenDocument,
   remoteControl,
+  cloud,
   onSaveEnvironment,
   onReconnectMcp,
   readCarried,
@@ -449,6 +458,8 @@ export function SessionInfo({
   /// The background commands the transcript knows (sessionSummary `backgroundTasks`): Claude's
   /// background Bash, Ctrl-B's included, which the registry may not list.
   transcriptTasks?: readonly SummaryBackgroundTask[];
+  /// What waits on the agent's side, not the person's (agentSide.ts): plain rows at the section's foot.
+  agentSide?: readonly AgentSideRow[];
   /// The chats the agent started, listed under Subagents.
   sessions?: readonly StartedSession[];
   onOpenSession?: (sessionId: string) => void;
@@ -475,6 +486,7 @@ export function SessionInfo({
   /// A pasted image's bytes by its id, for its Sources row (direct.ts `promptImage`).
   readPromptImage?: (id: string) => Promise<string | undefined>;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
+  cloud?: SessionInfoCloudControl;
   onSaveEnvironment?: () => Promise<unknown> | void;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
@@ -641,7 +653,9 @@ export function SessionInfo({
     [madeFiles, missing],
   );
   const mcp = summary?.mcpServers ?? [];
-  const connectorSummary = summarizeConnectors(mcp);
+  // "N connecting" waits the shared bound: a server that connects within it reads loaded throughout.
+  const connectorsPendingShown = useConnectionQuiet(mcp.some((server) => server.status === "pending"));
+  const connectorSummary = summarizeConnectors(mcp, connectorsPendingShown);
   const runningTasks = commands.filter((command) => command.state === "running").length;
   // Subagents shows only for a chat that has subagents or started chats: one that never used them
   // shows nothing.
@@ -689,6 +703,7 @@ export function SessionInfo({
         repository={repository}
         cloudRepositoryAvailable={cloudRepositoryAvailable}
         remoteControl={remoteControl}
+        cloud={cloud}
         // No grant rows: Revoke Granted Access in the chat menu lists them (Lucas, 2026-11-05: ChatGPT's
         // panel has none, and "Trusted this chat's private folder" read as noise).
         onSave={onSaveEnvironment}
@@ -904,7 +919,7 @@ export function SessionInfo({
       <AlsoHereSection rows={alsoHereRows} onOpen={onOpenChat} />
     </SessionInfoSection>
   );
-  const tasks = servers.length + commands.length + scheduled.length + workflows.length > 0 && (
+  const tasks = servers.length + commands.length + scheduled.length + workflows.length + agentSide.length > 0 && (
     <SessionInfoSection
       id="tasks"
       title={t("summary.backgroundTasks")}
@@ -934,6 +949,7 @@ export function SessionInfo({
           onShowCall={onShowCall}
         />
       )}
+      {agentSide.length > 0 && <AgentSideRows rows={agentSide} />}
     </SessionInfoSection>
   );
   // Usage shows once acpmux reports what this chat or any listed chat spends.

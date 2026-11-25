@@ -445,6 +445,12 @@ impl Hub {
         }
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
         self.note_activity(session, update);
+        // Work the model streams live says the pool answers again (`capacity_gate.rs`). Not a
+        // message chunk: a harness words its 529 as one ("API Error: 529 ..."); a turn of
+        // text alone tells the gate when it ends well (`turns.rs`).
+        if !replayed && matches!(kind, "agent_thought_chunk" | "tool_call" | "plan") {
+            self.capacity_gate_answered(session);
+        }
         // A mode or option change goes through the one setter below.
         let mut mode_write = None;
         let mut reported_tools = None;
@@ -564,6 +570,10 @@ impl Hub {
                 if let Some(goal) = update.pointer("/_meta/goal") {
                     m.goal = crate::goal::GoalState::from_value(goal, m.family.as_deref());
                     goal_write = true;
+                    // The agent's own word on its loops (`agent_timer.rs`); a replay is history.
+                    if !replayed {
+                        super::agent_timer::note_agent_goal(session, goal);
+                    }
                 }
                 // A harness title made from the first input stops before a client context
                 // (prompt_context.rs), so a Cmd-I chat titles from the person's words.

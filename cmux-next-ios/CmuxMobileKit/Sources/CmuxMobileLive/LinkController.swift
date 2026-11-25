@@ -84,6 +84,17 @@ public final class LinkController {
     nonisolated static let parkResumeWithin: Duration = parkHold - .seconds(30)
     /// A resumed parked link that does not answer within this is redialed.
     nonisolated static let parkedResumeProbeTimeout: Duration = .milliseconds(1500)
+    /// In front, a resumed link that stays silent past its hedge (about one
+    /// round trip past the two a live resume needs) gets a redial raced
+    /// against it: the probe fails, the link stays as the standby and keeps
+    /// being probed, and whichever answers first is kept. A remembered
+    /// endpoint that died during the park then costs the hedge plus the
+    /// redial, not 1.5 s plus it. Backgrounded holds keep the 1.5 s: no one
+    /// is waiting, and a needless dial costs battery.
+    nonisolated static func resumeProbeTimeout(_ link: any ParkableMacLink, backgrounded: Bool) -> Duration {
+        guard !backgrounded, let hedge = link.resumeHedge else { return parkedResumeProbeTimeout }
+        return min(hedge, parkedResumeProbeTimeout)
+    }
     @ObservationIgnored private var parkTask: Task<Void, Never>?
     /// When the Mac accepted the current park, on the clock that keeps
     /// running while the device sleeps.
@@ -326,9 +337,11 @@ public final class LinkController {
             }
             endpoint.relayOnly = machine.relayOnly
             endpoint.blockUDP = machine.blockUDP
+            endpoint.proxyOnly = DeveloperOptions.proxyOnly
+            endpoint.dropWireGuard = DeveloperOptions.dropWireGuard
             endpoint.browserVideoOnChannel = DeveloperOptions.browserVideoOnChannel
             endpoint.forceRelay = DeveloperOptions.forceRelay
-            log.info("dial \(transport.rawValue, privacy: .public) relayOnly=\(endpoint.relayOnly, privacy: .public) blockUDP=\(endpoint.blockUDP, privacy: .public) forceRelay=\(endpoint.forceRelay, privacy: .public)")
+            log.info("dial \(transport.rawValue, privacy: .public) relayOnly=\(endpoint.relayOnly, privacy: .public) blockUDP=\(endpoint.blockUDP, privacy: .public) forceRelay=\(endpoint.forceRelay, privacy: .public) proxyOnly=\(endpoint.proxyOnly, privacy: .public) dropWireGuard=\(endpoint.dropWireGuard, privacy: .public)")
             let dialer = dialer
             let accessToken = accessToken
             let forceRefresh = refreshTokenNextDial
@@ -406,7 +419,7 @@ public final class LinkController {
             }
             probeTask?.cancel()
             probeTask = nil
-            probe(generation: generation, timeout: Self.parkedResumeProbeTimeout)
+            probe(generation: generation, timeout: Self.resumeProbeTimeout(link, backgrounded: machine.isBackgrounded))
             // Resumed in the background for a hold (a call, a notification
             // action): the link stays watched until the hold parks it again.
             if machine.isBackgrounded { startHeartbeat(generation: generation) }
@@ -610,6 +623,16 @@ public final class LinkController {
 
     private func applyForegroundProbe() {
         link?.setForegroundProbe(onScreen && !machine.isBackgrounded)
+    }
+
+    /// The keyboard is coming up over this link's terminal or chat: the
+    /// first key follows in a few hundred ms. Waking the radio now moves
+    /// the idle-to-connected promotion off that key (RFD 0142 T2). The
+    /// coordinator calls it for the focused Mac only; the Rust link
+    /// decides whether a datagram goes out.
+    public func prewake() {
+        guard onScreen, !machine.isBackgrounded else { return }
+        link?.prewake()
     }
 
     private func adopt(_ link: any MacLink, generation: Int) {
