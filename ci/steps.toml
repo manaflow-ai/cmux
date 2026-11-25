@@ -1016,40 +1016,6 @@ python3 tests/test_ci_linux_single_size.py && python3 tests/test_ci_no_single_si
 exit "$status"
 '''
 
-# cmux-next-guards.yml's static-checks job: a pull request into feat-cmux-next runs its checks as these two steps
-# (it ran there only with the full-ci label); the job keeps its push, workflow_call and docs-only fallback runs. The
-# job had no path filter, so neither has `inputs`: a docs-only change starts no pipeline (scripts/ci/pr_router.py).
-[step.static-notices-capabilities]
-job = "linux"
-timeout = 300
-title = "Notices and nightly static capabilities"
-about = "vt-link-graph.json is for the libghostty-vt gitlink, package-notices.json covers it, the nightly's Ghostty license checks pass on fixtures, and every runtime-added app capability is skipped by the static check"
-inputs = ["**"]
-run = '''
-status=0
-python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --check-link-graph scripts/cmux-next/notices/vt-link-graph.json || status=1
-python3 cmux-tui/dist/scripts/package_notices.py check-data || status=1
-python3 cmux-tui/build-support/notices/ghostty/test_ghostty_licenses.py && python3 scripts/cmux-next/notices/test_check_bundle_notices.py && python3 scripts/cmux-next/notices/test_check_ghostty_vt_notices.py || status=1
-python3 tests/test_cmux_next_static_capability_runtime_only.py || status=1
-exit "$status"
-'''
-
-[step.static-defaults-menus-strings]
-job = "linux"
-timeout = 300
-title = "Defaults snapshot, menus and page strings"
-about = "the defaults snapshot tests pass, group rows stay at the top of the right-click menus, menu rows run registered actions, and every page's strings generate with no missing translation (last: it writes them)"
-needs = ["node"]
-inputs = ["**"]
-run = '''
-status=0
-python3 tests/test_defaults_guard.py || status=1
-python3 scripts/cmux-next/check-group-menus.py || status=1
-python3 scripts/cmux-next/check-menu-actions.py || status=1
-CMUX_STRINGS_BEST_EFFORT= node webviews/scripts/pages/gen-strings.mjs || status=1
-exit "$status"
-'''
-
 # cmux-next-guards.yml's tooling-tests job: the tests of feat-cmux-next's own CI tooling. A pull request into
 # feat-cmux-next runs these four steps (the job's tt- steps in its order, split so each stays under the cap); the job
 # keeps its push and docs-only fallback runs, and on such a pull request runs only the tt- steps the linux job cannot:
