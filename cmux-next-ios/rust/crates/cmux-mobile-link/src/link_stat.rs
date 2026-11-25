@@ -334,7 +334,9 @@ pub fn spawn(
     // The Mac's mapped endpoint and whether the route uses it, read at each stat.
     let portmap = move || crate::dial::wireguard::portmap_use(&session_id).map(PortmapStat::from);
     tokio::spawn(async move {
-        let mut reporter = Reporter::new(transport, *path.borrow_and_update(), Instant::now());
+        let first_path = *path.borrow_and_update();
+        crate::key_paint::set_route(first_path.as_str());
+        let mut reporter = Reporter::new(transport, first_path, Instant::now());
         let mut closed = link.closed_state();
         let cellular = crate::dial::wireguard::cellular_path;
         // The first stat waits for the first pong (its setup time), at most FIRST_WAIT.
@@ -371,7 +373,10 @@ pub fn spawn(
                     if changed.is_err() {
                         path_open = false;
                         continue;
-                    } else if reporter.path_changed(*path.borrow_and_update(), Instant::now()) {
+                    } else if reporter.path_changed(
+                        crate::key_paint::route_changed(*path.borrow_and_update()),
+                        Instant::now(),
+                    ) {
                         Reason::Path
                     } else {
                         continue;
