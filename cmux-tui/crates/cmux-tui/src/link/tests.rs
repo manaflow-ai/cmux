@@ -527,7 +527,8 @@ fn each_link_action_has_its_own_help() {
 #[test]
 fn server_config_path_follows_the_server_layout() {
     use super::server_config_path_in;
-    use cmux_server_core::layout::{InstallMode, LayoutEnv, Platform, layout};
+    use cmux_server_core::layout::{LayoutEnv, layout};
+    use cmux_server_core::{InstallMode, Platform};
     let home = std::env::temp_dir().join(format!("cmux-link-server-config-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(&home).unwrap();
