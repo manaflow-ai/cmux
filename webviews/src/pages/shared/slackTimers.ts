@@ -73,7 +73,7 @@ export class SlackTimers {
   private runDue(): void {
     // A timer can fire a hair early; a job due within 1 ms runs now rather than wake the page again.
     const now = this.clock.now() + 1;
-    for (const [id, job] of [...this.jobs]) {
+    for (const [id, job] of this.jobs) {
       if (job.at > now || !this.jobs.has(id)) continue;
       this.jobs.delete(id);
       try {

@@ -22,7 +22,8 @@ function fakeClock() {
       let next: [number, { at: number; callback: () => void }] | undefined;
       for (const entry of timers) if (!next || entry[1].at < next[1].at) next = entry;
       let beat = Infinity;
-      if (beatsEvery) beat = beatsEvery.from + Math.ceil((now + 1e-9 - beatsEvery.from) / beatsEvery.ms) * beatsEvery.ms;
+      if (beatsEvery)
+        beat = beatsEvery.from + Math.ceil((now + 1e-9 - beatsEvery.from) / beatsEvery.ms) * beatsEvery.ms;
       if (beat <= now) beat += beatsEvery!.ms;
       const at = Math.min(next?.[1].at ?? Infinity, beat);
       if (at > to) break;
