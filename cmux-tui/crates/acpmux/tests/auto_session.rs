@@ -36,8 +36,6 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-type MakeImporter = Box<dyn FnOnce(Arc<Hub>, FakeAutoCloud, PathBuf) -> Arc<dyn SessionImporter>>;
-
 use acpmux::auto_session::record::AutoRecord;
 use acpmux::auto_session::runtime::ManualClock;
 use acpmux::auto_session::{
@@ -358,7 +356,9 @@ async fn an_auto_chat_renews_and_keeps_a_whole_copy_in_the_cloud() {
     let id = rig.auto_chat().await;
     assert_eq!(
         rig.row(&id),
-        json!({"auto": true, "state": "local", "here": true, "keepInCloud": false})
+        json!({
+            "auto": true, "mode": "auto", "state": "local", "here": true, "keepInCloud": false,
+        })
     );
     assert_eq!(rig.view(&id).epoch, 1);
     assert_eq!(rig.holder.holder(), &rig.me);
