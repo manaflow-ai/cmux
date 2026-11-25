@@ -119,7 +119,7 @@ python3 -I -c 'import json, os, shutil, socket; print("TTI-HOST " + json.dumps({
 tti() {  # tti OUT [ARGS...]: one run of the check's plan into OUT
   local dir="$1"; shift
   mkdir -p "$dir" && chmod 0777 "$dir"
-  scripts/ci/frame-pacing/console-session.sh python3 -I "$PWD/scripts/ci/launch_tti_check.py" "${source_args[@]}" --out "$dir" \
+  scripts/ci/frame-pacing/console-session.sh python3 -I "$PWD/scripts/ci/launch_tti_check.py" ${source_args[@]+"${source_args[@]}"} --out "$dir" \
     ${extra[@]+"${extra[@]}"} "$@" 2>&1 | tee -a "$out/run.log"
   return "${PIPESTATUS[0]}"
 }
