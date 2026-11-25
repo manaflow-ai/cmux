@@ -53,6 +53,7 @@ members = [
     "crates/cmux-git",
     "crates/cmux-worktree-care",
     "crates/cmux-conductor-import",
+    "crates/cmux-migrate",
     "crates/cmux-classic-import",
     "crates/cmux-tui-core",
     "crates/cmux-tui-cloud-conversations",
@@ -224,6 +225,7 @@ default-members = [
     "crates/cmux-git",
     "crates/cmux-worktree-care",
     "crates/cmux-conductor-import",
+    "crates/cmux-migrate",
     "crates/cmux-classic-import",
     "crates/cmux-tui-core",
     "crates/cmux-tui-cloud-conversations",
@@ -408,6 +410,7 @@ cmux-tailnet-join = { path = "crates/cmux-tailnet-join" }
 cmux-bounded = { path = "crates/cmux-bounded" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
+cmux-migrate = { path = "crates/cmux-migrate" }
 cmux-browser-import = { path = "crates/cmux-browser-import" }
 cmux-classic-import = { path = "crates/cmux-classic-import" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }

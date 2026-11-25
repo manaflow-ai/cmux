@@ -2250,6 +2250,20 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
     func probeTimeoutMs(floorMs: UInt32)  -> UInt32
     
     /**
+     * Milliseconds since the link last made progress: anything heard from
+     * the Mac, or a write other than a keepalive taken by the transport
+     * (`Link::progress_ago`). The one progress clock a send's hold reads:
+     * `ChatPromptOutbox.progressed(nowMs - progressAgoMs())` is the adapter.
+     */
+    func progressAgoMs()  -> UInt64
+    
+    /**
+     * How many times the link made progress; monotonic, so a change since
+     * the last read means it moved in between (`Link::progress_count`).
+     */
+    func progressCount()  -> UInt64
+    
+    /**
      * Milliseconds since the link last received any frame from the Mac.
      * Any frame proves the link alive as a probe's pong would, so the app's
      * heartbeat probes only a link quiet for a whole beat.
@@ -2641,6 +2655,32 @@ open func probeTimeoutMs(floorMs: UInt32) -> UInt32  {
     uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_probe_timeout_ms(
             self.uniffiCloneHandle(),
         FfiConverterUInt32.lower(floorMs),$0
+    )
+})
+}
+    
+    /**
+     * Milliseconds since the link last made progress: anything heard from
+     * the Mac, or a write other than a keepalive taken by the transport
+     * (`Link::progress_ago`). The one progress clock a send's hold reads:
+     * `ChatPromptOutbox.progressed(nowMs - progressAgoMs())` is the adapter.
+     */
+open func progressAgoMs() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_progress_ago_ms(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * How many times the link made progress; monotonic, so a change since
+     * the last read means it moved in between (`Link::progress_count`).
+     */
+open func progressCount() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_progress_count(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -3800,6 +3840,215 @@ public func FfiConverterTypeMacScreenRd_lift(_ handle: UInt64) throws -> MacScre
 #endif
 public func FfiConverterTypeMacScreenRd_lower(_ value: MacScreenRd) -> UInt64 {
     return FfiConverterTypeMacScreenRd.lower(value)
+}
+
+
+
+
+
+
+/**
+ * The store on one directory. Safe to call from any thread; calls are plain file I/O, so the
+ * app calls writes off the main thread.
+ */
+public protocol PhoneReadStoreProtocol: AnyObject, Sendable {
+    
+    /**
+     * Entries kept now.
+     */
+    func count()  -> UInt32
+    
+    /**
+     * The value kept for `key`; nil when nothing (or nothing readable) is kept.
+     */
+    func get(key: PhoneReadKey)  -> Data?
+    
+    /**
+     * Keeps `value` for `key`, atomically; past the entry limit the oldest writes leave.
+     */
+    func put(key: PhoneReadKey, value: Data) throws 
+    
+    /**
+     * Forgets `key`.
+     */
+    func remove(key: PhoneReadKey) throws 
+    
+    /**
+     * Sign-out: every entry goes.
+     */
+    func removeAll() throws 
+    
+}
+/**
+ * The store on one directory. Safe to call from any thread; calls are plain file I/O, so the
+ * app calls writes off the main thread.
+ */
+open class PhoneReadStore: PhoneReadStoreProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_phonereadstore(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_phonereadstore(handle, $0) }
+    }
+
+    
+    /**
+     * The store on `directory` (created if missing), keeping at most `max_entries` entries of
+     * at most `max_value_bytes` each.
+     */
+public static func `open`(directory: String, maxEntries: UInt32, maxValueBytes: UInt32)throws  -> PhoneReadStore  {
+    return try  FfiConverterTypePhoneReadStore_lift(try rustCallWithError(FfiConverterTypePhoneReadStoreError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_phonereadstore_open(
+        FfiConverterString.lower(directory),
+        FfiConverterUInt32.lower(maxEntries),
+        FfiConverterUInt32.lower(maxValueBytes),$0
+    )
+})
+}
+    
+
+    
+    /**
+     * Entries kept now.
+     */
+open func count() -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_phonereadstore_count(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The value kept for `key`; nil when nothing (or nothing readable) is kept.
+     */
+open func get(key: PhoneReadKey) -> Data?  {
+    return try!  FfiConverterOptionData.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_phonereadstore_get(
+            self.uniffiCloneHandle(),
+        FfiConverterTypePhoneReadKey_lower(key),$0
+    )
+})
+}
+    
+    /**
+     * Keeps `value` for `key`, atomically; past the entry limit the oldest writes leave.
+     */
+open func put(key: PhoneReadKey, value: Data)throws   {try rustCallWithError(FfiConverterTypePhoneReadStoreError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_method_phonereadstore_put(
+            self.uniffiCloneHandle(),
+        FfiConverterTypePhoneReadKey_lower(key),
+        FfiConverterData.lower(value),$0
+    )
+}
+}
+    
+    /**
+     * Forgets `key`.
+     */
+open func remove(key: PhoneReadKey)throws   {try rustCallWithError(FfiConverterTypePhoneReadStoreError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_method_phonereadstore_remove(
+            self.uniffiCloneHandle(),
+        FfiConverterTypePhoneReadKey_lower(key),$0
+    )
+}
+}
+    
+    /**
+     * Sign-out: every entry goes.
+     */
+open func removeAll()throws   {try rustCallWithError(FfiConverterTypePhoneReadStoreError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_method_phonereadstore_remove_all(
+            self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePhoneReadStore: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = PhoneReadStore
+
+    public static func lift(_ handle: UInt64) throws -> PhoneReadStore {
+        return PhoneReadStore(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: PhoneReadStore) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PhoneReadStore {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: PhoneReadStore, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePhoneReadStore_lift(_ handle: UInt64) throws -> PhoneReadStore {
+    return try FfiConverterTypePhoneReadStore.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePhoneReadStore_lower(_ value: PhoneReadStore) -> UInt64 {
+    return FfiConverterTypePhoneReadStore.lower(value)
 }
 
 
@@ -6352,6 +6601,67 @@ public func FfiConverterTypePairRequestCard_lower(_ value: PairRequestCard) -> R
 
 
 /**
+ * One entry's key: the account (or team), the Mac and the surface (`agent_chats`).
+ */
+public struct PhoneReadKey: Equatable, Hashable {
+    public var scope: String
+    public var device: String
+    public var kind: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(scope: String, device: String, kind: String) {
+        self.scope = scope
+        self.device = device
+        self.kind = kind
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PhoneReadKey: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePhoneReadKey: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PhoneReadKey {
+        return
+            try PhoneReadKey(
+                scope: FfiConverterString.read(from: &buf), 
+                device: FfiConverterString.read(from: &buf), 
+                kind: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PhoneReadKey, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.scope, into: &buf)
+        FfiConverterString.write(value.device, into: &buf)
+        FfiConverterString.write(value.kind, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePhoneReadKey_lift(_ buf: RustBuffer) throws -> PhoneReadKey {
+    return try FfiConverterTypePhoneReadKey.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePhoneReadKey_lower(_ value: PhoneReadKey) -> RustBuffer {
+    return FfiConverterTypePhoneReadKey.lower(value)
+}
+
+
+/**
  * One cell to draw. `standing`: 0 speculative (underlined), 1 confirmed
  * (plain, held until its frame), 2 erased (the cell's background only).
  */
@@ -8784,6 +9094,95 @@ public func FfiConverterTypeMediaState_lower(_ value: MediaState) -> RustBuffer 
 }
 
 
+
+/**
+ * Why the store refused.
+ */
+public enum PhoneReadStoreError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+    
+    
+    case TooLarge(size: UInt64, limit: UInt64
+    )
+    case Io(message: String
+    )
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
+}
+
+#if compiler(>=6)
+extension PhoneReadStoreError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePhoneReadStoreError: FfiConverterRustBuffer {
+    typealias SwiftType = PhoneReadStoreError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PhoneReadStoreError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .TooLarge(
+            size: try FfiConverterUInt64.read(from: &buf), 
+            limit: try FfiConverterUInt64.read(from: &buf)
+            )
+        case 2: return .Io(
+            message: try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: PhoneReadStoreError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .TooLarge(size,limit):
+            writeInt(&buf, Int32(1))
+            FfiConverterUInt64.write(size, into: &buf)
+            FfiConverterUInt64.write(limit, into: &buf)
+            
+        
+        case let .Io(message):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(message, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePhoneReadStoreError_lift(_ buf: RustBuffer) throws -> PhoneReadStoreError {
+    return try FfiConverterTypePhoneReadStoreError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePhoneReadStoreError_lower(_ value: PhoneReadStoreError) -> RustBuffer {
+    return FfiConverterTypePhoneReadStoreError.lower(value)
+}
+
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
@@ -11016,6 +11415,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_probe_timeout_ms() != 8844) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_progress_ago_ms() != 45731) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_progress_count() != 51728) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_received_ago_ms() != 55134) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -11217,6 +11622,21 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_macscreenrd_text() != 9335) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonereadstore_count() != 35356) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonereadstore_get() != 59869) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonereadstore_put() != 33069) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonereadstore_remove() != 64750) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonereadstore_remove_all() != 47779) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_tabsmirror_link_up() != 53128) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -11359,6 +11779,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_macscreenrd_new() != 49279) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_phonereadstore_open() != 41914) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_tabsmirror_new() != 62444) {
