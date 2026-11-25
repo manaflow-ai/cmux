@@ -400,6 +400,8 @@ extension AgentTabStore {
         seenLive.remove(scoped)
         forgetUnusedStores()
         stopCustomizationWhenUnused(); if !frontedChats.isEmpty, record(for: scoped) == nil { frontedChats.gone(scoped) } // a gone tab ends its Cloud chat shown in place, or its Mac tab shows its own page (CloudFrontedChats)
+        // A page this release left with no owner (the pool's wait ended, a view a rekey replaced) closes now.
+        scheduleOrphanSweep()
     }
 
     /// Lets go of the view state of tabs `store` listed and no longer lists, once it is connected
@@ -470,4 +472,29 @@ final class AgentTabPending {
 /// A refusal to open an agent chat tab, with its localized reason.
 struct AgentTabRefusal: Error {
     let message: String
+}
+
+/// One owner of agent page liveness, keyed by tab (``AgentPageLiveness``): every live page is a tab's page or is
+/// held by an owner that bounds it (the New Tab pool, the retirer, a standalone caller); a page none holds is an
+/// orphan, closed by the sweep after a tab's release once it is out of sight.
+extension AgentTabStore {
+    /// How long after a tab's release the sweep runs: the release's own moves (the pool's recycle, the retirer's keep) are done.
+    static let orphanSweepDelay: Duration = .seconds(1)
+
+    /// The owner of each live page; nil: none (an orphan).
+    func pageOwner() -> (AgentPaneView) -> AgentPageRole? {
+        let tabPages = Set(views.values.map(ObjectIdentifier.init)), standalone = Set(standaloneViews.allObjects.map(ObjectIdentifier.init))
+        return { [retirer = self.retirer, poolRole = self.poolRole] view in
+            if tabPages.contains(ObjectIdentifier(view)) { return .tab }
+            return retirer.role(of: view) ?? poolRole?(view) ?? (standalone.contains(ObjectIdentifier(view)) ? .standalone : nil)
+        }
+    }
+
+    @discardableResult
+    func sweepOrphans() -> Int { livePages.sweep(owner: pageOwner()) { [retirer = self.retirer] in retirer.retire($0) } }
+
+    func scheduleOrphanSweep() {
+        // wakeup-allow: one sweep per burst of tab releases; none while no tab closes.
+        orphanSweep.schedule(after: Self.orphanSweepDelay) { @MainActor [weak self] in self?.sweepOrphans() }
+    }
 }
