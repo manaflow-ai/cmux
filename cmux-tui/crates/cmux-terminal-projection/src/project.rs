@@ -76,10 +76,18 @@ pub fn wrap_line(
     // Ghostty's own reflow trims them: a space the program printed is a
     // cell of the line (a right-aligned row's padding, a line ending in a
     // space), and its rows wrap on the phone as on a resized Mac.
+    // Compact also drops written spaces that pad the line to the host's
+    // edge (an app filling its row), not a space the line ends in before
+    // the edge: the program drawn at the phone's width wraps that one too.
+    let padded = rows
+        .last()
+        .and_then(|row| row.cells.get(host_cols.saturating_sub(1)))
+        .is_some_and(|c| c.ch == u32::from(b' '));
     while let Some((_, cell)) = units.last() {
         let style = term.styles.get(cell.style);
         let trimmed = if compact {
-            cell.is_empty_or_space() && style.is_invisible_when_blank()
+            (cell.ch == 0 || (padded && cell.is_empty_or_space()))
+                && style.is_invisible_when_blank()
         } else {
             cell.ch == 0 && cell.kind != WIDE && style.bg == Color::Default
         };

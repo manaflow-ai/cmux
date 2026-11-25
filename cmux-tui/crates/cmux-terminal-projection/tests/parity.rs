@@ -2128,8 +2128,9 @@ fn run_width_case(case: &WidthCase, grid: (usize, usize)) -> WidthRow {
             } else {
                 row.exact += score.mismatched;
             }
-            if (score.mismatched > 0 || score.cursor_mismatches > 0) && row.notes.len() < 4 {
-                let mode = if compact { "compact" } else { "exact" };
+            let mode = if compact { "compact" } else { "exact" };
+            let noted = row.notes.iter().filter(|n| n.contains(mode)).count();
+            if (score.mismatched > 0 || score.cursor_mismatches > 0) && noted < 4 {
                 for what in score.first.iter().take(1) {
                     row.notes.push(format!("{}x{} {mode} step {i}: {what}", grid.0, grid.1));
                 }
