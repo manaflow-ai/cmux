@@ -31,6 +31,7 @@ const STAGE = "/var/tmp/cmux-chief-check";
 const NAME_PREFIX = "cmux-test-chief-";
 const SWEEP_AFTER_MS = 3 * 60 * 60 * 1000;
 const CHUNK = 3 << 20;
+const CHANNEL_URL = "https://files.cmux.com/cmux-tui/channels/cloud-machine.json";
 const INSTALL_FILE = "/home/cmux/.cmux/chief/cloud/install.json";
 
 const arg = (name: string): string | undefined => {
@@ -196,6 +197,28 @@ async function main(): Promise<number> {
     });
     void m;
     const exec = directExec(api, machine, J);
+
+    // RFD 0166 row 302: a fresh Cloud machine runs the acpmux the signed cloud-machine channel names, not the
+    // image's build or main's rolling cmux-tui/latest. The image's updater reads the channel 30 s after boot and
+    // every minute, so wait for it, then read back acpmux's version and the updater's status.
+    await J.step("acpmux follows the cloud-machine channel", async () => {
+      const res = await fetch(CHANNEL_URL, { signal: AbortSignal.timeout(20_000) });
+      if (!res.ok) throw new Error(`${CHANNEL_URL}: HTTP ${res.status}`);
+      const want = String(JSON.parse(Buffer.from(String((await res.json()).payload), "base64").toString("utf8")).commit ?? "");
+      if (!/^[0-9a-f]{40}$/.test(want)) throw new Error(`the channel names no commit: ${want}`);
+      const read = `${ACPMUX} --version 2>&1 | head -n 3; echo ---; (cmux host update status --json || /opt/cmux/current/bin/cmux host update status --json) 2>&1 | head -c 4000`;
+      const deadline = Date.now() + 300_000;
+      let seen = "";
+      for (;;) {
+        seen = (await exec(asRoot(read), 60_000)).stdout.trim();
+        if (seen.includes(want.slice(0, 12))) break;
+        if (Date.now() > deadline) throw new Error(`after 5 min the machine still does not run channel commit ${want}: ${seen.slice(0, 1500)}`);
+        await sleep(15_000);
+      }
+      const version = seen.split("\n---")[0].replace(/\s+/g, " ").trim();
+      console.log(`acpmux channel readback: channel ${want}; acpmux ${version}`);
+      return { value: want, detail: `channel ${want.slice(0, 12)}; acpmux ${version}` };
+    });
 
     const baked = await J.step("image chief units", async () => {
       const r = await exec("test -f /etc/systemd/system/cmux-chief.service && test -x /var/lib/cmux-chief/current && echo baked || echo absent");
