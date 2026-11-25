@@ -101,10 +101,14 @@ public struct DeterministicJSON {
         default: break
         }
         if let integer = value as? any BinaryInteger { return String(describing: integer) }
+        // A boxed number only comes out of JSONSerialization; Linux Foundation has no CF bridge for it
+        // and the export documents are built from native types, so there it is refused.
+        #if canImport(Darwin)
         if let number = value as? NSNumber {
             if CFGetTypeID(number) == CFBooleanGetTypeID() { return number.boolValue ? "true" : "false" }
             return CFNumberIsFloatType(number) ? try self.number(number.doubleValue) : number.stringValue
         }
+        #endif
         throw Failure.unsupportedValue(String(describing: type(of: value)))
     }
 
