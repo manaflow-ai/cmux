@@ -54,11 +54,15 @@ fn a_direct_hint_is_offered_in_every_mode_that_is_on() {
 }
 
 #[test]
-fn a_derp_peer_relay_or_unknown_hint_is_never_offered() {
+fn a_derp_or_peer_relay_hint_is_not_offered_in_direct_only_and_is_relayed_under_on() {
     for path in [PeerPath::Derp, PeerPath::PeerRelay, PeerPath::Unknown] {
         let s = status(vec![node("box", "100.64.0.2", path)]);
         assert_eq!(route_for(&s, "box", Mode::DirectOnly), None, "{path:?}");
-        assert_eq!(route_for(&s, "box", Mode::On), None, "{path:?}");
+        let on = route_for(&s, "box", Mode::On);
+        if path == PeerPath::Unknown {
+            continue;
+        }
+        assert!(on.expect("offered under on").relayed(), "{path:?}");
     }
 }
 
@@ -188,15 +192,18 @@ async fn a_localapi_view_answers_and_the_cli_is_not_run() {
     assert_eq!(cli_calls.load(Ordering::SeqCst), 0, "LocalAPI answered: no CLI");
 }
 
-#[tokio::test]
-async fn localapi_derp_and_peer_relay_paths_are_not_offered() {
+#[test]
+fn a_localapi_derp_path_is_not_offered_under_direct_only() {
     use crate::tailnet_carrier::status_from_view;
-    for (cur, relay) in [("", ""), ("", "192.0.2.99:7777:vni:3")] {
-        let s = status_from_view(&local_view(cur, relay));
-        for mode in [Mode::DirectOnly, Mode::On] {
-            assert_eq!(route_for(&s, "box", mode), None, "{cur:?} {relay:?} {mode:?}");
-        }
-    }
+    // CurAddr empty, active, home region sfo: the LocalAPI classifies it as DERP.
+    let s = status_from_view(&local_view("", ""));
+    assert_eq!(s.peers.first().map(|n| n.path), Some(PeerPath::Derp));
+    assert_eq!(route_for(&s, "box", Mode::DirectOnly), None);
+    // Under `on` it is offered, in the relayed class; a peer relay likewise.
+    assert!(route_for(&s, "box", Mode::On).expect("offered under on").relayed());
+    let relay = status_from_view(&local_view("", "192.0.2.99:7777:vni:3"));
+    assert_eq!(route_for(&relay, "box", Mode::DirectOnly), None);
+    assert!(route_for(&relay, "box", Mode::On).expect("offered under on").relayed());
 }
 
 #[tokio::test]

@@ -5,12 +5,13 @@
 //! the peer has no tailnet path. On, the peer's configured host is matched against the cached
 //! tailscaled status ([`crate::tailnet_carrier::route_for`]), read from the LocalAPI and from
 //! `tailscale status` only when the LocalAPI is unavailable ([`PathSource`]): when it names one
-//! online node of this tailnet whose path is direct, the peer gains a [`Via::Tailnet`] path that
+//! online node of this tailnet whose path the mode offers, the peer gains a [`Via::Tailnet`] path that
 //! dials that node's tailnet address at the peer's listener port, joins the cold-connect race and
 //! the probe set like every other path, and carries the session only when the selector finds it
-//! faster. A path that is not direct (DERP, a peer relay, idle, unknown) is never tried first or
-//! at all; a snapshot that stops offering it (the path went through DERP, the node went
-//! offline, the setting's host changed) takes the path out again.
+//! faster. Under `direct-only` a path that is not direct (DERP, a peer relay) skips the tailnet
+//! attempt; under `on` it is the relayed class. A snapshot that stops offering it (the path went
+//! through DERP under `direct-only`, the node went offline, the setting's host changed) takes
+//! the path out again.
 
 use super::Peer;
 use super::carriers::BoxDuplex;
