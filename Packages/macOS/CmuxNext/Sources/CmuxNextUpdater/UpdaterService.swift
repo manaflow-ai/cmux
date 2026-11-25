@@ -87,6 +87,8 @@ public final class UpdaterService {
     @ObservationIgnored var installGaveUp = false
     /// The installing card's one-second tick, only while an install runs.
     @ObservationIgnored let installTimer: DemandTimer
+    /// `cmux app relaunch`'s quit, a moment after its answer went out (``relaunchAnswer(ifNewer:)``).
+    @ObservationIgnored let relaunchTimer: DemandTimer
     @ObservationIgnored let stagedRefresh: StagedUpdateRefresh
     /// The tip app's 5-minute feed read while nothing waits (``TipUpdateCheck``).
     @ObservationIgnored let tipCheck: TipUpdateCheck
@@ -261,6 +263,9 @@ public final class UpdaterService {
     @ObservationIgnored var dismissAvailable: () -> Void = {}
     /// Whether found updates download by themselves now (``applyDownloadPolicy()``).
     @ObservationIgnored var downloadsFoundUpdates = false
+    /// A pushed build's automatic download waits for its deltas (``TipUpdateCheck/holdDownload``): the
+    /// found update is offered, a click still downloads it at once.
+    @ObservationIgnored var downloadHeldForDeltas = false
     /// The App's observation of the `updates.*` settings.
     @ObservationIgnored public var settingsObservation: Task<Void, Never>?
     @ObservationIgnored let now: () -> Date
@@ -297,6 +302,16 @@ public final class UpdaterService {
     /// Stands in for the Mac's last input for Update When Idle (`debug.updater {action: "input"}` in DEV and bench
     /// builds; the update-idle harness: a fleet Mac has no person). Nil reads the real input time.
     @ObservationIgnored public var debugLastInput: Date?
+    /// Update When Idle's automatic installs declined in a row (the app did not quit for them) and when the
+    /// last was: the Rust rule backs the next try off (`update_idle::retry_after_seconds`).
+    @ObservationIgnored var idleDeclinedInstalls = 0
+    @ObservationIgnored var idleDeclinedAt: Date?
+    /// The away reading Update When Idle's last "install" acted on ("screen locked", "no input for 14 min"),
+    /// for the updater log's line about the relaunch.
+    @ObservationIgnored var idleAwayReading: String?
+    /// Settings > Updates' Next Check rule (set by the App: cmux-window-rules `update_idle::next_check_in`):
+    /// seconds from now given the seconds since the last check and the interval; nil when checks are off.
+    @ObservationIgnored public var nextCheckRule: (@MainActor (_ sinceLastCheck: Double?, _ interval: Double) -> Double?)?
     /// The install in flight started by itself (the idle policy): a failure opens nothing.
     @ObservationIgnored var automaticInstallInFlight = false
     /// The build Sparkle said it installs (`updaterWillInstallUpdate`): the relaunch's focus record names it.
@@ -346,6 +361,7 @@ public final class UpdaterService {
         automaticUpdates = identity.track.downloadsAutomaticallyByDefault
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
         installTimer = DemandTimer(owner: "UpdaterService.install", clock: clock)
+        relaunchTimer = DemandTimer(owner: "UpdaterService.relaunch", clock: clock)
         snoozeTimer = DemandTimer(owner: "UpdaterService.snooze", clock: clock)
         prewarmWaitTimer = DemandTimer(owner: "UpdaterService.prewarmWait", clock: clock)
         stagedRefresh = StagedUpdateRefresh(clock: clock)
@@ -602,6 +618,8 @@ public final class UpdaterService {
     /// notice card; a found update downloads and waits as the staged update
     /// card (Restart to Update).
     public func installAvailableUpdate() throws {
+        // The bundle may have been replaced since the last read (an update cycle or activation).
+        checkInstalledBuild()
         if relaunchIntoInstalledBuild() { return }
         guard let controller, disabledReason == nil else { throw UpdaterUnavailable(reason: disabledReason) }
         #if DEBUG || CMUX_BENCH_HOOKS

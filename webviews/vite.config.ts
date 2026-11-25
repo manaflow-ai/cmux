@@ -6,6 +6,7 @@ import { cmuxCheckConfig } from "../config/vite-plus/check";
 import { fileURLToPath } from "node:url";
 import { cmuxDevServer, DEV_SERVER_PORT } from "./dev-server/plugins";
 import { viteCacheDir } from "./dev-server/viteCacheDir.mjs";
+import { jsonDevSourceMap } from "./dev-server/jsonDevSourceMap.mjs";
 import { bundleMetafile } from "./scripts/bundle-metafile.mjs";
 import { packedShikiData, UNPACK_MODULE } from "./scripts/packed-shiki-data.mjs";
 
@@ -70,6 +71,8 @@ export default defineConfig({
     ...cmuxDevServer(),
     // React Compiler: Babel by default, Oxc with CMUX_REACT_COMPILER=oxc (reactCompiler.mjs).
     ...reactWithCompiler(),
+    // JSON imports without vite-plus's fallback source map, about 6x their size (dev-server/jsonDevSourceMap.mjs).
+    jsonDevSourceMap(),
     // CMUX_GALLERY_STAGE_CSS=dev: the gallery scans' build keeps the dev server's CSS (vite.config.gallery.ts).
     tailwindcss(process.env.CMUX_GALLERY_STAGE_CSS === "dev" ? { optimize: false } : undefined),
     // Shiki's grammars and themes and Monaco's UI strings stored deflated, inflated on import
