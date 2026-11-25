@@ -89,8 +89,46 @@ impl MutterPresence {
     }
 }
 
+/// The longest any one call into mutter may take on [`connection`] (Drop's Stop included). A
+/// mutter that hangs ends the start with an error, and the capture asks the portal instead.
+pub const CALL_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// A session bus connection whose method calls give up after [`CALL_TIMEOUT`].
+pub fn connection() -> Result<zbus::blocking::Connection, PortalError> {
+    zbus::blocking::connection::Builder::session()
+        .map(|b| b.method_timeout(CALL_TIMEOUT))
+        .and_then(|b| b.build())
+        .map_err(|e| PortalError::Unavailable(e.to_string()))
+}
+
 fn failed(e: impl std::fmt::Display) -> PortalError {
     PortalError::Failed(e.to_string())
+}
+
+/// The node of the first `PipeWireStreamAdded` on `added`, waiting at most `timeout`. The wait
+/// runs on the calling thread and ends with it: nothing is left blocked on the signal after a
+/// timeout (the stream is dropped with the failed start).
+fn wait_for_node(
+    added: &mut zbus::proxy::SignalStream<'_>,
+    timeout: Duration,
+) -> Result<u32, PortalError> {
+    use futures_lite::StreamExt;
+    let next = async { Some(added.next().await) };
+    let expired = async {
+        async_io::Timer::after(timeout).await;
+        None
+    };
+    match async_io::block_on(futures_lite::future::or(next, expired)) {
+        Some(Some(msg)) => msg
+            .body()
+            .deserialize::<u32>()
+            .map_err(|e| failed(format!("mutter's PipeWireStreamAdded carried no node: {e}"))),
+        Some(None) => Err(failed("mutter's screen cast stream sent no PipeWire node")),
+        None => Err(failed(format!(
+            "mutter's screen cast stream named no PipeWire node within {} ms",
+            timeout.as_millis()
+        ))),
+    }
 }
 
 fn proxy(
@@ -159,27 +197,11 @@ impl MutterSession {
             proxy(&me.conn, SCREEN_CAST_DEST, me.stream.clone(), SCREEN_CAST_STREAM_IFACE)?;
         // Subscribed before Start, so the node mutter announces at Start is not missed. The
         // version 1 signal: mutter still sends it beside PipeWireStreamAddedV2.
-        let mut added = stream.receive_signal("PipeWireStreamAdded").map_err(failed)?;
+        let mut added = async_io::block_on(stream.inner().receive_signal("PipeWireStreamAdded"))
+            .map_err(failed)?;
         // A linked screen cast is started by its RemoteDesktop session.
         me.starter().call_method("Start", &()).map_err(failed)?;
-        let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::Builder::new()
-            .name("cmux-rd-mutter-node".into())
-            .spawn(move || {
-                let node = added.next().and_then(|m| m.body().deserialize::<u32>().ok());
-                let _ = tx.send(node);
-            })
-            .map_err(failed)?;
-        me.node_id = match rx.recv_timeout(timeout) {
-            Ok(Some(node)) => node,
-            Ok(None) => return Err(failed("mutter's screen cast stream sent no PipeWire node")),
-            Err(_) => {
-                return Err(failed(format!(
-                    "mutter's screen cast stream named no PipeWire node within {} s",
-                    timeout.as_secs()
-                )))
-            }
-        };
+        me.node_id = wait_for_node(&mut added, timeout)?;
         me.size = stream
             .get_property::<HashMap<String, OwnedValue>>("Parameters")
             .ok()
