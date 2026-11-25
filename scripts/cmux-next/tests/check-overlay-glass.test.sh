@@ -2,7 +2,8 @@
 # check-overlay-glass.py: a floating surface painted solid (the popup surface, an elevated fill, a
 # system window color, ReduceTransparency.alwaysOpaque, the opt-in card fill, a solid SwiftUI
 # background, AppKit's tooltip material, a tooltip or hover window without the shared glass, a toast, sheet or card window without it, a
-# near-opaque veil on a glass surface, the card fill outside its file) fails; a `glass-opaque-allow:` reason and the shared glass pass; a stale allowance fails.
+# near-opaque veil on a glass surface, the card fill outside its file, a floating surface's edge in a hard-coded
+# color) fails; a `glass-opaque-allow:` reason and the shared glass pass; a stale allowance fails.
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 CHECK="$ROOT_DIR/scripts/cmux-next/check-overlay-glass.py"
@@ -47,6 +48,32 @@ expect_pass menu-panel-role 'final class DemoMenuPanel: NSPanel {
     let card = Glass.makeSurface(.menu, content: rows)
 }'
 
+# Rule R6, one stroke from the theme: a floating surface's edge in a hard-coded color fails; the theme's
+# stroke passes; a `one-material-allow:` reason passes only within the shrink-only pin (0 today).
+expect_fail TabHoverPreview hard-edge 'final class TabHoverPreview: NSView {
+    func paint() { layer?.borderColor = NSColor.black.cgColor }
+}'
+expect_fail edge-literal-glass hard-edge 'final class DemoCard: NSView {
+    let surface = Glass.makeOverlayPanel(content: body)
+    func paint() { surface.layer?.borderColor = CGColor(gray: 0, alpha: 0.6) }
+}'
+expect_fail DemoPopover hard-edge 'final class DemoPopover: NSView {
+    func paint() { rimLayer.strokeColor = NSColor(white: 1, alpha: 0.2).cgColor }
+}'
+expect_fail DemoTooltip hard-edge 'struct DemoTooltip: View {
+    var body: some View { Text("x").overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.black, lineWidth: 1)) }
+}'
+expect_pass TabHoverPreview 'final class TabHoverPreview: NSView {
+    func paint() { layer?.borderColor = Borders.color(Palette.separator).cgColor }
+}'
+expect_pass edge-in-flow 'final class DemoRowView: NSView {
+    func paint() { layer?.borderColor = NSColor.black.cgColor }
+}'
+expect_fail DemoPopoverAllowed hard-edge 'final class DemoPopover: NSView {
+    // one-material-allow: a test edge past the pin
+    func paint() { layer?.borderColor = NSColor.white.cgColor }
+}'
+
 # Toasts, sheets, dialogs, cards, banners, bubbles and notices are glass too: their window builds the
 # shared glass, no near-opaque veil lies over it, and the mostly opaque card fill stays in its file.
 expect_fail toast-window surface-window 'final class DemoToastPanel: NSPanel {
@@ -83,6 +110,15 @@ expect_pass light-veil 'final class DemoCard: NSView {
     let surface = Glass.makeOverlayPanel(content: body)
     func paint() { veil.layer?.backgroundColor = Palette.textPrimary.withAlphaComponent(0.13).cgColor }
 }'
+# SwiftUI on a menu panel is hosted in ThemedHostingView (Chief 2026-11-23); a plain host elsewhere is not this rule's.
+expect_fail menu-hosting menu-hosting '        let content = NSHostingView(rootView: Form())
+        let card = Glass.makeMenuPanel(content: content)'
+expect_fail menu-hosting-subclass menu-hosting 'final class Host<Content: View>: NSHostingView<Content> {}
+let card = Glass.makeMenuPanel(content: nil)'
+expect_pass menu-themed-hosting '        let content = ThemedHostingView(rootView: Form())
+        let card = Glass.makeMenuPanel(content: content)'
+expect_pass hosting-off-menu '        let content = NSHostingView(rootView: Form())
+        window.contentView = content'
 # A pane that builds no glass is not a floating surface: its dense fill is not this rule's.
 expect_pass dense-no-glass '        pane.layer?.backgroundColor = Palette.textPrimary.withAlphaComponent(0.94).cgColor'
 expect_fail card-material card-material '        let card = CardMaterial(tokens, lift: 0.1)'

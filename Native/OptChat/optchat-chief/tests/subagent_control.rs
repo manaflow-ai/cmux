@@ -507,3 +507,46 @@ fn a_handed_over_subagent_missing_from_the_home_list_is_not_gone() {
         "its own daemon's word ends it"
     );
 }
+
+/// David Beyer (Nov 20 call): a task list that tracks a long agent chat. A
+/// subagent whose harness keeps no plan gets the Chief's (`control tasks`), on
+/// its own chat; `[]` clears it, and a call with no list is refused.
+#[test]
+fn the_chief_keeps_a_subagents_task_list_on_its_chat() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let sp = spawner(&h);
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["long job".into()], None)).unwrap();
+    wait_for(&mut h, |h| !sub_prompts(h).is_empty());
+    let session = sub_session(&h);
+    let items = serde_json::json!([
+        {"content": "Repro", "status": "completed"},
+        {"content": "Fix", "status": "in_progress"},
+        {"content": "Land", "status": "pending"},
+    ]);
+    let call = |items: serde_json::Value| ControlCall {
+        action: "tasks".into(),
+        id: Some("a1".into()),
+        items: Some(items),
+        ..ControlCall::default()
+    };
+    let a = sp.clone();
+    let (set, list) = (call(items.clone()), items.clone());
+    let kept = run(&mut h, move || a.control(set)).unwrap();
+    assert!(kept.starts_with("outcome: done."), "{kept}");
+    assert!(kept.contains("1 of 3 done; now: Fix"), "{kept}");
+    let a = sp.clone();
+    let cleared = run(&mut h, move || a.control(call(serde_json::json!([])))).unwrap();
+    assert!(cleared.contains("cleared"), "{cleared}");
+    assert_eq!(
+        h.agents.inner.lock().unwrap().task_lists,
+        vec![(session.clone(), list), (session, serde_json::json!([]))]
+    );
+    let refused = optchat_chief::tools::Call::parse(
+        "control",
+        &serde_json::json!({"action": "tasks", "id": "a1"}),
+    )
+    .unwrap_err();
+    assert!(refused.contains("`items` is required"), "{refused}");
+}

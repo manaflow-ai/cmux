@@ -133,6 +133,10 @@ async fn no_limits_set_means_no_scope() {
             ("ACPMUX_SESSIONS_SWAP_MAX", "0"),
             ("ACPMUX_SESSION_TASKS_MAX", "0"),
             ("ACPMUX_SESSION_CPU_WEIGHT", "0"),
+            // On by default since #54137: off too, or a scope is made (and its slice call
+            // takes the one `limit_slice` turn the scope test's start waits on).
+            ("ACPMUX_SESSION_CPU_QUOTA_PCT", "0"),
+            ("ACPMUX_SESSION_IO_WEIGHT", "0"),
         ],
     )
     .await;

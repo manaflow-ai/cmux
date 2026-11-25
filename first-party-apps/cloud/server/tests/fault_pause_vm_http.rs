@@ -35,7 +35,7 @@ use serve_common::Host;
 use std::sync::Arc;
 use std::time::Duration;
 
-const PAUSED: &str = "vm-beta02";
+const PAUSED: &str = "vm_beta02";
 /// The resume bound the scenario holds the server to.
 const BOUND: Duration = Duration::from_secs(30);
 /// Retries of a fault that never clears: the waits 0.5+1+2+4+8+8 s fit in
@@ -206,11 +206,25 @@ fn a_404_by_label_is_not_retried_and_says_which_machine_has_that_name() {
     labelled["revision"] = json!("2");
     host.send(&json!({ "type": "team.event", "event": "cloud.machine.upsert",
         "data": { "machine": labelled } }));
-    host.cloud.fault_start_always(http_404());
+    // Lifecycle dispatch now reads before preparing a resume. A label is
+    // already absent at that boundary, so no mutation may be sent.
+    let absent = http_404();
+    host.cloud.wire.answer(
+        "cloud.machine.get",
+        json!({"machine": "probe-b"}),
+        None,
+        json!({"error": {"code": absent.code, "message": absent.message,
+            "retryable": absent.retryable}}),
+    );
     start(&host, "r", "probe-b", "resume-1");
     let Settled { result, waits } = settle(&mut host, &clock, "r");
     assert!(waits.is_empty(), "{waits:?}");
-    assert_eq!(host.cloud.starts().len(), 1, "a 404 is asked once");
+    assert!(host.cloud.starts().is_empty(), "a missing subject never reaches a mutation");
+    assert_eq!(
+        host.cloud.wire.calls.iter().filter(|call| call.op == "cloud.machine.get").count(),
+        1,
+        "the authoritative 404 is read once"
+    );
     assert_eq!(result["error"]["code"], "cmux.cloud.not_found", "{result}");
     assert_eq!(result["error"]["retryable"], false, "{result}");
     assert_eq!(result["error"]["step"], "start", "{result}");

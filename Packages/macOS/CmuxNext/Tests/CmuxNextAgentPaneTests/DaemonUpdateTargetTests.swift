@@ -161,9 +161,10 @@ import Testing
     }
 
     /// An offline machine is one quiet line in plain words, in its tooltip and in Settings >
-    /// Updates; once it updates the line goes.
+    /// Updates; once it updates the line goes. The words alone, with no hold; the 10 s hold before
+    /// the line shows: `DaemonUpdateBoardOfflineQuietTests`.
     @Test @MainActor func anOfflineMachineHasOneQuietLine() {
-        let board = DaemonUpdateBoard()
+        let board = DaemonUpdateBoard(offlineQuiet: .zero)
         board.apply(DaemonUpdateEvent(id: "acpmux-peer:swarm-10", displayName: "swarm-10", sshHost: "swarm-10", state: .offline))
         #expect(board.detail(sshHost: "swarm-10") == DaemonUpdateBoard.line(.offline))
         #expect(board.otherMachines?.lines == [DaemonUpdateBoard.offlineLine("swarm-10")])

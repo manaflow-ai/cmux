@@ -14,9 +14,27 @@ all of ours and then all of theirs. Every other conflict (a line both sides chan
 against a change) stays an ordinary conflict for the author. A .json or .toml
 result, settled or clean, that no longer parses or names a key twice is written
 back as the plain line merge and left conflicted, so a missing comma or a
-doubled key never merges silently.
+doubled key never merges silently. When the line merge of such a file is clean, so
+git wrote no markers, the line the parser stops at is marked as the conflict and the
+reason is said on stderr, with the side that was already malformed before the merge
+(cmux#50003: the base held `cmux-deadline` twice in one Cargo.toml, and every branch
+merging it got a file with a conflict status, no markers and no reason).
 
-Usage (git): merge-insertions.py %O %A %B %P %L; writes the result to %A and
+A .plist or .mobileconfig result must still be well-formed XML the same way.
+
+Generated files merge through this too (scripts/cmux-next/generated_merge.py says which):
+
+  cmux-export-v1     a file only a Mac's export rewrites (the settings schema, docs/mdm, the action
+                     exports): this merge as is, so both sides' rows stay and a real conflict stops
+                     the merge naming the file. It used to keep this branch's copy, which dropped
+                     every row the base added (cmux#45928, cmux#47525).
+  cmux-generated-v1  a file `generated_merge.py regenerate` rebuilds on any host (--generated):
+                     this merge when it is clean, so the base's rows stay even when no rebuild runs
+                     (a merge stopped on a hand-written file never runs the post-merge hook); when
+                     it is not, this branch's copy, said on stderr with the file and the command
+                     that rebuilds it, and the merge goes on.
+
+Usage (git): merge-insertions.py [--generated] %O %A %B %P %L; writes the result to %A and
 exits 1 when a conflict remains.
 """
 from __future__ import annotations
@@ -26,6 +44,7 @@ import os
 import re
 import subprocess
 import sys
+import xml.parsers.expat
 
 
 def plain_merge(ours: str, base: str, theirs: str, size: int) -> tuple[bytes, int]:
@@ -91,18 +110,22 @@ def toml_union(ours: list[bytes], theirs: list[bytes]) -> list[bytes] | None:
 
 # Two insertions that share this much of their substantive lines are one change made twice
 # (a file or function both branches got from one commit, then edited): kept both, the file
-# would hold it twice, so that stays a conflict.
+# would hold it twice, so that stays a conflict. A line the base already has is not counted:
+# it is the file's row shape (a plist's `<true/>`, a schema's `"type": "boolean"`), which every
+# new row repeats, so two different settings rows added at one place are not one change
+# (cmux#47525's settings exports).
 SAME_CHANGE_SHARE = 0.3
 
 
-def same_change(ours: list[bytes], theirs: list[bytes]) -> bool:
+def same_change(ours: list[bytes], theirs: list[bytes], common: frozenset[bytes] = frozenset()) -> bool:
     def substantive(block):
-        return {line.strip() for line in block if len(line.strip()) > 3}
+        return {line.strip() for line in block if len(line.strip()) > 3} - common
     a, b = substantive(ours), substantive(theirs)
     return bool(a and b) and len(a & b) >= SAME_CHANGE_SHARE * min(len(a), len(b))
 
 
-def settle(text: bytes, size: int, marker: int, toml: bool = False) -> tuple[bytes, int, int]:
+def settle(text: bytes, size: int, marker: int, toml: bool = False,
+           common: frozenset[bytes] = frozenset()) -> tuple[bytes, int, int]:
     """Resolve both-sides-inserted hunks in merge-file output written with `marker`-long
     markers; return the text (remaining conflicts rewritten with `size` markers), how many
     conflicts remain, and how many hunks were read."""
@@ -153,7 +176,7 @@ def settle(text: bytes, size: int, marker: int, toml: bool = False) -> tuple[byt
             for block in (sections["ours"], sections["theirs"]):
                 if block and not block[-1].endswith(b"\n"):
                     block[-1] += b"\n"
-            if same_change(sections["ours"], sections["theirs"]):
+            if same_change(sections["ours"], sections["theirs"], common):
                 joined = None
             else:
                 joined = (toml_union(sections["ours"], sections["theirs"]) if toml
@@ -178,18 +201,51 @@ def unique_keys(pairs):
     return dict(pairs)
 
 
-def parses(path: str, text: bytes) -> bool:
-    """A .json result must parse with no key twice in one object (both sides added the same
-    key); .toml rejects a repeated key itself."""
+def parse_error(path: str, text: bytes) -> tuple[str, int | None] | None:
+    """Why a .json, .toml or .plist text is no result, with the 1-based line the parser stopped
+    at when it names one; None when the text is fine. A .json result must parse with no key
+    twice in one object (both sides added the same key); .toml rejects a repeated key itself."""
     try:
         if path.endswith(".json"):
             json.loads(text, object_pairs_hook=unique_keys)
         elif path.endswith(".toml"):
             import tomllib  # Python 3.11+; an older python3 cannot check, so the merge stays a conflict
             tomllib.loads(text.decode("utf-8"))
-    except (ValueError, UnicodeDecodeError, ImportError):
-        return False
-    return True
+        elif path.endswith((".plist", ".mobileconfig")):
+            # Well-formed XML, not plistlib: the Intune plist is a fragment (key and value elements, no root).
+            whole = text.lstrip().startswith((b"<?xml", b"<!DOCTYPE"))
+            xml.parsers.expat.ParserCreate().Parse(text if whole else b"<fragment>" + text + b"</fragment>", True)
+    except ImportError:
+        return "this python3 has no tomllib (3.11+) to check it with", None
+    except xml.parsers.expat.ExpatError as error:
+        return str(error), error.lineno
+    except (ValueError, UnicodeDecodeError) as error:
+        line = getattr(error, "lineno", None)
+        if line is None:
+            named = re.search(r"\(at line (\d+)", str(error))  # tomllib says it only in the message
+            line = int(named.group(1)) if named else None
+        return str(error), line
+    return None
+
+
+def mark_unparsed(merged: bytes, ours: bytes, theirs: bytes, line: int | None, size: int) -> bytes:
+    """A line merge that is clean but does not parse, with standard markers: around the line the
+    parser stopped at, under the side or sides that hold that line, or around both sides whole
+    when the parser names no line."""
+    start, mid, end = (c * size for c in (b"<", b"=", b">"))
+    lines = merged.splitlines(keepends=True)
+
+    def block(ours_part: list[bytes], theirs_part: list[bytes]) -> list[bytes]:
+        for part in (ours_part, theirs_part):
+            if part and not part[-1].endswith(b"\n"):
+                part[-1] += b"\n"
+        return [start + b" ours\n", *ours_part, mid + b"\n", *theirs_part, end + b" theirs\n"]
+
+    if line is None or not 1 <= line <= len(lines):
+        return b"".join(block(ours.splitlines(keepends=True), theirs.splitlines(keepends=True)))
+    bad = lines[line - 1]
+    sides = [[bad] if bad.strip() in {row.strip() for row in side.splitlines()} else [] for side in (ours, theirs)]
+    return b"".join(lines[:line - 1] + block(*sides) + lines[line:])
 
 
 # TypeScript: two branches that each import a new name from one module both change that
@@ -408,7 +464,9 @@ def merge_lines(ours: str, base: str, theirs: str, path: str, size: int) -> tupl
     merged, status = merge_file(ours, base, theirs, path, marker)
     if status == 0:
         return merged, 0
-    result, remaining, hunks = settle(merged, size, marker, toml=path.endswith(".toml"))
+    with open(base, "rb") as handle:
+        common = frozenset(line.strip() for line in handle.read().splitlines())
+    result, remaining, hunks = settle(merged, size, marker, toml=path.endswith(".toml"), common=common)
     # git's exit status is its conflict count: a parse that read a different number
     # of hunks keeps git's own conflict instead.
     if hunks != status:
@@ -417,8 +475,11 @@ def merge_lines(ours: str, base: str, theirs: str, path: str, size: int) -> tupl
 
 
 def main(argv: list[str]) -> int:
+    generated = len(argv) > 1 and argv[1] == "--generated"
+    if generated:
+        argv = argv[:1] + argv[2:]
     if len(argv) not in (5, 6):
-        print("usage: merge-insertions.py %O %A %B %P [%L]", file=sys.stderr)
+        print("usage: merge-insertions.py [--generated] %O %A %B %P [%L]", file=sys.stderr)
         return 2
     base, ours, theirs, path = argv[1:5]
     size = int(argv[5]) if len(argv) == 6 else 7
@@ -433,8 +494,31 @@ def main(argv: list[str]) -> int:
     # different places), must parse with no key twice, and a python3 with no tomllib
     # cannot say it does. Otherwise it is git's plain merge, marked conflicted for the
     # author, even when a side was already malformed.
-    if remaining == 0 and not parses(path, result):
-        result, remaining = plain_merge(ours, base, theirs, size)[0], 1
+    error = parse_error(path, result) if remaining == 0 else None
+    if error:
+        why, line = error
+        with open(ours, "rb") as handle:
+            our_text = handle.read()
+        with open(theirs, "rb") as handle:
+            their_text = handle.read()
+        plain, status = plain_merge(ours, base, theirs, size)
+        if status == 0 or status > 127:
+            # No hunk for git to mark: the two sides' lines merge, the file they make does not parse.
+            plain = mark_unparsed(result, our_text, their_text, line, size)
+        result, remaining = plain, 1
+        if not generated:
+            broken = [name for name, text in (("this branch's copy", our_text), ("the copy being merged in", their_text))
+                      if parse_error(path, text)]
+            already = (f"; {' and '.join(broken)} already did not parse before this merge, so fix it there too"
+                       if broken else "")
+            print(f"cmux merge: {path}: the merged file does not parse ({why}){already}. It is left as a conflict "
+                  "with markers at the line to fix.", file=sys.stderr)
+    if remaining and generated:
+        # %A already holds this branch's copy: leave it, and say so.
+        print(f"cmux merge: {path}: both sides rebuilt this generated file and their copies do not merge; kept "
+              "this branch's copy. Rebuild it from the merged sources before committing: "
+              "python3 scripts/cmux-next/generated_merge.py regenerate --merge --stage", file=sys.stderr)
+        return 0
     with open(ours, "wb") as handle:
         handle.write(result)
     return 1 if remaining else 0

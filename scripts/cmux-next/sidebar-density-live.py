@@ -31,6 +31,7 @@ Stop the app afterwards with "$NX_APP_STOP".
 import argparse, http.server, json, os, socket, struct, subprocess, sys, tempfile, threading, time, zlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -209,7 +210,14 @@ def measure(state, pinned_ws):
 
 def capture(label, pid, pinned_ws):
     rpc("debug.mouse", {"x": 700, "y": 400, "action": "hover"})
-    time.sleep(1.5)  # hover fades and the spinner frame settle before the shot
+    # Until the list settled after the hover moved off it: its rows and items (frames, hover-driven layout) read the
+    # same several times in a row. The status glyphs are left out: a spinner animates for as long as it shows.
+    def settled():
+        st = sidebar()
+        return json.dumps({"rows": st.get("rows"), "items": st.get("items")}, sort_keys=True, default=str)
+    if wait_stable(settled, f"the sidebar rows before the {label} shot", timeout=10, interval=0.1, reads=5,
+                   raise_on_timeout=False) is None:
+        print(f"note: the sidebar rows never settled in 10 s before the {label} shot", flush=True)
     state = sidebar()
     with open(os.path.join(opts.out, f"rows-{label}.json"), "w") as f:
         json.dump(state, f, indent=1)

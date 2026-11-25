@@ -1,0 +1,67 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/omnibar-look",
+  "name": "Omnibar",
+  "tagline": "Browser chrome for agents and terminals: one band, one colour, one root corner.",
+  "description": "A whole cmux look built only from public surfaces, after the two browsers whose chrome gets out of the way. One band of chrome at fixed heights (a 28 pt control in a 36 pt band), one colour with a neutral highlight on the selected tab and row, hairlines instead of shades, and every corner derived from the address field's 8 pt: a chip inside it is 6, a pane around it is 12. No glass, no goo. A second pair of themes (omnibar-two) puts the sidebar and tab strip one step darker. Built on Hush's colours. Remove it and everything you had comes back.",
+  "version": "0.2.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "screenshots": ["screenshots/omnibar-light.png", "screenshots/omnibar-dark.png"],
+
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "omnibar",
+
+    // The address field is the root shape: 28 pt tall, 8 pt corners, 14 pt text, no shadow.
+    "browser.omnibar.cornerRadius": 8,
+    "browser.omnibar.height": 28,
+    "browser.omnibar.fontSize": 14,
+    "browser.omnibar.shadow": false,
+
+    // The chat is a page: the system face at 14 px on a 1.5 line (21 px; prose is the
+    // one thing off the 4 pt grid), code at 0.92 (13 px, the chrome's own size), a 720 px
+    // column, harness marks as symbols.
+    "agentPane.display.font.ui": "system-ui",
+    "agentPane.display.font.preset": "system",
+    "agentPane.display.font.size": 14,
+    "agentPane.display.font.lineHeight": 1.5,
+    "agentPane.display.code.scale": 0.92,
+    "agentPane.display.width": 720,
+    "agentPane.display.harnessPlacement": "symbols",
+    "agentPane.composerRing": "context",
+
+    // The Markdown viewer in the same hand as the chat.
+    "markdown.font.preset": "system",
+    "markdown.font.size": 14,
+    "markdown.font.lineHeight": 1.5,
+    "markdown.code.scale": 0.92,
+    "markdown.layout.width": 88,
+    "diff.colors": "muted",
+    "diff.diffIndicators": "bars",
+    // Group colours in grays: the only colour in the chrome is state.
+    "sidebar.groupPalette": "grayscale",
+
+    // The sidebar is a vertical tab strip: one-line 28 pt rows, an icon, the title and the
+    // session's state; no second line, no timestamps.
+    "sidebar.density": "compact",
+    "sidebar.groupBy": "folder",
+    "sidebar.groupHeader.background": "sections",
+    "sidebar.groupHeader.memberCount": false,
+    "sidebar.detailedStatusIcons": false,
+    "sidebar.showTimestamps": false,
+    "sidebar.workspaceRow.icon": true,
+    "sidebar.workspaceRow.directory": false,
+    "sidebar.workspaceRow.branch": false,
+    "sidebar.workspaceRow.lastActivity": false,
+    "sidebar.workspaceRow.agentStatus": true,
+    "sidebar.workspaceRow.pullRequest": false,
+    "sidebar.workspaceRow.working": true,
+    "sidebar.workspaceRow.progress": false,
+    "sidebar.hoverCards.enabled": true
+
+    // Pending cmux#46738: the composer's own look (a 40 pt field with 14 pt corners, 28 pt buttons
+    // 6 pt from its edge) is not settable.
+    // "agentPane.composerLook": "auto",
+  }
+}

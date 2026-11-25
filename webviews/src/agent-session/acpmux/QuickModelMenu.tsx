@@ -77,7 +77,8 @@ export function QuickModelMenu({
   onOpenChange(open: boolean): void;
   /// Holds the chip (the menu's button), where the full picker anchors.
   trigger: React.RefObject<HTMLButtonElement | null>;
-  chip: { "data-menu": string; label: string; title: string };
+  /// `data-tooltip-shortcut`: Switch Model's keycaps, shown after the title (shortcuts.ts).
+  chip: { "data-menu": string; label: string; title: string; "data-tooltip-shortcut"?: string | undefined };
   menu: QuickMenu;
   /// Opens the full picker, searching for `query` when one was typed.
   onMore(query?: string): void;
@@ -132,6 +133,17 @@ export function QuickModelMenu({
       // A held pick of another harness opens on its tab: the menu shows what the next message runs.
       setTab(heldTab(families) ?? families?.current ?? families?.list.find((family) => !family.starred)?.id);
       setQuery("");
+      setMoreFor(undefined);
+      setHeldFast(undefined);
+    }
+  }
+  // The chat's harness changing under an open menu moves it to that harness's tab, as the columns
+  // menu does (QuickModelColumns.tsx, cmux#55750).
+  const [seenCurrent, setSeenCurrent] = useState(families?.current);
+  if (families?.current !== seenCurrent) {
+    setSeenCurrent(families?.current);
+    if (open && families?.current) {
+      setTab(heldTab(families) ?? families.current);
       setMoreFor(undefined);
       setHeldFast(undefined);
     }
@@ -1074,6 +1086,10 @@ export function QuickModelMenu({
           {children}
         </MenuButton>
         <MenuPopup
+          // The columns menu sizes itself (QuickModelColumns: the longest name of every tab, the
+          // person's dragged width and grip). The compact menu is settled by the shared rule; its
+          // rail hold above (railRef) only raises the same floor, so the two never disagree.
+          popupSettle={families ? "own" : undefined}
           scroll={families === undefined}
           footer={
             menu.updates ? (
@@ -1104,6 +1120,8 @@ export function QuickModelMenu({
           // A native menu panel cannot draw the harness strip or the More models scroll area.
           // Keep this combined surface inside the window in both directions.
           escapes={!families}
+          // The model menu's fallback list (no columns) resizes as the columns do (cmux#51745).
+          resize={{ id: "composer.modelList" }}
           // ui-allow: 1 to 9 pick a row in place and typing filters the list, as in Claude Code's model menu.
           onKeyDown={keyDown}
         >
@@ -1148,9 +1166,10 @@ export function QuickModelMenu({
                       // While a search shows, no tab is the list's: the matches are every harness's.
                       aria-pressed={!query && entry === shownTab}
                       data-used={ownTab ? used : undefined}
-                      // tooltip-allow: the rail tab draws only the harness's mark (its symbol, else its
-                      // name's initial), never a machine or session initial; its accessible name and
-                      // title identify the harness and whether this chat ran it.
+                      // The rail tab draws only the harness's mark (its symbol, else its name's initial),
+                      // never a machine or session initial; its accessible name and title identify the
+                      // harness and whether this chat ran it.
+                      // tooltip-allow: the rail tab shows only the harness's mark.
                       title={[name, family.note, ownTab ? t("picker.usedHere") : undefined].filter(Boolean).join(" · ")}
                       className="acpmux-quick-rail-tab"
                       // ui-allow: the rail is no row of the menu; ArrowLeft and ArrowRight move along it, so Up and Down stay in the list.

@@ -201,3 +201,67 @@ fn created_by_needs_a_known_kind() {
     assert_eq!(super::tests::error_code(refused), "validation.invalid");
     mux.shutdown();
 }
+
+/// `created-by-detail-v1` (Leo, 2026-11-19: "acpmux should expose these a lot better"): an agent's
+/// workspace, space and tab keep its session's name, host and purpose, shown with each, kept across
+/// a restart; a person's create shows nothing new.
+#[test]
+fn an_agent_names_its_session_host_and_purpose_on_what_it_makes() {
+    let session = Session::new("created-by-detail");
+    let mux = session.open();
+    let by = json!({"kind": "agent", "session": "s-7", "session_name": "desktop-helper",
+                    "host": "studio-mac", "purpose": "Demo project for the weather widget"});
+    let made = created(&mux, "tiny weather", by.clone());
+    let mine = empty_workspace(&mux, "mine");
+    let room = mutate(&mux, "room.create", json!({"name": "Space 2", "created_by": by}), "room-2")
+        ["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let tab = mutate(
+        &mux,
+        "tab.create_terminal",
+        json!({"workspace": mine, "created_by": {"kind": "agent", "session": "s-7",
+               "purpose": "flow check"}}),
+        "tab-agent",
+    )["tab_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let check = |mux: &Arc<Mux>| {
+        assert_eq!(workspace(mux, &made)["extra"]["created_by"], by);
+        assert!(workspace(mux, &mine)["extra"].get("created_by").is_none(), "a person's create");
+        let rooms = read(mux, "room.list", json!({}));
+        let shown = rooms.as_array().unwrap().iter().find(|r| r["id"] == room).unwrap();
+        assert_eq!(shown["created_by"]["session_name"], "desktop-helper");
+        assert!(
+            rooms
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|r| r["id"] != room)
+                .all(|r| r.get("created_by").is_none()),
+            "the default space names no creator"
+        );
+        let tabs = read(mux, "tab.list", json!({}));
+        let tabs = tabs.as_array().unwrap();
+        let shown = tabs.iter().find(|t| t["id"] == tab).unwrap();
+        assert_eq!(
+            shown["extra"]["created_by"],
+            json!({"kind": "agent", "session": "s-7", "purpose": "flow check"})
+        );
+        assert!(
+            tabs.iter().filter(|t| t["id"] != tab).all(|t| t["extra"].get("created_by").is_none())
+        );
+        let scoped = read(mux, "tab.list", json!({"workspace": mine}));
+        let scoped = scoped.as_array().unwrap().iter().find(|t| t["id"] == tab).unwrap().clone();
+        assert_eq!(scoped["extra"]["created_by"]["purpose"], "flow check");
+    };
+    check(&mux);
+    mux.shutdown();
+    drop(mux);
+    let mux = session.open();
+    check(&mux);
+    mutate(&mux, "room.delete", json!({"room": room}), "room-2-delete");
+    mux.shutdown();
+}

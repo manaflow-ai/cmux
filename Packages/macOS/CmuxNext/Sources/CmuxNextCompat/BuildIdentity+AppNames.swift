@@ -18,7 +18,7 @@ public import Foundation
 /// occurs in a tag).
 extension BuildIdentity {
     /// The session tag (`cmux-app[-<tag>]`) and control socket name
-    /// (`/tmp/cmux-<name>.sock`; nil: release's `~/.local/state/cmux/cmux.sock`)
+    /// (`/tmp/cmux-<name>.sock`; nil: release's `~/.local/state/cmux-next/cmux.sock`)
     /// a build keeps.
     struct KeptNames: Sendable, Equatable {
         let sessionTag: String?
@@ -81,7 +81,7 @@ extension BuildIdentity {
 
     /// The control socket of this build's app: a kept path
     /// (`/tmp/cmux-<channel>.sock`, `/tmp/cmux-debug-<tag>.sock`, release's
-    /// `~/.local/state/cmux/cmux.sock`), else
+    /// `~/.local/state/cmux-next/cmux.sock`), else
     /// `/tmp/cmux-<kind>--<key hash>.sock` (`debug` for DEV). Nil outside any bundle.
     public func controlSocket(userHome: URL) -> String? {
         let word: String
@@ -93,7 +93,7 @@ extension BuildIdentity {
         switch kept {
         case .some(let names):
             return names.socket.map { "/tmp/cmux-\($0).sock" }
-                ?? userHome.appendingPathComponent(".local/state/cmux/cmux.sock").path
+                ?? userHome.appendingPathComponent(".local/state/cmux-next/cmux.sock").path
         case .none: return "/tmp/cmux-\(word)--\(keyHash).sock"
         }
     }

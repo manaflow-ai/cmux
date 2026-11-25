@@ -87,7 +87,7 @@ pub(super) fn args_for(
         Err(failure) => return Some(Err(failure)).filter(|_| names_server(args)),
     };
     let (first, rest) = command_args.split_first()?;
-    if first != "server" && first != PAIR_VERB {
+    if first != "server" && first != PAIR_VERB && first != UNPAIR_VERB {
         return None;
     }
     let lifecycle_verb = rest.first().filter(|_| first == "server").filter(|verb| {
@@ -119,6 +119,8 @@ pub(super) fn args_for(
             Some(out) => out,
             None => return refuse(catalog.pair_needs_code.to_owned()),
         }
+    } else if first == UNPAIR_VERB {
+        std::iter::once(UNPAIR_VERB.to_owned()).chain(rest.iter().cloned()).collect()
     } else {
         rest.to_vec()
     };
@@ -136,6 +138,11 @@ pub(super) fn args_for(
 /// `cmux server pair --invite CODE` with the same flags. The code may be typed
 /// as one word or two (`ABCDE 12345`); `cmux_server` validates it.
 pub(crate) const PAIR_VERB: &str = "pair";
+
+/// `cmux unpair [--local]`: the same as `cmux server unpair`, beside `cmux
+/// pair`. This machine signs itself out of cmux Cloud, then forgets its
+/// pairing.
+pub(crate) const UNPAIR_VERB: &str = "unpair";
 
 /// The machine server's words for `cmux pair` (after the verb), or `None`
 /// without a code.
@@ -239,6 +246,17 @@ pub(super) fn run_if_requested(args: &[String], surface: Surface) -> Option<Moun
         Ok(ServerRoute::Machine(server_args)) => {
             if let Err(code) = end_on_termination_signals() {
                 return Some(Mount::Exit(code));
+            }
+            // `install|uninstall ssh://HOST`: the same verbs on another machine.
+            match super::server_remote::request(&server_args) {
+                Some(Ok(request)) => {
+                    return Some(Mount::Exit(super::server_remote::run_request(&request)));
+                }
+                Some(Err(error)) => {
+                    eprintln!("cmux server: {error}");
+                    return Some(Mount::Exit(2));
+                }
+                None => {}
             }
             let guard = std::env::var(cmux_server_core::reexec::GUARD_ENV).ok();
             let code = cmux_server::cli::run_code(&server_args, guard, release_version());

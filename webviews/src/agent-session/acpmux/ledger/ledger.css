@@ -17,7 +17,7 @@
 .cst-head{flex:none;display:grid;grid-template-columns:minmax(0,1fr) repeat(8,64px);gap:var(--ds-space-2);padding:0 var(--ds-space-3);font-size:var(--text-detail);color:var(--agent-muted);text-align:right}
 .cst-head-label{text-align:left}
 .cst-row{position:relative;box-sizing:border-box;width:100%;display:flex;align-items:center;gap:var(--ds-space-3);padding:var(--ds-space-2) var(--ds-space-3);border:0;border-radius:var(--radius-control);background:transparent;color:inherit;font:inherit;text-align:left;overflow:hidden}
-button.cst-row:hover{background:var(--ds-color-hover)}
+button.cst-row:hover{background:var(--ds-surface-hover)}
 button.cst-row:focus-visible{outline:none;background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 12%,transparent)}
 .cst-row[data-look="table"]{display:grid;grid-template-columns:minmax(0,1fr) repeat(8,64px);gap:var(--ds-space-2)}
 .cst-row[data-look="stacked"]{flex-wrap:wrap;row-gap:var(--ds-space-1)}

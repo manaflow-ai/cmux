@@ -7,7 +7,7 @@
 // cards show here as they change. The arms are the opened group's looks
 // (`data-tool-steps-look`, conversation.css `.cv-steps`): shared (the transcript's default, no step
 // icons and no guide, Leo 2026-11-03), guide (the replaced cmux#32363 look), card, tree and zebra.
-// The opened lead thought's label has its own looks (`data-lead-thought-look`): "Thought for 6s" with
+// The opened lead thought's line has its own looks (`data-lead-thought-look`): its own first line with
 // the chevron right after it (shared, shipped), the chevron alone at the row's far edge (lead-edge,
 // cmux#27896, replaced) and the chevron alone at the text column (lead-bare). step-hover shows an
 // inner step under the pointer: its chevron shows and its words light, never its glyph (Codex parity).
@@ -193,7 +193,7 @@ export default agentPaneEntry({
     ),
     shared: variant(
       "shared",
-      'Chosen default, as Claude Code desktop lists a run: the steps under the run\'s line with no icons and no guide, their words on its text column; the opened lead thought reads "Thought for 6s" with its chevron right after the words, its text flush under them.',
+      "Chosen default, as Claude Code desktop lists a run: the steps under the run's line with no icons and no guide, their words on its text column; the opened lead thought reads its own first line with its chevron right after it, the rest of its text flush under it.",
     ),
     guide: variant(
       "guide",
@@ -207,12 +207,12 @@ export default agentPaneEntry({
     zebra: variant("zebra", "Alternative: no ring or hairlines; every other step on the cards' fill."),
     "lead-edge": variant(
       "shared",
-      "Replaced (cmux#27896): the opened lead thought has no label; its chevron sits alone at the top of the row's far edge, beside the text.",
+      "Replaced (cmux#27896): the opened lead thought hides its first line; its chevron sits alone at the top of the row's far edge, beside the text.",
       { lead: "edge" },
     ),
     "lead-bare": variant(
       "shared",
-      "Alternative: the opened lead thought has no label; its chevron sits alone at the text column over the text.",
+      "Alternative: the opened lead thought hides its first line; its chevron sits alone at the text column over the text.",
       { lead: "bare" },
     ),
     "step-hover": variant(

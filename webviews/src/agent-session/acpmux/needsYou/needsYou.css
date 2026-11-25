@@ -338,7 +338,7 @@
 }
 .acpmux-needs-you-answer:first-child,
 .acpmux-needs-you-answer:hover:not(:disabled) {
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
 }
 .acpmux-needs-you-answer[data-tone="deny"] .acpmux-needs-you-answer-label {
   color: var(--agent-soft, var(--agent-muted));
@@ -433,7 +433,7 @@
   height: var(--ds-control-primary);
   padding: 0 var(--ds-space-3);
   border-radius: var(--ds-radius-popup);
-  color: var(--acpmux-needs-you-mark);
+  color: var(--acpmux-needs-you-ink);
   font-family: var(--font-ui);
   font-size: var(--text-control);
   font-weight: var(--weight-regular);

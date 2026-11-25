@@ -143,7 +143,7 @@ br_get_dmg() {
     here="$(git rev-parse HEAD)"
     head="${headsha:-$here}"
     git cat-file -e "$head^{commit}" 2>/dev/null \
-      || git fetch --quiet https://github.com/manaflow-ai/cmux.git "$head" || { echo "BR cannot fetch $head"; return 3; }
+      || git fetch --quiet --recurse-submodules=no https://github.com/manaflow-ai/cmux.git "$head" || { echo "BR cannot fetch $head"; return 3; }
     git -c advice.detachedHead=false checkout --quiet --detach "$head" || return 3
     build_dmg "$out" head release; rc=$?
     git -c advice.detachedHead=false checkout --quiet --detach "$here" || return 3

@@ -38,6 +38,9 @@ pub struct Persisted {
 /// The staleness context a restore captures at entry (Swift `checkExistingSessionBody`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RestoreTicket {
+    /// Which restore run this answer belongs to: one run at a time owns the
+    /// restore, and the answers of a finished run are dropped.
+    pub id: u64,
     pub generation: u64,
     pub store_write_high_water: u64,
     pub retry_on_storage_available: bool,
@@ -84,8 +87,8 @@ impl SignInKind {
 pub enum AfterTeams {
     /// Nothing: a plain refresh.
     Nothing,
-    /// The restore with this ticket finishes.
-    Restore,
+    /// The restore run with this id finishes.
+    Restore { id: u64 },
     /// The sign-in flow completes.
     SignIn(SignInFlow),
 }
@@ -93,6 +96,9 @@ pub enum AfterTeams {
 /// The context of one team-list read (Swift `refreshTeams(generation:)`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TeamRefreshTicket {
+    /// Which read this is: each read is answered once, and a repeated or
+    /// unknown answer is dropped.
+    pub id: u64,
     pub generation: u64,
     pub mutation_generation: u64,
     pub list_generation: u64,
@@ -233,13 +239,156 @@ pub enum Event {
     /// A `42` sign-in remembered its DEBUG credentials.
     DebugCredentialsRemembered,
     SignOutRequested,
-    /// Sign-out captured its teardown credentials and cleared the local token store.
-    SignOutLocalCleared,
+    /// Sign-out captured its teardown credentials and cleared the local token
+    /// store. `sign_out_epoch` is the one its capture effect carried.
+    SignOutLocalCleared {
+        sign_out_epoch: u64,
+    },
     /// A token read found the session definitively gone.
     TokenReadUnauthorized(TokenReadKind),
     DevAuthAccessTokenFinished {
         got_token: bool,
     },
+}
+
+impl Event {
+    /// Every event's name, in the table's order (a restore by its trigger).
+    pub const KINDS: [&'static str; 30] = [
+        "restore_launch",
+        "restore_foreground",
+        "restore_team_scope_signal",
+        "tokens_probed",
+        "token_storage_availability",
+        "probe_retry_due",
+        "cached_session_validated",
+        "surviving_refresh_token_read",
+        "stale_session_cleared",
+        "auto_login_finished",
+        "sign_in_requested",
+        "token_work_quiesced",
+        "online_checked",
+        "exchange_finished",
+        "sign_in_user_fetched",
+        "teams_requested",
+        "teams_refreshed",
+        "post_sign_in_hook_finished",
+        "team_scope_recovery_due",
+        "team_scope_recovery_check_finished",
+        "set_selected_team",
+        "team_selection_mutated",
+        "team_list_mutated",
+        "send_code_started",
+        "send_code_finished",
+        "debug_credentials_remembered",
+        "sign_out_requested",
+        "sign_out_local_cleared",
+        "token_read_unauthorized",
+        "dev_auth_access_token_finished",
+    ];
+
+    /// This event's name in the table.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Restore(RestoreTrigger::Launch) => "restore_launch",
+            Self::Restore(RestoreTrigger::Foreground) => "restore_foreground",
+            Self::Restore(RestoreTrigger::TeamScopeSignal) => "restore_team_scope_signal",
+            Self::TokensProbed { .. } => "tokens_probed",
+            Self::TokenStorageAvailability { .. } => "token_storage_availability",
+            Self::ProbeRetryDue { .. } => "probe_retry_due",
+            Self::CachedSessionValidated { .. } => "cached_session_validated",
+            Self::SurvivingRefreshTokenRead { .. } => "surviving_refresh_token_read",
+            Self::StaleSessionCleared { .. } => "stale_session_cleared",
+            Self::AutoLoginFinished { .. } => "auto_login_finished",
+            Self::SignInRequested { .. } => "sign_in_requested",
+            Self::TokenWorkQuiesced { .. } => "token_work_quiesced",
+            Self::OnlineChecked { .. } => "online_checked",
+            Self::ExchangeFinished { .. } => "exchange_finished",
+            Self::SignInUserFetched { .. } => "sign_in_user_fetched",
+            Self::TeamsRequested => "teams_requested",
+            Self::TeamsRefreshed { .. } => "teams_refreshed",
+            Self::PostSignInHookFinished { .. } => "post_sign_in_hook_finished",
+            Self::TeamScopeRecoveryDue { .. } => "team_scope_recovery_due",
+            Self::TeamScopeRecoveryCheckFinished { .. } => "team_scope_recovery_check_finished",
+            Self::SetSelectedTeam(..) => "set_selected_team",
+            Self::TeamSelectionMutated => "team_selection_mutated",
+            Self::TeamListMutated => "team_list_mutated",
+            Self::SendCodeStarted => "send_code_started",
+            Self::SendCodeFinished { .. } => "send_code_finished",
+            Self::DebugCredentialsRemembered => "debug_credentials_remembered",
+            Self::SignOutRequested => "sign_out_requested",
+            Self::SignOutLocalCleared { .. } => "sign_out_local_cleared",
+            Self::TokenReadUnauthorized(..) => "token_read_unauthorized",
+            Self::DevAuthAccessTokenFinished { .. } => "dev_auth_access_token_finished",
+        }
+    }
+
+    /// The restore ticket this event answers, if it answers a restore effect.
+    pub fn restore_ticket(&self) -> Option<&RestoreTicket> {
+        match self {
+            Self::TokensProbed { ticket, .. }
+            | Self::TokenStorageAvailability { ticket, .. }
+            | Self::ProbeRetryDue { ticket, .. }
+            | Self::CachedSessionValidated { ticket, .. }
+            | Self::SurvivingRefreshTokenRead { ticket, .. }
+            | Self::StaleSessionCleared { ticket, .. }
+            | Self::AutoLoginFinished { ticket, .. } => Some(ticket),
+            Self::Restore(..)
+            | Self::SignInRequested { .. }
+            | Self::TokenWorkQuiesced { .. }
+            | Self::OnlineChecked { .. }
+            | Self::ExchangeFinished { .. }
+            | Self::SignInUserFetched { .. }
+            | Self::TeamsRequested
+            | Self::TeamsRefreshed { .. }
+            | Self::PostSignInHookFinished { .. }
+            | Self::TeamScopeRecoveryDue { .. }
+            | Self::TeamScopeRecoveryCheckFinished { .. }
+            | Self::SetSelectedTeam(..)
+            | Self::TeamSelectionMutated
+            | Self::TeamListMutated
+            | Self::SendCodeStarted
+            | Self::SendCodeFinished { .. }
+            | Self::DebugCredentialsRemembered
+            | Self::SignOutRequested
+            | Self::SignOutLocalCleared { .. }
+            | Self::TokenReadUnauthorized(..)
+            | Self::DevAuthAccessTokenFinished { .. } => None,
+        }
+    }
+
+    /// The sign-in flow this event answers, if it answers a sign-in effect.
+    pub fn sign_in_flow(&self) -> Option<SignInFlow> {
+        match self {
+            Self::TokenWorkQuiesced { flow, .. }
+            | Self::OnlineChecked { flow, .. }
+            | Self::ExchangeFinished { flow, .. }
+            | Self::SignInUserFetched { flow, .. } => Some(*flow),
+            Self::Restore(..)
+            | Self::TokensProbed { .. }
+            | Self::TokenStorageAvailability { .. }
+            | Self::ProbeRetryDue { .. }
+            | Self::CachedSessionValidated { .. }
+            | Self::SurvivingRefreshTokenRead { .. }
+            | Self::StaleSessionCleared { .. }
+            | Self::AutoLoginFinished { .. }
+            | Self::SignInRequested { .. }
+            | Self::TeamsRequested
+            | Self::TeamsRefreshed { .. }
+            | Self::PostSignInHookFinished { .. }
+            | Self::TeamScopeRecoveryDue { .. }
+            | Self::TeamScopeRecoveryCheckFinished { .. }
+            | Self::SetSelectedTeam(..)
+            | Self::TeamSelectionMutated
+            | Self::TeamListMutated
+            | Self::SendCodeStarted
+            | Self::SendCodeFinished { .. }
+            | Self::DebugCredentialsRemembered
+            | Self::SignOutRequested
+            | Self::SignOutLocalCleared { .. }
+            | Self::TokenReadUnauthorized(..)
+            | Self::DevAuthAccessTokenFinished { .. } => None,
+        }
+    }
 }
 
 /// An output of the reducer: I/O or a publication for the caller to run.
@@ -340,8 +489,10 @@ pub enum Effect {
     ClearPhaseDampers(&'static [AuthPhase]),
     /// Read the stored access and refresh tokens with no network, forget the
     /// latest sign-in refresh token, clear the local token store, then send
-    /// [`Event::SignOutLocalCleared`].
-    CaptureTeardownCredentialsAndClearLocalSession,
+    /// [`Event::SignOutLocalCleared`] with the same epoch.
+    CaptureTeardownCredentialsAndClearLocalSession {
+        sign_out_epoch: u64,
+    },
     EndSignOutCredentialCapture,
     WaitForPostSignInHooks,
     /// The bounded best-effort hook and session revocation with the captured tokens.
@@ -350,4 +501,59 @@ pub enum Effect {
     FailTokenRead(AuthFailure),
     /// Sign in with the DEBUG credentials and read an access token.
     TryDevAuthAccessToken,
+}
+
+impl Effect {
+    /// This effect's name in the table.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::NotifySessionWillTransition => "notify_session_will_transition",
+            Self::PublishSessionIdentity(..) => "publish_session_identity",
+            Self::PublishTeamScope(..) => "publish_team_scope",
+            Self::SaveCachedUser(..) => "save_cached_user",
+            Self::ClearCachedUser => "clear_cached_user",
+            Self::SetHasTokens => "set_has_tokens",
+            Self::ClearSessionCache => "clear_session_cache",
+            Self::PersistSelectedTeam(..) => "persist_selected_team",
+            Self::DropPendingCode => "drop_pending_code",
+            Self::RecordLatestSignInRefreshToken => "record_latest_sign_in_refresh_token",
+            Self::ForgetLatestSignInRefreshToken => "forget_latest_sign_in_refresh_token",
+            Self::ForgetDebugCredentials => "forget_debug_credentials",
+            Self::LogSignOut { .. } => "log_sign_out",
+            Self::ClearLocalSession => "clear_local_session",
+            Self::ClearStaleSession { .. } => "clear_stale_session",
+            Self::ProbeStoredTokens(..) => "probe_stored_tokens",
+            Self::ValidateCachedSession(..) => "validate_cached_session",
+            Self::ReadSurvivingRefreshToken { .. } => "read_surviving_refresh_token",
+            Self::CheckTokenStorageAvailable(..) => "check_token_storage_available",
+            Self::RetryProbeAfter { .. } => "retry_probe_after",
+            Self::AutoLogin { .. } => "auto_login",
+            Self::JoinRestore => "join_restore",
+            Self::RestoreFinished => "restore_finished",
+            Self::SetLoading(..) => "set_loading",
+            Self::ClearExternalSignInFailureDetail => "clear_external_sign_in_failure_detail",
+            Self::QuiesceTokenWork(..) => "quiesce_token_work",
+            Self::CheckOnline(..) => "check_online",
+            Self::RunExchange { .. } => "run_exchange",
+            Self::FetchUser(..) => "fetch_user",
+            Self::SignInSucceeded(..) => "sign_in_succeeded",
+            Self::SignInFailed { .. } => "sign_in_failed",
+            Self::RefreshTeams(..) => "refresh_teams",
+            Self::RunPostSignInHook(..) => "run_post_sign_in_hook",
+            Self::SessionCheckRateLimited { .. } => "session_check_rate_limited",
+            Self::SessionCheckSucceeded => "session_check_succeeded",
+            Self::SleepTeamScopeRecovery { .. } => "sleep_team_scope_recovery",
+            Self::CancelTeamScopeRecovery { .. } => "cancel_team_scope_recovery",
+            Self::CancelInFlightWork => "cancel_in_flight_work",
+            Self::ClearPhaseDampers(..) => "clear_phase_dampers",
+            Self::CaptureTeardownCredentialsAndClearLocalSession { .. } => {
+                "capture_teardown_credentials_and_clear_local_session"
+            }
+            Self::EndSignOutCredentialCapture => "end_sign_out_credential_capture",
+            Self::WaitForPostSignInHooks => "wait_for_post_sign_in_hooks",
+            Self::ServerTeardown => "server_teardown",
+            Self::FailTokenRead(..) => "fail_token_read",
+            Self::TryDevAuthAccessToken => "try_dev_auth_access_token",
+        }
+    }
 }
