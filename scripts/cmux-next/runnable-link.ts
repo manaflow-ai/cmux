@@ -230,10 +230,19 @@ export function snapshotCensus(rows: any[], now: number): { total: number; live:
   return { total: rows.length, live: live.length, oldest_h: Number.isFinite(oldest) ? Math.round((now - oldest) / 360_000) / 10 : null, by_shape: top };
 }
 
+// The run tag a row's name carries: "runnable link rl-<tag> ..." (machines, plain snapshots) or the link API's own
+// snapshot name "link <user> rl-<tag>-mint..." (its clientKey). The sweep matched only the first, so every link snapshot a
+// run left (no revoke before it died) stayed: 6 of the team's 9 provider snapshot slots in run 45716117127's census.
+export function runTag(name: unknown): string | null {
+  if (typeof name !== "string") return null;
+  const m = /^runnable link (rl-[0-9a-z]+)(?: |$)/.exec(name) ?? /^link \S+ (rl-[0-9a-z]+)-mint(?:-expiring)?$/.exec(name);
+  return m ? m[1] : null;
+}
+
 export function strays(rows: any[], tag: string, now: number, deleted: Set<string>): string[] {
   return rows
-    .filter((r) => typeof r?.name === "string" && r.name.startsWith("runnable link rl-") && r.status !== "deleted" && r.status !== "deleting")
-    .filter((r) => r.name === `runnable link ${tag}` || r.name.startsWith(`runnable link ${tag} `) || now - createdMs(r) >= 2 * 3600_000)
+    .filter((r) => runTag(r?.name) !== null && r.status !== "deleted" && r.status !== "deleting")
+    .filter((r) => runTag(r.name) === tag || now - createdMs(r) >= 2 * 3600_000)
     .map((r) => String(r.id ?? r.machine_id ?? ""))
     .filter((id) => id && !deleted.has(id));
 }
@@ -288,6 +297,7 @@ async function main(): Promise<number> {
   const meta: Record<string, unknown> = { backend: backend.name, project: `${PROJECT_REPO}@${PROJECT_REF}`, tag };
   let snapshot: string | null = null;
   let link: any = null;
+  let linkRevoked = false; // a link not revoked keeps its snapshot past expiry (cmux-platform deletes it on revoke only)
   let parent: string | null = null;
   try {
     // Parent: a real project, its service running, an agent session holding the canary as its launch credential.
@@ -425,6 +435,7 @@ async function main(): Promise<number> {
       } else negative.expired = { mint_status: short.status };
       const d = await http("DELETE", `${platform}/v1/runnable-links/${link.id}`, undefined, ph(), 60_000, true);
       const v = await http("POST", `${platform}/v1/runnable-links/${link.id}/fork`, { clientKey: `${tag}-revoked` }, ph(), 60_000, true);
+      linkRevoked = d.status >= 200 && d.status < 300;
       negative.revoked = { delete_status: d.status, status: v.status, code: v.body?.code ?? v.body?._tag ?? null, refused: v.status === 410 };
       const noAuth = await http("GET", `${platform}/v1/runnable-links/${link.id}`, undefined, {}, 15_000);
       negative.unauthenticated = { status: noAuth.status, refused: noAuth.status === 401 || noAuth.status === 404 };
@@ -465,6 +476,10 @@ async function main(): Promise<number> {
   } catch (e) {
     meta.error = scrub(`${stage}: ${String((e as Error).message)}`, [...secrets, canary]).slice(0, 600);
   } finally {
+    if (link?.id && !linkRevoked && !keep) {
+      const d = await http("DELETE", `${platform}/v1/runnable-links/${link.id}`, undefined, ph(), 60_000, true).catch((e: unknown) => ({ status: 0, body: whyNot(e) }));
+      cleanup.push(d.status >= 200 && d.status < 300 ? "link revoked" : `link NOT revoked (${link.id}): HTTP ${d.status}`);
+    }
     if (snapshot && !keep) await api.op("cloud.snapshot.delete", { snapshot }, `${tag}-snap-del`).then(() => cleanup.push("snapshot deleted"), (e) => cleanup.push(`snapshot NOT deleted (${snapshot}): ${whyNot(e)}`));
     if (parent && !keep) await api.deleteMachine(parent, `${tag}-del-parent`).then(() => cleanup.push("parent deleted"), (e) => cleanup.push(`parent NOT deleted (${parent}): ${whyNot(e)}`));
     if (!keep) {

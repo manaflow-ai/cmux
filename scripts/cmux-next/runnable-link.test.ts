@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { canaryCountCommand, facts, projectSetupCommand, SCRUB_COMMAND, usable, usableCommand, verdict, withRoom, strays, snapshotCensus, type OpenRow } from "./runnable-link.ts";
+import { canaryCountCommand, facts, projectSetupCommand, SCRUB_COMMAND, usable, usableCommand, verdict, withRoom, strays, runTag, snapshotCensus, type OpenRow } from "./runnable-link.ts";
 
 const row = (over: Partial<OpenRow>): OpenRow => ({ run: 1, via: "link", copy: "m", resolve_ms: 1, fork_call_ms: 1, running_ms: 1, first_exec_ms: 1, scrub_ms: 1, usable_ms: 1, click_to_usable_ms: 20_000, canary_before_scrub: 1, canary_after_scrub: 0, facts: null, error: null, ...over });
 
@@ -58,6 +58,23 @@ describe("runnable link", () => {
       { id: "s5", name: "someone's snapshot", status: "ready", created_at: "2020-01-01T00:00:00Z" },
     ];
     expect(strays(rows, "rl-x", now, new Set())).toEqual(["s1", "s2"]);
+  });
+
+  test("the sweep takes the link API's own snapshots too (named by the mint's clientKey), never someone else's", () => {
+    const now = Date.parse("2026-11-25T23:00:00Z");
+    const rows = [
+      { id: "l1", name: "link user_9 rl-x-mint", status: "ready", created_at: "2026-11-25T22:59:00Z" },
+      { id: "l2", name: "link user_9 rl-old-mint", status: "ready", created_at: "2026-11-24T18:00:00Z" },
+      { id: "l3", name: "link user_9 rl-old-mint-expiring", status: "ready", created_at: "2026-11-24T18:00:00Z" },
+      { id: "l4", name: "link user_9 rl-new-mint", status: "ready", created_at: "2026-11-25T22:30:00Z" },
+      { id: "l5", name: "link user_9 handoff-1", status: "ready", created_at: "2020-01-01T00:00:00Z" },
+      { id: "l6", name: "cmux-1234", status: "ready", created_at: "2020-01-01T00:00:00Z" },
+    ];
+    expect(strays(rows, "rl-x", now, new Set())).toEqual(["l1", "l2", "l3"]);
+    expect(runTag("runnable link rl-ab parent")).toBe("rl-ab");
+    expect(runTag("runnable link rl-ab")).toBe("rl-ab");
+    expect(runTag("link user_1 rl-ab-mint")).toBe("rl-ab");
+    expect(runTag("link user_1 rl-ab-open-1")).toBeNull();
   });
 
   test("the snapshot census folds ids so the script that fills the slots shows by name", () => {
