@@ -27,7 +27,8 @@ pub fn parse_serve(args: &[String]) -> Result<Serve, String> {
         let mut value = || it.next().cloned().ok_or_else(|| format!("{arg} needs a value"));
         match arg.as_str() {
             "--listen" => {
-                cfg.listen = value()?.parse::<SocketAddr>().map_err(|e| format!("--listen: {e}"))?
+                cfg.listen =
+                    value()?.parse::<SocketAddr>().map_err(|e| format!("--listen: {e}"))?;
             }
             "--upstream" => cfg.upstream = value()?,
             "--edge" => cfg.edge = Some(value()?),
