@@ -45,7 +45,7 @@ const _: () = assert!(CALL_BUDGET.as_millis() < 60_000, "the call must end befor
 pub(super) fn tool() -> Value {
     json!({
         "name": "send",
-        "description": "Message another agent session: a lane, a coordinator, or host/name on a peer; batch several in one call with messages. Returns in seconds with promptId and deliveryId (retried through the outbox); it does not wait for a reply. class question or block: the receiver's answering turn comes back to you as a report (same machine only), so do not poll; otherwise read replies with last. By default it steers into a running turn at its next tool step; steer: false queues it. With messages or tag, one result row per recipient; one bad recipient stops none of the others.",
+        "description": "Message another agent session (or host/name on a peer); batch several with messages. Returns in seconds with promptId and deliveryId (the outbox retries); it does not wait for a reply. class question or block: the receiver's answering turn comes back to you as a report (same machine only), so do not poll; otherwise read replies with last. By default it steers into a running turn at its next tool step; steer: false queues it. With messages or tag: one result row per recipient.",
         "inputSchema": {
             "type": "object",
             "properties": {
