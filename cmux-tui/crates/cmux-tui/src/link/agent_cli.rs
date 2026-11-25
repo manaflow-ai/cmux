@@ -226,6 +226,9 @@ enum Way {
     Relay,
 }
 
+/// What acpmux's refusal of a bundle file a guarded move does not take says.
+const UNTAKEN_FILE: &str = "is not a file a guarded move takes";
+
 /// A move that failed, as its JSON line reports it.
 struct Failed {
     code: String,
@@ -255,9 +258,30 @@ impl Failed {
     /// `<side>_unreachable` when no answer came.
     fn call(side: &str, error: &CallError) -> Self {
         match error {
+            CallError::Refused { message, .. }
+                if side == "target" && message.contains(UNTAKEN_FILE) =>
+            {
+                Self::untaken_file(message)
+            }
             CallError::Refused { code, message, .. } => Self::new(code.clone(), message.clone()),
             CallError::Lost(message) => Self::new(format!("{side}_unreachable"), message.clone()),
         }
+    }
+
+    /// A target that refuses a file of the bundle (acpmux `transfer_guard.rs`, `transfer_in.rs`)
+    /// runs a cmux-tui older than the source's, which wrote the file: [`taken_by_target`] leaves
+    /// such files out when it can ask the target, so this is the move it could not ask. It reads
+    /// as the machine being outdated (the app says "update the machine"), never the raw
+    /// `transfer.path` line; the source's chat is untouched (2026-11-24 kill-mid-move drills).
+    fn untaken_file(message: &str) -> Self {
+        let mut failed = Self::new(
+            super::machine_gate::OUTDATED,
+            format!(
+                "the machine runs an older cmux-tui that refused a file of this chat ({message}); update the machine"
+            ),
+        );
+        failed.side = Some("target");
+        failed
     }
 
     fn bad_answer(error: impl Into<String>) -> Self {
@@ -896,7 +920,10 @@ fn sync_frozen(sync: &Sync) -> Result<(), Failed> {
                 .map_err(|e| {
                     Failed::new(
                         super::seed_cli::failure_code(&e),
-                        format!("the folder's last changes: {e:#}"),
+                        format!(
+                            "the folder's last changes: {}",
+                            super::seed_cli::failure_message(&e)
+                        ),
                     )
                 });
         }
@@ -907,7 +934,7 @@ fn sync_frozen(sync: &Sync) -> Result<(), Failed> {
             let failed = |e: anyhow::Error| {
                 Failed::new(
                     super::seed_cli::failure_code(&e),
-                    format!("the folder's last changes: {e:#}"),
+                    format!("the folder's last changes: {}", super::seed_cli::failure_message(&e)),
                 )
             };
             // A folder the bulk pass sent as git sends its last changes as git too ([`relay_bulk`]).
