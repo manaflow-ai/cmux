@@ -30,20 +30,16 @@ def load(root, rel):
 
 
 def load_policy(root):
-    """schemas/settings/source/agent-policy/ (one {agent, why?} file per key, #56291) as {"groups": [...]}:
-    gen-settings-sources.py load_agent_policy's grouping, which validates the files."""
-    folder = os.path.join(root, SRC, "agent-policy")
-    groups, by_reason = [], {}
-    for name in sorted(os.listdir(folder)):
+    """The agent policy as {"groups": [{agent, keys}]}: schemas/settings/source/agent-policy/ holds one
+    <key>.json ({agent, why?}) per key plus _refusals.json (gen-settings-sources.py checks its shape)."""
+    rel = SRC + "/agent-policy"
+    groups = {}
+    for name in sorted(os.listdir(os.path.join(root, rel))):
         if name == "_refusals.json" or not name.endswith(".json"):
             continue
-        entry = load(root, SRC + "/agent-policy/" + name)
-        reason = (entry["agent"], entry.get("why"))
-        if reason not in by_reason:
-            by_reason[reason] = {"agent": entry["agent"], "keys": []}
-            groups.append(by_reason[reason])
-        by_reason[reason]["keys"].append(name[: -len(".json")])
-    return {"groups": groups}
+        agent = load(root, rel + "/" + name)["agent"]
+        groups.setdefault(agent, []).append(name[: -len(".json")])
+    return {"groups": [{"agent": agent, "keys": keys} for agent, keys in groups.items()]}
 
 
 class MissingKeys(Exception):
