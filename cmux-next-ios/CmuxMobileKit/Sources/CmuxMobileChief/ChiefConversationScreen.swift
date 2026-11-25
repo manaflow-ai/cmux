@@ -2,6 +2,7 @@
 import CmuxConversationCore
 import CmuxMobileArtifacts
 import CmuxConversationUI
+import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileSupport
 import SwiftUI
@@ -123,6 +124,9 @@ extension ConversationPresentationOptions {
             trailingSymbol: ChiefPageMenu.symbol,
             header: ConversationHeaderPresentation(
                 scrollEdge: .system,
+                // Text under the header stops at it (iOS release bar read-back, 2026-11-22,
+                // shot 07; tbd d-189cea06b1).
+                hardTopEdge: true,
                 actionAccessibilityLabel: ChiefPageMenu.title,
                 avatarAccessibilityLabel: String(localized: "Chief"),
                 avatarAccessibilityHint: String(localized: "Opens Chief's settings")
@@ -143,11 +147,14 @@ struct ChiefConversationController: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> ChiefConversationContainer {
         let conversation = ConversationViewController(store: session.store, options: options,
                                                       keyboard: context.environment.mobileKeyboardFrameTracker)
+        conversation.dismissesKeyboardAfterSend = { CmuxMobilePreferences.dismissKeyboardAfterSend() }
         // A screen rebuilt in place (a new store) takes over the old one's
         // composer now, before either appears or disappears: SwiftUI may show
         // the new one before the old one leaves.
         if let previous = link.container { previous.handOffComposer() }
         let container = ChiefConversationContainer(conversation: conversation, session: session)
+        // A conversation with Chief (not one with people) asks before its first send (5.1.2(i)).
+        container.asksAIConsent = options.serviceTitle == "Chief"
         // Home's compose focuses the composer once: a container rebuilt on a
         // new store (Try Again) opens without the keyboard.
         container.focusesComposerOnAppear = focusesComposer && !link.focusedComposer
@@ -202,6 +209,8 @@ struct ChiefConversationController: UIViewControllerRepresentable {
 public final class ChiefConversationContainer: UIViewController, UIGestureRecognizerDelegate {
     let conversation: ConversationViewController
     let session: ChiefSession
+    /// Sends ask ``ChiefAIConsent`` first until the person agrees (a conversation with Chief).
+    var asksAIConsent = false
     private var popRecognizers: [UIGestureRecognizer] = []
     private var previousPopDelegates: [ObjectIdentifier: WeakDelegate] = [:]
     private struct WeakDelegate { weak var value: (any UIGestureRecognizerDelegate)? }
@@ -259,6 +268,20 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     /// package's own action; until then the text stays in the composer and
     /// the screen says why, with Try Again.
     private func installSendGate() {
+        // App Review 5.1.2(i): nothing goes to the AI providers before the person agrees.
+        // The conversation asks this before every send path (Send, Return, the effect
+        // picker, voice, polls, Send Now); Not Now keeps the draft and sends nothing.
+        conversation.sendGate = { [weak self] retry in
+            guard let self, self.asksAIConsent, !ChiefAIConsent.isGranted else { return true }
+            if self.presentedViewController == nil {
+                // Agreeing sends it, unless Chief can't take sends yet: then the draft stays.
+                self.present(ChiefAIConsent.alert { [weak self] in
+                    guard let self else { return }
+                    if self.session.acceptsSendsNow { retry() } else { self.holdUnsentMessage() }
+                }, animated: true)
+            }
+            return false
+        }
         guard let button = conversation.view.firstSubview(where: { $0.accessibilityIdentifier == "conversation.composer.send" }) as? UIButton
         else { return }
         var actions: [UIAction] = []
@@ -458,9 +481,8 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     // MARK: Chief's streaming reply
 
     /// The streaming reply bubble and status line (``ChiefLiveBubble``),
-    /// over the end of the transcript. Only the status line and its details
-    /// take touches (``ChiefLiveHitArea``); everywhere else the transcript
-    /// under it scrolls and takes long-presses as usual.
+    /// over the end of the transcript. The reply text, status line and details
+    /// take touches in their own bounds. The rest passes through to the transcript.
     private let liveHitArea = ChiefLiveHitArea()
     private lazy var liveBubble: UIHostingController<ChiefLiveBubble> = {
         let host = UIHostingController(rootView: ChiefLiveBubble(session: session, hitArea: liveHitArea))

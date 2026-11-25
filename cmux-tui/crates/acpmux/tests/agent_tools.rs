@@ -38,7 +38,7 @@ fn no_search_home() -> PathBuf {
     std::env::temp_dir().join(format!("acpmux-agent-tools-claude-home-{}", std::process::id()))
 }
 
-fn hub() -> Arc<Hub> {
+fn hub(bin: &Path) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "fake": {"argv": ["python3", FAKE]},
@@ -46,6 +46,8 @@ fn hub() -> Arc<Hub> {
             "fakeclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
                 "env": {"CLAUDE_CONFIG_DIR": empty_home()}},
             "fakecodex": {"argv": ["python3", FAKE], "family": "codex"},
+            // OpenClaw's `acp` bridge refuses any per-session MCP server.
+            "fakeopenclaw": {"argv": ["python3", FAKE], "family": "openclaw"},
             "fakeclaude-nosearch": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
                 "env": {"ENABLE_TOOL_SEARCH": "false"}},
             // Another provider, as the `cmux` profile's open-source model router.
@@ -67,6 +69,13 @@ fn hub() -> Arc<Hub> {
         "permissionPolicy": "approve-all",
     }))
     .unwrap();
+    // A Codex launch asks its own binary whether it already has a cmux server.
+    let mut paths = vec![bin.to_owned()];
+    paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()));
+    let path = std::env::join_paths(paths).unwrap().into_string().unwrap();
+    for profile in cfg.harnesses.values_mut().filter(|h| h.family.as_deref() == Some("codex")) {
+        profile.env.insert("PATH".into(), path.clone());
+    }
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     Hub::new(cfg, store)
@@ -159,11 +168,20 @@ async fn local_sessions_get_the_browser_and_computer_use_tools_and_skills() {
         std::env::set_var("ACPMUX_SECRET_TOOLS", "1");
         std::env::set_var("ACPMUX_OFFER_TOOLS", "1");
     }
-    let hub = hub();
+    let codex = fake_bin(&bin, "codex");
+    std::fs::write(codex, "#!/bin/sh\necho \"No MCP server named 'cmux' found.\" >&2\nexit 1\n")
+        .unwrap();
+    let hub = hub(&bin);
 
     // An ACP harness: the servers in session/new, the secret tools (cx-ncc.42)
     // and the offer tool (cx-807da) for this session on this daemon's socket.
     let mut local = client(&hub, Origin::Local);
+    // OpenClaw's bridge refuses `mcpServers` in session/new ("ACP bridge mode does not support
+    // per-session MCP servers"), so its session gets none and starts; the Chief puts cmux's
+    // servers in that brain's own config instead.
+    let id = local.new_session("fakeopenclaw").await;
+    assert_eq!(local.ask(&id, "mcp").await, "[]");
+
     let id = local.new_session("fake").await;
     let servers: Value = serde_json::from_str(&local.ask(&id, "mcp").await).unwrap();
     // Code mode for every agent tool: one `cmux` server, which runs the
@@ -192,7 +210,8 @@ async fn local_sessions_get_the_browser_and_computer_use_tools_and_skills() {
             "cmux-sessions",
             "cmux-subsessions",
             "cmux-forum",
-            "acpmux"
+            "acpmux",
+            acpmux::agent_tools::SAVED_SERVERS_NAME
         ],
         "{upstreams}"
     );
@@ -379,26 +398,18 @@ async fn local_sessions_get_the_browser_and_computer_use_tools_and_skills() {
     // It names the send tool before any `acpmux send`: chats ran `acpmux send` in Bash 15,810
     // times to 188 send tool calls (2026-11-09 audit, cmuxterm-hq#8104).
     let tool = acpmux_skill.find("mcp__acpmux__send").expect("the skill names the send tool");
-    let cli = acpmux_skill.find("acpmux send").unwrap();
-    assert!(tool < cli, "the skill teaches `acpmux send` (byte {cli}) before the tool ({tool})");
+    let cli = acpmux_skill.find("cmux agent send").unwrap();
+    assert!(
+        tool < cli,
+        "the skill teaches `cmux agent send` (byte {cli}) before the tool ({tool})"
+    );
     let manifest: Value = serde_json::from_str(
         &std::fs::read_to_string(plugin.join(".claude-plugin/plugin.json")).unwrap(),
     )
     .unwrap();
     assert_eq!(manifest["name"], "cmux");
-    // The background-shell hook (`bg_hook.rs`) runs before every Bash call.
-    let hooks: Value =
-        serde_json::from_str(&std::fs::read_to_string(plugin.join("hooks/hooks.json")).unwrap())
-            .unwrap();
-    let bash = &hooks["hooks"]["PreToolUse"][0];
-    assert_eq!(bash["matcher"], "Bash", "{hooks}");
-    // With the daemon's home, which the harness's env does not carry. The shell starts it only
-    // for a call it may answer, and a hook binary that fails (version skew) lets the call run:
-    // the command ends `true` (`hook_command`).
-    let command = bash["hooks"][0]["command"].as_str().unwrap();
-    let with_home = format!("'__bg-hook' '{}' ;; esac; true", acpmux::config::home().display());
-    assert!(command.starts_with("input=$(cat); case ") && command.ends_with(&with_home), "{hooks}");
-    assert!(command.contains(r#"*'"run_in_background":true'*"#), "{hooks}");
+    // Tool hooks use the existing Claude control channel. No command hook runs beside them.
+    assert!(!plugin.join("hooks/hooks.json").exists());
 
     // `agents.memory.enabled` adds the memory server for the next session,
     // with the session as its provenance.
@@ -433,15 +444,18 @@ async fn local_sessions_get_the_browser_and_computer_use_tools_and_skills() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// The hook process itself (`bg_hook.rs`), as Claude Code runs it: a background Bash call in a
-/// chat whose MCP config has the `acpmux` server is denied with the exact `bg_start` call, and
-/// the same call again runs (the server may be unusable); with no such server, with no config,
-/// or for a foreground call it prints nothing and the shell runs.
+/// The hook process itself (`bg_hook.rs`), as Claude Code runs it: a background Bash call, or a
+/// known-slow foreground one, in a chat whose MCP config has the `acpmux` server is rewritten
+/// (no permission decision) into this binary's `process start` with the same command, which
+/// starts it as a daemon-owned task; a subagent's rewritten call keeps its
+/// `ACPMUX_CALLER_SUBAGENT` mark. No task starts here (no daemon), so the hook's key stays and
+/// the same call again runs as asked. With no such server, with no config, or for a quick
+/// foreground call it prints nothing and the shell runs.
 #[test]
-fn the_background_shell_hook_denies_only_where_bg_start_is_there() {
+fn the_background_shell_hook_rewrites_only_where_bg_start_is_there() {
     let home = std::env::temp_dir().join(format!("acpmux-bg-hook-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
-    let run_command = |session: &str, background: bool, command: &str| -> String {
+    let call = |session: &str, background: bool, command: &str, agent: Option<&str>| -> String {
         use std::io::Write;
         let mut child = daemon_env::acpmux(&home.join("scratch"))
             .arg("__bg-hook")
@@ -454,14 +468,31 @@ fn the_background_shell_hook_denies_only_where_bg_start_is_there() {
             .stdout(std::process::Stdio::piped())
             .spawn()
             .unwrap();
-        let input = json!({"tool_name": "Bash", "cwd": "/srv/app", "tool_input":
+        let mut input = json!({"tool_name": "Bash", "cwd": "/srv/app", "tool_input":
             {"command": command, "run_in_background": background}});
+        if let Some(agent) = agent {
+            input["agent_id"] = json!(agent);
+            input["agent_type"] = json!("Explore");
+        }
         child.stdin.take().unwrap().write_all(input.to_string().as_bytes()).unwrap();
         let out = child.wait_with_output().unwrap();
         assert!(out.status.success(), "the hook failed: {out:?}");
         String::from_utf8(out.stdout).unwrap()
     };
+    let run_command =
+        |session: &str, background: bool, command: &str| call(session, background, command, None);
     let run = |session: &str, background: bool| run_command(session, background, "npm run dev");
+    // The rewritten call's command, checked to be a `process start` of `command`.
+    let started = |answer: &str, command: &str| -> String {
+        let answer: Value = serde_json::from_str(answer).unwrap();
+        let out = &answer["hookSpecificOutput"];
+        assert!(out.get("permissionDecision").is_none(), "asked or allowed as before: {answer}");
+        assert_eq!(out["updatedInput"]["run_in_background"], false, "{answer}");
+        let rewritten = out["updatedInput"]["command"].as_str().unwrap().to_owned();
+        assert!(rewritten.contains("'process' 'start' '--route' 'direct'"), "{rewritten}");
+        assert!(rewritten.ends_with(&format!("'--' '{command}'")), "{rewritten}");
+        rewritten
+    };
     let config = |session: &str, servers: Value| {
         let path = acpmux::agent_tools::mcp_config_path(&home, session);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -469,28 +500,22 @@ fn the_background_shell_hook_denies_only_where_bg_start_is_there() {
     };
     config("with", json!({"acpmux": {"command": "acpmux", "args": ["acpmux-mcp"]}}));
     config("without", json!({"other": {"command": "x"}}));
-    let deny: Value = serde_json::from_str(&run("with", true)).unwrap();
-    let out = &deny["hookSpecificOutput"];
-    assert_eq!(out["permissionDecision"], "deny", "{deny}");
-    let reason = out["permissionDecisionReason"].as_str().unwrap();
-    assert!(
-        reason.contains(r#"mcp__acpmux__bg_start {"command":"npm run dev","cwd":"/srv/app"}"#),
-        "{reason}"
-    );
-    assert!(reason.ends_with("send this same Bash call again and it runs as asked."), "{reason}");
-    assert_eq!(run("with", true), "", "the same call again: the native background shell runs");
-    assert!(run("with", true).contains("deny"), "after it ran, a new call is turned away again");
+    let first = started(&run("with", true), "npm run dev");
+    assert!(!first.contains("ACPMUX_CALLER_SUBAGENT"), "a lead's call is unmarked: {first}");
+    assert_eq!(run("with", true), "", "no task started: the same call again runs as asked");
+    started(&run("with", true), "npm run dev");
     assert!(run("with", true).is_empty());
+    // A subagent's rewritten call keeps its mark, so its task's end comes back to it.
+    let sub = started(&call("with", true, "npm test", Some("a0")), "npm test");
+    assert!(sub.starts_with("export ACPMUX_CALLER_SUBAGENT=Explore:a0\n"), "{sub}");
     // Two calls retried in turn (A, B, A, B): each repeat still gets through.
     let (a, b) = (|| run_command("with", true, "a"), || run_command("with", true, "b"));
-    assert!(a().contains("deny") && b().contains("deny"));
+    assert!(a().contains("updatedInput") && b().contains("updatedInput"));
     assert_eq!((a(), b()), (String::new(), String::new()), "interleaved retries were stranded");
     assert_eq!(run_command("with", false, "git status"), "", "a quick foreground call runs");
-    // A known-slow foreground call is sent to the background once; the same call again runs.
-    let slow: Value = serde_json::from_str(&run("with", false)).unwrap();
-    let reason = slow["hookSpecificOutput"]["permissionDecisionReason"].as_str().unwrap();
-    assert!(reason.contains("a dev server"), "{reason}");
-    assert!(reason.contains("mcp__acpmux__bg_start"), "{reason}");
+    // A known-slow foreground call starts as a task too; the same call again runs.
+    let slow = started(&run("with", false), "npm run dev");
+    assert!(slow.contains("'--slow' 'a dev server"), "{slow}");
     assert_eq!(run("with", false), "", "the same slow call again runs in the foreground");
     let slow: Value = serde_json::from_str(&run("without", false)).unwrap();
     let reason = slow["hookSpecificOutput"]["permissionDecisionReason"].as_str().unwrap();

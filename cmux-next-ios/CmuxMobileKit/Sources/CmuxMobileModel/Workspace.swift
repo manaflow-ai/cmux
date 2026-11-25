@@ -139,6 +139,10 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
     /// What a `.waiting` agent waits for, when the Mac's acpmux says (agent tabs).
     /// Nil for a terminal agent, whose report says only that it is blocked.
     public var waitingFor: WaitingFor?
+    /// When a `.working` agent's Mac last reported it started working (its report's time: the
+    /// turn's prompt, as the Mac counts it). Nil when not working, or the Mac sent no time
+    /// (older Macs, mock data). Optional so older saved copies still decode.
+    public var workingSince: Date?
     /// Pinned on the Mac (`set-tab-pinned`): pinned tabs sort first in their pane.
     /// Optional so older saved copies still decode; nil reads as not pinned.
     public var pinned: Bool?
@@ -303,5 +307,24 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
         case .simulator: "iphone"
         case .agent: "sparkle"
         }
+    }
+}
+
+/// The agent as people name it in a failure sentence ("Claude is rate limited"),
+/// never a tab's title or a raw profile id. A tab's title is its session's name (an acpmux
+/// session such as "Reviving claude-sr2-coord after rate-limit loop"), which read as the subject
+/// of the chat's sentences when it stood in for the agent (Leo, 2026-11-17: the error card said
+/// "Reviving claude-sr2-coord after rate-limit loop is rate limited or out of capacity").
+/// A profile that reaches its agent through a route (`claude-sr`, `claude-cr`) is still that
+/// agent; the error card's detail names the route.
+public enum AgentHarnessName {
+    public static func of(_ harness: String?) -> String {
+        guard let harness = harness?.trimmingCharacters(in: .whitespaces), !harness.isEmpty else { return "Agent" }
+        let id = harness.lowercased()
+        for (family, name) in [("claude", "Claude"), ("codex", "Codex"), ("opencode", "OpenCode")]
+        where id == family || id.hasPrefix(family + "-") {
+            return name
+        }
+        return harness.prefix(1).uppercased() + harness.dropFirst()
     }
 }

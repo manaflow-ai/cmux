@@ -1,0 +1,65 @@
+{
+  "title": "Automations: a failed run shows as failed with its reason, its log and a notification",
+  "env": {
+    "CMUX_AUTOMATIONS_DIR": "{workdir}/automations"
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "New workspace automations",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "automations"
+      ],
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Three automations made; Nightly build run now, and it fails",
+      "cmux": [
+        "workspace",
+        "name:automations",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; cmux automation create 'Nightly build' --command 'echo building; echo \"error: 2 tests failed\" >&2; exit 3' --manual >/dev/null && cmux automation create 'Every minute' --command 'echo checked disk' --every 1m >/dev/null && cmux automation create 'Morning brief' --prompt 'Summarize my open pull requests' --weekdays 09:00 >/dev/null; cmux automation run 'Nightly build' --wait; cmux automation history 'Nightly build'\r"
+      ],
+      "wait": 6
+    },
+    {
+      "title": "Nightly build in Needs you, with an unread dot and the sidebar count",
+      "cmux": [
+        "action",
+        "run",
+        "automations.show",
+        "--name",
+        "Morning brief"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "The failed run: exit code 3 in words and its log, stderr included",
+      "cmux": [
+        "action",
+        "run",
+        "automations.show",
+        "--name",
+        "Nightly build"
+      ],
+      "wait": 4
+    }
+  ]
+}

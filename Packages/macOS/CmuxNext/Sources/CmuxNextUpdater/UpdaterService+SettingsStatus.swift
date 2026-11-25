@@ -1,5 +1,6 @@
 public import CmuxNextPages
 public import CmuxNextSettings
+import CmuxNextCompat
 import Foundation
 
 /// Settings > Updates' App Update card: where a download shows its progress and its Cancel now
@@ -38,7 +39,11 @@ extension UpdaterService {
             actions = [.check]
         case .ready(let version):
             json["status"] = .string(UpdaterStrings.readyToInstall)
-            json["detail"] = .string(version.map(UpdaterStrings.foundVersion) ?? UpdaterStrings.restartKeepsSessions)
+            if let held = relaunchHold, held.surfaced {
+                json["detail"] = .string(UpdaterStrings.heldHeadline(held.reason))
+            } else {
+                json["detail"] = .string(version.map(UpdaterStrings.foundVersion) ?? UpdaterStrings.restartKeepsSessions)
+            }
             actions = [.install]
         case .card(let shown):
             let card = Self.settingsQuantized(shown)
@@ -54,8 +59,46 @@ extension UpdaterService {
             actions = Self.settingsActions(card, shown)
         }
         json["phase"] = .string(settingsStatus?.kind ?? "idle")
+        json["schedule"] = .array(settingsSchedule().map { ["id": .string($0.id), "label": .string($0.label), "value": .string($0.value)] })
         json["actions"] = .array(actions.map { ["id": .string($0.rawValue), "title": .string($0.title), "prominent": .bool($0.isProminent)] })
         return .object(json)
+    }
+
+    /// The card's Last Updated and Next Check lines. Last Updated is when this build's bundle was put in place
+    /// (Sparkle's install moves a new bundle in, so its creation date is the install's); Next Check is the
+    /// Rust rule's (`update_idle::next_check_in`) over Sparkle's last check and interval. A line with no
+    /// reading is left out rather than guessed.
+    func settingsSchedule(now: Date = Date()) -> [(id: String, label: String, value: String)] {
+        var lines: [(id: String, label: String, value: String)] = []
+        if let installed = Self.bundleInstalledDate() {
+            lines.append(("lastUpdated", UpdaterStrings.settingsLastUpdated, Self.scheduleDate(installed)))
+        }
+        if let controller {
+            if let interval = controller.scheduledCheckInterval {
+                let since = controller.lastUpdateCheckDate.map { now.timeIntervalSince($0) }
+                if let seconds = nextCheckRule?(since, interval) {
+                    let value = seconds < 60 ? UpdaterStrings.settingsNextCheckSoon : Self.scheduleDate(now.addingTimeInterval(seconds))
+                    lines.append(("nextCheck", UpdaterStrings.settingsNextCheck, value))
+                }
+            } else {
+                lines.append(("nextCheck", UpdaterStrings.settingsNextCheck, UpdaterStrings.settingsNextCheckOff))
+            }
+        }
+        return lines
+    }
+
+    /// The running bundle's creation date: when the install (or the person) put it in place.
+    nonisolated static func bundleInstalledDate(_ bundle: URL = Bundle.main.bundleURL) -> Date? {
+        try? bundle.blockingResourceValues(forKeys: [.creationDateKey]).creationDate
+    }
+
+    /// "Today at 9:41 PM", "Yesterday at 8:02 AM", "Nov 20, 2026 at 6:15 PM", in the person's locale.
+    nonisolated static func scheduleDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        formatter.doesRelativeDateFormatting = true
+        return formatter.string(from: date)
     }
 
     /// `card` with a measured download's bytes rounded down to whole percent, so neither the bar
@@ -117,7 +160,7 @@ public nonisolated enum SettingsUpdateAction: String, Sendable, CaseIterable {
         case .update: self = .update
         case .cancelDownload: self = .cancelDownload
         case .retry: self = .retry
-        case .releaseNotes, .details: return nil
+        case .releaseNotes, .details, .goBack: return nil
         }
     }
 

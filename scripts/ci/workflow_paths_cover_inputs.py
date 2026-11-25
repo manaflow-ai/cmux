@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import ast
 import fnmatch
+import functools
 import json
 import os
 import re
@@ -74,6 +75,7 @@ RUN_CALLS = {"run", "call", "check_call", "check_output", "Popen", "execv", "exe
 
 
 # --------------------------------------------------------------------------------------------- filters
+@functools.lru_cache(maxsize=None)
 def glob_regex(pattern: str) -> re.Pattern:
     """A GitHub paths-filter glob: `**` crosses directories, `*` and `?` do not, `[..]` is a class."""
     out, i = "", 0
@@ -392,14 +394,92 @@ def python_facts(file_abs: str) -> PyFacts | None:
 
 
 # --------------------------------------------------------------------------------------------- shell
+# `<<EOF`, `<<-'EOF'`, `<< "EOF"`; not a here-string (`<<<`).
+HEREDOC = re.compile(r"(?<!<)<<(?!<)-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+HEREDOC_SHELL = re.compile(r"(?:^|[\s;&|(])(?:bash|sh|zsh|dash)(?:\s+-\w+)*\s*(?:-\s*)?<<")
+QUOTED_LINES_MAX = 400
+
+
+def _quotes_close(line: str) -> bool:
+    lexer = shlex.shlex(line, posix=True, punctuation_chars=";&|()<>")
+    lexer.whitespace_split = True
+    lexer.commenters = "#"
+    try:
+        for _ in lexer:
+            pass
+    except ValueError:
+        return False
+    return True
+
+
+def shell_lines(logical: str):
+    """The script's command lines, comments dropped. A quoted string that goes on over several lines (`perl -e '`
+    with a program after it, a long message) is one line, not a command per line of its text. A here-document's
+    body is data, not commands: it is left out unless a shell reads it (`bash <<EOF`) or a line of it holds a command
+    substitution (`$(` in an unquoted one), and then its lines are read as before."""
+    lines = logical.split("\n")
+    index = 0
+    while index < len(lines):
+        line = lines[index].strip()
+        index += 1
+        if not line or line.startswith("#"):
+            continue
+        if not _quotes_close(line):
+            joined, extra = line, 0
+            while index + extra < len(lines) and extra < QUOTED_LINES_MAX:
+                joined += "\n" + lines[index + extra]
+                extra += 1
+                if _quotes_close(joined):
+                    line, index = joined, index + extra
+                    break
+        yield line
+        for match in HEREDOC.finditer(line):
+            quoted, delimiter = bool(match.group(1)), match.group(2)
+            if HEREDOC_SHELL.search(line[:match.end()]):
+                continue
+            while index < len(lines) and lines[index].strip() != delimiter:
+                if not quoted and "$(" in lines[index]:
+                    yield lines[index].strip()
+                index += 1
+            index += 1
+
+
+# `$ROOT/scripts/x.sh`, `"${base}/tools/y.py"`: a variable then a literal path. It runs the tracked file at that path
+# below the checkout (a script finds its siblings from the repository root or a copy of the tree).
+ROOTED_RUN = re.compile(r"^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/([^$`*?\[\s]+)$")
+# `# tooling-steps runs: scripts/measure/tests/*.test.sh ...` or `# tooling-steps runs: nothing tracked`: what every
+# command this script runs from a variable (`bash "$t"`, `"$candidate" "$@"`) can be. The named tracked files are
+# its inputs, walked as code; with `nothing tracked` those commands are tools from the system (timeout, a Python).
+RUNS_DECLARED = re.compile(r"(?m)^\s*#\s*tooling-steps runs:\s*(.+?)\s*$")
+
+
+def declared_runs(repo: "Repo", text: str) -> list[str] | None:
+    """The tracked files a script declares its variable commands run (`# tooling-steps runs:`), or None."""
+    found = RUNS_DECLARED.findall(text)
+    if not found:
+        return None
+    out: list[str] = []
+    for value in found:
+        value = re.sub(r"\s*\(.*\)$", "", value)  # a closing note in parentheses says why
+        if value == "nothing tracked":
+            continue
+        for pattern in value.split():
+            out.extend(repo.glob(pattern) if any(c in pattern for c in "*?[") else
+                       [pattern] if repo.is_file(pattern) else [])
+    return sorted(set(out))
+
+
+def rooted_run(repo: "Repo", target: str) -> str | None:
+    """The tracked file `$VAR/literal/path` runs, or None."""
+    match = ROOTED_RUN.match(target)
+    return match.group(1) if match and repo.is_file(match.group(1)) else None
+
+
 def shell_words(text: str, script_dir: str | None, env: dict[str, str], unknown: list[str]):
     """Each command's words once the forms this resolves are substituted; a word left with `$` is dropped."""
     variables = dict(env)
     logical = re.sub(r"\\\n", " ", text)
-    for raw in logical.split("\n"):
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
+    for line in shell_lines(logical):
         if script_dir:
             line = SCRIPT_DIR_EXPR.sub(lambda _: script_dir, line)
         line = TOPLEVEL.sub(lambda _: env.get("GITHUB_WORKSPACE", "$__TOPLEVEL"), line)
@@ -435,8 +515,20 @@ def shell_words(text: str, script_dir: str | None, env: dict[str, str], unknown:
         except ValueError:
             continue
         command: list[str] = []
+        closer = None  # inside `[[ ... ]]` or an array value `x=( ... )`: `&&`, `||` and parentheses split nothing
         for word in words + [";"]:
-            if word and set(word) <= set(";&|()<>") and not set(word) & set("<>"):
+            if closer:
+                if word == closer:
+                    closer = None
+                command.append(word)
+                continue
+            if word == "[[":
+                closer = "]]"
+                command.append(word)
+            elif word == "(" and command and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:\[[^]]*\])?\+?=", command[-1]):
+                closer = ")"
+                command.append(word)
+            elif word and set(word) <= set(";&|()<>") and not set(word) & set("<>"):
                 if command:
                     yield command
                 command = []
@@ -465,13 +557,17 @@ def run_targets(words: list[str]) -> list[str]:
         words = words[1:]
     if not words:
         return []
+    if words[0] in ("[[", "[", "test"):  # a condition runs nothing
+        return []
     if words[0] == "for" and "in" in words:
         items = words[words.index("in") + 1:]
         return items[:items.index("do")] if "do" in items else items
+    if "\n" in words[0]:  # a quoted string over several lines is text, not a path
+        return []
     if INTERPRETERS.match(words[0].rsplit("/", 1)[-1]):
         index = 1
         while index < len(words) and words[index].startswith("-"):
-            if words[index] in ("-m", "-c"):
+            if words[index] in ("-m", "-c", "-e", "-E", "-s"):  # a module, a program in the argument or on stdin
                 return []
             index += 2 if words[index] in ("-o", "-O", "-W", "-X") else 1
         return words[index:index + 1]
@@ -749,7 +845,8 @@ class Walker:
         except (OSError, UnicodeError):
             return []
         script_dir = os.path.dirname(repo.abs(rel))
-        out: list[str] = []
+        declared = declared_runs(repo, text)
+        out: list[str] = list(declared or [])
         env = {"GITHUB_WORKSPACE": str(repo.root)}
         for words in shell_words(text, script_dir, env, []):
             while words and (words[0] in PREFIXES or (ASSIGN.match(words[0]) and "=" in words[0])):
@@ -769,7 +866,9 @@ class Walker:
                 out.extend(found)
                 continue
             for run in run_targets(words):
-                if "$" in run and re.search(r"\.(sh|py|bash)$", run):
+                if "$" in run and rooted_run(repo, run):
+                    out.append(rooted_run(repo, run))
+                elif "$" in run and declared is None and re.search(r"\.(sh|py|bash)$", run):
                     self.note_unknown(rel, f"runs {run}", sink)
                 elif not any(c in run for c in "*?["):  # a script's glob is a listing, not a run list
                     out.extend(self.word_paths(run, cwd))

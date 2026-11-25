@@ -8,10 +8,17 @@
 #     --arg=reboot=N
 #   phase=before  the copy (installed from dmg= when there is none yet, or on reboot=1) launched once and quit with Keep
 #                 Sessions (SIGTERM), every process of it gone, LB-COPY (path, version, sizes), then LB-REBOOT and
-#                 exit 0. `sudo -n /sbin/shutdown -r now` runs LB_REBOOT_DELAY s later (default 20), in a session of its
-#                 own, so the worker has reported the step done first and never counts the reboot as a lost job.
-#   phase=after   the step that runs first after the auto-login. It refuses (LB-FAIL not rebooted, exit 3) while
-#                 kern.boottime is still the before step's: one claimed in those 20 s goes again once the host is back.
+#                 exit 0. `sudo -n /sbin/shutdown -r now` runs LB_REBOOT_DELAY s later (default 20), so the worker has
+#                 reported the step done first and never counts the reboot as a lost job. The waiting shell starts in
+#                 a session of its own, in /, with an empty environment: the worker stops every process of the build
+#                 user whose working directory is in the step or whose environment names it (CI_JOB_DIR) when the
+#                 step ends, and on 2026-11-19 that stopped all 11 reboots of a series. Its outcome goes to
+#                 ROOT/reboot.log, which the after step prints (LB-REBOOT-LOG).
+#   phase=after   the step that runs first after the auto-login. It refuses (exit 3) with no before step's state in
+#                 ROOT (LB-FAIL no before step), while kern.boottime is still the before step's (LB-FAIL not
+#                 rebooted: one claimed in those 20 s goes again once the host is back), and when the boot is more
+#                 than LB_MAX_BOOT_AGE_S (default 600) old (LB-FAIL booted too long ago): that launch is no longer
+#                 the first after a reboot.
 #                 LB-LOGIN: seconds since kern.boottime and since the loginwindow process started (login;
 #                 kern.boottime when there is none). Then, by arm:
 #     noread      at login+60 s one measured launch
@@ -28,7 +35,8 @@
 # syspolicyd, XprotectService, amfid and trustd spent across it. Before it, each binary's resident fraction
 # (t=prelaunch). Rows: LB-LOGIN, LB-COPY, LB-READ, LB-RESIDENT, LB-LAUNCH, LB-LATE (a wait whose time had passed),
 # LB-FAIL REASON (exit 3; 2 for a bad argument). The copy, probe and home live in LB_ROOT (default
-# ~/.cmux-launch-reboot), so the after step finds what the before step left.
+# /Users/Shared/cmux-launch-reboot), so the after step finds what the before step left: each cmux-ci step has a HOME
+# of its own (work/steps/ID/home), and a root under it was gone for every after step.
 set -uo pipefail
 
 LB_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -36,7 +44,7 @@ LB_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=SCRIPTDIR/launch-premain.sh
 source "$LB_DIR/launch-premain.sh"
 
-ROOT="${LB_ROOT:-$HOME/.cmux-launch-reboot}"
+ROOT="${LB_ROOT:-/Users/Shared/cmux-launch-reboot}"
 CONSOLE="${LB_CONSOLE:-scripts/ci/frame-pacing/console-session.sh}"
 TIME_BIN="${LB_TIME:-/usr/bin/time}"
 PLISTBUDDY="${LB_PLISTBUDDY:-/usr/libexec/PlistBuddy}"
@@ -62,9 +70,14 @@ main() {
   if [[ "$PHASE" == after ]]; then
     # First thing: a host the before step's reboot has not reached yet; then when the step started, against boot and
     # login.
-    local was
+    local was boot age
     was="$(cat "$ROOT/before.boot" 2>/dev/null)"
-    [[ -z "$was" || "$(boot_time)" != "$was" ]] || fail "not rebooted: kern.boottime is still the before step's ($was)"
+    [[ -n "$was" ]] || fail "no before step: $ROOT/before.boot is missing (run phase=before first)"
+    boot="$(boot_time)"
+    [[ "$boot" != "$was" ]] || fail "not rebooted: kern.boottime is still the before step's ($was)"
+    age=$(($(date +%s) - boot))
+    ((age <= ${LB_MAX_BOOT_AGE_S:-600})) || fail "booted too long ago: ${age} s, over ${LB_MAX_BOOT_AGE_S:-600}"
+    [[ -f "$ROOT/reboot.log" ]] && echo "LB-REBOOT-LOG reboot=$REBOOT $(tr '\n' ' ' <"$ROOT/reboot.log")"
     login_times
     after
   else
@@ -111,15 +124,20 @@ before() {
 boot_time() { sysctl -n kern.boottime | sed -n 's/.*sec = \([0-9]*\),.*/\1/p'; }
 
 # reboot_later: `sudo -n /sbin/shutdown -r now` LB_REBOOT_DELAY s (default 20) from now, in a new session with no
-# terminal or pipes, so this step exits 0 and its worker reports it before the host goes down, and the end of the
-# step's process group does not take the reboot with it (nohup alone when there is no perl). The before step has
-# already checked the sudo rule.
+# terminal or pipes, in /, with only PATH in its environment, so this step exits 0 and its worker reports it before
+# the host goes down, and neither the end of the step's process group nor the worker's leftover sweep (a build-user
+# process whose working directory is in the step or whose environment names it) takes the reboot with it (nohup
+# alone when there is no perl). The before step has already checked the sudo rule. ROOT/reboot.log gets when it
+# was asked and sudo's own answer, if it lives to write one.
 reboot_later() {
-  local later=(/bin/sh -c "sleep ${LB_REBOOT_DELAY:-20}; exec sudo -n /sbin/shutdown -r now")
+  local log="$ROOT/reboot.log" delay="${LB_REBOOT_DELAY:-20}"
+  echo "asked=$(date -u +%FT%TZ) delay_s=$delay" >"$log"
+  # sleep-ok: the detached reboot's delay (LB_REBOOT_DELAY) lets this step exit and its worker report before the host goes down
+  local later=(/usr/bin/env -i PATH="$PATH" /bin/sh -c 'cd / && sleep "$1" && { sudo -n /sbin/shutdown -r now; echo "shutdown_rc=$?"; } >>"$2" 2>&1' sh "$delay" "$log")
   if command -v perl >/dev/null; then
-    perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' "${later[@]}" </dev/null >/dev/null 2>&1 &
+    (cd / && exec perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' "${later[@]}" </dev/null >/dev/null 2>&1) &
   else
-    nohup "${later[@]}" </dev/null >/dev/null 2>&1 &
+    (cd / && exec nohup "${later[@]}" </dev/null >/dev/null 2>&1) &
   fi
   disown
 }
@@ -167,6 +185,7 @@ since() { echo $(($(date +%s) - LOGIN)); }
 # at OFFSET WHAT: wait until login + OFFSET seconds; LB-LATE when that time has already passed.
 at() {
   local wait=$((LOGIN + $1 - $(date +%s)))
+  # sleep-ok: the schedule point login + OFFSET is the measurement's own clock, not a state to wait on
   if ((wait > 0)); then sleep "$wait"; else echo "LB-LATE reboot=$REBOOT arm=$ARM what=$2 target_s=$1 s_since_login=$(since)"; fi
 }
 

@@ -1,0 +1,273 @@
+/* The composer look climbs' arms (composer/shellLook, footerControls and emptyHeight .experiment.ts).
+   Each rule needs its experiment's attribute on the composer, which Composer.tsx sets only off the
+   shipped arm, so the shipped composer draws exactly as before. The `:root:root:root` and doubled
+   class prefix outranks the composer's own surface, ring and grid rules (up to (0,6,0) under a
+   queue) whatever the sheet order. */
+
+/* ---------- composer-shell-look: the box ---------- */
+
+/* Every arm but stacked-glass (it keeps the shipped surface, below): the box and the new chat's strip take the arm's fill, ring and shadow; the queued
+   prompts keep the stack's own tint (their muted actions hold their contrast there) and take the
+   arm's corner and edge. Under a queue the box's top corners stay square, as they ship. */
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look]:not([data-shell-look^="stacked-glass"]) > :is(.acpmux-composer-box, .acpmux-composer-strip) {
+  --glass-tint: var(--climb-shell-fill);
+  --acpmux-card-ring: var(--climb-shell-ring);
+  --acpmux-composer-rim: 0 0 0 0 transparent;
+  --acpmux-composer-shadow: 0 0 transparent;
+  background: var(--climb-shell-fill);
+  box-shadow: var(--climb-shell-ring), var(--climb-shell-shadow);
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look]:not([data-shell-look^="stacked-glass"]) > .acpmux-composer-queue {
+  box-shadow: var(--climb-shell-ring), var(--climb-shell-shadow);
+  border-top-left-radius: var(--climb-shell-radius);
+  border-top-right-radius: var(--climb-shell-radius);
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look]:not([data-shell-look^="stacked-glass"]) > .acpmux-composer-box {
+  --acpmux-composer-radius: var(--climb-shell-radius);
+  border-radius: var(--climb-shell-radius);
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look]:not([data-shell-look^="stacked-glass"])[data-queue] > .acpmux-composer-box {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look]:not([data-shell-look^="stacked-glass"]) > .acpmux-composer-box::before {
+  box-shadow: none;
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look]:not([data-shell-look^="stacked-glass"]) {
+  --climb-shell-ring: 0 0 0 0 transparent;
+  --climb-shell-shadow: 0 0 transparent;
+}
+
+/* Codex's box: a big round corner, a clearly lighter filled surface, no visible border, roomier. */
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look="codex"] {
+  /* chat-surface-allow: the composer climb experiment (#48437); its fills are the arm under comparison, kept as tried until it ships */
+  --climb-shell-fill: light-dark(
+    color-mix(in srgb, var(--agent-text) 5%, var(--acpmux-composer-solid)),
+    color-mix(in srgb, var(--agent-text) 6%, var(--acpmux-composer-solid))
+  );
+  --climb-shell-radius: 26px;
+  --acpmux-strip-radius: 20px;
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look="codex"] > .acpmux-composer-box {
+  --acpmux-composer-inset: calc(14px * var(--acpmux-density, 1));
+}
+
+/* Claude Code's card: a tighter corner, a plain 1 px border in the text's ink, the page inside. */
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look="claude"] {
+  --climb-shell-fill: var(--agent-page-bg, var(--acpmux-composer-solid));
+  --climb-shell-ring: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 30%, transparent);
+  --climb-shell-radius: 12px;
+  --acpmux-strip-radius: 10px;
+}
+
+/* Floating: no border, a raised surface over the popover elevation (--elevation-2, the one drop
+   shadow scale), a mid corner. */
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look="floating"] {
+  /* chat-surface-allow: the composer climb experiment (#48437); its fills are the arm under comparison, kept as tried until it ships */
+  --climb-shell-fill: light-dark(var(--cmux-tone-light), color-mix(in srgb, var(--agent-text) 4%, var(--acpmux-composer-solid)));
+  --climb-shell-shadow: var(--elevation-2);
+  --climb-shell-radius: 16px;
+  --acpmux-strip-radius: 14px;
+}
+
+/* Stacked glass (Leo, on the shipped box in the composer climb: "be more like apple glass thing
+   and have both composer and the composer hat be rounded... so it looks like there's two bits of
+   glass stacked atop one naother?"): the shipped box, its fill, frost, rim and shadow, and its hat
+   (the queued prompts on its top edge, or the running tray over it in the dock, bottomStack.css)
+   each its own rounded glass, one --ds-space-1 step apart. The hat closes its hairline round all
+   four sides and casts the card's shadow; the card keeps all four corners and its whole ring, never
+   squaring under the hat. The lens bends each as its own glass (--glass-join: none). */
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look^="stacked-glass"] {
+  --climb-stack-gap: var(--ds-space-1, 4px);
+  /* The hat's corner: the shipped queue's (composerLocation.css). */
+  --climb-stack-radius: var(--acpmux-strip-radius, 18px);
+  --climb-stack-edge: var(--acpmux-composer-edge);
+  --climb-stack-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look^="stacked-glass"]:not([data-shell])[data-focused][data-focused] {
+  --climb-stack-edge: var(--acpmux-composer-edge-focus);
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look^="stacked-glass"] > :is(.acpmux-composer-queue, .acpmux-queue-foldbar, .acpmux-composer-box) {
+  /* glass-opaque-allow: a keyword (top, bottom, both) the lens reads, not a color */
+  --glass-join: none;
+}
+/* The hat: the queue, its fold under it when the queue is long. The part right over the card rounds
+   its bottom corners and stands the gap above it. */
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look^="stacked-glass"] > .acpmux-composer-queue {
+  box-shadow:
+    inset 0 var(--cmux-hairline, .5px) 0 var(--climb-stack-edge),
+    inset var(--cmux-hairline, .5px) 0 0 var(--climb-stack-edge),
+    inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--climb-stack-edge),
+    var(--climb-stack-shadow);
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look^="stacked-glass"] > .acpmux-composer-queue:has(+ .acpmux-composer-box) {
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--climb-stack-edge), var(--climb-stack-shadow);
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look^="stacked-glass"] > .acpmux-queue-foldbar:has(+ .acpmux-composer-box) {
+  box-shadow:
+    inset var(--cmux-hairline, .5px) 0 0 var(--climb-stack-edge),
+    inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--climb-stack-edge),
+    inset 0 calc(-1 * var(--cmux-hairline, .5px)) 0 var(--climb-stack-edge),
+    var(--climb-stack-shadow);
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look^="stacked-glass"] > :is(.acpmux-composer-queue, .acpmux-queue-foldbar):has(+ .acpmux-composer-box) {
+  margin-bottom: var(--climb-stack-gap);
+  border-bottom-left-radius: var(--climb-stack-radius);
+  border-bottom-right-radius: var(--climb-stack-radius);
+}
+/* The card under the hat keeps its four corners and its whole ring (on its ::before layer, as under
+   the shipped queue, with no seam cut out of its top). */
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look^="stacked-glass"][data-queue] > .acpmux-composer-box {
+  border-radius: var(--acpmux-composer-radius);
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look^="stacked-glass"][data-queue] > .acpmux-composer-box::before {
+  border-radius: inherit;
+  -webkit-mask: none;
+  mask: none;
+}
+/* The dock's hat: a running tray drawing a card over the composer stands the gap above it, rounds
+   its bottom corners and closes its hairline, and the card keeps its rounded top and its own top
+   light. */
+:root:root:root .acpmux-dock.acpmux-dock > .acpmux-running-tray.acpmux-running-tray[data-card]:has(+ .acpmux-composer[data-shell-look^="stacked-glass"]) {
+  margin-bottom: var(--ds-space-1, 4px);
+  border-bottom-left-radius: var(--acpmux-stack-radius);
+  border-bottom-right-radius: var(--acpmux-stack-radius);
+  box-shadow:
+    inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge, transparent),
+    inset 1px 1.5px 1px -1px var(--acpmux-tray-specular, transparent),
+    inset 0 16px 20px -16px var(--acpmux-tray-sheen, transparent),
+    var(--acpmux-composer-shadow, var(--elevation-1));
+}
+:root:root:root .acpmux-dock.acpmux-dock > .acpmux-running-tray[data-card] + .acpmux-composer.acpmux-composer[data-shell-look^="stacked-glass"] > .acpmux-composer-queue {
+  border-top-left-radius: var(--climb-stack-radius);
+  border-top-right-radius: var(--climb-stack-radius);
+}
+:root:root:root .acpmux-dock.acpmux-dock > .acpmux-running-tray[data-card] + .acpmux-composer.acpmux-composer[data-shell-look^="stacked-glass"] > .acpmux-composer-box:not(.acpmux-composer-queue ~ *) {
+  border-top-left-radius: var(--acpmux-composer-radius);
+  border-top-right-radius: var(--acpmux-composer-radius);
+}
+:root:root:root .acpmux-dock.acpmux-dock > .acpmux-running-tray[data-card] + .acpmux-composer.acpmux-composer[data-shell-look^="stacked-glass"] > .acpmux-composer-box.ui-glass-material:not(.acpmux-composer-queue ~ *) {
+  --acpmux-composer-rim: var(--glass-material-rim);
+}
+
+/* Stacked-glass variants: the same two glasses, with a different gap between them or a different corner. */
+/* Wide: a full --ds-space-2 step between the hat and the card, so each one reads as its own pane. */
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look="stacked-glass-wide"] {
+  --climb-stack-gap: var(--ds-space-2, 8px);
+}
+:root:root:root .acpmux-dock.acpmux-dock > .acpmux-running-tray.acpmux-running-tray[data-card]:has(+ .acpmux-composer[data-shell-look="stacked-glass-wide"]) {
+  margin-bottom: var(--ds-space-2, 8px);
+}
+/* Hairline: the gap is only a sliver of page between the two rims, as if the hat sits on the card. */
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look="stacked-glass-hairline"] {
+  --climb-stack-gap: var(--grid-half-step);
+}
+:root:root:root .acpmux-dock.acpmux-dock > .acpmux-running-tray.acpmux-running-tray[data-card]:has(+ .acpmux-composer[data-shell-look="stacked-glass-hairline"]) {
+  margin-bottom: var(--grid-half-step);
+}
+/* Round: both glasses take a 24 px corner (the card ships at 18 px and its hat at its strip corner). */
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look="stacked-glass-round"] {
+  --acpmux-strip-radius: 24px;
+  --climb-stack-radius: 24px;
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look="stacked-glass-round"] > .acpmux-composer-box {
+  --acpmux-composer-radius: 24px;
+  border-radius: var(--acpmux-composer-radius);
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look="stacked-glass-round"] > .acpmux-composer-queue {
+  border-top-left-radius: var(--climb-stack-radius);
+  border-top-right-radius: var(--climb-stack-radius);
+}
+:root:root:root .acpmux-dock.acpmux-dock > .acpmux-running-tray.acpmux-running-tray[data-card]:has(+ .acpmux-composer[data-shell-look="stacked-glass-round"]) {
+  --acpmux-stack-radius: 24px;
+}
+
+/* ---------- composer-footer-controls: +, the pickers, the mic and Send ---------- */
+
+/* Text chips: the mode and model on a faint control-cornered rect with their chevron; Send a solid accent circle. */
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="chips"]
+  :is(.acpmux-access-trigger, .acpmux-model .acpmux-picker-button) {
+  padding-inline: 8px;
+  border-radius: var(--ds-radius-control);
+  /* chat-surface-allow: the composer climb experiment (#48437); its fills are the arm under comparison, kept as tried until it ships */
+  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 10%, transparent);
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="chips"] .acpmux-send {
+  border-radius: 50%; /* radius-allow: Send is a true circle (Leo: circles truly round) */
+  background: var(--agent-accent);
+  color: var(--agent-accent-text, #fff);
+}
+
+/* Grouped segment: +, the mic and Send stand in one bordered segment at the control corner with hairline dividers. */
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="segment"] .acpmux-composer-actions {
+  gap: 0;
+  padding: 0;
+  border-radius: var(--ds-radius-control);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 22%, transparent);
+  background: var(--ds-surface-card);
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="segment"] .acpmux-composer-actions > :not(:first-child) {
+  box-shadow: inset 1px 0 0 color-mix(in srgb, var(--agent-text) 18%, transparent);
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="segment"] .acpmux-composer-actions .acpmux-send {
+  border-radius: var(--ds-radius-control);
+  background: none;
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="segment"] .acpmux-composer-plus .acpmux-picker-button {
+  border-radius: var(--ds-radius-control);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 22%, transparent);
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="segment"] .acpmux-access-trigger {
+  border-radius: var(--ds-radius-control);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 22%, transparent);
+}
+
+/* Codex disc: 32 px controls, + on a round soft disc, the model in primary ink, Send a filled
+   text-color circle with the page's opaque base for its arrow. */
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="bold"] {
+  --acpmux-composer-control: calc(32px * var(--acpmux-density, 1));
+  --acpmux-composer-glyph: calc(18px * var(--acpmux-density, 1));
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="bold"] .acpmux-composer-plus .acpmux-picker-button {
+  width: var(--acpmux-composer-control);
+  height: var(--acpmux-composer-control);
+  border-radius: 50%; /* radius-allow: the + disc is a true circle, as Codex draws it (Leo: circles truly round) */
+  /* chat-surface-allow: the composer climb experiment (#48437); its fills are the arm under comparison, kept as tried until it ships */
+  background: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  color: var(--agent-text);
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="bold"] :is(.acpmux-model, .acpmux-access-trigger) {
+  color: var(--agent-text);
+  font-weight: var(--font-weight-emphasis);
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="bold"] .acpmux-send {
+  width: var(--acpmux-composer-control);
+  height: var(--acpmux-composer-control);
+  border-radius: 50%; /* radius-allow: Send is a true circle (Leo: circles truly round) */
+  background: var(--agent-text);
+  color: var(--acpmux-base);
+}
+
+/* ---------- composer-empty-height: the resting height and placeholder ---------- */
+
+:root:root:root .acpmux-composer.acpmux-composer[data-empty-height="hero"] {
+  --climb-rest-lines: 7;
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-empty-height="tall"] {
+  --climb-rest-lines: 4;
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-empty-height="large"] {
+  --climb-rest-lines: 2;
+  --text-content: calc(var(--cv-font-size, 14px) * 1.2 * max(1, var(--acpmux-density-text)));
+  --text-content--line-height: calc(var(--cv-line-height, 22.75px) * 1.2 * max(1, var(--acpmux-density-text)));
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-empty-height] {
+  --acpmux-codex-editor-min: calc(var(--climb-rest-lines) * var(--text-content--line-height));
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-empty-height] .acpmux-md-field > .acpmux-md-root {
+  min-height: calc(var(--climb-rest-lines) * var(--text-content--line-height));
+}
+:root:root:root .acpmux-composer.acpmux-composer[data-empty-height="hero"] .acpmux-md-placeholder {
+  color: color-mix(in srgb, var(--agent-text) 52%, transparent);
+}

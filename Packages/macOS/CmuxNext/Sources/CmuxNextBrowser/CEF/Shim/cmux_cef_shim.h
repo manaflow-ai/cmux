@@ -206,6 +206,16 @@ typedef enum {
   CMUX_SHIM_DEVTOOLS_CLOSE = 5,
 } cmux_shim_devtools_command_t;
 
+// Chromium's page commands that cmux names in its palette and menus
+// (cmux_shim_page_command). The shim maps each to its Chromium command id
+// (chrome/app/chrome_command_ids.h), so the host names none of them.
+typedef enum {
+  CMUX_SHIM_PAGE_SAVE_AS = 1,    // IDC_SAVE_PAGE: Chromium's Save Page As panel
+  CMUX_SHIM_PAGE_CAST = 2,       // IDC_ROUTE_MEDIA: the Cast dialog
+  CMUX_SHIM_PAGE_QR_CODE = 3,    // IDC_QRCODE_GENERATOR: the QR code bubble for the page
+  CMUX_SHIM_PAGE_TRANSLATE = 4,  // IDC_SHOW_TRANSLATE: the Translate bubble
+} cmux_shim_page_command_t;
+
 
 // Any thread. Swift moves it to the main run loop timer.
 typedef void (*cmux_shim_schedule_fn)(void* ctx, int64_t delay_ms);
@@ -347,6 +357,15 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_resize_fence(int browser_id, unsigned int
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_detached_hosting(int browser_id, int enabled);
 // The key state of a detached page (page focus without a key window).
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_embedder_active(int browser_id, int active);
+// Fork API 35: draw on input. With `enabled`, each key event the browser's page
+// acknowledges asks its window's display for a BeginFrame at once, in place of
+// the next vsync's. 1 when the fork took it, 0 when it lacks the call.
+CMUX_SHIM_EXPORT int cmux_shim_browser_set_draw_on_input(int browser_id, int enabled);
+// Fork API 35: frames draw on input drew for a key on that page since the mode
+// turned on, or -1 when the fork lacks the call. A bench reads it to tell a live
+// mode from an inert one: below API 35 there is no call at all, so a toggle read
+// as on measures the same path as off (cmux#45709 shipped against a pin at API 33).
+CMUX_SHIM_EXPORT int cmux_shim_draw_on_input_key_frames(int browser_id);
 // Runs fn(context) on Chromium's UI thread from its user-input queue (highest
 // priority). Any thread.
 CMUX_SHIM_EXPORT int cmux_shim_post_user_input_task(void (*fn)(void* context), void* context);
@@ -473,6 +492,10 @@ CMUX_SHIM_EXPORT void cmux_shim_set_accessibility(int browser_id, int enabled);
 // File > Print… (CefBrowserHost::Print): Chromium's print preview over the
 // page, as the page's own window.print(). Returns 0 when the browser is gone.
 CMUX_SHIM_EXPORT int cmux_shim_print(int browser_id);
+// Main thread. Runs a cmux_shim_page_command_t on browser_id's page, as the
+// row of Chromium's page menu does. Returns 1 when it ran, 0 when browser_id
+// is gone, the command is unknown or Chromium cannot run it on this page now.
+CMUX_SHIM_EXPORT int cmux_shim_page_command(int browser_id, int command);
 // FIND_RESULT events carry `find_id`.
 CMUX_SHIM_EXPORT void cmux_shim_find(int browser_id, int find_id, const char* text, int forward, int match_case, int find_next);
 CMUX_SHIM_EXPORT void cmux_shim_stop_finding(int browser_id, int clear_selection);

@@ -9,10 +9,14 @@
 // The chosen arm comes from one place, in this order:
 //   1. an override the host installs before the page loads (`globalThis.cmuxExperiments`: the
 //      gallery's stage frame sets it from its `arm` query key);
-//   2. the debug key `cmux.experiments` in localStorage, a JSON object `{ "<id>": "<arm>" }`
+//   2. a Settings switch that is on (Settings > Advanced > Experiments, `experiments.*`;
+//      hostSettings.ts maps each to its experiment's arm; useExperimentArm follows a change live);
+//   3. the debug key `cmux.experiments` in localStorage, a JSON object `{ "<id>": "<arm>" }`
 //      (for dogfood in the app: set it in the web inspector and reload the pane);
-//   3. the experiment's `defaultArm`.
+//   4. the experiment's `defaultArm`.
 // An unknown arm id anywhere falls through to the next source, so a stale key never breaks a page.
+
+import { settingArms } from "./hostSettings";
 
 export type ExperimentArm = {
   /** Short name for the gallery cell header (English: the gallery is a developer tool). */
@@ -39,8 +43,6 @@ export function defineExperiment<const Arm extends string>(experiment: Experimen
 
 export const EXPERIMENT_ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 export const ARM_ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-/** An arm description that records the pick ("Picked: ..."): the experiment is decided. */
-export const DECIDED = /\bPicked:/;
 /** The localStorage debug key. */
 export const EXPERIMENTS_STORAGE_KEY = "cmux.experiments";
 
@@ -71,13 +73,15 @@ export function isArm<Arm extends string>(experiment: Experiment<Arm>, id: unkno
   return typeof id === "string" && Object.hasOwn(experiment.arms, id);
 }
 
-/** The arm to run: the host override, else the debug key, else the default. */
+/** The arm to run: the host override, else a Settings switch, else the debug key, else the default. */
 export function experimentArm<Arm extends string>(
   experiment: Experiment<Arm>,
-  sources: { overrides?: ArmOverrides; stored?: ArmOverrides } = {},
+  sources: { overrides?: ArmOverrides; settings?: ArmOverrides; stored?: ArmOverrides } = {},
 ): Arm {
   const overrides = sources.overrides ?? globalThis.cmuxExperiments ?? {};
   if (isArm(experiment, overrides[experiment.id])) return overrides[experiment.id] as Arm;
+  const settings = sources.settings ?? settingArms();
+  if (isArm(experiment, settings[experiment.id])) return settings[experiment.id] as Arm;
   const stored = sources.stored ?? storedOverrides();
   if (isArm(experiment, stored[experiment.id])) return stored[experiment.id] as Arm;
   return experiment.defaultArm;
@@ -96,13 +100,6 @@ export function validateExperiments(experiments: readonly Experiment[]): string[
     for (const arm of arms) {
       if (!ARM_ID.test(arm)) problems.push(`${experiment.id}#${arm}: arm ids are lower kebab case`);
       if (!experiment.arms[arm].description.trim()) problems.push(`${experiment.id}#${arm}: no description`);
-      // A recorded pick means the comparison is over: the winner ships as the plain code path and the
-      // experiment, its losing arms and their code go (the header above). Kept, the losing arms stay
-      // compiled into every page for a gallery cell nobody needs any more.
-      if (DECIDED.test(experiment.arms[arm].description))
-        problems.push(
-          `${experiment.id}#${arm}: the arm says it was picked: ship it as the plain code path and delete the experiment`,
-        );
     }
     const fallback: string = experiment.defaultArm;
     if (!Object.hasOwn(experiment.arms, fallback))

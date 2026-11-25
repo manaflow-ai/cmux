@@ -16,6 +16,8 @@ public final class MacFilterMemo {
         public let id: String
         public let title: String
         public let detail: String
+        /// The account's presence for the Mac: its dot in the menu is green, else red.
+        public var isOnline: Bool = false
     }
 
     /// Everything a Filter row's text depends on. `minute` makes offline
@@ -60,13 +62,17 @@ public final class MacFilterMemo {
     public init() {}
 
     private var rosterKey: [MacDevice]?
+    private var rosterPick: String?
     private var cachedRoster = MacRoster([])
 
-    /// ``MacRoster`` of `macs`, recomputed only when a Mac changed.
-    public func roster(_ macs: [MacDevice]) -> MacRoster {
-        if rosterKey == macs { return cachedRoster }
+    /// ``MacRoster`` of `team`'s Macs, its picked build listed for its computer (``Team/pickedMacID``),
+    /// as the coordinator focuses it; recomputed only when a Mac or the pick changed.
+    public func roster(_ team: Team?) -> MacRoster {
+        let macs = team?.macs ?? [], pick = team?.pickedMacID
+        if rosterKey == macs, rosterPick == pick { return cachedRoster }
         rosterKey = macs
-        cachedRoster = MacRoster(macs)
+        rosterPick = pick
+        cachedRoster = MacRoster(macs, preferring: pick)
         return cachedRoster
     }
 
@@ -91,7 +97,7 @@ public final class MacFilterMemo {
             let presence = stamp.presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
             let status = MacStatusLine.make(mac: mac, connection: input.connection[mac.id], live: input.live, presence: presence).text
             let detail = input.linkStatus[mac.id] ?? status
-            return Entry(id: mac.id, title: names.displayName(mac), detail: detail)
+            return Entry(id: mac.id, title: names.displayName(mac), detail: detail, isOnline: mac.isOnline)
         }
         entriesKey = input
         entryComputations += 1

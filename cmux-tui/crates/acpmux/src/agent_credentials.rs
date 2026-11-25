@@ -18,7 +18,13 @@
 //! with [`MARKER`]), so the agent's next start (a wake after the machine paused, a route switch)
 //! runs on it again (cmux#45776: a Cloud Claude chat said "not signed in" after a pause). The Mac
 //! re-sends only a token that expires; an agent whose host also ended before a daemon restart
-//! starts without it. Without one the agent keeps today's coderouter route.
+//! starts without it. An idle chat is the usual case of that (its agent hibernates after two idle
+//! minutes, `hub/idle.rs`), so its summary says `credentialOnlyHere` meanwhile and a machine update
+//! wakes it before it restarts this daemon (`hub/credentials.rs` `credential_only_here`, cmux-host
+//! `updater/credential_wake.rs`). Left open: a daemon that ends any other way while the agent
+//! sleeps (a crash, a rollback's restart), a closed chat, and a session that holds a credential
+//! with no agent and no hibernation (its agent crashed, or its first start failed or has not run
+//! yet). Without one the agent keeps today's coderouter route.
 //!
 //! At each spawn ([`apply`]) the agent gets the credential's variables and loses the machine's
 //! coderouter route (`cloud_model_plane::KEYS`: base URLs, placeholder keys) and any other provider
@@ -377,10 +383,10 @@ fn set_codex_provider(argv: &mut Vec<String>, provider: &CodexProvider<'_>) {
 }
 
 /// Where a `-c` override goes in a codex command line: right after its `app-server` word, else
-/// right after the program. Codex 0.160 drops every override before the subcommand once the
-/// subcommand has one of its own (acpmux's `app-server -c developer_instructions=…`), so a
-/// provider put there ran the chat on `config.toml`'s `cmux` route instead (cmux#45774: "Missing
-/// environment variable: `OPENAI_API_KEY`" with the owner's ChatGPT token in the env).
+/// right after the program, so it follows (and wins over) the profile's own root overrides.
+/// Codex 0.160 drops every override before the subcommand once the subcommand has one of its own
+/// (cmux#45774), so the launch moves every override after `app-server` before it, in order
+/// (`harness_limits::codex_args`, cmux#48354): none is dropped on any codex.
 pub fn codex_config_index(argv: &[String]) -> usize {
     argv.iter().skip(1).position(|a| a == "app-server").map_or(1, |i| i + 2).min(argv.len())
 }

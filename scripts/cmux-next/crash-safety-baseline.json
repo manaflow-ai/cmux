@@ -3,20 +3,21 @@
   "exit": {
    "acpmux": 5,
    "chatmux-relay": 12,
-   "cmux-app-host": 2,
+   "cmux-app-host": 1,
    "cmux-browser-host": 2,
    "cmux-rd-host": 1,
    "cmux-tui": 1
   },
   "expect": {
-   "acpmux": 5,
+   "acpmux": 3,
+   "acpmux-tui": 2,
    "chatmux-relay": 81,
    "cmux-app-host": 2,
    "cmux-browser-host": 1,
    "cmux-remote": 39,
    "cmux-terminal-client": 1,
-   "cmux-tui": 75,
-   "cmux-tui-core": 190,
+   "cmux-tui": 74,
+   "cmux-tui-core": 187,
    "cmux-tui-hooks": 11,
    "cmux-tui-platform": 1,
    "cmux-tui-remote-access": 1,
@@ -31,13 +32,14 @@
    "cmux-tui-core": 24
   },
   "unwrap": {
-   "acpmux": 130,
+   "acpmux": 115,
+   "acpmux-tui": 5,
    "chatmux-relay": 7,
    "cmux-remote": 4,
    "cmux-terminal-client": 30,
    "cmux-tui": 429,
-   "cmux-tui-core": 1135,
-   "cmux-tui-image-paste": 22,
+   "cmux-tui-core": 1099,
+   "cmux-tui-image-paste": 21,
    "cmux-tui-platform": 17,
    "cmux-tui-remote-access": 5,
    "cmux-tui-util": 12
@@ -45,11 +47,9 @@
  },
  "swift": {
   "async_closure_default_arg": {
-   "CMUXMobileCore": 3,
    "CmuxAuthRuntime": 7,
    "CmuxInstallAuthCore": 1,
-   "CmuxIrohTransport": 4,
-   "CmuxNextApp": 3,
+   "CmuxNextApp": 2,
    "CmuxNextBrowserHost": 1,
    "CmuxNextDaemon": 1,
    "CmuxNextPalette": 1
@@ -72,20 +72,11 @@
   },
   "unchecked": {
    "CMUXAuthCore": 3,
-   "CMUXMobileCore": 7,
    "CmuxAuthRuntime": 1,
    "CmuxHomeCore": 1,
    "CmuxHomeRender": 5,
-   "CmuxIrohTransport": 7,
-   "CmuxIrxTransport": 14,
-   "CmuxMobileRPC": 3,
-   "CmuxMobileSSH": 7,
-   "CmuxMobileShellModel": 7,
-   "CmuxMobileSupport": 4,
-   "CmuxMobileTunnel": 4,
    "CmuxNextAgentPane": 2,
    "CmuxNextApp": 3,
-   "CmuxNextApps": 1,
    "CmuxNextBridge": 1,
    "CmuxNextBrowser": 4,
    "CmuxNextBrowserAutomation": 1,
@@ -108,8 +99,9 @@
  "waived": {
   "rust": {
    "exit": {
-    "acpmux": 6,
+    "acpmux": 8,
     "cmux-browser-host": 4,
+    "cmux-rd-host": 1,
     "cmux-tui": 1,
     "cmux-tui-core": 4
    },
@@ -119,7 +111,7 @@
     "cmux-layout-reducer": 4,
     "cmux-local-auth": 2,
     "cmux-terminal-sizing": 6,
-    "cmux-tui-core": 10,
+    "cmux-tui-core": 9,
     "cmux-unix-socket": 1
    },
    "panic_macro": {
@@ -137,14 +129,14 @@
   "swift": {
    "dynamic_dispatch": {
     "CmuxNextAgentPane": 2,
-    "CmuxNextBrowser": 18,
+    "CmuxNextBrowser": 20,
     "CmuxNextBrowserAutomation": 5,
     "CmuxNextDesign": 6,
-    "CmuxNextPages": 4,
+    "CmuxNextPages": 5,
     "CmuxNextPhone": 1,
     "CmuxNextPopups": 2,
     "CmuxNextResources": 2,
-    "CmuxVNCWebRTC": 1,
+    "CmuxVNCWebRTC": 5,
     "MessagesLabHome": 1
    },
    "render_font": {
@@ -152,8 +144,8 @@
     "MessagesLabSidebar": 5
    },
    "unchecked": {
-    "CMUXMobileCore": 1,
     "CmuxAppAttest": 1,
+    "CmuxHomeCore": 2,
     "CmuxNextAgentActivity": 1,
     "CmuxNextAgentList": 2,
     "CmuxNextAgentPane": 5,
@@ -179,8 +171,8 @@
     "CmuxNextVSCodeServer": 2,
     "CmuxVNC": 3,
     "CmuxVNCDemoServer": 3,
-    "CmuxVNCWebRTC": 19,
-    "MessagesLabHome": 3
+    "CmuxVNCWebRTC": 23,
+    "MessagesLabHome": 2
    }
   }
  }

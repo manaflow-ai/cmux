@@ -25,12 +25,14 @@ enum CloudHandlers {
         bindNetworkActions(into: registry, context: context, reason: signedInReason)
         bindDomainActions(into: registry, context: context, reason: signedInReason)
         bindListActions(into: registry, context: context)
+        bindComputerControl(into: registry, context: context)
         CloudStartSession.bind(into: registry, context: context, reason: signedInReason)
         context.services.cloudTeam.bind(into: registry, reason: signedInReason)
         bindCreation(into: registry, context: context, reason: { cloud.unavailableReason })
         bindAccount(into: registry, context: context, reason: reason)
         bindMove(into: registry, context: context)
         bindSignInRecovery(into: registry, cloud: cloud)
+        PaletteVerbActions(host: context.services).bindSecretRemove(into: registry) // before the unavailable sweep below
         CloudMachineStage.gatePowerActions(into: registry, context: context)
         // Open Desktop on a machine without a desktop: out of its menu, its run refused with why.
         ActionTargetVisibility.gate("cloudOpenDesktop", in: registry) { invocation in
@@ -251,7 +253,7 @@ enum CloudHandlers {
         guard viewer == nil || viewer == "rd", session.machine.opensCarrierDesktop,
               let record = RemoteViewTabRecord(host: session.machineID.lowercased(), target: .virtual, mode: .view, cloudDesktop: true, cloudRd: true)
         else { throw ActionFailure(message: CloudStrings.desktopUnavailable(title)) }
-        openDesktopPane(record, name: CloudStrings.desktopWorkspaceName(title), services)
+        openDesktopPane(record, name: CloudStrings.desktopWorkspaceName(session.machine, chats: session.daemon.store.workspaces.compactMap(\.title)), services)
     }
 
     /// A remote view pane tab for `record` in a new workspace on this Mac's daemon.

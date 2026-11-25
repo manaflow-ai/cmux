@@ -66,6 +66,26 @@ class RelativeRepo(unittest.TestCase):
         os.chdir(self.root)
         self.assertEqual(self.rust_counts("."), {})
 
+    def test_a_parallel_scan_counts_what_a_serial_scan_counts(self):
+        # Fast gates' critical path was this scan, one file after another (cmux-next fast gates, 2026-11-22): the
+        # per-file work fans out over a fork pool, and the totals and every counted line must be the serial scan's.
+        src = os.path.join(self.root, "cmux-tui", "crates", "demo", "src")
+        for n in range(40):
+            with open(os.path.join(src, f"m{n}.rs"), "w") as f:
+                f.write("pub fn one() -> u8 {\n" + "    Some(1).unwrap();\n" * (n % 5) +
+                        "    Some(2).unwrap(); // crash-allow: reviewed\n}\n")
+        results = []
+        for jobs in ("1", "4"):
+            os.environ["CRASH_RATCHET_JOBS"] = jobs
+            try:
+                scan = crash_ratchet.Scan()
+                crash_ratchet.scan_rust(self.root, scan, True)
+            finally:
+                del os.environ["CRASH_RATCHET_JOBS"]
+            results.append((scan.counts, scan.waived, scan.lines))
+        self.assertTrue(results[0][0]["rust"], "the fixture counts some hits")
+        self.assertEqual(results[0], results[1])
+
 
 if __name__ == "__main__":
     unittest.main()

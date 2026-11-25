@@ -79,6 +79,39 @@ public extension WindowDockFrame {
         return true
     }
 
+    /// Chief in Side Panel (`home.chiefDock.sidePanel`, ``ChiefSidePanel``): on, the panel docks at `edge` and opens, a
+    /// Chief-only pane beside every workspace but Home; off, a docked panel floats again and hides. False when nothing
+    /// changed (already so), so a repeat never re-places the window.
+    @discardableResult
+    func applyChiefSidePanel(_ on: Bool, edge: DockEdge) -> Bool {
+        if on {
+            guard frameChiefPanel.dockedEdge != edge || !frameChiefPanel.isOpen else { return false }
+            dockChiefPanel(at: edge)
+            return true
+        }
+        guard frameChiefPanel.dockedEdge != nil else { return false }
+        let hadKeys = frameChiefPanelHasKeys
+        frameChiefPanel.undock()
+        frameChiefPanel.hide()
+        frameChiefPanelDidChange()
+        if hadKeys { frameFocusStage(toward: nil) }
+        return true
+    }
+
+    /// The sidebar's Chief row while the Chief is a side panel (``ChiefSidePanel``): the docked panel shows again (when
+    /// Cmd-I hid it) and its message box takes the keys, the stage keeping its workspace. False when the panel is not
+    /// docked or the window shows Home, where the row opens the Chief's conversation instead.
+    @discardableResult
+    func showChiefSidePanel() -> Bool {
+        guard frameChiefPanel.dockedEdge != nil, let home = frameHome, let stage = chiefPanelStage, stage != home else { return false }
+        if !frameChiefPanel.isOpen {
+            frameChiefPanel.open()
+            frameChiefPanelDidChange()
+        }
+        frameFocusChiefPanel()
+        return true
+    }
+
     /// The panel's Dock/Float button: Float when docked, else Dock at `edge`.
     func toggleChiefPanelDock(edge: DockEdge) {
         if !floatChiefPanel() { dockChiefPanel(at: edge) }

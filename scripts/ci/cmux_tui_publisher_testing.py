@@ -16,12 +16,14 @@ So a run defers only while the publisher's job is on its way. It tests the
 tree itself (exit 1) when the publisher's daemon-test job:
   - ended without success (skipped, cancelled, failed): no marker is coming;
   - is queued for a label the current pool (--pool) no longer names;
+    --pool is one label or a comma-separated list (the publisher's attempt-1
+    owned label and its attempt-2+ spill pool), any of which counts;
   - has been queued longer than --max-queued-minutes.
 It keeps deferring (exit 0) while the job runs, passed, is queued briefly on
 the current pool, or does not exist yet (the publisher's needs still run).
 Every API failure answers "test here" (exit 1), as the run lookup before it.
 
-Usage: cmux_tui_publisher_testing.py --run-id ID [--pool LABEL] [--max-queued-minutes 20]
+Usage: cmux_tui_publisher_testing.py --run-id ID [--pool LABEL[,LABEL...]] [--max-queued-minutes 20]
 Environment: GH_TOKEN (actions read), API_URL and REPOSITORY (the calling
 steps' names; GITHUB_API_URL and GITHUB_REPOSITORY otherwise). It reads through
 curl like the steps around it, so their tests' fake curl answers it too.
@@ -68,7 +70,8 @@ def verdict(all_jobs: list[dict], pool: str, max_queued_minutes: float, now: dt.
     if status != "queued":
         return True, f"its daemon-test job is {status}"
     labels = job.get("labels") or []
-    if pool and pool not in labels:
+    pools = [label.strip() for label in pool.split(",") if label.strip()]
+    if pools and not set(pools) & set(labels):
         return False, f"its daemon-test job is queued for {', '.join(labels) or '?'}, not the current pool {pool}"
     created = dt.datetime.fromisoformat(job["created_at"].replace("Z", "+00:00"))
     waited = (now - created).total_seconds() / 60

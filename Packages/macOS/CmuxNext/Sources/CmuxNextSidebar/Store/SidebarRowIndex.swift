@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextSignposts
 
 /// Where each workspace row sits in a window's sections, so a row content
 /// change (agent status, OSC 7501 program status, title, unread, progress,
@@ -117,6 +118,8 @@ extension SidebarListView {
     /// height changes reloads the layout; nothing rebuilds the sections.
     func patchRows(_ patched: [SidebarWorkspace]) {
         SidebarPerfCounters.add(.rowPatches, patched.count)
+        let signpost = Signposter.stall.begin(.stallSidebarRows, "kind=patch")
+        defer { Signposter.stall.end(.stallSidebarRows, signpost) }
         // A height change lays the list out again (outside the timed patch: `reload` times itself), with no
         // motion unless the user asked for it, and not under the pointer (`showModelChange`, calm-sidebar-movement);
         // provisional rows swap in place, as on any reload (`SidebarView.animatesReload`).
@@ -170,7 +173,9 @@ extension SidebarListView {
             guard let row = displayed.row(for: .workspace(ws.id)), let section = sections[row.section] else {
                 // A session a folded parent hides: the parent's roll-up counts its state, so the list lays out
                 // again when that state moves, not on each step or title it reports.
-                if SidebarSessionTree.shared.drawn?.patchChangesRollUp(from: previous, to: ws) == true { heightChanged = true }
+                if SidebarSessionTree.shared.drawn?.patchChangesRollUp(from: previous, to: ws, lists: model.listsHolding(ws.id)) == true {
+                    heightChanged = true
+                }
                 continue
             }
             let o = options ?? self.options(includeGap: true)
@@ -187,6 +192,20 @@ extension SidebarListView {
             reconfigure(row.key)
         }
         return heightChanged
+    }
+
+    /// Shows band look changes (`SidebarModel.itemInfo`) of the built-ins listed as rows (the Chief in a group
+    /// or a machine list): no info change reloads the list, so their realized views are configured again.
+    /// Only the changed infos are visited.
+    func patchItemInfo(from old: [LayoutItemID: SidebarItemInfo], to new: [LayoutItemID: SidebarItemInfo]) {
+        for id in Self.changedItemInfo(from: old, to: new) where listItems[id.rawValue]?.ref.builtIn != nil {
+            reconfigure(.item(id.rawValue))
+        }
+    }
+
+    /// The items whose info `new` adds, changes or drops from `old`.
+    static func changedItemInfo(from old: [LayoutItemID: SidebarItemInfo], to new: [LayoutItemID: SidebarItemInfo]) -> [LayoutItemID] {
+        new.compactMap { old[$0.key] == $0.value ? nil : $0.key } + old.keys.filter { new[$0] == nil }
     }
 
     /// Configures `key`'s realized view from the shown layout; a row with no view is drawn when it scrolls in.

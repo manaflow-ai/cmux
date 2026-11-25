@@ -33,8 +33,8 @@ public final class AddressBarView: NSView {
 
     let pill = OmnibarPillView()
     private let backdrop = OmnibarCardTopView()
-    /// The card top is fading out after the card closed.
-    private var backdropClosing = false
+    /// The bar's card top is drawn (tests: it goes with the card).
+    var debugCardTopShown: Bool { !backdrop.isHidden }
     /// The card top's reach above the bar (`OmnibarStyle.cardTopOutset(bar:)`), measured at each layout from where the
     /// bar sits in its window.
     private lazy var backdropTop = backdrop.topAnchor.constraint(equalTo: topAnchor)
@@ -205,7 +205,7 @@ public final class AddressBarView: NSView {
         addSubview(badges)
         let fieldCenter = field.centerYAnchor.constraint(equalTo: centerYAnchor)
         NSLayoutConstraint.activate([
-            density.bind(heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.barHeight },
+            density.bind(heightAnchor.constraint(equalToConstant: 0)) { [weak self] in OmnibarStyle.barHeight(scale: OmnibarStyle.scale(of: self)) },
             pill.leadingAnchor.constraint(equalTo: leadingAnchor),
             pill.trailingAnchor.constraint(equalTo: trailingAnchor),
             pill.topAnchor.constraint(equalTo: topAnchor),
@@ -246,6 +246,8 @@ public final class AddressBarView: NSView {
             updateChrome()
         }
         density.start()
+        pill.onHoverChange = { [weak self] hovering in self?.updateQuietIcons(fade: ChromeHover.fade(showing: hovering)) }
+        pill.onLookChange = { [weak self] in self?.repaintInk() }
         followDisplay()
     }
 
@@ -299,6 +301,8 @@ public final class AddressBarView: NSView {
         set { profileBadgeView.makeMenu = newValue }
     }
 
+    /// The profile badge's text color now (tests).
+    var profileBadgeTextColor: NSColor? { profileBadgeView.shownTextColor }
     /// The badge shown now, for diagnostics (`debug.browser`).
     public var profileBadgeName: String? { profileBadgeView.isHidden ? nil : profileBadgeView.themedToolTip }
 
@@ -608,19 +612,13 @@ public final class AddressBarView: NSView {
             if !isServedByPanePointerArea { window?.invalidateCursorRects(for: field) }
         }
         pill.state = state.isPopupOpen ? .card : (state.hasFocus ? .editing : .idle)
-        // The bar's card top fades with the card (`MotionFade.omniboxPopup`).
-        if state.isPopupOpen, backdrop.isHidden || backdropClosing {
-            backdropClosing = false
-            if backdrop.isHidden { backdrop.alphaValue = 0 }
+        // The bar's card top fades in with the card (`MotionFade.omniboxPopup`) and goes with it at once.
+        if state.isPopupOpen, backdrop.isHidden {
+            backdrop.alphaValue = 0
             backdrop.isHidden = false
             Motion.overlays.animate(.omniboxPopup, in: backdrop) { backdrop.animator().alphaValue = 1 }
-        } else if !state.isPopupOpen, !backdrop.isHidden, !backdropClosing {
-            backdropClosing = true
-            Motion.overlays.animate(.omniboxPopup, in: backdrop, { backdrop.animator().alphaValue = 0 }, completion: { [weak self] in
-                guard let self, self.backdropClosing else { return }
-                self.backdropClosing = false
-                self.backdrop.isHidden = true
-            })
+        } else if !state.isPopupOpen, !backdrop.isHidden {
+            backdrop.isHidden = true
         }
         if state.isPopupOpen {
             backdrop.opensUpward = toolbarOpensUpward
@@ -629,6 +627,7 @@ public final class AddressBarView: NSView {
         let site = PageInfoSite(url: state.pageURL, security: security)
         chip.indicator = PageInfoIndicator.resolve(site: site, chip: OmnibarPresentation(state).chip)
         updateStarVisibility()
+        updateQuietIcons(fade: nil)
     }
 
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -636,10 +635,30 @@ public final class AddressBarView: NSView {
         if newWindow == nil { panel.dismiss() }
     }
 
+    /// The bar was sized before it had a window, at the main screen's scale: its height snaps to this window's pixels.
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { density.reapply() }
+    }
+
+    /// A move to a screen with another scale snaps the bar's height again (Spacious's 37.5 pt: 38 at 1x, 37.5 at 2x).
+    public override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        density.reapply()
+    }
+
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         if !field.isFieldEditorActive {
             field.write(controller.state.fieldText, style: OmnibarPresentation(controller.state).style)
         }
+    }
+
+    /// Every mark on the bar takes the bar's ink again (`OmnibarStyle.ink`): the look changed (glass, transparent,
+    /// flat, its tint or coverage), which brings no appearance change and no theme repaint.
+    func repaintInk() {
+        field.repaintInk()
+        chip.repaintInk()
+        for view in [starButton, profileBadgeView, machineBadgeView] as [NSView] { view.needsDisplay = true }
     }
 }

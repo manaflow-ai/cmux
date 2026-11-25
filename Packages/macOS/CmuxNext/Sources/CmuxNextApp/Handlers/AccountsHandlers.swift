@@ -12,9 +12,16 @@ enum AccountsHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         registry.bind("accounts.show", run: { _ in try services.settingsWindow.show(section: .accounts) })
-        registry.bindEffect("accounts.githubConnect", requires: nil, effect: { _ in
-            try services.settingsWindow.show(section: .accounts)
-            return .applied(result: { await services.accounts.github.connectResult() })
+        // Connect Phone (palette, Window menu, the composer's machine picker, `cmux cloud
+        // open-mobile-pairing`): Settings > Accounts at its iPhone rows. A phone signed in to the same
+        // account finds this Mac by itself; the person allows each new phone there or in its prompt.
+        registry.bind("palette.mobileConnect", run: { invocation in
+            try services.settingsWindow.show(section: .accounts, setting: MobileSettings.allowIPhoneConnectionsPath.joined(separator: "."),
+                                             focus: invocation.allowsViewChange)
+        })
+        registry.bindEffect("accounts.githubConnect", requires: nil, effect: { invocation in
+            if invocation["repo"] == nil { try services.settingsWindow.show(section: .accounts) } // a chat card names the repo: GitHub opens, Settings does not
+            return .applied(result: { await services.accounts.github.connectResult(invocation) })
         })
         registry.bind("accounts.refresh", run: { _ in services.accounts.model.refresh() })
         registry.bind("accounts.reauthenticate", run: { invocation in

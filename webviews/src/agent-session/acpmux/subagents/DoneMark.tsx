@@ -62,7 +62,12 @@ export function DoneMark({
       </span>
     );
   return (
-    <span className="acpmux-done-mark" data-hat-done data-look={look} data-place={checkInSlot ? "column" : undefined}>
+    <span
+      className="acpmux-done-mark"
+      data-hat-done
+      data-look={look}
+      data-place={checkInSlot && time !== undefined ? "column" : undefined}
+    >
       {look === "check" && !checkInSlot && <DoneCheck />}
       {look === "accent" ? (
         <span className="acpmux-done-mark__word">{state}</span>

@@ -8,7 +8,7 @@ import { componentEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import type { ComposerHatHeadState } from "../../../gallery/fixtures/ComposerHatHeadStage";
 
-type Props = { start?: ComposerHatHeadState; tuck?: boolean };
+type Props = { start?: ComposerHatHeadState; tuck?: boolean; side?: "left" | "middle" | "right"; panel?: boolean };
 
 const TUCK = { selector: ".acpmux-running-tray__tuck" };
 const shown = (ctx: PlayContext) => {
@@ -46,6 +46,25 @@ export default componentEntry<Props>({
   height: 240,
   widths: { narrow: 360 },
   variants: {
+    // Leo, 2026-11-24, on the tab at the right of the hat beside the header's split icon and chevron:
+    // "actually this looks bad. tuck and its appearnace... maybe in the middle again?" The tuck is the
+    // hat's own control, so it stands on the hat's own axis (its middle); only the tucked pill, which
+    // shares the composer's edge with Jump to latest, steps aside.
+    "beside-controls-before": {
+      note: "Before: the tab 12px in from the right corner, over the header's split icon and chevron, on no line of theirs.",
+      props: { start: "done", tuck: true, side: "right", panel: true },
+      play: revealed,
+    },
+    "middle-with-controls": {
+      note: "After: the tab on the hat's middle, the header's split icon and chevron on their own centre line at the right.",
+      props: { start: "done", tuck: true, side: "middle", panel: true },
+      play: revealed,
+    },
+    "left-with-controls": {
+      note: "Variant: the tab 12px in from the left corner; clear of the icons, but off the hat's axis and under the tucked pill's old middle.",
+      props: { start: "done", tuck: true, side: "left", panel: true },
+      play: revealed,
+    },
     revealed: {
       note: "The pointer on the hat: the tuck control shows at its top middle, at rest.",
       props: { start: "done", tuck: true },

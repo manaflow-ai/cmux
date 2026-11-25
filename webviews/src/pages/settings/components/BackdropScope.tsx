@@ -10,8 +10,9 @@ import { rangeFill } from "../format";
 /** The tile that clears a workspace's own background, so it follows All Workspaces again. */
 export const FOLLOW_ID = "follow";
 
-/** The workspace `id`'s own background, read once per workspace; null without a workspace or when
- * the host has none. The setter records a saved value; `read` is false until the host answered. */
+/** The workspace `id`'s own background, read once per workspace and again after an undo or redo
+ * wrote it; null without a workspace or when the host has none. The setter records a saved value;
+ * `read` is false until the host answered. */
 export function useWorkspaceBackground(id: string | null) {
   const store = useStore();
   const [background, setBackground] = useState<WorkspaceBackground | null>(null);
@@ -21,13 +22,18 @@ export function useWorkspaceBackground(id: string | null) {
     setRead(id === null);
     if (!id) return;
     let live = true;
-    void store.workspaceBackground(id).then((reply) => {
-      if (!live) return;
-      setBackground(reply);
-      setRead(true);
-    });
+    const read = () =>
+      void store.workspaceBackground(id).then((reply) => {
+        if (!live) return;
+        setBackground(reply);
+        setRead(true);
+      });
+    read();
+    // An undo or redo put this workspace's background or tint back: show what it is now.
+    const stop = store.onWorkspaceBackground((changed) => changed === id && read());
     return () => {
       live = false;
+      stop();
     };
   }, [store, id]);
   return [background, setBackground, read] as const;

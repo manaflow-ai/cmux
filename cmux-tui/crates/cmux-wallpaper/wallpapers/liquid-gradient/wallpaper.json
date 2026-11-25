@@ -1,0 +1,26 @@
+{
+  "id": "liquid-gradient",
+  "name": "Liquid Gradient",
+  "description": "Soft blobs of the accent and its neighboring hues wander and flow into each other over the paper, like a blurred motion-graphics gradient. They lean toward the pointer, and agent output quickens the flow and sends a soft swell.",
+  "shader": "wallpaper.wgsl",
+  "fps": 30,
+  "scale": 0.35,
+  "interactive": true,
+  "agents": true,
+  "params": [
+    { "name": "speed", "title": "Speed", "default": 0.5, "min": 0, "max": 2 },
+    { "name": "size", "title": "Blob size", "default": 1.0, "min": 0.5, "max": 2 },
+    { "name": "intensity", "title": "Intensity", "default": 0.42, "min": 0.1, "max": 0.9 },
+    { "name": "warp", "title": "Wiggle", "default": 1.0, "min": 0, "max": 2.5 },
+    { "name": "spread", "title": "Hue spread (turns)", "default": 0.12, "min": 0, "max": 0.35 },
+    { "name": "lean", "title": "Pointer lean", "default": 0.6, "min": 0, "max": 1.5 },
+    { "name": "activity", "title": "Agent response", "default": 0.6, "min": 0, "max": 1.5 },
+    { "name": "grain", "title": "Grain", "default": 0.2, "min": 0, "max": 1 }
+  ],
+  "still": { "time": 24.0, "pointer": [0.6, 0.45] },
+  "variants": [
+    { "name": "Liquid", "accent": "#3D7BFF", "params": { "speed": 0.5, "size": 1.0, "intensity": 0.42, "warp": 1.0, "spread": 0.12, "lean": 0.6, "activity": 0.6, "grain": 0.2 } },
+    { "name": "Aurora", "accent": "#35D07F", "params": { "speed": 0.4, "size": 1.2, "intensity": 0.38, "warp": 1.6, "spread": 0.2, "lean": 0.5, "activity": 0.6, "grain": 0.25 } },
+    { "name": "Dusk", "accent": "#FF7A45", "params": { "speed": 0.35, "size": 0.85, "intensity": 0.48, "warp": 0.8, "spread": 0.1, "lean": 0.7, "activity": 0.7, "grain": 0.35 } }
+  ]
+}
