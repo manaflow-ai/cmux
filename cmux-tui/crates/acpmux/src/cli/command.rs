@@ -61,9 +61,14 @@ pub struct RebalanceArgs {
     /// The longest each move waits for a turn that started meanwhile to end, in seconds.
     #[arg(long, value_name = "SECS", default_value_t = 60)]
     pub timeout: u64,
-    /// Move a receipt's session back here (the id a pass printed, in rebalance.jsonl).
+    /// Move a receipt's session back where it came from (the id a pass printed, in
+    /// rebalance.jsonl).
     #[arg(long, value_name = "RECEIPT", conflicts_with_all = ["dry_run", "force", "max_moves"])]
     pub undo: Option<String>,
+    /// Run the pass for a peer host from this hub: its sessions read with `session info`, each
+    /// moved with `session move HOST/ID` (the registry switch is read for that host).
+    #[arg(long, value_name = "HOST", conflicts_with = "undo")]
+    pub machine: Option<String>,
 }
 
 /// `session move` (and its flat spelling `move-sessions`): which chats move, and where.
@@ -312,9 +317,10 @@ pub enum Command {
     Wait {
         /// Session names or ids. Every running session on every host when omitted.
         sessions: Vec<String>,
-        /// Give up after this many seconds.
-        #[arg(long)]
-        timeout: Option<u64>,
+        /// Give up after this many seconds (exit 3). Default an hour, as `pr-wait`'s: no wait an
+        /// agent arms sleeps forever, so a hung turn or a lost event wakes it to look again.
+        #[arg(long, default_value_t = crate::cli::orchestrate::WAIT_BOUND_S)]
+        timeout: u64,
         /// Wait for every named session, not just the first to resolve.
         #[arg(long)]
         all: bool,
