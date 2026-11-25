@@ -292,6 +292,8 @@ export function useStash(chat: string): readonly StashedDraft[] {
 /// stack has a key that outlives the page: `new-tab:<tab>`. Before it is known (an older app, the
 /// gallery) a composer has a key of its own, and its stack moves to the tab's once it is known.
 let paneTab: string | undefined;
+/// The tab this page is, once known.
+export const stashTab = (): string | undefined => paneTab;
 const tabListeners = new Set<() => void>();
 export function setStashTab(tab: string | undefined): void {
   if (tab === paneTab) return;

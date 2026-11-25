@@ -722,6 +722,8 @@ import {
   isPersonQueuedRow,
   answerHeld,
 } from "./pane/sendHost";
+import { keepLeftoverChips, takeLeftoverChips } from "./composer/leftoverChips";
+import { stashTab } from "./composer/draftStash";
 import { postTyping, newChatDraft, postNewChatDraft, keptAttachments } from "./pane/draftHost";
 import { postScrollAnchor, fetchScrollAnchor } from "./pane/scrollAnchorHost";
 import {
@@ -6433,6 +6435,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
     const elsewhere = where.later.filter((entry) => !shownHere.includes(entry));
     newChatDraft.kept = [...newChatDraft.kept, ...elsewhere.map((entry) => entry.text).filter((part) => part.trim())];
+    // Their images stay with the tab beside those words, which the host keeps as text alone.
+    const tab = stashTab();
+    if (tab && elsewhere.length)
+      writes.push(
+        keepLeftoverChips(
+          keptAttachments,
+          tab,
+          elsewhere.flatMap((entry) => entry.attachments),
+        ),
+      );
     if (shownHere.length || elsewhere.length) writes.push(postNewChatDraft());
     await Promise.all(
       [...where.drafts].map(async ([chat, list]) => {
@@ -6584,6 +6596,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       pendingWake.current = undefined;
     }
     replayHeldForComposer(handle, heldBack, heldQuotes);
+    // A new chat's composer takes the images a hand-back left for its tab, with their words.
+    const leftTab = stashTab();
+    if (handle && leftTab && !sessionIdRef.current)
+      void takeLeftoverChips(keptAttachments, leftTab).then((chips) => {
+        if (chips.length) composerHandle.current?.restore("", chips);
+      });
     // Files another app sent before this composer was there (composer/externalAttach.ts).
     if (handle && externalWaiting.current)
       externalWaiting.current = !takeExternalInto(() => composerHandle.current, callNative);
