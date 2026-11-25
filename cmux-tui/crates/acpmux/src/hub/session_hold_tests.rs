@@ -33,6 +33,135 @@ fn notice_opts(id: &str) -> PromptOptions {
     }
 }
 
+fn background_result(session: &Session, prompt: &str) -> Value {
+    let notice = json!({"sender": "acpmux", "severity": "info", "title": "background task done"});
+    let mut provenance = crate::prompt_provenance::notice(&notice, &session.id);
+    provenance["bgTaskId"] = json!(prompt.strip_prefix("bg-done-").unwrap());
+    let body = crate::prompt_provenance::notice_text(&notice, "task finished");
+    let record = json!({"promptId":prompt, "client":"acpmux", "prompt":text(&body), "text":body});
+    crate::prompt_provenance::marked(record, Some(&provenance))
+}
+
+fn queued_background_result(hub: &Hub, session: &Session, prompt: &str, turn: &str) {
+    let mut record = background_result(session, prompt);
+    record["turnId"] = json!(turn);
+    record["fromAgent"] = json!("acpmux");
+    record["class"] = json!("result");
+    hub.append(session, "mux", "queued", record);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn restored_inbox_acceptance_retires_the_queue_entry_and_preserves_the_senders_receipt() {
+    let (hub, session) = chat().await;
+    let prompt = "bg-done-bg-1";
+    hub.set_session_hold(&session, true).await.unwrap();
+    queued_background_result(&hub, &session, prompt, "old-turn");
+    hub.restore_queue(&session);
+    assert_eq!(session.queued(), 1);
+    hub.start_restored(&session);
+
+    let receipt = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        hub.prompt_outcome(&session, prompt),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(receipt["stopReason"], "end_turn");
+    assert_eq!(receipt.pointer("/_meta/acpmux/inbox"), Some(&json!(true)));
+    assert_ne!(receipt.pointer("/_meta/acpmux/withdrawn"), Some(&json!(true)));
+    assert_eq!(session.queued(), 0);
+    assert!(session.queue().is_empty());
+    assert!(session.restored.lock().unwrap().is_empty());
+    assert_eq!(kinds(&hub, &session, "inbox"), 1);
+    assert_eq!(kinds(&hub, &session, "user_message"), 0);
+
+    let restarted = hub.make_session(session.meta());
+    hub.restore_queue(&restarted);
+    assert!(restarted.queue().is_empty(), "a restart would deliver the notice twice");
+    assert!(restarted.restored.lock().unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn restored_inbox_replay_retires_only_prior_queue_entries_after_the_mux_received_them() {
+    let (hub, session) = chat().await;
+    let inbox = |dir, id| {
+        let mut record = background_result(&session, id);
+        record["from"] = json!("acpmux");
+        record["class"] = json!("fyi");
+        record["surgeHeld"] = json!(true);
+        hub.append(&session, dir, "inbox", record)
+    };
+    queued_background_result(&hub, &session, "bg-done-accepted", "old");
+    queued_background_result(&hub, &session, "bg-done-reused", "first");
+    queued_background_result(&hub, &session, "bg-done-still-waiting", "unrelated");
+    inbox("mux", "bg-done-accepted");
+    inbox("mux", "bg-done-reused");
+    queued_background_result(&hub, &session, "bg-done-reused", "second");
+    inbox("agent", "bg-done-still-waiting");
+    queued_background_result(&hub, &session, "bg-done-edited", "protected");
+    hub.append(
+        &session,
+        "mux",
+        "queue_updated",
+        json!({"promptId":"bg-done-edited", "turnId":"protected",
+        "text":"the corrected result", "prompt":text("the corrected result"),
+        "revision":1, "awaitingOwner":true}),
+    );
+    inbox("mux", "bg-done-edited");
+
+    // The daemon stopped before publishing any queue cleanup. Its own durable receipts suffice.
+    hub.restore_queue(&session);
+    let mut remaining: Vec<_> =
+        session.queue().into_iter().map(|q| (q.prompt_id, q.turn_id)).collect();
+    remaining.sort();
+    assert_eq!(
+        remaining,
+        [
+            ("bg-done-edited".to_owned(), "protected".to_owned()),
+            ("bg-done-reused".to_owned(), "second".to_owned()),
+            ("bg-done-still-waiting".to_owned(), "unrelated".to_owned())
+        ]
+    );
+    assert_eq!(session.queued(), 3);
+    let edited = session.queue().into_iter().find(|q| q.prompt_id == "bg-done-edited").unwrap();
+    assert_eq!(edited.revision, 1);
+    assert!(edited.awaiting_owner);
+    // Neither the original worker nor a new one may write this held revision into the inbox.
+    for rev in [0, 1] {
+        let stored = hub
+            .store_restored_inbox(&session, "protected", rev, || {
+                panic!("a stale or protected queue entry was offered to the inbox")
+            })
+            .unwrap();
+        assert!(!stored);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn restored_inbox_rejects_a_notice_when_its_receipt_cannot_be_persisted() {
+    let (hub, session) = chat().await;
+    hub.set_session_hold(&session, true).await.unwrap();
+    queued_background_result(&hub, &session, "bg-done-bg-1", "old-turn");
+    hub.restore_queue(&session);
+    hub.park_writes(&session, 7);
+    hub.start_restored(&session);
+    let error = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        hub.prompt_outcome(&session, "bg-done-bg-1"),
+    )
+    .await
+    .unwrap()
+    .unwrap_err();
+    assert!(error.message.contains("persist"), "{error:?}");
+    hub.unpark_writes(&session);
+    assert_eq!(kinds(&hub, &session, "inbox"), 0);
+    assert_eq!(session.queue()[0].turn_id, "old-turn");
+    let restarted = hub.make_session(session.meta());
+    hub.restore_queue(&restarted);
+    assert_eq!(restarted.queue()[0].turn_id, "old-turn");
+}
+
 /// interim-coord's test: a notice to a held chat starts no turn; it waits in the inbox.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_notice_to_a_held_chat_starts_no_turn() {

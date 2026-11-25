@@ -1400,6 +1400,7 @@ impl Hub {
         // Restore the branch baseline in this same pass, never by rereading at attach.
         "git",
         "queued",
+        "inbox",
         "transfer_out",
         "transfer_aborted",
         "imported",
@@ -1573,6 +1574,7 @@ impl Hub {
                     // After the login env and the catalog reload: its harness may need them.
                     hub.wait_startup().await;
                     let opts = PromptOptions {
+                        restoring_queue: true,
                         prompt_id: Some(q.prompt_id.clone()),
                         message_id: q.run.message_id.clone(),
                         control: q.run.control,
@@ -1588,6 +1590,24 @@ impl Hub {
                     };
                     let blocks = q.run.blocks.clone();
                     let result = hub.run_prompt(&session, blocks, &q.client, false, opts).await;
+                    if result.as_ref().is_err_and(super::session_hold::restore_waits) {
+                        // A hold arrived after resume_restored scheduled this task. The original
+                        // prompt and its sender still wait; release resumes its latest revision.
+                        if let Some(row) = session
+                            .queue
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .iter_mut()
+                            .find(|row| row.turn_id == q.turn_id)
+                        {
+                            row.resume = true;
+                        }
+                        // A concurrent release may have resumed before we rearmed this row.
+                        if !hub.session_held(&session) {
+                            hub.start_restored(&session);
+                        }
+                        return;
+                    }
                     // A client that resent this prompt id waits on the entry `restore_queues` made.
                     let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
                     if let Some((_, outcome)) = ledger.iter().find(|(id, _)| *id == q.prompt_id) {

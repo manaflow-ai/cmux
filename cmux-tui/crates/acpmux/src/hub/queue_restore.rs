@@ -122,6 +122,14 @@ impl Hub {
                         }
                         waiting.push(e);
                     }
+                    // A restored prompt may have gone straight into the recipient's inbox,
+                    // including on daemons that never retired the original queue row.
+                    "inbox" if e.dir == "mux" => {
+                        if let Some(id) = e.msg.get("promptId").and_then(Value::as_str) {
+                            waiting.remove_prompt(id);
+                            order.remove(&e.msg["promptId"]);
+                        }
+                    }
                     "agent_pair_held"
                     | "agent_pair_released"
                     | "agent_pair_dropped"
