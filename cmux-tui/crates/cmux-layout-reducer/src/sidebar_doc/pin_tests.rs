@@ -482,6 +482,37 @@ fn unpin_falls_back_when_a_remembered_group_is_now_too_deep() {
     assert!(group.extra.get(UNPIN_TO_KEY).is_none());
 }
 
+#[test]
+fn empty_subgroup_unpins_to_its_parents_machine_not_the_first_machine() {
+    let mut doc = fixture();
+    let remote = WorkspaceRef::new("s2", "remote");
+    run(&mut doc, vec![Op::Adopt { refs: vec![remote.clone()], to: None }]);
+    group_items(&mut doc, "remote-group", vec![workspace_item_id(&remote)]);
+    run(
+        &mut doc,
+        vec![Op::GroupCreate {
+            id: Some("empty-child".into()),
+            name: "Empty".into(),
+            color: None,
+            icon: None,
+            profile: None,
+            items: vec![],
+            to: Some(Target {
+                section: machine_section_id("s2"),
+                parent: Some("remote-group".into()),
+                ..Target::default()
+            }),
+        }],
+    );
+    run(&mut doc, vec![Op::Pin { items: vec!["remote-group".into()] }]);
+    run(&mut doc, vec![Op::Pin { items: vec!["empty-child".into()] }]);
+    run(&mut doc, vec![Op::Unpin { items: vec!["remote-group".into()] }]);
+    run(&mut doc, vec![Op::Unpin { items: vec!["empty-child".into()] }]);
+    let child = doc.item("empty-child").unwrap();
+    assert_eq!(child.section, machine_section_id("s2"));
+    assert_eq!(child.parent.as_deref(), Some("remote-group"));
+}
+
 /// An empty group (a saved group kept when its workspaces closed) has no
 /// workspace to name its machine: Unpin was refused (`no_machine`), so an
 /// empty pinned group stayed in Pinned for good (#22259).
