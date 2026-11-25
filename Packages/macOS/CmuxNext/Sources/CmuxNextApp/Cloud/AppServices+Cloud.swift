@@ -275,7 +275,7 @@ extension AppServices {
                                     onOpened: @escaping ModelSignInOpened) -> SettingsCloudClaudeMachineLink {
         let daemon = session.daemon
         let capability = DaemonCapability.agentSessionLoginSettings.rawValue
-        let supportsLogin = { daemon.liveIdentity?.supports(capability) == true }
+        let supportsLogin: @MainActor @Sendable () -> Bool = { daemon.liveIdentity?.supports(capability) == true }
         return SettingsCloudClaudeMachineLink(
             candidate: .init(record: session.machine, status: session.effectiveStatus,
                              linked: daemon.liveIdentity != nil, supportsLogin: supportsLogin()),
