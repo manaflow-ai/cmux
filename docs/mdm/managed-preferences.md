@@ -764,6 +764,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `experiments.toastsV2` | boolean | `false` |  | Toasts v2. Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat. |
 | `experiments.terminalHistoryFind` | boolean | `false` |  | Terminal History Find. Cmd-F in a terminal searches its whole history, with case, whole-word and regex options. |
 | `experiments.chatWidgets` | boolean | `false` |  | Extension Chat Widgets. Installed extensions can show a card under a finished tool call in agent chat. |
+| `experiments.appsTier` | boolean | `false` |  | Publish Previews as Apps. A Cloud preview can be published as an app with its own versions and a stable address, listed under Apps in the sidebar. |
 | `experiments.attachmentTypeIcons` | boolean | `false` |  | Attachment Type Icons. While an attachment loads, its chip shows a file or image icon instead of the loading mark. |
 | `feed.github.enabled` | boolean | `false` |  | GitHub Inbox. Inbox shows your GitHub notifications |
 | `feed.github.pollIntervalSeconds` | real | `120` | 60 to 900 | Refresh Interval. Seconds between GitHub refreshes. Refresh in the Inbox runs immediately. |

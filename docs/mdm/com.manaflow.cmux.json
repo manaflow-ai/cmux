@@ -3931,6 +3931,12 @@
       "title" : "Agent Badges: Running Beam",
       "type" : "boolean"
     },
+    "experiments.appsTier" : {
+      "default" : false,
+      "description" : "A Cloud preview can be published as an app with its own versions and a stable address, listed under Apps in the sidebar.",
+      "title" : "Publish Previews as Apps",
+      "type" : "boolean"
+    },
     "experiments.attachmentTypeIcons" : {
       "default" : false,
       "description" : "While an attachment loads, its chip shows a file or image icon instead of the loading mark.",
