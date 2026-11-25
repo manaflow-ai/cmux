@@ -217,6 +217,8 @@ struct TerminalComposer: View {
             primaryButton
         }
         .foregroundStyle(look.ink)
+        // The card's own id (ComposerCard is one container element, #55113), so a test
+        // can find the card: ComposerGlassColorUITests samples its glass as the draft grows.
         .accessibilityIdentifier("terminal.composer.card")
     }
 
