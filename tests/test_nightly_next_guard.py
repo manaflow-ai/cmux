@@ -104,7 +104,7 @@ guard_tags = re.search(r"^NEXT_SPARKLE_CHANNELS = \(([^)]*)\)$", GUARD.read_text
 if str(ROOT / "scripts/ci") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
 import nightly_next_ring as ring_module  # noqa: E402
-swift = (ROOT / "Packages" / "macOS" / "CmuxUpdater" / "Sources" / "CmuxUpdater" / "UpdateRing.swift")
+swift = (ROOT / "Packages" / "macOS" / "CmuxUpdater" / "Sources" / "CmuxUpdaterCore" / "UpdateRing.swift")
 app_tags = set(re.findall(r'case \.\w+: "(cmux-next[^"]*)"', swift.read_text()))
 resolver = (swift.parent / "UpdateFeedResolver.swift").read_text()
 app_tags |= set(re.findall(r'nightlyNextSparkleChannel = "([^"]+)"', resolver))

@@ -4,6 +4,43 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    TeamIntegrationPolicySource {
+        Default = "default",
+        Admin = "admin",
+        Sso = "sso",
+        Mdm = "mdm",
+        TeamPolicy = "team_policy",
+    }
+}
+
+wire_enum! {
+    TeamJournalStream {
+        Tasks = "tasks",
+        Mail = "mail",
+        Memory = "memory",
+        Files = "files",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamMember {
+    pub user: UserId,
+    pub role: TeamRole,
+    pub display_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamModelsPolicyState {
+    pub team: TeamId,
+    pub can_edit: bool,
+    pub own_connections: bool,
+    pub choose_runout: bool,
+    pub revision: i64,
+    pub updated_at: Option<i64>,
+    pub updated_by: Option<UserId>,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamPolicy {
     pub version: i64,

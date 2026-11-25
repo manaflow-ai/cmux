@@ -269,6 +269,29 @@ public struct ACPToolCall: Hashable, Sendable, Codable, Identifiable {
             return nil
         }.joined(separator: "\n")
     }
+
+    /// The images in this call's output (ACP `image` content blocks: a screenshot, a read PNG),
+    /// base64 `data` with its MIME type. `outputText` leaves them out; the row draws them.
+    public var images: [(mimeType: String, data: String)] {
+        content.compactMap {
+            if case .content(.image(let mimeType, let data)) = $0 { return (mimeType: mimeType, data: data) }
+            return nil
+        }
+    }
+
+    public var hasImages: Bool {
+        content.contains { if case .content(.image) = $0 { return true }; return false }
+    }
+
+    /// An image the agent put in its message (`agent_message_chunk` with `image` content), as a
+    /// finished call holding it, so the transcript draws it as a picture under its own row. Its
+    /// id is the same each time the record is read (a replay places it, never a second copy).
+    public static func agentImage(_ block: ACPContentBlock, messageId: String?) -> ACPToolCall {
+        var mark = "0"
+        if case .image(_, let data) = block { mark = "\(data.utf8.count)-\(data.suffix(16))" }
+        return ACPToolCall(id: "image-\(messageId ?? "message")-\(mark)", title: "Image", kind: .other, status: .completed,
+                           content: [.content(block)])
+    }
 }
 
 /// `tool_call_update`: every field optional.
@@ -584,7 +607,14 @@ extension ACPSessionUpdate: Decodable {
         switch kind {
         case "agent_message_chunk":
             let block = try container.decode(ACPContentBlock.self, forKey: .content)
-            self = .agentMessageChunk(text: block.text ?? "", messageId: try container.decodeIfPresent(String.self, forKey: .messageId))
+            let messageId = try container.decodeIfPresent(String.self, forKey: .messageId)
+            // An image the agent sent in its message drew nothing (its text is empty): it is
+            // drawn as the picture it is, in a row of its own (`ACPToolCall.agentImage`).
+            if case .image = block {
+                self = .toolCall(ACPToolCall.agentImage(block, messageId: messageId))
+            } else {
+                self = .agentMessageChunk(text: block.text ?? "", messageId: messageId)
+            }
         case "agent_thought_chunk":
             self = .agentThoughtChunk(text: try container.decode(ACPContentBlock.self, forKey: .content).text ?? "")
         case "tool_call":

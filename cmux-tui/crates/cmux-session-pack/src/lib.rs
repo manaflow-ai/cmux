@@ -62,14 +62,15 @@ mod codec;
 pub mod digest;
 mod manifest;
 mod pack;
+pub mod peer;
 mod read;
 pub mod ship;
 mod store;
 
 pub use manifest::{Manifest, Params, RangeId, SCHEMA, Segment, TURN_RULE};
-pub use pack::{PackStats, pack};
+pub use pack::{PackStats, pack, pack_after};
 pub use read::Pack;
-pub use store::{Id, MISSING, Store, hex, unhex};
+pub use store::{Id, MISSING, Store, chunk_id, encode_chunk, hex, unhex};
 
 /// This crate's error: a message that says what was read or written and what was wrong with it.
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
