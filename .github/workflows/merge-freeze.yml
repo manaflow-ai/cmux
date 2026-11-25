@@ -115,7 +115,7 @@ jobs:
       # rate_limit read): the installation is shared, so the delta between `before`
       # and `after` is this step's reads plus whatever else ran meanwhile.
       - name: Log the glaeda-route App budget before
-        if: ${{ steps.glaeda-token.outputs.token != '' }}
+        if: ${{ (steps.glaeda-token.outputs.token) != '' }}
         continue-on-error: true
         timeout-minutes: 1
         env:
@@ -154,7 +154,7 @@ jobs:
           exit "$status"
 
       - name: Log the glaeda-route App budget after
-        if: ${{ !cancelled() && steps.glaeda-token.outputs.token != '' }}
+        if: ${{ !cancelled() && (steps.glaeda-token.outputs.token) != '' }}
         continue-on-error: true
         timeout-minutes: 1
         env:
