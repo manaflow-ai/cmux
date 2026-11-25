@@ -333,6 +333,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                             launch.reuse,
                             interactive,
                             args.host.is_none(),
+                            args.host
+                                .as_deref()
+                                .is_some_and(|host| host.eq_ignore_ascii_case("auto")),
                         ),
                     )
                     .await?
@@ -361,6 +364,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             if let Some(h) = &host {
                 meta["peer"] = json!(h);
+            }
+            if placed {
+                meta["autoPlace"] = json!(true);
             }
             if args.force_admit {
                 meta["forceAdmit"] = json!(true);
@@ -474,6 +480,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // refused the create before making anything (`refused_before_create`).
             let mut reconnects = 0;
             let (v, reused, lost_race) = loop {
+                // An Auto start may wait for a machine being added: say so when it begins.
+                if placed {
+                    client.print_admission_waiting();
+                }
                 match find_or_create(
                     &client,
                     deadline,
