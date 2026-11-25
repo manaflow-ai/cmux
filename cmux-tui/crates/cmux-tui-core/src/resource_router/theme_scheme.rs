@@ -10,10 +10,14 @@
 //! never a path. `from_image` takes decoded pixels, at most
 //! [`MAX_IMAGE_PIXELS`] (the caller downsamples; the palette samples a
 //! 64 x 64 grid anyway), so the daemon decodes no image format.
+//!
+//! `theme.slots.resolve` (read, `theme-slots-v1`) is stateless the same way:
+//! a theme file's text in, the slot variants it picks out.
 
 use std::sync::Arc;
 
 use base64::Engine as _;
+use cmux_config::theme_file::{self, ThemeDiagnosticKind, ThemeFile};
 use cmux_theme_tokens::{
     Appearance, Env, Pixels, Rgb, Scheme, SchemeFormat, find_theme_file, palette_from_image,
 };
@@ -25,6 +29,8 @@ use crate::resource::{ResourceError, ResourceOperation};
 
 /// Advertised in identify: the daemon answers `theme.scheme.*`.
 pub(crate) const CAPABILITY: &str = "theme-scheme-v1";
+/// Advertised in identify: the daemon answers `theme.slots.resolve`.
+pub(crate) const SLOTS_CAPABILITY: &str = "theme-slots-v1";
 
 /// Most pixels `from_image` takes (256 x 256).
 pub(crate) const MAX_IMAGE_PIXELS: u64 = 256 * 256;
@@ -40,6 +46,7 @@ pub(super) fn dispatch(
         ResourceOperation::ThemeSchemeConvert => convert(&fields),
         ResourceOperation::ThemeSchemeExport => export(&fields, &Env::current()),
         ResourceOperation::ThemeSchemeFromImage => from_image(&fields),
+        ResourceOperation::ThemeSlotsResolve => resolve_slots(&fields),
         other => Err(ResourceError::validation_invalid(
             None,
             format!("{} is not a theme.scheme operation", other.wire_name()),
@@ -194,6 +201,36 @@ pub(crate) fn from_image(fields: &Map<String, Value>) -> Result<Value, ResourceE
         "text": palette.scheme.export(to),
         "scheme": scheme_json(&palette.scheme),
     }))
+}
+
+/// `{text, name?}` (`theme.slots.resolve`): the slot variants a theme file's
+/// text picks (`slots`), checked against schemas/theme/slots.json by
+/// cmux-config's theme file reader, and what it refused there. The app passes
+/// `slots` to its web views as is; nothing is written.
+pub(crate) fn resolve_slots(fields: &Map<String, Value>) -> Result<Value, ResourceError> {
+    let text = string(fields, "text")
+        .ok_or_else(|| ResourceError::validation_invalid(Some("text"), "text is required"))?;
+    let name =
+        string(fields, "name").filter(|name| theme_file::is_valid_name(name)).unwrap_or("theme");
+    let file = ThemeFile::read(
+        name,
+        Some(Ok(text)),
+        &Value::Object(Map::new()),
+        None,
+        cmux_config::schema::Schema::embedded(),
+        &cmux_config::domains::Domains::default(),
+    );
+    let diagnostics: Vec<Value> = file
+        .diagnostics
+        .iter()
+        .filter(|d| {
+            d.kind == ThemeDiagnosticKind::UnreadableFile
+                || d.path == theme_file::slots::KEY
+                || d.path.starts_with(&format!("{}.", theme_file::slots::KEY))
+        })
+        .map(|d| json!({ "kind": d.kind, "path": d.path, "message": d.display(), "line": d.line }))
+        .collect();
+    Ok(json!({ "slots": file.slots, "diagnostics": diagnostics }))
 }
 
 #[cfg(test)]
