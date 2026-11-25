@@ -9,7 +9,7 @@ final class BrowserSectionOverlayView: NSView {
     private var selection: BrowserSectionSelection
     private let hint = NSTextField(labelWithString: String(
         localized: "browser.screenshotSection.hint", defaultValue: "Drag to capture a section. Press Esc to cancel.",
-        bundle: .module))
+        bundle: .localizedModule))
 
     init(size: CGSize) {
         selection = BrowserSectionSelection(bounds: CGRect(origin: .zero, size: size))

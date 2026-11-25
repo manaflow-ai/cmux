@@ -605,3 +605,32 @@ fn a_rollback_turns_off_what_it_takes_away_and_rolling_forward_turns_it_back_on(
     assert_eq!(home.density().as_deref(), Some("compact"));
     assert!(customize.library().unwrap().entries[0].on);
 }
+
+/// `refresh` runs again at start only after the app's commit changed; a
+/// NIGHTLY's short stamp and a full commit are the same commit.
+#[test]
+fn refresh_is_due_once_per_app_commit() {
+    use cmux_customize::library::refresh_due;
+    assert!(!refresh_due(None, None), "a DEV build has no commit");
+    assert!(!refresh_due(Some("8815f4c"), None));
+    assert!(refresh_due(None, Some("8815f4c")), "the first start");
+    assert!(!refresh_due(Some("8815f4c"), Some("8815f4c")));
+    assert!(!refresh_due(Some("8815F4C"), Some("8815f4c")));
+    assert!(!refresh_due(Some("8815f4c0123456789abcdef0123456789abcdef0"), Some("8815f4c")));
+    assert!(refresh_due(Some("8815f4c"), Some("9a0b1c2")), "an update");
+}
+
+/// The commit `refresh` ran on is kept in library.json beside the entries,
+/// and recording it changes nothing else (no generation).
+#[test]
+fn the_commit_refresh_ran_on_is_kept() {
+    let home = Home::new();
+    let customize = home.customize();
+    assert_eq!(customize.library_refreshed_on().unwrap(), None);
+    customize.library_mark_refreshed("8815f4c").unwrap();
+    assert_eq!(customize.library_refreshed_on().unwrap().as_deref(), Some("8815f4c"));
+    assert!(customize.library().unwrap().entries.is_empty());
+    assert!(customize.generations().unwrap().generations.is_empty());
+    let text = fs::read_to_string(customize.roots().state_dir.join("library.json")).unwrap();
+    assert!(text.contains("\"refreshed_on\": \"8815f4c\""), "{text}");
+}

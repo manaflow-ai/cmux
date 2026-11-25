@@ -1,4 +1,5 @@
 /** Recaps arrive as plain sentences or a short list. Keep their words as compact bullet points. */
+import { intl } from "../../../ui/intl";
 export function recapPoints(text: string, language: string): string[] {
   const lines = text
     .split(/\n+/)
@@ -6,7 +7,7 @@ export function recapPoints(text: string, language: string): string[] {
     .filter(Boolean);
   const bullet = /^(?:[-*•]|\d+[.)])\s+/;
   if (lines.some((line) => bullet.test(line))) return lines.map((line) => line.replace(bullet, "")).filter(Boolean);
-  const sentences = new Intl.Segmenter(language, { granularity: "sentence" });
+  const sentences = intl.Segmenter(language, { granularity: "sentence" });
   return lines.flatMap((line) => [...sentences.segment(line)].map(({ segment }) => segment.trim()).filter(Boolean));
 }
 

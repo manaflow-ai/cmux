@@ -249,6 +249,50 @@ fn visible_below<'a>(
     Err("cyclic mount ancestry".into())
 }
 
+/// Whether a deeper mount stacked on `under` hides `path` there: `under`'s
+/// files at `path` cannot be reached by that path. A service started with
+/// systemd's PrivateTmp sees its `/tmp` as a mount of the root filesystem's
+/// `/tmp/systemd-private-*/tmp`; that directory is under the very `/tmp` it is
+/// mounted on, so it is no second way in. A stack at `under`'s own point is
+/// not this case (`visible_below` refuses it).
+fn covered(path: &Path, under: &MountEntry, mounts: &[MountEntry]) -> Result<bool, String> {
+    for cover in mounts {
+        if cover.id == under.id
+            || cover.point == under.point
+            || !cover.point.starts_with(&under.point)
+            || !path.starts_with(&cover.point)
+        {
+            continue;
+        }
+        if visible_below(cover, under.id, mounts)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Whether `path`, read in `mount`, is hidden by a mount visible below `mount` at `path` or one
+/// of its ancestors: a lookup of `path` crosses into that mount, so `mount`'s files there are
+/// out of reach. systemd's `PrivateTmp=yes` binds `/tmp/systemd-private-*/tmp` over `/tmp`; the
+/// root mount still holds that folder at its own `/tmp/systemd-private-*/tmp`, which the private
+/// `/tmp` covers (this check read it as a second view of every tree under `/tmp`). A
+/// covering mount that shows the tree again is its own pair, checked as `other` in turn.
+fn covered_below(path: &Path, mount: &MountEntry, mounts: &[MountEntry]) -> Result<bool, String> {
+    for cover in mounts {
+        if cover.id == mount.id
+            || cover.point == mount.point
+            || !cover.point.starts_with(&mount.point)
+            || !path.starts_with(&cover.point)
+        {
+            continue;
+        }
+        if visible_below(cover, mount.id, mounts)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// A tree is (canonical path, resolved containing mount ID, writable).
 /// Every visible descendant filesystem is a separate piece. All comparisons
 /// consume finite trees, pieces and mount entries. Unknown topology refuses.
@@ -325,6 +369,18 @@ fn home_views_listed(
         let Ok(rest) = underlying.strip_prefix(other_root) else { continue };
         let view = join_path(&mount.point, rest);
         if view.starts_with(home) || home.starts_with(&view) {
+            continue;
+        }
+        // A deeper mount over the view hides the HOME there: under systemd
+        // PrivateTmp the root mount would show a HOME below /tmp at
+        // /tmp/systemd-private-*/tmp/..., a path the session cannot reach
+        // and bwrap cannot create under its read-only root.
+        if covered(&view, mount, &mounts)? {
+            continue;
+        }
+        // A view a mount below covers (systemd's PrivateTmp under `/tmp`) is out of reach, and
+        // the plan could not make its folders: no view.
+        if covered_below(&view, mount, &mounts)? {
             continue;
         }
         path_arg(&view)?;
@@ -495,6 +551,8 @@ fn check_trees(
                 // at the view the session did not name).
                 if source != alternate
                     && !masked_by_rebuild(&source, mount.id, &alternate, other.id, rebuilt)
+                    && !covered(&alternate, other, &mounts)?
+                    && !covered_below(&alternate, other, &mounts)?
                 {
                     reasons.insert(format!(
                         "{} is also visible at {}",
@@ -514,6 +572,28 @@ mod tests {
 
     const ROOT: &str = "1 0 8:1 / / rw - ext4 root rw\n";
 
+    /// systemd PrivateTmp: the service's `/tmp` is the root filesystem's
+    /// `/tmp/systemd-private-*/tmp`, mounted over the root's `/tmp`, so the
+    /// root mount shows no second path to it (CI runners run as such a service).
+    #[test]
+    fn a_private_tmp_mount_is_not_an_alias_of_itself() {
+        let private = "/tmp/systemd-private-97259c5-runner.service-DVpdTq/tmp";
+        let info = format!("{ROOT}2 1 8:1 {private} /tmp rw - ext4 root rw\n");
+        let scratch = Path::new("/tmp/acpmux-bwrap-test/claude-scratch/session");
+        assert_eq!(guarded_aliases(&[(scratch, 2, true)], &info), Vec::<String>::new());
+        // The same directory bind-mounted somewhere the root's /tmp is not
+        // covered is still a second way in.
+        let leak = format!("{info}3 1 8:1 {private} /mnt/leak rw - ext4 root rw\n");
+        let reasons = guarded_aliases(&[(scratch, 2, true)], &leak);
+        assert!(
+            reasons.contains(&format!(
+                "{} is also visible at /mnt/leak/acpmux-bwrap-test/claude-scratch/session",
+                scratch.display()
+            )),
+            "{reasons:?}"
+        );
+    }
+
     fn guarded_aliases(trees: &[(&Path, u64, bool)], info: &str) -> Vec<String> {
         guarded_aliases_with(trees, info, |p| Ok(p.to_path_buf()), |_| Ok(true))
     }
@@ -525,6 +605,36 @@ mod tests {
     /// A second mount of the home: /home/u is also mounted at /alias/u.
     const SECOND_HOME: &str =
         "1 0 8:1 / / rw - ext4 root rw\n57 1 8:1 /home/u /alias/u rw - ext4 root rw\n";
+
+    /// systemd `PrivateTmp=yes` (a CI runner's unit): the private folder is bound over `/tmp`, so
+    /// the root mount's copy of it at `/tmp/systemd-private-*/tmp` is covered, not a second view.
+    #[test]
+    fn regression_private_tmp_is_no_alias_of_a_tree_under_tmp() {
+        let private = "/tmp/systemd-private-39c3-runner.service-LCB624/tmp";
+        let info = format!("{ROOT}30 1 8:1 {private} /tmp rw - ext4 root rw\n");
+        let trees = [(Path::new("/tmp/fixture/spawn-tmp"), 30, true)];
+        assert_eq!(guarded_aliases(&trees, &info), Vec::<String>::new());
+        // Nor is the root mount's covered copy a second view of a HOME under /tmp to rebuild.
+        assert!(home_views(Path::new("/tmp/fixture/home"), 30, &info).unwrap().is_empty());
+        // The same folder bound somewhere uncovered is still a second view.
+        let exposed = format!("{info}31 1 8:1 {private} /mnt/tmp-again rw - ext4 root rw\n");
+        let reasons = guarded_aliases(&trees, &exposed);
+        assert!(
+            reasons.contains(
+                &"/tmp/fixture/spawn-tmp is also visible at /mnt/tmp-again/fixture/spawn-tmp"
+                    .into()
+            ),
+            "{reasons:?}"
+        );
+        // A second mount of the whole root at /srv shows the private folder with nothing over it.
+        let beside = format!("{info}32 1 8:1 / /srv rw - ext4 root rw\n");
+        let reasons = guarded_aliases(&trees, &beside);
+        assert!(
+            reasons.iter().any(|r| r
+                .starts_with("/tmp/fixture/spawn-tmp is also visible at /srv/tmp/systemd-private")),
+            "{reasons:?}"
+        );
+    }
 
     #[test]
     fn regression_home_alias_refuses_without_a_rebuilt_view() {
@@ -561,6 +671,23 @@ mod tests {
         assert!(views(&subtree).is_empty());
         let nested = format!("{ROOT}3 1 8:1 /home/u /home/u/loop rw - ext4 root rw\n");
         assert!(views(&nested).is_empty());
+    }
+
+    /// systemd PrivateTmp with the HOME below /tmp: the root mount holds the
+    /// HOME at /tmp/systemd-private-*/tmp/..., but the service's /tmp mount
+    /// covers that path, so it is no view to rebuild (bwrap could not even
+    /// create it). The same HOME also bound at /mnt/leak stays a view.
+    #[test]
+    fn regression_private_tmp_home_has_no_view_under_the_covered_tmp() {
+        let private = "/tmp/systemd-private-97259c5-runner.service-DVpdTq/tmp";
+        let home = Path::new("/tmp/acpmux-bwrap-test/home");
+        let info = format!("{ROOT}2 1 8:1 {private} /tmp rw - ext4 root rw\n");
+        assert_eq!(home_views(home, 2, &info).unwrap(), Vec::<HomeView>::new());
+        let leak = format!("{info}3 1 8:1 {private} /mnt/leak rw - ext4 root rw\n");
+        assert_eq!(
+            home_views(home, 2, &leak).unwrap(),
+            [(3, PathBuf::from("/mnt/leak/acpmux-bwrap-test/home"))]
+        );
     }
 
     #[test]
@@ -612,6 +739,22 @@ mod tests {
             |_| Ok(true),
         );
         assert!(!reasons.is_empty());
+    }
+
+    #[test]
+    fn masked_by_rebuild_matches_both_ends_by_their_own_mount() {
+        let rebuilt = rebuilt();
+        let (home, alias) = (Path::new("/home/u/.ssh"), Path::new("/alias/u/.ssh"));
+        assert!(masked_by_rebuild(home, 1, alias, 57, &rebuilt));
+        assert!(masked_by_rebuild(alias, 57, home, 1, &rebuilt));
+        // The source reached through a mount that is not its view's.
+        assert!(!masked_by_rebuild(home, 57, alias, 57, &rebuilt));
+        assert!(!masked_by_rebuild(home, 99, alias, 57, &rebuilt));
+        // The alternate reached through a mount that is not its view's.
+        assert!(!masked_by_rebuild(home, 1, alias, 1, &rebuilt));
+        // A view root itself, and the same view at both ends, never match.
+        assert!(!masked_by_rebuild(Path::new("/home/u"), 1, Path::new("/alias/u"), 57, &rebuilt));
+        assert!(!masked_by_rebuild(home, 1, home, 1, &rebuilt));
     }
 
     #[test]

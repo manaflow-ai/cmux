@@ -31,23 +31,8 @@ final class DebugWindowRecord {
     /// Every window `--record-launch` has started on, so each is recorded once.
     private var launchSeen: Set<ObjectIdentifier> = []
 
-    /// What `--record-launch DIR [--record-launch-seconds S]` asks for: every
-    /// window recorded from the moment it is made, for S seconds (6 by default,
-    /// at most 12), into `DIR/window-N`. nil without the argument or its folder.
-    struct LaunchRequest: Equatable {
-        let dir: String
-        let seconds: Double
-
-        init?(arguments: [String]) {
-            guard let flag = arguments.firstIndex(of: "--record-launch"), flag + 1 < arguments.count,
-                  !arguments[flag + 1].hasPrefix("--") else { return nil }
-            dir = (arguments[flag + 1] as NSString).expandingTildeInPath
-            let asked = arguments.firstIndex(of: "--record-launch-seconds").flatMap { index in
-                index + 1 < arguments.count ? Double(arguments[index + 1]) : nil
-            }
-            seconds = min(12, max(0.1, asked ?? 6))
-        }
-    }
+    /// What `--record-launch DIR [--record-launch-seconds S]` asks for (``LaunchRecordRequest``).
+    typealias LaunchRequest = LaunchRecordRequest
 
     private static let launchRequest = LaunchRequest(arguments: ProcessInfo.processInfo.arguments)
     /// Looks for new windows once a display frame while the launch is recorded.
@@ -96,6 +81,21 @@ final class DebugWindowRecord {
         return .object(["dir": .string(dir), "seconds": .number(seconds)])
     }
 
+    /// One moved view of a launch frame: its type name and its rect before and after, `[x, y, w, h]` in window points.
+    private struct MovedRect: Sendable {
+        let name: String
+        let from: [Double]
+        let to: [Double]
+
+        init(name: String, from: CGRect, to: CGRect) {
+            self.name = name
+            self.from = [from.minX, from.minY, from.width, from.height].map { Double($0) }
+            self.to = [to.minX, to.minY, to.width, to.height].map { Double($0) }
+        }
+
+        var json: [String: Any] { ["name": name, "from": from, "to": to] }
+    }
+
     @MainActor
     private final class Recorder {
         let window: NSWindow
@@ -114,6 +114,11 @@ final class DebugWindowRecord {
         private var windowFrames: [[Double]] = []
         private var moved: [Int] = []
         private var movedViews: [[String]] = []
+        /// Per frame, the views that moved since the frame before with their old and new rects (`movedRects`, at most
+        /// ``WindowViewGeometry/moves(since:limit:)``'s 24), and the window's alpha (`alpha`): launch_shift.py's
+        /// shift score and alpha changes.
+        private var movedRects: [[MovedRect]] = []
+        private var alphas: [Double] = []
         private var viewLayouts: [Int] = []
         private var windowLayouts: [Int] = []
         private var geometry: WindowViewGeometry?
@@ -198,9 +203,12 @@ final class DebugWindowRecord {
             windowFrames.append([frame.minX, frame.minY, frame.width, frame.height].map { $0.rounded() })
             let now = WindowViewGeometry(window: window)
             let change: (total: Int, lines: [String]) = geometry.map { now.changes(since: $0) } ?? (0, [])
+            let moves = geometry.map { now.moves(since: $0) } ?? []
             geometry = now
             moved.append(change.total)
             movedViews.append(change.lines)
+            movedRects.append(moves.map { MovedRect(name: $0.name, from: $0.from, to: $0.to) })
+            alphas.append((Double(window.alphaValue) * 1000).rounded() / 1000)
             let guardian = LayoutPassGuard.shared
             let first = viewLayouts.isEmpty
             viewLayouts.append(first ? 0 : guardian.viewLayoutCalls &- layoutMark.view)
@@ -229,13 +237,17 @@ final class DebugWindowRecord {
             let brightness = brightness
             let launch: [String: any Sendable] = sinceLaunch ? ["window": windowFrames, "moved": moved, "movedViews": movedViews,
                                                                 "viewLayouts": viewLayouts, "windowLayouts": windowLayouts,
-                                                                "endedBy": endedBy] : [:]
+                                                                "alpha": alphas, "endedBy": endedBy,
+                                                                // The launch marks so far: launch_shift.py's tti.
+                                                                "launchMarks": DebugTimings.launchMarkTimes()] : [:]
+            let movedRects = sinceLaunch ? self.movedRects : []
             encoder.async {
                 let series = brightness.series
                 var frames: [String: Any] = ["times": times, "luminance": series.means, "peak": series.peaks]
                 if !processMs.isEmpty { frames["processMs"] = processMs }
                 if !series.cells.isEmpty { frames["cells"] = series.cells }
                 for (key, value) in launch { frames[key] = value }
+                if !movedRects.isEmpty { frames["movedRects"] = movedRects.map { frame in frame.map { $0.json } } }
                 if let data = try? JSONSerialization.data(withJSONObject: frames) { try? data.write(to: index) }
             }
             done()

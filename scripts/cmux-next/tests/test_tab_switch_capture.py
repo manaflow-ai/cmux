@@ -118,12 +118,15 @@ class TabSwitchScript(unittest.TestCase):
             self.text = f.read()
 
     def test_the_recorder_check_runs_before_the_tools_compile_and_the_build(self):
-        check = self.text.index("tab_switch_capture.py\" \\\n    preflight || exit 3")
+        check = self.text.index("tab_switch_capture.py\" preflight || exit 3")
         self.assertLess(check, self.text.index("swiftc -O -o \"$tmp/tab-switch-tools\""))
         # The build is in the function app_under_test (#45101), which the script calls with the tag `tabswitch`.
         call = self.text.index('app_under_test "$build" "$config" "$dmg" "$tmp" "$root" tabswitch')
         self.assertLess(check, call)
+        # app_under_test runs the build as a bounded step (#47805): tsw_build_app, which runs reload.sh with that tag.
         start = self.text.index("app_under_test() {")
+        self.assertIn('tsw_build_app "$src" "$tmp" "$tag"', self.text[start:self.text.index("\n}\n", start)])
+        start = self.text.index("tsw_build_app() {")
         self.assertIn('./scripts/reload.sh --tag "$tag"', self.text[start:self.text.index("\n}\n", start)])
 
     def test_the_head_fetch_and_worktree_never_recurse_into_submodules(self):

@@ -64,14 +64,14 @@ enum NowPlayingCardStrings {
     static var disabledToast: String {
         String(localized: "nowPlaying.toast.disabled",
                defaultValue: "Media card turned off.",
-               table: "Music", bundle: .module)
+               table: "Music", bundle: .module.inAppLanguage)
     }
 
     static var noCard: String {
-        String(localized: "nowPlaying.refusal.noCard", defaultValue: "No media card is showing.", table: "Music", bundle: .module)
+        String(localized: "nowPlaying.refusal.noCard", defaultValue: "No media card is showing.", table: "Music", bundle: .module.inAppLanguage)
     }
 
     static var nothingPlaying: String {
-        String(localized: "nowPlaying.refusal.nothingPlaying", defaultValue: "Nothing is playing.", table: "Music", bundle: .module)
+        String(localized: "nowPlaying.refusal.nothingPlaying", defaultValue: "Nothing is playing.", table: "Music", bundle: .module.inAppLanguage)
     }
 }

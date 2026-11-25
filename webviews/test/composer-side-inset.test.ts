@@ -9,7 +9,7 @@
 //
 // - The chat pane, idle and with a turn running, at a narrow, a normal and a wide pane: the box's
 //   edges are the transcript column's, and the quiet row's first and last controls sit on them.
-// - The New Tab page, every template (Cards had its own 880 px column, the Classic page 760 px):
+// - The New Tab page, every shipped template (Cards had its own 880 px column, Classic 760 px):
 //   the box takes the chat's column at every width, and the row ends on its right edge.
 //
 // Real Chromium and WebKit on the gallery stage. CI fails the file when it cannot launch them
@@ -46,11 +46,7 @@ await requireBrowserLane("composer-side-inset.test.ts", async () => {
   /** Each template's gallery state and its box. */
   const NEW_TAB_TEMPLATES: [string, string, string][] = [
     ["minimal", "minimal-default", ".nt-box"],
-    ["default", "reasoning-chip-stage", ".nt-box"],
-    ["cards", "template-cards", ".nt-box"],
     ["composer", "template-composer", ".nt-box"],
-    ["threads", "template-threads", ".nt-box"],
-    ["console", "template-console", ".nt-box"],
     ["classic", "template-classic", ".acpmux-newtab-box"],
   ];
   const { createServer } = await import("vite");
@@ -64,7 +60,7 @@ await requireBrowserLane("composer-side-inset.test.ts", async () => {
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,
     });
-    // The Default template keeps its chips in the box (no quiet row); the Classic page has none.
+    // The Classic page has no quiet row.
     await page.locator(".acpmux-composer-foot button:visible, .nt-box, .acpmux-newtab-box").first().waitFor();
     await page.evaluate(() => document.fonts.ready);
     return page;
@@ -110,8 +106,18 @@ await requireBrowserLane("composer-side-inset.test.ts", async () => {
         edge = probe.getBoundingClientRect().width;
         probe.remove();
       }
+      // A chip's wrapper can stand past its button: New Tab's model chip ends its pill short of the box,
+      // so its text ends on Send's ink while its pill stays as wide on each side, and its wrapper's end
+      // padding takes the rest (newtab/screen.css, Lucas 2026-11-23). The wrapper ends on the box's edge.
+      const chipRight = Math.max(
+        ...[...document.querySelectorAll(".acpmux-composer-foot .acpmux-chips > *")]
+          .map((chip) => chip.getBoundingClientRect())
+          .filter((rect) => rect.width > 0)
+          .map((rect) => rect.right),
+      );
       return {
         box: { left: card.left, right: card.right },
+        outerRight: Math.max(Math.max(...controls.map((rect) => rect.right)), chipRight),
         first: Math.min(...controls.map((rect) => rect.left)),
         last: Math.max(...controls.map((rect) => rect.right)),
         column: rows.length
@@ -146,8 +152,8 @@ await requireBrowserLane("composer-side-inset.test.ts", async () => {
           expect(at.box.right - at.last, "no deeper than the mic glyph's column").toBeLessThan(GLYPH_COLUMN);
         });
 
-    // Every New Tab template (templates.ts), Cards and the Classic page included, takes the chat's
-    // column: none keeps a column of its own (Cards had 880 px, Classic 760 px, the rest 720 px).
+    // Every shipped New Tab template (templates.ts PAGE_STYLES, and the legacy Composer id) takes the
+    // chat's column: none keeps a column of its own (Cards had 880 px, Classic 760 px, the rest 720 px).
     for (const [template, variant, box] of NEW_TAB_TEMPLATES)
       for (const width of [420, 760, 1400, 1600])
         test(`${engine}: New Tab ${template} at ${width} px: the box takes the chat's column, the row ends on its edge`, async () => {
@@ -168,12 +174,12 @@ await requireBrowserLane("composer-side-inset.test.ts", async () => {
             Math.abs(at.page!.left + at.page!.width - inset - at.box.right),
             "the box's right edge on the chat's column",
           ).toBeLessThanOrEqual(1);
-          // The Default template has no quiet row. The Classic page's row sits in the box's own footer
-          // bar (#26551, 2026-10-28), so it ends on that bar's inner edge, not the box's.
+          // A page without a quiet row has no last control. The Classic page's row sits in the box's own
+          // footer bar (#26551, 2026-10-28), so it ends on that bar's inner edge, not the box's.
           if (Number.isFinite(at.last))
             expect(
-              Math.abs(at.box.right - at.footPad - at.last),
-              "the row's last control on the box's right edge (or its footer bar's)",
+              Math.abs(at.box.right - at.footPad - at.outerRight),
+              "the row's last control (or its chip's wrapper) on the box's right edge (or its footer bar's)",
             ).toBeLessThanOrEqual(0.5);
         });
   }

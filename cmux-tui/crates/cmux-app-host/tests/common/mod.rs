@@ -38,6 +38,11 @@ pub struct Harness {
     pub handlers: HashMap<String, Handler>,
     /// When false, calls stay in `unanswered` until the test answers them.
     pub auto_answer: bool,
+    /// When true, `cmux.watch`'s daemon watches stay open in `watches` (the daemon's signals
+    /// cache serves them); when false each is answered `{fallback: true}`, as a host whose daemon
+    /// does not read the source.
+    pub daemon_watch: bool,
+    pub watches: BTreeMap<u64, (String, Value, Option<String>)>,
 }
 
 pub fn app(body: &str) -> String {
@@ -99,6 +104,8 @@ impl Harness {
             fatal: None,
             handlers: HashMap::new(),
             auto_answer: true,
+            daemon_watch: false,
+            watches: BTreeMap::new(),
         };
         harness.pump().expect("pump after init");
         harness
@@ -116,6 +123,7 @@ impl Harness {
                 return Ok(());
             }
             let mut answers = Vec::new();
+            let mut fallbacks = Vec::new();
             for message in outbox {
                 match message {
                     FromHost::Scene { mount, ops } => {
@@ -150,12 +158,25 @@ impl Harness {
                     FromHost::Unsubscribe { sub } => {
                         self.subscriptions.remove(&sub);
                     }
+                    FromHost::Watch { watch, name, params, mount, .. } => {
+                        if self.daemon_watch {
+                            self.watches.insert(watch, (name, params, mount));
+                        } else {
+                            fallbacks.push(watch);
+                        }
+                    }
+                    FromHost::Unwatch { watch, refresh: false } => {
+                        self.watches.remove(&watch);
+                    }
                     fatal @ FromHost::Fatal { .. } => self.fatal = Some(fatal),
                     _ => {}
                 }
             }
             for (cb, (ok, body)) in answers {
                 self.vm.resolve(cb, ok, &body)?;
+            }
+            for watch in fallbacks {
+                self.vm.watch_state(watch, &json!({ "fallback": true }))?;
             }
         }
         panic!("the app kept calling for 64 rounds");

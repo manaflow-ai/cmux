@@ -4,7 +4,7 @@
 // (2026-10-23) the box is the chat composer's shared glass: over art the theme's solid surface as a
 // translucent tint (a surface, not a film; glass is never opaque), solid only under Reduce
 // Transparency (composer-glass.test.ts holds the chat card to the same). Its suggestions are popup rows: a menu row's height,
-// the popup's 4 inset and the shared row radius (design/grid.md 5.3). Focus is quiet (Lawrence 10-14): it keeps the
+// and a corner concentric with the box's own (CMUX-652). Focus is quiet (Lawrence 10-14): it keeps the
 // box's rim and never takes the theme accent (newtab-quiet-focus.test.ts).
 //
 // The page is the pane's real stylesheets plus markup in the shape NewTabScreen renders. The
@@ -106,10 +106,10 @@ await requireBrowserLane("new-tab-field-on-art.test.ts", async () => {
       });
 
       // A suggestion row is a popup row on the 4 grid (leo-workspace design/grid.md 5.3 and section 1):
-      // a menu's row height, but the popup's 4 padding and a concentric --ui-row-radius corner (4).
+      // a menu's row height, concentric with the popover's corner.
       // Menus on AppKit's lines keep their own 5 inset and radius 5 (cmux#28611), so the rows are held
       // to the shared row tokens rather than to a menu item's corners.
-      test("a suggestion row is a popup row: a menu row's height, the row radius and the popup inset", async () => {
+      test("a suggestion row is a popup row: a menu row's height, concentric with the popover", async () => {
         const page = await open(TEXT);
         const metrics = (row: string, list: string) =>
           page.evaluate(
@@ -136,11 +136,100 @@ await requireBrowserLane("new-tab-field-on-art.test.ts", async () => {
         expect(tokens.inset).toBe("4px");
         const menuRow = await metrics("#item", "#menu");
         expect(tokens.height).toBe(menuRow.height);
-        expect(await metrics("#row", "#rows")).toEqual(tokens);
-        // The classic template's suggestions (NewTabPage's omnibar) are the same rows (batch 2).
-        expect(await metrics("#omni-row", "#omni")).toEqual(tokens);
+        // The suggestions take the New Tab box's corner (CMUX-652: "match the border radius of the composer
+        // palette with the text input"), and a row is concentric with it with the least padding: the list's padding
+        // is 6 of the corner's 20 and the row's corner the rest, half the row, a pill (Lucas 2026-11-20). The row's
+        // height stays the popup row's.
         const corner = (id: string) => page.$eval(id, (node) => getComputedStyle(node).borderTopLeftRadius);
+        const suggestion = await metrics("#row", "#rows");
+        expect(suggestion.height).toBe(tokens.height);
+        const popoverCorner = parseFloat(await corner(".nt-popover"));
+        expect(popoverCorner, "the suggestions' corner is the box's").toBeCloseTo(
+          parseFloat(await corner(".nt-box")),
+          2,
+        );
+        const row = parseFloat(suggestion.height);
+        const rowCorner = parseFloat(suggestion.radius);
+        const inset = parseFloat(suggestion.inset);
+        expect(inset, "the list's padding is 6 of the corner's 20").toBeCloseTo((popoverCorner * 6) / 20, 1);
+        expect(inset + rowCorner, "padding and row corner make the popover's corner").toBeCloseTo(popoverCorner, 1);
+        expect(rowCorner, "the row's corner is half the row, a pill").toBeCloseTo(row / 2, 1);
+        // The Console template's field has the popup corner, and so do its suggestions (a portal: the popover's own
+        // class says the template).
+        await page.evaluate(() => {
+          document.querySelector(".nt-screen")!.setAttribute("data-template", "console");
+          document.querySelector(".nt-popover")!.classList.add("nt-popover-console");
+        });
+        const consoleCorner = parseFloat(await corner(".nt-popover"));
+        expect(consoleCorner, "the Console suggestions' corner is its box's").toBeCloseTo(
+          parseFloat(await corner(".nt-box")),
+          2,
+        );
+        expect(
+          await page.$eval("#rows", (node) => getComputedStyle(node).borderTopLeftRadius),
+          "the list clips to the popover's corner",
+        ).toBe(await corner(".nt-popover"));
+        const consoleRow = await metrics("#row", "#rows");
+        expect(parseFloat(consoleRow.inset) + parseFloat(consoleRow.radius), "concentric in Console").toBeCloseTo(
+          consoleCorner,
+          1,
+        );
+        // The classic template's suggestions (NewTabPage's omnibar) are menu rows (batch 2).
+        expect(await metrics("#omni-row", "#omni")).toEqual(tokens);
         expect(await corner("#omni")).toBe(await corner("#menu"));
+        await page.close();
+      });
+
+      // Lawrence at standup 2026-11-19: the field's and the suggestions' corners were "still slightly off". Each
+      // takes --nt-box-radius under the same composer zoom, so the drawn corners are the same at every density
+      // (the native DensityPreset scales, which set the zoom and both density scales to one factor), and a prompt
+      // on two lines keeps the one-line box's corner.
+      test("the box and the suggestions draw one corner at every density, on one line or two", async () => {
+        const page = await open(TEXT);
+        for (const t of [0.8, 0.9, 1, 1.1, 1.2]) {
+          for (const lines of [1, 2]) {
+            const drawn = await page.evaluate(
+              ([t, lines]) => {
+                for (const name of ["--cmux-composer-zoom", "--cmux-density-scale", "--cmux-density-text-scale"])
+                  document.documentElement.style.setProperty(name, String(t));
+                const field = document.querySelector<HTMLTextAreaElement>(".nt-field")!;
+                field.value = lines === 2 ? "first line\nsecond line" : "one line";
+                field.rows = lines;
+                const corner = (node: Element, zoomed: Element) =>
+                  parseFloat(getComputedStyle(node).borderTopLeftRadius) *
+                  (parseFloat(getComputedStyle(zoomed).zoom) || 1);
+                const box = document.querySelector(".nt-box")!;
+                const popover = document.querySelector(".nt-popover")!;
+                // A lone row's popover (whole-pixel padding and row): never shorter than two of its corners, or the
+                // engine shrinks its corner below the box's.
+                const list = document.querySelector("#rows")!;
+                const padding = () => parseFloat(getComputedStyle(list).paddingTop);
+                const listPadding = padding();
+                popover.classList.add("nt-popover-single");
+                const lone = {
+                  height: parseFloat(getComputedStyle(popover).height),
+                  corner: parseFloat(getComputedStyle(popover).borderTopLeftRadius),
+                  // In drawn pixels: the lone row's whole-pixel padding less the list's.
+                  extra: (padding() - listPadding) * (parseFloat(getComputedStyle(popover).zoom) || 1),
+                  drawnPadding: padding() * (parseFloat(getComputedStyle(popover).zoom) || 1),
+                };
+                popover.classList.remove("nt-popover-single");
+                return { box: corner(box, box.closest(".nt-composer")!), popover: corner(popover, popover), lone };
+              },
+              [t, lines] as const,
+            );
+            expect(drawn.popover, `density ${t}, ${lines} line(s)`).toBeCloseTo(drawn.box, 3);
+            expect(drawn.box, `density ${t}, ${lines} line(s): Default's 20 px times the zoom`).toBeCloseTo(20 * t, 2);
+            expect(drawn.lone.height, `density ${t}: a lone row's popover holds two corners`).toBeGreaterThanOrEqual(
+              2 * drawn.lone.corner - 0.01,
+            );
+            expect(drawn.lone.extra, `density ${t}: a lone row rounds its padding up by under a pixel`).toBeLessThan(1);
+            expect(drawn.lone.drawnPadding % 1, `density ${t}: a lone row's padding is whole drawn pixels`).toBeCloseTo(
+              Math.round(drawn.lone.drawnPadding % 1),
+              2,
+            );
+          }
+        }
         await page.close();
       });
 

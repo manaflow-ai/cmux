@@ -13,6 +13,7 @@ import {
   Button,
   DEFAULT_SESSION_LOOK,
   Field,
+  Glass,
   GlassMenu,
   Icon,
   List,
@@ -76,6 +77,13 @@ function Primitives({ scheme }: { scheme: Scheme }) {
         <Pill tone="success">Merged</Pill>
         <Pill tone="attention">Needs you</Pill>
         <Pill tone="danger">Failed</Pill>
+      </div>
+      <div className="kit-gallery-line">
+        {(["chrome", "popover", "menu", "chip"] as const).map((level) => (
+          <Glass key={level} level={level} className="kit-gallery-glass">
+            {level}
+          </Glass>
+        ))}
       </div>
       <div className="kit-gallery-line">
         <Avatar name="Ada Lovelace" size="sm" />

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "Hosts",
+  "version": "1.0.0",
+  "description": "A hosts list (This Mac and every machine with its sessions and their program status, plus Add Host), a session picker on every New Tab, a block card in Session Info, and a status-line hover card.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.newtab/1": { "export": "renderPicker", "title": "Sessions", "symbol": "terminal" },
+    "cmux.section/1": {
+      "export": "renderHosts",
+      "title": "Hosts",
+      "symbol": "server.rack",
+      "options": { "defaultRegion": "top", "maxRows": 50 }
+    },
+    "cmux.session.info.section/1": {
+      "export": "renderBlock",
+      "title": "Block",
+      "symbol": "rectangle.split.2x1",
+      "options": { "maxRows": 8 }
+    },
+    "cmux.hovercard/1": { "export": "renderCard" }
+  },
+  "scopes": {
+    "agent_chat:read": "Read your agent chats, to list each host's sessions with their status.",
+    "workspace:read": "Know which workspace is open, to mark its session; read the hovered workspace's facts.",
+    "storage:local": "Remember which hosts you folded.",
+    "workspace:write": "Show a session's workspace when you click it.",
+    "actions:run": "Add a host, start a session, or open a session in a tab."
+  }
+}

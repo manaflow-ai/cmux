@@ -46,7 +46,7 @@ public nonisolated extension RemoteRdHello {
     /// token. The link admitted the owner, and the host takes only its root receiver's connection.
     static func cloudDesktop(install: String? = nil) -> RemoteRdHello {
         RemoteRdHello(user: "cmux", install: install ?? "cmux-next-\(ProcessInfo.processInfo.processIdentifier)", token: nil, service: "desktop",
-                      caps: [cursorCap])
+                      caps: [cursorCap, fecBlocksCap])
     }
 }
 
@@ -89,12 +89,16 @@ public nonisolated struct RemoteRdHostStats: Sendable, Equatable, Codable {
     public var cpuPercent: Double
     public var encodeMsP50: Double
     public var lossPercent: Double
+    /// The encoder profile the session runs now (`standard` or `ultra`), as the host measured it; nil from a host
+    /// too old to send it.
+    public var encodeProfile: String?
 
     enum CodingKeys: String, CodingKey {
         case kbps, frames, keyframes
         case cpuPercent = "cpu_pct"
         case encodeMsP50 = "encode_ms_p50"
         case lossPercent = "loss_pct"
+        case encodeProfile = "encode_profile"
     }
 }
 
