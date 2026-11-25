@@ -401,7 +401,7 @@ pub async fn probe_providers(origin: String) -> Option<Providers> {
 
 async fn fetch_providers(origin: &str) -> Option<Providers> {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let client = reqwest::Client::builder()
+    let client = crate::happy_dial::http_client()
         // timeout: the Cloud gateway's provider probe, before a Gemini or Grok start
         .timeout(PROBE_DEADLINE)
         .redirect(reqwest::redirect::Policy::none())
