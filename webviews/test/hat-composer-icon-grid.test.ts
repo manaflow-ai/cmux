@@ -162,6 +162,10 @@ await requireBrowserLane("hat-composer-icon-grid.test.ts", async () => {
         lineText: textLeft(q(":scope > .acpmux-summary-text", line ?? document.createElement("i"))),
         stepMark: box(q(".cv-plan__mark", step ?? document.createElement("i"))),
         stepText: textLeft(q(".cv-plan__title", step ?? document.createElement("i"))),
+        stepLine: (() => {
+          const r = firstText(q(".cv-plan__title", step ?? document.createElement("i")));
+          return r ? r.top + r.height / 2 : null;
+        })(),
         promptText: textLeft(placeholder),
         placeholderTop: lead?.top ?? null,
         capMiddle,
@@ -205,6 +209,10 @@ await requireBrowserLane("hat-composer-icon-grid.test.ts", async () => {
           near("header mark size", m.headLead?.w, glyph);
           near("panel ink vs the mic's", m.panelGlyph.ink, m.micGlyph.ink, density.scale);
           if (fixture === KINDS) near("header mark ink vs the mic's", m.headLead?.ink, m.micGlyph.ink, density.scale);
+          // The steps' marks are the header glyph's ink size (12 of its 14 px) at every density, each on
+          // its step's first line (the person, 2026-11-24: the card's and the plan's icons the same size).
+          near("step mark size", m.stepMark?.w, glyph * (12 / 14), 0.25);
+          near("step mark on its first line", m.stepMark?.cy, m.stepLine, 0.75);
           // The header's marks on one centre line.
           near("header mark centre line", m.headLead?.cy, m.head.cy);
           near("panel centre line", m.panel.cy, m.head.cy);
@@ -366,6 +374,8 @@ await requireBrowserLane("hat-composer-icon-grid.test.ts", async () => {
               off.push(`${what}: ${a} vs ${b}`);
           };
           near("goal dot on the plan's mark", m.goalMark?.cx, m.hatMark?.cx);
+          // The Goal mark is the plan's mark size: 12 of the header glyph's 14 px (2026-11-24).
+          near("goal mark size", m.goalMark?.w, (m.hatMark?.w ?? 0) * (12 / 14), 0.25);
           near("goal dot on +", m.goalMark?.cx, m.plus?.cx);
           near("goal words at the plan's", m.goalText?.left, m.hatText?.left);
           near("goal chevron over the plan's", m.goalChevron?.cx, m.hatChevron?.cx);

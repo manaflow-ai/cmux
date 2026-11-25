@@ -6,9 +6,12 @@
 //!
 //! - The source's `transfer_begin` answer (the move's manifest) carries [`MANIFEST_FIELD`]:
 //!   `{owner, ownerArgs}` as the chat used memory there ([`outgoing`]). `owner` is the source's
-//!   `agents.memory.owner`, else the owner the chat itself followed in with, else null (the source
-//!   holds the index; the target then searches its own, which `cmux link memory` keeps carrying
-//!   the person's memory files to).
+//!   `agents.memory.owner`, else the owner the chat itself followed in with, else the source's
+//!   own route back ([`route_back`]): a Mac that holds the index (memory on, no owner set, the
+//!   common case) names its cmux-tui remote daemon through the hub carrier, `ws://127.0.0.1:PORT`
+//!   `--via-machine KEY`, the route the person's other machines already use to reach it. A source
+//!   that serves no remote daemon (`remoteDaemon` unset) or runs no carrier sends null: the target
+//!   then searches its own index, which `cmux link memory` keeps carrying the files to.
 //! - The target's `transfer_finish` records it in the chat's session env as daemon-set keys no
 //!   client may send ([`apply`]; `session_env.rs` allows none of them): [`FOLLOWS_ENV`], and
 //!   [`OWNER_ENV`] and [`OWNER_ARGS_ENV`] when there is an owner. Every spawn applies that env.
@@ -81,14 +84,33 @@ pub fn followed(session_env: &BTreeMap<String, String>) -> Option<Followed> {
     Some(Followed { owner, owner_args })
 }
 
-/// The manifest field for a chat leaving this machine, from this machine's `settings` and the
-/// chat's own session env; `None` when the chat had no memory here.
-pub fn outgoing(settings: Option<&str>, session_env: &BTreeMap<String, String>) -> Option<Value> {
+/// This machine as the owner of its own index, reached from the person's other machines: its
+/// cmux-tui remote daemon (`remote_daemon`, the config's loopback `remoteDaemon`) through the hub
+/// carrier whose node key is `carrier_key` (`cmux remote rpc ws://ADDR --via-machine KEY`,
+/// `cmux_tui_service.rs`). None without both.
+pub fn route_back(remote_daemon: Option<&str>, carrier_key: Option<&str>) -> Option<Followed> {
+    let address = crate::config::loopback_daemon_address(remote_daemon?).ok()?;
+    let key = clean(carrier_key?)?;
+    Some(Followed {
+        owner: Some(format!("ws://{address}/v1/link")),
+        owner_args: vec!["--via-machine".to_owned(), key],
+    })
+}
+
+/// The manifest field for a chat leaving this machine, from this machine's `settings`, the
+/// chat's own session env and this machine's [`route_back`] (`here`); `None` when the chat had
+/// no memory here.
+pub fn outgoing(
+    settings: Option<&str>,
+    session_env: &BTreeMap<String, String>,
+    here: Option<Followed>,
+) -> Option<Value> {
     let brought = followed(session_env);
     let carried = match enabled(settings) {
         Some(false) => return None,
         Some(true) => local_owner(settings)
             .or_else(|| brought.filter(|b| b.owner.is_some()))
+            .or(here)
             .unwrap_or_default(),
         None => brought?,
     };

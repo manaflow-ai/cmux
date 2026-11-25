@@ -197,12 +197,20 @@ public final class SettingsStore {
     }
     /// Read by the terminal (`CmuxMobilePreferences.terminalFitToPhone`) when a page opens.
     public var terminalFitToPhone: Bool { didSet { save(terminalFitToPhone, "terminalFitToPhone") } }
+    /// Settings → Cloud → AutoCloud (the Mac's `cloud.autoCloud`; off by default): Cloud chats lists the
+    /// account's Auto chats, read and sent to through the Cloud service with no Mac
+    /// (`plans/cmux-next/auto-mode/DESIGN.md`). This phone's own choice: it does not follow a Mac's.
+    public var cloudAutoMode: Bool { didSet { save(cloudAutoMode, "cloudAutoMode") } }
     /// Read at each WireGuard dial (`FFIMacLinkDialer`) through the same key. Auto by default:
     /// Rust sends repair data only after it sees loss, capped while the network is cellular.
     public var ultra: UltraConnection { didSet { save(ultra.rawValue, "ultra") } }
     /// Settings → Transport → Align Keepalives (off by default): every keepalive goes out on
     /// one 10 s beat. Read by the dial and by the app's timers (`KeepaliveBeat`) through the same key.
     public var alignKeepalives: Bool { didSet { save(alignKeepalives, "alignKeepalives") } }
+    /// Settings → Transport → Direct on Wi-Fi (on by default): talk to a Mac directly when the
+    /// phone and the Mac share a network. Off: always the relay. Read at each dial
+    /// (`FFIMacLinkDialer`) through the same key.
+    public var lanDirect: Bool { didSet { save(lanDirect, "lanDirect") } }
     /// Settings → Transport → Quiet Cloud Connections (off by default). Read by the Cloud pages
     /// (`CmuxMobilePreferences.quietCloudConnect`) through the same key.
     public var quietCloudConnect: Bool { didSet { save(quietCloudConnect, "quietCloudConnect") } }
@@ -243,14 +251,14 @@ public final class SettingsStore {
         // (it used to get WebRTC; verify/hybrid-link.md).
         transport = string("transport").flatMap(TransportKind.init(rawValue:)) ?? .fallback
         appearance = string("appearance").flatMap(AppearanceMode.init(rawValue:)) ?? .system
-        hapticsEnabled = bool("hapticsEnabled", true)
+        hapticsEnabled = bool("hapticsEnabled", false)
         terminalFontSize = defaults.object(forKey: "cmuxMobile.settings.terminalFontSize") as? Int ?? Self.defaultTerminalFontSize
         dismissKeyboardAfterSend = bool("dismissKeyboardAfterSend", true)
         swipeDownCollapsesComposer = defaults.object(forKey: "cmuxMobile.settings.swipeDownCollapsesComposer") == nil
             ? false : defaults.bool(forKey: "cmuxMobile.settings.swipeDownCollapsesComposer")
         followUp = string("followUp").flatMap(FollowUpBehavior.init(rawValue:)) ?? .queue
         wrapCode = bool("wrapCode", false)
-        keyClicks = bool("keyClicks", true)
+        keyClicks = bool("keyClicks", false)
         // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string
         // (CmuxMobilePreferences.terminalJumpToBottom reads the key the same way).
         terminalJumpToBottom = defaults.object(forKey: "cmuxMobile.settings.terminalJumpToBottom") == nil
@@ -267,6 +275,7 @@ public final class SettingsStore {
         predictiveEchoFullScreen = defaults.object(forKey: "cmuxMobile.settings.predictiveEchoFullScreen") == nil
             ? false : defaults.bool(forKey: "cmuxMobile.settings.predictiveEchoFullScreen")
         terminalFitToPhone = bool("terminalFitToPhone", false)
+        cloudAutoMode = bool("cloudAutoMode", false)
         // The earlier "Ultra mode on cellular" switch: on reads as Always.
         let ultra = string("ultra").flatMap(UltraConnection.init(rawValue:))
             ?? (bool("ultraOnCellular", false) ? .always : .auto)
@@ -274,6 +283,7 @@ public final class SettingsStore {
         // Saved now: the dial reads this key, and the earlier switch is retired below.
         defaults.set(ultra.rawValue, forKey: "cmuxMobile.settings.ultra")
         alignKeepalives = bool("alignKeepalives", false)
+        lanDirect = bool("lanDirect", true)
         quietCloudConnect = bool("quietCloudConnect", false)
         agentCLIHybrid = bool("agentCLIHybrid", false)
         // The earlier three switches: Finished off reads as "Only when I'm needed".

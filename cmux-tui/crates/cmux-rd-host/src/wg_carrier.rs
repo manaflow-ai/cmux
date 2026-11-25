@@ -39,6 +39,8 @@ impl Role {
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "t", rename_all = "snake_case", deny_unknown_fields)]
+// The `Wg` prefix is the wire tag (`wg_offer`, `wg_ready`, ...), not decoration.
+#[allow(clippy::enum_variant_names)]
 pub enum Control {
     WgOffer { version: u8, key: String, address: Ipv4Addr, mtu: u16 },
     WgAnswer { version: u8, key: String, address: Ipv4Addr, mtu: u16 },
@@ -76,13 +78,11 @@ impl Retry {
     }
     fn receive(&mut self, record: &Control, now: Instant, out: &mut VecDeque<Control>) {
         match *record {
-            Control::WgFallback { reason } => {
-                if self.peer.is_none() {
-                    self.peer = Some(reason);
-                    self.request(reason, now, out);
-                    out.push_back(Control::WgFallbackAck { reason });
-                    self.ack_sent = true;
-                }
+            Control::WgFallback { reason } if self.peer.is_none() => {
+                self.peer = Some(reason);
+                self.request(reason, now, out);
+                out.push_back(Control::WgFallbackAck { reason });
+                self.ack_sent = true;
             }
             Control::WgFallbackAck { reason } if self.requested == Some(reason) => {
                 self.acknowledged = true

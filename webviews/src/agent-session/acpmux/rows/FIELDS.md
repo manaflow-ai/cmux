@@ -189,6 +189,7 @@ The first table (FIELDS.md) has a reader for each. The list summary (e) also car
 | tool.locations, exitCode, background, reaction, approved | turns.ts:2204, CommandRow.tsx:181/59/165/166                        | a             | 2c                                                                                                  |
 | tool.awaitingCall                                        | hiddenTools.ts:25                                                   | a             | Needs nothing: the call and its result are one row. (Correction to A0's c.)                         |
 | tool.provenance                                          | hiddenTools.ts:26                                                   | a             | `body.tool` (v1.rs:292; claude.rs:141). Built                                                       |
+| tool.recipient                                           | MessageCard.tsx:46, SentMessageLine.tsx:517                         | a             | `body.recipient` (v1.rs:415, from `_meta.acpmux.recipient`, acpmux subagents.rs `recipient`). Built |
 
 ## Not yet
 

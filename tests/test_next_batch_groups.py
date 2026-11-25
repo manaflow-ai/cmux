@@ -499,11 +499,12 @@ class GroupCycle(unittest.TestCase):
                     "startedAt": started, "completedAt": started}
 
         gh = mock.Mock()
-        gh.graphql.return_value = {"p0": {"commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {
+        gh.repo = "o/r"
+        gh.graphql.return_value = {"repository": {"p0": {"commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {
             "pageInfo": {"hasNextPage": False},
-            "nodes": [run("SUCCESS", "2026-10-06T02:00:00Z"), run("CANCELLED", "2026-10-06T01:00:00Z")]}}}}]}}}
-        found = nb.fetch_details(gh, [("PR_1", False, True)])
-        self.assertEqual(found["PR_1"][1], [("ci-status", "completed", "success")])
+            "nodes": [run("SUCCESS", "2026-10-06T02:00:00Z"), run("CANCELLED", "2026-10-06T01:00:00Z")]}}}}]}}}}
+        found = nb.fetch_details(gh, [(1, False, True)])
+        self.assertEqual(found[1][1], [("ci-status", "completed", "success")])
         self.assertIn("startedAt", gh.graphql.call_args.args[0])
 
     def test_lanes_use_each_members_full_diff(self):
