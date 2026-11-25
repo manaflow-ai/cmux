@@ -306,7 +306,10 @@ public final class AddressBarView: NSView {
     /// the first Escape armed the exit, "Esc again to exit". It fades in and
     /// out (at once with fades off in the motion settings; Reduce Motion keeps a short fade).
     public func setFocusModeBadge(armed: Bool?) {
-        if let armed { focusModeBadgeView.show(armed: armed) }
+        if let armed {
+            focusModeBadgeView.show(armed: armed)
+            measuredBadges = nil // its text may have changed ("Esc again to exit") with no call below
+        }
         let shown = armed != nil
         guard focusModeBadgeWanted != shown else { return }
         focusModeBadgeWanted = shown
@@ -339,13 +342,29 @@ public final class AddressBarView: NSView {
 
     /// How many times the bar measured its shown badges' fitting sizes (OmnibarResizeMeasureTests).
     private(set) var badgeMeasures = 0
+    /// The shown badges' width and which badges it was measured for. A new width fits again with it (each step of a
+    /// live resize); every change of what a badge shows calls ``updateBadgeSpace()``, which measures again, and a
+    /// badge whose text changes without one (focus mode's, armed) drops it.
+    private var measuredBadges: (shown: [ObjectIdentifier], width: CGFloat)?
 
-    func updateBadgeSpace() {
+    /// Fits the label and badges to the bar after a change of what they show: measures them again.
+    func updateBadgeSpace() { fitBadges(measuring: true) }
+
+    /// Fits the label and badges to the bar; `measuring` false (a width change) reuses the badges' width measured last
+    /// when the same badges show.
+    private func fitBadges(measuring: Bool) {
         let wanted = !machineBadgeView.isHidden || !profileBadgeView.isHidden || !starButton.isHidden || !focusModeBadgeView.isHidden
         // A narrow bar folds the chip's label, then hides the badges, before the text runs under them (OmnibarNarrowFit).
         let shown = badges.arrangedSubviews.filter { !$0.isHidden }
-        if !shown.isEmpty { badgeMeasures += 1 }
-        let badgesWidth = shown.isEmpty ? 0 : shown.reduce(0) { $0 + $1.fittingSize.width } + badges.spacing * CGFloat(shown.count - 1)
+        let ids = shown.map(ObjectIdentifier.init)
+        let badgesWidth: CGFloat
+        if !measuring, let measuredBadges, measuredBadges.shown == ids {
+            badgesWidth = measuredBadges.width
+        } else {
+            if !shown.isEmpty { badgeMeasures += 1 }
+            badgesWidth = shown.isEmpty ? 0 : shown.reduce(0) { $0 + $1.fittingSize.width } + badges.spacing * CGFloat(shown.count - 1)
+            measuredBadges = (ids, badgesWidth)
+        }
         let fit = OmnibarNarrowFit.resolve(barWidth: bounds.width, chipLeading: OmnibarStyle.chipLeading, chipIcon: OmnibarStyle.chipSize,
                                            chipLabeled: chip.labeledWidth, textLeading: OmnibarStyle.textLeading, badges: badgesWidth,
                                            badgesInset: OmnibarStyle.badgesTrailingInset, fieldTrailingGap: OmnibarStyle.fieldTrailingGap,
@@ -605,7 +624,7 @@ public final class AddressBarView: NSView {
     public override func setFrameSize(_ newSize: NSSize) {
         let changed = newSize.width != frame.width
         super.setFrameSize(newSize)
-        if changed { updateBadgeSpace() }
+        if changed { fitBadges(measuring: false) }
     }
 
     public override func layout() {

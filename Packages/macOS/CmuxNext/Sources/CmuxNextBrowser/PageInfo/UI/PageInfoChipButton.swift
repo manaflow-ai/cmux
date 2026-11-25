@@ -22,14 +22,24 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
     /// The chip's width with its label shown (its icon's width when it has no label), whether or not it is collapsed.
     var labeledWidth: CGFloat {
         let side = OmnibarStyle.chipSize
-        guard labelText != nil else { return side }
+        guard let label = labelText else { return side }
         let padding = (side - OmnibarStyle.iconPointSize) / 2
-        labelMeasures += 1
-        return ceil(side + text.intrinsicContentSize.width + padding)
+        return ceil(side + labelWidth(label) + padding)
     }
 
     /// How many times the chip measured its label's text (OmnibarResizeMeasureTests).
     private(set) var labelMeasures = 0
+    /// The label's text width and the text and font it was measured in: the bar asks for ``labeledWidth`` at each new
+    /// width (each step of a live resize), and the text measures again only when the label or its font changed.
+    private var measuredLabel: (text: String, font: NSFont?, width: CGFloat)?
+
+    private func labelWidth(_ label: String) -> CGFloat {
+        if let measuredLabel, measuredLabel.text == label, measuredLabel.font == text.font { return measuredLabel.width }
+        labelMeasures += 1
+        let width = text.intrinsicContentSize.width
+        measuredLabel = (label, text.font, width)
+        return width
+    }
 
     private let icon = NSImageView()
     private let text = ChromeLabel(labelWithString: "")
