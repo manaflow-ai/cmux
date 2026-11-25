@@ -163,7 +163,6 @@ impl WgNet {
         let mut underlay = UltraUnderlay::new(Box::new(underlay), mode, Arc::clone(&ultra));
         underlay.set_max_datagram(max_datagram);
         underlay.set_floor(auto.is_some());
-        underlay.set_tap_local(config.addresses.first().map(|address| address.address));
         let driver =
             Driver::new(config, underlay, negotiation, auto, commands_rx, Arc::clone(&wake))?;
         let wakeups = Arc::clone(&driver.wakeups);
@@ -461,6 +460,8 @@ struct Driver {
     wakeups: Arc<AtomicU64>,
     /// A rebind while held owes the peer its reassertion at the release.
     reassert_at_release: bool,
+    /// When a cookie reply last had this side send a handshake at once.
+    cookie_retry_at: Option<Instant>,
     /// When this side last sent a handshake initiation of its own (see
     /// [`INITIATION_PENDING`]).
     initiated_at: Option<Instant>,
@@ -636,6 +637,7 @@ impl Driver {
             resumed: false,
             wakeups: Arc::new(AtomicU64::new(0)),
             reassert_at_release: false,
+            cookie_retry_at: None,
             initiated_at: None,
             handshake_rtt: None,
             responded_at: None,
@@ -705,6 +707,7 @@ impl Driver {
                 () = stack_deadline => Event::StackDeadline,
             };
             self.wakeups.fetch_add(1, Ordering::Relaxed);
+            self.tap_parity();
             self.catch_up_timers();
             self.run_watchdog();
             self.run_handshake_retry();
@@ -743,6 +746,18 @@ impl Driver {
         }
     }
 
+    /// Measurement only: reports the parity datagrams the repair layer
+    /// consumed before the driver saw them.
+    fn tap_parity(&mut self) {
+        if !crate::testing::tapping() {
+            return;
+        }
+        let local = self.config.addresses.first().map(|address| address.address);
+        for wire_bytes in self.underlay.take_tapped_parity() {
+            crate::testing::tap_received(local, crate::testing::Received::Parity, wire_bytes);
+        }
+    }
+
     fn handle_datagram(&mut self, datagram: &[u8], origin: Origin) {
         let mut input = datagram;
         let source = origin.addr.map(|addr| addr.ip());
@@ -752,6 +767,7 @@ impl Driver {
             DatagramClass::WireGuardInitiation | DatagramClass::WireGuardResponse
         );
         let mut replay = Vec::new();
+        let mut cookie_taken = false;
         // Measurement only (`testing::set_receive_tap`): off, one atomic load.
         let local = crate::testing::tapping()
             .then(|| self.config.addresses.first().map(|address| address.address))
@@ -783,6 +799,10 @@ impl Driver {
                         );
                         note_answered(datagram, &mut self.responded_at, &mut self.handshake_rtt);
                     }
+                    // Done for a cookie reply: boringtun took the cookie
+                    // (it answered this side's latest handshake message).
+                    cookie_taken =
+                        !input.is_empty() && classify(input) == DatagramClass::WireGuardCookieReply;
                     break;
                 }
                 TunnResult::Err(_) => {
@@ -887,6 +907,9 @@ impl Driver {
                     break;
                 }
             }
+        }
+        if cookie_taken {
+            self.answer_cookie(Instant::now());
         }
         self.replay(replay);
     }

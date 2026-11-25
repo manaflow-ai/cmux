@@ -765,9 +765,9 @@ pub(crate) struct UltraUnderlay {
     /// The staged datagram was rebuilt from parity.
     staged_rebuilt: bool,
     counters: Arc<UltraCounters>,
-    /// Measurement only ([`crate::testing::set_receive_tap`]): the tunnel's
-    /// first interface address, set only while a tap is installed.
-    tap_local: Option<std::net::IpAddr>,
+    /// Measurement only (`testing::set_receive_tap`): the wire size of each
+    /// parity datagram consumed here since the driver last took them.
+    tapped_parity: Vec<usize>,
 }
 
 impl UltraUnderlay {
@@ -796,14 +796,14 @@ impl UltraUnderlay {
             staged_bytes: Vec::new(),
             staged_rebuilt: false,
             counters,
-            tap_local: None,
+            tapped_parity: Vec::new(),
         }
     }
 
-    /// Measurement only: report received parity to the receive tap as this
-    /// tunnel's (`local` is its first interface address).
-    pub(crate) fn set_tap_local(&mut self, local: Option<std::net::IpAddr>) {
-        self.tap_local = local.filter(|_| crate::testing::tapping());
+    /// Measurement only: the parity datagrams `poll_recv` consumed since the
+    /// last call, by wire size (empty unless a receive tap is set).
+    pub(crate) fn take_tapped_parity(&mut self) -> Vec<usize> {
+        std::mem::take(&mut self.tapped_parity)
     }
 
     /// Carry on over a new carrier after a network change; the mode stays.
@@ -1221,16 +1221,14 @@ impl Underlay for UltraUnderlay {
                 return Poll::Ready(Ok(received));
             };
             if datagram.first() == Some(&TAG) {
-                crate::testing::tap_received(
-                    self.tap_local,
-                    crate::testing::Received::Repair,
-                    datagram.len(),
-                );
                 // Parity from an origin WireGuard never authenticated is
                 // dropped unread and uncopied.
                 if self.trusts(received.origin) {
                     let datagram = datagram.to_vec();
                     self.on_parity(&datagram, received.origin);
+                }
+                if crate::testing::tapping() {
+                    self.tapped_parity.push(received.len);
                 }
                 parities += 1;
                 if parities >= PARITY_PER_POLL {

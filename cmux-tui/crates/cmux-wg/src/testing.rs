@@ -138,9 +138,9 @@ pub enum Received<'a> {
     /// The tunnel's own control packets: an ultra hello, an off-path note
     /// or a path probe.
     TunnelControl(&'static str),
-    /// An Ultra Mode parity datagram (repair, Auto's floor included): it
-    /// never reaches WireGuard, so it is reported where the carrier takes it.
-    Repair,
+    /// An ultra-mode parity datagram, consumed by the repair layer before
+    /// WireGuard sees it.
+    Parity,
     /// An IP packet for the overlay (TCP, UDP), as decrypted.
     Packet(&'a [u8]),
 }
