@@ -1,0 +1,4 @@
+{
+  "agent": "settable",
+  "why": "Whether inactive chats are archived on their own, and after how long: reversible (Unarchive brings a chat back), it only moves chats off the lists."
+}
