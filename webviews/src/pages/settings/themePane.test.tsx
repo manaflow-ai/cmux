@@ -193,9 +193,11 @@ test("a managed app theme pair says why its controls are off", async () => {
       },
     },
   });
-  expect(themeRow(page, "app")!.querySelector("[data-managed-reason]")).not.toBeNull();
-  expect(themeRow(page, "app")!.querySelector<HTMLButtonElement>("[role=switch]")!.disabled).toBe(true);
+  // A pair draws no single app row: the Light row carries the key's managed reason, and both sides are off.
+  expect(themeRow(page, "app")).toBeNull();
+  expect(themeRow(page, "app-light")!.querySelector("[data-managed-reason]")).not.toBeNull();
   expect(themeRow(page, "app-light")!.querySelector<HTMLButtonElement>("[data-theme-picker]")!.disabled).toBe(true);
+  expect(themeRow(page, "app-dark")!.querySelector<HTMLButtonElement>("[data-theme-picker]")!.disabled).toBe(true);
 });
 
 test("the Reset command on a focused studio row resets its key", async () => {

@@ -55,7 +55,8 @@ import UIKit
 
     @Test func growsToMaxLinesThenScrollsWithTheCaretInside() {
         let maxLines = ComposerTextView.maxLines
-        #expect(maxLines == 14)
+        // The agent chat's six (Leo, 2026-11-23: "composer growth in terminal view on ios is most certainly too high").
+        #expect(maxLines == 6)
         let heights = (1...17).map { Self.field($0).bounds.height }
         for index in 1..<maxLines { #expect(heights[index] > heights[index - 1]) }
         for index in maxLines..<heights.count { #expect(heights[index] == heights[maxLines - 1]) }
