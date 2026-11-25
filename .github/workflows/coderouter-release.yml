@@ -18,7 +18,7 @@ env:
 
 jobs:
   validate:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     permissions:
       contents: read
     outputs:
@@ -59,7 +59,7 @@ jobs:
   prepare_release:
     needs: validate
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/coderouter-v')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     permissions:
       contents: write
     steps:
@@ -457,7 +457,7 @@ jobs:
   release:
     needs: [validate, prepare_release, build]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/coderouter-v')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     permissions:
       contents: write
     steps:

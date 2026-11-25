@@ -5776,5 +5776,13 @@
     "unavailableTitle": "Não foi possível confirmar seu login",
     "unavailableBody": "Nosso provedor de login está ocupado. Aguarde alguns segundos e abra o convite novamente. Você não precisa entrar novamente.",
     "retry": "Tentar novamente"
+  },
+  "analyticsConsent": {
+    "label": "Análises",
+    "message": "Podemos usar análises para ver como o site é usado? Nada é coletado e nenhum cookie de análise é definido, a menos que você permita.",
+    "privacy": "Política de privacidade",
+    "accept": "Permitir",
+    "decline": "Não, obrigado",
+    "settings": "Configurações de análises"
   }
 }
