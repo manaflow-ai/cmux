@@ -353,6 +353,7 @@ pub mod session_search;
 pub mod session_service;
 pub mod session_status;
 mod session_store;
+mod session_total;
 pub mod sha256;
 /// The approval behind Share This Mac confirmed on the owner's other device (`share_approval.rs`).
 pub mod share_approval;

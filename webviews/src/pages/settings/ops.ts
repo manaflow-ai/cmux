@@ -212,7 +212,8 @@ export type DevicesJoinState = {
   known: boolean;
   /** The label of the action that turns every switch off while the record is unknown; null while it is known. */
   revoke_all: string | null;
-  switches: Array<{ surface: JoinConsentSurface; title: string; help: string; on: boolean }>;
+  /** Each switch; `keywords` are what Settings search also finds it by (the page's language and English). */
+  switches: Array<{ surface: JoinConsentSurface; title: string; help: string; keywords?: string[]; on: boolean }>;
 };
 
 /** The lists the host shows beside the schema rows; `rooms` is null when spaces are unsupported. */
