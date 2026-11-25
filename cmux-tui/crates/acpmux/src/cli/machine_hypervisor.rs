@@ -23,13 +23,12 @@ fn state_dir(opts: &HypervisorOpts) -> PathBuf {
     opts.state_dir.clone().unwrap_or_else(|| crate::config::home().join("hypervisor"))
 }
 
-/// The state dir, made owner-only whatever the umask (an existing wider one is refused, as
-/// acpmux refuses any): it holds the leases and the spool, and a pod's `HOME` under it boots
-/// an acpmux daemon that refuses a writable ancestor.
+/// The state dir, made owner-only whatever the umask, as acpmux makes its own (an existing one
+/// of this user is narrowed): it holds the leases and the spool, and a pod's `HOME` under it
+/// boots an acpmux daemon that refuses a writable ancestor.
 fn private_state_dir(opts: &HypervisorOpts) -> Result<PathBuf> {
     let dir = state_dir(opts);
-    crate::owner_only::private_dir(&dir)
-        .with_context(|| format!("make the state dir {} owner-only", dir.display()))?;
+    crate::config::private_state_dir(&dir)?;
     Ok(dir)
 }
 
@@ -162,7 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn the_state_dir_is_made_owner_only_and_a_wider_one_is_refused() {
+    fn the_state_dir_is_made_owner_only_and_a_wider_one_narrowed() {
         // A pod's HOME sits under the state dir; its acpmux daemon refuses a writable ancestor,
         // so a state dir made under umask 002 (drwxrwxr-x) left every pod's init dead.
         let base = tempfile::tempdir().unwrap();
@@ -175,6 +174,8 @@ mod tests {
         let wide = base.path().join("wide");
         std::fs::create_dir(&wide).unwrap();
         std::fs::set_permissions(&wide, std::fs::Permissions::from_mode(0o775)).unwrap();
-        assert!(private_state_dir(&opts(&wide)).is_err());
+        private_state_dir(&opts(&wide)).unwrap();
+        let mode = std::fs::metadata(&wide).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700, "{mode:o}");
     }
 }
