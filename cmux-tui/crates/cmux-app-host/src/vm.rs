@@ -928,7 +928,9 @@ fn install_native<'js>(
             let mut ops = parse(&ops);
             // `Particles {choreography}` (particles.rs): a refused document goes out as null,
             // with a log line naming the first bad path.
-            let refused = crate::particles::sanitize_scene_ops(&mut ops);
+            let mut refused = crate::particles::sanitize_scene_ops(&mut ops);
+            // Motion props (motion.rs, `cmux.motion/1`): canonical values, an invalid one as null.
+            refused.extend(crate::motion::sanitize_scene_ops(&mut ops));
             let mut shared = s.borrow_mut();
             for message in refused {
                 shared.log("warn", &message);
