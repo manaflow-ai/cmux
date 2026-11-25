@@ -19,8 +19,8 @@ import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { usePageNow as useTicking } from "../../../ui/pageClock";
 import { TerminalSquare } from "./icons";
+import { TextRoll } from "../../../ui/motion/TextRoll";
 import { DisclosureChevron } from "./DisclosureChevron";
-import { useTextSwap } from "../../../ui/motion/useTextSwap";
 import { BackgroundHint } from "./BackgroundHint";
 import { TimedLabel } from "./TurnTokens";
 import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
@@ -67,8 +67,6 @@ export function WorkingFor({
   const sending = shown !== undefined && sendName !== undefined;
   const doing = sending ? t("send.sending", { target: sendName }) : shown;
   const parts = counts ? workingParts(counts) : [];
-  // A new call changes the words as Claude desktop's line does (ui/motion/useTextSwap.ts).
-  const words = useTextSwap<HTMLSpanElement>(waiting ? undefined : (doing ?? ""));
   const toggles = onToggle !== undefined && !row.below;
   // The ticking "Working for 42s" the toggle holds room for: the same words at the widest time of
   // its shape across units, so a tick, "59s" into "1m 0s" too, moves nothing after the toggle.
@@ -94,10 +92,13 @@ export function WorkingFor({
         </output>
       ) : doing || row.thinkingNow ? (
         <>
-          <span ref={words} className={doing ? "cv-worked__label cv-worked__doing" : "cv-worked__label"}>
-            {doing ??
-              (held ? t("thinking") : <StatusVerb elapsedMs={Math.max(0, until - row.at)} verbKey={row.verbKey} />)}
-          </span>
+          {/* A new call rolls the words through the line's faded edges (ui/motion/TextRoll.tsx). */}
+          <TextRoll turn={doing ?? ""} className={doing ? "cv-worked__roll is-doing" : "cv-worked__roll"}>
+            <span className={doing ? "cv-worked__label cv-worked__doing" : "cv-worked__label"}>
+              {doing ??
+                (held ? t("thinking") : <StatusVerb elapsedMs={Math.max(0, until - row.at)} verbKey={row.verbKey} />)}
+            </span>
+          </TextRoll>
           <span className="cv-worked__time">{formatDuration(Math.max(0, until - row.at))}</span>
         </>
       ) : (
