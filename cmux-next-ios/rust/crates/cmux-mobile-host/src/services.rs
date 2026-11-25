@@ -266,8 +266,10 @@ const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
 /// logged to `phone-frames.jsonl`, `phone_frames.rs`).
 /// `tab-snapshots-v1`: the `tabs` service (every tab's title, favicon, thumbnail or screen text,
 /// with deltas and content-addressed blobs, `tab_snapshots.rs`).
+/// `mailbox-send-v1`: the mailbox takes `send` and `compose` items, held up to 24 hours and
+/// applied once in each phone's `seq` order (`mailbox.rs`, PROTOCOL.md "Store and forward").
 /// The names are declared once in `cmux_mobile_link::names`.
-pub const CAPABILITIES: [&str; 10] = [
+pub const CAPABILITIES: [&str; 11] = [
     names::REMOVAL,
     names::FILE_PREVIEW,
     names::LOCALHOST_FORWARD,
@@ -278,6 +280,7 @@ pub const CAPABILITIES: [&str; 10] = [
     names::PAIR_REQUESTS,
     names::PHONE_FRAMES,
     names::TAB_SNAPSHOTS,
+    names::MAILBOX_SEND,
 ];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = names::BROWSER_STREAM;
@@ -290,6 +293,9 @@ pub const SURFACE_STREAM: &str = names::SURFACE_STREAM;
 /// Added with [`SURFACE_STREAM`]: `surface` also streams the owner's own Cloud
 /// machine desktop, view only (`c~<machine_id>~<team_id>`, `surface.rs`).
 pub const CLOUD_DESKTOP: &str = names::CLOUD_DESKTOP;
+/// Added when `surface` also streams this Mac's own displays, view only
+/// (`d~<display>`, `surface.rs`): the Mac screen as rd/1 on the phone's link.
+pub const MAC_DISPLAY: &str = names::MAC_DISPLAY;
 
 /// What this host does that a phone may rely on.
 pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
@@ -303,6 +309,9 @@ pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
     }
     if config.surface.available() {
         out.push(CLOUD_DESKTOP);
+    }
+    if config.surface.streams_mac_display() {
+        out.push(MAC_DISPLAY);
     }
     out
 }
@@ -740,6 +749,8 @@ async fn splice(
     let daemon_exposure = exposure.clone();
     let request_exposure = daemon_exposure.clone();
     let answers = Arc::clone(&pending);
+    // The daemon lane: when each output byte went to the phone (output_paint.rs).
+    let output_stamps = reply_phone.as_deref().map(crate::output_paint::Tracker::start);
     let mut from_daemon = tokio::spawn(async move {
         let mut reader = BufReader::with_capacity(64 * 1024, daemon_read);
         loop {
@@ -756,6 +767,9 @@ async fn splice(
                     let Some(line) = exposed_daemon_line(line, daemon_exposure.as_ref()) else { continue };
                     // A redraw's id and its read time (Mac redraw to iPhone paint).
                     let (line, _) = crate::paint_latency::stamp_line(line);
+                    if let Some(stamps) = &output_stamps {
+                        stamps.line(&line);
+                    }
                     if daemon_lines.send(line).await.is_err() {
                         return;
                     }
@@ -1240,6 +1254,10 @@ async fn acpmux(
     let shared = std::sync::Mutex::new(AcpmuxRelayState::default());
     // A second connection of hostd's own, for `_acpmux/info` (the mode check).
     let mut side: Option<AcpmuxSocket> = None;
+    // Session ids acpmux already answered as their own canonical id on this link. A current
+    // phone names chats by canonical id, so its later requests skip the per-request trusted
+    // side socket and `_acpmux/info`; an alias (an older phone) still resolves every time.
+    let mut canonical_ids = CanonicalIds::default();
     // Two independent halves (contract point 5, input never head-of-line blocked behind
     // bulk): a big frame waiting for room toward the phone (`downstream`) no longer stops
     // `upstream` reading the phone's next prompt. When either half ends, the other is
@@ -1252,7 +1270,8 @@ async fn acpmux(
             match event {
                 Some(ChannelEvent::Data(bytes)) => {
                     let Some(text) = message.push(&bytes)? else { continue };
-                    let Some((text, dependencies)) = canonicalize_requests(&config.acpmux, &text).await
+                    let Some((text, dependencies)) =
+                        canonicalize_requests(&config.acpmux, &text, &mut canonical_ids).await
                     else {
                         let answer = serde_json::json!({"jsonrpc":"2.0","id":null,"error":{"code":-32602,"message":"Session exposure could not be resolved"}}).to_string();
                         let _ = sender.send(Bytes::from(answer)).await;
@@ -1525,15 +1544,52 @@ async fn trusted_session_query(target: &AcpmuxTarget, method: &str, params: Valu
     tokio::time::timeout(std::time::Duration::from_secs(5), query).await.ok().flatten()
 }
 
-async fn canonical_session(target: &AcpmuxTarget, session: &str) -> Option<String> {
-    trusted_session_query(target, "_acpmux/info", serde_json::json!({"sessionId":session,"waitLogs":false}))
-        .await?
-        .get("sessionId")?
-        .as_str()
-        .map(str::to_owned)
+/// Ids acpmux resolved to themselves on one phone link. A canonical session id never
+/// becomes an alias of another session, so it needs no second trusted lookup; exposure is
+/// still checked on every request against the canonical id. Bounded: past the cap it starts
+/// over, which only costs lookups again.
+#[derive(Default)]
+struct CanonicalIds(HashSet<String>);
+
+impl CanonicalIds {
+    const CAP: usize = 4096;
+
+    fn contains(&self, session: &str) -> bool {
+        self.0.contains(session)
+    }
+
+    fn insert(&mut self, session: String) {
+        if self.0.len() >= Self::CAP {
+            self.0.clear();
+        }
+        self.0.insert(session);
+    }
 }
 
-async fn canonicalize_requests(target: &AcpmuxTarget, text: &str) -> Option<(String, HashSet<String>)> {
+async fn canonical_session(target: &AcpmuxTarget, session: &str, known: &mut CanonicalIds) -> Option<String> {
+    if known.contains(session) {
+        return Some(session.to_owned());
+    }
+    let canonical = trusted_session_query(
+        target,
+        "_acpmux/info",
+        serde_json::json!({"sessionId":session,"waitLogs":false}),
+    )
+    .await?
+    .get("sessionId")?
+    .as_str()
+    .map(str::to_owned)?;
+    if canonical == session {
+        known.insert(canonical.clone());
+    }
+    Some(canonical)
+}
+
+async fn canonicalize_requests(
+    target: &AcpmuxTarget,
+    text: &str,
+    known: &mut CanonicalIds,
+) -> Option<(String, HashSet<String>)> {
     let mut value = serde_json::from_str::<Value>(text).ok()?;
     let mut dependencies = HashSet::new();
     let requests = match &mut value {
@@ -1586,13 +1642,13 @@ async fn canonicalize_requests(target: &AcpmuxTarget, text: &str) -> Option<(Str
         };
         let canonical = match (named.first(), handoff_target) {
             (Some(named), Some(destination)) => {
-                if canonical_session(target, named).await? != destination {
+                if canonical_session(target, named, known).await? != destination {
                     return None;
                 }
                 destination
             }
             (None, Some(destination)) => destination,
-            (Some(named), None) => canonical_session(target, named).await?,
+            (Some(named), None) => canonical_session(target, named, known).await?,
             (None, None) => continue,
         };
         for key in ["sessionId", "session", "name"] {
@@ -2367,7 +2423,8 @@ mod tests {
                 "appearance-v1",
                 "pair-requests-v1",
                 "phone-frames-v1",
-                "tab-snapshots-v1"
+                "tab-snapshots-v1",
+                "mailbox-send-v1"
             ]
         );
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
@@ -2387,6 +2444,7 @@ mod tests {
                 "pair-requests-v1",
                 "phone-frames-v1",
                 "tab-snapshots-v1",
+                "mailbox-send-v1",
                 BROWSER_STREAM,
                 BROWSER_VIDEO_TRACK
             ]
@@ -2482,6 +2540,13 @@ mod tests {
         config.surface = config.surface.clone().without_simulators();
         assert!(!capabilities(&config).contains(&SURFACE_STREAM));
         assert!(capabilities(&config).ends_with(&[CLOUD_DESKTOP]));
+        assert!(!capabilities(&config).contains(&MAC_DISPLAY));
+        // The app that also captures this Mac's displays says so (`CMUX_MOBILE_MAC_DISPLAY=1`).
+        config.surface = config.surface.clone().with_mac_display();
+        assert!(capabilities(&config).ends_with(&[CLOUD_DESKTOP, MAC_DISPLAY]));
+        // No source at all: no display either.
+        config.surface = crate::surface::SurfaceConfig::default().with_mac_display();
+        assert!(!capabilities(&config).contains(&MAC_DISPLAY));
     }
 
     /// Everything `version` can list is a host name in the registry, and every host name there
@@ -2491,7 +2556,7 @@ mod tests {
         let listed: Vec<&str> = CAPABILITIES
             .iter()
             .copied()
-            .chain([BROWSER_STREAM, BROWSER_VIDEO_TRACK, SURFACE_STREAM, CLOUD_DESKTOP])
+            .chain([BROWSER_STREAM, BROWSER_VIDEO_TRACK, SURFACE_STREAM, CLOUD_DESKTOP, MAC_DISPLAY])
             .collect();
         let host: Vec<&str> =
             names::ALL.iter().filter(|c| c.side == names::Side::Host).map(|c| c.name).collect();
