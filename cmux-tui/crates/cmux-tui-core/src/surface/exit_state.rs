@@ -123,7 +123,6 @@ pub(super) fn mark_hosted_runtime_exited(
         pty.supports_clear_history_key_fallback.store(false, Ordering::Release);
         drop(runtime);
         pty.finish_hosted_exit();
-        pty.park_dead_mirror();
     }
 }
 
@@ -146,7 +145,6 @@ pub(super) fn publish_local_exit_if_ready(surface: &Arc<Surface>) {
     pty.dead.store(true, Ordering::Release);
     // A dead stream is never resumed: its ring goes with the shell, not the tab.
     pty.snapshot_position.ring.release();
-    pty.park_dead_mirror();
     if let Some(mux) = pty.mux.upgrade() {
         mux.surface_exited(surface.id);
     }
