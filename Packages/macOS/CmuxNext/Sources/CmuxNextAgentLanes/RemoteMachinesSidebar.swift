@@ -388,10 +388,11 @@ public final class RemoteMachinesSidebar {
             let room = machine.online ? machine.resources : nil
             let title = if let room, style == .header { RemoteMachinesStrings.named(name, RemoteMachinesStrings.ramFree(room.ramFreeGB)) }
                 else { name }
+            // Never greyed while offline: the title says "· Offline" (Leo, 2026-11-24: no "graying out").
             // The machine's own device glyph (cmux-device-kind's SF Symbol); an older peer keeps the cloud.
             var header = SidebarItemInfo(title: machine.online ? title : RemoteMachinesStrings.offline(name), symbol: machine.symbol ?? "cloud",
                                          icon: machine.symbol == nil ? .cloud : nil,
-                                         badge: machine.online && !machine.chats.isEmpty ? machine.chats.count : nil, isMissing: !machine.online)
+                                         badge: machine.online && !machine.chats.isEmpty ? machine.chats.count : nil)
             header.activity = activity(machine.chats)
             add(machinePrefix + machine.peer, header)
             guard machine.online, expanded.contains(machine.peer) else { continue }
