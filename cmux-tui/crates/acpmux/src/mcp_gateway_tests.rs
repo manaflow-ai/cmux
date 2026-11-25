@@ -626,7 +626,11 @@ async fn a_start_from_kept_answers_skips_the_server_start_numbers() {
     let mut kept = Vec::new();
     for round in 0..5u64 {
         let session = format!("chat-n{round}");
-        g.keep(&session, launch(home.path())).unwrap();
+        // Each round its own launch: one launch's later chats are answered from the first's
+        // shared answer, so only another launch is a cold start.
+        let mut cold_launch = launch(home.path());
+        cold_launch.env.push(("ROUND".into(), round.to_string()));
+        g.keep(&session, cold_launch).unwrap();
         let started = Instant::now();
         rpc(&g, &session, init(1)).await;
         rpc(&g, &session, list(2)).await;
