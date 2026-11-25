@@ -5,6 +5,8 @@
 //! accidentally fall back to the private command protocol.
 
 #[cfg(unix)]
+mod account_limit;
+#[cfg(unix)]
 mod action_hint;
 #[cfg(unix)]
 mod agent_config;
@@ -181,6 +183,8 @@ mod repo_mcp_lazy;
 mod safe_mode;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
+mod repro;
+#[cfg(unix)]
 mod sandbox_run;
 #[cfg(unix)]
 mod start_stages;
@@ -278,6 +282,8 @@ pub(crate) use machine_server::is_lifecycle_scope;
 mod computer_use;
 #[cfg(unix)]
 mod mcp;
+#[cfg(unix)]
+mod migrate;
 mod older_daemon;
 // `cmux pack`: theme packs (a whole look as one folder), swap, undo, redo, live edit.
 #[cfg(unix)]
@@ -1080,6 +1086,8 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| live_code::run_if_requested(args))
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| cloud_journey::run_if_requested(args))
+        .or_else(|| repro::run_if_requested(args))
+        .or_else(|| migrate::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))
