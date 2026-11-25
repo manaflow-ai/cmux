@@ -186,9 +186,6 @@ export function Notice({
       // One material per surface: a toast floats over the pane, so it is the App's toast glass at the
       // popover level (ui/glass/hostGlass.ts), the page under it blurring in place; an inline or banner
       // notice sits in its page's flow and keeps the page's glass.
-      data-host-glass={placement === "stack" ? "popover" : undefined}
-      data-host-glass-role={placement === "stack" ? "toast" : undefined}
-      data-host-glass-cover={placement === "stack" ? "" : undefined}
       data-page-glass={
         placement === "stack" ? undefined : "an inline or banner notice in its page's flow, not floating"
       }
