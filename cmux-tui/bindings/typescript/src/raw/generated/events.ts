@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9d14b92e4794cc2e34e6ed8c4c9e3803c3c9043fd50e2d7ff592e0f111de28ba. */
+/* cmux-tui mux protocol 12, IR 0685d121142ca949fb99b5057636f9c2a6772d90f731e44e3c7ba5228befe710. */
 
 
 import type * as T from "./types.js";
@@ -23,6 +23,8 @@ export type AgentChangedEvent = { event: "agent-changed" } & {
   "source": T.AgentSource;
   "state": T.AgentState;
   "surface": T.Id;
+  /** The terminal's public id (`term_…`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab. */
+  "terminal_id"?: string;
   "updated_at_ms": bigint;
 };
 
@@ -77,6 +79,11 @@ export type AgentPresenceChangedEvent = { event: "agent-presence-changed" } & {
   "tool": (string) | null;
   /** When the hook observed the event; null on clear. */
   "updated_at_ms": (bigint) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type AgentSessionShareChangedEvent = { event: "agent-session-share-changed" } & {
+  "session": string;
 };
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
@@ -286,6 +293,14 @@ export type ConversationRunChangedEvent = { event: "conversation-run-changed" } 
   "conversation": string;
   "run": (T.JsonValue) | null;
   "steps": Array<T.JsonValue>;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ConversationScheduledChangedEvent = { event: "conversation-scheduled-changed" } & {
+  "conversation": string;
+  "participant": string;
+  "removed"?: T.JsonValue;
+  "scheduled"?: T.JsonValue;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -810,6 +825,7 @@ export type KnownCmuxEvent =
   | AgentInventoryChangedEvent
   | AgentInventoryWatchEndedEvent
   | AgentPresenceChangedEvent
+  | AgentSessionShareChangedEvent
   | BellEvent
   | BookmarksChangedEvent
   | BrowserStateEvent
@@ -837,6 +853,7 @@ export type KnownCmuxEvent =
   | ConversationInboxChangedEvent
   | ConversationLiveEvent
   | ConversationRunChangedEvent
+  | ConversationScheduledChangedEvent
   | ConversationTypingEvent
   | DaemonShutdownEvent
   | DetachedEvent
@@ -909,6 +926,7 @@ export type SerializedButNotEmittedEvent =
 export type KnownSubscribeEvent =
   | AgentChangedEvent
   | AgentPresenceChangedEvent
+  | AgentSessionShareChangedEvent
   | BellEvent
   | BookmarksChangedEvent
   | ChiefChangedEvent
@@ -934,6 +952,7 @@ export type KnownSubscribeEvent =
   | ConversationInboxChangedEvent
   | ConversationLiveEvent
   | ConversationRunChangedEvent
+  | ConversationScheduledChangedEvent
   | ConversationTypingEvent
   | EmptyEvent
   | FeedReportsChangedEvent
