@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR fec2a53560ff6992b48ee32a81df797ac404a8bc55f1661d1e11f96aaf2032c0.
+// cmux-tui mux protocol 12, IR 4e34384345c5952de0733e534f694b5beca2a99236d90b5735bb411ba22aa32c.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2277,6 +2277,8 @@ pub struct ListWorkspacesRequest {
     pub known: Optional<T::ListWorkspacesKnown>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub limit: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub since: Optional<T::ListWorkspacesSince>,
 }
 
 #[rustfmt::skip]
@@ -5323,6 +5325,9 @@ impl CmuxClient {
         if !request.limit.is_missing() {
             self.require_protocol_field("list-workspaces", 12)?;
             self.require_capability_field("list-workspaces", "list-workspaces-limit-v1")?;
+        }
+        if !request.since.is_missing() {
+            self.require_capability_field("list-workspaces", "workspace-list-delta-v1")?;
         }
         self.execute(&LIST_WORKSPACES_METADATA, &request)
     }
