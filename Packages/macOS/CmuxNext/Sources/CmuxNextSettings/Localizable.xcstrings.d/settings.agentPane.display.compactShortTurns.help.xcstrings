@@ -1,0 +1,18 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.compactShortTurns.help" : {
+      "comment" : "Settings > Chat > Compact Summary for Short Turns: help",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A short turn shows a one-line summary of what it did, instead of folding under Worked for."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
