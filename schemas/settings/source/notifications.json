@@ -1476,6 +1476,53 @@
           }
         },
         {
+          "key": "notifications.delivery.blocked",
+          "name": "blockedDelivery",
+          "title": {
+            "key": "settings.notifications.delivery.blocked",
+            "text": "Agent Blocked"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "badge",
+              "title": {
+                "key": "settings.choice.badge",
+                "text": "Badge"
+              }
+            },
+            {
+              "value": "banner",
+              "title": {
+                "key": "settings.notifications.delivery.banner",
+                "text": "Banner"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "banner",
+            "delivery",
+            "blocked",
+            "waiting"
+          ],
+          "swift_enum": {
+            "name": "NotificationDeliveryLevel",
+            "generated": false
+          },
+          "help": {
+            "key": "settings.notifications.delivery.blocked.help",
+            "text": "When an agent's status turns Blocked without its own approval or question alert, as screen detection and plugins report it."
+          }
+        },
+        {
           "key": "notifications.delivery.taskComplete",
           "name": "taskCompleteDelivery",
           "title": {

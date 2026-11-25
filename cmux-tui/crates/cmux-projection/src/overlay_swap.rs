@@ -13,7 +13,8 @@
 use std::ffi::CString;
 use std::os::unix::ffi::OsStrExt as _;
 
-use super::{EEXIST, EIO, ENOENT, ENOTDIR, Inner, Kind, Node, Overlay, Path, PoisonError, Type};
+use super::Type;
+use super::{EEXIST, EIO, ENOENT, ENOTDIR, Entry, Inner, Kind, Node, Overlay, Path, PoisonError};
 use super::{fs, join};
 
 const RENAME_NOREPLACE: u32 = 1;
@@ -74,7 +75,7 @@ impl Overlay {
         }
         {
             let mut inner = self.lock();
-            Self::retire(&mut inner, name, old, index, self.manifest.len() as u64);
+            Self::retire(&mut inner, name, old, index, self.manifest.head_len() as u64);
         }
         // The folder git copied up before the swap (its writes are in `target` too).
         if upper_now.is_some() {
@@ -121,7 +122,8 @@ impl Overlay {
 
     pub(super) fn readdir_retired(&self, index: u32) -> Vec<(u64, Type, String)> {
         let path = self.manifest.path_of(index);
-        let (_, children) = self.manifest.children(index);
+        let children: Vec<Entry> =
+            self.manifest.children(index).map(|(_, entry)| entry.clone()).collect();
         let mut inner = self.lock();
         children
             .iter()

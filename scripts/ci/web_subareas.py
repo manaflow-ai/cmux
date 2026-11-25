@@ -238,6 +238,7 @@ AGENT_PANE_PREFIXES = (
     "cmux-tui/",
     ".github/actions/setup-cmux-tui-rust/",
     ".github/actions/playwright-apt-cache/",
+    "scripts/ci/playwright-apt-deps.sh",
 )
 
 # Every other input of the web bundles (the settings schema, the What's New

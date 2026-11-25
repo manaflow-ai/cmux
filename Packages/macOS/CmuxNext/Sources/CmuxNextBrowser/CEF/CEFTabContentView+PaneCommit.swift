@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// A layout change that shows in one commit (a split, a close, a zoom, an unzoom) tells the shown Chromium page its new
 /// size in the change's own turn, so the frame that shows the zoom shows the page laid out at the zoomed size, not its
@@ -76,6 +77,12 @@ extension CEFTabContentView: PaneCommitSurface {
     func endCommitAhead() {
         guard commitAheadSize != nil else { return }
         commitAheadSize = nil
+        // A focus ask kept while the page laid out ahead (`grantFocus`) is granted after this turn's frame commits, once the
+        // page answered at its new size (``CEFCommitPageWait/whenPageAnswered(_:)``): a grant before that frame stalled it.
+        if let tab, tab.pendingFocus {
+            let grant: @MainActor () -> Void = { [weak tab] in AfterFrameCommit().run { tab?.grantPendingFocusIfShown() } }
+            if let commitWait { commitWait.whenPageAnswered(grant) } else { grant() }
+        }
         commitWait?.holdEnded()
         dropHold()
         layoutContent()

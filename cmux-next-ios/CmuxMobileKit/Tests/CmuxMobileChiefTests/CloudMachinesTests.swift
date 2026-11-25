@@ -111,8 +111,68 @@ extension AccountCloudTests {
         await model.load()
         await model.create(name: "", memoryMB: nil)
         #expect(model.failure == nil)
-        #expect(model.notice == "Approve it in your Feed to finish.")
+        // Audit 20 (ceremony): no "Waiting for approval" alert; the Machines list says it in a row.
+        #expect(model.isAwaitingApproval(CloudMachinesModel.newMachineID))
         #expect(Service.params("cloud.machine.create")?["name"] == nil)
+        // A read with no new machine keeps it; once one comes, the row leaves.
+        await model.load()
+        #expect(model.isAwaitingApproval(CloudMachinesModel.newMachineID))
+        let made = Machines.machines.replacingOccurrences(of: #""machines":["#, with: #""machines":[{"id":"vm_cccccccccccccccccccc","name":"New","size":{},"status":"provisioning","idle_policy":{"idle_seconds":0}},"#)
+        answers["cloud.machine.list"] = (200, made)
+        Service.reset(answers)
+        await model.load()
+        #expect(!model.isAwaitingApproval(CloudMachinesModel.newMachineID))
+    }
+
+    /// A held start shows on its row in place of the status, and leaves once the machine changes
+    /// or after `approvalShownFor`.
+    @Test func aHeldMachineActionIsItsRowsStatusUntilItLands() async throws {
+        var answers = Machines.reads
+        answers["cloud.machine.start"] = (409, #"{"error":{"code":"approval.pending","message":"waiting"}}"#)
+        Service.reset(answers)
+        let model = Machines.model()
+        var clock = Date(timeIntervalSince1970: 10_000)
+        model.now = { clock }
+        await model.load()
+        let paused = try #require(model.machine("vm_bbbbbbbbbbbbbbbbbbbb"))
+        await model.start(paused)
+        #expect(model.failure == nil)
+        #expect(model.isAwaitingApproval(paused.id))
+        #expect(model.machine(paused.id)?.status == .paused, "the optimistic Starting is rolled back")
+        await model.load()
+        #expect(model.isAwaitingApproval(paused.id), "unchanged: still waiting")
+        answers["cloud.machine.list"] = (200, Machines.machines.replacingOccurrences(of: #""status":"paused""#, with: #""status":"starting""#))
+        Service.reset(answers)
+        await model.load()
+        #expect(!model.isAwaitingApproval(paused.id), "approved: the row shows its real status")
+
+        Service.reset(Machines.reads.merging(["cloud.machine.start": (409, #"{"error":{"code":"approval.pending","message":"waiting"}}"#)]) { $1 })
+        await model.load()
+        await model.start(try #require(model.machine(paused.id)))
+        #expect(model.isAwaitingApproval(paused.id))
+        clock = clock.addingTimeInterval(CloudMachinesModel.approvalShownFor + 1)
+        await model.load()
+        #expect(!model.isAwaitingApproval(paused.id), "an approval never decided stops saying so")
+    }
+
+    /// Review finding 2: a snapshot changes none of the machine's settings, so a held Take Snapshot
+    /// is done when a new snapshot of that machine is listed, not after 15 min.
+    @Test func aHeldSnapshotIsDoneWhenTheNewSnapshotIsListed() async throws {
+        var answers = Machines.reads
+        answers["cloud.snapshot.create"] = (409, #"{"error":{"code":"approval.pending","message":"waiting"}}"#)
+        Service.reset(answers)
+        let model = Machines.model()
+        await model.load()
+        let machine = try #require(model.machine("vm_aaaaaaaaaaaaaaaaaaaa"))
+        await model.takeSnapshot(machine, name: "")
+        #expect(model.isAwaitingApproval(machine.id))
+        await model.load()
+        #expect(model.isAwaitingApproval(machine.id), "no new snapshot yet: still waiting")
+        answers["cloud.snapshot.list"] = (200, Machines.snapshots.replacingOccurrences(of: #"{"value":{"snapshots":["#,
+            with: #"{"value":{"snapshots":[{"id":"snap_cccccccccccccccccccc","machine":"vm_aaaaaaaaaaaaaaaaaaaa","name":null,"size_mb":2048,"status":"ready","created_at":9500,"revision":"3"},"#))
+        Service.reset(answers)
+        await model.load()
+        #expect(!model.isAwaitingApproval(machine.id), "approved: the new snapshot is listed")
     }
 
     @Test func cloudMachinesSignedOutSaysSo() async {

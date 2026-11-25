@@ -506,6 +506,39 @@ fn terminal_reap_attached_terminals_do_not_count_toward_the_grace_cap() {
     );
 }
 
+/// Restart to Update left more than 16 terminals unplaced for a moment while the new window
+/// restored its tabs, and the grace cap ended the extras at once: agents running in them exited
+/// 143 (Leo, 2026-11-24: "mochi is still deadge"). The cap stands down while the app is gone and
+/// for one grace after it is back; a daemon that never served an app keeps it.
+#[test]
+fn terminal_reap_grace_cap_stands_down_across_an_app_relaunch() {
+    let grace = Duration::from_secs(30);
+    let start = Instant::now();
+    let mut schedule = ReapSchedule::default();
+    assert!(
+        !schedule.relaunch_hold(start, grace, false, false),
+        "a daemon that never had an app frontend keeps the cap (STATUS 7998)"
+    );
+    assert!(schedule.relaunch_hold(start, grace, true, false), "the app it served is gone");
+    let back = start + Duration::from_secs(5);
+    assert!(schedule.relaunch_hold(back, grace, true, true), "the app just came back");
+    assert!(
+        schedule.relaunch_hold(back + grace - Duration::from_millis(1), grace, true, true),
+        "inside one grace of its return the window may still be placing its tabs"
+    );
+    assert!(
+        !schedule.relaunch_hold(back + grace, grace, true, true),
+        "one grace after the app is back the cap applies again"
+    );
+    assert!(schedule.relaunch_hold(back + grace * 2, grace, true, false), "gone again");
+    let again = back + grace * 3;
+    assert!(
+        schedule.relaunch_hold(again, grace, true, true),
+        "a second return starts its own grace"
+    );
+    assert!(!schedule.relaunch_hold(again + grace, grace, true, true), "and ends one grace later");
+}
+
 /// The reaper checked attach streams before its close, outside the close's locks (the screen
 /// archive capture sits in between): a client that attached in that gap lost the terminal it had
 /// just attached to. The reap close checks attach streams under the same locks as the close.
@@ -542,4 +575,45 @@ fn terminal_reap_attached_terminal_survives_the_guarded_reap_close() {
     )
     .unwrap();
     mux.close_surface(placed.id).unwrap();
+}
+
+mod detach_cap;
+
+/// While the app this owner served is gone no closed terminal's grace runs out; each gets a whole
+/// grace from the reconnect, and the hold ends once the app has stayed away past its bound.
+#[test]
+fn frontend_away_holds_each_terminals_grace_until_it_is_back_or_gone_for_good() {
+    let start = Instant::now();
+    let grace = Duration::from_secs(30);
+    let reapable: HashSet<String> = ["a".to_string(), "b".to_string()].into_iter().collect();
+    let mut schedule = ReapSchedule::default();
+    schedule.observe(start, grace, &reapable);
+    // The app quit; ten graces later nothing is due.
+    let mut now = start;
+    for _ in 0..10 {
+        now += grace;
+        schedule.observe(now, grace, &reapable);
+        assert!(schedule.relaunch_hold(now, grace, true, false));
+        assert!(schedule.due(now).is_empty(), "a grace ran out while the app was relaunching");
+    }
+    // It is back: a whole grace from here, then they end as usual.
+    let back = now + Duration::from_secs(5);
+    schedule.observe(back, grace, &reapable);
+    assert!(schedule.relaunch_hold(back, grace, true, true));
+    assert!(schedule.due(back + grace - Duration::from_millis(1)).is_empty());
+    assert_eq!(schedule.due(back + grace).len(), 2);
+
+    // An app that never comes back: past the bound the graces run out again.
+    let mut schedule = ReapSchedule::default();
+    schedule.observe(start, grace, &reapable);
+    assert!(schedule.relaunch_hold(start, grace, true, false));
+    let late = start + MAX_FRONTEND_AWAY_HOLD;
+    assert!(!schedule.relaunch_hold(late, grace, true, false), "the hold has an end");
+    assert_eq!(schedule.due(late).len(), 2);
+
+    // An owner that never served an app holds nothing.
+    let mut schedule = ReapSchedule::default();
+    schedule.observe(start, grace, &reapable);
+    assert!(!schedule.relaunch_hold(start + grace, grace, false, false));
+    assert_eq!(schedule.due(start + grace).len(), 2);
 }

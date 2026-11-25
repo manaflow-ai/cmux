@@ -133,7 +133,8 @@ test("a chat on this Mac that cannot run on Cloud still lists the repositories w
   const { root, here } = await render({ runMode: undefined }, picker);
   try {
     await openFolderMenu();
-    expect(calls).toEqual(["github.status", "github.repos.list"]);
+    // Read as the chip showed (prefetch); the open reads the status again.
+    expect(calls).toEqual(["github.status", "github.repos.list", "github.status"]);
     await press(option("acme/api")!);
     expect(here).toEqual([["acme/api", [CHECKOUT]]]);
   } finally {

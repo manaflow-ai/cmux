@@ -7,6 +7,9 @@ export type DevHostParams = {
   endpoint: string;
   token: string;
   sessionId?: string;
+  /// `#sessions=a,b,…` (with `?mounts=N`, mountModel.tsx): each pane in the document takes the next chat on its first
+  /// `ready`, so one document holds several chats (bench/chat-pages-memory.bench.ts SHARED=1).
+  sessions?: string[];
   newSession?: boolean;
   /// `#newtab`: the pane opens as a New Tab page, as a tab the app opened for one does.
   newTab?: boolean;
@@ -18,6 +21,10 @@ export type DevHostParams = {
   /// `#machine=…`: the machine the app names the chat's (`machineName`), for the composer and the
   /// unavailable state.
   machineName?: string;
+  /// `#scheme=…`: the link scheme the handshake names (default `cmux-dev`). The benches pass a shipped
+  /// build's (`cmux`), so their page runs what ships: a `cmux-dev` scheme turns on the dev-only
+  /// layout-motion audit (devMotionAudit.ts), which asks for a frame on every DOM change.
+  linkScheme?: string;
 };
 
 type Request = { id: string; method: string; params?: Record<string, unknown> };
@@ -53,12 +60,14 @@ export function devHostParams(hash: string): DevHostParams | undefined {
     endpoint,
     token,
     sessionId: params.get("session") ?? undefined,
+    sessions: params.get("sessions")?.split(",").filter(Boolean),
     newSession: params.has("new") || undefined,
     newTab: params.has("newtab") || undefined,
     cwd: params.get("cwd") ?? undefined,
     editorOrigin,
     sessionMustExist: params.has("must") || undefined,
     machineName: params.get("machine") ?? undefined,
+    linkScheme: params.get("scheme") ?? undefined,
   };
 }
 
@@ -188,7 +197,9 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
   if (SERVED_READS.has(method)) return servedRead(host, method, request);
   switch (method) {
     case "handshake":
-    case "ready":
+    case "ready": {
+      const next = request.params?.reconnect ? undefined : host.sessions?.shift();
+      if (next) host.sessionId = next;
       return {
         ok: true,
         value: {
@@ -200,11 +211,12 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
           newSession: host.newSession,
           ...(host.newTab ? { newTab: true } : {}),
           cwd: host.cwd,
-          linkScheme: "cmux-dev",
+          linkScheme: host.linkScheme ?? "cmux-dev",
           ...(host.sessionMustExist ? { sessionMustExist: true } : {}),
           ...(host.machineName ? { machineName: host.machineName } : {}),
         },
       };
+    }
     case "pane.action": {
       // The app's tab actions (close, split, …) have no tab here: kept for the page's tests.
       const actions = ((globalThis as { cmuxDevPaneActions?: string[] }).cmuxDevPaneActions ??= []);

@@ -278,6 +278,8 @@
 			inputPaths = (
 				"$(SRCROOT)/scripts/cmux-next/bundle-cli-resources.sh",
 				"$(SRCROOT)/scripts/cmux-next/compact-json.py",
+				"$(SRCROOT)/scripts/cmux-next/pack-code-mode.py",
+				"$(SRCROOT)/scripts/cmux-next/cmux-code-mode-unpack",
 				"$(SRCROOT)/scripts/cmux-next/cmux-code-mode-runner",
 				"$(SRCROOT)/scripts/cmux-next/cmux-code-mode-macos-profile",
 				"$(SRCROOT)/scripts/lib/cmux-dev-shim-install",
@@ -302,7 +304,8 @@
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-open-url",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/open",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/xdg-open",
-				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/code-mode",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-code-mode-unpack",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/code-mode.tar.xz",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/toolchain-licenses",
 			);
 			runOnlyForDeploymentPostprocessing = 0;

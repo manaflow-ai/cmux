@@ -1331,6 +1331,67 @@
             "space",
             "background"
           ]
+        },
+        {
+          "key": "appearance.terminalCellBackgrounds",
+          "note": "Ghostty's background-cells-opacity and background-cells-neutral-fade (ghostty-next), loaded with source cmux-next in GhosttyRuntime.finalizeConfig (GhosttyRuntimeSurfacePolicy.cellBackgroundLines). opaque loads nothing.",
+          "title": {
+            "key": "settings.appearance.terminalCellBackgrounds",
+            "text": "Terminal Cell Backgrounds"
+          },
+          "help": {
+            "key": "settings.appearance.terminalCellBackgrounds.help",
+            "text": "How program-painted cell backgrounds (a TUI's message band, status line) draw over a translucent window or wallpaper: opaque (default), at the window's opacity (window), fading near-background greys to a tint (tint), or both (tintWindow)."
+          },
+          "kind": "choice",
+          "swift_owner": "TerminalCellBackgroundsSetting",
+          "swift_enum": {
+            "name": "TerminalCellBackgrounds",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "opaque",
+              "title": {
+                "key": "settings.choice.terminalCellBackgrounds.opaque",
+                "text": "Opaque"
+              }
+            },
+            {
+              "value": "window",
+              "title": {
+                "key": "settings.choice.terminalCellBackgrounds.window",
+                "text": "Window Opacity"
+              }
+            },
+            {
+              "value": "tint",
+              "title": {
+                "key": "settings.choice.terminalCellBackgrounds.tint",
+                "text": "Tint"
+              }
+            },
+            {
+              "value": "tintWindow",
+              "title": {
+                "key": "settings.choice.terminalCellBackgrounds.tintWindow",
+                "text": "Tint at Window Opacity"
+              }
+            }
+          ],
+          "default": "opaque",
+          "keywords": [
+            "terminal",
+            "cell",
+            "background",
+            "transparent",
+            "translucent",
+            "opacity",
+            "wallpaper",
+            "tui",
+            "claude"
+          ]
         }
       ]
     },

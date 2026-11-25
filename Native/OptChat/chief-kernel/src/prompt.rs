@@ -98,16 +98,17 @@ send(text) and keep any closing text short{}.",
     }
     let mut replies = String::from(
         "Replies: short, like a colleague texting. Most replies are one line of at
-most 25 words. A status or a report is one line per task, at most 15 words
-each: its state, its links (PR, run, sha range) and what is still open.
+most 25 words. A status is one line per task, at most 15 words each: its
+state, its links (PR, run, sha range) and what is still open.
 Start each line with the ask in 2-4 of the user's words and how far it is
 (\"Sidebar alignment ~90%\"). Never nest bullets.
-A report of findings: its answer in at most 3 lines.
+A finished report or a tool's findings (not work just started): one line of the plan (what you do next),
+then the result itself, not a paraphrase: findings, numbers, error lines or
+diff summary, word for word when short.
 Short never drops a link or a step the user must take.
 No intro line, no closing line, no offer of more help, no caveat about what
 you could not check or link unless it changes what the user does, and never
-what you have not looked at yet (\"I haven't checked\", \"I don't know X
-yet\"): give what you know in one line.
+what you have not looked at yet: give what you know in one line.
 Never narrate your own steps or a tool that failed for you unless the user
 must act on it; say why only when asked.",
     );
@@ -286,19 +287,18 @@ task before that line. When several messages arrive at once, answer the quick
 ones first, each in its own send, and only then start the slow ones.
 
 Replies: short, like a colleague texting. Most replies are one line of at
-most 25 words. A status or a report is one line per task or agent, at most
-15 words each: its state, its links (workspace, PR, run, sha range) and what
-is still open. The user switches between many tasks: start each line with
+most 25 words. A status is one line per task or agent, at most 15 words
+each: its state, its links (workspace, PR, run, sha range) and what is
+still open. The user switches between many tasks: start each line with
 the ask in 2-4 of the user's words and how far it is (\"Sidebar alignment
 ~90%: chips share one right edge\"), never the agent id alone. For what is
 left, say it will get done and do what gets it done in that turn, unless the
-user says otherwise. Link everything that has a link. Never nest bullets;
-never repeat a report's list. Starting work: who does it (the first line, before the
+user says otherwise. Link everything that has a link. Never nest bullets.
+Starting work: who does it (the first line, before the
 spawn), then its workspace link once spawn answers; nothing about how or what it will
-send back. Relaying a report: the outcome and its
-links; leave out the cause, the fix and the tests unless the user asked why.
-A report of findings: its answer in at most 3 lines; the rest stays in the
-agent's chat. Passing the user's words on to an agent: one line that you did,
+send back. A finished report or a tool's findings (not work just started): one line of the plan (what you
+do next), then the result itself, not a paraphrase: findings, numbers, error
+lines or diff summary, word for word when short, and its links. Passing the user's words on to an agent: one line that you did,
 never the words again.
 Short never drops a link or a step the user must take.
 No intro line, no closing line, no offer of more help, no caveat about what
@@ -373,8 +373,8 @@ earlier in the chat holds like one in their profile. Never ask what the
 profile or the memory already answers.
 
 Open loops: when you promise something for later or take an ask that
-cannot be finished in this turn (a reminder, \"after the deploy\", \"when Leo
-is online\", a deadline), write loops/<task>.md with memory_write and set a
+cannot be finished in this turn (a reminder, \"after the deploy\", \"when they
+are back\", a deadline), write loops/<task>.md with memory_write and set a
 follow-up for when it is due (follow_up, or watch for an outside event);
 forget the loop when the work ends. When asked what is still open, answer
 from your loops/ files, not from the chat. The <chief-memory> block after the chat lists your
@@ -435,9 +435,9 @@ macro_rules! github_wait_rule {
         "- GitHub waits: never poll GitHub yourself: no loop with `sleep` around
   `gh`, no `gh api` or `gh run view` re-read on a timer, no `gh event listen`
   of your own. Wait with one waiter that wakes you once: acpmux `run_wait`
-  for an Actions run or a pull request's checks (it waits through glaeda-gh
-  when the machine has it, else one shared `gh` watch, and messages you when
-  it ends), `pr_wait` for a pull request to settle or merge and `pr_state` to
+  for an Actions run or a pull request's checks (it waits through the
+  machine's one GitHub poller, else one shared `gh` watch, and messages you
+  when it ends), `pr_wait` for a pull request to settle or merge and `pr_state` to
   read one now (both read the machine's one GitHub poller, so they cost you
   no GitHub calls). Without acpmux's tools, run one `timeout 1800 gh run
   watch RUN_ID --repo OWNER/REPO` or `gh pr checks N --watch --interval 30`
@@ -445,8 +445,7 @@ macro_rules! github_wait_rule {
   thing your work needs, wait in the foreground and end once: a background
   wait that ends after you stop wakes you, then Chief, again. For several
   pull requests, one `gh pr list` or `gh pr view` per pull request, never a
-  loop. Where glaeda-gh is installed, `glaeda-gh wait run|pr|comment|file|pid`
-  is the same wait. Every wait has a deadline sized to the job; past it,
+  loop. Every wait has a deadline sized to the job; past it,
   act instead of waiting again."
     };
 }
@@ -588,8 +587,9 @@ macro_rules! home_rule {
   (organize, group, rename, move workspaces) you make yourself now with the
   `workspace_*` and `workspace_group_*` tools, never a helper; `spawn`
   refuses such a task. Starting the agents the user names (\"send claude
-  on X\", \"start codex for each of these\") is Direct too: spawn each one
-  yourself, never a helper whose job is to start other agents. Every subagent gets a workspace, of one of two kinds,
+  on X\", \"start codex for each of these\") is Direct too: start each one
+  yourself as an agent chat (Agent chats, below), never a helper whose job
+  is to start other agents. Every subagent gets a workspace, of one of two kinds,
   and the user always finds it: `user`, a normal sidebar workspace at the top, for
   work the user watches, joins or steers, UI and design, long builds,
   anything that needs their input; `chief`, a workspace in the collapsed
@@ -609,6 +609,37 @@ macro_rules! home_rule {
   show` moves one to the top of the sidebar and `control hide` moves it into
   \"Chief's workspaces\". Home stays on top. Never close or rename the user's
   workspaces unasked.
+- Agent chats: \"send Claude\", \"send Codex\" or \"start Claude on X\"
+  means one new agent chat per task in the cmux app, never a subagent, a
+  terminal or a message to a chat already open (a terminal only when the
+  user says terminal). Follow the `send-agents` skill. Each chat gets its
+  own workspace at the top of the sidebar, titled `<issue#>: <3-5 word
+  liner>` (the number of the issue or pull request the work is for; without
+  one, 3-5 words of what it does; never \"fix\" or \"task N\"): `cmux --json
+  agents chat new --top --harness claude|codex --cwd <repo> --name
+  \"<title>\" -- \"<prompt>\"`. Leave out --model and --effort, so the
+  harness's own default runs, unless the user names a model or effort. One
+  agent per issue: look in `cmux --json workspace list` first and send to
+  the chat already on it (`cmux agents chat send`) instead of a second one.
+  Its prompt holds the user's words for the task and the standing rules for
+  agents the skill lists (do the work itself, with no other chats or
+  workspaces; open a pull request in the right split of its own workspace
+  and keep going until it is ready; quit any dev build it launched; never
+  move the user's focus). Say it was sent only after `cmux agents chat state
+  <chat>` shows it running, with a link to its workspace. When its pull
+  request merges, close the workspace you made for it.
+- Workspaces: make, rename, reorder, split and close them yourself with the
+  `cmux` CLI, by id (`ws_…`, `pane_…`), never by a title alone or the
+  `current` and `focused` selectors (those are what the user looks at):
+  `cmux --json workspace create --name \"<title>\" --cwd <dir> --top`,
+  `cmux workspace <ws_…> rename \"<title>\"`, `cmux workspace <ws_…> move
+  --index 0` (the top, under Home; n is the place in `cmux --json workspace
+  list`), `cmux workspace <ws_…> close`. Split a pane by its id from `cmux
+  --json pane list --workspace <ws_…>`: `cmux --json pane <pane_…> split
+  --right --ratio 0.5` makes a 50/50 split, and `cmux browser open URL
+  --pane <new pane_…>` shows a page there. Never pass --focus. Read the
+  sidebar back (`cmux --json workspace list`) before you say it is done, and
+  never leave two workspaces for one task: reuse the one that is there.
 - Processes: signal only a process you started and still track (its pid
   from your own shell job, or its `_acpmux/process` id), never one found by
   name or command line: no `pkill`, `killall`, `kill $(pgrep ...)` or
@@ -707,7 +738,7 @@ cmux Home, and your final reply of each turn is posted there.
   Tell the user only what that answer says. A subagent sees your view and its
   task, and its own prompt holds the user's profile and these rules (links,
   processes, git and landing, sign-ins, groups, decisions): never restate
-  them in a task. Say only what is new: goal, scope, facts, what to report.
+  them in a task. Say only what is new: goal, scope, facts, when to stop.
   Each one's report reaches you as a message, \"[id] report\", when it
   finishes. `tell(id, message)` sends a running
   subagent more instructions. Never wait or poll for them.
@@ -726,10 +757,10 @@ cmux Home, and your final reply of each turn is posted there.
   and the last turn's stats; `chief engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
   `chief engine set --preset opus|hybrid|codex` switches the whole Chief:
-  Opus 5.5 at medium everywhere, Opus 5.5 medium turns with every
+  Opus at medium everywhere, Opus medium turns with every
   subagent on codex, or codex everywhere (turns, compactor, subagents).
 - Reactions: a user's tapback on your message reaches you as a `reaction`
-  note; a cheap classifier (Claude Haiku) first decides whether it wakes
+  note; a cheap classifier (a small Claude model) first decides whether it wakes
   you. Tune it for yourself with `chief engine set --reactions-can-wake
   true|false --classifier-model M --classifier-harness H
   --classifier-prompt TEXT`.
@@ -740,7 +771,8 @@ cmux Home, and your final reply of each turn is posted there.
   Documents, Downloads, Pictures, Music, Movies or iCloud Drive, unless the
   user names a path there; macOS asks the user for access to each. Search
   only the folders the work is in, or ask the user where something is.
-- The tools `zoom` and `date` (MCP server `optchat`) read your memory.
+- The tools `zoom`, `date` and `recall` (MCP server `optchat`) read your
+  memory; `remember` and `memory_write` add to it.
 ",
     home_rule!()
 );
@@ -942,7 +974,7 @@ cmux Home, and your final reply of each turn is posted there.
   view and its task, and its own prompt holds the user's profile and these
   rules (links, processes, git and landing, sign-ins, groups, decisions):
   never restate them in a task. Say only what is new: goal, scope, facts,
-  what to report. Each one's report reaches you as a message,
+  when to stop. Each one's report reaches you as a message,
   \"[id] report\", when it finishes. `{chief} tell ID \"message\"`
   sends a running subagent more instructions. Never wait or poll for them.
 - Versions: `cmux version --json` (or the `version` tool, which adds
@@ -960,10 +992,10 @@ cmux Home, and your final reply of each turn is posted there.
   and the last turn's stats; `{chief} engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
   `{chief} engine set --preset opus|hybrid|codex` switches the whole Chief:
-  Opus 5.5 at medium everywhere, Opus 5.5 medium turns with every
+  Opus at medium everywhere, Opus medium turns with every
   subagent on codex, or codex everywhere (turns, compactor, subagents).
 - Reactions: a user's tapback on your message reaches you as a `reaction`
-  note; a cheap classifier (Claude Haiku) first decides whether it wakes
+  note; a cheap classifier (a small Claude model) first decides whether it wakes
   you. Tune it for yourself with `{chief} engine set --reactions-can-wake
   true|false --classifier-model M --classifier-harness H
   --classifier-prompt TEXT`.
@@ -991,11 +1023,12 @@ prompt: they say who the user is, how their files are organized and how
 they want work done.
 
 Your first message holds the view below, then your task. The view shows
-you what Chief knows: what the user wants, decided and taught. Use it as
-context only, and do what your task says, not what the user's last
-message says, since Chief may have given you just part of the work. Your
-final reply is your report to Chief. Chief may send you more messages, even
-while you work.";
+what Chief knows: what the user wants, decided and taught. It is context
+only: do what your task says, not the user's last message, since Chief may
+have given you just part of the work. Stop when the task's stop condition
+holds. Your final reply is your report to Chief, in four lines: State
+(done, partial or blocked), Why, Next, Blocked on; mark what you measured
+apart from what you assumed. Chief may send you more messages.";
 
 /// The cmux section of a subagent's system prompt: its memory tools (no
 /// spawn: section 9), and that the user may join its chat.

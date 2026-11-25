@@ -25,6 +25,13 @@ public import Foundation
         steps.done(name)
         return value
     }
+
+    /// ``awaited(marking:on:)`` when the step after it needs the work; when it does not, `name` is marked at once
+    /// (0 ms) and the work goes on beside, unawaited (nil).
+    public func awaited(marking name: String, on steps: CloudStartSteps, if needed: Bool) async -> Value? {
+        guard needed else { steps.done(name); return nil }
+        return await awaited(marking: name, on: steps)
+    }
 }
 
 extension PersonalGateway {
@@ -33,4 +40,11 @@ extension PersonalGateway {
     public func onlineBeside(within deadline: Duration) -> CloudStartBeside<Bool> {
         CloudStartBeside { [self] in await ensureOnline(within: deadline) }
     }
+
+    /// Whether a Cloud chat's first turn reaches the provider through this Mac's gateway, so its start waits for it.
+    /// `credential`: the connection of this Mac's whose credential the chat's agent launches with
+    /// (``CloudSetup/Choice/connectionID``). With one, the machine's agent calls the provider straight
+    /// (``CloudAgentCredential``) and never this gateway: waiting for it only delayed the start, by up to its whole
+    /// 10 s deadline while it came up (the production chat probe, 2026-11-15 to 22: 124 of 406 starts, about 2.4 s each).
+    public nonisolated static func turnNeedsIt(credential: String?) -> Bool { credential == nil }
 }

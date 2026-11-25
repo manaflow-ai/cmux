@@ -15,9 +15,11 @@ public import CmuxNextDesign
 /// the windows on screen, frozen, with the update card's Installing state
 /// as the mark, so the screen never looks like a crash).
 ///
-/// Hidden windows are transparent and click-through: the old app leaves the
-/// screen in the next frame while it saves and exits, and the relaunched app
-/// opens the same windows from the daemon. Frozen windows stay as they are
+/// Hidden windows are ordered out, never faded or made transparent (Leo,
+/// 2026-11-24: an alpha step read as "the opacity of the window changed"):
+/// with the afterimage up over them they leave behind its pictures, so the
+/// screen shows no step at all; the old app saves and exits, and the
+/// relaunched app opens the same windows from the daemon. Frozen windows stay as they are
 /// and take no clicks. Either way the windows stay alive (the quit still
 /// saves their launch images and frames), and an install that fails brings
 /// them back. With unsaved documents nothing changes: the quit asks about
@@ -26,8 +28,8 @@ public import CmuxNextDesign
 public final class UpdateWindowHandoff {
     private struct Hidden {
         weak var window: NSWindow?
-        var alpha: CGFloat
         var ignoresMouse: Bool
+        var animation: NSWindow.AnimationBehavior
     }
 
     enum Mode {
@@ -37,7 +39,10 @@ public final class UpdateWindowHandoff {
     /// The one switch between the two forms.
     static let mode: Mode = .hide
 
+    /// Front first (`NSApp.orderedWindows`), so ``restore()`` brings them back in the same order.
     private var hidden: [Hidden] = []
+    /// The windows were ordered out (``leaveScreen()``); a frozen handoff never orders them out.
+    private var orderedOut = false
     private let unsaved: QuitUnsavedRegistry
     /// The windows' pictures, when they stay on screen across the relaunch: the windows leave only once the
     /// pictures are up over them, so no frame shows neither.
@@ -68,7 +73,9 @@ public final class UpdateWindowHandoff {
     @discardableResult
     public func hide() -> Bool {
         guard hidden.isEmpty, unsaved.unsaved().isEmpty else { return false }
-        hidden = NSApp.windows.filter(\.isVisible).map { Hidden(window: $0, alpha: $0.alphaValue, ignoresMouse: $0.ignoresMouseEvents) }
+        hidden = NSApp.orderedWindows.filter(\.isVisible).map {
+            Hidden(window: $0, ignoresMouse: $0.ignoresMouseEvents, animation: $0.animationBehavior)
+        }
         for entry in hidden { entry.window?.ignoresMouseEvents = true }
         if Self.mode == .hide {
             // With pictures coming, the windows wait for them (about 100 to 250 ms, the quit's saves run meanwhile).
@@ -80,17 +87,32 @@ public final class UpdateWindowHandoff {
         return true
     }
 
+    /// Orders every hidden window out in one transaction, with no close animation: the windows leave
+    /// whole in one frame (behind the afterimage when it is up), their alpha never changes. They stay
+    /// alive, so the quit still saves their frames and layout.
     private func leaveScreen() {
-        for entry in hidden { entry.window?.alphaValue = 0 }
+        guard !hidden.isEmpty else { return }
+        orderedOut = true
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for entry in hidden {
+            guard let window = entry.window else { continue }
+            window.animationBehavior = .none
+            window.orderOut(nil)
+        }
+        CATransaction.commit()
     }
 
-    /// Brings the hidden windows back as they were.
+    /// Brings the hidden windows back as they were, in their old order (the front one last, so it is front).
     public func restore() {
         afterimage?.cancel()
-        for entry in hidden {
-            entry.window?.alphaValue = entry.alpha
-            entry.window?.ignoresMouseEvents = entry.ignoresMouse
+        for entry in hidden.reversed() {
+            guard let window = entry.window else { continue }
+            window.ignoresMouseEvents = entry.ignoresMouse
+            if orderedOut { window.orderFront(nil) }
+            window.animationBehavior = entry.animation
         }
         hidden = []
+        orderedOut = false
     }
 }

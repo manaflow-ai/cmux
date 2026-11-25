@@ -1,0 +1,16 @@
+{
+  "window_end": "2026-11-23T01:00:00Z",
+  "snapshot_count": 2,
+  "pools": {
+    "persistent": {
+      "running_vm_hours": 24.0,
+      "idle_vm_hours": 23.25,
+      "idle_list_usd": 23.25
+    },
+    "jit": {
+      "running_vm_hours": 1.0,
+      "idle_vm_hours": 0.5,
+      "idle_list_usd": 1.0
+    }
+  }
+}

@@ -46,7 +46,8 @@ pub(super) fn load(
             window.newest,
         );
     }
-    hub.scan_events(&s.id, window.after, &mut |rec| {
+    // The replay reads the log from disk: off the runtime's workers (`qos::off_worker`).
+    crate::qos::off_worker(|| hub.scan_events(&s.id, window.after, &mut |rec| {
         if rec.dir == "mux" && rec.kind == "user_message" {
             let text = rec.msg.get("text").and_then(Value::as_str).unwrap_or("");
             conn.send(&Message::notification(
@@ -85,7 +86,7 @@ pub(super) fn load(
             conn.send(&Message::notification(method::SESSION_UPDATE, p));
         }
         true
-    })
+    }))
     .map_err(|e| RpcError::internal(e.to_string()))?;
     let mut answer = opened(hub, &s);
     if window.after > 0

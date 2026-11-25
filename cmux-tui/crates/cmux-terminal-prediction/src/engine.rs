@@ -973,6 +973,9 @@ impl TerminalPredictionEngine {
     }
 
     fn record_echo_latency(&mut self, sample: Duration) {
+        // The felt-latency histogram keeps every sample (`felt.snapshot`); the smoothed value
+        // below is what the engine's own policy reads.
+        cmux_felt::record(cmux_felt::Metric::TerminalEcho, sample);
         self.smoothed_echo_latency = Some(match self.smoothed_echo_latency {
             None => sample,
             Some(current) => (current * 7 + sample) / 8,

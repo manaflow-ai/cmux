@@ -86,6 +86,9 @@ async fn round_trip(transport: Transport) {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     assert_eq!(handle.path(), LinkPath::Direct);
+    // A direct path names where its peer is (the host's loopback, LAN or tailnet address the
+    // dial picked); only a relayed path names none.
+    assert!(["lan", "tailnet", "wan"].contains(&handle.peer_scope().as_str()), "{}", handle.peer_scope());
     let channel = handle.open_channel("echo".into(), String::new()).await.unwrap();
     channel.send(b"hello".to_vec()).await.unwrap();
     assert_eq!(channel.recv().await, ChannelMessage::Data { bytes: b"hello".to_vec() });
@@ -174,6 +177,8 @@ async fn wireguard_relay_only_rides_turn() {
         // The direct UDP path would have been confirmed well within this.
         tokio::time::sleep(Duration::from_secs(2)).await;
         assert_eq!(handle.path(), LinkPath::Turn);
+        // Through TURN there is no peer address of its own: not the LAN, not a tailnet.
+        assert_eq!(handle.peer_scope(), "");
         let events = recorder.0.lock().unwrap().clone();
         assert!(!events.contains(&LinkEvent::PathChanged { path: LinkPath::Direct }), "{events:?}");
         handle.close();

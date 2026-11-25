@@ -38,6 +38,13 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// How many times any chat's rows were sorted whole (longChatCost.test.ts counts them per update).
   static sorts = 0;
   private readonly order = new Map<string, number>();
+  /// No row's `order` is above this (a delete leaves it, a clear resets it): a background turn's
+  /// started record at or past it claims no held row, so `openBackground` reads none of them.
+  private highestOrder = Number.NEGATIVE_INFINITY;
+  private putOrder(id: string, order: number): void {
+    this.order.set(id, order);
+    if (order > this.highestOrder) this.highestOrder = order;
+  }
   /// The newest event that wrote each streamed reply (`assistant`), where it differs from the one
   /// that made it: a reply the person left mid-stream goes on past where they left (`placeAfter`).
   private readonly lastWrite = new Map<string, number>();
@@ -100,6 +107,8 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.backgroundEnds.delete(id);
     let hasRows = false;
     const claimed: string[] = [];
+    // A live start (no held row is newer than it) claims none: it reads no row of a long chat.
+    if (seq >= this.highestOrder) return { ended: ended?.turn, hasRows };
     // An older page read later: rows its events made before this record was heard are the turn's too.
     for (const [rowId, order] of this.order) {
       if (this.local.has(rowId) || order <= seq || (ended !== undefined && order >= ended.seq)) continue;
@@ -300,10 +309,10 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     if (!unchanged) this.snapshot = undefined;
     if (!known) {
       if (this.current !== undefined) {
-        this.order.set(id, this.current);
+        this.putOrder(id, this.current);
         this.latest = Math.max(this.latest, this.current);
       } else {
-        this.order.set(id, this.latest + 0.5 + (this.made += 1e-6));
+        this.putOrder(id, this.latest + 0.5 + (this.made += 1e-6));
         this.local.add(id);
       }
     } else if (this.current !== undefined) {
@@ -387,7 +396,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// its stopped turn never read goes below that turn's end (`deferLateSteers`).
   placeAfterCurrent(id: string): void {
     if (!this.has(id) || this.current === undefined) return;
-    this.order.set(id, this.current + 0.25);
+    this.putOrder(id, this.current + 0.25);
     this.local.delete(id);
     this.pullRequestActivityVersion = Symbol();
     this.pullRequestCommandVersion = Symbol();
@@ -412,7 +421,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// event of its own makes.
   setAt(place: number, row: AcpmuxRow): void {
     if (this.order.get(row.id) !== place) {
-      this.order.set(row.id, place);
+      this.putOrder(row.id, place);
       this.local.delete(row.id);
       this.ordered = undefined;
       this.transcriptSummaryVersion = {};
@@ -495,6 +504,17 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     return from;
   }
 
+  /// The rows `spanningFrom` finds, each with its place: a shed that keeps some of them across its cut (direct.ts
+  /// `shedOlderHeld`) moves the cut back only for the others. O(changes from `seq` on).
+  spanningRows(seq: number): Map<string, number> {
+    const rows = new Map<string, number>();
+    for (let index = this.changeSeqs.length - 1; index >= 0 && this.changeSeqs[index]! >= seq; index -= 1) {
+      const order = this.changeOrders[index]!;
+      if (order < seq) rows.set(this.changeIds[index]!, order);
+    }
+    return rows;
+  }
+
   /// A full rebuild folds every record again from the start, noting each change again.
   forgetChanges(): void {
     this.changeSeqs = [];
@@ -550,6 +570,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.ordered = undefined;
     this.snapshot = undefined;
     this.order.clear();
+    this.highestOrder = Number.NEGATIVE_INFINITY;
     this.local.clear();
     this.lastWrite.clear();
     this.frames.clear();
@@ -753,7 +774,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     const local = [...this.local].sort((a, b) => (this.order.get(a) ?? 0) - (this.order.get(b) ?? 0));
     local.forEach((id, index) => {
       const place = this.latest + 0.5 + (index + 1) * 1e-6;
-      this.order.set(id, this.withinTurn(id, place));
+      this.putOrder(id, this.withinTurn(id, place));
     });
   }
 
@@ -762,7 +783,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     if (!this.has(id)) return;
     this.local.delete(id);
     if (this.current !== undefined) {
-      this.order.set(id, this.withinTurn(id, this.current));
+      this.putOrder(id, this.withinTurn(id, this.current));
       this.latest = Math.max(this.latest, this.current);
     }
     this.ordered = undefined;

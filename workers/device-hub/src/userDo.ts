@@ -80,6 +80,8 @@ interface SessionRow {
   relay_paid: number | null;
   /** When that answer was read (ms); it covers the session's host end for ANCHOR_RELAY_TTL_MS. */
   relay_read_at: number | null;
+  /** When billing last failed to answer for this session (ms), null if its last read answered. */
+  relay_unread_at: number | null;
 }
 
 interface RelayRow {
@@ -137,6 +139,9 @@ interface WireTicket {
   ticket: string;
   signalURL: string;
   ice: IceServer[];
+  /** Why `ice` holds or lacks the cmux relay: the session's billing answer (`relayFields`). */
+  relay: "paid" | "free" | "unread";
+  relayNote?: string;
   peer: { id: string; name: string; signingKey: string };
   role: "viewer" | "host";
   scope: Scope;
@@ -217,7 +222,19 @@ const ADDED_COLUMNS: [string, string, string][] = [
   ["sessions", "moved_from", "TEXT"],
   ["sessions", "relay_paid", "INTEGER"],
   ["sessions", "relay_read_at", "INTEGER"],
+  ["sessions", "relay_unread_at", "INTEGER"],
 ];
+
+/** What a ticket, `/ice` and `/me` say when billing gave no answer: never "free". */
+export const PLAN_UNREAD = "could not read your plan";
+
+/**
+ * A session's relay answer as its ends see it: `unread` (with the note) when billing failed,
+ * so a viewer that gets no relay can say why instead of reading the failure as a free plan.
+ */
+function relayFields(e: "paid" | "free" | "error"): { relay: "paid" | "free" | "unread"; relayNote?: string } {
+  return e === "error" ? { relay: "unread", relayNote: PLAN_UNREAD } : { relay: e };
+}
 
 /** A registration's `machine`: the lowercase hex SHA-256 the app derives from the Mac's hardware id. */
 const MACHINE = /^[0-9a-f]{64}$/;
@@ -637,8 +654,10 @@ export class UserDO extends DurableObject<Env> {
     if (a === "auth" && b === "device" && d === "anchor" && n === 3 && m === "POST") return this.anchor(me, c);
 
     if (a === "me" && n === 1 && m === "GET") {
-      const plan = (await this.entitlement(c)) === "paid" ? "paid" : "free";
-      return json({ userId: c.userId, plan, device: publicDevice(me, this.online(me.id)) });
+      const answer = await this.entitlement(c).catch(() => "error" as const);
+      // `plan` stays paid|free for the apps that read it; a failed read says so beside it.
+      const plan = answer === "paid" ? "paid" : "free";
+      return json({ userId: c.userId, plan, ...(answer === "error" && c.stackToken ? { planNote: PLAN_UNREAD } : {}), device: publicDevice(me, this.online(me.id)) });
     }
     if (a === "user" && b === "ws" && n === 2 && m === "GET") return await this.openSocket(request, me);
     if (a === "devices") {
@@ -1158,7 +1177,7 @@ export class UserDO extends DurableObject<Env> {
     this.checkPushed(me, newHost, newViewer, old.scope, c);
     const newId = this.insertSession(newViewer, newHost, old.scope, old.id);
     // A move continues the same share: it keeps the billing answer its viewer's request got.
-    this.sql.exec("UPDATE sessions SET relay_paid = ?, relay_read_at = ? WHERE id = ?", old.relay_paid ?? null, old.relay_read_at ?? null, newId);
+    this.sql.exec("UPDATE sessions SET relay_paid = ?, relay_read_at = ?, relay_unread_at = ? WHERE id = ?", old.relay_paid ?? null, old.relay_read_at ?? null, old.relay_unread_at ?? null, newId);
     this.audit("moved", { viewerId: old.viewer_id, hostId: old.host_id, scope: old.scope, sessionId: old.id, detail: newId });
     this.audit("approved", { viewerId: newViewer, hostId: newHost, scope: old.scope, sessionId: newId, detail: "moved" });
     // The new share is up before the old one goes: a move that cannot start keeps the old share.
@@ -1263,13 +1282,14 @@ export class UserDO extends DurableObject<Env> {
     // first makes init refuse), so there is nothing to start.
     if (!this.stillOpen(s.id)) return;
     if (!init.ok) throw new Error(`session init ${init.status}`);
-    const tickets = await this.issueTickets(s, c, (await entitled) === "paid" ? await mintTurn(this.env) : [], TICKET_TTL_S, false, pushed);
+    const answer = await entitled;
+    const tickets = await this.issueTickets(s, c, answer === "paid" ? await mintTurn(this.env) : [], answer, TICKET_TTL_S, false, pushed);
     if (!tickets) return;
     for (const ticket of tickets) this.send(ticket.role === "viewer" ? viewer.id : host.id, { type: "session.ticket", ...ticket });
   }
 
   /** Mints fresh tickets for the same approved viewer/host pair. */
-  private async issueTickets(s: SessionRow, c: CallContext, ice: IceServer[], ttlS: number, reattach: boolean, pushed: Pushed | null = null): Promise<[WireTicket, WireTicket] | null> {
+  private async issueTickets(s: SessionRow, c: CallContext, ice: IceServer[], answer: "paid" | "free" | "error", ttlS: number, reattach: boolean, pushed: Pushed | null = null): Promise<[WireTicket, WireTicket] | null> {
     if (!this.stillOpen(s.id)) return null;
     const viewer = this.device(s.viewer_id);
     const host = this.device(s.host_id);
@@ -1279,7 +1299,7 @@ export class UserDO extends DurableObject<Env> {
     for (const [self, peer, role] of [[viewer, host, "viewer"], [host, viewer, "host"]] as const) {
       const ticket = await mintTicket(this.env, { sid: s.id, role, dev: self.id, peer: peer.id, peerKey: peer.signing_key, scope: s.scope, ...(reattach ? { reattach: true } : {}) }, Date.now(), ttlS);
       if (!this.stillOpen(s.id)) return null;
-      result.push({ sessionId: s.id, ticket, signalURL, ice, peer: { id: peer.id, name: peer.name, signingKey: peer.signing_key }, role, scope: s.scope, ownerKind: "user", ...(pushed ? { pushed: true as const, movedFrom: pushed.movedFrom } : {}) });
+      result.push({ sessionId: s.id, ticket, signalURL, ice, ...relayFields(answer), peer: { id: peer.id, name: peer.name, signingKey: peer.signing_key }, role, scope: s.scope, ownerKind: "user", ...(pushed ? { pushed: true as const, movedFrom: pushed.movedFrom } : {}) });
     }
     return result as [WireTicket, WireTicket];
   }
@@ -1295,8 +1315,8 @@ export class UserDO extends DurableObject<Env> {
     // session below its stored permission was approved once (Ask, or View asking for Full): only
     // None refuses its reattach.
     if (this.permission(host.id, me.id) === "none") throw new ApiError(403, "permission_none", "the host no longer allows this device");
-    const entitled = (await this.sessionEntitlement(s, c)) === "paid";
-    const tickets = await this.issueTickets(s, c, entitled ? await mintTurn(this.env) : [], REATTACH_TTL_S, true);
+    const answer = await this.sessionEntitlement(s, c);
+    const tickets = await this.issueTickets(s, c, answer === "paid" ? await mintTurn(this.env) : [], answer, REATTACH_TTL_S, true);
     if (!tickets) throw new ApiError(409, "session_not_active", "session is not active");
     for (const ticket of tickets) this.send(ticket.role === "viewer" ? me.id : host.id, { type: "session.ticket", ...ticket });
     this.audit("reattached", { viewerId: me.id, hostId: host.id, scope: s.scope, sessionId: id, detail: "viewer" });
@@ -1372,8 +1392,9 @@ export class UserDO extends DurableObject<Env> {
     const s = this.session(id);
     if (!s || (s.viewer_id !== me.id && s.host_id !== me.id)) throw notFound("session not found");
     if (s.state !== "approved" && s.state !== "live") throw new ApiError(409, "session_not_active", "session is not active");
-    const ice = (await this.sessionEntitlement(s, c)) === "paid" ? await mintTurn(this.env) : [];
-    return json({ ice });
+    const answer = await this.sessionEntitlement(s, c);
+    const ice = answer === "paid" ? await mintTurn(this.env) : [];
+    return json({ ice, ...relayFields(answer) });
   }
 
   // ---- relays ----
@@ -1500,22 +1521,38 @@ export class UserDO extends DurableObject<Env> {
   /**
    * One session's relay right. Its viewer and host are one account (one UserDO per user), so
    * a paid answer from billing covers both ends. A full caller (the app, with a Stack token)
-   * asks billing, fail closed, and the answer is kept on the session (a failed read clears
-   * it). A host or machine caller has no Stack token: it gets the relay while its session holds
-   * a paid answer read in the last ANCHOR_RELAY_TTL_MS (the same bound as an anchor's), else its
-   * own (a host anchor's `rel`; a machine session's none). A move carries the answer and its
-   * read time, never refreshes them. A free or failed read grants nothing to either end.
+   * asks billing and the answer is kept on the session. A host or machine caller has no Stack
+   * token: it gets the relay while its session holds a paid answer read in the last
+   * ANCHOR_RELAY_TTL_MS (the same bound as an anchor's), else its own (a host anchor's `rel`; a
+   * machine session's none). A move carries the answer and its read time, never refreshes them.
+   *
+   * A failed read is not a free plan: it is recorded (`relay_unread_at`), never stored as free,
+   * and leaves the last answer as it was, so a paid answer read within that bound still covers
+   * both ends; with none, the read is `error` and the ends are told "could not read your plan".
+   * A free answer, or a failure with no fresh paid answer behind it, grants nothing.
    */
   private async sessionEntitlement(s: SessionRow, c: CallContext): Promise<"paid" | "free" | "error"> {
     if (c.scope === "full") {
       const answer = await this.entitlement(c).catch(() => "error" as const);
-      const paid = answer === "error" ? null : answer === "paid" ? 1 : 0;
-      this.sql.exec("UPDATE sessions SET relay_paid = ?, relay_read_at = ? WHERE id = ?", paid, paid === null ? null : Date.now(), s.id);
+      if (answer === "error") {
+        this.sql.exec("UPDATE sessions SET relay_unread_at = ? WHERE id = ?", Date.now(), s.id);
+        return this.heldPaid(s.id) ? "paid" : "error";
+      }
+      this.sql.exec("UPDATE sessions SET relay_paid = ?, relay_read_at = ?, relay_unread_at = NULL WHERE id = ?", answer === "paid" ? 1 : 0, Date.now(), s.id);
       return answer;
     }
-    const held = this.sql.exec("SELECT relay_paid, relay_read_at FROM sessions WHERE id = ?", s.id).toArray()[0];
-    if (held && (held.relay_paid as number | null) === 1 && (held.relay_read_at as number) + ANCHOR_RELAY_TTL_MS > Date.now()) return "paid";
-    return this.entitlement(c).catch(() => "error" as const);
+    if (this.heldPaid(s.id)) return "paid";
+    // Its own right (a host anchor's `rel`); a machine session has no Stack token, so its own
+    // read always fails and says nothing about the plan: only the viewer's recorded read does.
+    if ((await this.entitlement(c).catch(() => "error" as const)) === "paid") return "paid";
+    const held = this.sql.exec("SELECT relay_unread_at FROM sessions WHERE id = ?", s.id).toArray()[0];
+    return held && held.relay_unread_at != null ? "error" : "free";
+  }
+
+  /** Whether the session holds a paid billing answer read within ANCHOR_RELAY_TTL_MS. */
+  private heldPaid(id: string): boolean {
+    const held = this.sql.exec("SELECT relay_paid, relay_read_at FROM sessions WHERE id = ?", id).toArray()[0];
+    return !!held && (held.relay_paid as number | null) === 1 && (held.relay_read_at as number) + ANCHOR_RELAY_TTL_MS > Date.now();
   }
 
   /** The cmux relay entitlement: billing for a full session, the anchor's record for a host session. */

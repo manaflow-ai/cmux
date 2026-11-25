@@ -31,6 +31,24 @@ pub struct SessionEvent {
     pub msg: Value,
 }
 
+/// `_acpmux/chunk` (`chunk-deltas-v1`, `server/chunk_deltas.rs`): an `agent_message_chunk`
+/// record, to a client whose `initialize` sent `_meta.acpmux.chunkDeltas: true`, as a delta of the
+/// last `_acpmux/event` it got that carried this `chunkRef`. The event it stands for is that one's
+/// params with this `seq`, `at` that frame's plus `dt` (the previous `_acpmux/chunk` of the same
+/// `ref` counts as that frame), and `msg.params.update.content.text` this `text`. A `ref` the
+/// client does not hold: it reads again from its cursor (`_acpmux/attach {afterSeq}`).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(transform = require_all)]
+pub struct ChunkDelta {
+    #[serde(rename = "ref")]
+    pub chunk_ref: u64,
+    pub seq: u64,
+    /// Unix ms since the frame before it of this `ref`.
+    pub dt: u64,
+    pub text: String,
+}
+
 /// Which records a page or an event stream carries: one kind, or any of
 /// several. Absent or null: every record.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

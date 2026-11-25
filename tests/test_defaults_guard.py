@@ -604,6 +604,9 @@ struct Flags: TunableFactory {
             result = self.check(head, comments=[self.receipt(text)])
             self.assertEqual(result.returncode, 1, text)
             self.assertIn("Needs a review", result.summary)
+            # A self-review counts, so the guidance must not send the author lane away from reviewing its own head.
+            self.assertNotIn("not a self-review", result.summary)
+            self.assertNotIn("never reviews its own", result.summary)
 
     def test_a_later_block_beats_an_earlier_ship(self):
         head = self.changed_head()

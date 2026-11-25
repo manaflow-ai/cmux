@@ -6,8 +6,9 @@
     "artifact_prefix": "machine-channel-"
   },
   "shipped": {
-    "target_set_main": "all",
-    "target_set": "linux-macos-arm64",
+    "target_set_main": "macos",
+    "target_set": "macos-arm64",
+    "linux_target_set": "linux",
     "lto": "fat",
     "build_cmux_rd": true
   },

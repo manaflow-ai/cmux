@@ -5,6 +5,7 @@ use crate::no_panic::JsonExt;
 use crate::no_panic::LockExt;
 use crate::rpc::{Message, RpcError, method};
 use anyhow::{Context, Result};
+use futures::{Stream, StreamExt};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::Path;
@@ -60,25 +61,28 @@ pub struct Client {
 
 impl Client {
     pub async fn connect(path: &Path) -> Result<Arc<Self>> {
-        Self::connect_with_caller(path, true).await
+        Self::open_socket(path).await?.initialize(true).await
     }
 
     /// Connect a single-purpose trigger client without inheriting ambient
     /// ACPMUX caller credentials from the invoking shell/session.
     pub async fn connect_without_caller(path: &Path) -> Result<Arc<Self>> {
-        Self::connect_with_caller(path, false).await
+        Self::open_socket(path).await?.initialize(false).await
     }
 
-    async fn connect_with_caller(path: &Path, include_caller: bool) -> Result<Arc<Self>> {
+    /// A renewal proves its origin from the local socket peer and inbox. Put it on the wire
+    /// before waiting for the daemon; it needs none of the normal hello's caller capabilities.
+    pub(crate) async fn renew_registration(path: &Path, params: Value) -> Result<Value> {
+        let client = Self::open_socket(path).await?;
+        client.request(method::MUX_REGISTER, params).await
+    }
+
+    async fn open_socket(path: &Path) -> Result<Arc<Self>> {
         let stream = crate::local_stream::connect(path)
             .await
             .with_context(|| format!("connect {}", path.display()))?;
         let (rd, mut wr) = crate::local_stream::split(stream);
         let (out, mut out_rx) = mpsc::channel::<String>(1024);
-        let (notif_tx, notif_rx) = mpsc::channel::<Message>(4096);
-        let notif_tx = Arc::new(Mutex::new(notif_tx));
-        let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let pending = Arc::new(PendingReplies::default());
         tokio::spawn(async move {
             while let Some(line) = out_rx.recv().await {
                 if wr.write_all(line.as_bytes()).await.is_err() {
@@ -86,13 +90,41 @@ impl Client {
                 }
             }
         });
+        let lines = futures::stream::unfold(BufReader::new(rd).lines(), |mut lines| async {
+            let line = lines.next_line().await.ok()??;
+            Some((line, lines))
+        });
+        Ok(Self::from_lines(path, out, lines))
+    }
+
+    /// The holder drives an authorized hub move against this exact daemon through its usual RPCs.
+    pub(crate) async fn in_process(hub: Arc<crate::hub::Hub>) -> Result<Arc<Self>> {
+        let (out, requests) = mpsc::channel(32);
+        let (responses, mut incoming) = mpsc::channel(32);
+        hub.scope.spawn_until_cancelled(
+            "hub-move-out-client",
+            crate::server::serve_connection(hub.clone(), requests, responses),
+        );
+        let lines = futures::stream::poll_fn(move |cx| incoming.poll_recv(cx));
+        Self::from_lines(&crate::config::socket_path(), out, lines).initialize(false).await
+    }
+
+    fn from_lines(
+        path: &Path,
+        out: mpsc::Sender<String>,
+        lines: impl Stream<Item = String> + Send + 'static,
+    ) -> Arc<Self> {
+        let (notif_tx, notif_rx) = mpsc::channel::<Message>(4096);
+        let notif_tx = Arc::new(Mutex::new(notif_tx));
+        let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let pending = Arc::new(PendingReplies::default());
         {
             let pending = pending.clone();
             let notif_tx = notif_tx.clone();
             let closed = closed.clone();
             tokio::spawn(async move {
-                let mut lines = BufReader::new(rd).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
+                tokio::pin!(lines);
+                while let Some(line) = lines.next().await {
                     let Ok(msg) = Message::parse(&line) else { continue };
                     match msg {
                         Message::Response { id, result, error } => {
@@ -126,7 +158,7 @@ impl Client {
                 let _ = tx.send(Message::notification(method::MUX_DISCONNECTED, json!({}))).await;
             });
         }
-        let client = Arc::new(Self {
+        Arc::new(Self {
             daemon_build: std::sync::Mutex::new(None),
             proven_caller_session: std::sync::OnceLock::new(),
             daemon_cli_path: std::sync::Mutex::new(None),
@@ -140,7 +172,10 @@ impl Client {
             notifications: Mutex::new(Some(notif_rx)),
             notif_tx,
             closed,
-        });
+        })
+    }
+
+    async fn initialize(self: Arc<Self>, include_caller: bool) -> Result<Arc<Self>> {
         let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux-cli", "version": crate::hub::VERSION}});
         // Inside an acpmux session: say which, with the caller token the
         // daemon put in that session's env (`hub/person.rs` (a)), only to
@@ -153,7 +188,7 @@ impl Client {
             && let (Some(id), Some(token), true) = (
                 caller("ACPMUX_SESSION_ID"),
                 caller(crate::hub::person::CALLER_TOKEN_ENV),
-                issuer.is_some_and(|socket| Path::new(&socket) == path),
+                issuer.is_some_and(|socket| Path::new(&socket) == self.socket),
             )
         {
             meta.insert(
@@ -168,36 +203,36 @@ impl Client {
         // Every command waits here first: a daemon that stopped answering says so (`slow_notice.rs`).
         let init = crate::slow_notice::noted(
             "the connection's hello",
-            client.request(method::INITIALIZE, hello),
+            self.request(method::INITIALIZE, hello),
         )
         .await?;
         if let Some(session) = init.pointer("/_meta/acpmux/callerSessionId").and_then(Value::as_str)
         {
-            let _ = client.proven_caller_session.set(session.to_owned());
+            let _ = self.proven_caller_session.set(session.to_owned());
         }
-        *client.daemon_build.lock_or_recover() =
+        *self.daemon_build.lock_or_recover() =
             init.pointer("/_meta/acpmux/build").and_then(Value::as_str).map(str::to_owned);
-        *client.daemon_cli_path.lock_or_recover() = init
+        *self.daemon_cli_path.lock_or_recover() = init
             .pointer("/_meta/acpmux/cliPath")
             .and_then(Value::as_str)
             .filter(|path| std::path::Path::new(path).is_absolute())
             .map(std::path::PathBuf::from);
         if let Some(Value::Array(features)) = init.pointer("/_meta/acpmux/features") {
-            *client.daemon_features.lock_or_recover() =
+            *self.daemon_features.lock_or_recover() =
                 features.iter().filter_map(Value::as_str).map(str::to_owned).collect();
         }
         if let Some(Value::Array(capabilities)) = init.pointer("/_meta/acpmux/capabilities") {
-            *client.daemon_capabilities.lock_or_recover() =
+            *self.daemon_capabilities.lock_or_recover() =
                 capabilities.iter().filter_map(Value::as_str).map(str::to_owned).collect();
         }
         if let (Some(n), Some(c)) = (
             init.pointer("/_meta/acpmux/personChallenge/nonce").and_then(Value::as_str),
             init.pointer("/_meta/acpmux/personChallenge/connection").and_then(Value::as_str),
         ) {
-            *client.person_challenge.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            *self.person_challenge.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
                 Some((n.to_owned(), c.to_owned()));
         }
-        Ok(client)
+        Ok(self)
     }
 
     /// The session the daemon authenticated on this connection. Older daemons

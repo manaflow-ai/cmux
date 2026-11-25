@@ -334,6 +334,14 @@ test("an open path on a public host never wakes its stack or counts as its activ
     assert.equal(r.status, 503, `${host}${path}`)
     assert.match(r.body, /signed-in request wakes it/)
   }
+  const upgrade = await new Promise((resolve) => {
+    const sock = net.connect(rport, "127.0.0.1", () => sock.write("GET /v1/health HTTP/1.1\r\nHost: api.s3.wdev.cmux.dev\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"))
+    let buf = ""
+    sock.on("data", (d) => (buf += d))
+    sock.on("close", () => resolve(buf))
+    sock.on("error", () => resolve(buf))
+  })
+  assert.match(upgrade, /^HTTP\/1\.1 503/, "an upgrade on an open path neither wakes nor beats")
   assert.equal(wakes, 0)
   assert.throws(() => statSync(beat), "no heartbeat from an open path")
   assert.equal((await get(rport, "api.s3.wdev.cmux.dev", "/v1/me")).status, 200, "an authenticated path (the gateway checked it) wakes it")

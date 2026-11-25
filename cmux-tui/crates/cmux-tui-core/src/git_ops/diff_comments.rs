@@ -1,4 +1,4 @@
-//! `diff.comments.list|save|delete|send`: the diff page's review comments,
+//! `diff.comments.list|save|delete|send|thread`: the diff page's review comments,
 //! kept by the session host until they are sent to the agent.
 //!
 //! Comments are keyed by a worktree root, an absolute path used only as a
@@ -15,6 +15,8 @@
 //! A send (`send`) hands the caller's prompt to an acpmux session of this
 //! machine as one queued prompt; once acpmux takes it, the sent comments
 //! still at the caller's versions are removed, as a delete removes them.
+//! A threaded send (`threads: true`) keeps them as review threads instead,
+//! and `diff.comments.thread` adds replies and resolves (`thread.rs`).
 
 use std::collections::HashMap;
 use std::io;
@@ -36,11 +38,15 @@ mod send;
 #[cfg(test)]
 #[path = "diff_comments/send_tests.rs"]
 mod send_tests;
+mod thread;
 
 /// Advertised in identify: the session host owns `diff.comments.*`.
 pub(crate) const CAPABILITY: &str = "diff-comments-v1";
 /// Advertised in identify: the session host answers `diff.comments.send`.
 pub(crate) const SEND_CAPABILITY: &str = "diff-comments-send-v1";
+/// Advertised in identify: the session host keeps review threads
+/// (`diff.comments.thread`, and `diff.comments.send` with `threads: true`).
+pub(crate) const THREADS_CAPABILITY: &str = "diff-comments-threads-v1";
 
 const DIRECTORY: &str = "diff-comments";
 /// The longest root, in bytes.
@@ -65,6 +71,7 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::DiffCommentsSave
             | ResourceOperation::DiffCommentsDelete
             | ResourceOperation::DiffCommentsSend
+            | ResourceOperation::DiffCommentsThread
     )
 }
 
@@ -79,7 +86,13 @@ pub(super) fn dispatch(
     match request.envelope.operation {
         ResourceOperation::DiffCommentsList => {
             let file = store.read(root).map_err(|error| io_failed(operation, &error))?;
-            Ok(json!({"root": root, "comments": file.sorted()}))
+            let mut listed = json!({"root": root, "comments": file.sorted()});
+            // A pull request review's worktree (`git.review.start`) says which
+            // pull request its comments go to.
+            if let (Some(review), Some(fields)) = (&file.review, listed.as_object_mut()) {
+                fields.insert("review".into(), review.clone());
+            }
+            Ok(listed)
         }
         ResourceOperation::DiffCommentsSave => {
             let comment = comment(&request.fields)?;
@@ -91,6 +104,12 @@ pub(super) fn dispatch(
             mutate(mux, &store, request, root, |file, _| Ok(delete(file, &ids, &versions)))
         }
         ResourceOperation::DiffCommentsSend => send::send(mux, &store, request, root),
+        ResourceOperation::DiffCommentsThread => {
+            let change = thread::change(&request.fields)?;
+            mutate(mux, &store, request, root, |file, key| {
+                thread::apply(file, root, key, change, &rfc3339(now_ms()))
+            })
+        }
         // Dispatched only for the operations `handles` names; any other is refused, never a panic.
         _ => Err(ResourceError::operation_failed(
             operation,
@@ -103,7 +122,7 @@ pub(super) fn dispatch(
 /// Runs one keyed mutation of `root`'s file under its lock: a replayed key
 /// returns its first result; otherwise `change` edits the file, which is
 /// written when it changed, and its value is committed to the ledger.
-fn mutate(
+pub(super) fn mutate(
     mux: &Arc<Mux>,
     store: &Store,
     request: &ParsedResourceRequest,
@@ -150,7 +169,7 @@ fn cleared(
 
 /// Stamps and stores `comment`: an edit of the comment its `id` names, or a
 /// new one. Returns `{comment}`.
-fn save(
+pub(super) fn save(
     file: &mut File,
     root: &str,
     key: &str,
@@ -168,6 +187,8 @@ fn save(
         _ => new_id(root, key),
     };
     let existing = existing.or_else(|| file.position(&id));
+    // The thread (replies, resolved, what the agent read) is the daemon's.
+    thread::keep_thread(existing.and_then(|index| file.comments.get(index)), &mut comment);
     let created = existing
         .and_then(|index| file.comments.get(index)?.get("createdAt").cloned())
         .filter(Value::is_string)
@@ -202,7 +223,11 @@ fn save(
 /// `versions` names stays unless its `updatedAt` is still that version, so
 /// an edit saved after the caller read it is never removed. Returns
 /// `{deleted, ids}`: the count and the ids removed.
-fn delete(file: &mut File, ids: &[String], versions: &Map<String, Value>) -> (Value, bool) {
+pub(super) fn delete(
+    file: &mut File,
+    ids: &[String],
+    versions: &Map<String, Value>,
+) -> (Value, bool) {
     let mut removed = Vec::new();
     file.comments.retain(|comment| {
         let Some(id) = comment.get("id").and_then(Value::as_str) else { return true };
@@ -219,7 +244,7 @@ fn delete(file: &mut File, ids: &[String], versions: &Map<String, Value>) -> (Va
 }
 
 /// `root`: an absolute path, at most 4096 bytes, without NUL.
-fn root(fields: &Map<String, Value>) -> Result<&str, ResourceError> {
+pub(super) fn root(fields: &Map<String, Value>) -> Result<&str, ResourceError> {
     let root = fields.get("root").and_then(Value::as_str).unwrap_or_default();
     if !root.starts_with('/') || root.len() > MAX_ROOT_BYTES || root.contains('\0') {
         return Err(ResourceError::validation_invalid(
@@ -236,7 +261,7 @@ fn comment(fields: &Map<String, Value>) -> Result<Map<String, Value>, ResourceEr
     })
 }
 
-fn ids(fields: &Map<String, Value>) -> Result<Vec<String>, ResourceError> {
+pub(super) fn ids(fields: &Map<String, Value>) -> Result<Vec<String>, ResourceError> {
     let ids = fields
         .get("ids")
         .and_then(Value::as_array)
@@ -309,7 +334,7 @@ fn new_id(root: &str, key: &str) -> String {
     format!("dc_{}", hex(digest.get(..16).unwrap_or_default()))
 }
 
-fn io_failed(operation: &str, error: &io::Error) -> ResourceError {
+pub(super) fn io_failed(operation: &str, error: &io::Error) -> ResourceError {
     let message = format!("the diff comment store could not be read or written: {error}");
     ResourceError::operation_failed(operation, "store_failed", json!({"message": message}))
 }
@@ -318,7 +343,12 @@ fn io_failed(operation: &str, error: &io::Error) -> ResourceError {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub(super) struct File {
     root: String,
-    comments: Vec<Map<String, Value>>,
+    pub(super) comments: Vec<Map<String, Value>>,
+    /// The pull request a review worktree's comments go to, when
+    /// `git.review.start` made the worktree: `{url, repo, number, title,
+    /// head, base}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) review: Option<Value>,
 }
 
 impl File {
@@ -330,7 +360,7 @@ impl File {
 
     /// Oldest first: by `createdAt` (RFC 3339 UTC, which sorts as text),
     /// then insertion order.
-    fn sorted(&self) -> Vec<&Map<String, Value>> {
+    pub(super) fn sorted(&self) -> Vec<&Map<String, Value>> {
         let mut comments: Vec<_> = self.comments.iter().collect();
         comments.sort_by(|left, right| {
             let created = |comment: &Map<String, Value>| {
@@ -349,7 +379,7 @@ pub(super) struct Store {
 
 impl Store {
     /// The session's store, or `no_state_directory` for an in-memory session.
-    fn open(mux: &Mux, operation: &str) -> Result<Self, ResourceError> {
+    pub(super) fn open(mux: &Mux, operation: &str) -> Result<Self, ResourceError> {
         let Some(session) = mux.session_state_directory() else {
             let message = "this session keeps no durable state, so it cannot hold diff comments";
             return Err(ResourceError::operation_failed(
@@ -374,12 +404,30 @@ impl Store {
         let file: Option<File> = read_json(&self.path(root))?;
         Ok(file
             .filter(|file| file.root == root)
-            .unwrap_or_else(|| File { root: root.to_string(), comments: Vec::new() }))
+            .unwrap_or_else(|| File { root: root.to_string(), ..File::default() }))
     }
 
     pub(super) fn write(&self, root: &str, file: &File) -> io::Result<()> {
         private_directory(&self.directory)?;
         write_json(&self.path(root), file)
+    }
+
+    /// Records the pull request `root`'s comments go to (`git.review.start`).
+    /// A review of the same pull request and head keeps its drafts; any
+    /// other comments under the root (a removed worktree's path made again,
+    /// another head) are dropped, so they never go to this review.
+    pub(super) fn set_review(&self, root: &str, review: Value) -> io::Result<()> {
+        self.exclusive(root, || {
+            let mut file = self.read(root)?;
+            let same = |name: &str| {
+                file.review.as_ref().and_then(|prior| prior.get(name)) == review.get(name)
+            };
+            if !(same("url") && same("head")) {
+                file.comments.clear();
+            }
+            file.review = Some(review);
+            self.write(root, &file)
+        })
     }
 
     /// Runs `body` holding `root`'s lock, shared by every connection.

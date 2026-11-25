@@ -32,6 +32,7 @@ import { handleSsoCallback, handleSsoRedeem, handleSsoStart } from "./sso-routes
 import { AUTH_HANDOFFS_PATH, AUTH_HANDOFFS_REDEEM_PATH, handleAuthHandoffMint, handleAuthHandoffRedeem } from "./auth-handoff-routes.ts"
 import { CI_SESSION_PATH, handleCiSession } from "./ci-session.ts"
 import { sweepDeps, sweepFeedText } from "./feed-sweep.ts"
+import { GITHUB_AUTHORIZE_PATH, handleGithubAuthorize } from "./integrations/github-authorize-route.ts"
 import { GITHUB_TOKEN_PATH, handleGithubToken } from "./integrations/github-token-route.ts"
 import { isCloudPath, platformForward } from "./platform-forward.ts"
 
@@ -335,6 +336,8 @@ export default {
     if (url.pathname === CI_SESSION_PATH) return handleCiSession(request, env)
     // Google push receivers: staging and development only until the backend lead reviews them for production.
     if (env.ENVIRONMENT !== "production" && url.pathname === "/v1/hooks/google/pubsub") return handleGooglePubsub(request, env)
+    // GitHub came back from an existing installation with no code: on to its authorize page (integrations/github-authorize-route.ts).
+    if (url.pathname === GITHUB_AUTHORIZE_PATH) return handleGithubAuthorize(request, env)
     // GitHub installation tokens for git and gh (integrations/github-token-route.ts): bearer only, never the op path.
     const ghToken = url.pathname.match(GITHUB_TOKEN_PATH)
     if (ghToken) return handleGithubToken(request, env, ghToken[1]!)

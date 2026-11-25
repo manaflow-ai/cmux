@@ -7,6 +7,25 @@ system (cmuxterm-hq RFD 0034). A version moves when a token's Instrument value o
 Semver for a design system: a patch moves no pixel (a source, a note, a renamed path); a minor applies
 pending values (a default moves, the pending list shrinks); a major changes a seed or a rule.
 
+## 0.1.1 (2026-11-24)
+
+Type tokens from RFD 0116 section 9 ("What it cannot do yet"), each at the value the app draws today. A patch:
+no pixel moves.
+
+- A size and line height per chat voice, as a multiple of `prose.size` where the stylesheet draws one:
+  `tool-row.size` now records today (1, the prose size) beside its pending Instrument value,
+  `tool-row.line-height` 20px, `command.size` and `command.line-height` 12/14 and 18/14, `meta.size`
+  12/14, `result.size` and `result.line-height` 12/14 and 18/14, `thinking.line-height` 20px,
+  `heading-1` to `heading-4` (1.5 on 2, 1.25 on 24/14, 1.125 on 22/14, 1).
+- Code: `code.line-height` 20px and `code.measure` 100% (of the prose column), apart from the prose tokens.
+- The chrome type scale: `type.<step>.font-size` and `type.<step>.line-height` for caption, detail, body (its
+  size is `seed.text`), field, title and heading, read from `schemas/type-scale/type-scale.json`, which the
+  webviews already draw as `--text-<step>`.
+- A token only a stylesheet sets names that stylesheet as its source: `today.path` is its own
+  `--instrument-*` property, and `today.value` is the fallback every `var(--instrument-*, FALLBACK)` in the
+  file carries. The generated sheet is not imported, so the fallback is what draws; `--check` fails when a
+  fallback moves without this file. `conversation.css` now reads each chat voice through its token.
+
 ## 0.1.0 (2026-11-22)
 
 First version: the token table of Instrument v0.1 as the 2026-11-22 debate adopted it, one row per token.

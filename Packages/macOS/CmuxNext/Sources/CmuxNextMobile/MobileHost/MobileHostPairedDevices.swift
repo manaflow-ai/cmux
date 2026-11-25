@@ -18,9 +18,6 @@ public struct MobileHostPairRequest: Sendable, Equatable, Hashable {
     /// the prompt so a device made minutes ago stands out; nil from an older hostd.
     public var registeredAt: Date?
     public var transport: MobileHostPairedDevice.Transport
-    /// The pre-approval the phone presented from this Mac's pairing code (``MobileHostPairTokens``),
-    /// nil without one. A secret: never logged, never kept with a waiting request.
-    public var pairToken: String?
     /// What asks: `phone`, or another of the person's machines (`mac`, `linux`), which gets
     /// grants instead of a phone's lanes and has no approval key (docs/multi-machine-sessions.md).
     public var kind: String
@@ -30,7 +27,7 @@ public struct MobileHostPairRequest: Sendable, Equatable, Hashable {
     public var bundleID: String?
 
     public init(phoneDeviceID: String, name: String, identityKey: String, approvalKey: String, registeredAt: Date? = nil,
-                pairToken: String? = nil, transport: MobileHostPairedDevice.Transport = .hostd, kind: String = "phone",
+                transport: MobileHostPairedDevice.Transport = .hostd, kind: String = "phone",
                 bundleID: String? = nil) {
         self.kind = kind
         self.bundleID = bundleID
@@ -39,7 +36,6 @@ public struct MobileHostPairRequest: Sendable, Equatable, Hashable {
         self.identityKey = identityKey
         self.approvalKey = approvalKey
         self.registeredAt = registeredAt
-        self.pairToken = pairToken
         self.transport = transport
     }
 

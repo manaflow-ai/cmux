@@ -20,6 +20,8 @@ bench launches and quits the app itself), and maps their reports to budget rows 
   bench_idle.py                  idle CPU of the app with terminals open
   tab-churn-bench.py             terminal_burst: 30 Ctrl-` terminals in a row (first and last ten, growth), closing them,
                                  and Cmd-T / Cmd-W in a pane of 1 tab and of 31 (ask-8a0837950b)
+  bench_power.py many-chats      many_chats (opt-in): Leo's ~200 agent chat tabs, 4 streaming, 13 Chromium tabs, the New
+                                 Tab page shown: the app's main-thread busy % (CPU) and its stalls over 100 / 250 ms
 
   Tabs and terminals as they grow (Leo 2026-11-10: "opening up a lot of terminals isn't super fast? opening/closing
   tabs was p important to lawrence ... we defo need to encode and warn sometimes if those get slow"); each row's cost
@@ -57,7 +59,7 @@ BENCHES = ["new_surfaces", "panes", "tab_switch", "palette", "sidebar", "home", 
 # Benches that run only when --only names them: the default (all of BENCHES) is what stable-next's --gate step runs, and
 # a bench added here is a perf cron row that warns, never a new gate row (the 2026-10-23 no-new-CI rule, since lifted).
 # tab_scale, tab_close and surfaces_scale: the tabs-and-terminals-at-scale groups the perf cron's `tabs` part names.
-OPT_IN_BENCHES = ["terminal_burst", "tab_scale", "tab_close", "surfaces_scale"]
+OPT_IN_BENCHES = ["terminal_burst", "tab_scale", "tab_close", "surfaces_scale", "many_chats"]
 PERF_BENCH = os.path.join(HERE, "..", "perf-bench")
 # Stage rows: where a judged row's time goes (the chat composer's typing: key to page, key to edit and render done).
 # Stored and shown, never gated, budgeted or written to a baseline: measurement only (the 2026-10-23 no-new-CI rule, since lifted).
@@ -353,6 +355,21 @@ def rows_terminal_burst(rep):
     return out
 
 
+def rows_many_chats(rep):
+    """bench_power.py many-chats: the app's main-thread busy % and the window's stalls (one value each: p50 = p95)."""
+    out = {}
+    for result in (rep or {}).get("results") or []:
+        if result.get("label") != "many-chats":
+            continue
+        rows = result.get("many_chats") or {}
+        for key, name in (("main_thread_pct", "main_thread_pct"), ("hangs_over_100ms", "hangs_over_100ms"),
+                          ("hangs_over_250ms", "hangs_over_250ms"), ("hang_max_ms", "hang_max_ms"),
+                          ("hidden_push_bytes_per_s", "hidden_push_bytes_per_s")):
+            if isinstance(rows.get(key), (int, float)):
+                out[f"many_chats.{name}"] = (rows[key], rows[key])
+    return out
+
+
 def rows_idle(rep):
     out = {}
     for name, sc in ((rep or {}).get("scenarios") or {}).items():
@@ -565,6 +582,8 @@ def main():
         "terminal_burst": ([py, S("tab-churn-bench.py"), *common, "--cycles", "12", "--terminals", "30",
                   "--out", o("terminal_burst"), "--json", o("terminal_burst.json")], "terminal_burst.json",
                            rows_terminal_burst),
+        "many_chats": ([py, S("bench_power.py"), "--app", opts.app, "--scenarios", "many-chats",
+                        "--out", o("many_chats.json"), "--md", o("many_chats.md")], "many_chats.json", rows_many_chats),
         "idle": ([py, S("bench_idle.py"), *common, "--scenarios", "terminals,chromium-static", "--settle", "15",
                   "--measure", "30", "--no-fail", "--label", "budgets", "--out", o("idle")], None, rows_idle),
     }

@@ -116,6 +116,15 @@ fn run_inner(
     if remote_help_requested(rest) {
         let help = remote_help(args.first().map(String::as_str));
         // `cmux remote --help` also lists the cmux app's `remote …` verbs (cli/app_action_help.rs).
+        // `cmux remote disconnect --help`: that verb's own help. Before, every `remote <verb>`
+        // printed the whole remote help (the Cloud and remote command matrix).
+        if let Some(text) = (args.first().map(String::as_str) == Some("remote"))
+            .then(|| remote_verb_help(rest))
+            .flatten()
+        {
+            print!("{text}");
+            return Ok(());
+        }
         match args.first().map(String::as_str) {
             Some("remote") => match crate::cli::app_action_help::append("remote", help) {
                 Some(text) => print!("{text}"),
@@ -231,6 +240,16 @@ fn remote_help_requested(args: &[String]) -> bool {
 fn is_inline_secret_option(argument: &str, option: &str) -> bool {
     argument == option
         || argument.strip_prefix(option).is_some_and(|suffix| suffix.starts_with('='))
+}
+
+/// The help of the verb after `remote`: a remote action's own (`remote exec` is `remote-exec`'s),
+/// else the cmux app's `remote <verb>` action's. `None` for no verb or an unknown one.
+fn remote_verb_help(rest: &[String]) -> Option<String> {
+    let verb = rest.first().filter(|word| !word.starts_with('-'))?;
+    if let Some(command) = crate::cli::remote_action_command(verb) {
+        return Some(remote_help(Some(command)).to_owned());
+    }
+    crate::cli::app_action_help::verb_help("remote", verb)
 }
 
 fn remote_help(command: Option<&str>) -> &'static str {

@@ -178,6 +178,9 @@ if [[ -n "$crate_scope" ]]; then
 fi
 umask 022
 root="$(pwd -P)"
+# Resolved before any cd: BASH_SOURCE is relative when the step runs
+# `bash scripts/ci/cmux-tui-rust-check.sh` from the repo root.
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 # Public CI keeps the step-private target directory. HQ marks managed workers
 # with CMUX_FLEET_WORKER_TRUSTED and supplies this reviewed resolver so the
 # pinned cmux-tui toolchain can reuse a stable target directory.
@@ -466,7 +469,7 @@ load_base_red() {
 # scripts/ci/install-nextest.sh holds the pin and the checksummed install (one place to bump it);
 # every other caller -- the fast-checks Rust setup, acpmux-lib-under-load.sh, affected_tests_measure.sh
 # -- shares it, so no two of them can run a different cargo-nextest.
-nextest_installer="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/install-nextest.sh"
+nextest_installer="$script_dir/install-nextest.sh"
 nextest_version="$(bash "$nextest_installer" --print-version)"
 ensure_nextest() {
   local have dir

@@ -5,7 +5,7 @@
 //! The chat's `usage_update`s carry when its prompt cache lapses (`_meta.acpmux.cacheExpiresAt`,
 //! `claude_stdio/prompt_cache.rs`). With Settings > General > Prompt Cache's "Compact Before the
 //! Cache Expires" on (`agents.cacheCompact.enabled`, off by default: a compaction is a model call
-//! that counts toward usage), each such update arms one timer for the session, [`LEAD_MS`] before
+//! that counts toward usage), each such update arms one timer for the session, [`lead_ms`] before
 //! that expiry, while the context is at least `agents.cacheCompact.minContextPercent` of its
 //! window. When it fires, the chat runs Claude Code's `/compact` as acpmux's own prompt
 //! ([`KIND`]), which reads the still-warm cache.
@@ -35,9 +35,27 @@ use super::*;
 
 /// The provenance kind of the compaction this timer sends.
 pub(crate) const KIND: &str = "cache_compact";
-/// How long before the cache's expiry the compaction runs: room for the request to reach the
-/// model while the cache is still warm.
+/// How long before a 5-minute cache's expiry the compaction runs: room for the request to reach
+/// the model while the cache is still warm.
 pub(crate) const LEAD_MS: u64 = 30_000;
+/// How long before a 1-hour cache's expiry it runs (Leo, 2026-11-24: "so compact at 59:59 or 3
+/// min early? what are the actual numbers on warm vs cold compaction cost?"). The expiry is the
+/// last call's `message_start` plus the TTL (`claude_stdio/prompt_cache.rs`), so it runs late by
+/// that call's wait for its first token, and the compaction's own request waits as long again.
+/// From a prompt to its call's first block, 896 main-loop calls over 3 days on one host
+/// (2026-11-24, thinking and tool-input streaming taken out): p50 3.3 s, p90 6.8 s, p99 80 s,
+/// p99.9 437 s. Both waits together pass 30 s for 4.8% of compactions, 60 s for 3.1%, 120 s for
+/// 1.4%, 180 s for 0.9% and 300 s for 0.4%. A cold compaction rewrites the whole context, about
+/// 4x a warm one's cost, and each minute earlier spends a minute of idle in which a real turn
+/// could have come and made it unneeded: 3 minutes is where the misses stop paying for it.
+pub(crate) const LONG_LEAD_MS: u64 = 180_000;
+/// Time left on a cache above which it is the 1-hour tier, not the 5-minute one.
+const LONG_CACHE_MS: u64 = 10 * 60_000;
+
+/// How long before the expiry the compaction runs for a cache with `left_ms` to go.
+pub(crate) fn lead_ms(left_ms: u64) -> u64 {
+    if left_ms > LONG_CACHE_MS { LONG_LEAD_MS } else { LEAD_MS }
+}
 /// The armed timers: session id -> (generation, the task).
 static TIMERS: std::sync::LazyLock<StdMutex<TimerMap>> = std::sync::LazyLock::new(Default::default);
 static GENERATION: AtomicU64 = AtomicU64::new(0);
@@ -77,7 +95,7 @@ pub(crate) fn wait_ms(update: &Value, threshold: f64, now_ms: u64) -> Option<u64
     if !over(share(update)?, threshold) {
         return None;
     }
-    let fire = expires.checked_sub(LEAD_MS)?;
+    let fire = expires.checked_sub(lead_ms(expires.saturating_sub(now_ms)))?;
     fire.checked_sub(now_ms).filter(|wait| *wait > 0)
 }
 
@@ -140,7 +158,10 @@ impl Hub {
         let Some(threshold) = read_threshold() else { return };
         let Some(wait) = wait_ms(update, threshold, now_ms()) else { return };
         let Some(used) = share(update) else { return };
-        let expires = now_ms() + wait + LEAD_MS;
+        let Some(expires) = update.pointer("/_meta/acpmux/cacheExpiresAt").and_then(Value::as_u64)
+        else {
+            return;
+        };
         let deadline = self.clock_now().saturating_add(wait.saturating_mul(1_000_000));
         let clock = self.clock.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let generation = GENERATION.fetch_add(1, Ordering::SeqCst);

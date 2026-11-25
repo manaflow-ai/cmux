@@ -42,10 +42,17 @@ export function workedOverBackgroundEvents(): Event[] {
     say("Both runs are queued. I'll land it when they pass."),
     ["mux", "turn_result", { turnId: "t1", status: "completed" }],
     ["mux", "background_turn", { state: "started", id: "bg", trigger: "task_notification" }],
+    // Claude Code writes the notification itself: acpmux records it only for an adopted or watched
+    // chat (`client`), and the pane reads it as a notice line, never the person's bubble
+    // (incomingMessage.ts NOTIFICATION). Without `client` it drew as a raw bubble here only.
     [
       "mux",
       "user_message",
-      { text: "<task-notification><summary>Background command finished</summary></task-notification>", turnId: "t2" },
+      {
+        text: "<task-notification><summary>Background command finished</summary></task-notification>",
+        turnId: "t2",
+        client: "adopt",
+      },
     ],
     ["mux", "turn_started", { turnId: "t2" }],
     think(

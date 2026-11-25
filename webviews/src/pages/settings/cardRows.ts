@@ -40,6 +40,7 @@ export const COMPUTER_USE_SWITCHES = [
   "computerUse.cursorTag",
   "computerUse.settle",
   "computerUse.livePreview",
+  "computerUse.whileLocked",
   "computerUse.allowForeground",
 ] as const;
 /** The schema rows the Computer Use card draws itself. */

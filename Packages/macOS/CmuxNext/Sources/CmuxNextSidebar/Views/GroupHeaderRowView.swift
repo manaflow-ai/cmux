@@ -423,7 +423,7 @@ final class GroupHeaderRowView: SidebarRowView {
     /// theme's quiet ink, no fill, no rim and no dot (its members draw no line, `GroupLineView`). Hover and a drop take
     /// the row's own fill, as a workspace row's do; the open editor lights its more button only.
     ///
-    /// `folder` (the default since David Beyer 2026-11-20, "groups as plain folders"): the same plain row, its name in
+    /// `folder` (David Beyer 2026-11-20, "groups as plain folders"): the same plain row, its name in
     /// the theme's primary ink as a workspace title's, and its folder glyph in the quiet ink, or in the group's color
     /// where it has one, held readable on the sidebar: the color stays the group's mark with no band to carry it.
     private func paintSection(_ tokens: ThemeTokens, folder: Bool = false,

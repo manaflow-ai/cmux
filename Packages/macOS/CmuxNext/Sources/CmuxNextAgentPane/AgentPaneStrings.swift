@@ -261,14 +261,6 @@ extension AgentPaneView {
                bundle: .localizedModule)
     }
 
-    /// Shown while the pane's connection did not prove the person to its acpmux: what the person
-    /// types would reach the agent as an unverified sender's until the identity reconnects.
-    static var personUnprovenMessage: String {
-        String(localized: "agentPane.personUnproven.message",
-               defaultValue: "Not verified as you. Reconnecting your identity to the agent service…",
-               bundle: .localizedModule)
-    }
-
     static var reloadTitle: String {
         String(localized: "agentPane.crashed.reload", defaultValue: "Reload", bundle: .localizedModule)
     }
@@ -383,6 +375,22 @@ extension AgentPaneModel {
     /// Connect GitHub where this Cloud service has no cmux GitHub App (`github.not_configured`).
     static var gitHubNotConfiguredMessage: String {
         String(localized: "agentPane.github.notConfigured", defaultValue: "GitHub isn't set up for this Cloud service yet.", bundle: .localizedModule)
+    }
+
+    static var repositoryURLInvalidMessage: String {
+        String(localized: "agentPane.repo.invalidURL", defaultValue: "Enter an HTTPS repository URL.", bundle: .localizedModule)
+    }
+
+    static var repositoryURLCredentialsMessage: String {
+        String(localized: "agentPane.repo.credentials", defaultValue: "Use a URL without credentials, query parameters, or a fragment.", bundle: .localizedModule)
+    }
+
+    static var repositoryDestinationTakenMessage: String {
+        String(localized: "agentPane.repo.destinationTaken", defaultValue: "Another folder already uses this clone location.", bundle: .localizedModule)
+    }
+
+    static var repositoryCloneFailedMessage: String {
+        String(localized: "agentPane.repo.cloneFailed", defaultValue: "Couldn’t clone the repository. Check the URL and your Git access, then try again.", bundle: .localizedModule)
     }
 
     /// `github.repos.checkout` could not clone `repo` on this Mac (`github.clone_failed`).

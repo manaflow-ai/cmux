@@ -180,6 +180,7 @@ public final class SidebarView: NSView {
         newWorkspaceOptionsButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace.options")
         list.reload(animated: false)
         observe()
+        startLaunchFilmIfAsked()
         // The chrome reveal follows the pointer and the sidebar's frame (cx-3wu5).
         chromeHover = PointerHover(self) { [weak self] hovering in self?.setChromeRevealed(hovering) }
     }

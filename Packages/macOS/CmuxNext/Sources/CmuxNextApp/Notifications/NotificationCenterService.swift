@@ -261,7 +261,7 @@ final class NotificationCenterService {
         endViewHolds()
         guard let press = clickedTab(in: window, at: location) else { return }
         if left, press.onStrip, let window {
-            beginStripPress(tab: press.tab, target: interactionTarget(tabID: press.tab, in: window), at: screen ?? window.convertPoint(toScreen: location), synthetic: synthetic)
+            beginStripPress(tab: press.tab, target: interactionTarget(tabID: press.tab, in: window), at: screen ?? window.convertPoint(toScreen: location), synthetic: synthetic, pane: press.pane, in: content(of: window))
             return
         }
         if let pane = press.pane, content(of: window)?.layoutModel.enterAttention(pane, click: true) == true { return }
@@ -306,7 +306,7 @@ final class NotificationCenterService {
     func open(surface: SurfaceID?) {
         guard let services, let surface, let located = locate(surface: surface, in: services.daemon.store) else { return }
         let context = AppActionContext(services: services)
-        context.reveal(located); services.agentTabs.existingView(located.tab.id)?.focusAsk()
+        context.reveal(located, front: true); services.agentTabs.existingView(located.tab.id)?.focusAsk()
         interacted(.open, tabID: located.tab.id)
     }
 
@@ -367,8 +367,7 @@ final class NotificationCenterService {
     func owner(of tab: TabModel) -> DaemonService? { services?.machines.daemon(forTab: tab) }
 
     func interacted(_ trigger: NotificationTrigger, target: TabInteractionTarget) {
-        // A closed tab or replaced store is no longer the object pressed, even if its id is reused.
-        guard target.store.tab(idOrResource: target.tab.id) === target.tab, target.attentionUnchanged else { return }
+        guard target.isCurrent else { return } // a closed tab or replaced store, or a newer request
         interacted(trigger, tab: target.tab, owner: services?.machines.daemons.first { $0.store === target.store })
     }
 

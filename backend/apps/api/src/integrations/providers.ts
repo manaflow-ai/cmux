@@ -10,6 +10,7 @@ import type { Env } from "../env.ts"
  */
 
 import { effectCall, failed, form, json, MAX_LINKED_REPOS, ProviderError, rateLimitMessage, rateLimitWait, type Credential, type Http, type ProviderImpl } from "./provider-core.ts"
+import { grantOf } from "./github-user-tokens.ts"
 
 import { gmail } from "./gmail.ts"
 import { googleCalendar } from "./google-calendar.ts"
@@ -241,16 +242,16 @@ export const github: ProviderImpl = {
       account: { key: `github:installation:${installation}`, name: login || String(installation), ...(inst.account?.html_url ? { url: inst.account.html_url } : {}) },
       scopes_granted: githubScopesOf(inst.permissions ?? {}),
       credential: { kind: "github_installation", installation_id: installation },
-      resources: { repos, ...(linkedBy !== undefined ? { linked_by_github_id: linkedBy } : {}) }
+      resources: { repos, ...(linkedBy !== undefined ? { linked_by_github_id: linkedBy } : {}) },
+      // With expiring user tokens on, the exchange also gave a refresh token: effects this person starts
+      // then run as them (fix 7 of github-integration-audit.md), not as the App bot.
+      ...userGrant(t, linkedBy)
     }
   },
-  call: async (env, http, credential, op, params, beforeEffect) => {
+  call: async (env, http, credential, op, params, beforeEffect, asUser) => {
     if (credential.kind !== "github_installation") throw new ProviderError("provider.error", "wrong credential kind")
     if (op !== "github.issue.comment") throw new ProviderError("provider.error", `github cannot run ${op}`)
-    const token = await commentToken(env, http, credential.installation_id, String(params.repo))
-    // Token acquisition can yield while membership, sharing, scopes or repository policy changes.
-    await beforeEffect?.()
-    const res = await effectCall(
+    const post = (token: string) => effectCall(
       http,
       "github",
       new Request(`${GH_API}/repos/${String(params.repo).split("/").map(encodeURIComponent).join("/")}/issues/${params.issue}/comments`, {
@@ -259,6 +260,21 @@ export const github: ProviderImpl = {
         body: JSON.stringify({ body: params.body })
       })
     )
+    // As the person who asked, when they authorized cmux to act for them. GitHub refusing that token
+    // (401 revoked, 403 not allowed, 404 no access to the repository) wrote nothing: post as the App.
+    const userToken = await asUser?.token().catch(() => undefined)
+    if (userToken) {
+      await beforeEffect?.()
+      const res = await post(userToken)
+      if (res.ok) return commentReceipt(params, await json(res))
+      if (!USER_TOKEN_FALLBACK.has(res.status)) throw failed("github", res, "comment", true)
+      if (res.status === 401) asUser!.refused(userToken)
+      await res.body?.cancel()
+    }
+    const token = await commentToken(env, http, credential.installation_id, String(params.repo))
+    // Token acquisition can yield while membership, sharing, scopes or repository policy changes.
+    await beforeEffect?.()
+    const res = await post(token)
     if (!res.ok) {
       const error = failed("github", res, "comment", true)
       // Reconnect must not reuse a revoked token. A late 401 must not evict a newer token,
@@ -267,15 +283,26 @@ export const github: ProviderImpl = {
       if (error.code === "needs_reauth" && commentTokens.get(key)?.token === token) commentTokens.delete(key)
       throw error
     }
-    const b = await json(res)
-    const returnedUrl = typeof b.html_url === "string" ? b.html_url.toLowerCase() : ""
-    const issueUrl = `https://github.com/${params.repo}/issues/${params.issue}#issuecomment-${b.id}`.toLowerCase()
-    const pullUrl = `https://github.com/${params.repo}/pull/${params.issue}#issuecomment-${b.id}`.toLowerCase()
-    if (!Number.isSafeInteger(b.id) || Number(b.id) < 1 || !returnedUrl || returnedUrl !== issueUrl && returnedUrl !== pullUrl) {
-      throw new ProviderError("mutation.indeterminate", "github returned no valid comment receipt; check the provider")
-    }
-    return { value: { id: b.id, url: b.html_url } }
+    return commentReceipt(params, await json(res))
   }
+}
+
+/** Statuses a person's token gets with nothing written, after which the App posts instead. */
+const USER_TOKEN_FALLBACK = new Set([401, 403, 404])
+
+const userGrant = (t: Record<string, unknown>, githubId: number | undefined) => {
+  const grant = grantOf(t, Date.now())
+  return grant ? { user_grant: { ...grant, ...(githubId !== undefined ? { github_id: githubId } : {}) } } : {}
+}
+
+const commentReceipt = (params: Record<string, unknown>, b: Record<string, unknown>) => {
+  const returnedUrl = typeof b.html_url === "string" ? b.html_url.toLowerCase() : ""
+  const issueUrl = `https://github.com/${params.repo}/issues/${params.issue}#issuecomment-${b.id}`.toLowerCase()
+  const pullUrl = `https://github.com/${params.repo}/pull/${params.issue}#issuecomment-${b.id}`.toLowerCase()
+  if (!Number.isSafeInteger(b.id) || Number(b.id) < 1 || !returnedUrl || returnedUrl !== issueUrl && returnedUrl !== pullUrl) {
+    throw new ProviderError("mutation.indeterminate", "github returned no valid comment receipt; check the provider")
+  }
+  return { value: { id: b.id, url: b.html_url } }
 }
 
 // ---------------------------------------------------------------- Linear (OAuth, actor=app)

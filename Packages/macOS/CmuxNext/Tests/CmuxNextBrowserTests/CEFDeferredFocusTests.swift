@@ -74,6 +74,136 @@ import Testing
         #expect(reported() == 2, "the grant did not report the page ready: the key hold waits for its bound (reported \(reported()))")
     }
 
+    /// A close gives the keys to the page beside the closed pane in the close's own turn, and that page draws ahead for
+    /// its pane's commit (fork API 33, no resize fence: it takes its pane's next size now and lays out there while the
+    /// old layout shows). A focus grant then (CEF's SetFocus, the page window made key) stalled the page's frames for
+    /// about 100 ms just after it laid out at the new size, in about half of the 4x2 and stress closes (cmux23, 120 Hz,
+    /// pane-perf --film close): the close showed the page's old, narrower frame beside its backdrop for 10 to 14
+    /// refreshes. Zooms draw ahead the same way with no grant and never stalled. So the ask waits while the page draws
+    /// ahead, and is granted once, after the commit that shows the page at its new size.
+    @Test func aFocusAskWhileThePageDrawsAheadForItsPanesCommitIsGrantedAfterTheCommit() async throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, host) = try createdTab(runtime, browser: 41)
+        var ticks: [@MainActor (Bool) -> Bool] = []
+        host.commitLayoutWait = CEFCommitLayoutWait(laidOut: { _, _ in false }, frames: { _, tick in
+            ticks.append(tick)
+            return {}
+        })
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        try #require(window.contentView).addSubview(tab.contentView)
+        tab.contentView.layoutSubtreeIfNeeded()
+        Self.endTurn()
+        FocusSpyShim.granted = []
+        let page = try #require(tab.contentView as? CEFTabContentView)
+
+        var ready = 0
+        page.commitWillResize(by: CGSize(width: 200, height: 0)) { ready += 1 }
+        try #require(page.commitAheadSize != nil, "the page did not draw ahead for its pane's commit: the test proves nothing")
+        await Self.yieldToTasks() // the page's answer (it laid out, or not) runs
+        tab.setFocused(true)
+        #expect(FocusSpyShim.granted.isEmpty, "the page took the keys while it laid out ahead for its pane's commit: \(FocusSpyShim.granted)")
+        Self.endTurn()
+        #expect(FocusSpyShim.granted.isEmpty, "the page took the keys before its pane's commit showed: \(FocusSpyShim.granted)")
+
+        // The commit shows: the page's container takes the size the page already has.
+        page.setFrameSize(CGSize(width: 600, height: 300))
+        page.layoutSubtreeIfNeeded()
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [41], "the ask was granted \(FocusSpyShim.granted) after the commit (want [41] once)")
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [41], "the ask was granted again: \(FocusSpyShim.granted)")
+        _ = ready
+    }
+
+    /// The page's late answer, held by the test.
+    @MainActor final class HeldAnswer {
+        var continuation: CheckedContinuation<Bool, Never>?
+        func resume(_ laidOut: Bool) {
+            continuation?.resume(returning: laidOut)
+            continuation = nil
+        }
+    }
+
+    /// A page drawn ahead whose commit showed before the page laid out at its new size (the commit's bound came first,
+    /// a slow page): its ask waits for the page's answer, not only for the commit. On cmux20-bench (pane-perf --browser
+    /// --film close, a page that takes 30 ms per resize, the grant held to the commit's end) the grant after the commit
+    /// but before the answer still stalled the page: commit at 27 ms, grant at 38 ms, answer at 107 ms and 9 gap
+    /// refreshes; a grant after the answer (commit 29 ms, answer 53 ms) left none. Zooms, which grant nothing, answered
+    /// at about 50 ms every time.
+    @Test func aFocusAskKeptForAPagesCommitWaitsForThePagesAnswerAfterTheCommit() async throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, host) = try createdTab(runtime, browser: 42)
+        let answer = HeldAnswer()
+        defer { answer.resume(false) }
+        host.commitLayoutWait = CEFCommitLayoutWait(laidOut: { _, _ in await withCheckedContinuation { answer.continuation = $0 } },
+                                                    frames: { _, _ in {} })
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        try #require(window.contentView).addSubview(tab.contentView)
+        tab.contentView.layoutSubtreeIfNeeded()
+        Self.endTurn()
+        FocusSpyShim.granted = []
+        let page = try #require(tab.contentView as? CEFTabContentView)
+
+        page.commitWillResize(by: CGSize(width: 200, height: 0)) {}
+        try #require(page.commitAheadSize != nil, "the page did not draw ahead for its pane's commit: the test proves nothing")
+        await Self.yieldToTasks() // the page's ask runs and waits for its answer
+        try #require(answer.continuation != nil, "the page was not asked whether it laid out: the test proves nothing")
+        tab.setFocused(true)
+        Self.endTurn()
+        // The commit shows at its bound, before the page answered.
+        page.setFrameSize(CGSize(width: 600, height: 300))
+        page.layoutSubtreeIfNeeded()
+        Self.endTurn()
+        #expect(FocusSpyShim.granted.isEmpty, "the page took the keys after its commit, before its first frame at the new size: \(FocusSpyShim.granted)")
+
+        answer.resume(true)
+        await Self.yieldToTasks()
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [42], "the ask was granted \(FocusSpyShim.granted) after the page's answer (want [42] once)")
+    }
+
+    /// A page that never answers (a hung renderer) still takes the keys, at ``CEFCommitPageWait/keyFrames`` display
+    /// frames after its wait began.
+    @Test func aFocusAskKeptForAPageThatNeverAnswersIsGrantedAtTheFrameBound() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, host) = try createdTab(runtime, browser: 43)
+        let answer = HeldAnswer()
+        defer { answer.resume(false) }
+        var ticks: [@MainActor (Bool) -> Bool] = []
+        host.commitLayoutWait = CEFCommitLayoutWait(laidOut: { _, _ in await withCheckedContinuation { answer.continuation = $0 } },
+                                                    frames: { _, tick in
+                                                        ticks.append(tick)
+                                                        return {}
+                                                    })
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        try #require(window.contentView).addSubview(tab.contentView)
+        tab.contentView.layoutSubtreeIfNeeded()
+        Self.endTurn()
+        FocusSpyShim.granted = []
+        let page = try #require(tab.contentView as? CEFTabContentView)
+
+        page.commitWillResize(by: CGSize(width: 200, height: 0)) {}
+        try #require(page.commitAheadSize != nil, "the page did not draw ahead for its pane's commit: the test proves nothing")
+        let tick = try #require(ticks.last)
+        tab.setFocused(true)
+        _ = tick(false)
+        _ = tick(false)
+        page.setFrameSize(CGSize(width: 600, height: 300))
+        page.layoutSubtreeIfNeeded()
+        Self.endTurn()
+        #expect(FocusSpyShim.granted.isEmpty, "the page took the keys before it answered or its frame bound: \(FocusSpyShim.granted)")
+        var frames = 2
+        while frames < 100, tick(false) { frames += 1 }
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [43], "the ask was granted \(FocusSpyShim.granted) at the frame bound (want [43] once, after \(frames) frames)")
+    }
+
     /// An ask taken back (focus moved on) before the page showed is not granted later.
     @Test func focusTakenBackBeforeThePageShowsIsNotGranted() throws {
         let (runtime, root) = try FocusSpyShim.runtime()
@@ -608,6 +738,12 @@ import Testing
     /// Lets the main run loop end this turn: its frame commit, and the work queued after it (`AfterFrameCommit`).
     static func endTurn() {
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+    }
+
+    /// Lets main-actor tasks run (a page's layout answer): a run-loop spin inside the test's own main-queue job runs
+    /// run-loop observers and timers, never the main queue's next jobs.
+    static func yieldToTasks() async {
+        for _ in 0..<20 { await Task.yield() }
     }
 
     /// A Chromium page window over `tab`'s view, a child of `window`, as the fork places it.

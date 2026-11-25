@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::{TcpStream, UnixStream};
+use tokio::net::UnixStream;
 use zeroize::Zeroizing;
 
 use crate::link::LinkError;
@@ -104,14 +104,11 @@ impl Dialer for OsTcpDialer {
     }
 
     async fn dial(&self, host: &str, port: u16) -> Result<DialedStream, LinkError> {
-        let addresses = super::hedge::v6_first(&resolve_dial_target(host, port).await?);
-        let stream = super::hedge::connect(
-            &addresses,
-            super::hedge::HedgePolicy::INTERNET,
-            TcpStream::connect,
-        )
-        .await
-        .map_err(|error| LinkError::Transport(format!("connect {host}:{port}: {error}")))?;
+        let addresses = resolve_dial_target(host, port).await?;
+        let stream =
+            super::hedge::connect_tcp(host, port, &addresses, super::hedge::HedgePolicy::INTERNET)
+                .await
+                .map_err(|error| LinkError::Transport(format!("connect {host}:{port}: {error}")))?;
         let _ = stream.set_nodelay(true);
         Ok(Box::new(stream))
     }

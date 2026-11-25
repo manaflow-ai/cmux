@@ -876,6 +876,71 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertEqual(findings[0]["severity"], "blocker")
         self.assertEqual(findings[0]["guideline"], "2.3")
 
+    # INTERNAL build run 45090966438's asc validate --strict on cmux INTERNAL's 1.2.0,
+    # the app's first App Store version: What's New empty, listed twice by asc.
+    ASC_FIRST_VERSION_VALIDATE = {
+        "appId": "6791408425", "versionString": "1.2.0", "strict": True,
+        "remediation": {"steps": [{"order": 1, "blocking": True, "severity": "warning",
+                                   "checkId": "metadata.required.whats_new", "message": "what's new is empty",
+                                   "field": "whatsNew", "resourceId": "1fb582be"}]},
+        "checks": [{"id": "metadata.required.whats_new", "severity": "warning", "message": "what's new is empty",
+                    "field": "whatsNew", "resourceId": "1fb582be"}],
+    }
+
+    def asc_report(self, versions: object | None) -> tuple[int, str]:
+        asc = self.root / "asc-validate.json"
+        asc.write_text(json.dumps(self.ASC_FIRST_VERSION_VALIDATE))
+        args = ["report", "--asc-validate", str(asc), "--out", str(self.root / "report.md")]
+        if versions is not None:
+            path = self.root / "app-store-versions.json"
+            path.write_text(versions if isinstance(versions, str) else json.dumps(versions))
+            args += ["--asc-versions", str(path)]
+        code = gate.main(args)
+        return code, (self.root / "report.md").read_text()
+
+    def test_a_first_app_store_version_is_not_asked_for_whats_new(self) -> None:
+        # Apple refuses What's New on an app's first App Store version: run
+        # 45102744374 failed "STATE_ERROR: Attribute 'whatsNew' cannot be
+        # edited at this time" on cmux INTERNAL 1.2.0, so the gate must not
+        # block on a field nobody can fill.
+        code, text = self.asc_report({"data": [
+            {"id": "v1", "attributes": {"versionString": "1.2.0", "appStoreState": "PREPARE_FOR_SUBMISSION"}}]})
+        self.assertEqual(code, 0, text)
+        self.assertIn("**YES**", text)
+        self.assertIn("first App Store version", text)
+        self.assertIn("45102744374", text)
+
+    def test_whats_new_still_blocks_once_a_version_has_been_on_sale(self) -> None:
+        code, text = self.asc_report({"data": [
+            {"id": "v1", "attributes": {"versionString": "1.2.0", "appStoreState": "PREPARE_FOR_SUBMISSION"}},
+            {"id": "v0", "attributes": {"versionString": "1.1.0", "appStoreState": "READY_FOR_SALE"}}]})
+        self.assertEqual(code, 1)
+        self.assertIn("**NO**: 1 blocking", text)
+        self.assertIn("what's new is empty", text)
+
+    def test_whats_new_blocks_when_the_version_history_is_unknown(self) -> None:
+        # No version list, or one that did not parse: fail closed.
+        for versions in (None, "not json", {"errors": [{"status": "401"}]}):
+            code, text = self.asc_report(versions)
+            self.assertEqual(code, 1, versions)
+            self.assertIn("**NO**: 1 blocking", text)
+
+    def test_asc_lists_each_check_once(self) -> None:
+        # asc prints a check under both remediation.steps and checks; run
+        # 45090966438's report showed "what's new is empty" twice (2.1 and 2.3).
+        asc = self.root / "asc-validate.json"
+        asc.write_text(json.dumps(self.ASC_FIRST_VERSION_VALIDATE))
+        findings = gate.asc_findings(asc)
+        self.assertEqual(len(findings), 1, findings)
+        self.assertEqual(findings[0]["rule"], "asc.metadata.required.whats_new")
+        self.assertEqual(findings[0]["guideline"], "2.3")
+
+    def test_the_asc_job_saves_the_app_store_version_history(self) -> None:
+        workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
+        self.assertIn('asc versions list --app "$ASC_APP_ID" --platform IOS --paginate --output json > app-store-versions.json',
+                      workflow)
+        self.assertIn("--asc-versions", workflow)
+
     def test_report_fails_closed_when_inputs_never_arrive(self) -> None:
         # Run 42799920852 said YES with no lint and no suite result in hand.
         out = self.root / "report.md"

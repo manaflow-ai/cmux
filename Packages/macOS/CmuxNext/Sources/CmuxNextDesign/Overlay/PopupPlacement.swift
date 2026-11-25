@@ -2,7 +2,7 @@ public import AppKit
 
 /// Where a page's menu goes once it has no room in its web view (cx-6k6cg): like a Mac menu, on
 /// the screen past the window's edge. Below the anchor when it fits on the screen, else above,
-/// else on the side with more room, shortened so its rows scroll. Screen coordinates (y up).
+/// else on the side with more room, slid inside the available frame. Screen coordinates (y up).
 public nonisolated struct PopupPlacement {
     public nonisolated init() {}
     public enum Side: String, Sendable { case below, above }
@@ -21,13 +21,24 @@ public nonisolated struct PopupPlacement {
         let order: [Side] = preferred == .below ? [.below, .above] : [.above, .below]
         let room: (Side) -> CGFloat = { $0 == .below ? roomBelow : roomAbove }
         let side = order.first { room($0) >= size.height } ?? (roomBelow >= roomAbove ? .below : .above)
-        let height = max(0, min(size.height, room(side)))
-        let width = min(size.width, screen.width - 2 * margin)
-        let y = side == .below ? anchor.minY - gap - height : anchor.maxY + gap
+        let height = min(size.height, max(0, screen.height - 2 * margin))
+        let width = min(size.width, max(0, screen.width - 2 * margin))
+        let originY = side == .below ? anchor.minY - gap - height : anchor.maxY + gap
+        let y = min(max(screen.minY + margin, originY), screen.maxY - margin - height)
         // A centered card starts on a whole point, so `integral` never widens it past its content.
         let leading = centered ? (anchor.midX - width / 2).rounded() : trailing ? anchor.maxX - width : anchor.minX
-        let x = min(max(screen.minX + margin, leading), screen.maxX - margin - width)
-        return (CGRect(x: x, y: y, width: width, height: height).integral, side)
+        var originX = leading
+        if anchor.size == .zero, !centered {
+            // At a pointer the other corner is just as good, and keeps the click on the edge.
+            let other = trailing ? anchor.minX : anchor.maxX - width
+            if leading < screen.minX + margin || leading + width > screen.maxX - margin,
+               other >= screen.minX + margin, other + width <= screen.maxX - margin {
+                originX = other
+            }
+        }
+        let x = min(max(screen.minX + margin, originX), screen.maxX - margin - width)
+        let frame = CGRect(x: x, y: y, width: width, height: height)
+        return (anchor.size == .zero ? frame : frame.integral, side)
     }
 
     /// The frame for a submenu opened beside its parent row. It prefers the right side and
@@ -45,6 +56,37 @@ public nonisolated struct PopupPlacement {
         let rawY = anchor.maxY - height
         let y = min(max(screen.minY + margin, rawY), screen.maxY - margin - height)
         return (CGRect(x: x, y: y, width: width, height: height).integral, side)
+    }
+
+    /// A point anchor is the pointer: keep a corner at the click, inside the window on its display.
+    /// Control-anchored host panels can extend past the window as before.
+    @MainActor
+    static func frame(anchor: CGRect, size: CGSize, preferred: Side, trailing: Bool, centered: Bool = false,
+                      in window: NSWindow, screen: CGRect) -> (frame: CGRect, side: Side) {
+        guard anchor.size == .zero else {
+            return frame(anchor: anchor, size: size, preferred: preferred, trailing: trailing, centered: centered, screen: screen)
+        }
+        return frame(anchor: anchor, size: size, preferred: .below, trailing: trailing,
+                     screen: pointerViewport(in: window, screen: screen), gap: 0, margin: 0)
+    }
+
+    @MainActor
+    static func pointerViewport(in window: NSWindow, screen: CGRect) -> CGRect {
+        let content = screen.intersection(window.convertToScreen(window.contentLayoutRect))
+        return content.isEmpty ? screen : content
+    }
+
+    /// The space AppKit may track a pointer menu in, including menus WebKit presents itself.
+    static func pointerConfinement(at point: CGPoint, size: CGSize, viewport: CGRect) -> CGRect {
+        let anchor = CGRect(origin: point, size: .zero)
+        let placed = frame(anchor: anchor, size: size, preferred: .below, screen: viewport, gap: 0, margin: 0)
+        if placed.side == .below, point.y - viewport.minY >= size.height {
+            return CGRect(x: viewport.minX, y: viewport.minY, width: viewport.width, height: point.y - viewport.minY)
+        }
+        if placed.side == .above, viewport.maxY - point.y >= size.height {
+            return CGRect(x: viewport.minX, y: point.y, width: viewport.width, height: viewport.maxY - point.y)
+        }
+        return viewport
     }
 
     /// The screen a popup at `anchor` belongs on: the one holding the anchor's center, else

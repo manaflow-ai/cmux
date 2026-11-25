@@ -770,6 +770,8 @@ impl Brain {
         // Never below an id already handed out: a reset or unreadable
         // counter must not give `a<N>` twice (persistent-ids-DESIGN.md).
         let prior = self.state.next_subagent;
+        // Queued before this spawn: its own queued ids come after them.
+        let queued_ahead = self.queued_count();
         let first = free_subagent_run(
             self.state
                 .next_subagent
@@ -896,6 +898,7 @@ impl Brain {
             spawn,
             ids,
             queued,
+            queued_ahead,
             limit: self.live_cap_source(),
             engine: self.spawn_engine(),
             peer: chosen.iter().flatten().next().cloned(),
@@ -3093,8 +3096,51 @@ impl Brain {
         match self.state.live_cap {
             Some(0) => None,
             Some(n) => Some(LiveCap::Control(n)),
-            None => self.max_live.map(LiveCap::Env),
+            None => self.max_live.map(LiveCap::Env).or_else(|| {
+                // The machine's own limit (machine_limits.rs): its ceiling,
+                // and while it is over budget no new start past the floor.
+                let m = self.machine_limit.as_ref()?;
+                let over = self.machine_over.is_some();
+                let n = crate::machine_limits::allowed(m.ceiling, self.live_subs(), over);
+                Some(if over {
+                    LiveCap::Busy(n)
+                } else {
+                    LiveCap::Machine(n)
+                })
+            }),
         }
+    }
+
+    /// Reads the machine's load again (each subagent tick); a machine back
+    /// within budget starts its queued helpers.
+    pub(super) fn read_machine_load(&mut self) {
+        let Some(m) = self.machine_limit.as_ref() else {
+            return;
+        };
+        let over = (m.load)();
+        if over != self.machine_over {
+            match &over {
+                Some(why) => (self.log)(&format!(
+                    "machine over budget ({why}): new helpers wait in the queue"
+                )),
+                None => (self.log)("machine within budget again: queued helpers start"),
+            }
+        }
+        let freed = self.machine_over.is_some() && over.is_none();
+        self.machine_over = over;
+        if freed {
+            self.start_queued();
+        }
+    }
+
+    /// Helpers queued now, in the order they will start (`start_queued`'s).
+    pub(super) fn queued_count(&self) -> usize {
+        self.state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter(|s| s.status == SubStatus::Queued && !s.cancelled && !s.paused)
+            .count()
     }
 
     /// Subagents starting or running now on this machine (cloud ones, on a

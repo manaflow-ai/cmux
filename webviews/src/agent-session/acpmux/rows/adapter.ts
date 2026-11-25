@@ -5,7 +5,8 @@
 // `notYet.ts` and is left out here, never guessed: the view draws v1's empty state for it.
 // The started chats' cards (decision 241) are placed by the view over these rows from the chat list
 // (App.tsx `withStartedSessions`), as with v1.
-import { permissionFromMessage, mergeToolItem, textFromContent } from "../direct";
+import { permissionFromMessage } from "../permissionMessage";
+import { mergeToolItem, textFromContent } from "../toolActivity";
 import { harnessModeName } from "../harnessModes";
 import { translate } from "../i18n";
 import type { AcpmuxRow, QueuedPrompt } from "../model";

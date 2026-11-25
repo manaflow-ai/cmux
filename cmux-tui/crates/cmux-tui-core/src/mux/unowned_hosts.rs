@@ -20,12 +20,17 @@
 //!    reset, and the app's next ensure starts it). A root whose guard is
 //!    held, missing, or cannot be named is never touched; a held one starts
 //!    its hosts' times over;
-//! 2. it has been seen that way for its grace, counted from the first pass
-//!    that saw it, kept across restarts in this session's directory
-//!    ([`STORE_FILE`]), so an owner in a restart loop still reaps. Each time
-//!    is saved with what the session's last owner run left in its session
-//!    directory (`session_owner_mark`): an owner run since then (one that
-//!    adopted or used the host) starts the grace over.
+//! 2. it has been seen that way for its grace, counted from the first
+//!    sighting of it with its guard free, kept across restarts in this
+//!    session's directory ([`STORE_FILE`]), so an owner in a restart loop
+//!    still reaps. Each time is saved with what the session's last owner run
+//!    left in its session directory (`session_owner_mark`): an owner run
+//!    since then (one that adopted or used the host) starts the grace over.
+//!    Each reaper counts only its own sightings. `cmux gc`
+//!    (`process_census.rs`) reads them one way: its grace starts at the
+//!    earliest sighting it ([`SIGHTINGS_FILE`] in a state root) or any reaper
+//!    saved that still holds ([`Sightings`]), so gc never ends a host before a
+//!    reaper would, and nothing gc or `cmux ps` saw shortens a reaper's grace.
 //!
 //! Graces: [`LIVE_SHELL_GRACE`] for a host whose shell still runs (the user's
 //! work may be in it: a session that has not started for a day while this
@@ -73,6 +78,15 @@ const MAX_REMOVALS_PER_PASS: usize = 64;
 const MAX_STORE_ENTRIES: usize = 4096;
 /// In this session's directory: when each unowned host was first seen.
 pub(crate) const STORE_FILE: &str = "unowned-terminal-hosts.json";
+/// In a state root: when `cmux gc` (dry run or `--apply`) first saw each
+/// unowned host (the same shape as [`STORE_FILE`]), under
+/// [`SIGHTINGS_LOCK_FILE`]. `cmux ps` reads it and writes nothing; no reaper
+/// reads it.
+pub(crate) const SIGHTINGS_FILE: &str = "unowned-terminal-host-sightings.json";
+const SIGHTINGS_LOCK_FILE: &str = "unowned-terminal-host-sightings.lock";
+/// How long a sighting write waits for another's lock before it gives up
+/// (a sighting not saved only starts the grace later).
+const SIGHTINGS_LOCK_BUDGET: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Timing {
@@ -93,6 +107,12 @@ impl Timing {
         catch_up: CATCH_UP_INTERVAL,
         retry_failed: PASS_INTERVAL,
     };
+
+    /// The grace of a live host of an unowned root: shorter once its own
+    /// shell ended. `cmux gc` (`process_census.rs`) applies the same rule.
+    fn grace(&self, shell_ended: bool) -> Duration {
+        if shell_ended { self.ended_grace } else { self.live_grace }
+    }
 
     fn for_owner() -> Self {
         #[cfg(debug_assertions)]
@@ -119,6 +139,13 @@ impl Timing {
         #[cfg(not(debug_assertions))]
         Self::STANDARD
     }
+}
+
+/// The grace a live host of a root no live daemon owns must wait before it
+/// is ended, by the reaper and by `cmux gc` alike (debug builds: the
+/// reaper's test seam applies to both).
+pub(super) fn unowned_host_grace(shell_ended: bool) -> Duration {
+    Timing::for_owner().grace(shell_ended)
 }
 
 /// What one pass saw.
@@ -215,7 +242,7 @@ impl Mux {
 /// of these; a build that is never launched again leaves its hosts in it.
 /// Elsewhere (Linux, Windows, a standalone cmux-tui) a state root has no
 /// such siblings and only the own one is looked in.
-fn state_roots(own_state_root: &Path) -> Vec<PathBuf> {
+pub(super) fn state_roots(own_state_root: &Path) -> Vec<PathBuf> {
     fn name(path: Option<&Path>) -> Option<&str> {
         path.and_then(Path::file_name).and_then(|name| name.to_str())
     }
@@ -255,7 +282,7 @@ fn state_roots(own_state_root: &Path) -> Vec<PathBuf> {
 
 /// The record roots of the sessions of `state_root` other than `own_root`,
 /// each with its session's guard file stem when it can be named, sorted.
-fn session_roots(state_root: &Path, own_root: &Path) -> Vec<(PathBuf, Option<String>)> {
+pub(super) fn session_roots(state_root: &Path, own_root: &Path) -> Vec<(PathBuf, Option<String>)> {
     #[cfg(unix)]
     let components = crate::workspace_registry::session_guard_components(state_root);
     let mut roots = std::fs::read_dir(state_root)
@@ -322,7 +349,7 @@ struct Seen {
 /// record's own shell. Startup keeps the sidecars of older incarnations
 /// (`terminal_adoption.rs`), and a replacement launch leaves them in
 /// place, so any other sidecar says nothing about the shell running now.
-fn current_shell_ended(
+pub(super) fn current_shell_ended(
     record_path: &Path,
     record: &crate::terminal_host_runtime::TerminalHostRecord,
 ) -> bool {
@@ -336,6 +363,111 @@ fn current_shell_ended(
 /// The record root a store key names (`<record root>|<id>|<incarnation>`).
 fn key_root(key: &str) -> Option<&str> {
     key.rsplitn(3, '|').nth(2)
+}
+
+/// The store key of one host: `<record root>|<terminal id>|<incarnation>`.
+pub(super) fn sighting_key(record_root: &Path, terminal_id: &str, incarnation: &str) -> String {
+    format!("{}|{terminal_id}|{incarnation}", record_root.display())
+}
+
+/// Every saved first sighting of unowned hosts under some state roots: each
+/// reaper's ([`STORE_FILE`] in each session directory) and gc's
+/// ([`SIGHTINGS_FILE`] in each state root), as `cmux ps` and `cmux gc` read
+/// them. Reapers never read it: each keeps its own clock.
+#[derive(Debug, Default)]
+pub(super) struct Sightings {
+    stores: Vec<Store>,
+}
+
+impl Sightings {
+    pub(super) fn load(state_roots: &[PathBuf]) -> Self {
+        let mut stores = Vec::new();
+        for state_root in state_roots {
+            let census = state_root.join(SIGHTINGS_FILE);
+            if census.is_file() {
+                stores.push(load_store(&census));
+            }
+            for entry in std::fs::read_dir(state_root).into_iter().flatten().flatten() {
+                let store = entry.path().join(STORE_FILE);
+                if entry.file_type().is_ok_and(|kind| kind.is_dir()) && store.is_file() {
+                    stores.push(load_store(&store));
+                }
+            }
+        }
+        Self { stores }
+    }
+
+    /// The earliest saved first sighting of `key` that still holds: saved
+    /// with this `owner_mark` (no owner ran since) and not after `now_ms`.
+    pub(super) fn first_seen(&self, key: &str, owner_mark: &str, now_ms: u64) -> Option<u64> {
+        self.stores
+            .iter()
+            .filter_map(|store| store.hosts.get(key))
+            .filter(|seen| seen.owner_mark == owner_mark && seen.first_seen_ms <= now_ms)
+            .map(|seen| seen.first_seen_ms)
+            .min()
+    }
+}
+
+/// What one gc saw of one record root, for [`record_sightings`].
+pub(super) struct RootSighting {
+    pub(super) record_root: PathBuf,
+    /// Its guard was free: its live hosts' keys, with the owner mark. Empty
+    /// (its guard held or missing, or no live host) drops its sightings.
+    pub(super) live: Vec<String>,
+    pub(super) owner_mark: String,
+}
+
+/// Saves what a gc saw in `state_root`'s [`SIGHTINGS_FILE`], under its
+/// lock: a live host of a free root keeps its first sighting (a new one,
+/// or one saved with another owner mark, is seen at `now_ms`); every other
+/// host of a root it saw leaves, as do the hosts of roots that are gone.
+pub(super) fn record_sightings(
+    state_root: &Path,
+    roots: &[RootSighting],
+    now_ms: u64,
+) -> anyhow::Result<()> {
+    use cmux_file_lock::{FileLock, Kind};
+    let lock_path = state_root.join(SIGHTINGS_LOCK_FILE);
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).read(true).write(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+    }
+    let file = options.open(&lock_path)?;
+    let _lock = FileLock::take_within(
+        file,
+        Kind::Exclusive,
+        SIGHTINGS_LOCK_BUDGET,
+        Duration::from_millis(10),
+    )
+    .map_err(std::io::Error::from)?;
+    let path = state_root.join(SIGHTINGS_FILE);
+    let previous = load_store(&path);
+    let mut store = previous.clone();
+    store.hosts.retain(|key, _| key_root(key).is_some_and(|root| Path::new(root).is_dir()));
+    for root in roots {
+        let prefix = format!("{}|", root.record_root.display());
+        store.hosts.retain(|key, seen| {
+            !key.starts_with(&prefix)
+                || (root.live.contains(key)
+                    && seen.owner_mark == root.owner_mark
+                    && seen.first_seen_ms <= now_ms)
+        });
+        for key in &root.live {
+            store.hosts.entry(key.clone()).or_insert_with(|| Seen {
+                first_seen_ms: now_ms,
+                owner_mark: root.owner_mark.clone(),
+                failed_ms: None,
+            });
+        }
+    }
+    if store != previous {
+        save_store(&path, &store)?;
+    }
+    Ok(())
 }
 
 /// What the reaper keeps across passes and restarts ([`STORE_FILE`]).
@@ -356,7 +488,8 @@ fn load_store(path: &Path) -> Store {
         .unwrap_or_default()
 }
 
-fn save_store(path: &Path, store: &Store) {
+/// Writes `store` to `path` through a temporary file and a rename.
+fn save_store(path: &Path, store: &Store) -> std::io::Result<()> {
     let mut store = store.clone();
     while store.hosts.len() > MAX_STORE_ENTRIES {
         let Some(newest) = store
@@ -369,11 +502,12 @@ fn save_store(path: &Path, store: &Store) {
         };
         store.hosts.remove(&newest);
     }
-    let Ok(bytes) = serde_json::to_vec(&store) else { return };
+    let bytes = serde_json::to_vec(&store)?;
     let temporary = path.with_extension("json.tmp");
-    if std::fs::write(&temporary, bytes).is_ok() && std::fs::rename(&temporary, path).is_err() {
+    std::fs::write(&temporary, bytes)?;
+    std::fs::rename(&temporary, path).inspect_err(|_| {
         let _ = std::fs::remove_file(&temporary);
-    }
+    })
 }
 
 /// How a pass left one record root.
@@ -551,18 +685,16 @@ fn reap_pass_with(
             let mut guard_lost = false;
             for (record_path, record) in records {
                 let key = format!("{prefix}{}|{}", record.terminal_id, record.incarnation);
-                // A wall clock set back only restarts the count.
-                let first_seen = previous
+                // A wall clock set back only restarts the count. Only this
+                // reaper's own sighting counts: `cmux gc` reads the reapers'
+                // times, never the other way around.
+                let saved = previous
                     .hosts
                     .get(&key)
-                    .filter(|seen| seen.owner_mark == owner_mark && seen.first_seen_ms <= now_ms)
-                    .map_or(now_ms, |seen| seen.first_seen_ms);
-                let failed_ms = previous
-                    .hosts
-                    .get(&key)
-                    .filter(|seen| seen.first_seen_ms == first_seen)
-                    .and_then(|seen| seen.failed_ms)
-                    .filter(|failed| *failed <= now_ms);
+                    .filter(|seen| seen.owner_mark == owner_mark && seen.first_seen_ms <= now_ms);
+                let first_seen = saved.map_or(now_ms, |seen| seen.first_seen_ms);
+                let failed_ms =
+                    saved.and_then(|seen| seen.failed_ms).filter(|failed| *failed <= now_ms);
                 let seen =
                     Seen { first_seen_ms: first_seen, owner_mark: owner_mark.clone(), failed_ms };
                 let unowned_for = Duration::from_millis(now_ms - first_seen);
@@ -577,11 +709,7 @@ fn reap_pass_with(
                     }
                     TerminalHostLiveness::Live => all_dead = false,
                 }
-                let grace = if current_shell_ended(&record_path, &record) {
-                    timing.ended_grace
-                } else {
-                    timing.live_grace
-                };
+                let grace = timing.grace(current_shell_ended(&record_path, &record));
                 if unowned_for < grace {
                     report.in_grace += 1;
                     store.hosts.insert(key, seen);
@@ -676,8 +804,13 @@ fn reap_pass_with(
     report.removed = removed;
     report.capped = capped;
     store.cursor = cursor;
-    if store != previous {
-        save_store(store_path, &store);
+    if store != previous
+        && let Err(error) = save_store(store_path, &store)
+    {
+        eprintln!(
+            "cmux-tui: could not save the unowned terminal host times ({}): {error}",
+            store_path.display()
+        );
     }
     report
 }
@@ -888,7 +1021,7 @@ mod tests {
                 Seen { first_seen_ms: index as u64, owner_mark: String::new(), failed_ms: None },
             );
         }
-        save_store(&store_path, &store);
+        save_store(&store_path, &store).unwrap();
         let records = |root: &Path| -> LoadedRecords {
             Ok(if *root == *empty { Vec::new() } else { vec![fake_record(root, 0)] })
         };
@@ -953,6 +1086,63 @@ mod tests {
         Timing { live_grace: Duration::ZERO, ended_grace: Duration::ZERO, ..Timing::STANDARD };
 
     #[test]
+    fn only_this_reapers_own_sighting_starts_its_grace() {
+        // `cmux gc` and another session's reaper saw the host unowned twice
+        // the grace ago; this reaper never did. Their times are not its clock:
+        // it sees the host now, and its grace starts now.
+        let (dir, own, roots) = state_with_sessions("own-clock", &["cmux-app-quiet"]);
+        let root = roots[0].clone();
+        let component = crate::workspace_registry::session_guard_component("cmux-app-quiet");
+        let mark = crate::workspace_registry::session_owner_mark(&dir, &component);
+        let (_, record) = fake_record(&root, 0);
+        let key = sighting_key(&root, &record.terminal_id, &record.incarnation);
+        let now_ms = 30 * 24 * 60 * 60 * 1000;
+        let long_ago = Seen {
+            first_seen_ms: now_ms - 2 * u64::try_from(LIVE_SHELL_GRACE.as_millis()).unwrap(),
+            owner_mark: mark,
+            failed_ms: None,
+        };
+        let mut old = Store::default();
+        old.hosts.insert(key.clone(), long_ago);
+        std::fs::write(dir.join(SIGHTINGS_FILE), serde_json::to_vec(&old).unwrap()).unwrap();
+        let other_session = dir.join("other-session");
+        std::fs::create_dir_all(&other_session).unwrap();
+        std::fs::write(other_session.join(STORE_FILE), serde_json::to_vec(&old).unwrap()).unwrap();
+
+        let records = |at: &Path| -> LoadedRecords {
+            Ok(if at == root { vec![fake_record(at, 0)] } else { Vec::new() })
+        };
+        let ended = std::cell::Cell::new(0);
+        let end = |_: &crate::terminal_host_runtime::TerminalHostRecord, _: &Path| {
+            ended.set(ended.get() + 1);
+            HostEnd::Done(true)
+        };
+        let hosts = HostOps {
+            load: &records,
+            liveness: &|_, _| TerminalHostLiveness::Live,
+            end: &end,
+            remove: &|_, _| true,
+        };
+        let never = || false;
+        let store_path = dir.join(STORE_FILE);
+        let report = reap_pass_with(&hosts, &own, &store_path, now_ms, Timing::STANDARD, &never);
+        assert_eq!(ended.get(), 0, "{report:?}");
+        assert_eq!(report.in_grace, 1, "{report:?}");
+        assert_eq!(
+            load_store(&store_path).hosts.get(&key).map(|seen| seen.first_seen_ms),
+            Some(now_ms),
+            "its own clock starts at its own first sighting"
+        );
+
+        // Its own sighting past the grace ends the host.
+        std::fs::write(&store_path, serde_json::to_vec(&old).unwrap()).unwrap();
+        let report = reap_pass_with(&hosts, &own, &store_path, now_ms, Timing::STANDARD, &never);
+        assert_eq!(ended.get(), 1, "{report:?}");
+        assert_eq!(report.reaped, 1, "{report:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn hosts_that_fail_to_end_do_not_keep_later_hosts_and_roots_from_their_turn() {
         // The first root's 6 live hosts never end; the second root's host does.
         let (dir, own, roots) = state_with_sessions("failing", &["cmux-app-a", "cmux-app-b"]);
@@ -1012,7 +1202,7 @@ mod tests {
                 Seen { first_seen_ms: index as u64, owner_mark: String::new(), failed_ms: None },
             );
         }
-        save_store(&store_path, &store);
+        save_store(&store_path, &store).unwrap();
         let records = |root: &Path| -> LoadedRecords {
             Ok(if root == live { vec![fake_record(root, 0)] } else { Vec::new() })
         };
@@ -1165,7 +1355,7 @@ mod tests {
                 )
             })
             .collect::<BTreeMap<_, _>>();
-        save_store(&path, &Store { cursor: None, hosts });
+        save_store(&path, &Store { cursor: None, hosts }).unwrap();
         let loaded = load_store(&path).hosts;
         assert_eq!(loaded.len(), MAX_STORE_ENTRIES);
         assert_eq!(loaded.get("root/0").map(|seen| seen.first_seen_ms), Some(0));

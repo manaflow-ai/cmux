@@ -558,7 +558,7 @@ impl Hub {
     /// it, or it was deleted) or no longer this parent's has nothing of the race's to stop:
     /// cleanup goes on, so it never fails, and retries at every restart, on a child it cannot reach.
     async fn stop_race_child(self: &Arc<Self>, parent: &Session, id: &str) -> Result<(), RpcError> {
-        let child = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let child = self.session_get(id);
         let Some(child) = child else { return Ok(()) };
         if !child.read_meta(|m| m.subsession.as_ref().is_some_and(|l| l.started_by == parent.id)) {
             return Ok(());

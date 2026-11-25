@@ -100,6 +100,46 @@ public final class InputLatencyTrace {
         NextFrame.after { [weak self] in self?.sample(kind, since: start) }
     }
 
+    /// A sample from `start` to the end of this run-loop pass's Core Animation
+    /// commit: the keystroke's work done and its frame handed to the render
+    /// server (`<field>_key_commit`). Unlike `sampleAtNextFrame` it does not
+    /// include the wait for the next vsync (up to a frame at 60 Hz, Low Power
+    /// Mode's rate), so it says what the app itself spent on the key.
+    public func sampleAfterCommit(_ kind: String, since start: CFTimeInterval) {
+        // Core Animation commits at order 2_000_000 before the run loop waits.
+        let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue,
+                                                          false, 2_000_001) { _, _ in
+            MainActor.assumeIsolated { InputLatencyTrace.shared?.sample(kind, since: start) }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
+
+    /// Runs `action` at the next frame (a count read after the frame's layout).
+    public func atNextFrame(_ action: @escaping @MainActor () -> Void) {
+        NextFrame.after(action)
+    }
+
+    /// Runs `action` once, after this run-loop pass's Core Animation commit.
+    public func afterCommit(_ action: @escaping @MainActor () -> Void) {
+        let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue,
+                                                          false, 2_000_001) { _, _ in
+            MainActor.assumeIsolated { action() }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
+
+    /// Counts of events (a view body built, a size asked), read per key as deltas
+    /// (`<field>_key_<name>`); counting writes nothing.
+    public private(set) var counters: [String: Int] = [:]
+
+    public func count(_ name: String) { counters[name, default: 0] += 1 }
+
+    /// The calling thread's CPU time (ms): the main thread's work per key, which a busy host
+    /// stretches far less than wall time.
+    public nonisolated static func threadCPUms() -> Double {
+        Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)) / 1_000_000
+    }
+
     // MARK: Run loop
 
     private func installRunLoopObserver() {

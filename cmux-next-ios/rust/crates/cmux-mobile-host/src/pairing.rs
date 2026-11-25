@@ -36,6 +36,7 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use cmux_mobile_link::ChannelEvent;
+pub use cmux_mobile_link::dial::TunnelKeys;
 use cmux_mobile_link::link::{ChannelReceiver, ChannelSender};
 use futures_util::future::BoxFuture;
 use serde::Deserialize;
@@ -49,6 +50,12 @@ pub const APPROVAL_WAIT: Duration = Duration::from_secs(120);
 /// How long hostd waits for the phone's signature.
 const SIGNATURE_WAIT: Duration = Duration::from_secs(30);
 const DOMAIN: &str = "cmux-mobile-link-auth-v1";
+/// The domain of the phone's signature when it covers the link's tunnel keys.
+const DOMAIN_V2: &str = "cmux-mobile-link-auth-v2";
+/// `proofVersion` of an `auth` (and its challenge) whose identity proofs
+/// cover the WireGuard keys of the link they run on. A peer that sends none
+/// gets the v1 proofs, as before.
+pub const PROOF_V2: &str = "2";
 /// How long a request waits for the app's first `devices` list.
 pub const TRUST_WAIT: Duration = Duration::from_secs(10);
 /// How many channels may wait behind a link's running `auth`.
@@ -355,6 +362,9 @@ pub struct LinkAuth {
     waiters: std::sync::atomic::AtomicUsize,
     /// Who passed `auth` on this link: its kind and identity key.
     peer: Mutex<Option<(crate::peer::PeerKind, String)>>,
+    /// The WireGuard keys this link's tunnel handshook with (`None` on
+    /// WebRTC): a v2 `auth`'s proofs cover them.
+    tunnel_keys: Option<TunnelKeys>,
 }
 
 impl Default for LinkAuth {
@@ -363,6 +373,7 @@ impl Default for LinkAuth {
             state: watch::channel(AuthState::Idle).0,
             waiters: std::sync::atomic::AtomicUsize::new(0),
             peer: Mutex::new(None),
+            tunnel_keys: None,
         }
     }
 }
@@ -378,6 +389,11 @@ pub enum Gate {
 }
 
 impl LinkAuth {
+    /// A link whose tunnel handshook with `keys` (None: not a tunnel).
+    pub fn with_tunnel_keys(keys: Option<TunnelKeys>) -> Self {
+        Self { tunnel_keys: keys, ..Self::default() }
+    }
+
     /// The kind and identity key that passed `auth` on this link (`None`
     /// before, or for an unsupervised hostd, which pairs nobody).
     pub fn peer(&self) -> Option<(crate::peer::PeerKind, String)> {
@@ -477,7 +493,17 @@ impl LinkAuth {
     }
 }
 
-/// The bytes the phone's identity key signs.
+/// `domain`, then each part after a NUL.
+fn joined(domain: &str, parts: &[&str]) -> Vec<u8> {
+    let mut out = domain.as_bytes().to_vec();
+    for part in parts {
+        out.push(0);
+        out.extend_from_slice(part.as_bytes());
+    }
+    out
+}
+
+/// The bytes the phone's identity key signs (v1: no tunnel keys).
 pub fn challenge_message(
     mac: &str,
     phone: &str,
@@ -486,12 +512,21 @@ pub fn challenge_message(
     approval_key: &str,
     action: &str,
 ) -> Vec<u8> {
-    let mut out = DOMAIN.as_bytes().to_vec();
-    for part in [mac, phone, nonce, identity_key, approval_key, action] {
-        out.push(0);
-        out.extend_from_slice(part.as_bytes());
-    }
-    out
+    joined(DOMAIN, &[mac, phone, nonce, identity_key, approval_key, action])
+}
+
+/// The bytes the phone's identity key signs in a v2 `auth`: v1's parts, then
+/// the tunnel's dialer and answerer WireGuard keys.
+pub fn challenge_message_v2(
+    mac: &str,
+    phone: &str,
+    nonce: &str,
+    identity_key: &str,
+    approval_key: &str,
+    action: &str,
+    keys: &TunnelKeys,
+) -> Vec<u8> {
+    joined(DOMAIN_V2, &[mac, phone, nonce, identity_key, approval_key, action, &keys.dialer, &keys.answerer])
 }
 
 /// A refusal: close code and reason.
@@ -499,17 +534,26 @@ pub type Refused = (&'static str, String);
 
 /// The domain of the Mac's identity proof.
 const MAC_DOMAIN: &str = "cmux-mobile-mac-identity-v1";
+/// The domain of the Mac's identity proof when it covers the tunnel keys.
+const MAC_DOMAIN_V2: &str = "cmux-mobile-mac-identity-v2";
 
 /// The bytes the Mac's identity key signs for a phone: this Mac's device id,
 /// the phone, the phone's own nonce (`macNonce`, so a recorded proof cannot be
 /// replayed) and this `auth`'s challenge.
 pub fn mac_proof_message(mac: &str, phone: &str, phone_nonce: &str, challenge: &str) -> Vec<u8> {
-    let mut out = MAC_DOMAIN.as_bytes().to_vec();
-    for part in [mac, phone, phone_nonce, challenge] {
-        out.push(0);
-        out.extend_from_slice(part.as_bytes());
-    }
-    out
+    joined(MAC_DOMAIN, &[mac, phone, phone_nonce, challenge])
+}
+
+/// The Mac's proof in a v2 `auth`: v1's parts, then the tunnel's dialer and
+/// answerer WireGuard keys as this Mac's tunnel handshook with them.
+pub fn mac_proof_message_v2(
+    mac: &str,
+    phone: &str,
+    phone_nonce: &str,
+    challenge: &str,
+    keys: &TunnelKeys,
+) -> Vec<u8> {
+    joined(MAC_DOMAIN_V2, &[mac, phone, phone_nonce, challenge, &keys.dialer, &keys.answerer])
 }
 
 /// This Mac's long-lived P-256 identity key (the app keeps it in the
@@ -598,12 +642,6 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
         return None;
     }
     (0..s.len()).step_by(2).map(|i| u8::from_str_radix(s.get(i..i + 2)?, 16).ok()).collect()
-}
-
-/// A pairing code's pre-approval as the Mac mints it: 16 to 64 base64url characters.
-fn is_pair_token(token: &str) -> bool {
-    (16..=64).contains(&token.len())
-        && token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 /// An app bundle id as a phone states it: 1 to 155 ASCII letters, digits, `.` and `-`.
@@ -712,7 +750,7 @@ pub async fn serve(
     receiver: &mut ChannelReceiver,
 ) -> Result<(), Refused> {
     // The accept loop counted this channel when it opened (`begin`).
-    let result = authenticate(pairing, phone, args, sender, receiver).await;
+    let result = authenticate(pairing, phone, link.tunnel_keys.as_ref(), args, sender, receiver).await;
     // A machine's every pairing attempt is in Activity, allowed or not (a phone's is not).
     let kind = crate::peer::PeerKind::parse(args.get("kind").and_then(Value::as_str).unwrap_or_default());
     if let (Some(pairing), Some(kind)) = (pairing, kind)
@@ -744,6 +782,7 @@ fn action_is_pair(args: &Value) -> bool {
 async fn authenticate(
     pairing: Option<&Pairing>,
     phone: &str,
+    tunnel_keys: Option<&TunnelKeys>,
     args: &Value,
     sender: &ChannelSender,
     receiver: &mut ChannelReceiver,
@@ -792,6 +831,12 @@ async fn authenticate(
         });
     let nonce = new_nonce()?;
     let mut challenge = json!({"challenge": nonce, "mac": pairing.mac_device_id});
+    // A peer that asks for v2 on a tunnel gets proofs over the keys this Mac's
+    // own tunnel handshook with, both ways.
+    let bound = tunnel_keys.filter(|_| text("proofVersion") == PROOF_V2);
+    if bound.is_some() {
+        challenge["proofVersion"] = json!(PROOF_V2);
+    }
     // A phone that pins Macs sends its own nonce: the Mac signs it with its
     // identity key, so a host registered with a stolen token cannot pass as it.
     let phone_nonce = text("macNonce");
@@ -802,7 +847,10 @@ async fn authenticate(
         }
         let identity = pairing.identity.borrow().clone();
         if let Some(identity) = identity {
-            let proof = mac_proof_message(&pairing.mac_device_id, phone, phone_nonce, &nonce);
+            let proof = match bound {
+                Some(keys) => mac_proof_message_v2(&pairing.mac_device_id, phone, phone_nonce, &nonce, keys),
+                None => mac_proof_message(&pairing.mac_device_id, phone, phone_nonce, &nonce),
+            };
             challenge["macKey"] = json!(identity.public_key());
             challenge["macSignature"] = json!(identity.sign(&proof));
             // The box key replies are sealed to, vouched for by the identity key
@@ -813,24 +861,13 @@ async fn authenticate(
         }
     }
     send(sender, challenge).await;
-    // With the signature, a phone that scanned the Mac's pairing code sends its pre-approval
-    // (`pairToken`), only after this challenge proved the Mac's key. hostd checks nothing but its
-    // shape and forwards it with the request: the app decides, and only for a phone this host
-    // already admitted as the owner's.
-    let (signature, pair_token) = match tokio::time::timeout(SIGNATURE_WAIT, receiver.recv()).await {
-        Ok(Some(ChannelEvent::Data(bytes))) => {
-            let reply = serde_json::from_slice::<Value>(&bytes).ok();
-            let signature = reply
-                .as_ref()
-                .and_then(|v| v.get("signature").and_then(Value::as_str).map(str::to_owned))
-                .ok_or(("bad_request", "expected {signature}".to_owned()))?;
-            let pair_token =
-                reply.as_ref().and_then(|v| v.get("pairToken")).and_then(Value::as_str).map(str::to_owned);
-            if pair_token.as_deref().is_some_and(|token| !is_pair_token(token)) {
-                return Err(("bad_request", "pairToken is 16 to 64 base64url characters".into()));
-            }
-            (signature, pair_token)
-        }
+    // The phone answers with its signature. An older phone that scanned the Mac's retired pairing
+    // code also sends `pairToken` beside it: ignored, so that phone asks as every phone does.
+    let signature = match tokio::time::timeout(SIGNATURE_WAIT, receiver.recv()).await {
+        Ok(Some(ChannelEvent::Data(bytes))) => serde_json::from_slice::<Value>(&bytes)
+            .ok()
+            .and_then(|v| v.get("signature").and_then(Value::as_str).map(str::to_owned))
+            .ok_or(("bad_request", "expected {signature}".to_owned()))?,
         // The phone refused the challenge itself (it closes `auth` at once when this Mac proves
         // another key than the one it pinned, or names another Mac): say so, not "timeout", so the
         // log shows the real cause (2026-11-03: a 6 ms "timeout" hid `mac_identity_changed`).
@@ -841,8 +878,18 @@ async fn authenticate(
         Ok(None) => return Err(("phone_closed", "the iPhone closed pairing".into())),
         Err(_) => return Err(("timeout", "no signature".into())),
     };
-    let message =
-        challenge_message(&pairing.mac_device_id, phone, &nonce, identity_key, approval_key, action);
+    let message = match bound {
+        Some(keys) => challenge_message_v2(
+            &pairing.mac_device_id,
+            phone,
+            &nonce,
+            identity_key,
+            approval_key,
+            action,
+            keys,
+        ),
+        None => challenge_message(&pairing.mac_device_id, phone, &nonce, identity_key, approval_key, action),
+    };
     if !verify(identity_key, &message, &signature) {
         return Err(("unpaired", "the signature does not match the identity key".into()));
     }
@@ -909,8 +956,6 @@ async fn authenticate(
                     identity_key: identity_key.to_owned(),
                     approval_key: approval_key.to_owned(),
                     registered_at_ms,
-                    // A pairing code pre-approves phones only: a machine always asks.
-                    pair_token: if kind.is_machine() { None } else { pair_token.clone() },
                     bundle_id: bundle_id.clone(),
                     kind,
                 });
@@ -1036,6 +1081,24 @@ mod tests {
         assert_eq!(&m[..25], b"cmux-mobile-link-auth-v1\0");
         let hex: String = digest(&SHA256, &m).as_ref().iter().map(|b| format!("{b:02x}")).collect();
         assert_eq!(hex, "9b706236232d90e6548bf7de5c624845d5209a65bb08dba15e4561b85fd26ae2");
+    }
+
+    #[test]
+    fn the_v2_messages_cover_the_tunnel_keys() {
+        // The same vectors are in the phone's MacPinTests.
+        let keys = TunnelKeys { dialer: "D".into(), answerer: "A".into() };
+        assert_eq!(
+            challenge_message_v2("m", "p", "n", "i", "a", "pair", &keys),
+            b"cmux-mobile-link-auth-v2\0m\0p\0n\0i\0a\0pair\0D\0A"
+        );
+        assert_eq!(
+            mac_proof_message_v2("m", "p", "pn", "c", &keys),
+            b"cmux-mobile-mac-identity-v2\0m\0p\0pn\0c\0D\0A"
+        );
+        assert_eq!(
+            challenge_message("m", "p", "n", "i", "a", "pair"),
+            b"cmux-mobile-link-auth-v1\0m\0p\0n\0i\0a\0pair"
+        );
     }
 
     #[tokio::test]
@@ -1211,5 +1274,35 @@ mod tests {
         assert_eq!(trust.standing("q", "i", "a"), Standing::Denied);
         // A new identity key (the phone signed out and in) asks again.
         assert_eq!(trust.standing("q", "j", "a"), Standing::Unknown);
+    }
+
+    /// `cargo test --release -p cmux-mobile-host --lib -- --ignored --nocapture
+    /// proof_cost`: the cost of v1 against v2 (tunnel keys) `auth` proofs.
+    #[test]
+    #[ignore]
+    fn proof_cost() {
+        let id = MacIdentity::generate().unwrap();
+        let hex = "ab".repeat(32);
+        let keys = TunnelKeys { dialer: "A".repeat(43) + "=", answerer: "B".repeat(43) + "=" };
+        let v1 = challenge_message("mac-0123", "phone-0123", &hex, id.public_key(), id.public_key(), "pair");
+        let v2 = challenge_message_v2(
+            "mac-0123",
+            "phone-0123",
+            &hex,
+            id.public_key(),
+            id.public_key(),
+            "pair",
+            &keys,
+        );
+        let n = 20_000u32;
+        for (name, message) in [("v1", &v1), ("v2", &v2)] {
+            let started = Instant::now();
+            let signature = (0..n).map(|_| id.sign(message).unwrap()).last().unwrap();
+            let sign = started.elapsed() / n;
+            let started = Instant::now();
+            assert!((0..n).all(|_| verify(id.public_key(), message, &signature)));
+            let check = started.elapsed() / n;
+            println!("{name}: {} bytes, sign {sign:?}, verify {check:?} (n={n})", message.len());
+        }
     }
 }

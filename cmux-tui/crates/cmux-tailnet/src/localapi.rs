@@ -25,7 +25,7 @@ impl LocalApi {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let token = base64::engine::general_purpose::STANDARD.encode(format!(":{cred}"));
         // This client carries the private LocalAPI password. Never use proxies or redirects.
-        let agent = reqwest::blocking::Client::builder()
+        let agent = cmux_egress::blocking_client_builder("cmux_tailnet::localapi")
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(10))

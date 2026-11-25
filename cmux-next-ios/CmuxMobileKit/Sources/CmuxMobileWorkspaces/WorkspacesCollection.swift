@@ -13,6 +13,8 @@ enum WorkspacesListItem: Equatable {
     case title(String)
     /// Every Mac is asleep (All Macs, no search).
     case asleep
+    /// The filtered Mac can't be used: what is wrong and Retry, above its last-known rows (cmux#52200).
+    case recovery(String)
     /// A Mac workspace group's header.
     case group(WorkspaceGroupHeaderModel)
     /// Group by Folder: a folder's header over its loose rows.
@@ -398,7 +400,7 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         case .group: EdgeInsets(top: 4, leading: 0, bottom: 0, trailing: 20)
         case .folder: EdgeInsets(top: 10, leading: 0, bottom: 2, trailing: 20)
         case .fold: EdgeInsets(top: 10, leading: 0, bottom: 4, trailing: 20)
-        case .asleep: EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20)
+        case .asleep, .recovery: EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20)
         case .loading: EdgeInsets()
         }
     }

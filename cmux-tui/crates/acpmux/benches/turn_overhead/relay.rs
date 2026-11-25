@@ -311,6 +311,7 @@ impl RelayRoute {
                 generation: 0,
                 connection_attempt: ConnectionAttemptId(random_16()),
                 resume: BTreeMap::new(),
+                daemon_takes_ik: false,
                 handshake_timeout: STEP_LIMIT,
             },
         )

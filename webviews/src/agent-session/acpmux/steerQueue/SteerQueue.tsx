@@ -57,14 +57,23 @@ export function SteerQueue({
   const field = useRef<HTMLInputElement>(null);
   // Focus follows a chat, not a row: the list re-ranks as acpmux reports, and the person's place
   // stays on the chat they were looking at.
-  const [focusId, setFocusId] = useState(initialFocus);
+  // An initial chat that is not listed is no focus: the first row is, as when none is given.
+  const [focusId, setFocusId] = useState(() =>
+    items.some((item) => item.sessionId === initialFocus) ? initialFocus : undefined,
+  );
   const [text, setText] = useState("");
   const [step, setStep] = useState<Step>();
+  // The field as last drawn: a step that lands reads what the person typed while it was on its way.
+  const textNow = useRef(text);
+  useEffect(() => {
+    textNow.current = text;
+  }, [text]);
   const found = items.findIndex((item) => item.sessionId === focusId);
   const index = Math.max(0, found);
-  // A typed line never moves to another chat: when the chat it was for leaves the list, nothing is
-  // focused until the person picks one, so Return cannot steer an agent they did not choose.
-  const focused = found >= 0 || focusId === undefined || !text ? items[index] : undefined;
+  // Focus never moves to another chat on its own: when the focused chat leaves the list, nothing is
+  // focused until the person picks one, so no key (Return, a stop, a fork, an open) acts on an agent
+  // they did not choose, whether or not a line is typed.
+  const focused = found >= 0 ? items[found] : focusId === undefined ? items[0] : undefined;
 
   const frame = useRef<HTMLDivElement>(null);
   useEffect(() => field.current?.focus(), []);
@@ -98,12 +107,14 @@ export function SteerQueue({
         onAct?.(item, act, typed);
         setStep({ sessionId: item.sessionId, act, state: "done" });
         // Only the line that went leaves the field: words typed while it was on its way stay.
-        if (typed !== undefined)
-          setText((current) => (current.startsWith(sent) ? current.slice(sent.length).trimStart() : current));
-        // On down the list: the next chat that may need the person. A line still in the field after
-        // a step that did not send it (a stop) stays with the chat it was typed for.
+        const unsent = (current: string) =>
+          typed !== undefined && current.startsWith(sent) ? current.slice(sent.length).trimStart() : current;
+        if (typed !== undefined) setText(unsent);
+        // On down the list: the next chat that may need the person. A line still in the field (one a
+        // stop did not send, or words typed while the step was on its way) stays with the chat it
+        // was typed for, so the next Return cannot send it to another agent.
         const next = items[nextFocus(items.length, items.indexOf(item))];
-        if (next && act !== "fork" && (typed !== undefined || !sent)) setFocusId(next.sessionId);
+        if (next && act !== "fork" && !unsent(textNow.current).trim()) setFocusId(next.sessionId);
       },
       () => setStep({ sessionId: item.sessionId, act, state: "failed" }),
     );

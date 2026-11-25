@@ -160,7 +160,8 @@ import Testing
     @Test func offlineBannerOffersRetryWithoutEmbeddingAnInertActionInText() {
         #expect(ConnectionBannerState.connectionFailed.text == "Offline")
         #expect(ConnectionBannerState.connectionFailed.offersRetry)
-        #expect(ConnectionBannerState.offline.offersRetry)
+        // This iPhone offline: nothing to retry; the links redial when the network returns.
+        #expect(!ConnectionBannerState.offline.offersRetry)
         #expect(ConnectionBannerState.macOffline("Studio").offersRetry)
         #expect(!ConnectionBannerState.connected.offersRetry)
         #expect(ConnectionBannerState.reconnecting(to: "Studio").text == "Reconnecting…")

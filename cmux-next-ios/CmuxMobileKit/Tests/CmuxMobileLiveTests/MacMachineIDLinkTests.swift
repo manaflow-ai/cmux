@@ -60,7 +60,7 @@ import Testing
         #expect(MacRoster(store.activeTeam?.macs ?? []).visible.map(\.id) == ["m1"])
     }
 
-    /// The phone remembers the build it paired by that build's code (steerToInvite writes the pick):
+    /// The phone remembers the build it picked (the per-team pick in UserDefaults):
     /// the focus and the link go to that build, not to the other build of the computer that sorts
     /// first (2026-11-18, review.sh on a real iPhone: the receipt named the other build, unlinked).
     @Test func theRememberedBuildIsFocusedOverTheOtherBuild() async {

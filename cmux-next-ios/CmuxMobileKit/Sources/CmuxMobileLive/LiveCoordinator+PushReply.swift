@@ -37,6 +37,12 @@ extension LiveCoordinator {
     /// Delivers `reply` to its Mac. Throws `PushReplyFailure`.
     public func deliver(_ reply: PushReply, budget: Duration = LiveCoordinator.pushReplyBudget) async throws {
         touch(reply.mac)
+        // A button tapped in the background: the Mac holds a parked link's
+        // answers until the phone wakes it, so it resumes for this reply.
+        try await withLinkAwake(reply.mac) { try await deliverAwake(reply, budget: budget) }
+    }
+
+    private func deliverAwake(_ reply: PushReply, budget: Duration) async throws {
         if reply.kind == .chief {
             try await deliverToChief(reply, budget: budget)
             return

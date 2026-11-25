@@ -352,6 +352,18 @@ const STAYED: &str = "This chat did not move: a move to another machine stopped 
                       turn and then did not happen. You are still on this machine, with the same \
                       files; processes you started may have ended with the turn.";
 
+/// The provenance key of a continuation the harness may run from its own transcript, with no
+/// prompt written ([`Cut::MoveAtBoundary`]).
+const SILENT: &str = "silent";
+
+/// Whether `provenance` is such a continuation's.
+pub(in crate::hub) fn silent(provenance: Option<&Value>) -> bool {
+    provenance.is_some_and(|p| {
+        p.get("kind").and_then(Value::as_str) == Some("auto_resume")
+            && p.get(SILENT).and_then(Value::as_bool) == Some(true)
+    })
+}
+
 /// What cut the turn off.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::hub) enum Cut {
@@ -359,6 +371,11 @@ pub(in crate::hub) enum Cut {
     Restart,
     /// The chat moved to another machine (`transfer_out.rs`).
     Move,
+    /// It moved at a tool boundary, with nothing of the turn left running: a [`Cut::Move`] whose
+    /// continuation says so (`"silent": true` in its provenance), so a harness that can go on
+    /// from its own transcript does, and the text is never written
+    /// (`claude_stdio/resume_cut.rs`). Any other harness gets the text as after `Cut::Move`.
+    MoveAtBoundary,
 }
 
 impl Cut {
@@ -366,7 +383,7 @@ impl Cut {
     pub(in crate::hub) fn reason(self) -> &'static str {
         match self {
             Cut::Restart => "daemon_restart",
-            Cut::Move => "moved",
+            Cut::Move | Cut::MoveAtBoundary => "moved",
         }
     }
 
@@ -389,7 +406,7 @@ impl Cut {
                 "acpmux restarted (an update or a crash) while your previous turn was running, \
                  and the turn was cut off."
             }
-            Cut::Move => {
+            Cut::Move | Cut::MoveAtBoundary => {
                 "This chat moved to another machine while your previous turn was running, and the \
                  turn was cut off. The files and git state came with it, but processes you \
                  started (dev servers, watchers, background shells) did not: start again any \
@@ -452,7 +469,7 @@ impl Hub {
     /// configures, for a restart's chain here or a transport cut's (`auto_resume.rs`).
     pub(in crate::hub) fn moves_behind(&self, session: &Arc<Session>, root: &str) -> usize {
         let mut moves = 0;
-        let _ = self.store.scan_heads(&session.id, &mut |head: &RecordHead<'_>| {
+        let _ = self.scan_heads_off(&session.id, &mut |head: &RecordHead<'_>| {
             if head.kind == "auto_resume_scheduled"
                 && let Some(e) = head.record()
                 && e.msg.get("reason").and_then(Value::as_str) == Some(Cut::Move.reason())
@@ -522,7 +539,7 @@ impl Hub {
         // The newest turn before the cut one and the newest prompt text before it, each by turn
         // id: the two records come in either order.
         let (mut ask_turn, mut ask_text) = (None::<(String, String)>, None::<(String, String)>);
-        let _ = self.store.scan_heads(&session.id, &mut |head: &RecordHead<'_>| {
+        let _ = self.scan_heads_off(&session.id, &mut |head: &RecordHead<'_>| {
             // Headers are cheap to inspect. Parse payloads only after the interrupted turn starts,
             // and stop at its result so a long session does not deserialize historical tool I/O.
             let kind = head.kind.strip_suffix(".replay").unwrap_or(head.kind);
@@ -545,10 +562,10 @@ impl Hub {
             let is_turn = e.msg.get("turnId").and_then(Value::as_str) == Some(turn_id);
             let field = |k: &str| e.msg.get(k).and_then(Value::as_str).map(str::to_owned);
             match e.kind.as_str() {
-                "auto_resume_scheduled" => {
-                    if e.msg.get("reason").and_then(Value::as_str) == Some(Cut::Move.reason()) {
-                        moved.extend(field("promptId"));
-                    }
+                "auto_resume_scheduled"
+                    if e.msg.get("reason").and_then(Value::as_str) == Some(Cut::Move.reason()) =>
+                {
+                    moved.extend(field("promptId"));
                 }
                 "turn_started" if is_turn => {
                     started = true;
@@ -655,7 +672,7 @@ impl Hub {
         let prompt_id = prompt_id.filter(|p| !p.is_empty())?;
         let own_session_id = session.meta().agent_session_id;
         let (unfinished, omitted_tools) = collect_unfinished(|page| {
-            let _ = self.store.scan_heads(&session.id, &mut |head| {
+            let _ = self.scan_heads_off(&session.id, &mut |head| {
                 if tool_end.is_some_and(|end| head.seq >= end) {
                     return false;
                 }
@@ -712,7 +729,15 @@ impl Hub {
         let msg = json!({"promptId": root, "attempt": attempt, "turnId": turn_id, "delayMs": 0, "reason": cut.reason()});
         self.append(session, "mux", "auto_resume_scheduled", msg);
         let text = continue_text_for(cut, &prompts, &unfinished, omitted_tools);
-        let provenance = json!({"kind": "auto_resume", "reason": cut.reason(), "promptId": root, "attempt": attempt, "turnId": turn_id});
+        let mut provenance = json!({"kind": "auto_resume", "reason": cut.reason(), "promptId": root, "attempt": attempt, "turnId": turn_id});
+        // Nothing of the turn was cut short: the harness may go on from its own transcript.
+        if cut == Cut::MoveAtBoundary
+            && unfinished.is_empty()
+            && omitted_tools == ToolOmission::None
+            && images.is_empty()
+        {
+            provenance.set(SILENT, json!(true));
+        }
         let control = if raised_to_web { "web" } else { control.as_deref().unwrap_or("web") };
         let mut blocks = vec![json!({"type": "text", "text": text})];
         // Each image's source goes with it as display metadata, so the continuation's record keeps
@@ -914,6 +939,31 @@ mod tests {
         assert_eq!(exhausted(&hub).len(), 1);
         hub.shutdown_all().await;
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A move at a tool boundary marks its continuation as one the harness may run from its own
+    /// transcript; a move that cut the turn anywhere (`--interrupt`) does not. Both keep the
+    /// text, the reason and the id, which every other harness and every record reader use.
+    #[tokio::test]
+    async fn only_a_boundary_moves_continuation_may_run_with_no_prompt() {
+        for (cut, want) in [(Cut::MoveAtBoundary, true), (Cut::Move, false), (Cut::Restart, false)]
+        {
+            let (root, hub, session) = cut_turn(Some(vec![10_000]), 0);
+            let id = hub.log_continuation(&session, "t1", cut);
+            assert_eq!(id, Some(format!("p1{SUFFIX}1")), "{cut:?}");
+            let events = hub.events("c1", 0, 10_000).unwrap();
+            let queued = events.iter().rfind(|e| e.kind == "queued").expect("queued").msg.clone();
+            let provenance = queued.pointer("/_meta/provenance");
+            assert_eq!(silent(provenance), want, "{cut:?}: {queued}");
+            let text = queued.pointer("/text").and_then(|v| v.as_str()).unwrap();
+            assert!(text.starts_with(cut.opening()), "{cut:?}: {text}");
+            assert_eq!(Cut::MoveAtBoundary.opening(), Cut::Move.opening());
+            assert_eq!(Cut::MoveAtBoundary.reason(), Cut::Move.reason());
+            hub.shutdown_all().await;
+            let _ = std::fs::remove_dir_all(&root);
+        }
+        assert!(!silent(None));
+        assert!(!silent(Some(&json!({"kind": "person", "silent": true}))));
     }
 
     /// The key unset keeps the default waits' attempts, and `[]` still turns it off.

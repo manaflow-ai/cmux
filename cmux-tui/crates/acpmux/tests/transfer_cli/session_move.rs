@@ -2,7 +2,7 @@
 use super::*;
 use std::os::unix::fs::PermissionsExt;
 
-/// Stand in only for the three SSH operations the CLI needs. No host SSH, credentials or
+/// Stand in only for the SSH operations the CLI and a daemon's own peer link need. No host SSH, credentials or
 /// network are used; the socket symlink reaches the other test daemon's real RPC server.
 pub(super) fn fake_ssh(home: &Path, target_home: &Path, target_socket: &Path) -> String {
     let bin = home.join("bin");
@@ -19,11 +19,69 @@ if '-L' in args:
     os.symlink(socket, local)
     signal.pause()
     sys.exit(0)
+if '-W' in args:
+    # A daemon's own link to its peer (`peer.rs` `tunnel_argv`): this process's stdin and
+    # stdout are the peer's WebSocket port, the one its config names whatever port was asked for.
+    import socket as net, threading
+    listen = json.loads(pathlib.Path(home, 'config.json').read_text()).get('websocket') or dict()
+    at = listen.get('listen')
+    if not at:
+        sys.exit(1)
+    host, port = at.rsplit(':', 1)
+    link = net.create_connection((host, int(port)))
+    link.setsockopt(net.IPPROTO_TCP, net.TCP_NODELAY, 1)
+    # FAKE_SSH_DELAY_MS (the daemon's env): each chunk is held that long in both directions, as
+    # a link of that one-way latency holds it (`view_latency.rs`).
+    delay = int(os.environ.get('FAKE_SSH_DELAY_MS') or 0) / 1000
+    def write_out(data):
+        while data:
+            data = data[os.write(1, data):]
+    def pump(read, write, close):
+        import queue, time
+        held = queue.Queue()
+        def deliver():
+            while True:
+                item = held.get()
+                if item is None:
+                    close()
+                    return
+                wait = item[0] - time.monotonic()
+                if wait > 0:
+                    time.sleep(wait)
+                write(item[1])
+        out = threading.Thread(target=deliver, daemon=True)
+        out.start()
+        while True:
+            try:
+                data = read()
+            except OSError:
+                data = b''
+            if not data:
+                held.put(None)
+                out.join()
+                return
+            held.put((time.monotonic() + delay, data))
+    threading.Thread(
+        target=pump,
+        args=(lambda: os.read(0, 65536), link.sendall, lambda: link.shutdown(net.SHUT_WR)),
+        daemon=True).start()
+    pump(lambda: link.recv(65536), write_out, lambda: None)
+    sys.exit(0)
 command = args[-1]
 if 'acpmux daemon status --json' in command:
     print(home)
     print(json.dumps({{'socket': socket}}))
     print(500000000)
+elif 'cat ~/.acpmux/config.json' in command:
+    # A daemon's own link to its peer (`peer.rs` `read_config_argv`): the peer's config, a NUL,
+    # its peer token of this launch. A peer that serves no WebSocket has no link, as before.
+    config = pathlib.Path(home, 'config.json').read_bytes()
+    if 'websocket' not in json.loads(config):
+        sys.exit(1)
+    sys.stdout.buffer.write(config + b'\0')
+    token = pathlib.Path(home, 'run', 'peer.token')
+    if token.exists():
+        sys.stdout.buffer.write(token.read_bytes())
 elif 'mkdir -p' in command and 'read -r d' in command:
     folder = pathlib.Path(sys.stdin.readline().strip())
     assert str(folder).startswith(home + '/')
@@ -156,7 +214,9 @@ async fn session_move_to_an_added_ssh_machine_preserves_history_queue_and_draft(
     assert_eq!(draft["draft"], "unsent words");
     let info = dst.call("_acpmux/info", json!({"sessionId": id})).await;
     assert_eq!(info["cwd"], destination.to_string_lossy().as_ref());
-    let left = src.call("_acpmux/info", json!({"sessionId": id})).await;
+    // The row the source keeps: a plain `{sessionId}` info follows the chat to its copy.
+    let kept = src.call("_acpmux/info", json!({"sessionIds": [id], "row": true})).await;
+    let left = &kept["rows"][0];
     assert_eq!(left["status"], "closed");
     assert_eq!(left["movedTo"]["host"], "target");
 }

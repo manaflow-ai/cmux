@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tooling-steps runs: scripts/measure/tests/*.test.sh scripts/measure/tests/*.test.py
 # Runs every scripts/measure/tests/*.test.sh and *.test.py, so a new measure test runs in CI without its own guards
 # step: only 4 of 45 had one, and the rest went unrun (2026-11-18). A test that cannot pass on a CI runner, or fails
 # on base, is listed in SKIP with its reason; the runner names each one it skips. Prints PASS or FAIL per test with a

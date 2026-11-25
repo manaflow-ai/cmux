@@ -159,10 +159,8 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `sidebar.groupHeader.unreadCount`: a collapsed group's header shows its members' unread
     /// total on the right. Off by default, as ``groupHeaderMemberCount``.
     public var groupHeaderUnreadCount = false
-    /// `sidebar.groupHeader.background`: a group draws as a plain folder (the default, `folder`: David Beyer
-    /// 2026-11-20, groups as plain folders with every thread in the one list), as glass, solid, or `auto` (glass where
-    /// the sidebar is see-through and solid where it is opaque), or as a plain section heading.
-    public var groupHeaderBackground: SidebarGroupBackgroundStyle = .folder
+    /// `sidebar.groupHeader.background`: Automatic draws a visible header band and a rail beside the members.
+    public var groupHeaderBackground: SidebarGroupBackgroundStyle = .auto
     /// `sidebar.groupPalette` (``GroupPalette``): where group colors come from, and whether a new group takes the
     /// palette's next color. Pure glass by default: a new group has no color until a person picks one.
     public var groupPalette: GroupPalette = .glass

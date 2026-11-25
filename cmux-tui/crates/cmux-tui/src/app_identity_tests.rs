@@ -139,3 +139,30 @@ fn app_bundle_is_found_from_the_bundled_cli() {
     );
     assert_eq!(containing_app_bundle(Path::new("/usr/local/bin/cmux")), None);
 }
+
+/// cmux#53045: Homebrew's `/opt/homebrew/bin/cmux` links to the bundled CLI;
+/// macOS's `current_exe` is the link, and the CLI must still find its app
+/// (and so the app's daemon socket, not `main.sock`).
+#[cfg(unix)]
+#[test]
+fn a_link_to_the_bundled_cli_finds_its_app() {
+    let root = std::env::temp_dir().join(format!("cmux-link-bundle-{}", std::process::id()));
+    let bin = root.join("cmux NIGHTLY.app/Contents/Resources/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(bin.join("cmux"), b"").unwrap();
+    std::fs::write(
+        root.join("cmux NIGHTLY.app/Contents/Info.plist"),
+        br#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.cmuxterm.app.nightly</string></dict></plist>"#,
+    )
+    .unwrap();
+    let brew = root.join("homebrew/bin");
+    std::fs::create_dir_all(&brew).unwrap();
+    std::os::unix::fs::symlink(bin.join("cmux"), brew.join("cmux")).unwrap();
+    let real = std::fs::canonicalize(root.join("cmux NIGHTLY.app")).unwrap();
+    assert_eq!(containing_app_bundle(&brew.join("cmux")), Some(real));
+    let identity = AppIdentity::detect(|_| None, Some(&brew.join("cmux"))).unwrap();
+    assert_eq!(identity.bundle_id.as_deref(), Some("com.cmuxterm.app.nightly"));
+    let _ = std::fs::remove_dir_all(&root);
+}

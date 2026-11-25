@@ -329,6 +329,10 @@ pub struct Outbox {
     pub(crate) redelivered_to: StdMutex<HashMap<String, (u64, String)>>,
     /// [`Self::unsettled`]'s last count: what `status` shows while a writer holds the book.
     unsettled_seen: std::sync::atomic::AtomicUsize,
+    /// Tests only: the next write says it started, then stalls until told to go on, as a full
+    /// or hung disk does.
+    #[cfg(test)]
+    stall: StdMutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
 }
 
 /// The deliveries and the number of changes made to them.
@@ -759,8 +763,17 @@ impl Outbox {
             }
         };
         // The journal gets these lines before any snapshot: a snapshot that fails leaves them
-        // readable after the snapshot they follow.
-        let written = (|| -> anyhow::Result<()> {
+        // readable after the snapshot they follow. The write and its sync run off the runtime's
+        // workers (RFD 0124 R6): a stalled or full disk holds the callers that wait for this
+        // change's durability, never a worker that serves other requests.
+        let written = crate::qos::off_worker(|| -> anyhow::Result<()> {
+            #[cfg(test)]
+            if let Some((started, go_on)) =
+                self.stall.lock().unwrap_or_else(|e| e.into_inner()).take()
+            {
+                let _ = started.send(());
+                let _ = go_on.recv();
+            }
             let journal = journal_path(&path);
             if lines.iter().any(|b| *b != b'\n') {
                 if disk.journal_open {
@@ -834,7 +847,7 @@ impl Outbox {
                 }
             }
             Ok(())
-        })();
+        });
         // Failed writes never advance saved. A retry of the same in-memory intent
         // must try the write again before it can report success.
         if let Err(e) = written {
@@ -1354,6 +1367,48 @@ mod tests {
         let pending = restarted.open(&path);
         assert_eq!(pending.len(), 63);
         assert_eq!(restarted.get("d-3").map(|d| d.state), Some(State::Delivered));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// RFD 0124 R6: a write stalled on the disk holds only the caller that waits for its own
+    /// durability. On a runtime with one worker, a read of the outbox still answers while it
+    /// stalls; before, the write and its sync ran on the worker and nothing else ran.
+    #[test]
+    fn a_stalled_write_never_holds_a_runtime_worker() {
+        let dir = std::env::temp_dir().join(format!("acpmux-outbox-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("outbox.json");
+        let outbox = std::sync::Arc::new(Outbox::default());
+        assert!(outbox.open(&path).is_empty());
+        outbox.add(delivery(0)).unwrap();
+        let (started_tx, started) = std::sync::mpsc::channel();
+        let (go_on, go_on_rx) = std::sync::mpsc::channel();
+        *outbox.stall.lock().unwrap() = Some((started_tx, go_on_rx));
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let writer = {
+                let outbox = outbox.clone();
+                tokio::spawn(async move { outbox.update_saved("d-0", |d| d.attempts += 1) })
+            };
+            started.recv_timeout(std::time::Duration::from_secs(10)).expect("the write started");
+            let reader = {
+                let outbox = outbox.clone();
+                tokio::spawn(async move { outbox.get("d-0").map(|d| d.attempts) })
+            };
+            let read = tokio::time::timeout(std::time::Duration::from_secs(5), reader)
+                .await
+                .expect("a read answers while the write stalls")
+                .unwrap();
+            assert_eq!(read, Some(1), "the change is in memory before it is on disk");
+            assert!(!writer.is_finished(), "the writer waits for its own durability");
+            go_on.send(()).unwrap();
+            assert!(writer.await.unwrap(), "the write went on and was saved");
+        });
+        assert_eq!(read_saved(&path).deliveries.get("d-0").map(|d| d.attempts), Some(1));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

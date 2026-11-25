@@ -43,10 +43,11 @@ never reads it, so a hand-edited copy hides nothing.
 A setting the pull request adds whose default is off (false, null, "off",
 "never", "none", "disabled" or empty) keeps the behavior from before it
 existed (new things ship off), so it passes on its own (Leo 2026-10-21); it
-stays listed. Any other change passes with an independent review receipt on
+stays listed. Any other change passes with a review receipt on
 the head: a comment or review whose first line is
 `Review (<reviewer>): SHIP at <full head sha>` from a member (OWNER, MEMBER or
-COLLABORATOR, a user, not a bot), not a self-review, the grammar
+COLLABORATOR, a user, not a bot), a self-review, a subagent's or another
+agent's on the author's own account included (Leo 2026-11-21), the grammar
 scripts/ci/risk_tier.py reads. The newest verdict naming the head decides, so
 a later BLOCK beats an earlier SHIP, and a push needs a new receipt, except a
 merge of the base: a SHIP at an earlier head is carried when only merges came
@@ -983,9 +984,9 @@ def signed(verdict: Approval) -> str:
 
 
 def request_command(repo: str | None = None, number: object = None) -> str:
-    """The one command an author lane runs for an independent review it cannot give itself: next-review reviews the
-    head and the cmux-bot App posts the receipt (risk_tier.CMUX_BOT_NODE_ID), so the author neither starts the
-    reviewer nor writes the verdict, and the receipt wakes this check (cmux-next-defaults-guard-review.yml)."""
+    """The one command an author lane runs to have the review service review it (its own review counts too):
+    next-review reviews the head and the cmux-bot App posts the receipt (risk_tier.CMUX_BOT_NODE_ID), and the
+    receipt wakes this check (cmux-next-defaults-guard-review.yml)."""
     return f"router-review {repo or 'OWNER/REPO'} {number or 'N'} --request"
 
 
@@ -1019,14 +1020,15 @@ def comment_body(found: list[Change], verdict: Approval | None, head: str, merge
             who = " or ".join(f"@{o}" for o in verdict.eligible) or "(no eligible call owner)"
             if verdict.blocked:
                 lines.append(f"The newest verdict on this commit is a BLOCK from `{plain(verdict.blocked)}`.")
-            lines.append(f"**Needs a review.** It passes with an independent review receipt on this commit: a comment "
-                         f"or review whose first line is `Review (<reviewer>): SHIP at {head}`, from a member, not a "
-                         "self-review (the newest verdict naming the head decides; a later BLOCK beats an earlier "
+            lines.append(f"**Needs a review.** It passes with a review receipt on this commit: a comment "
+                         f"or review whose first line is `Review (<reviewer>): SHIP at {head}`, from a member, a "
+                         "self-review, a subagent's or another agent's on the author's account included (the newest "
+                         "verdict naming the head decides; a later BLOCK beats an earlier "
                          f"SHIP), or with an approving review on this commit from {who} (the call owners in `{OWNERS}`, "
                          "never the author). A receipt posted as a review re-runs this check; after a plain comment, "
                          "re-run it. The `needs a call` label alone does not pass, and a new push needs a new receipt. "
-                         "Every agent posts as the author's account, and a lane never reviews its own pull request: "
-                         "the author lane asks the review service, whose receipt cmux-bot posts.")
+                         "Every agent posts as the author's account, so the author lane may review its own pull "
+                         "request or start a subagent to; the review service's receipt, which cmux-bot posts, counts too.")
             if verdict.stale:
                 lines.append(f"Earlier approvals on an older commit: {', '.join('@' + s for s in verdict.stale)}.")
             after = next_line(verdict, request or request_command())
@@ -1177,7 +1179,7 @@ def command_check(args: argparse.Namespace) -> int:
     if needed and not (verdict and verdict.approved):
         who = " or ".join(verdict.eligible) if verdict else "a call owner"
         print(f"::error title=Default changes need a review::{len(needed)} default(s) changed; needs a comment or review "
-              f"whose first line is `Review (<reviewer>): SHIP at {head_sha}` from a member (not a self-review), "
+              f"whose first line is `Review (<reviewer>): SHIP at {head_sha}` from a member (a self-review counts), "
               f"or an approving review on {head_sha[:12]} from {who}. "
               + (next_line(verdict, request) if verdict else f"next: {request}"))
         for login, error in lookup_failed.items():

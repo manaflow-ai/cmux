@@ -57,6 +57,8 @@ const COMMANDS: &[&str] = &[
     "agent-session-share-invite",
     "agent-session-share-invite-chat",
     "agent-session-share-uninvite",
+    "agent-session-share-request-approve",
+    "agent-session-share-request-decline",
     // The owner's `/btw` on its Cloud chat (`agent-session-btw-v1`): owner-only in its handler.
     "agent-session-btw",
     "agent-transfer-receive",
@@ -101,6 +103,7 @@ const COMMANDS: &[&str] = &[
     "set-tab-pinned",
     "read-screen",
     "read-scrollback",
+    "terminal-find",
     "send-key",
     "list-terminals",
     "set-attach-visibility",
@@ -171,6 +174,8 @@ const CAPABILITIES: &[&str] = &[
     agent_session_attach::AGENT_SESSION_SIDE_CAPABILITY,
     agent_transfer::AGENT_TRANSFER_CAPABILITY,
     agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY,
+    agent_transfer::AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES[0],
+    agent_transfer::AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES[1],
     agent_inventory::CAPABILITY,
     agent_inventory::OWNER_CAPABILITY,
     agent_inventory::REFRESH_CAPABILITY,
@@ -353,6 +358,7 @@ pub(super) fn raw_command(mux: &Mux, client: u64, command: &Command) -> bool {
         | Command::SetTabPinned { .. }
         | Command::ReadScreen { .. }
         | Command::ReadScrollback { .. }
+        | Command::TerminalFind { .. }
         | Command::SendKey { .. }
         | Command::ListTerminals
         | Command::SetAttachVisibility { .. }

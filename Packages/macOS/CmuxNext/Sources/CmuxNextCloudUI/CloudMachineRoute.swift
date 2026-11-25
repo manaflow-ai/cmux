@@ -341,6 +341,29 @@ public struct CloudMachineRoute: Sendable {
         return stdout
     }
 
+    /// The machine-side command that makes the reserved folder of the machine's first home chat and warms an agent in it
+    /// (`cmux-tui acp --json warm-home --wait`, acpmux `hub/pool/reserved.rs`), run as the work user as ``report()``'s is.
+    /// Prints `{"accepted":true,"state":"ready",...}` once the agent is up; prints nothing when the machine's cmux-tui
+    /// predates the verb.
+    static let warmHomeCommand = "c=/home/cmux/.cmux/bin/cmux-tui; [ -x \"$c\" ] || c=cmux-tui; "
+        + "if [ \"$(id -u)\" = 0 ] && id cmux >/dev/null 2>&1; then "
+        + "set -- setpriv --reuid=cmux --regid=cmux --init-groups env HOME=/home/cmux USER=cmux LOGNAME=cmux; "
+        + "else set --; fi; \"$@\" \"$c\" acp --json warm-home --wait 2>/dev/null; true"
+
+    /// Warms the first home chat of a spare machine ahead of its claim (leo: "a cmux Cloud chat's create-to-first-text p50
+    /// <= 3000 ms"): whether its agent is ready in the folder that chat will take. Never starts the machine.
+    public func warmHome() async -> Bool {
+        guard let stdout = try? await plain(Self.warmHomeCommand, Self.timeoutMs).stdout else { return false }
+        return Self.warmHomeReady(stdout)
+    }
+
+    /// Whether `stdout` is the warm-home answer of an agent that is ready.
+    nonisolated static func warmHomeReady(_ stdout: String) -> Bool {
+        guard let data = stdout.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
+              let answer = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return answer["accepted"] as? Bool == true && answer["state"] as? String == "ready"
+    }
+
     /// Whether the report in `stdout` says the machine's agent service runs (`daemon.running`), read off the main actor
     /// as ``agentReading(_:family:)``. Rust names a login before a service that is down (``Verdict/holdsCredential``),
     /// so the verdict alone does not say.

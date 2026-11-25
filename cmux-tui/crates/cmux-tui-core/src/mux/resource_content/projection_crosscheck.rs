@@ -178,7 +178,28 @@ pub(super) fn projection_difference(
     let db = registry.connection.get();
     let transaction = db.unchecked_transaction()?;
     let scoped_rows = prune_unchanged_resource_changes(&transaction, &scoped.patch)?.changes;
-    let full_rows = prune_unchanged_resource_changes(&transaction, &full.patch)?.changes;
+    let mut full_rows = prune_unchanged_resource_changes(&transaction, &full.patch)?.changes;
+    // A scoped walk that knows the workspace list did not move states no workspace order
+    // (`order_unchanged`); the full one states it whenever a workspace upsert is kept. Both
+    // write the same rows when the full projection's order is the stored one.
+    let scoped_orders =
+        scoped_rows.iter().any(|change| matches!(change, ResourceChange::SetWorkspaceOrder { .. }));
+    if !scoped_orders {
+        let mut unchanged = Vec::new();
+        for (index, change) in full_rows.iter().enumerate() {
+            if matches!(change, ResourceChange::SetWorkspaceOrder { .. })
+                && crate::workspace_registry::resource_store::workspace_order_is_stored(
+                    &transaction,
+                    change,
+                )?
+            {
+                unchanged.push(index);
+            }
+        }
+        for index in unchanged.into_iter().rev() {
+            full_rows.remove(index);
+        }
+    }
     // The journal states values decorated with the state rows (pins, tab
     // groups, zoom: state/values.rs), so an omitted upsert is compared to
     // the full projection's value decorated the same way.

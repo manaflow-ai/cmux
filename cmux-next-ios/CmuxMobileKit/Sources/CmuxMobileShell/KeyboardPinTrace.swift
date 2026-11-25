@@ -69,6 +69,12 @@ public final class KeyboardPinTrace: NSObject {
         probe.isAccessibilityElement = true
         probe.accessibilityIdentifier = "debug.kbd-pin"
         probe.accessibilityLabel = "keyboard pin probe"
+        if let mode = KeyboardInputInjector.modeIfRequested() {
+            let start = start
+            injector = KeyboardInputInjector(mode: mode, start: start, window: { [weak self] in self?.keyWindow }) { [weak self] line in
+                self?.write(line)
+            }
+        }
         let center = NotificationCenter.default
         let names: [(Notification.Name, String)] = [
             (UIResponder.keyboardWillShowNotification, "willShow"),
@@ -106,6 +112,9 @@ public final class KeyboardPinTrace: NSObject {
                     self.write(String(format: "t=%.4f ev=%@ end=%.1f,%.1f,%.1f,%.1f dur=%.3f curve=%d local=%d inh=%.3f",
                                       CACurrentMediaTime() - self.start, label,
                                       end.minX, end.minY, end.width, end.height, duration, curve, local ? 1 : 0, inherited) + place)
+                    if label == "willShow" || label == "willHide" {
+                        self.injector?.keyboard(willShow: label == "willShow", endY: end.minY)
+                    }
                 }
             }
         }
@@ -117,19 +126,43 @@ public final class KeyboardPinTrace: NSObject {
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.write(String(format: "t=%.4f ev=keyAccepted", CACurrentMediaTime() - self.start))
+                    self.injector?.keyAccepted()
                 }
             }
         }
         let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
         link.add(to: .main, forMode: .common)
         self.link = link
+        // Main-thread busy time between ticks: awake (after-waiting) to asleep (before-waiting).
+        let observer = CFRunLoopObserverCreateWithHandler(
+            nil, CFRunLoopActivity.afterWaiting.rawValue | CFRunLoopActivity.beforeWaiting.rawValue, true, 0
+        ) { [weak self] _, activity in
+            guard let self else { return }
+            let now = CACurrentMediaTime()
+            MainActor.assumeIsolated {
+                if activity == .afterWaiting {
+                    self.awakeSince = now
+                    self.wakes += 1
+                } else if let since = self.awakeSince {
+                    self.busy += now - since
+                    self.awakeSince = nil
+                }
+            }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
     }
+
+    /// `-cmux-mobile-kbd-inject`: the bench's second input from inside the app.
+    private var injector: KeyboardInputInjector?
+    private var awakeSince: CFTimeInterval?
+    private var busy: CFTimeInterval = 0
+    private var wakes = 0
 
     /// Notes every touch the window gets and never takes one: it fails at once.
     private final class TouchMarker: UIGestureRecognizer {
-        var onTouch: (() -> Void)?
+        var onTouch: ((UIView?, CGPoint?) -> Void)?
         override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-            onTouch?()
+            onTouch?(touches.first?.view, touches.first.map { $0.location(in: nil) })
             state = .failed
         }
     }
@@ -139,9 +172,12 @@ public final class KeyboardPinTrace: NSObject {
         marker.cancelsTouchesInView = false
         marker.delaysTouchesBegan = false
         marker.delaysTouchesEnded = false
-        marker.onTouch = { [weak self] in
+        marker.onTouch = { [weak self] view, point in
             guard let self else { return }
-            self.write(String(format: "t=%.4f ev=touchBegan", CACurrentMediaTime() - self.start))
+            // Where and on what: a step that lost the keyboard says what the touch hit.
+            self.write(String(format: "t=%.4f ev=touchBegan x=%.1f y=%.1f view=%@", CACurrentMediaTime() - self.start,
+                              point?.x ?? -1, point?.y ?? -1, view.map { KeyboardInputInjector.name($0) } ?? "-"))
+            self.injector?.touchBegan(view: view)
         }
         return marker
     }()
@@ -151,7 +187,7 @@ public final class KeyboardPinTrace: NSObject {
     /// (input-latency hitches, step 160f1e7c).
     private let writes = DispatchQueue(label: "cmux.kbd-pin-trace", qos: .utility)
 
-    private func write(_ line: String) {
+    func write(_ line: String) {
         guard let handle else { return }
         let data = Data((line + "\n").utf8)
         writes.async { handle.write(data) }
@@ -189,7 +225,16 @@ public final class KeyboardPinTrace: NSObject {
         parts.append("orient=\(window.windowScene?.effectiveGeometry.interfaceOrientation.rawValue ?? 0)")
         parts.append("hw=\(GCKeyboard.coalesced == nil ? 0 : 1)")
         parts.append("rz=\(TerminalModel.debugResizesSentTotal)")
-        if let keyboard = Self.keyboardRect(in: window) {
+        // Busy ms and wakeups since the last tick; the open stretch counts up to now.
+        let now = CACurrentMediaTime()
+        let open = awakeSince.map { now - $0 } ?? 0
+        parts.append(String(format: "mtb=%.1f mtw=%d", (busy + open) * 1000, wakes))
+        busy = 0
+        wakes = 0
+        if awakeSince != nil { awakeSince = now }
+        let drawnKeyboard = Self.keyboardRect(in: window)
+        injector?.frame(keyboardTop: drawnKeyboard?.minY, windowBottom: window.bounds.maxY)
+        if let keyboard = drawnKeyboard {
             parts.append(String(format: "kb=%.2f kbx=%.1f kbw=%.1f kbh=%.1f", keyboard.minY, keyboard.minX, keyboard.width, keyboard.height))
         } else {
             parts.append("kb=-")

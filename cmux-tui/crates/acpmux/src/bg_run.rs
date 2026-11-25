@@ -259,12 +259,28 @@ pub struct Output {
 /// oldest kept byte reads from it. A spool that rotated under every try is an error, never an
 /// empty read (a reader would take it for no output and start again from 0).
 pub fn read_output(dir: &Path, id: &str, from: Option<u64>, max: u64) -> std::io::Result<Output> {
+    read_output_at(dir, id, from, max, None)
+}
+
+/// [`read_output`], first trying the segment starts a listing of the folder found (`known`), so
+/// a list of many tasks lists their folder once, not once per task. A segment gone since then
+/// lists the folder as before.
+pub fn read_output_at(
+    dir: &Path,
+    id: &str,
+    from: Option<u64>,
+    max: u64,
+    known: Option<&[u64]>,
+) -> std::io::Result<Output> {
     use std::io::{Read, Seek, SeekFrom};
     // The newest two segments, opened before anything is measured: a rotation meanwhile deletes
     // a name but not an open file, and every segment but the newest no longer grows.
     let mut open = None;
-    for _ in 0..3 {
-        let starts = segments(dir, id)?;
+    for attempt in 0..3 {
+        let starts = match known {
+            Some(known) if attempt == 0 => known.to_vec(),
+            _ => segments(dir, id)?,
+        };
         let opened: std::io::Result<Vec<_>> = starts
             .get(starts.len().saturating_sub(2)..)
             .unwrap_or_default()

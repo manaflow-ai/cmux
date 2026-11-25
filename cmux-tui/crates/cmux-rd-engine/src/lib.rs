@@ -69,6 +69,12 @@ pub const POPUP_SHARE_PERCENT: u64 = 20;
 pub const MIN_POPUP_KBPS: u32 = 300;
 /// Keep idle capacity fresh without making probes a background stream.
 const IDLE_PROBE_INTERVAL_US: u64 = 1_000_000;
+/// Keep the deliberate sender window to one quarter of the viewer's measured
+/// reassembly queue. The other three quarters remain available for frames held
+/// by loss and reordering. At the benchmark's <=512 KiB encoded-frame budget,
+/// 16 slots allocate at most 8 MiB; MAX_PENDING_BYTES remains the hard byte cap
+/// when larger keyframes are allowed.
+const MAX_FRAMES_IN_FLIGHT: u32 = (cmux_rd_core::reassembly::MAX_PENDING_FRAMES / 4) as u32;
 
 /// Limits of one media session.
 #[derive(Debug, Clone, Copy)]
@@ -573,27 +579,32 @@ impl MediaEngine {
     /// here, so pacing is not read as path delay. Other datagrams need no call.
     pub fn datagram_sent(&mut self, datagram: &[u8], now_us: u64) {
         if let Ok((header, _)) = DatagramHeader::decode(datagram) {
-            if header.kind == DatagramKind::Probe {
-                self.probe_planner.record_departure(header.transport_seq, now_us);
-            }
-            if matches!(header.kind, DatagramKind::Video | DatagramKind::Fec | DatagramKind::Probe)
+            self.datagram_departed(&header, now_us);
+        }
+    }
+
+    /// A datagram left at `now_us`, known by its header: the form a carrier's departure
+    /// receipt (`DatagramDeparture`) gives, stamped at the transport write, not the enqueue.
+    pub fn datagram_departed(&mut self, header: &DatagramHeader, now_us: u64) {
+        if header.kind == DatagramKind::Probe {
+            self.probe_planner.record_departure(header.transport_seq, now_us);
+        }
+        if matches!(header.kind, DatagramKind::Video | DatagramKind::Fec | DatagramKind::Probe) {
+            self.cc.on_departed(header.transport_seq, now_us);
+        }
+        if matches!(header.kind, DatagramKind::Video | DatagramKind::Fec) {
+            let rtt_probe = self.cfg.rtt_tail_probe;
+            if let Some(state) = self.streams.get_mut(&header.stream)
+                && header.frame == state.last_frame
+                && state.last_seq == Some(header.transport_seq)
             {
-                self.cc.on_departed(header.transport_seq, now_us);
-            }
-            if matches!(header.kind, DatagramKind::Video | DatagramKind::Fec) {
-                let rtt_probe = self.cfg.rtt_tail_probe;
-                if let Some(state) = self.streams.get_mut(&header.stream)
-                    && header.frame == state.last_frame
-                    && state.last_seq == Some(header.transport_seq)
-                {
-                    // The newest frame's last datagram (or a resend of it) left: the
-                    // viewer can answer from here on, so the probe waits from here.
-                    if rtt_probe && state.probe_from_us.is_some() {
-                        state.probe_from_us = Some(now_us);
-                    }
-                    if state.probes == 0 {
-                        state.departed_at_us.entry(header.frame).or_insert(now_us);
-                    }
+                // The newest frame's last datagram (or a resend of it) left: the
+                // viewer can answer from here on, so the probe waits from here.
+                if rtt_probe && state.probe_from_us.is_some() {
+                    state.probe_from_us = Some(now_us);
+                }
+                if state.probes == 0 {
+                    state.departed_at_us.entry(header.frame).or_insert(now_us);
                 }
             }
         }
@@ -1284,6 +1295,13 @@ impl MediaEngine {
         now_us.saturating_sub(self.last_feedback_us)
     }
 
+    /// Whether D12 has classified the feedback path as Away. While frozen, the
+    /// host keeps its bitrate and lets the bounded media queue apply newest-wins
+    /// replacement instead of holding the encoder behind stale queue depth.
+    pub fn outage_frozen(&self) -> bool {
+        self.cc.frozen()
+    }
+
     pub fn stats(&self) -> EngineStats {
         EngineStats {
             frames: self.frames,
@@ -1363,10 +1381,11 @@ impl MediaEngine {
 }
 
 /// Frames in flight for a path with this round trip at this frame rate: enough to
-/// cover the round trip plus one being encoded, at most 6 (the viewer's reassembly
-/// holds each frame until its deadline, and more only queues).
+/// cover the round trip plus one being encoded, bounded by the viewer's measured
+/// reassembly queue. This is the frame-space equivalent of a BDP window. The
+/// bound leaves queue depth and pending-payload headroom for loss and reordering.
 pub fn frames_in_flight_for(rtt_us: u64, max_fps: u32) -> u32 {
     let interval_us = 1_000_000 / u64::from(max_fps.max(1));
     let covering = rtt_us.div_ceil(interval_us.max(1));
-    u32::try_from(covering + 1).unwrap_or(6).clamp(1, 6)
+    covering.saturating_add(1).min(u64::from(MAX_FRAMES_IN_FLIGHT)) as u32
 }

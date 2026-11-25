@@ -33,6 +33,20 @@ impl Hub {
         true
     }
 
+    /// Whether `session` (meta `m`) holds a launch credential that this daemon's memory alone keeps
+    /// (its summary's `credentialOnlyHere`): one is held and its agent is hibernated, so no running
+    /// agent carries it in its env for the next daemon to read back ([`Self::recover_credential`]).
+    /// A machine update wakes such a session before it restarts this daemon (cmux-host
+    /// `updater/credential_wake.rs`); without that, the chat's next start after the restart runs
+    /// on the machine's own route ("Claude is not signed in here"). False for a closed or watched
+    /// chat, which `session wake` does not start: its credential is still lost with the daemon.
+    pub(super) fn credential_only_here(&self, session: &Session, m: &SessionMeta) -> bool {
+        self.waking(session)
+            && m.status != SessionStatus::Closed
+            && m.watching.is_none()
+            && session.credential.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+    }
+
     /// Sets `credential` on session `id` (its exact id, a session of this daemon) and restarts its
     /// live agent on it. A credential of another family than the session's harness is refused.
     pub(crate) async fn update_credential(
@@ -40,13 +54,10 @@ impl Hub {
         id: &str,
         credential: AgentCredential,
     ) -> Result<Value, RpcError> {
-        let session =
-            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned().ok_or_else(
-                || {
-                    RpcError::not_found("no such session on this machine")
-                        .with_data(json!({"reason": "credentials.no_session"}))
-                },
-            )?;
+        let session = self.session_get(id).ok_or_else(|| {
+            RpcError::not_found("no such session on this machine")
+                .with_data(json!({"reason": "credentials.no_session"}))
+        })?;
         let meta = session.meta();
         let family = {
             let cfg = self.config.read().await;
@@ -225,6 +236,44 @@ mod tests {
         assert!(!hub.recover_credential(&session, Some(pid)));
         assert!(session.credential.lock().unwrap().is_none());
         assert!(!hub.recover_credential(&session, None));
+    }
+
+    /// An idle chat's agent is hibernated while a machine update restarts the daemon: the
+    /// credential was in the daemon's memory only, and the next message said "Claude is not signed
+    /// in here". The session's summary says so while it lasts, and the wake a machine update asks
+    /// for starts the agent on the credential, which then carries it in its env.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_hibernated_chats_credential_is_marked_until_a_wake_puts_it_on_an_agent() {
+        let hub = hub();
+        let only_here =
+            |s: &crate::hub::Session| hub.session_summary(s)["credentialOnlyHere"] == json!(true);
+        let req = NewRequest {
+            cwd: Some(std::env::temp_dir()),
+            credential: Some(credential(FIRST)),
+            ..NewRequest::default()
+        };
+        let session = hub.new_session(req).await.unwrap();
+        hub.child_for(&session).await.unwrap();
+        assert!(!only_here(&session), "its running agent carries it");
+        let paused = hub.pause(&session).await.unwrap();
+        assert_eq!(paused["paused"], true, "{paused}");
+        assert!(only_here(&session), "hibernated: only this daemon's memory holds it");
+        let summary = hub.session_summary(&session).to_string();
+        assert!(!summary.contains(FIRST) && !summary.contains(CLAUDE_OAUTH), "{summary}");
+        // Without a credential a hibernated chat has nothing to lose.
+        let plain = hub
+            .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() })
+            .await
+            .unwrap();
+        hub.child_for(&plain).await.unwrap();
+        assert_eq!(hub.pause(&plain).await.unwrap()["paused"], true);
+        assert!(hub.session_summary(&plain).get("credentialOnlyHere").is_none());
+        // The wake starts the agent on it.
+        let woke = hub.wake(&session).await.unwrap();
+        assert_eq!(woke["woke"], true, "{woke}");
+        assert_eq!(launched(&session).get(CLAUDE_OAUTH).map(String::as_str), Some(FIRST));
+        assert!(!only_here(&session));
+        assert!(!written(&hub, &session.id).contains(FIRST), "still never written down");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

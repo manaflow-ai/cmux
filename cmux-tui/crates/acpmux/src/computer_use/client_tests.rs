@@ -329,7 +329,11 @@ fn computer_use_off_is_a_tool_error_but_status_still_answers() {
         caller(FakeDaemon::new(vec![Ok(json!({"state": "off", "reason": "mode is off"}))]));
     let mcp = caller.call("click", &json!({}), "c").to_mcp();
     assert_eq!(mcp["isError"], true);
-    assert!(mcp["content"][0]["text"].as_str().unwrap().contains("computer_use_off"), "{mcp}");
+    let text = mcp["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("computer_use_off"), "{mcp}");
+    // The refusal tells the agent to open the guided setup for the person.
+    assert!(text.contains("cmux action run palette.computerUse.setup"), "{mcp}");
+    assert!(text.contains("mode is off"), "{mcp}");
     let Outcome::Output(status) = caller.call("status", &json!({}), "c2") else { panic!() };
     assert!(!status.is_error);
     assert_eq!(status.body["mode"], "off");

@@ -178,7 +178,9 @@ gh-merge-green --revert manaflow-ai/cmux#<number>
 role) added them; the check reads who did. Agents never add either, and never need to: a SHIP
 receipt on the head is enough. The receipt is a line of the description, or the first line of a
 comment or review body, from a collaborator (for the description, its author must be one, the same
-rule as a commenter); it names the full head sha and isn't a self-review. A description line inside
+rule as a commenter); it names the full head sha. A self-review counts, and so does one from a subagent or
+from another agent on the author's own account (Leo, 2026-11-21: "the self-reviews should be
+completely acceptable"). A description line inside
 an HTML comment doesn't count, and description lines rank below every comment and review, so a later
 BLOCK comment beats a SHIP in the description. The newest verdict on the head
 decides, read as one timeline with approvals and change requests of the head commit: a later BLOCK

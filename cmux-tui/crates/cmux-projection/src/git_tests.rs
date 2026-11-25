@@ -114,6 +114,30 @@ fn a_commit_projects_with_links_a_gitfile_and_build_output_on_the_real_disk() {
     assert_eq!(second.mtime_ns, 5_000_000_000);
 }
 
+#[test]
+fn an_unread_mount_ends_its_git_processes_and_drops_its_recent_blobs() {
+    let (_dir, git_dir, commit) = repo();
+    let projection = project(&git_dir, &commit, &mut Book::default(), 5_000_000_000);
+    let readme = projection.manifest.resolve("README.md").unwrap();
+    let blobs = GitBlobs::new(&git_dir, projection.sources.clone());
+    assert_eq!(blobs.read(readme, 0, 100).unwrap(), b"hello\n");
+    assert_eq!(blobs.pooled(), 1, "a read leaves its git cat-file in the pool");
+
+    // A sweep before the idle time keeps both.
+    blobs.held.sweep(Instant::now(), IDLE);
+    assert_eq!(blobs.pooled(), 1);
+    assert_eq!(blobs.held.recent.lock().unwrap().len(), 1);
+
+    // After it, the process ends and the recent blobs go.
+    blobs.held.sweep(Instant::now() + IDLE, IDLE);
+    assert_eq!(blobs.pooled(), 0, "an idle mount holds no git process");
+    assert!(blobs.held.recent.lock().unwrap().is_empty(), "nor any blob bytes");
+
+    // The next read starts a new one and reads the same bytes.
+    assert_eq!(blobs.read(readme, 2, 2).unwrap(), b"ll");
+    assert_eq!(blobs.pooled(), 1);
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn a_mounted_commit_is_a_clean_worktree_and_writes_land_in_the_upper_folder() {

@@ -67,7 +67,9 @@ final class WorkspacesLaunchStatesUITests: XCTestCase {
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "workspace.row.")).firstMatch.waitForExistence(timeout: 30),
                       "cached rows stay\n\(app.debugDescription)")
         XCTAssertFalse(app.descendants(matching: .any)["workspaces.retry"].exists, "no error page over the rows")
-        XCTAssertTrue(text(app, containing: "last known").waitForExistence(timeout: 5), "says the rows are the last known")
+        // No connection words over kept rows (iOS release bar read-back: "Couldn't refresh · last known").
+        XCTAssertFalse(text(app, containing: "last known").waitForExistence(timeout: 3), "no stale-rows text\n\(app.debugDescription)")
+        XCTAssertFalse(text(app, containing: "Couldn't refresh").exists, "no refresh-failed text\n\(app.debugDescription)")
         attach(app, "refresh-failed")
     }
 

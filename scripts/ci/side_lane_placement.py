@@ -1372,6 +1372,9 @@ def handback(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None
           and small in cascade.stalled(live, waiting, seen.waits, seen.age)):
         out = f"stalled (oldest queued job {seen.waits.get(small, 0.0):.0f} min)"
     owned = route_label(label, runners, 1) or label
+    if not out and not cascade.blacksmith_on(env):
+        # With Blacksmith macOS off no runner serves its label, so a hand-back there would queue with no runner.
+        out = f"off (vars.{cascade.BLACKSMITH_SWITCH} is not `on`)"
     if not out or not owned.startswith("glaeda-"):
         return small, f"no idle owned Mac, so the fast tier takes `{small}`"
     return owned, f"no idle owned Mac and `{small}` is {out}, so the fast tier waits on the owned route `{owned}`"

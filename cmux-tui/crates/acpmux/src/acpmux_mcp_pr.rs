@@ -52,7 +52,7 @@ pub(super) fn tool() -> Value {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "pr": {"type": "string", "description": "The pull request: its number, #number, or its URL."},
+                "pr": {"type": "string", "description": "The pull request: its number, #number, OWNER/REPO#number, or its URL."},
                 "repo": {"type": "string", "description": "OWNER/REPO (default: the chat folder's origin, or the URL's)."},
                 "description": {"type": "string", "description": "A few words on why you look, shown as this call's title."}
             },
@@ -81,13 +81,13 @@ pub(super) fn wait_tool() -> Value {
 
 /// Which pull request a call names: what gh is given for it, and the repo when a URL names one.
 #[derive(Debug, PartialEq)]
-pub(super) struct Target {
+pub(crate) struct Target {
     pub selector: String,
     pub repo: Option<String>,
 }
 
 /// `pr` and `repo` as gh takes them, or why they are refused.
-pub(super) fn target(args: &Value) -> Result<Target, String> {
+pub(crate) fn target(args: &Value) -> Result<Target, String> {
     let repo = arg(args, "repo").map(str::to_owned);
     if let Some(repo) = &repo
         && !valid_repo(repo)
@@ -97,16 +97,26 @@ pub(super) fn target(args: &Value) -> Result<Target, String> {
     let raw = match args.get("pr") {
         Some(Value::Number(n)) => n.to_string(),
         Some(Value::String(s)) => s.trim().to_owned(),
-        _ => return Err("pr is required: a number, #number or a pull request URL".to_owned()),
+        _ => {
+            return Err(
+                "pr is required: a number, #number, OWNER/REPO#number or a pull request URL"
+                    .to_owned(),
+            );
+        }
     };
     let number = raw.strip_prefix('#').unwrap_or(&raw);
     if !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()) {
         return Ok(Target { selector: number.to_owned(), repo });
     }
+    if let Some((ref_repo, n)) = parse_ref(&raw) {
+        return Ok(Target { selector: n, repo: repo.or(Some(ref_repo)) });
+    }
     if let Some((url_repo, n)) = parse_url(&raw) {
         return Ok(Target { selector: n, repo: repo.or(Some(url_repo)) });
     }
-    Err(format!("pr must be a number, #number or a pull request URL, not {raw:?}"))
+    Err(format!(
+        "pr must be a number, #number, OWNER/REPO#number or a pull request URL, not {raw:?}"
+    ))
 }
 
 fn valid_repo(repo: &str) -> bool {
@@ -114,6 +124,14 @@ fn valid_repo(repo: &str) -> bool {
         !p.is_empty() && p.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
     };
     matches!(repo.split_once('/'), Some((o, r)) if part(o) && part(r))
+}
+
+/// `OWNER/REPO#N` as (`OWNER/REPO`, `N`): the shape glaeda-gh, the land queue and every published row print,
+/// so a caller pasting one back gets an answer instead of a usage error.
+fn parse_ref(raw: &str) -> Option<(String, String)> {
+    let (repo, n) = raw.split_once('#')?;
+    (valid_repo(repo) && !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+        .then(|| (repo.to_owned(), n.to_owned()))
 }
 
 /// `https://github.com/OWNER/REPO/pull/N[/...]` as (`OWNER/REPO`, `N`).

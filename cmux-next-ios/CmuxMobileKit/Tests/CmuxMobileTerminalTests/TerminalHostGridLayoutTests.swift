@@ -83,7 +83,8 @@ import Testing
         #expect(box.top == twentyRows)
         #expect(box.height == twentyRows)
         #expect(short.note(owner: "Aziz's Mac") == "50×20 · set by Aziz's Mac")
-        #expect(short.note(owner: nil) == "50×20 · set by another device")
+        // No named owner: the size alone, never a device it cannot name.
+        #expect(short.note(owner: nil) == "50×20")
     }
 
     /// A shorter grid on the primary screen pins to the top: the bottom

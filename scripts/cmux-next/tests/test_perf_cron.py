@@ -24,7 +24,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-ladder", "web-ui-fidelity", "web-ui-typing", "web-ui-scroll", "chat-disk", "cloud-claim", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-memory", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-ladder", "web-ui-fidelity", "web-ui-typing", "web-ui-scroll", "web-ui-orchestrator", "web-ui-power-user", "chat-disk", "cloud-claim", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -279,6 +279,26 @@ class DecideTests(unittest.TestCase):
         t = at(cron.PART_STALE_HOURS + 2)
         self.assertEqual(cron.part_order(state, ["build", "motion", "stress", "fresh"], t),
                          ["build", "fresh", "motion", "stress"])
+
+    def test_a_part_with_no_stored_rows_that_failed_last_time_goes_after_the_stale_ones(self):
+        state = cron.empty_state(T0)
+        state["part_stored"] = {"web-ui-god": {"at": cron.iso(T0)}}
+        state["history"] = [{"sha": "a" * 40, "kind": "tip", "failed_parts": ["coord-sim", "web-ui-flat", "web-ui"],
+                             "ran_failed": ["coord-sim", "web-ui-flat"]}]
+        t = at(cron.PART_STALE_HOURS + 2)
+        self.assertEqual(cron.part_order(state, ["build", "coord-sim", "web-ui-flat", "fresh", "web-ui-god"], t),
+                         ["build", "fresh", "web-ui-god", "coord-sim", "web-ui-flat"])
+
+    def test_an_older_history_entry_names_its_failed_runs_by_their_reason(self):
+        state = cron.empty_state(T0)
+        state["history"] = [{"sha": "a" * 40, "kind": "tip", "failed_parts": ["coord-sim", "web-ui", "web-ui-god", "build"],
+                             "failed_why": {
+                                 "coord-sim": "coord-sim gen: /w/shapes/default.json: No such file or directory (os error 2)",
+                                 "web-ui": "chat-open: timed out after 105 s; chat-switch: exit 1",
+                                 "web-ui-god": "not run: the measurement reached its bound (12 h active or 48 h in all)",
+                                 "build": "no published cmux-tui tree of 2322b92a504d for 2 h"}},
+                            {"sha": "b" * 40, "kind": "bisect", "failed_parts": ["web-ui-god"], "ran_failed": ["web-ui-god"]}]
+        self.assertEqual(cron.ran_failed(state), {"coord-sim", "web-ui"})
 
     def test_a_part_with_no_row_anywhere_goes_before_one_with_old_rows(self):
         state = cron.empty_state(T0)
@@ -1227,6 +1247,15 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat"])
         self.assertEqual(cwd, "/r/webviews")
 
+    def test_the_power_user_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-power-user"))
+        self.assertEqual(cron.part_for_row("webui.power_user.flick.webkit.frame_p95@linux"), "web-ui-power-user")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-power-user")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "power-user-bursts"])
+        self.assertEqual(cwd, "/r/webviews")
+        suite = open(os.path.join(cron.ROOT, "webviews/bench/web-ui-suite.ts"), encoding="utf-8").read()
+        self.assertRegex(suite, r'name: "power-user-bursts",\s*file: "power-user-bursts\.bench\.ts"')
+
     def test_the_composer_typing_rows_have_their_own_part(self):
         self.assertTrue(cron.is_linux_part("web-ui-typing"))
         self.assertEqual(cron.part_for_row("webui.composer_typing.l1.webkit.rows60.to_paint@linux"), "web-ui-typing")
@@ -1324,6 +1353,17 @@ class WebUiTests(unittest.TestCase):
         # Not a god row: no god_ratio twin is made of the god home's reading.
         self.assertFalse(any("god_ratio" in name for name in rows))
 
+    def test_the_coord_sim_script_names_shape_files_that_exist(self):
+        # cmux#47315 renamed shapes/default.json; the script kept the old path and every coord-sim part failed at gen
+        # ("No such file or directory") for days. Each repo path it names under the crate must exist.
+        import re
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        text = open(os.path.join(root, "scripts", "measure", "coord-sim-linux.sh")).read()
+        named = re.findall(r"\$crate/(shapes/[\w.-]+\.json)", text)
+        self.assertTrue(named)
+        for rel in named:
+            self.assertTrue(os.path.isfile(os.path.join(root, "cmux-tui", "crates", "coord-sim", rel)), rel)
+
     def test_the_coord_sim_rows_have_their_own_linux_part(self):
         self.assertTrue(cron.is_linux_part("coord-sim"))
         self.assertEqual(cron.part_for_row("webui.coord_sim.delivery_ms@linux"), "coord-sim")
@@ -1384,6 +1424,13 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(cron.part_for_row("webui.transcript_scroll_up.chromium.interval@linux"), "web-ui")
         argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-scroll-up")["suite"]
         self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "transcript-scroll-up-scale"])
+        self.assertEqual(cwd, "/r/webviews")
+
+    def test_the_chat_pages_memory_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-memory"))
+        self.assertEqual(cron.part_for_row("webui.chat_pages_memory.n10.ratio_vs_empty@linux"), "web-ui-memory")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-memory")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "chat-pages-memory"])
         self.assertEqual(cwd, "/r/webviews")
 
     def test_the_god_part_runs_both_fixtures_and_owns_the_god_rows(self):
@@ -1599,6 +1646,16 @@ class WebUiTests(unittest.TestCase):
         part = cron.PART_BY_NAME["web-ui"]
         self.assertFalse(cron.report_is_incomplete(part, self.REPORT))
         self.assertTrue(cron.report_is_incomplete(part, {**self.REPORT, "incomplete": ["chat-open: exit 1"]}))
+
+    def test_the_wakeup_lines_name_what_woke_an_idle_page(self):
+        stdout = ("web-ui-suite: chat-switch\n"
+                  "  chat-switch|   at rest for 5 s: 0 wakeups (0 timeouts, 0 intervals, 0 frames)\n"
+                  "  chat-switch|   left alone for 10 s: 1 wakeups (1 timeouts, 0 intervals); setTimeout at a.ts:3\n"
+                  "PERF_ROW {\"name\": \"chat_switch.unread.rest_wakeups\"}\n")
+        self.assertEqual(cron.webui_wakeup_lines(stdout), [
+            "chat-switch|   at rest for 5 s: 0 wakeups (0 timeouts, 0 intervals, 0 frames)",
+            "chat-switch|   left alone for 10 s: 1 wakeups (1 timeouts, 0 intervals); setTimeout at a.ts:3"])
+        self.assertEqual(cron.webui_wakeup_lines(None), [])
 
     def test_the_summary_is_slowest_first_relative_to_target(self):
         lines = cron.webui_summary({**self.REPORT, "failed": [{"bench": "chat-open", "why": "exit 1"}]})
@@ -2609,6 +2666,21 @@ class ConfirmTests(unittest.TestCase):
             self.assertEqual(self.measured(22.2, name, r(22.2), parts={"motion": {"state": "done"}}), "good")
         self.assertEqual(self.names("regressions"), [])
         self.assertIn(name, self.state["pending"])
+
+    def test_an_open_regression_keeps_its_newest_reading(self):
+        # The probe and NOW read last_p95 and last_at: a later run's value, not the one the regression was detected at.
+        for v in (19.5, 20.0, 21.0):
+            self.measured(v)
+        self.measured(45.0)
+        self.assertEqual(self.measured(46.0), "regressed")
+        reg = self.state["regressions"][0]
+        self.assertEqual((reg["last_p95"], reg["last_at"]), (46.0, self.state["history"][-1]["at"]))
+        self.assertEqual(self.measured(52.0), "still")
+        reg = self.state["regressions"][0]
+        self.assertEqual((reg["last_p95"], reg["last_at"]), (52.0, self.state["history"][-1]["at"]), "still worse")
+        self.assertEqual(self.measured(20.0), "still")
+        reg = self.state["regressions"][0]
+        self.assertEqual((reg["last_p95"], reg["last_at"]), (20.0, self.state["history"][-1]["at"]), "recovering")
 
     def test_a_candidate_never_moves_row_ok_or_the_baseline(self):
         # Review 1, finding 4: row_ok moved with every unconfirmed value, so a later confirmation blamed a newer commit.
@@ -4551,6 +4623,12 @@ class LinuxControllerRouteTests(unittest.TestCase):
         cur = self.cur()
         self.assertEqual(cron.linux_picks(cur, ["web-ui-god", "diff-viewer"], T0, False, True), ("web-ui-god", "", []))
         self.assertNotIn("linux_requests", cur)
+
+    def test_cloud_claim_is_never_asked_of_the_controller(self):
+        cur = self.cur()
+        self.assertEqual(cron.linux_route(cur, "cloud-claim", T0, True, True), "runner",
+                         "it needs the run's token, which a pool worker has not")
+        self.assertNotIn("cloud-claim", cur.get("linux_requests") or {})
 
     def test_no_controller_or_an_older_commit_runs_on_the_runner(self):
         self.assertEqual(cron.linux_route(self.cur(), "web-ui-god", T0, False, True), "runner")

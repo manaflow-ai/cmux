@@ -166,12 +166,15 @@ public struct TerminalHostGridLayout: Equatable, Sendable {
 
     /// The one-line note in the letterbox: `120×40 · set by Aziz's Mac`.
     /// `owner` is the device that set the grid, when the size state names it.
+    /// Without one the note gives the size alone: it never claims another
+    /// device it cannot name (Leo, 2026-11-15, on "39x26 set by another
+    /// device": "its not accurtae").
     public func note(owner: String?) -> String? {
         guard differsFromPhone, let hostColumns, let hostRows else { return nil }
         let size = isCapped
             ? "\(hostColumns)×\(hostRows), too wide for this iPhone (\(columns) columns shown)"
             : "\(hostColumns)×\(hostRows)"
-        guard let owner, !owner.isEmpty else { return "\(size) · set by another device" }
+        guard let owner, !owner.isEmpty else { return size }
         return "\(size) · set by \(owner)"
     }
 }

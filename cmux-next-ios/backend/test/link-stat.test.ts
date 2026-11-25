@@ -81,6 +81,24 @@ describe("link_stat log line", () => {
     expect(linkStatLine(stat({ reason: "end", end: "keepalive" }), "phone", ingress, null)!.end).toBe("keepalive")
   })
 
+  it("flattens keystroke round trips and keeps at most six clamped spikes", () => {
+    const line = linkStatLine(
+      stat({
+        echo: { n: 40, p50: 45, p95: 140, p99: 1900, max: 1900 },
+        ack: { n: 40, p50: 38, p95: 120, p99: 1e9, max: 1e9 },
+        spikeCount: 9,
+        spikes: [[1940, 1880, 1900], [62, -1, 400], [5, 30, "slow"], [1, 2], [3, 4, 5], [6, 7, 8], [9, 10, 11], [12, 13, 14], [15, 16, 17]]
+      }),
+      "phone",
+      ingress,
+      null
+    )!
+    expect(line).toMatchObject({ echoN: 40, echoP50: 45, echoP95: 140, echoP99: 1900, echoMax: 1900, ackP99: 600_000, spikeCount: 9 })
+    // The first six entries are read, malformed ones dropped; -1 is "no answer yet".
+    expect(line.spikes).toEqual([[1940, 1880, 1900], [62, -1, 400], [3, 4, 5], [6, 7, 8]])
+    expect(linkStatLine(stat({ echo: "fast", spikes: "none" }), "phone", ingress, null)).not.toHaveProperty("echoN")
+  })
+
   it("rejects a malformed stat", () => {
     for (const bad of [{ v: 2 }, { transport: "carrier-pigeon" }, { path: "10.0.0.1:443" }, { reason: "because" }, { pings: -1 }, { lost: "none" }, { pings: Number.NaN }]) {
       expect(linkStatLine(stat(bad), "phone", ingress, null)).toBeNull()

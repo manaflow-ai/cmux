@@ -1409,11 +1409,41 @@ def end_bundle(bundle: str):
     there after CLONE_CLEANUP_WAIT_S."""
     apps = {pid for pid, _, cmd in process_table() if is_app_process(cmd, bundle)}
     bundle_pids(bundle)  # notes the daemons before they go, for their terminal hosts
+    # By executable and owner too (bundle_processes), taken while the daemon still runs: the terminal hosts
+    # and the holder start with a bare argv[0], and once their daemon is gone only their executable (or
+    # nothing, for the holder's copy) ties them to the bundle. Missed here, they outlived the run and the
+    # next launch of the bundle counted them as its own: the 99 terminal hosts "at launch" of cmux#46732.
+    started = {pid: cmd for pid, _, cmd in process_table()}
+    bare = {pid for pid in bundle_processes(process_table(), bundle, exe_path) if pid in started}
     end_processes(apps)
     cleanups = {pid for pid, _, cmd in process_table() if in_bundle(cmd, bundle) is not None and is_clone_cleanup(cmd)}
-    end_processes(bundle_pids(bundle) - cleanups)
+    now_cmd = {pid: cmd for pid, _, cmd in process_table()}
+    # Only a pid whose command line is unchanged: one that exited meanwhile may be another process now.
+    bare = {pid for pid in bare if now_cmd.get(pid) == started[pid]}
+    end_processes((bundle_pids(bundle) | bare | set(bundle_processes(process_table(), bundle, exe_path))) - cleanups)
     deadline = time.monotonic() + CLONE_CLEANUP_WAIT_S
     end_processes(still_running(cleanups, max(0.0, deadline - time.monotonic())))
+
+
+def end_leftovers(bundle: str) -> dict:
+    """Ends the bundle's processes an earlier run left behind that a command-line match (bundle_pids) does
+    not see: terminal hosts and holders with a bare argv[0], found by their executable (bundle_processes).
+    A sample counts every process of the bundle by executable (owned), so without this a launch counted an
+    earlier run's hosts as its own (cmux#46732: 99 terminal hosts, 174 MB, "at launch, before any terminal
+    opens"; RFD 0062). Prints one PERF-IDLE-LEFTOVER line with what it found and returns it."""
+    found = bundle_processes(process_table(), bundle, exe_path)
+    kinds: dict[str, int] = {}
+    footprint = 0
+    for pid, (kind, _cmd) in found.items():
+        kinds[kind] = kinds.get(kind, 0) + 1
+        got = usage(pid)
+        footprint += got[1] if got else 0
+    info = {"n": len(found), "kinds": kinds, "footprint_mb": round(footprint / MB, 1)}
+    print(f"PERF-IDLE-LEFTOVER {json.dumps(info)}", flush=True)
+    if found:
+        end_processes(set(found))
+        info["left"] = sorted(still_running(set(found), 0))
+    return info
 
 
 def gone(pid: int) -> bool:
@@ -1598,6 +1628,8 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
     running = bundle_pids(bundle)
     if running and not relaunch:
         raise SystemExit(f"bench-memory: processes from {bundle} are running ({sorted(running)}); end them first")
+    if not relaunch:
+        end_leftovers(bundle)
     if not relaunch:
         clear_saved_state(bundle)
     scratch = scratch or tempfile.mkdtemp(prefix="bench-memory-")

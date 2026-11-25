@@ -364,6 +364,7 @@ async fn retry_restore_stop_before_failure_is_durable_without_retry_events() {
                 trust_gate: false,
                 error: "stream disconnected",
                 not_before: None,
+                slash: None,
             }),
         );
         let (again, session) = restart(&hub, &session).await;
@@ -520,6 +521,7 @@ fn finish_auto_resume_and_replacement_share_the_lock_order() {
                 trust_gate: false,
                 error: "stream disconnected",
                 not_before: None,
+                slash: None,
             },
             1,
             &[],
@@ -643,6 +645,7 @@ async fn retry_restore_old_task_cannot_consume_a_replacements_retry() {
             trust_gate: false,
             error: "stream disconnected",
             not_before: None,
+            slash: None,
         },
         1,
     )
@@ -660,6 +663,7 @@ async fn retry_restore_old_task_cannot_consume_a_replacements_retry() {
             trust_gate: false,
             error: "stream disconnected",
             not_before: None,
+            slash: None,
         },
         1,
         &[],

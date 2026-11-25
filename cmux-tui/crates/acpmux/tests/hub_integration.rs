@@ -4,11 +4,14 @@
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/). `ACPMUX_UPDATE_FIXTURES=1`
 // rewrites the pane fixtures the tests check (`adopt.rs`); `LS_LATENCY_SESSIONS` and
-// `LS_LATENCY_RUNS` size the ignored `ls_latency` bench (`usage_stats.rs`).
+// `LS_LATENCY_RUNS` size the ignored `ls_latency` bench (`usage_stats.rs`); `ACPMUX_LIVE_BENCH_*`
+// size the live move bench (`transfer_live.rs`).
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_UPDATE_FIXTURES",
     "LS_LATENCY_SESSIONS",
     "LS_LATENCY_RUNS",
+    "ACPMUX_LIVE_BENCH_PROMPTS",
+    "ACPMUX_LIVE_BENCH_RATE",
 ]);
 
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
@@ -152,6 +155,8 @@ mod xai_requests;
 
 #[path = "hub_integration/turn_attestation.rs"]
 mod turn_attestation;
+#[path = "hub_integration/turn_cost.rs"]
+mod turn_cost;
 
 struct TestClient {
     tx: mpsc::Sender<String>,
@@ -752,7 +757,9 @@ async fn kill_then_prompt_resumes_via_load() {
     let kinds: Vec<String> =
         hub.events(&id, 0, 1000).unwrap().into_iter().map(|e| e.kind).collect();
     assert!(kinds.iter().any(|k| k == "resumed"), "{kinds:?}");
-    assert!(kinds.iter().any(|k| k == "user_message_chunk.replay"), "{kinds:?}");
+    // The load's replay of the chat is kept out of the log (`unread_records.rs`): a resume
+    // costs the log the same few bytes however long the chat.
+    assert!(!kinds.iter().any(|k| k == "user_message_chunk.replay"), "{kinds:?}");
     assert_eq!(hub.session_summary(&session)["turnCount"], 2);
     // The saved mode and options were re-asserted on the respawned agent.
     let replayed = hub

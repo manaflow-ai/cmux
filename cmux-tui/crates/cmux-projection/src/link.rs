@@ -10,9 +10,10 @@ use std::collections::HashMap;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
-use std::sync::{Condvar, Mutex, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
+use crate::lower::Ext;
 use crate::wire::{self, Ask, Part};
 use crate::{Fetch, FetchError};
 
@@ -33,6 +34,9 @@ struct Attached {
     /// Which attachment this is (an old stream's reader never touches a newer one).
     generation: u64,
     writer: Writer,
+    /// The extension this stream's manifest is (the Mac's indices are the full manifest's), or
+    /// `None` when the stream speaks the overlay's own ids.
+    ext: Option<Arc<Ext>>,
 }
 
 #[derive(Default)]
@@ -101,6 +105,18 @@ impl Link {
     /// Serves asks over `reader` and `writer` (the Mac's new stream) until it ends; asks in flight
     /// on an older stream fail over to this one. Returns when the stream ends.
     pub fn serve(&self, reader: impl Read, writer: impl Write + Send + 'static) {
+        self.serve_with(reader, writer, None);
+    }
+
+    /// [`Link::serve`] for a stream whose Mac holds the full manifest of `ext` (the overlay's ids
+    /// are turned into its indices as each ask goes out, so an ask that fails over from an older
+    /// stream is still the right file).
+    pub fn serve_with(
+        &self,
+        reader: impl Read,
+        writer: impl Write + Send + 'static,
+        ext: Option<Arc<Ext>>,
+    ) {
         let generation = {
             let mut state = self.lock();
             state.generation += 1;
@@ -109,6 +125,7 @@ impl Link {
             state.attached = Some(Attached {
                 generation,
                 writer: Box::new(BufWriter::with_capacity(64 * 1024, writer)),
+                ext,
             });
             // Asks of an older stream are answered with nothing: the asker asks again here.
             state.waiting.retain(|_, (of, sender)| {
@@ -192,8 +209,11 @@ impl Link {
             if let Some(attached) = state.attached.as_mut() {
                 let number = self.next.fetch_add(1, Ordering::Relaxed);
                 let generation = attached.generation;
-                let sent =
-                    make(number).write(&mut attached.writer).and_then(|()| attached.writer.flush());
+                let ask = match &attached.ext {
+                    Some(ext) => make(number).remap(|id| ext.wire_of(id)),
+                    None => make(number),
+                };
+                let sent = ask.write(&mut attached.writer).and_then(|()| attached.writer.flush());
                 if sent.is_err() {
                     state.attached = None;
                     state.dropped = Some(Instant::now());

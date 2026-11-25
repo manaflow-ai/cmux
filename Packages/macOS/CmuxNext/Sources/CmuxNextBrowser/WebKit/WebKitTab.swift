@@ -50,9 +50,9 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
     @ObservationIgnored let titleTimer = DemandTimer(owner: "WebKitTab.title")
     /// After Wait on a hung page, looks again whether WebKit still counts it unresponsive (`WebKitTab+Unresponsive`).
     @ObservationIgnored let hangRecheck = DemandTimer(owner: "WebKitTab.hang")
-    @ObservationIgnored var hangRecheckDelay: Duration = .seconds(10)
-    /// Whether the page's web content process answers now (WebKit's `_webProcessIsResponsive`); tests replace it.
-    @ObservationIgnored var webProcessIsResponsiveOverride: (@MainActor () -> Bool)?
+    /// The person chose Exit page on a hung page: the process end that follows waits for their Reload, even under
+    /// memory pressure (`BrowserExitRecovery` would otherwise reload it by itself).
+    @ObservationIgnored var endedByPerson = false
     @ObservationIgnored private var navigationIDs: [ObjectIdentifier: BrowserNavigationID] = [:]
     @ObservationIgnored private var nextNavigation: UInt64 = 0
     /// `observeNavigationEvents` handlers (WebKitTab+Navigations.swift).
@@ -101,7 +101,7 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
     /// The one automatic reload a memory end of the web content process owes (`WebKitTab+Delegates`).
     @ObservationIgnored var exitRecovery = BrowserExitRecovery()
     /// Set by the hibernation planner while it holds the page frozen (`BrowserFreezeReporting`).
-    @ObservationIgnored public var onFrozenPageLost: (@MainActor () -> Void)?
+    @ObservationIgnored public var onFrozenPageChange: (@MainActor (BrowserFrozenPageChange) -> Void)?
 
     init(configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration, engine: WebKitEngine,
          openedByPage: Bool = false) {

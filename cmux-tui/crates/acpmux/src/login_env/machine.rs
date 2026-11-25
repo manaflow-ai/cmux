@@ -34,6 +34,11 @@ pub(super) fn read() -> BTreeMap<String, String> {
     values
 }
 
+/// This machine's delivered `machine.env` under `home` (written to a Cloud or SSH machine, read there).
+pub(crate) fn path(home: &Path) -> PathBuf {
+    home.join(".config/cmux/machine.env")
+}
+
 #[cfg(not(unix))]
 fn read_in(_home: &Path) -> BTreeMap<String, String> {
     // No owner-only ACL check is implemented on this platform.
@@ -49,7 +54,7 @@ fn read_in(home: &Path) -> BTreeMap<String, String> {
         use std::os::unix::fs::OpenOptionsExt as _;
         options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     }
-    let Ok(file) = options.open(home.join(".config/cmux/machine.env")) else {
+    let Ok(file) = options.open(path(home)) else {
         return BTreeMap::new();
     };
     let Ok(meta) = file.metadata() else { return BTreeMap::new() };

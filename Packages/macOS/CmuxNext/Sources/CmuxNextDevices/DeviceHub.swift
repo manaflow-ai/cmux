@@ -23,7 +23,12 @@ public final class DeviceHub {
     public private(set) var status: Status = .idle
     public private(set) var connection: DeviceHubSocket.State = .disconnected
     public private(set) var me: HubMe?
-    public private(set) var devices: [HubDevice] = []
+    public private(set) var devices: [HubDevice] = [] {
+        didSet { if devices != oldValue { deviceNames = Dictionary(devices.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first }) } }
+    }
+    /// Each device's name by id, kept with ``devices``: a tab title reads one name in O(1), never a scan of the
+    /// device list per tab (hq#22524: `MacScreenPages.deviceName` hung the main thread titling every tab).
+    public private(set) var deviceNames: [String: String] = [:]
     /// A device-list read succeeded since sign-in. `ready` only means this device is registered: the list
     /// comes after the socket connects, so an empty `devices` before it says nothing (ask-6a79af928f).
     public private(set) var devicesListed = false

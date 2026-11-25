@@ -138,7 +138,10 @@ fn prompt_blocks(msg: &Value, image: impl Fn(&str) -> Option<Value>) -> Option<V
             text.into_iter().map(Some).chain(images).collect()
         }
     };
-    blocks.filter(|b| !b.is_empty())
+    // The tools note its words make, which the log leaves out (`tool_mentions.rs`).
+    let mut blocks = blocks.filter(|b| !b.is_empty())?;
+    crate::tool_mentions::add_note(&mut blocks);
+    Some(blocks)
 }
 
 impl Hub {
@@ -542,6 +545,16 @@ mod tests {
         // Without its parts: its text, then its images.
         let msg = json!({"text": "hi", "images": [{"id": "img1"}]});
         assert_eq!(prompt_blocks(&msg, kept).map(|b| b.len()), Some(2));
+    }
+
+    /// The log leaves out the tools note (`tool_mentions.rs`); a rebuilt prompt gets it again.
+    #[test]
+    fn tool_mention_note_comes_back_on_a_rebuilt_prompt() {
+        let msg = json!({"text": "open it with @browser-use"});
+        let blocks = prompt_blocks(&msg, kept).unwrap();
+        assert_eq!(blocks.len(), 2, "{blocks:?}");
+        assert!(crate::prompt_context::is_context(&blocks[1]), "{blocks:?}");
+        assert!(blocks[1]["text"].as_str().unwrap().starts_with(crate::tool_mentions::TAG));
     }
 
     #[test]

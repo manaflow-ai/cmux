@@ -359,7 +359,6 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         outputs, groups = route_decision(
             [
                 ".github/workflows/web-complexity.yml",
-                ".github/workflows/web-complexity-trusted.yml",
                 "tests/test_web_complexity_trusted_workflow.py",
             ],
             macos="false",

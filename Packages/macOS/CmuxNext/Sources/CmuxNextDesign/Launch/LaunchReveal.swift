@@ -84,6 +84,12 @@ public final class LaunchReveal {
         if isReady(region) { work() } else { waiters[region, default: []].append(work) }
     }
 
+    /// Runs `ready` once the sidebar, the tab strips and the panes all show their content: when the
+    /// real launch window may swap in over stage 0 (LaunchShellContent.contentReady).
+    public func whenContentReady(_ ready: @escaping @MainActor () -> Void) {
+        whenReady(.sidebar) { [weak self] in self?.whenReady(.tabs) { self?.whenReady(.pane) { ready() } } }
+    }
+
     /// Runs `work` once: when `region` is ready, or `wait` from now when it is not by then. A region
     /// nothing holds never becomes ready (Home, when every window restores another workspace: no
     /// hold, so no deadline), so work that must run every launch waits for it with this.

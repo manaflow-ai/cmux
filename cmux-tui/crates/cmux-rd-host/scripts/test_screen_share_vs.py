@@ -49,7 +49,7 @@ class BudgetTable(unittest.TestCase):
                             {"g2g": [20.0, 30.0, 40.0]}, label="after", rev="abc")
         rows = rows_named(b)
         self.assertEqual([r["row"] for r in b["rows"]],
-                         ["Input", "Screen", "Capture", "Encode", "Send", "Network", "Reassembly",
+                         ["Input", "Screen", "Capture", " Gate wait", " Readback", "Encode", "Send", "Network", "Reassembly",
                           "Decode", "Present", "Total"])
         self.assertEqual(rows["Input"]["cmux"]["source"], "up + inject")
         self.assertEqual(sorted([rows["Input"]["cmux"]["p50"], rows["Input"]["cmux"]["p95"]]), [1.5, 3.5])
@@ -498,6 +498,11 @@ class BudgetInputTests(unittest.TestCase):
     def test_budget_input_defaults_to_key(self):
         self.assertEqual(vs.build_budget({"rows": [breakdown_row()]}, None)["input"], "key")
 
+    def test_budget_names_the_encode_profile(self):
+        b = vs.build_budget({"rows": [breakdown_row()]}, None, encode_profile="ultra")
+        self.assertEqual(b["encode_profile"], "ultra")
+        self.assertIsNone(vs.build_budget({"rows": [breakdown_row()]}, None)["encode_profile"])
+
 
 class FakeRelay(vs.SpoolRemote):
     """A SpoolRemote whose relay is a local shell: each run is one `reach` call's command,
@@ -869,6 +874,40 @@ class ClockRetryTest(unittest.TestCase):
         self.assertIn("RuntimeError: a | TimeoutError: b | ValueError: c", str(e.exception))
 
 
+class HostTestLossTest(unittest.TestCase):
+    def orchestrator(self, pct):
+        o = vs.Orchestrator.__new__(vs.Orchestrator)
+        o.host_test_loss = pct
+        o.host_args, o.viewer_args, o.host_argv, o.out = [], [], [], None
+        o.root = "/r"
+        o.a = argparse.Namespace(synthetic_size=None, synthetic_scene=None, link_bind=None)
+        return o
+
+    def test_the_value_is_checked(self):
+        self.assertEqual(vs.test_loss_pct(1.0), "1")
+        self.assertEqual(vs.test_loss_pct("0.5"), "0.5")
+        for bad in (0, -1, 100.5, "x"):
+            with self.assertRaises(ValueError):
+                vs.test_loss_pct(bad)
+
+    def test_the_flag_parses(self):
+        a = vs.build_parser().parse_args(run_argv("--host-test-loss", "1"))
+        self.assertEqual(a.host_test_loss, 1.0)
+        self.assertIsNone(vs.build_parser().parse_args(run_argv()).host_test_loss)
+
+    def test_synthetic_serve_sets_the_env(self):
+        self.assertIn("CMUX_RD_TEST_LOSS_PCT=1 ", self.orchestrator("1").synthetic_serve("fps"))
+        self.assertNotIn("CMUX_RD_TEST_LOSS_PCT", self.orchestrator(None).synthetic_serve("fps"))
+
+    def test_rows_record_it_only_when_set(self):
+        for pct, want in (("1", {"host_test_loss_pct": 1.0}), (None, {})):
+            o = self.orchestrator(pct)
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                o.log({"mode": "fps"})
+            row = json.loads(out.getvalue())
+            self.assertEqual({k: v for k, v in row.items() if k == "host_test_loss_pct"}, want)
+
+
 class RemoteRunStdin(unittest.TestCase):
     """Remote.run with no input gives the remote command /dev/null, not the orchestrator's stdin."""
 
@@ -886,6 +925,25 @@ class RemoteRunStdin(unittest.TestCase):
 
     def test_input_is_still_passed(self):
         self.assertEqual(vs.Remote("here", "local").run("cat", timeout=10, stdin="hi"), "hi")
+
+
+class LocalMac(unittest.TestCase):
+    """--local-mac NAME: that end runs here, the other end over --via (a job on one Mac of the pair)."""
+
+    def orchestrator(self, *extra):
+        a = vs.build_parser().parse_args(["run", "--host", "cmux20", "--viewer", "cmux17", "--host-ip", "10.0.0.2",
+                                          "--via", "ssh", *extra])
+        return vs.Orchestrator(a)
+
+    def test_host_local_viewer_over_ssh(self):
+        o = self.orchestrator("--local-mac", "cmux20")
+        self.assertEqual(o.host.argv("true"), ["/bin/bash", "-c", "true"])
+        self.assertEqual(o.viewer.argv("true"), ["ssh", "-o", "BatchMode=yes", "cmux17", "true"])
+
+    def test_without_it_both_over_via(self):
+        o = self.orchestrator()
+        self.assertEqual(o.host.argv("true")[0], "ssh")
+        self.assertEqual(o.viewer.argv("true")[0], "ssh")
 
 
 class ClockProbeDeadline(unittest.TestCase):

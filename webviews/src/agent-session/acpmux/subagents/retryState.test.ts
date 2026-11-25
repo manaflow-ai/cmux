@@ -192,6 +192,7 @@ describe("the fold keeps a subagent's retry", () => {
 test("acpmux's continuations are recognized; a person's prompt is not", () => {
   expect(isRetryContinuation({ _meta: { provenance: { kind: "auto_resume", attempt: 1, manual: true } } })).toBe(true);
   expect(isRetryContinuation({ _meta: { provenance: { kind: "subagent_retry", subagentId: "a" } } })).toBe(true);
+  expect(isRetryContinuation({ _meta: { provenance: { kind: "subagent_resume", subagentId: "a" } } })).toBe(true);
   expect(isRetryContinuation({ _meta: { provenance: { kind: "subsession_message" } } })).toBe(false);
   expect(isRetryContinuation({})).toBe(false);
 });

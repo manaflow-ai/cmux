@@ -353,8 +353,8 @@ impl Hub {
             if source.as_deref() != Some(ASKED) {
                 return;
             }
-            let title = hub.generate_title(&session, &harness, &request).await;
-            hub.apply_generated_title(&session, title);
+            let (title, attempt) = hub.generate_title(&session, &harness, &request).await;
+            hub.apply_generated_title_with(&session, title, attempt);
         });
     }
 
@@ -436,7 +436,7 @@ impl Hub {
         session: &Session,
         harness: &str,
         request: &str,
-    ) -> Option<String> {
+    ) -> (Option<String>, Attempt) {
         let (custom, model, enabled) = {
             let cfg = self.config.read().await;
             let custom = std::env::var(COMMAND_ENV)
@@ -447,17 +447,21 @@ impl Hub {
             (custom, cfg.titles.model.clone(), cfg.titles.generate != Some(false))
         };
         if !enabled {
-            return None;
+            return (None, Attempt::default());
         }
         if custom.is_some() {
-            let command = self.title_command(harness).await?;
+            let Some(command) = self.title_command(harness).await else {
+                super::title_log::record(session, harness, None, "no_command", None, 0, 0);
+                return (None, Attempt::default());
+            };
             if session.meta.lock().unwrap_or_else(|e| e.into_inner()).title_source.as_deref()
                 != Some(ASKED)
             {
-                return None;
+                return (None, Attempt::default());
             }
             let started = std::time::Instant::now();
             let title = run(command, request).await;
+            let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
             tracing::info!(
                 event = "chat_title",
                 harness,
@@ -469,7 +473,7 @@ impl Hub {
                 estimated_output_tokens = title.as_deref().map_or(0, |t| t.len().div_ceil(4)),
                 "chat title completion"
             );
-            return title;
+            return (title, Attempt { model: "custom".to_owned(), ms });
         }
         let mut params = json!({"prompt": request, "harness": harness, "maxTokens": 16});
         if let Some(model) = model {
@@ -478,10 +482,14 @@ impl Hub {
         if session.meta.lock().unwrap_or_else(|e| e.into_inner()).title_source.as_deref()
             != Some(ASKED)
         {
-            return None;
+            return (None, Attempt::default());
         }
         let started = std::time::Instant::now();
-        let result = self.complete(crate::server::Origin::Local, &params).await.ok()?;
+        let Ok(result) = self.complete(crate::server::Origin::Local, &params).await else {
+            let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+            super::title_log::record(session, harness, None, "error", None, 0, ms);
+            return (None, Attempt::default());
+        };
         let title = result.get("text").and_then(Value::as_str).and_then(clean);
         tracing::info!(
             event = "chat_title",
@@ -494,7 +502,10 @@ impl Hub {
             estimated_output_tokens = title.as_deref().map_or(0, |t| t.len().div_ceil(4)),
             "chat title completion"
         );
-        title
+        let model =
+            result.get("model").and_then(serde_json::Value::as_str).unwrap_or("default").to_owned();
+        let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        (title, Attempt { model, ms })
     }
 
     pub(super) fn apply_generated_title(
@@ -502,6 +513,18 @@ impl Hub {
         session: &Arc<Session>,
         title: Option<String>,
     ) {
+        self.apply_generated_title_with(session, title, Attempt::default());
+    }
+
+    fn apply_generated_title_with(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        title: Option<String>,
+        attempt: Attempt,
+    ) {
+        let harness = session.read_meta(|m| m.harness.clone());
+        let words = title.as_deref().map_or(0, |t| t.split_whitespace().count());
+        let outcome = if title.is_some() { "generated" } else { "empty" };
         let (title, retry) = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.title_asking = false;
@@ -528,6 +551,8 @@ impl Hub {
                 }
             }
         };
+        let model = Some(attempt.model.as_str()).filter(|m| !m.is_empty());
+        super::title_log::record(session, &harness, model, outcome, None, words, attempt.ms);
         if retry {
             self.title_after_turn(session);
             return;
@@ -536,6 +561,13 @@ impl Hub {
         self.append(session, "mux", "titled", json!({"title": title}));
         self.save_meta(session);
     }
+}
+
+/// What a title request ran on and how long it took, for `title_log`.
+#[derive(Default)]
+struct Attempt {
+    model: String,
+    ms: u64,
 }
 
 fn request(prompt: &str, reply: &str, first: bool) -> String {

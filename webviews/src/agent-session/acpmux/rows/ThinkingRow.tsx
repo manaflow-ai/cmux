@@ -3,6 +3,7 @@ import { Thinking } from "../conversation/Thinking";
 import { LiveLinePulseContext } from "../conversation/liveLinePulse";
 import { LIVE_THINKING } from "../conversation/turns";
 import { type RowProps } from "./rowProps";
+import { sameLiveWait, sameNames } from "../conversation/liveWait";
 
 /// A running turn's status: "Thinking", then "Working for 42s" (turnView in conversation/turns.ts).
 export const ThinkingRow = memo(
@@ -25,10 +26,12 @@ export const ThinkingRow = memo(
         doneMs={row.doingForMs}
         liveState={row.liveState}
         liveAgents={row.liveAgents}
+        liveAgentNames={row.liveAgentNames}
         liveCompaction={row.liveCompaction}
         phaseAt={row.phaseAt}
         heardAt={row.heardAt}
         heardKey={row.heardKey}
+        liveWait={row.liveWait}
         waitAt={row.waitAt}
         turnTotal={row.turnTotal}
         untimed={row.untimed}
@@ -58,10 +61,12 @@ export const ThinkingRow = memo(
     a.row.doingForMs === b.row.doingForMs &&
     a.row.liveState === b.row.liveState &&
     a.row.liveAgents === b.row.liveAgents &&
+    sameNames(a.row.liveAgentNames, b.row.liveAgentNames) &&
     a.row.liveCompaction === b.row.liveCompaction &&
     a.row.phaseAt === b.row.phaseAt &&
     a.row.heardAt === b.row.heardAt &&
     a.row.heardKey === b.row.heardKey &&
+    sameLiveWait(a.row.liveWait, b.row.liveWait) &&
     a.row.waitAt === b.row.waitAt &&
     a.row.turnTotal === b.row.turnTotal &&
     a.row.untimed === b.row.untimed &&

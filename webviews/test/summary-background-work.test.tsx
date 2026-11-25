@@ -4,17 +4,12 @@
 // (session-info/processes.ts `backgroundCommands`, whose merge session-info-tasks.test.tsx covers),
 // running ones first with their time and Stop, and finished work as compact status cards; the chats
 // the agent started sit under Subagents with their state; an empty card draws one quiet line instead
-// of "None" under every title. The running turn's line counts started chats. What still runs
-// between turns shows in the tray above the composer (subagent-tray.test.tsx).
+// of "None" under every title. What still runs shows in the tray above the composer (subagent-tray.test.tsx).
 import { afterEach, expect, jest, setSystemTime, test } from "bun:test";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
 import { pageClocks } from "../src/ui/pageClock";
-import { WorkingFor } from "../src/agent-session/acpmux/conversation/WorkingFor";
-import { type WorkingCounts, WorkingCountsContext } from "../src/agent-session/acpmux/conversation/workingForModel";
-import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { StartedSession } from "../src/agent-session/acpmux/started/startedSessions";
 import { orderedSessions } from "../src/agent-session/acpmux/session-info/childSessionRowsModel";
 import { backgroundCommands, processesOf } from "../src/agent-session/acpmux/session-info/processes";
@@ -302,21 +297,6 @@ test("the chats the agent started are listed under Subagents with their state, a
   expect(opened).toEqual(["c5"]);
 });
 
-const counts = (extra: Partial<WorkingCounts> = {}): WorkingCounts => ({
-  agents: 0,
-  commands: 0,
-  sessions: 0,
-  openAgents: () => {},
-  openCommands: () => {},
-  openSessions: () => {},
-  ...extra,
-});
-const text = (html: string) =>
-  html
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
 test("unavailable workflow resume refuses visibly and leaves Run again available", async () => {
   const container = installDom();
   const requests: boolean[] = [];
@@ -339,16 +319,6 @@ test("unavailable workflow resume refuses visibly and leaves Run again available
   expect(container.textContent).toContain("This workflow can’t be resumed");
   await act(async () => button("Run again").click());
   expect(requests).toEqual([true, false]);
-});
-
-test("the running turn's line counts the started chats that run", () => {
-  const status: AcpmuxRow = { id: "working", kind: "working", version: 1, at: 0 };
-  const html = renderToStaticMarkup(
-    <WorkingCountsContext.Provider value={counts({ commands: 2, sessions: 3 })}>
-      <WorkingFor row={status} now={() => 26_000} />
-    </WorkingCountsContext.Provider>,
-  );
-  expect(text(html)).toBe("Working for 26s · 3 subagents · 2 commands");
 });
 
 test("workflow agent rows keep names and state without token counts", async () => {

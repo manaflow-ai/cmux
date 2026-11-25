@@ -55,6 +55,21 @@ impl Ask {
         }
     }
 
+    /// The same ask with each entry turned by `wire` (an overlay's id into the index the Mac's
+    /// manifest has, [`crate::lower::Ext::wire_of`]).
+    #[must_use]
+    pub fn remap(self, wire: impl Fn(u32) -> u32) -> Self {
+        match self {
+            Self::Read { ask, entry, offset, len } => {
+                Self::Read { ask, entry: wire(entry), offset, len }
+            }
+            Self::Batch { ask, entries } => {
+                Self::Batch { ask, entries: entries.into_iter().map(wire).collect() }
+            }
+            other => other,
+        }
+    }
+
     pub fn write(&self, out: &mut impl Write) -> io::Result<()> {
         let mut bytes = Vec::with_capacity(24);
         match self {

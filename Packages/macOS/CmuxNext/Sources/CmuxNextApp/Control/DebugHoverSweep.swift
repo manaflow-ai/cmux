@@ -1,16 +1,17 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextBridge
+import CmuxNextHibernation
 import CmuxNextSettings
 import CmuxNextTabs
 import CmuxNextControl
 
 /// `debug.hover_sweep` (R131): the pointer moves across the focused pane's
 /// tabs (`tabs`: indices, default 0,1,2,1,0) through the strip's real
-/// hover path. After the first card shows, each retarget's synchronous
-/// main-thread time, the target the card shows after it and the
-/// display-link frame intervals over the sweep (a missed frame is an
-/// interval longer than 1.5 refresh periods) are returned.
+/// hover path, resting `rest_ms` on each (default 150: over the 100 ms
+/// hover-load dwell, so each rest loads its tab). After the first card shows, each retarget's synchronous
+/// main-thread time, the target the card shows after it and the display-link frame intervals over the
+/// sweep (a missed frame is an interval longer than 1.5 refresh periods) are returned.
 ///
 /// `point` ([x, y] in the active main window, bottom-left origin) instead
 /// hovers that point through the shared coordinator (a sidebar workspace
@@ -19,6 +20,8 @@ import CmuxNextControl
 @MainActor
 enum DebugHoverSweep {
     private static let frames = BenchFrames()
+    /// The rest on each tab after a retarget (`rest_ms`): by default the hover-load dwell plus a frame budget for its hop.
+    static func restMilliseconds(_ params: [String: JSONValue]) -> Double { BenchRest.milliseconds(params, fallback: HoverWakeIntent.dwell + .milliseconds(50)) }
 
     static func run(_ params: [String: JSONValue], services: AppServices) async -> JSONValue {
         if let point = params["point"]?.arrayValue?.compactMap(\.doubleValue), point.count == 2 {
@@ -43,10 +46,7 @@ enum DebugHoverSweep {
             return true
         }
         frames.start()
-        guard move(to: first) else {
-            _ = frames.stop()
-            return .object(["error": .string("no tab \(first)")])
-        }
+        guard move(to: first) else { _ = frames.stop(); return .object(["error": .string("no tab \(first)")]) }
         let shownAfter = await frames.settled(until: { coordinator.machine.shownTarget != nil }, start: .now, window: 50, deadline: 4_000)
         var retargets: [[String: JSONValue]] = []
         // After each retarget settles: the image the card shows and the
@@ -62,7 +62,7 @@ enum DebugHoverSweep {
                 "tab": .number(Double(index)), "moved": .bool(moved), "ms": .number((ms * 100).rounded() / 100),
                 "shown": .string(shown),
             ])
-            _ = await frames.settled(until: { true }, start: .now, window: 50, deadline: 500)
+            _ = await frames.settled(until: { true }, start: .now, window: restMilliseconds(params), deadline: restMilliseconds(params) + 450)
             let key = shown.hasPrefix("tab:") ? String(shown.dropFirst(4)) : shown
             images.append((TabStripDebug.cardThumbnail(in: strip), services.cache.pageThumbnails.image(for: key)))
         }

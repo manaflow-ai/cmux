@@ -35,7 +35,7 @@
 +    // flipped bounds and returns where the list starts. Nil keeps MessagesLab's header.
 +    var headerLayout: ((CGRect) -> CGFloat)? { didSet { if isViewLoaded { view.needsLayout = true } } }
 +    // cmux: the neutral selection's fill (the host's theme tint, translucent); nil keeps the
-+    // unemphasized grey. In the compact list the selection is a disc behind the avatar.
++    // unemphasized grey. In the compact list the selection is the row's (cmux: Messages' narrow list).
 +    var neutralFill: NSColor? { didSet { colorsChanged() } }
      /// The resolved colors (tests).
      var currentPalette: SidebarPalette { palette }
@@ -259,7 +259,19 @@
      }
      /// The section title: one small bitmap, drawn when the title, width or palette changes.
      private func layoutSectionHeader() {
-@@ -761,14 +843,27 @@
+@@ -735,7 +817,10 @@
+     }
+     func item(_ h: Hit) -> Int? { switch h { case let .tile(t): return pinnedItems[checked: t]; case let .row(r): return rowItems[checked: r] } } // nil when stale
+     func rect(_ h: Hit) -> CGRect {
+-        switch h { case let .tile(t): return tileRect(t).insetBy(dx: 2, dy: 2); case let .row(r): return selectionRect(r) }
++        switch h {
++        case let .tile(t): return metrics.compact ? tileRect(t) : tileRect(t).insetBy(dx: 2, dy: 2) // cmux: a compact tile is a row
++        case let .row(r): return selectionRect(r)
++        }
+     }
+     /// A conversation's tile or row in screen coordinates (accessibility; .zero when not shown).
+     func screenRect(of id: ConversationID) -> NSRect {
+@@ -761,14 +846,27 @@
  
      func layout(in bounds: CGRect) {
          let M = SidebarMetrics.self
@@ -293,7 +305,7 @@
          let w = scrollView.contentSize.width
          if w > 0, w != metrics.width {
              let t0 = beginWork()
-@@ -797,7 +892,7 @@
+@@ -797,7 +895,7 @@
  
      private func clipMoved() { tile(force: false) }  // no selector
  
@@ -302,30 +314,31 @@
          SidebarRenderContext(metrics: metrics, palette: palette, scale: scale,
                               space: document.window?.screen?.colorSpace?.cgColorSpace ?? SidebarDraw.p3, generation: generation,
                               bellSecondary: bellSecondary, bellSelected: bellSelected,
-@@ -957,6 +1052,11 @@
+@@ -957,39 +1055,55 @@
          l.content.frame = CGRect(x: SidebarMetrics.textX, y: 0, width: metrics.textWidth, height: SidebarMetrics.rowHeight)
          l.selection.frame = CGRect(x: SidebarMetrics.selectionInsetX, y: 0, width: frame.width - 2 * SidebarMetrics.selectionInsetX, height: frame.height)
          l.selection.cornerRadius = SidebarMetrics.selectionRadius
 +        let ar = metrics.rowAvatar(rowHeight: frame.height)
-+        if metrics.compact, neutralSelection { // cmux: the compact row's selection is a disc behind the avatar, not a slab
-+            l.selection.frame = ar.insetBy(dx: -4, dy: -4)
-+            l.selection.cornerRadius = l.selection.frame.width / 2
-+        }
          l.selection.isHidden = !selected
          l.selection.backgroundColor = windowActive ? palette.selectionActive : palette.selectionInactive
          // The separator under the text, hidden next to the selection (as NSTableView does).
-@@ -965,31 +1065,50 @@
-         let s = 1 / max(1, document.window?.backingScaleFactor ?? 2)
-         l.separator.frame = CGRect(x: SidebarMetrics.textX, y: frame.height - s, width: frame.width - SidebarMetrics.textX - SidebarMetrics.separatorInsetRight, height: s)
-         l.separator.backgroundColor = palette.separator
+         let nextSelected = rowItems.dropFirst(r + 1).first.flatMap { snapshot.items[checked: $0] }.map { $0.id == highlightID } ?? false
+         l.separator.isHidden = selected || nextSelected || r == rowItems.count - 1 || r + 1 == extraStart
+-        let s = 1 / max(1, document.window?.backingScaleFactor ?? 2)
+-        l.separator.frame = CGRect(x: SidebarMetrics.textX, y: frame.height - s, width: frame.width - SidebarMetrics.textX - SidebarMetrics.separatorInsetRight, height: s)
+-        l.separator.backgroundColor = palette.separator
 -        // Avatar and unread dot: no dependence on the width (only their x in the compact list).
++        // cmux: Messages' separator is 1 pt (2 px at 2x), not a hairline.
++        let s: CGFloat = 1
++        l.separator.frame = CGRect(x: SidebarMetrics.separatorX, y: frame.height - s, width: frame.width - SidebarMetrics.separatorX - SidebarMetrics.separatorInsetRight, height: s)
++        l.separator.backgroundColor = palette.separator
 +        // Avatar and unread dot: no dependence on the width (only their x in the compact list, where
 +        // the avatar is a tile's: one bitmap at the largest pin size, scaled, as the pinned tiles).
          let compact = metrics.compact
 -        let ah = SidebarMetrics.avatar
 -        l.avatar.frame = CGRect(x: metrics.rowAvatarX, y: ((frame.height - ah) / 2).rounded(), width: ah, height: ah)
 -        if l.avatarSpec != c.avatar || l.avatarGeneration != generation {
-+        let ah = compact ? SidebarMetrics.pinMaxAvatar : SidebarMetrics.avatar
++        let ah = SidebarMetrics.avatar // cmux: a compact row's avatar is the row's
 +        l.avatar.frame = ar
 +        l.avatar.minificationFilter = .trilinear
 +        if l.avatarSpec != c.avatar || l.avatarGeneration != generation || l.avatarDiameter != ah {
@@ -358,14 +371,9 @@
          } else {
              l.setTyping(nil)
          }
-+        if compact { // cmux: the name centered under the avatar, truncated, its unread dot inline before it
-+            let keys = SidebarController.tileKeys(c, natural: natural(c), tileWidth: metrics.tileWidth, emphasized: k.emphasized, generation: generation)
-+            let name = tileImage(keys.name, c)
-+            let label = SidebarDraw.compactRowLabel(metrics, nameWidth: CGFloat(name?.width ?? 0) / renderContext.scale, unread: c.unread)
-+            l.content.isHidden = false
-+            l.content.contents = name
-+            l.content.frame = label.name
-+            if let dot = label.dot { l.dot.frame = dot }
++        if compact { // cmux: the avatar alone, the unread dot where the row has it (Messages' narrow list)
++            l.content.isHidden = true
++            l.content.contents = nil
 +            l.contentsScaleAll(renderContext.scale)
 +            l.shownKey = k
 +            return
@@ -376,7 +384,7 @@
          if l.shownKey == k { return }
          if let text = cache.image(k), let time = cache.image(timeKey(k)) {
              show(l, k, time: time, text: text)
-@@ -1068,11 +1187,10 @@
+@@ -1068,11 +1182,10 @@
          // change redraws only the parts that it truncates or wraps.
          let ctx = renderContext
          var work: [(SidebarBitmapKey, ConversationSummary)] = []
@@ -387,12 +395,12 @@
 -            }
 +        for i in pinnedItems { // no index math; a stale item is skipped
 +            guard let c = snapshot.items[checked: i], let keys = tileKeys(i) else { continue }
-+            let parts = metrics.compact ? [keys.name] : [keys.name, keys.bubble].compactMap { $0 } // compact: no bubble
++            let parts = metrics.compact ? [] : [keys.name, keys.bubble].compactMap { $0 } // cmux: compact: no name, no bubble
 +            for k in parts where !cache.contains(k) { work.append((k, c)) }
          }
          if work.count > 1 {
              var images = [CGImage?](repeating: nil, count: work.count)
-@@ -1103,7 +1221,7 @@
+@@ -1103,7 +1216,7 @@
      }
      static func tileKeys(_ c: ConversationSummary, natural n: (name: CGFloat, bubble: CGFloat), tileWidth tw: CGFloat,
                           emphasized: Bool, generation: Int) -> (name: SidebarBitmapKey, bubble: SidebarBitmapKey?) {
@@ -401,18 +409,18 @@
                                      emphasized: emphasized, generation: generation)
          let bubble = c.unread && !c.typing
              ? SidebarBitmapKey(kind: .tileBubble, id: c.id, version: c.version, width: SidebarDraw.tileBubbleKeyWidth(natural: n.bubble, tileWidth: tw),
-@@ -1134,6 +1252,10 @@
+@@ -1134,6 +1247,10 @@
          l.selection.isHidden = c.id != highlightID
          l.selection.backgroundColor = windowActive ? palette.selectionActive : palette.selectionInactive
          let ar = SidebarDraw.tileAvatar(metrics)
-+        if metrics.compact, neutralSelection { // cmux: the compact tile's selection is a disc behind the avatar
-+            l.selection.frame = ar.insetBy(dx: -4, dy: -4)
-+            l.selection.cornerRadius = l.selection.frame.width / 2
++        if metrics.compact { // cmux: the compact tile is a row: the row's selection across it
++            l.selection.frame = l.bounds
++            l.selection.cornerRadius = SidebarMetrics.selectionRadius
 +        }
          // The avatar: one bitmap at the largest pin size, scaled to the current one.
          l.avatar.frame = ar
          l.avatar.minificationFilter = .trilinear
-@@ -1143,10 +1265,20 @@
+@@ -1143,10 +1260,20 @@
          }
          configureSenders(l, c, avatar: ar)
          l.dot.isHidden = !c.unread
@@ -420,7 +428,7 @@
 +        l.dot.cornerRadius = (metrics.compact ? SidebarMetrics.dotDiameter : SidebarDraw.tileDotDiameter) / 2
          l.dot.backgroundColor = palette.unread
 +        // cmux: in the compact list a pinned avatar is row-sized, so a thin ring 2 pt outside it
-+        // (inside the selection disc's footprint) says "pinned"; the selection disc replaces it.
++        // says "pinned"; the selection replaces it.
 +        l.pinRing.isHidden = !metrics.compact || !l.selection.isHidden
 +        if !l.pinRing.isHidden {
 +            l.pinRing.frame = ar.insetBy(dx: -SidebarMetrics.compactPinRingGap, dy: -SidebarMetrics.compactPinRingGap)
@@ -435,15 +443,18 @@
              l.typing?.showsTail = true
              // Where the unread message bubble goes: centered over the avatar's top (to verify).
              l.typing?.position = CGPoint(x: ar.midX, y: ar.minY + ar.height * 0.30 - SidebarTypingLayer.size.height / 2)
-@@ -1154,17 +1286,17 @@
+@@ -1154,17 +1281,23 @@
          } else {
              l.setTyping(nil)
          }
 -        if metrics.compact {
--            l.content.isHidden = true
--            l.time.isHidden = true
--        } else {
-+        do {
++        if metrics.compact { // cmux: no name in the compact list, the unread dot where a row has it
+             l.content.isHidden = true
++            l.content.contents = nil
+             l.time.isHidden = true
++            let d = SidebarMetrics.dotDiameter
++            l.dot.frame = CGRect(x: SidebarMetrics.dotCenterX - f.minX - d / 2, y: f.height / 2 - d / 2, width: d, height: d)
+         } else {
              let keys = SidebarController.tileKeys(c, natural: natural(c), tileWidth: metrics.tileWidth, emphasized: emphasized(i), generation: generation)
              let name = tileImage(keys.name, c)
              let nw = CGFloat(name?.width ?? 0) / s // an unallocated name shows nothing
@@ -459,7 +470,7 @@
                  // The newest unread message over the avatar's top (the typing bubble, a layer,
                  // takes its place while someone types).
                  let bw = CGFloat(b.width) / s, bh = CGFloat(b.height) / s
-@@ -1176,11 +1308,6 @@
+@@ -1176,11 +1309,6 @@
                  l.time.isHidden = true
              }
          }
@@ -471,12 +482,10 @@
          // Configured for this width (the stale check compares it).
          l.shownKey = SidebarBitmapKey(kind: .tile, id: c.id, version: c.version, width: metrics.tileWidth, emphasized: false, generation: generation)
          l.contentsScaleAll(s)
-@@ -1253,6 +1380,20 @@
-         case let .row(r)?: if let l = rowLayers[r] { configure(l, row: r, sync: true) }
-         case nil: break
+@@ -1255,6 +1383,20 @@
          }
-+    }
-+
+     }
+ 
 +    /// cmux: the person opened `id` (a plain click, Return, an accessibility press): it is
 +    /// selected, then the delegate's `didOpen` moves the keyboard into it. An extra result has
 +    /// its own start (`didSelectSearchResult`).
@@ -489,10 +498,12 @@
 +    /// cmux: Return in the list opens the highlighted conversation (none: nothing).
 +    func openHighlighted() {
 +        if let id = highlightID { open(id) }
-     }
- 
++    }
++
      /// Up/down: pinned tiles in order, then the rows.
-@@ -1373,7 +1514,7 @@
+     func moveSelection(_ delta: Int) {
+         let order = pinnedItems.count + rowItems.count
+@@ -1373,7 +1515,7 @@
          let cached = cache.keys
          let selected = windowActive ? highlightID : nil
          let clip = scrollView.contentView.bounds
@@ -501,7 +512,7 @@
          let m = ctx.metrics
          return { snap, list in
              func key(_ kind: SidebarBitmapKey.Kind, _ c: ConversationSummary) -> SidebarBitmapKey {
-@@ -1462,6 +1603,8 @@
+@@ -1462,6 +1604,8 @@
          case #selector(NSResponder.insertNewline(_:)):
              if highlightID.map({ position(of: $0) == nil }) ?? true { moveSelection(1) } // no force unwrap
              view.window?.makeFirstResponder(document)
@@ -510,7 +521,16 @@
              return true
          case #selector(NSResponder.cancelOperation(_:)):
              searchField.stringValue = ""
-@@ -1529,10 +1672,11 @@
+@@ -1501,7 +1645,7 @@
+         menuTitles = m.items.map(\.title)
+         CATransaction.begin(); CATransaction.setDisableActions(true)
+         menuRing.frame = rect(h)
+-        menuRing.cornerRadius = { if case .tile = h { return SidebarMetrics.pinSelectionRadius }; return SidebarMetrics.selectionRadius }()
++        menuRing.cornerRadius = { if case .tile = h, !metrics.compact { return SidebarMetrics.pinSelectionRadius }; return SidebarMetrics.selectionRadius }() // cmux: a compact tile is a row
+         menuRing.borderColor = palette.accent
+         menuRing.isHidden = false
+         CATransaction.commit()
+@@ -1529,10 +1673,11 @@
          guard p != palette || bellSecondary == nil else { return }
          palette = p
          bellSecondary = Self.bell(NSColor.secondaryLabelColor, view.effectiveAppearance, scale: renderContext.scale)
@@ -524,7 +544,7 @@
          invalidateAll()
      }
      private func colorsChanged() {  // no selector
-@@ -1541,10 +1685,24 @@
+@@ -1541,10 +1686,24 @@
          invalidateAll()
      }
      private func resolvePalette() -> SidebarPalette {
@@ -550,7 +570,7 @@
          guard active != windowActive else { return }
          windowActive = active
          CATransaction.begin(); CATransaction.setDisableActions(true)
-@@ -1634,7 +1792,7 @@
+@@ -1634,7 +1793,7 @@
      weak var controller: SidebarController?
      let id: ConversationID
      init(controller: SidebarController, id: ConversationID) { self.controller = controller; self.id = id; super.init() }
@@ -559,7 +579,7 @@
      override func isAccessibilityElement() -> Bool { true }
      /// On screen, from the list's own (flipped) geometry at the time of the call: a frame in
      /// parent space came out mirrored on the list's height (dogfood 2026-10-08: rows at y 28590).
-@@ -1650,6 +1808,8 @@
+@@ -1650,6 +1809,8 @@
      let content = CALayer()
      let time = CALayer()
      let separator = CALayer()
@@ -568,7 +588,7 @@
      private(set) var typing: SidebarTypingLayer?
      /// A pinned group tile's recent senders (small avatars at the avatar's edge).
      var senders: [CALayer] = []
-@@ -1662,12 +1822,15 @@
+@@ -1662,12 +1823,15 @@
      var shownText: CGImage?
      var avatarSpec: AvatarSpec?
      var avatarGeneration = -1
@@ -585,7 +605,7 @@
          content.contentsGravity = .topLeft
          time.contentsGravity = .topLeft
          avatar.contentsGravity = .resize
-@@ -1677,15 +1840,16 @@
+@@ -1677,15 +1841,16 @@
      required init?(coder: NSCoder) { fatalError() }
      /// Hands the typing bubble to the caller (it fades it out elsewhere); the row has none after.
      func detachTyping() -> SidebarTypingLayer? { let t = typing; typing = nil; return t }
@@ -604,7 +624,7 @@
      }
  }
  
-@@ -1734,7 +1898,13 @@
+@@ -1734,7 +1899,13 @@
          if let c = controller, c.swipeClick(at: point(event)) { return }
          guard let c = controller, let h = c.hit(point(event)), let s = c.summary(h) else { return } // a stale hit selects nothing
          c.highlight(s.id, reveal: false)
@@ -619,7 +639,7 @@
      }
      override func mouseDragged(with event: NSEvent) { controller?.tileDragMoved(to: point(event)) }
      override func mouseUp(with event: NSEvent) { controller?.tileDragEnded(at: point(event)) }
-@@ -1746,6 +1916,9 @@
+@@ -1746,6 +1917,9 @@
          default: interpretKeyEvents([event])
          }
      }

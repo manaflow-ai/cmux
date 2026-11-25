@@ -428,7 +428,8 @@ enum SidebarDraw {
     /// The avatar's rect in a tile (tile coordinates).
     static func tileAvatar(_ m: SidebarMetrics) -> CGRect {
         let d = m.pinAvatar
-        return CGRect(x: ((m.tileWidth - d) / 2).rounded(), y: SidebarMetrics.pinTopPad, width: d, height: d)
+        let y = m.compact ? ((m.tileHeight - d) / 2).rounded() : SidebarMetrics.pinTopPad // cmux: centred in a compact row
+        return CGRect(x: ((m.tileWidth - d) / 2).rounded(), y: y, width: d, height: d)
     }
 
     /// A pinned tile is layers: the avatar (one bitmap at the largest pin size, scaled), the
@@ -531,13 +532,6 @@ enum SidebarDraw {
         return (name, CGRect(x: x0, y: (y + 7 - d / 2).rounded(), width: d, height: d))
     }
 
-    /// cmux: a compact row's name and unread dot (row coordinates): a one-column tile's label, so
-    /// pinned and unpinned rows line up (Messages' narrow list).
-    static func compactRowLabel(_ m: SidebarMetrics, nameWidth nw: CGFloat, unread: Bool) -> (name: CGRect, dot: CGRect?) {
-        let x0 = m.tileRect(0).minX
-        let label = tileLabel(m, nameWidth: nw, unread: unread)
-        return (label.name.offsetBy(dx: x0, dy: 0), label.dot?.offsetBy(dx: x0, dy: 0))
-    }
 }
 
 /// The list's motion (render-server animations only; no main-thread frames). Start values are the

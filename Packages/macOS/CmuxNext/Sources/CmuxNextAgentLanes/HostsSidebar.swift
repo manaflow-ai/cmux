@@ -1,6 +1,8 @@
 public import CmuxNextServer
 public import CmuxNextSidebar
 import CmuxNextCompat
+import CmuxNextDesignTokens
+import CmuxNextWakeups
 import Foundation
 public import Observation
 
@@ -54,22 +56,36 @@ public final class HostsSidebar {
             self.stopAging = stopAging
         }
 
-        /// Mesh-only joined Macs use the signed-in dial flow; linked rows use the ordinary workspace action.
+        /// Mesh-only joined machines (Mac or Linux) use the signed-in dial flow; linked rows use the ordinary workspace action.
         public func open(_ machine: MachineSectionRow) {
+            switch MachineRow(machine: machine).action {
+            case .dialJoined(let joined): openJoined(joined)
+            case .newWorkspace: openConnected(machine.id)
+            case .connect: openOffline(machine)
+            case nil: return
+            }
+        }
+    }
+
+    /// A machine row and what a click on it does (``Host/open(_:)``). Each state word the row shows comes with
+    /// one: an offline row connects (`remote.connect`), a connecting row opens once linked, a connected row opens
+    /// a new workspace on it.
+    struct MachineRow {
+        enum RowAction: Equatable {
+            case dialJoined(JoinedMachine)
+            case newWorkspace
+            case connect
+        }
+
+        let machine: MachineSectionRow
+
+        var action: RowAction? {
             if let joined = machine.joined, machine.id == JoinedMachine.healthID(joined.id) {
-                // A mesh-only joined row is a presence/management row. Only an online Mac
-                // supports the signed-in dial flow; Linux and Windows rows have no daemon
-                // machine id that workspace.newOnMachine could accept.
-                if joined.state == .online, joined.isMac {
-                    openJoined(joined)
-                }
-                return
+                // A mesh-only joined row opens through its hub route (``SignedInMachineDial``), which
+                // makes the server row workspace.newOnMachine runs on; an offline one stays closed.
+                return joined.opensOverHub ? .dialJoined(joined) : nil
             }
-            if machine.isConnected {
-                openConnected(machine.id)
-            } else {
-                openOffline(machine)
-            }
+            return machine.isConnected ? .newWorkspace : .connect
         }
     }
 
@@ -84,10 +100,20 @@ public final class HostsSidebar {
     @ObservationIgnored private var visible: @MainActor () -> Bool = { true }
     @ObservationIgnored private var running = false
     public private(set) var expanded = true
+    /// The machines whose connect has lasted ``NoticeTiming/connectionQuiet``: only these say "Connecting…" and
+    /// spin (Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up"). A connect that heals
+    /// inside the bound draws nothing.
+    private var lastingConnects: Set<String> = []
+    @ObservationIgnored private var connectHolds: [String: QuietHold] = [:]
+    @ObservationIgnored private let connectQuiet: Duration
 
-    public init(host: Host? = nil, visible: @escaping @MainActor () -> Bool = { true }) {
+    /// - Parameter connectQuiet: how long a connect lasts before its row says so; nil is
+    ///   ``NoticeTiming/connectionQuiet``, and tests pass a short one.
+    public init(host: Host? = nil, visible: @escaping @MainActor () -> Bool = { true },
+                connectQuiet: Duration? = nil) {
         self.host = host
         self.visible = visible
+        self.connectQuiet = connectQuiet ?? NoticeTiming.connectionQuiet
         if let host {
             start(host, visible: visible)
             watch()
@@ -167,7 +193,33 @@ public final class HostsSidebar {
             return []
         }
         if initialRefresh == nil { start(host, visible: visible) }
-        return Self.rows(machines: host.rows(), expanded: expanded)
+        let machines = host.rows()
+        holdConnects(machines)
+        return Self.rows(machines: machines, expanded: expanded, lasting: lastingConnects)
+    }
+
+    /// Starts one ``QuietHold`` per machine that began connecting on its own (not a resume, not failed) and
+    /// forgets the machines that stopped; a hold that ends marks its machine lasting, which draws the rows again.
+    private func holdConnects(_ machines: [MachineSectionRow]) {
+        var connecting = Set<String>()
+        for machine in machines where Self.holdsConnect(machine) {
+            connecting.insert(machine.id)
+            let hold = connectHolds[machine.id] ?? QuietHold(owner: "HostsSidebar.connecting", delay: connectQuiet)
+            connectHolds[machine.id] = hold
+            let id = machine.id
+            hold.update(true) { [weak self] in _ = self?.lastingConnects.insert(id) }
+        }
+        for id in Array(connectHolds.keys) where !connecting.contains(id) {
+            connectHolds.removeValue(forKey: id)?.update(false) {}
+        }
+        let ended = lastingConnects.subtracting(connecting)
+        if !ended.isEmpty { lastingConnects.subtract(ended) }
+    }
+
+    /// A connect nobody asked for in this row (a launch connect, a redial): the link heals on its own, so it
+    /// waits the bound. A resume the person started and a failure are said at once.
+    nonisolated static func holdsConnect(_ machine: MachineSectionRow) -> Bool {
+        machine.isConnecting && !machine.failed && machine.serverState == nil
     }
 
     /// Handles the header, Add Host and machine-row clicks. Returns false for another transient item.
@@ -188,8 +240,10 @@ public final class HostsSidebar {
         return true
     }
 
+    /// - Parameter lasting: the machines whose connect has lasted the bound; nil treats every connect as lasting
+    ///   (a fixture or gallery frame drawn without a clock).
     @MainActor
-    static func rows(machines: [MachineSectionRow], expanded: Bool) -> [SidebarTransientItem] {
+    static func rows(machines: [MachineSectionRow], expanded: Bool, lasting: Set<String>? = nil) -> [SidebarTransientItem] {
         var items: [SidebarTransientItem] = []
         var previous: [LayoutItemRef] = [.app("cmux/app-store"), SidebarTransientItem.channels.item.ref,
                                           SidebarLayoutDocument.homeRef, .builtIn(.home)]
@@ -199,7 +253,10 @@ public final class HostsSidebar {
         }
 
         var header = SidebarItemInfo(title: "Hosts", symbol: "server.rack", badge: machines.isEmpty ? nil : machines.count)
-        header.activity = machines.contains(where: { $0.isConnecting && !$0.failed }) ? .working : .idle
+        func held(_ machine: MachineSectionRow) -> Bool {
+            holdsConnect(machine) && lasting.map { !$0.contains(machine.id) } ?? false
+        }
+        header.activity = machines.contains(where: { $0.isConnecting && !$0.failed && !held($0) }) ? .working : .idle
         add(Self.headerID, header)
         guard expanded else { return items }
 
@@ -209,11 +266,13 @@ public final class HostsSidebar {
         add(Self.addID, addHost)
         for machine in machines {
             var info = SidebarItemInfo(title: machine.name, symbol: symbol(for: machine))
-            info.caption = caption(for: machine)
+            let quiet = held(machine)
+            // Within the bound the row says nothing about the link: no caption (the tile shows the name), no spinner.
+            info.caption = quiet ? nil : caption(for: machine)
             info.tooltip = machine.failure
             info.indent = 1
             info.isMissing = !machine.isConnected && !machine.isConnecting && machine.serverState == nil
-            info.activity = machine.isConnecting && !machine.failed ? .working : .idle
+            info.activity = machine.isConnecting && !machine.failed && !quiet ? .working : .idle
             add(LayoutItemID(Self.rowPrefix + machine.id), info)
         }
         return items

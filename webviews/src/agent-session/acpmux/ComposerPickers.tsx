@@ -2336,12 +2336,13 @@ export const PlusIcon = () => (
     <path d="M8 2.75v10.5M2.75 8h10.5" />
   </Icon>
 );
-/** Send's arrow: a plain outline glyph with the mic's stroke (Leo 2026-10-21: no disc). */
-export const ArrowUpIcon = () => (
+/** The folder menu's Use path row: the folder chip's own folder outline. */
+export const MenuFolderIcon = () => (
   <Icon>
-    <path d="M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1" />
+    <path d="M1.9 4.6c0-.8.6-1.4 1.4-1.4h2.6l1.5 1.6h5.3c.8 0 1.4.6 1.4 1.4v5.6c0 .8-.6 1.4-1.4 1.4H3.3c-.8 0-1.4-.6-1.4-1.4Z" />
   </Icon>
 );
+export { ArrowUpIcon } from "./icons/arrowUpIcon";
 export const ReturnIcon = () => (
   <Icon>
     <path d={RETURN_GLYPH_PATH} />

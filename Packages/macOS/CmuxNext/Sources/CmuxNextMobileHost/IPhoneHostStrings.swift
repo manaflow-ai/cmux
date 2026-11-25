@@ -54,7 +54,7 @@ enum IPhoneHostStrings {
     static var howTitle: String { String(localized: "iphone.how.title", defaultValue: "How to Connect", table: "IPhone", bundle: .localizedModule) }
     static var how: String {
         String(localized: "iphone.how.body",
-               defaultValue: "Install cmux on your iPhone and sign in with the same account as this Mac. This Mac then appears under Workspaces.",
+               defaultValue: "Install cmux on your iPhone and sign in with the same account as this Mac. This Mac then appears under Workspaces. No cmux on your iPhone yet? It’s in beta: get it through TestFlight.",
                table: "IPhone", bundle: .localizedModule)
     }
     static var phonesTitle: String { String(localized: "iphone.phones.title", defaultValue: "Phones", table: "IPhone", bundle: .localizedModule) }

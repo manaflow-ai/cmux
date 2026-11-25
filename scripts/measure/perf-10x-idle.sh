@@ -160,6 +160,7 @@ logged "$work/app.log" python3 scripts/cmux-next/bench_memory.py --app "$app" --
   --out "$work/app.json" || { status=$?; tail -n 60 "$work/app.log"; }
 # Which process is which (the top list names each command) and, with vmmap=, where each one's footprint is.
 grep -E '^ +[0-9.]+ MB  RSS|^VMMAP ' "$work/app.log" | sed 's/^ */PERF-IDLE-PROC app /' || true
+grep '^PERF-IDLE-LEFTOVER ' "$work/app.log" | sed 's/^PERF-IDLE-LEFTOVER /PERF-IDLE-LEFTOVER app /' || true
 grep '^PERF-ATTR ' "$work/app.log" | sed 's/^PERF-ATTR /PERF-ATTR app /' || true
 python3 - "$work/app.json" <<'PY' || status=$?
 import json, sys
@@ -208,6 +209,8 @@ if [[ -n "$axes" ]]; then
       --settle 20 --measure "$measure" --top 8 \
       --out "$work/axis-$axis.json" > "$work/axis-$axis.log" 2>&1 || { status=$?; tail -n 60 "$work/axis-$axis.log"; }
     [ -f "$work/axis-$axis.json" ] && axis_reports+=("$work/axis-$axis.json")
+    # What an earlier run left of this bundle (ended before the launch, so not counted as this app's).
+    grep '^PERF-IDLE-LEFTOVER ' "$work/axis-$axis.log" | sed "s/^PERF-IDLE-LEFTOVER /PERF-IDLE-LEFTOVER axis-$axis /" || true
     case "$axis" in
       page-*) [ -f "$work/axis-$axis.json" ] && { python3 scripts/cmux-next/idle_axes_report.py --pages "$work/axis-$axis.json" | sed 's/^/PERF-IDLE-PAGES /' || status=$?; } ;;
     esac

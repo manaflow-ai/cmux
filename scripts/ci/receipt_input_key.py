@@ -50,8 +50,20 @@ CHECKS = {
         "check": "React Doctor (changed React projects)",
         "command": "python3 scripts/ci/react_doctor_gate.py",
     },
+    # Its rows are traced, not written: scripts/ci/traced_inputs.py export (cmuxterm-hq RFD 0148 row 9). It has no
+    # units (`*` rows only), so `--units all` keys the whole check.
+    "static-checks": {
+        "check": "cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, page strings)",
+        "command": ".github/workflows/cmux-next-guards.yml jobs.static-checks",
+    },
 }
 GIT_ENV = {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
+# blob, tree: the path's git object id (a tree covers everything under it). names: a directory the check lists but
+# does not read through (Python's import system lists every sys.path entry); its key is the names and types of its
+# entries, so editing a file under it changes nothing and adding, removing or renaming one does. A traced inputs
+# list (scripts/ci/traced_inputs.py, hq RFD 0148 row 9) writes names rows; the controller's parseInputRows takes
+# blob and tree only, so a class with names rows stays shadow-only until it learns them.
+KINDS = ("tree", "blob", "names")
 
 
 def git(*args: str) -> str:
@@ -67,7 +79,7 @@ def load_inputs(check: str, path: Path | None = None) -> list[tuple[str, str, st
         if not line:
             continue
         unit, kind, rel = line.split()
-        if kind not in ("tree", "blob"):
+        if kind not in KINDS:
             raise ValueError(f"{check}: unknown input kind {kind!r} in {raw!r}")
         rows.append((unit, kind, rel))
     return rows
@@ -80,6 +92,36 @@ def object_id(revision: str, rel: str) -> str | None:
         return None
 
 
+def object_ids(revision: str, rels: list[str]) -> dict[str, str | None]:
+    """object_id for many paths in one git process (a traced list has hundreds)."""
+    if not rels:
+        return {}
+    if object_id is not _OBJECT_ID:  # replaced (a test's fixed ids): one call per path, as before
+        return {rel: object_id(revision, rel) for rel in rels}
+    out = subprocess.run(["git", "-C", str(ROOT), "cat-file", "--batch-check=%(objectname) %(objecttype)"],
+                         input="".join(f"{revision}:{'' if rel == '.' else rel}\n" for rel in rels), capture_output=True, text=True,
+                         env=GIT_ENV, timeout=120, check=True).stdout.splitlines()
+    if len(out) != len(rels):
+        raise RuntimeError(f"git cat-file answered {len(out)} lines for {len(rels)} paths")
+    return {rel: (None if line.endswith(" missing") or " " not in line else line.split()[0])
+            for rel, line in zip(rels, out)}
+
+
+_OBJECT_ID = object_id
+
+
+def names_id(revision: str, rel: str, oid: str | None) -> str | None:
+    """The names and types of a tree's entries, hashed; None when the path is absent, the blob id when it is a file."""
+    if oid is None:
+        return None
+    try:
+        listing = subprocess.run(["git", "-C", str(ROOT), "ls-tree", "-z", oid], capture_output=True, env=GIT_ENV,
+                                 timeout=60, check=True).stdout
+    except subprocess.CalledProcessError:
+        return oid  # not a tree: a file (or a gitlink) where the check listed a directory
+    return names_hash([rec.split(b" ", 2)[1] + b" " + rec.split(b"\t", 1)[1] for rec in listing.split(b"\0") if rec])
+
+
 def input_key(check: str, units: list[str], revision: str = "HEAD", rows=None) -> tuple[str, dict]:
     if check not in CHECKS:
         raise ValueError(f"unknown check {check!r}; known: {sorted(CHECKS)}")
@@ -90,16 +132,62 @@ def input_key(check: str, units: list[str], revision: str = "HEAD", rows=None) -
         # A unit with no inputs listed would key on nothing and hit forever: refuse it.
         raise ValueError(f"{check}: no inputs listed for {unknown}; add them to receipt-inputs/{check}.txt")
     selected = sorted(set(units))
-    paths = sorted({rel for unit, _, rel in rows if unit == "*" or unit in selected})
     material = {
         "v": KEY_VERSION,
         "check": check,
         "command": CHECKS[check]["command"],
         "units": selected,
-        "inputs": {rel: object_id(revision, rel) for rel in paths},
+        "inputs": input_ids(revision, [(kind, rel) for unit, kind, rel in rows
+                                       if unit == "*" or unit in selected]),
     }
     blob = json.dumps(material, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(blob).hexdigest(), material
+
+
+def input_ids(revision: str, selected: list[tuple[str, str]]) -> dict[str, str | None]:
+    """Each selected path's id at REVISION: its object id (blob, tree) or its names id (names). A path listed both as
+    names and as blob or tree keys on its object id, which covers the names."""
+    by_path: dict[str, str] = {}
+    for kind, rel in selected:
+        if by_path.get(rel) in (None, "names"):
+            by_path[rel] = kind
+    oids = object_ids(revision, sorted(by_path))
+    names = [rel for rel, kind in by_path.items() if kind == "names" and oids[rel] is not None]
+    listings = tree_listings(revision, names) if len(names) > 8 else {}
+    out = {}
+    for rel in sorted(by_path):
+        if by_path[rel] != "names" or oids[rel] is None:
+            out[rel] = oids[rel]
+        elif rel in listings:
+            out[rel] = names_hash(listings[rel]) if listings[rel] is not None else oids[rel]
+        else:
+            out[rel] = names_id(revision, rel, oids[rel])
+    return out
+
+
+def names_hash(names: list[bytes]) -> str:
+    return "names:" + hashlib.sha256(b"\0".join(sorted(names))).hexdigest()
+
+
+def tree_listings(revision: str, rels: list[str]) -> dict[str, list[bytes] | None]:
+    """`type name` of each REL directory's entries from one recursive ls-tree (many names rows: one git call, not one
+    each). None marks a path that is not a tree (names_id keys it on its object id)."""
+    want = {("" if r == "." else r).encode() for r in rels}
+    raw = subprocess.run(["git", "-C", str(ROOT), "ls-tree", "-r", "-t", "-z", "--full-tree", revision],
+                         capture_output=True, env=GIT_ENV, timeout=120, check=True).stdout
+    found: dict[bytes, list[bytes]] = {w: [] for w in want}
+    trees: set[bytes] = {b""}
+    for rec in raw.split(b"\0"):
+        if not rec:
+            continue
+        meta, path = rec.split(b"\t", 1)
+        typ = meta.split(b" ", 2)[1]
+        if typ == b"tree":
+            trees.add(path)
+        parent, _, name = path.rpartition(b"/")
+        if parent in found:
+            found[parent].append(typ + b" " + name)
+    return {r: (found[w] if w in trees else None) for r in rels for w in [("" if r == "." else r).encode()]}
 
 
 CHECK_PATHS = "scripts/ci/check-paths.txt"
@@ -107,7 +195,8 @@ CHECK_PATHS = "scripts/ci/check-paths.txt"
 
 def pinned_patterns(check: str, base: str, rows=None) -> list[str]:
     rows = load_inputs(check) if rows is None else rows
-    patterns = [rel + "/*" if kind == "tree" else rel for unit, kind, rel in rows if unit == "*"]
+    # A names row pins nothing: the check only listed that directory, so editing a file in it is not running new code.
+    patterns = [rel + "/*" if kind == "tree" else rel for unit, kind, rel in rows if unit == "*" and kind != "names"]
     try:
         text = git("show", f"{base}:{CHECK_PATHS}")
     except subprocess.CalledProcessError:
@@ -181,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
         if units == ["all"]:
             units = sorted({unit for unit, _, _ in load_inputs(args.check) if unit != "*"})
         key = ""
-        if units:
+        if units or args.units == "all":  # `all` of a check with no units: its `*` rows alone
             key, material = input_key(args.check, units)
             print(json.dumps(material, sort_keys=True), file=sys.stderr)
         touched = pinned_touched(args.check, args.base) if key and args.base else []

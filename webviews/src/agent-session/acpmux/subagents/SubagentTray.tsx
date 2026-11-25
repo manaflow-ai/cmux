@@ -154,6 +154,7 @@ import type { TrayHandleSide } from "../chatDisplay";
 import { earlierPlanHead, planHead } from "./subagentTrayModel";
 import { focusRingShown } from "../../../ui/focusModality";
 import { focusRoute } from "../../../ui/focusRoute";
+import { RESIZE_HANDLE_PROPS } from "../../../scrollers";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -578,8 +579,11 @@ export const SubagentTray = memo(function SubagentTray({
   );
   // Each kind's mark and count (the `kinds` arm), folded and open; hovering one names what it counts.
   const headParts = useMemo(
-    () => (foldHead === "kinds" ? trayHeadParts(t, { items, finished, waiting, working }) : NO_PARTS),
-    [foldHead, t, items, finished, waiting, working],
+    () =>
+      foldHead === "kinds" || foldHead === "tally"
+        ? trayHeadParts(t, { items, finished, waiting, working }, foldHead === "tally", chatHarness)
+        : NO_PARTS,
+    [foldHead, t, items, finished, waiting, working, chatHarness],
   );
   // One icon per subagent in the kinds header, each naming its own (HatFaces.tsx).
   const faces = useMemo(
@@ -615,10 +619,15 @@ export const SubagentTray = memo(function SubagentTray({
   // row's end, open or folded, over the line's own time; its words slide over to the counts and its
   // muted step narrows away on the same clock, never popping out or in; the line grows in under it on
   // the shared fold.
-  const loneEnd = lone ? loneHeadOf(t, language, lone, waiting, showLatest) : undefined;
+  // The `tally` arm counts a lone running item as it counts several: its mark and 1, no step words
+  // swapping in (Leo, 2026-11-23: "just like how the "running a command" is inherently bullshit, and the
+  // swap-in animation for it is even more additional bullshit"). Only one with nothing left to count
+  // (it ended done or stopped) keeps its own head.
+  const tallyHead = foldHead === "tally" && headParts.length > 0;
+  const loneEnd = lone && !tallyHead ? loneHeadOf(t, language, lone, waiting, showLatest) : undefined;
   const loneHead = loneEnd && !open ? loneEnd : undefined;
   // The `kinds` arm draws each kind's mark and count, folded and open; a lone item keeps its own head.
-  const kindsHead = foldHead === "kinds" && !loneEnd && headParts.length > 0;
+  const kindsHead = tallyHead || (foldHead === "kinds" && !loneEnd && headParts.length > 0);
   const named = !open && !loneHead && !kindsHead && foldHead !== "counts" && newest.length > 0;
   const shownNames = named ? newest.slice(0, foldHead === "one" || oneName ? 1 : 2) : [];
   // The plan leads: its progress and the step at work, then what runs (Leo's hat, 2026-11-03).
@@ -824,8 +833,9 @@ export const SubagentTray = memo(function SubagentTray({
               plan={planText}
               separator={KIND_LINE_SEPARATOR[kindLine]}
               chatHarness={chatHarness}
+              tally={tallyHead}
               faces={
-                faces.length > 0 && facesArm !== "lead" ? (
+                !tallyHead && faces.length > 0 && facesArm !== "lead" ? (
                   <HatFaces
                     faces={faces}
                     size={ROW_ICON}
@@ -1035,6 +1045,7 @@ export const SubagentTray = memo(function SubagentTray({
         // later, so it keeps its own clicks). A pointer control only; the header stays the keyboard's.
         <div
           className="acpmux-running-tray__rim"
+          {...RESIZE_HANDLE_PROPS}
           title={t("tray.resize")}
           aria-hidden="true"
           onPointerDown={onRimDown}
@@ -1507,11 +1518,14 @@ function HeadKinds({
   plan,
   separator,
   chatHarness,
+  tally,
   faces,
 }: {
   t: Translate;
   parts: readonly TrayHeadPart[];
   plan: string;
+  /// The `tally` arm: each kind is its mark and its number, the kinds a gap apart with no words between.
+  tally: boolean;
   /// Between the kinds (trayKindLine.experiment.ts), so the header reads as the counts did.
   separator: string;
   chatHarness: string | undefined;
@@ -1519,7 +1533,10 @@ function HeadKinds({
   faces?: ReactNode;
 }) {
   return (
-    <span className="acpmux-summary-text acpmux-running-tray__title acpmux-running-tray__kinds">
+    <span
+      className="acpmux-summary-text acpmux-running-tray__title acpmux-running-tray__kinds"
+      data-tally={tally || undefined}
+    >
       {faces}
       {plan && (
         <span className="acpmux-running-tray__kind" data-kind="plan">
@@ -1532,8 +1549,8 @@ function HeadKinds({
         // onto the hidden second line, never cut mid-word (subagents.css; Leo, 2026-11-22: "this
         // should not be cutting off so harshly like this. we basically never want that kinda shit").
         <span key={part.key} className="acpmux-running-tray__kind-unit">
-          {(plan || index > 0) && <span className="acpmux-running-tray__kind-sep">{separator}</span>}
-          <HeadKind t={t} part={part} chatHarness={chatHarness} faced={faces !== undefined} />
+          {!tally && (plan || index > 0) && <span className="acpmux-running-tray__kind-sep">{separator}</span>}
+          <HeadKind t={t} part={part} chatHarness={chatHarness} faced={faces !== undefined} tally={tally} />
         </span>
       ))}
     </span>
@@ -1545,19 +1562,24 @@ function HeadKind({
   part,
   chatHarness,
   faced,
+  tally,
 }: {
   t: Translate;
   part: TrayHeadPart;
   chatHarness: string | undefined;
   /// The header draws each subagent's icon before the counts: this kind's own mark and names list go.
   faced: boolean;
+  /// The `tally` arm: the mark and the number only; the words are the hover's and a reader's.
+  tally: boolean;
 }) {
   const [names, setNames] = useState<string | undefined>(undefined);
-  // Its count changes at most once per dwell, as the step does: a burst of joins is one roll.
-  const kindText = useDwell(part.text, PHASE_DWELL_MS);
-  // A subagent kind draws its first subagent's harness mark, in its tone, as its line does.
+  // Its count changes at most once per dwell, as the step does: a burst of joins is one roll. The `tally`
+  // arm's text is the number alone; the words are the hover's and a reader's.
+  const kindText = useDwell(tally ? String(part.items.length) : part.text, PHASE_DWELL_MS);
+  // A subagent kind draws its first subagent's harness mark, in its tone, as its line does (the
+  // `tally` arm: one kind per harness, so its own harness's).
   const lead = part.items[0];
-  const agent = part.key === "agents" && lead?.kind === "agent" ? lead.agent : undefined;
+  const agent = part.key.startsWith("agents") && lead?.kind === "agent" ? lead.agent : undefined;
   // With the faces drawn, the subagents kind is words only; each face names its own subagent.
   const bare = faced && part.key === "agents";
   return (
@@ -1567,17 +1589,21 @@ function HeadKind({
       data-tone={part.tone}
       // tooltip-allow: the head draws the agents' marks only; the tooltip names them.
       title={bare ? undefined : names}
+      aria-label={tally ? part.text : undefined}
       onPointerEnter={() => {
         if (bare || names !== undefined) return;
         const shown = part.items.slice(0, PART_NAMES).map((item) => itemName(t, item));
         const rest = part.items.length - shown.length;
-        setNames([...shown, ...(rest > 0 ? [t("tools.more", { n: rest })] : [])].join("\n"));
+        // The tally draws no words: its hover says what the number counts, then names them.
+        setNames(
+          [...(tally ? [part.text] : []), ...shown, ...(rest > 0 ? [t("tools.more", { n: rest })] : [])].join("\n"),
+        );
       }}
     >
       {bare ? null : agent ? (
         <AgentIdentity
           className="acpmux-running-tray__stack-mark"
-          harness={agent.harness ?? chatHarness}
+          harness={part.harness ?? agent.harness ?? chatHarness}
           tone={agentTone(agent.id)}
           size={ROW_ICON}
           fallback={part.icon}

@@ -228,8 +228,9 @@ The other verbs:
   in manaflow-ai/cmux-extensions: [theme-recipes.md](../../docs/cmux-next/theme-recipes.md#share-a-theme-so-people-find-it).
 - `cmux theme schema --install` writes `themes/.schema.json` for editor completion.
   The exported file's `$schema` already points at it.
-- A base16, iTerm2, Windows Terminal or Ghostty color scheme is a terminal theme, not
-  a look. Install it with `cmux theme import scheme.yaml`, then
+- A base16, iTerm2, Windows Terminal, VS Code color theme (`.json`, comments allowed) or
+  Ghostty color scheme is a terminal theme, not a look. Install it with
+  `cmux theme import scheme.yaml` (or `theme.json`), then
   `cmux theme set appearance.theme "<its name>"`.
 - Add `--json` to any of these for output a script can read.
 

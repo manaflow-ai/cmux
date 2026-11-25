@@ -122,11 +122,14 @@ jobs:
           export ZIG="$CMUX_ZIG"
           out="$RUNNER_TEMP/parity"
           status=0
-          PARITY_OUT="$out" cargo test --locked --release -p cmux-terminal-projection -- --nocapture --test-threads=2 || status=$?
+          # instant_perf (small vs god, cmux-next-ios/design/instant-perf.md) runs alone after.
+          PARITY_OUT="$out" cargo test --locked --release -p cmux-terminal-projection -- --nocapture --test-threads=2 --skip projection_small_vs_god || status=$?
+          CMUX_INSTANT_PERF_OUT="$out" cargo test --locked --release -p cmux-terminal-projection --test instant_perf -- --nocapture || status=$?
           PARITY_OUT="$out" cargo test --locked --release -p cmux-terminal-projection --test bench -- --ignored --nocapture layout_change || status=$?
           for f in "$out/parity.md" "$out/resize.md" "$out/layout.md"; do
             [ -f "$f" ] && { cat "$f"; echo; } >> "$GITHUB_STEP_SUMMARY"
           done
+          python3 ../cmux-next-ios/scripts/instant_perf_table.py "$out" >> "$GITHUB_STEP_SUMMARY" || true
           exit "$status"
 
   swift-terminal-linux:

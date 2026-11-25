@@ -65698,10 +65698,6 @@
       "source" : "CmuxNextAgentPane\/AgentPaneContextMenu.swift"
     },
     {
-      "name" : "paneTabBarRows",
-      "source" : "CmuxNextApp\/PaneToolbar.swift"
-    },
-    {
       "name" : "browserReload",
       "source" : "CmuxNextBrowser\/UI\/BrowserReloadMenu.swift"
     },

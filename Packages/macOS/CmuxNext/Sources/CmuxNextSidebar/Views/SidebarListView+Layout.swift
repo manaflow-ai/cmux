@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextSignposts
 import CmuxNextWakeups
 import QuartzCore
 
@@ -10,6 +11,8 @@ extension SidebarListViewComponents {
     /// is a user's gesture here, so the model change that follows it may animate too.
     func reload(animated: Bool, adopt: Bool = false, fromModel: Bool = false, file: StaticString = #fileID, line: UInt = #line) {
         SidebarPerfCounters.add(.listReloads, from: file, line: line)
+        let signpost = Signposter.stall.begin(.stallSidebarRows, "kind=reload")
+        defer { Signposter.stall.end(.stallSidebarRows, signpost) }
         if animated, !fromModel { model.noteUserIntent() }
         reloads &+= 1
         holdsModelChange = false // this reload shows the model as it is now

@@ -127,7 +127,8 @@ struct ComposerTextView: UIViewRepresentable {
         func textViewDidChange(_ textView: UITextView) {
             parent.text = textView.text
             (textView as? ComposerUITextView)?.updatePlaceholder()
-            textView.invalidateIntrinsicContentSize()
+            // The height is settled once per edit, and SwiftUI asked again only when it changed.
+            (textView as? ComposerReturnTextView)?.settleAfterEdit()
             (textView as? ComposerUITextView)?.followCaret()
         }
 

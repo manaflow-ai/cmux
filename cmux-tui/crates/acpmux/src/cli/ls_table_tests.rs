@@ -162,6 +162,24 @@ fn host_shows_only_when_a_row_is_on_a_peer() {
     assert!(out.contains("a     -"), "{out}");
 }
 
+/// A row from the send relay's kept listing (`ls_far.rs`) has a peer, its `asOfMs` and no link
+/// state: it shows its own state, never `peer down` (cmuxterm-hq
+/// `docs/findings/2026-11-23-acpmux-ls-peer-down-rows.md`: 2,000 of 2,000 such rows read so).
+#[test]
+fn a_relay_row_from_the_kept_listing_shows_its_state_not_peer_down() {
+    let kept = |state: &str| {
+        with(
+            lane(&format!("gcp-agent-lane-2/{state}")),
+            json!({"peer": "gcp-agent-lane-2", "asOfMs": NOW - 30_000, "state": state, "status": state}),
+        )
+    };
+    let out = compact(&[kept("running"), kept("ready")]);
+    assert!(!out.contains("peer down") && !out.contains("unknown"), "{out}");
+    let line = |n: &str| out.lines().find(|l| l.starts_with(n)).unwrap().to_owned();
+    assert!(line("gcp-agent-lane-2/running").contains(" running"), "{out}");
+    assert!(line("gcp-agent-lane-2/ready").contains(" ready"), "{out}");
+}
+
 #[test]
 fn an_unreachable_peer_reads_unknown_and_is_never_dropped() {
     let stale = with(

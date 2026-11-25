@@ -99,8 +99,6 @@ ALLOWED = {
     ("scripts/ci/owned_catch_up.sh", 'root="/private/tmp/cmux-ci-$root_number"'):
         "the canonical build root: the compile cache keys on this exact path (canonical-build-root.sh), and on an "
         "owned Mac glaeda-canonical-root holds it for the job",
-    (".github/workflows/seed-derived-data.yml", 'root="/private/tmp/cmux-ci-$CMUX_SEED_ROOT"'):
-        "the canonical build root (canonical-build-root.sh), taken through glaeda-canonical-root for the job",
     ("scripts/reload.sh", 'local own="" link="/tmp/cmux-${tag}"'):
         "the tag's DerivedData compatibility link, a name other tools follow (#41021 kept it); read with readlink",
     ("scripts/reload.sh", 'local own="" link="/tmp/cmux-${tag}" root=""'):

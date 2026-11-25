@@ -23,6 +23,56 @@ use crate::receiver::{
 /// Most open streams per session (main surface, popups, tiles).
 pub const MAX_STREAMS: usize = 16;
 
+/// Silence after which a session that hears heartbeats is stalled (the
+/// network dropped; the picture is frozen). A live host sends a heartbeat at
+/// least every 1.1 s even on a still screen: its cursor channel resends the
+/// position every second (cmux-rd-host `cursor.rs` `KEEPALIVE_US`, sampled
+/// every 100 ms when still) and clock pongs answer pings sent every second
+/// (cmux-rd-core `clock.rs`). Frames and stats come faster while the screen
+/// changes. 1.5 s is that worst cadence plus margin for path jitter.
+pub const STALL_AFTER_US: u64 = 1_500_000;
+
+/// Whether the host still talks: when bytes last arrived, and whether the
+/// host sends heartbeats at all. Only a host that does (a cursor position or
+/// a clock pong was heard) can be called stalled: an idle, unchanging screen
+/// sends no frames and no stats, so silence alone means nothing.
+#[derive(Debug, Default)]
+struct Liveness {
+    last_heard_us: Option<u64>,
+    heartbeats: bool,
+    stalled: bool,
+}
+
+impl Liveness {
+    /// Bytes from the host arrived: the session is live again.
+    fn heard(&mut self, now_us: u64) {
+        self.last_heard_us = Some(now_us);
+        self.stalled = false;
+    }
+
+    /// Notes a datagram kind a live host sends at least every second.
+    fn heartbeat(&mut self, kind: DatagramKind) {
+        if matches!(kind, DatagramKind::CursorPos | DatagramKind::ClockPong) {
+            self.heartbeats = true;
+        }
+    }
+
+    /// When the session counts as stalled if nothing more arrives; `None`
+    /// without heartbeats and once the stall is reported (no wake in the past).
+    fn deadline_us(&self) -> Option<u64> {
+        if !self.heartbeats || self.stalled {
+            return None;
+        }
+        self.last_heard_us.map(|t| t.saturating_add(STALL_AFTER_US))
+    }
+
+    fn tick(&mut self, now_us: u64) {
+        if self.deadline_us().is_some_and(|deadline| now_us >= deadline) {
+            self.stalled = true;
+        }
+    }
+}
+
 /// Why a session call was refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SessionError {
@@ -54,6 +104,8 @@ pub struct Session {
     ready: VecDeque<u16>,
     /// The session clock (rd change C8), once the host accepted the `clock` cap.
     clock: Option<ClockEstimator>,
+    /// Whether the host was heard in the last [`STALL_AFTER_US`].
+    liveness: Liveness,
     /// Every frame's stage times (D8): the host's from its `FrameTimes`
     /// datagrams (cap `ledger`), this viewer's from reassembly and the
     /// caller's decode and present notes. Bounded.
@@ -74,6 +126,7 @@ impl Session {
             message_bytes: 0,
             ready: VecDeque::new(),
             clock: None,
+            liveness: Liveness::default(),
             ledger: StageLedger::new(),
             failed: false,
         };
@@ -119,6 +172,7 @@ impl Session {
             return Err(ReceiverError::Carrier.into());
         }
         self.check_alive()?;
+        self.liveness.heard(now_us);
         self.on_datagram(datagram, now_us)
     }
 
@@ -129,6 +183,9 @@ impl Session {
             return Err(ReceiverError::Carrier.into());
         }
         self.check_alive()?;
+        if !bytes.is_empty() {
+            self.liveness.heard(now_us);
+        }
         self.deframer.extend(bytes);
         loop {
             match self.deframer.next_frame() {
@@ -148,8 +205,9 @@ impl Session {
         Ok(())
     }
 
-    /// Drops frames past their deadline in every stream.
+    /// Drops frames past their deadline in every stream and notes a stall.
     pub fn tick(&mut self, now_us: u64) {
+        self.liveness.tick(now_us);
         let ids: Vec<u16> = self.streams.keys().copied().collect();
         for id in ids {
             if let Some(r) = self.streams.get_mut(&id) {
@@ -159,6 +217,12 @@ impl Session {
                 self.track(id, before, after);
             }
         }
+    }
+
+    /// Whether the host went silent for [`STALL_AFTER_US`] (as of the last
+    /// `tick`) while it sends heartbeats; cleared by the next bytes heard.
+    pub fn is_stalled(&self) -> bool {
+        self.liveness.stalled
     }
 
     /// The oldest ready frame of any stream, with its stream.
@@ -282,7 +346,9 @@ impl Session {
             return u64::MAX;
         }
         let ping = self.clock.as_ref().map_or(u64::MAX, ClockEstimator::next_ping_us);
-        self.streams.values().map(Receiver::next_deadline_us).min().unwrap_or(u64::MAX).min(ping)
+        let stall = self.liveness.deadline_us().unwrap_or(u64::MAX);
+        let streams = self.streams.values().map(Receiver::next_deadline_us).min();
+        streams.unwrap_or(u64::MAX).min(ping).min(stall)
     }
 
     fn receiver(&mut self, stream: u16) -> Result<&mut Receiver, SessionError> {
@@ -307,6 +373,7 @@ impl Session {
 
     fn on_datagram(&mut self, datagram: &[u8], now_us: u64) -> Result<(), SessionError> {
         let (header, _) = DatagramHeader::decode(datagram).map_err(ReceiverError::Invalid)?;
+        self.liveness.heartbeat(header.kind);
         match header.kind {
             DatagramKind::FrameTimes => {
                 let (_, payload) =

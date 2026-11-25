@@ -53,6 +53,14 @@ public struct TabsKitTheme: Sendable {
     /// Toolbar, menu and card metrics (points; 402 pt wide reference screen).
     /// The tab grid's geometry is fixed by the measured layout (OverviewLayout).
     public struct Metrics: Sendable {
+        /// The screen edge the page toolbar (back, address capsule, tabs) sits on.
+        /// Safari's default is the bottom; an app whose bottom belongs to a composer
+        /// puts it at the top, where it never hides behind the keyboard.
+        public var barEdge: TabsKitBarEdge = .bottom
+        /// The top bar's distance below the status bar.
+        public var topBarGap: CGFloat = 2
+        /// The top bar's side inset: the grid header's (20), so Back sits in one place on page and grid.
+        public var topSideInset: CGFloat = 20
         /// Toolbar side inset (34).
         public var sideInset: CGFloat = 34
         /// Glass circle diameter and bar height (48).
@@ -131,6 +139,14 @@ public struct TabsKitTheme: Sendable {
             UIAccessibility.isReduceMotionEnabled ? .easeInOut(duration: 0.18) : animation
         }
     }
+}
+
+/// Where the page toolbar sits (`TabsKitTheme.Metrics.barEdge`).
+public enum TabsKitBarEdge: Sendable, Equatable {
+    /// Safari's bottom toolbar; it hides behind a software keyboard.
+    case bottom
+    /// Under the status bar; a page's accessory (a composer) owns the bottom edge.
+    case top
 }
 
 extension EnvironmentValues {

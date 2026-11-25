@@ -36,6 +36,7 @@ pub const FEATURE: &str = "filePut";
 
 pub(crate) mod store;
 pub(crate) mod web;
+pub mod window;
 /// The resumable upload feature advertised by current daemons.
 pub const CHUNKS_FEATURE: &str = "filePutChunks";
 /// `_acpmux/file_put_status`, finish `sha256`, `upload.*` reasons and `upload.diskFull`.
@@ -378,6 +379,12 @@ pub(crate) fn owned_dir(session: &str, upload: &str, token: &str) -> Option<Path
 }
 
 fn chunk(params: &Value) -> Result<Value, RpcError> {
+    let (session, upload, offset, bytes) = chunk_parts(params)?;
+    append(&session, &upload, offset, &bytes)
+}
+
+/// A chunk's session, upload, offset and decoded bytes.
+fn chunk_parts(params: &Value) -> Result<(String, String, u64, Vec<u8>), RpcError> {
     let upload = params
         .get("uploadId")
         .and_then(Value::as_str)
@@ -404,7 +411,35 @@ fn chunk(params: &Value) -> Result<Value, RpcError> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data)
         .map_err(|e| RpcError::invalid_params(format!("data is not base64: {e}")))?;
-    append(session, upload, offset, &bytes)
+    Ok((session.to_owned(), upload.to_owned(), offset, bytes))
+}
+
+/// `_acpmux/file_put_chunk` of a sender that may keep a window of chunks in flight
+/// (`window.rs`): a chunk that came ahead of the bytes before it waits its turn. Its bytes are
+/// decoded once, whatever the waits.
+pub(crate) async fn chunk_in_turn(params: Value) -> Result<Value, RpcError> {
+    let (session, upload, offset, bytes) =
+        tokio::task::spawn_blocking(move || chunk_parts(&params))
+            .await
+            .map_err(|e| RpcError::internal(e.to_string()))??;
+    let bytes = Arc::new(bytes);
+    let id = upload.clone();
+    window::in_turn(&id, offset, move || append(&session, &upload, offset, &bytes)).await
+}
+
+/// `_acpmux/file_put_finish` of chat `session`: one marked [`window::IN_FLIGHT`] waits for the
+/// bytes its sender's chunks still carry.
+pub(crate) async fn finish_in_turn(session: String, params: Value) -> Result<Value, RpcError> {
+    let waits = params.get(window::IN_FLIGHT) == Some(&Value::Bool(true));
+    let upload = params.get("uploadId").and_then(Value::as_str).map(str::to_owned);
+    let size = params.get("size").and_then(Value::as_u64);
+    let (Some(upload), Some(size), true) = (upload, size, waits) else {
+        return tokio::task::spawn_blocking(move || finish(&session, &params))
+            .await
+            .map_err(|e| RpcError::internal(e.to_string()))?;
+    };
+    let params = Arc::new(params);
+    window::in_turn(&upload, size, move || finish(&session, &params)).await
 }
 
 /// No unfinished upload `upload` of this chat.
@@ -417,17 +452,23 @@ fn unknown(upload: &str) -> RpcError {
 /// cut-back, a finish's check and rename, never interleave with another call on the same upload.
 /// Striped by upload id, so the set is fixed and needs no cleanup.
 fn hold(upload: &str) -> std::sync::MutexGuard<'static, ()> {
-    static LOCKS: [std::sync::Mutex<()>; 64] = [const { std::sync::Mutex::new(()) }; 64];
-    // By the id as its folder is named (`upload_id`), so every spelling of one id shares a lock.
-    let canonical = upload_id(upload).unwrap_or_else(|| upload.to_owned());
-    let stripe =
-        canonical.bytes().fold(0usize, |h, b| h.wrapping_mul(31).wrapping_add(usize::from(b)));
+    static LOCKS: [std::sync::Mutex<()>; STRIPES] = [const { std::sync::Mutex::new(()) }; STRIPES];
     let [first, ..] = &LOCKS;
     LOCKS
-        .get(stripe % LOCKS.len())
+        .get(stripe(upload))
         .unwrap_or(first)
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// The stripes of [`hold`] and of an upload's turn (`window.rs`).
+const STRIPES: usize = 64;
+
+/// Upload `upload`'s stripe: by the id as its folder is named (`upload_id`), so every spelling of
+/// one id shares it.
+fn stripe(upload: &str) -> usize {
+    let canonical = upload_id(upload).unwrap_or_else(|| upload.to_owned());
+    canonical.bytes().fold(0usize, |h, b| h.wrapping_mul(31).wrapping_add(usize::from(b))) % STRIPES
 }
 
 /// The declared `{fileName, size}` of unfinished upload `upload`.
@@ -473,6 +514,9 @@ pub(crate) fn append(
         let _ = file.set_len(current);
         return Err(failed("cannot append upload", &path, &e, Some(current)));
     }
+    drop(_held);
+    // A chunk behind this one waiting its turn (`window::in_turn`) looks again.
+    window::bump(upload);
     Ok(json!({"offset": next}))
 }
 
@@ -679,6 +723,8 @@ fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
     if let Err(e) = store::adopt(&root(), &path, hash.as_deref(), source.as_deref(), now) {
         tracing::warn!("upload {upload} kept as its own copy: {e}");
     }
+    drop(_held);
+    window::bump(upload);
     Ok(finished(&path, size, upload))
 }
 
@@ -756,19 +802,14 @@ pub async fn handle_chunk(hub: &super::Hub, params: Value) -> Result<Value, RpcE
     if params.get("sessionId").and_then(Value::as_str) != Some(session.id.as_str()) {
         return Err(RpcError::invalid_params("sessionId is required"));
     }
-    let answer = tokio::task::spawn_blocking(move || chunk(&params))
-        .await
-        .map_err(|e| RpcError::internal(e.to_string()))?;
+    let answer = chunk_in_turn(params).await;
     reject_purged(&session).await?;
     answer
 }
 
 pub async fn handle_finish(hub: &super::Hub, params: Value) -> Result<Value, RpcError> {
     let session = hub.resolve(crate::server::session_key(&params)?)?;
-    let id = session.id.clone();
-    let answer = tokio::task::spawn_blocking(move || finish(&id, &params))
-        .await
-        .map_err(|e| RpcError::internal(e.to_string()))?;
+    let answer = finish_in_turn(session.id.clone(), params).await;
     reject_purged(&session).await?;
     answer
 }
@@ -864,6 +905,9 @@ pub fn cancel(id: &str, params: &Value) -> Result<Value, RpcError> {
         let _ = crate::home_fs::remove_dir_all(&dir);
         store::release(&root(), &hashes);
     }
+    drop(_held);
+    // A chunk or a finish waiting its turn hears the upload is gone.
+    window::bump(&upload);
     Ok(json!({}))
 }
 
@@ -966,27 +1010,31 @@ pub(crate) async fn forward_put(
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::internal("peer upload begin returned no id"))?;
     request.set("uploadId", json!(upload));
-    let result = async {
-        let mut reader = base64::read::DecoderReader::new(
-            data.as_bytes(),
-            &base64::engine::general_purpose::STANDARD,
-        );
-        let mut buffer = vec![0; CHUNK_BYTES];
-        let mut offset = 0;
-        loop {
-            let bytes = legacy_chunk(&mut reader, size - offset, &mut buffer)?;
-            if bytes.is_empty() {
-                break;
-            }
-            let mut chunk = request.clone();
-            chunk.set("offset", json!(offset));
-            chunk.set("data", json!(base64::engine::general_purpose::STANDARD.encode(bytes)));
-            peer.request(method::MUX_FILE_PUT_CHUNK, chunk).await?;
-            offset += bytes.len() as u64;
+    // A window of chunks in flight and the finish behind them, to a peer that takes them
+    // (`window.rs`); one at a time otherwise.
+    let mut reader = base64::read::DecoderReader::new(
+        data.as_bytes(),
+        &base64::engine::general_purpose::STANDARD,
+    );
+    let mut buffer = vec![0; CHUNK_BYTES];
+    let mut offset = 0;
+    let next = || -> Result<Option<window::Piece>, RpcError> {
+        let bytes = legacy_chunk(&mut reader, size - offset, &mut buffer)?;
+        if bytes.is_empty() {
+            return Ok(None);
         }
-        peer.request(method::MUX_FILE_PUT_FINISH, request.clone()).await
-    }
-    .await;
+        let piece = window::Piece {
+            offset,
+            len: bytes.len(),
+            data: base64::engine::general_purpose::STANDARD.encode(&*bytes),
+        };
+        offset += bytes.len() as u64;
+        Ok(Some(piece))
+    };
+    let send = |m: &'static str, p: Value| peer.request(m, p);
+    let result = window::send(send, &request, window::for_peer(peer), next, Some(request.clone()))
+        .await
+        .and_then(|answer| answer.ok_or_else(|| RpcError::internal("the upload had no finish")));
     if result.is_err() {
         let _ = peer.request(method::MUX_FILE_PUT_CANCEL, request).await;
     }

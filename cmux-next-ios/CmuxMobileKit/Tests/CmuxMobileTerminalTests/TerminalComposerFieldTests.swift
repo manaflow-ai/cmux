@@ -24,6 +24,36 @@ import UIKit
         return view
     }
 
+    /// Leo, 2026-11-23: typing in a long draft lagged by seconds. SwiftUI asks the field's size
+    /// at several widths, again in every pass; each answer is the settled height, measuring
+    /// nothing, and a key typed past `maxLines` settles without laying out any text.
+    @Test func sizeQuestionsAndTypingPastTheCapMeasureNothing() {
+        final class Delegate: NSObject, UITextViewDelegate {
+            var changes = 0
+            func textViewDidChange(_ textView: UITextView) {
+                changes += 1
+                (textView as? ComposerReturnTextView)?.settleAfterEdit()
+            }
+        }
+        let view = Self.field(40)
+        let delegate = Delegate()
+        view.delegate = delegate
+        let capped = view.fittingSize(proposedWidth: 280).height
+        #expect(capped == Self.field(ComposerTextView.maxLines).bounds.height)
+        #if DEBUG
+        let units = ComposerReturnTextView.measuredUnits
+        for width in [0, 120, 280, 1_000, .infinity] as [CGFloat] {
+            #expect(view.fittingSize(proposedWidth: width).height == capped)
+        }
+        view.selectedRange = NSRange(location: (view.text as NSString).length, length: 0)
+        for key in "typing more" { view.insertText(String(key)) }
+        if delegate.changes > 0 { #expect(ComposerReturnTextView.measuredUnits == units) }
+        #endif
+        // A new text (sent, or cleared) measures again: one line.
+        view.text = "echo 1"
+        #expect(view.fittingSize(proposedWidth: 280).height == Self.field(1).bounds.height)
+    }
+
     @Test func growsToMaxLinesThenScrollsWithTheCaretInside() {
         let maxLines = ComposerTextView.maxLines
         #expect(maxLines == 14)

@@ -128,20 +128,12 @@ struct CloudGitHubReposTests {
         #expect(CloudGitHubPicker.Status.unavailable(.unreachable).reposScope == nil)
     }
 
-    /// A connect beside a pending connection (Settings', another launch's) would add a second: the picker reads
-    /// `integration.list` first unless it holds a flow of its own for the team.
-    @MainActor @Test func aPendingConnectionHoldsAnotherConnect() async {
-        let pending = Self.body(#"{"ok":true,"value":{"connections":[{"provider":"gmail","status":"pending"},{"provider":"github","status":"pending"}],"providers":[]}}"#)
-        let active = Self.body(#"{"ok":true,"value":{"connections":[{"provider":"github","status":"active"},{"provider":"gmail","status":"pending"}],"providers":[]}}"#)
-        #expect(CloudGitHubConnects.pending(status: 200, body: pending) == true)
-        #expect(CloudGitHubConnects.pending(status: 200, body: active) == false)
-        #expect(CloudGitHubConnects.pending(status: 200, body: Self.body(#"{"ok":false,"error":{"code":"auth.forbidden"}}"#)) == nil)
-        #expect(CloudGitHubConnects.pending(status: 500, body: pending) == nil)
-        let connects = CloudGitHubConnects(newKey: { "key" })
-        #expect(!connects.resumable(team: "team_a"))
-        _ = await connects.page(team: "team_a", now: Date()) { _ in .noAnswer }
-        #expect(connects.resumable(team: "team_a"))
-        #expect(!connects.resumable(team: "team_b"))
+    /// A pending connection never blocks Connect (#46018): one from another launch, or one whose return failed, can't
+    /// be finished here, so a click asks `integration.connect` again (it expires on its own after 30 minutes).
+    @Test func aPendingConnectionStillConnects() {
+        let linking = Self.body(#"{"configured":true,"app_slug":"cmux","connection":{"status":"pending"}}"#)
+        #expect(CloudGitHubApp(status: 200, body: linking) == .linking)
+        #expect(CloudGitHubPicker.connectFromStatus(status: 200, body: linking) == nil, "nil: the picker asks integration.connect")
     }
 
     static let page = "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b" // exp 2100-01-01

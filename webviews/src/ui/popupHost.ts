@@ -370,13 +370,15 @@ export function useEscapingPopup(
       const flat = kind !== "menu" || !element.querySelector("[aria-haspopup], input, textarea, [contenteditable]");
       const { items } = popupItems(element, kind, active);
       const room = at?.getBoundingClientRect();
+      if (!flat || !items.length || !room) return;
+      const height = naturalHeight(element);
       const fits =
-        !room ||
+        (element.hasAttribute("data-pointer-menu") && height <= window.innerHeight) ||
         (shrinks
-          ? !listPlacement(room, window.innerHeight, naturalHeight(element), { gap }).escapes
-          : fitsInPage(room, naturalHeight(element), gap, window.innerHeight, flip ? undefined : side) &&
+          ? !listPlacement(room, window.innerHeight, height, { gap }).escapes
+          : fitsInPage(room, height, gap, window.innerHeight, flip ? undefined : side) &&
             (kind !== "tooltip" || wraps || textWidth(element) <= window.innerWidth - 2 * EDGE));
-      if (!flat || items.length === 0 || fits) return;
+      if (fits) return;
       const first = model();
       if (!first) return;
       escaped = true;

@@ -19,7 +19,7 @@ extension LiveCoordinator {
     static func forAccount(auth: CmuxMobileAuthModel, user: CmuxMobileAuthModel.User, base: URL, store: AppStore,
                            transport: CmuxMobileModel.TransportKind, watchesConnectivity: Bool = true) -> LiveCoordinator {
         let api = LiveAPI(baseURL: base, buildSpace: auth.buildSpace) { [auth] in try await auth.serviceAccessToken(forceRefresh: $0) }
-        return LiveCoordinator(
+        let coordinator = LiveCoordinator(
             store: store,
             api: api,
             identity: DeviceIdentity.load(userID: user.id),
@@ -33,6 +33,8 @@ extension LiveCoordinator {
             push: PushKeys.current(),
             watchesConnectivity: watchesConnectivity
         )
+        MacTabsCardSink.shared.attach(coordinator.tabs)
+        return coordinator
     }
 }
 

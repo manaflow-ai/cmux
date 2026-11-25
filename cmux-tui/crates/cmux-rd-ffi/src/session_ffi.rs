@@ -407,6 +407,21 @@ pub unsafe extern "C" fn cmux_rd_session_stats(
     unsafe { with_session(session.cast_mut(), run) }
 }
 
+/// 1 when the host went silent for [`crate::STALL_AFTER_US`] as of the last
+/// tick while it sends heartbeats (the network dropped and the picture is
+/// frozen), 0 otherwise; the next bytes received clear it.
+///
+/// # Safety
+/// `session` is NULL or valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_rd_session_stalled(session: *const CmuxRdSession) -> i32 {
+    let run = |h: &mut CmuxRdSession| i32::from(h.inner.is_stalled());
+    // SAFETY: `session` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a session, so no other access overlaps.
+    // The C type is `*const`, but the pointer came from `_new` as `*mut`.
+    unsafe { with_session(session.cast_mut(), run) }
+}
+
 /// Starts session clock probes (rd change C8). Call only when welcome lists
 /// the `clock` cap. Pings leave through [`cmux_rd_session_feedback`]; pongs
 /// are consumed, not queued as messages.

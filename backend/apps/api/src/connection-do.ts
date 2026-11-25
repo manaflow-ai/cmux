@@ -16,11 +16,13 @@ import { createWatchTable, nextWatchAt, recordStopFailure, watchOf } from "./int
 import { onDisconnect, onGmailPush, runWatchWork, startWatchSafely, stopWatchWith, watchSoon, type GooglePush, type WatchHost } from "./integrations/google-watches.ts"
 import { createRevocationTable, drainRevocations, nextRevocationAt, takeCredentialForRevocation } from "./integrations/revocations.ts"
 import * as ghTokens from "./integrations/github-tokens.ts"
+import * as ghUser from "./integrations/github-user-tokens.ts"
 import { createConfigurePageTable, githubConnectTarget, installationConfigureUrl, type GithubConnectTarget } from "./integrations/github-connect.ts"
 import { addListener, createListenerTable, githubChangeOf, GithubPushCoalescer, listeners, removeListener, type IntegrationChangedFrame } from "./integrations/github-push.ts"
 import { github, githubScopesOf, ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
+import { claimGitHubDelivery, createGitHubDeliveryTable, finishGitHubDelivery } from "./ingress/github-deliveries.ts"
 import { isAgentGatewayPrincipal, resolveConnectionPrincipal } from "./agent-gateway-principal.ts"
 
 export type { ExternalReply, ProviderEvent } from "./integrations/external.ts"
@@ -69,8 +71,10 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     createFallbackTable(sql)
     createApprovalTable(sql)
     ghTokens.createGithubTokenTable(sql)
+    ghUser.createGithubUserTokenTable(sql)
     createListenerTable(sql)
     createConfigurePageTable(sql)
+    createGitHubDeliveryTable(sql)
   }
 
   protected read(state: ConnectionsState, op: string, _params: unknown, principal: Principal): ReadResult {
@@ -202,6 +206,8 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const c = result && result.t === "result" ? (result.value as Connection) : undefined
     if (!c || c.status !== "revoked") return
     if (c.provider === "github") {
+      // The linking person's sealed refresh token goes with the connection.
+      ghUser.forgetUserTokens(this.ctx.storage.sql, c.id)
       // Mark the revoked connection's issued tokens before returning; the alarm
       // completes provider DELETE even if this isolate stops during the first try.
       const marked = ghTokens.markConnectionTokensRevoked(this.ledger(), c.id, Date.now())
@@ -454,6 +460,11 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       throw new ProviderError("integration.state_invalid", rej.message)
     }
     const active = this.boundEngine!.currentState.connections[c.id]!
+    // The person's own GitHub token, so what they start posts as them; a failure keeps the App identity.
+    if (approved.user_grant) {
+      await ghUser.storeUserGrant(this.ctx.storage.sql, this.env, this.http, c.id, principal.user, approved.user_grant, Date.now()).catch((e) =>
+        console.error(JSON.stringify({ msg: "github user token store failed", connection: c.id, error: e instanceof Error ? e.name : "unknown" })))
+    }
     // Gmail push for new-mail triggers (G3); a failure here retries from the alarm, never fails the link.
     await startWatchSafely(this.watchHost(), active, Date.now())
     this.scheduleAlarm()
@@ -576,7 +587,12 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       checkScopes(this.usableFor(current, op, params).c)
     } : undefined
     try {
-      const r = await impl.call(this.env, this.http, await this.usableCredential(c), op, params, beforeEffect)
+      const user = principal.user
+      const asUser = provider === "github" && user ? {
+        token: () => ghUser.userAccessToken(this.ctx.storage.sql, this.env, this.http, c.id, user, Date.now()),
+        refused: (token: string) => ghUser.dropAccessToken(c.id, user, token)
+      } : undefined
+      const r = await impl.call(this.env, this.http, await this.usableCredential(c), op, params, beforeEffect, asUser)
       return r.value
     } catch (e) {
       if (e instanceof ProviderError && e.code === "needs_reauth") {
@@ -588,16 +604,29 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
 
   /**
    * A verified provider webhook for one of this team's connections. Inactive
-   * connections drop it. Dedupe happens in the SchedulerDO per trigger
-   * (`deliver:<automation>:<trigger>:<connection>:<delivery>`), so a failed
-   * forward can be redelivered by the provider.
+   * connections drop it. A GitHub delivery runs once per connection by its
+   * `X-GitHub-Delivery` GUID, with the body digest as the replay check
+   * (github-deliveries.ts); a failed attempt stays open, so GitHub's redelivery
+   * runs again. Dedupe of what already ran happens in the SchedulerDO per trigger
+   * (`deliver:<automation>:<trigger>:<connection>:<delivery>`).
    */
-  async ingest(entity: string, connection: string, event: ProviderEvent): Promise<{ status: "forwarded" | "dropped"; runs: number }> {
+  async ingest(entity: string, connection: string, event: ProviderEvent, digest?: string): Promise<{ status: "forwarded" | "dropped" | "duplicate"; runs: number }> {
     const bound = this.boundRow()
     if (!bound || bound.entity !== entity) return { status: "dropped", runs: 0 }
     const engine = this.bind(entity)
     const arrived = engine.currentState.connections[connection]
     if (!arrived || arrived.account?.key !== event.account) return { status: "dropped", runs: 0 }
+    if (event.provider !== "github" || !digest) return this.ingestArrived(entity, connection, arrived, event)
+    const sql = this.ctx.storage.sql
+    const claim = claimGitHubDelivery(sql, connection, event.delivery_id, digest, Date.now())
+    if (claim === "duplicate" || claim === "replayed") return { status: "duplicate", runs: 0 }
+    const r = await this.ingestArrived(entity, connection, arrived, event)
+    finishGitHubDelivery(sql, connection, event.delivery_id)
+    return r
+  }
+
+  private async ingestArrived(entity: string, connection: string, arrived: Connection, event: ProviderEvent): Promise<{ status: "forwarded" | "dropped"; runs: number }> {
+    const engine = this.bind(entity)
     // The App installation's own lifecycle reaches a connection in any live status, so an unsuspend
     // restores the connection its suspension marked; every other event needs an active connection.
     if (event.provider === "github") this.githubInstallationEvent(arrived, event)

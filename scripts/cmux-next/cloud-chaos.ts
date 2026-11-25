@@ -276,7 +276,7 @@ export type DialLike = {
  * `onLine`. A dial that ends rejects what it still owed and is dialed again, and `onDial` runs once each new dial
  * says it connected, so the client can attach again as the app does after its redial.
  */
-class ClientDial implements DialLike {
+export class ClientDial implements DialLike {
   dials = 0;
   /**
    * The dial's own story, oldest first: each `cloud.connect` route line (a resume, a fresh session) and each exit, with
@@ -289,7 +289,7 @@ class ClientDial implements DialLike {
   private n = 0;
   private stopped = false;
 
-  constructor(private ctx: ChaosContext, private onLine: (msg: any) => void, private onDial: () => void) {}
+  constructor(private ctx: Pick<ChaosContext, "cmux" | "machine" | "team" | "env">, private onLine: (msg: any) => void, private onDial: () => void) {}
 
   start(): void {
     this.dial();

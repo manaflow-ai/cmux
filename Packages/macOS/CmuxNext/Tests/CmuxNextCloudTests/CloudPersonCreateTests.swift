@@ -64,6 +64,19 @@ import Testing
 
     // MARK: A chat's start
 
+    /// A start with a Cloud environment picked boots its machine in that environment, never a plain create the platform
+    /// serves from the person's generic spare (staging probe run 45132397559: the picked chat ran on the spare, with none of
+    /// the environment's variables or setup). Auto (nil) keeps the plain create, and with it the direct route.
+    @Test func aStartWithAPickedEnvironmentBootsInItNotThePlainCreate() {
+        let picked = CloudMachineRequest(startChatKey: "k", sizedFor: nil, team: "team_a", environment: "env_1")
+        #expect(picked.environment == "env_1")
+        #expect(!picked.takesPlainPath)
+        #expect(picked.createRoute(personsOwnCreate: true, team: "team_a") == .relay)
+        let auto = CloudMachineRequest(startChatKey: "k", sizedFor: nil, team: "team_a")
+        #expect(auto.environment == nil)
+        #expect(auto.createRoute(personsOwnCreate: true, team: "team_a") == .direct)
+    }
+
     /// The start's plan as the ledger answers it (cmux-cloud-start-core's `StartChatPlan`, camelCase).
     private func plan(_ json: String) throws -> CloudMoveCLI.StartChatPlan {
         try JSONDecoder().decode(CloudMoveCLI.StartChatPlan.self, from: Data(json.utf8))

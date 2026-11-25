@@ -1,16 +1,11 @@
 // The older "Working for" line over a running turn's work (a `working` row; the transcript now
-// draws the turn's one live line at its bottom instead, Thinking.tsx, with the same counts): "Working for 42s", ticking each second from the prompt,
+// draws the turn's one live line at its bottom instead, Thinking.tsx): "Working for 42s", ticking each second from the prompt,
 // or held at `durationMs` while text streams. While a call runs (`row.doing`, turns.ts) it names
 // that call beside the time instead, as Claude desktop's line does, after the terminal glyph when
 // the call is a command; not while the call's own tool row is on screen, which names it already.
-// No mark blinks before it; the ticking time says the turn is alive. After
-// that it counts the work still going in the background, as Claude's phone app does ("Working… · 5
-// running tasks"): "· 3 subagents · 1 command", only subagents and chats the agent started still
-// running (one word, subagents, as the tray says), and background commands that have not ended
-// (the process registry's and the transcript's, session-info/processes.ts `backgroundCommands`). Each count opens what it
-// counts. The counts follow on the same fixed-height line, so one that comes or goes moves neither
-// the label nor the rows below. With the running tray on (the default, subagents/runningTray.ts)
-// the tray above the composer is the count, and App.tsx counts nothing here. Token usage stays in
+// No mark blinks before it; the ticking time says the turn is alive. The running tray above the
+// composer counts the work still going in the background (subagents/runningTray.ts), never this
+// line; after the time it names the page a background command serves. Token usage stays in
 // the usage details. Over the work it is the turn's header in its running phase, a `worked`
 // row (turns.ts `turnHeaderId`, rows/WorkedRow.tsx): when the turn ends, the same row reads "Worked for". While the
 // turn waits on the person (an ask
@@ -23,7 +18,7 @@ import { useContext, useMemo } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { usePageNow as useTicking } from "../../../ui/pageClock";
-import { ChevronRight, TerminalSquare } from "./icons";
+import { TerminalSquare, ChevronRight } from "./icons";
 import { useTextSwap } from "../../../ui/motion/useTextSwap";
 import { BackgroundHint } from "./BackgroundHint";
 import { TimedLabel } from "./TurnTokens";
@@ -32,6 +27,7 @@ import { formatDuration } from "./turns";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 import { StatusVerb } from "./StatusVerb";
+import { LiveShimmer } from "./LiveShimmer";
 import { workingParts, WorkingCountsContext } from "./workingForModel";
 export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () => number }) {
   const t = useT();
@@ -55,7 +51,7 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
   const sendName = useSubsessionInfo(row.doingSendSession)?.name ?? row.doingSendTo;
   const sending = shown !== undefined && sendName !== undefined;
   const doing = sending ? t("send.sending", { target: sendName }) : shown;
-  const parts = counts ? workingParts(t, counts) : [];
+  const parts = counts ? workingParts(counts) : [];
   // A new call changes the words as Claude desktop's line does (ui/motion/useTextSwap.ts).
   const words = useTextSwap<HTMLSpanElement>(waiting ? undefined : (doing ?? ""));
   return (
@@ -70,8 +66,12 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
         </span>
       )}
       {waiting ? (
-        <output className="cv-worked__label cv-waiting" data-waiting={waiting}>
-          {t(WAITING_LABEL[waiting])}
+        // The live spot's one shimmer, never plain or white words (Leo, 2026-11-22: "if it's in the
+        // thinking spot with the timer, it needs to have the glimmer and teh same looking fucking text").
+        <output className="cv-worked__label cv-waiting cv-thinking is-shimmer" data-waiting={waiting}>
+          <span className="cv-shimmer__row">
+            <LiveShimmer label={t(WAITING_LABEL[waiting])} />
+          </span>
         </output>
       ) : doing || row.thinkingNow ? (
         <>

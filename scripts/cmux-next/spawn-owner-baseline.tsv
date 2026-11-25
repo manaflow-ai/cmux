@@ -159,7 +159,6 @@ cmux-tui/crates/acpmux/src/server/races/peer.rs	1
 cmux-tui/crates/acpmux/src/server/requests.rs	1
 cmux-tui/crates/acpmux/src/server/requests/briefs.rs	1
 cmux-tui/crates/acpmux/src/server/requests/cancel_refused.rs	1
-cmux-tui/crates/acpmux/src/server/requests/info.rs	1
 cmux-tui/crates/acpmux/src/server/requests/workflow_dispatch.rs	1
 cmux-tui/crates/acpmux/src/server/review_queue.rs	1
 cmux-tui/crates/acpmux/src/server/stream.rs	2

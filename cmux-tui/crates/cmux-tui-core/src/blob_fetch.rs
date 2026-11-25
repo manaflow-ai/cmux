@@ -601,7 +601,7 @@ fn run(
         .build()
         .map_err(|error| ("blob.failure", error.to_string()))?;
     runtime.block_on(async {
-        let client = reqwest::Client::builder()
+        let client = cmux_egress::client_builder("cmux_tui_core::blob_fetch")
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
             .timeout(REQUEST_TIMEOUT)

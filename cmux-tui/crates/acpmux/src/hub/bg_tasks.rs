@@ -32,7 +32,7 @@ const MAX_RUNNING: usize = 32;
 const OUTPUT_MAX: u64 = 1 << 20;
 const OUTPUT_DEFAULT: u64 = 64 << 10;
 /// The tail each listed task shows.
-const LIST_TAIL: u64 = 1 << 10;
+pub(super) const LIST_TAIL: u64 = 1 << 10;
 /// How long a start waits for its runner's answer.
 const START_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -185,8 +185,9 @@ impl Hub {
                 return Ok(bg_view(&dir, &record, LIST_TAIL));
             }
         }
-        // A runner whose lock cannot be probed counts: the cap never lets an unknown one by.
-        let running = self.bg_records(&dir).iter().filter(|r| !bg_gone(&dir, &r.id)).count();
+        // A runner whose lock cannot be probed counts: the cap never lets an unknown one by. An
+        // ended record's runner wrote its end last, so only the others are probed.
+        let running = self.bg_running_in(&dir, |_| true);
         if running >= MAX_RUNNING {
             return Err(RpcError::invalid_params(format!(
                 "{MAX_RUNNING} background tasks already run in this chat; stop one first"
@@ -281,22 +282,46 @@ impl Hub {
         Ok(crate::agent::command_env(&cmd).into_iter().collect())
     }
 
-    /// The folder's tasks: only records of its own generation, so a runner that outlived a purge
-    /// of an earlier folder of this name never shows here.
-    pub(super) fn bg_records(&self, dir: &std::path::Path) -> Vec<Record> {
-        let Ok(generation) = bg_generation(dir, false) else { return Vec::new() };
-        let mut records: Vec<Record> = std::fs::read_dir(dir)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .filter_map(|e| {
-                let name = e.file_name().into_string().ok()?;
-                bg_run::read_record(dir, name.strip_suffix(".json")?)
+    /// The folder's tasks, oldest first: only records of its own generation, so a runner that
+    /// outlived a purge of an earlier folder of this name never shows here. Read once per change
+    /// of the folder (`bg_folder.rs`).
+    pub(super) fn bg_records(&self, dir: &std::path::Path) -> Arc<super::bg_folder::BgFolder> {
+        self.bg_folders.look(dir)
+    }
+
+    /// How many of the folder's tasks `want` picks run: records not ended whose runner still
+    /// holds its lock.
+    pub(super) fn bg_running_in(
+        &self,
+        dir: &std::path::Path,
+        want: impl Fn(&Record) -> bool,
+    ) -> usize {
+        self.bg_records(dir)
+            .tasks
+            .iter()
+            .filter(|t| {
+                t.record.ended_at.is_none() && want(&t.record) && !bg_gone(dir, &t.record.id)
             })
-            .filter(|r| r.generation == generation)
-            .collect();
-        records.sort_by_key(|r| r.started_at);
-        records
+            .count()
+    }
+
+    /// The running tasks of the chat, as `(id, cwd)`.
+    pub(super) fn bg_running_tasks(&self, session: &Session) -> Vec<(String, String)> {
+        let dir = self.bg_dir(session);
+        self.bg_records(&dir)
+            .tasks
+            .iter()
+            .filter(|t| t.record.ended_at.is_none() && !bg_gone(&dir, &t.record.id))
+            .map(|t| (t.record.id.clone(), t.record.cwd.clone()))
+            .collect()
+    }
+
+    /// One task's list view, when the chat's folder holds it.
+    pub(crate) fn bg_task_view(&self, session: &Session, id: &str) -> Option<Value> {
+        let dir = self.bg_dir(session);
+        let folder = self.bg_records(&dir);
+        let task = folder.tasks.iter().find(|t| t.record.id == id)?;
+        Some(folder.view(&dir, task, LIST_TAIL))
     }
 
     /// Whether a task of the chat runs (`Hub::in_use`).
@@ -306,21 +331,13 @@ impl Hub {
 
     /// How many of the chat's tasks run.
     pub(super) fn bg_running_count(&self, session: &Session) -> usize {
-        let dir = self.bg_dir(session);
-        self.bg_records(&dir)
-            .iter()
-            .filter(|r| r.ended_at.is_none() && !bg_gone(&dir, &r.id))
-            .count()
+        self.bg_running_in(&self.bg_dir(session), |_| true)
     }
 
     /// How many of the chat's tasks run that bring their end to the chat (`notify`,
     /// `bg_notify.rs`): each is sure to give the chat another turn.
     pub(super) fn bg_notifying_count(&self, session: &Session) -> usize {
-        let dir = self.bg_dir(session);
-        self.bg_records(&dir)
-            .iter()
-            .filter(|r| r.notify && r.ended_at.is_none() && !bg_gone(&dir, &r.id))
-            .count()
+        self.bg_running_in(&self.bg_dir(session), |r| r.notify)
     }
 
     /// Tests: a task of the chat that runs (its record, and its lock held while the returned
@@ -365,10 +382,10 @@ impl Hub {
     /// `_acpmux/bg/list` for `scope`: its tasks, and `otherOwners`, how many it leaves out.
     pub fn bg_list_as(&self, session: &Session, scope: &BgScope) -> Value {
         let dir = self.bg_dir(session);
-        let records = self.bg_records(&dir);
-        let (mine, others): (Vec<&Record>, Vec<&Record>) =
-            records.iter().partition(|r| scope.covers(r));
-        let tasks: Vec<Value> = mine.iter().map(|r| bg_view(&dir, r, LIST_TAIL)).collect();
+        let folder = self.bg_records(&dir);
+        let (mine, others): (Vec<_>, Vec<_>) =
+            folder.tasks.iter().partition(|t| scope.covers(&t.record));
+        let tasks: Vec<Value> = mine.iter().map(|t| folder.view(&dir, t, LIST_TAIL)).collect();
         json!({"tasks": tasks, "otherOwners": others.len()})
     }
 
@@ -751,6 +768,17 @@ fn workflow_bg_output(dir: &std::path::Path, record: &Record) -> Result<Value, R
 /// A task as the wire carries it: `state` is `running`, `exited`, `stopped`, `killed` (a signal
 /// nobody here sent) or `lost` (its runner died without a word), with its last `tail` bytes.
 pub(super) fn bg_view(dir: &std::path::Path, r: &Record, tail: u64) -> Value {
+    bg_view_at(dir, r, tail, None)
+}
+
+/// [`bg_view`], given the task's segment starts a listing of the folder found (`bg_folder.rs`),
+/// so the view lists the folder no more.
+pub(super) fn bg_view_at(
+    dir: &std::path::Path,
+    r: &Record,
+    tail: u64,
+    segments: Option<&[u64]>,
+) -> Value {
     // An exit the runner wrote is final; without one, only a free lock says the runner is gone.
     let running = r.ended_at.is_none() && !bg_gone(dir, &r.id);
     let state = match (running, r.ended_at, r.stopped, r.signal) {
@@ -760,7 +788,7 @@ pub(super) fn bg_view(dir: &std::path::Path, r: &Record, tail: u64) -> Value {
         (_, _, _, Some(_)) => "killed",
         _ => "exited",
     };
-    let read = bg_run::read_output(dir, &r.id, None, tail).unwrap_or_default();
+    let read = bg_run::read_output_at(dir, &r.id, None, tail, segments).unwrap_or_default();
     let mut view = json!({
         "id": r.id, "sessionId": r.session_id, "command": r.command, "cwd": r.cwd,
         "description": r.description, "notify": r.notify, "resultLine": r.result_line,
@@ -773,7 +801,7 @@ pub(super) fn bg_view(dir: &std::path::Path, r: &Record, tail: u64) -> Value {
         "startedBy": r.subagent,
     });
     if r.result_line {
-        let end = bg_run::read_output(dir, &r.id, None, LIST_TAIL).unwrap_or_default();
+        let end = bg_run::read_output_at(dir, &r.id, None, LIST_TAIL, segments).unwrap_or_default();
         let text = String::from_utf8_lossy(&end.data);
         let last = text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or_default();
         view.set("lastLine", json!(last));

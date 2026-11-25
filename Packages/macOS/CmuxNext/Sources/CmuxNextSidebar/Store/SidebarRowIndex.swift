@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextSignposts
 
 /// Where each workspace row sits in a window's sections, so a row content
 /// change (agent status, OSC 7501 program status, title, unread, progress,
@@ -117,6 +118,8 @@ extension SidebarListView {
     /// height changes reloads the layout; nothing rebuilds the sections.
     func patchRows(_ patched: [SidebarWorkspace]) {
         SidebarPerfCounters.add(.rowPatches, patched.count)
+        let signpost = Signposter.stall.begin(.stallSidebarRows, "kind=patch")
+        defer { Signposter.stall.end(.stallSidebarRows, signpost) }
         // A height change lays the list out again (outside the timed patch: `reload` times itself), with no
         // motion unless the user asked for it, and not under the pointer (`showModelChange`, calm-sidebar-movement);
         // provisional rows swap in place, as on any reload (`SidebarView.animatesReload`).
