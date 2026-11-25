@@ -1040,6 +1040,16 @@ fn unpin_machine(doc: &Doc, item: &Item) -> Option<String> {
         .and_then(|section| doc.section(section))
         .and_then(machine_of)
         .or_else(|| {
+            // An empty subgroup can have left an already-pinned parent.
+            // That parent's current tree identifies its machine better than
+            // choosing the first machine in the document.
+            let parent = item.extra.get(UNPIN_TO_KEY)?.get("parent")?.as_str()?;
+            let parent = doc.item(parent)?;
+            doc.section(&parent.section)
+                .and_then(machine_of)
+                .or_else(|| doc.item_machine(doc.root(parent)))
+        })
+        .or_else(|| {
             doc.sections()
                 .iter()
                 .filter(|section| section.kind.machine().is_some())
