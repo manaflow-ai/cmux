@@ -831,8 +831,8 @@ public struct AgentChatBottomStack: View {
     @Bindable var surface: AgentChatSurface
     var bottomPadding: CGFloat = 8
     @State private var reportedHeight: CGFloat = 0
-    /// The composer's top in the stack: what the stack shows over it (an error, plan
-    /// progress, queued prompts) and their spacing.
+    /// The composer's top in the stack: what the stack shows over it (an error,
+    /// queued prompts) and their spacing.
     @State private var composerOffset: CGFloat = 0
     nonisolated private static let stackSpace = "AgentChatBottomStack"
     /// The composer has settled into place (`NewChatEntrance`): false only while a new chat's
@@ -873,11 +873,6 @@ public struct AgentChatBottomStack: View {
                     .cmuxMobileFloatingGlass(in: .capsule)
                     .transition(.opacity.combined(with: .offset(y: 8)))
                     .accessibilityHint("Dismiss")
-                }
-                // Pinned plan progress while a turn runs (ACP web UI parity).
-                if let progress = store.runningPlan, let entries = store.runningPlanEntries {
-                    PlanProgressBar(progress: progress, entries: entries)
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
                 if !store.outgoing.isEmpty {
                     OutgoingMessagesView(store: store)
