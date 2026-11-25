@@ -776,6 +776,7 @@ export function CloudStartView({
           waiting={!failed}
           {...(onSetUp ? { onSetUp } : {})}
           {...(onSetUpDismiss ? { onDismiss: onSetUpDismiss } : {})}
+          {...(onSetUpDismiss && !failed ? { onCancel: onSetUpDismiss } : {})}
         />
       </section>
     );

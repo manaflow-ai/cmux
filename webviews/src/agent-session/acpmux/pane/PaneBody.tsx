@@ -345,10 +345,10 @@ export type PaneBodyDeps = NewTabShown &
     parkedVisible: boolean;
     chatName: string;
     renameFromTitle: (() => void) | undefined;
+    /// What the header says: the chat's title, or a subagent's own pane's
+    /// title and "Subagent of <chat>" (subagents/subagentPanes.ts `paneHeading`).
+    heading: { title: string; of?: string; renamable: boolean };
     titleTrail: readonly string[] | undefined;
-    /// What the header names (subagentPanes.ts `paneHeading`): a subagent's own pane heads with the
-    /// subagent, never its chat's title and summary.
-    heading: { title: string; renamable: boolean };
     tabRowTools: (element: HTMLElement | null) => void;
     liveTreeEnabled: boolean;
     readLiveTree: () => Promise<unknown>;
@@ -1322,6 +1322,15 @@ export function drawPaneBody({
                           icon={heading.renamable ? snapshot.summary?.icon : undefined}
                           formerNames={heading.renamable ? snapshot.summary?.formerNames : undefined}
                         />
+                        {/* No rolling summary beside a chat's name: the sidebar's hover card and Expanded rows show it
+                              (Leo, 2026-11-22, on the line here: "im not sure if this is useful ... it's overlapping").
+                              A subagent's own pane says whose it is there instead (Leo, 2026-11-22: "it is prob ok to
+                              somehow denote the \"subagent of\"... at the top i feel like"). */}
+                        {heading.of && (
+                          <span className="acpmux-subagent-of" data-subagent-of="">
+                            {heading.of}
+                          </span>
+                        )}
                       </span>
                     )}
                   </ChatHeaderStatus>

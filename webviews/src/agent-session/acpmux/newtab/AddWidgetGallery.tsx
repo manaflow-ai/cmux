@@ -45,8 +45,10 @@ export function WidgetPreview({
     return () => mount.stop();
   }, [mount]);
   const status = useSyncExternalStore(mount.store.subscribeStatus, mount.store.getStatus, mount.store.getStatus);
+  // On the gallery's glass sheet the preview is a plain card, not a glass of its own (one material
+  // per surface; widgets.css .nt-widget-card--preview).
   return (
-    <div className="nt-widget-card" data-size={size} data-status={status.state}>
+    <div className="nt-widget-card nt-widget-card--preview" data-size={size} data-status={status.state}>
       {status.state !== "failed" && status.state !== "disconnected" && (
         <SceneRenderer store={mount.store} dispatch={() => undefined} resolveAsset={mount.resolveAsset} />
       )}

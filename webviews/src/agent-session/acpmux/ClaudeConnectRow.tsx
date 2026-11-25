@@ -1,7 +1,8 @@
 // The model picker's Claude Code row while no Claude connection serves Cloud (claudeConnect.ts):
 // the harness's mark and name, one muted line, and a Connect button at the trailing edge, above the
-// section's models and parted from them by a hairline. Once the token is saved it says Connected
-// until the host's connection list catches up, then the row goes. The dialog lives beside the
+// section's models and parted from them by a hairline. Connect opens the inline connect card
+// (ConnectCard.tsx) above the composer's chips and starts the one click; once saved the row says
+// Connected until the host's connection list catches up, then both go. The card lives beside the
 // picker (the menu closes on Connect), so the composer holds both through `useClaudeConnectFlow`.
 import { AgentMark, agentBrand } from "../shared/AgentMark";
 import { CLAUDE_CONNECT_BRAND, connectDetailKey } from "./claudeConnect";
