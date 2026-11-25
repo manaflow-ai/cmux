@@ -258,6 +258,21 @@ fn unpushed_commits_survive_the_swap() {
 }
 
 #[test]
+fn a_sealed_projection_does_not_swap_its_git_folder() {
+    let repo = repo(1, 1024);
+    let Some(p) = mount(&repo.mac) else { return };
+    let projected = p.at.path().join(".git");
+    let local = p.state.path().join(LOCAL_DIR);
+    std::fs::create_dir_all(&local).unwrap();
+    assert!(std::fs::metadata(&projected).unwrap().is_dir());
+
+    p.overlay.seal();
+    assert_eq!(p.overlay.swap_to_link(".git", &local), Err(libc::EROFS));
+    assert!(std::fs::metadata(&projected).unwrap().is_dir());
+    assert!(!std::fs::symlink_metadata(&projected).unwrap().file_type().is_symlink());
+}
+
+#[test]
 fn a_git_reading_through_the_swap_sees_one_repository() {
     let repo = repo(12, 2048);
     let Some(p) = mount(&repo.mac) else { return };

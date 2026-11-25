@@ -76,6 +76,7 @@ impl Overlay {
         if name.is_empty() || name.contains('/') {
             return Err(super::EINVAL);
         }
+        let _mutation = self.mutation.enter()?;
         let _swap = self.swap.write().unwrap_or_else(PoisonError::into_inner);
         let index = self.lower(name).ok_or(ENOENT)?;
         if self.manifest.entry(index).map(|entry| entry.kind) != Some(Kind::Dir) {
