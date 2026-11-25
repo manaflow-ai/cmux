@@ -940,6 +940,20 @@ fn detach(line: &WayBackLine, state: &Path) -> Result<Value, Refusal> {
         return Err(("projection.params_invalid", "chat is a chat id".into()));
     }
     let mut table = projections().lock().unwrap_or_else(PoisonError::into_inner);
+    #[cfg(target_os = "linux")]
+    if let Some(projected) = table.get(&line.name).cloned() {
+        // An admitted copy-up can be waiting for bytes from the Mac. Other projections
+        // must remain usable while it finishes. Only unmount the instance we sealed.
+        drop(table);
+        projected.overlay.seal();
+        table = projections().lock().unwrap_or_else(PoisonError::into_inner);
+        if !table.get(&line.name).is_some_and(|current| Arc::ptr_eq(current, &projected)) {
+            return Err((
+                "projection.busy",
+                format!("projection {} changed during detach", line.name),
+            ));
+        }
+    }
     let found = table.remove(&line.name);
     let at = record::read(state)
         .map(|found| found.at)
@@ -947,8 +961,6 @@ fn detach(line: &WayBackLine, state: &Path) -> Result<Value, Refusal> {
     let recorded_at = at.clone().unwrap_or_default();
     let was_mounted = found.is_some();
     if let Some(projected) = found {
-        #[cfg(target_os = "linux")]
-        projected.overlay.seal();
         projected.link.detach();
         #[cfg(target_os = "linux")]
         {
