@@ -58,6 +58,38 @@ pub struct TypingParams {
     pub meta: Option<AuthorMeta>,
 }
 
+/// `_acpmux/live` (RFD 0141 phase 1): turns the owner's Live on or off; no `live` only reads it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
+pub struct LiveParams {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub live: Option<bool>,
+}
+
+/// `_acpmux/live`'s answer: Live now.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(transform = require_all)]
+pub struct LiveResult {
+    pub live: bool,
+}
+
+/// `_acpmux/live_list` takes no params.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct LiveListParams {}
+
+/// `_acpmux/live_list`'s answer: the `cmux-presence` records of everyone Live here (none while
+/// the owner is not Live).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(transform = require_all)]
+pub struct LiveListResult {
+    pub live: bool,
+    pub people: Vec<serde_json::Value>,
+}
+
 /// One person in a chat. The hub never marks the caller's own entry: a connection may carry
 /// several people, so the client compares ids (a caller with no author is `owner`).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

@@ -367,6 +367,26 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/live",
+      "params": {
+        "$ref": "#/types/LiveParams"
+      },
+      "result": {
+        "$ref": "#/types/LiveResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/live_list",
+      "params": {
+        "$ref": "#/types/LiveListParams"
+      },
+      "result": {
+        "$ref": "#/types/LiveListResult"
+      }
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/here/beat",
       "params": {
         "$ref": "#/types/HereBeatParams"
@@ -423,6 +443,16 @@
       },
       "result": {
         "$ref": "#/types/Done"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/pin",
+      "params": {
+        "$ref": "#/types/PinParams"
+      },
+      "result": {
+        "$ref": "#/types/SessionSummary"
       }
     },
     {
@@ -1117,6 +1147,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/chat_move",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/auto_session/leftover",
       "params": true,
       "result": true
@@ -1367,6 +1403,12 @@
     {
       "kind": "request",
       "name": "_acpmux/team/ack",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/listen",
       "params": true,
       "result": true
     },
@@ -5228,6 +5270,53 @@
       ],
       "type": "object"
     },
+    "LiveListParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/live_list` takes no params.",
+      "type": "object"
+    },
+    "LiveListResult": {
+      "description": "`_acpmux/live_list`'s answer: the `cmux-presence` records of everyone Live here (none while\nthe owner is not Live).",
+      "properties": {
+        "live": {
+          "type": "boolean"
+        },
+        "people": {
+          "items": true,
+          "type": "array"
+        }
+      },
+      "required": [
+        "live",
+        "people"
+      ],
+      "type": "object"
+    },
+    "LiveParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/live` (RFD 0141 phase 1): turns the owner's Live on or off; no `live` only reads it.",
+      "properties": {
+        "live": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "LiveResult": {
+      "description": "`_acpmux/live`'s answer: Live now.",
+      "properties": {
+        "live": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "live"
+      ],
+      "type": "object"
+    },
     "LoopEpisodeSummary": {
       "description": "The bounded diagnosis shown beside a looping chat. The daemon emits one event when this\nbecomes active and another when progress clears it; the summary lets a newly attached client\nrender the current state without replaying the transcript.",
       "properties": {
@@ -6513,6 +6602,22 @@
       ],
       "type": "object"
     },
+    "PinParams": {
+      "description": "`_acpmux/pin`: the person pins the chat to the top of their list, or unpins it; synced to\ntheir other replicas as `pin/<id>` (`hub/synced.rs`).",
+      "properties": {
+        "pinned": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "pinned"
+      ],
+      "type": "object"
+    },
     "PresenceNote": {
       "description": "`_acpmux/presence`, to every connection attached to the chat on each change, and\n`presence` in the `_acpmux/attach` reply. Never in the log, `_acpmux/events` or an export.",
       "properties": {
@@ -6757,17 +6862,6 @@
       },
       "type": "object"
     },
-    "QueueRemoveParams": {
-      "additionalProperties": false,
-      "properties": {
-        "_meta": {
-          "$ref": "#/types/RequestMeta"
-        },
-        "promptId": true,
-        "sessionId": true
-      },
-      "type": "object"
-    },
     "QueueOrigin": {
       "description": "Who put a queued prompt in the queue ([`of`]).",
       "oneOf": [
@@ -6787,6 +6881,17 @@
           "type": "string"
         }
       ]
+    },
+    "QueueRemoveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "promptId": true,
+        "sessionId": true
+      },
+      "type": "object"
     },
     "QueuedAuthor": {
       "description": "The person who queued a prompt in a shared chat.",
@@ -7888,6 +7993,10 @@
           ],
           "description": "A daemon start holds what this chat queued until a person opens it: its folder is guarded\n(`hub/protected_hold.rs`). `session resume` names it and NOW says why the queue does not\ndrain. Absent otherwise, and from a peer on an older acpmux."
         },
+        "pinned": {
+          "description": "A person pinned it (`_acpmux/pin`), on any of their replicas (`hub/synced.rs`). Absent\notherwise, and from a peer on an older acpmux.",
+          "type": "boolean"
+        },
         "policy": {
           "type": [
             "string",
@@ -8867,6 +8976,10 @@
             }
           ],
           "description": "A daemon start holds what this chat queued until a person opens it: its folder is guarded\n(`hub/protected_hold.rs`). `session resume` names it and NOW says why the queue does not\ndrain. Absent otherwise, and from a peer on an older acpmux."
+        },
+        "pinned": {
+          "description": "A person pinned it (`_acpmux/pin`), on any of their replicas (`hub/synced.rs`). Absent\notherwise, and from a peer on an older acpmux.",
+          "type": "boolean"
         },
         "policy": {
           "type": [

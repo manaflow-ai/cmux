@@ -3907,6 +3907,22 @@ async fn dispatch_request_with_identity(
             }
             Ok(done)
         }
+        method::MUX_LIVE => {
+            if view::a_link(conn) {
+                return Err(crate::hub::presence::peer_unsupported());
+            }
+            if let Some(live) = params.get("live").and_then(Value::as_bool) {
+                hub.presence.set_live(live);
+            }
+            Ok(json!({"live": hub.presence.is_live()}))
+        }
+        method::MUX_LIVE_LIST => {
+            if view::a_link(conn) {
+                return Err(crate::hub::presence::peer_unsupported());
+            }
+            let people = serde_json::to_value(hub.presence.live_list()).unwrap_or_default();
+            Ok(json!({"live": hub.presence.is_live(), "people": people}))
+        }
         method::MUX_HERE_BEAT => {
             if view::a_link(conn) {
                 return Err(crate::hub::presence::peer_unsupported());
