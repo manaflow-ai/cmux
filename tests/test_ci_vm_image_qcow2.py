@@ -107,6 +107,35 @@ class PresignTest(unittest.TestCase):
                            capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 2)
 
+    def test_publish_stops_before_a_vm_boots_when_r2_refuses_the_write(self) -> None:
+        # Roll 45682971878: the export VM tarred for minutes, then R2 answered the presigned PUT 403.
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        bin_dir = tmp / "bin"
+        bin_dir.mkdir()
+        booted = tmp / "booted"
+        stubs = {t: "exit 0" for t in ("qemu-img", "mkfs.ext4", "fakeroot", "zstd")}
+        stubs["bun"] = f"touch {booted}"
+        # curl -sS -o FILE -w '%{http_code}' -T BODY URL: write R2's error XML, print the status.
+        stubs["curl"] = ('while [ $# -gt 0 ]; do [ "$1" = -o ] && out="$2"; shift; done\n'
+                         'printf \'<?xml version="1.0"?><Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>\' > "$out"\n'
+                         "printf 403")
+        for name, body in stubs.items():
+            (bin_dir / name).write_text(f"#!/bin/sh\n{body}\n")
+            (bin_dir / name).chmod(0o755)
+        env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "SNAPSHOT": "sh-1", "TAG": "ci-1-1",
+               "OUT_DIR": str(tmp / "out"), "AWS_ACCESS_KEY_ID": "AKIDEXAMPLE", "AWS_SECRET_ACCESS_KEY": "s",
+               "R2_ENDPOINT": "https://acct.r2.cloudflarestorage.com"}
+        r = subprocess.run(["bash", str(ROOT / "scripts/ci/vm-image-qcow2-publish.sh")], capture_output=True, text=True,
+                           env=env)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("HTTP 403 AccessDenied", r.stdout)
+        self.assertFalse(booted.exists(), "no export VM may boot once R2 refused the write")
+
+    def test_guest_upload_keeps_r2s_error_body(self) -> None:
+        source = (ROOT / "web/scripts/cmux-vm-image/qcow2-export.ts").read_text()
+        self.assertIn("curl -sS --fail-with-body", source)
+
 
 class RollWiringTest(unittest.TestCase):
     """cloud-vm-image-roll.yml publishes every rolled image as a qcow2 without ever turning the roll red."""

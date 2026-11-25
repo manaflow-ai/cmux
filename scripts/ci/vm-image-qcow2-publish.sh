@@ -36,6 +36,20 @@ fi
 prefix="cmux-vm-image/$TAG"
 presign() { python3 "$root/scripts/ci/r2-presign.py" --endpoint-url "$R2_ENDPOINT" --bucket "$R2_BUCKET" --key "$prefix/$1" --method "$2" --expires 7200; }
 
+# Prove this job's key can write the bucket before a VM boots and tars for minutes: roll 45682971878 spent its export
+# on a presigned PUT R2 answered 403. R2's own error code (AccessDenied, SignatureDoesNotMatch, ...) goes in the log.
+probe="$(mktemp)"
+printf '%s\n' "${GITHUB_RUN_ID:-local} $(date -u +%FT%TZ)" > "$probe.body"
+code="$(curl -sS -o "$probe" -w '%{http_code}' -T "$probe.body" "$(presign write-check PUT)" || true)"
+if [ "$code" != 200 ]; then
+  r2_error="$(tr -d '\n' < "$probe" | sed -n 's|.*<Code>\([^<]*\)</Code>.*|\1|p')"
+  echo "::error title=qcow2 export::this job's R2 key cannot write $R2_BUCKET/$prefix/ (HTTP $code ${r2_error:-no R2 error code}): give the key in this job's environment Object Read & Write on $R2_BUCKET"
+  cat "$probe" >&2 || true
+  rm -f "$probe" "$probe.body"
+  exit 1
+fi
+rm -f "$probe" "$probe.body"
+
 (cd "$root/web" && QCOW2_ROOTFS_PUT_URL="$(presign rootfs.tar.zst PUT)" \
   bun ../images/cmux-vm/qcow2-export.ts --snapshot "$SNAPSHOT" --tag "$TAG" --out-dir "$OUT_DIR") | tee "$OUT_DIR/qcow2-export.out"
 read -r _ tar_sha _ < <(grep '^ROOTFS_TAR ' "$OUT_DIR/qcow2-export.out" | tail -1)

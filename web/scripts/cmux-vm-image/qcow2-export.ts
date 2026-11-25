@@ -31,7 +31,7 @@ export function exportScript(putUrl: string): string {
     `tar --numeric-owner --xattrs --xattrs-include='*' --acls --sparse -C ${ROOT_BIND} --exclude=./var/tmp/cmux-qcow2 -cf - . | zstd -q -T0 -6 -o ${EXPORT_DIR}/rootfs.tar.zst`,
     `sha256sum ${EXPORT_DIR}/rootfs.tar.zst | cut -d' ' -f1 > ${EXPORT_DIR}/sha256`,
     `stat -c %s ${EXPORT_DIR}/rootfs.tar.zst > ${EXPORT_DIR}/bytes`,
-    `curl -fsS --retry 5 --retry-all-errors --max-time 1800 -T ${EXPORT_DIR}/rootfs.tar.zst ${q(putUrl)}`,
+    `curl -sS --fail-with-body --retry 5 --retry-all-errors --max-time 1800 -T ${EXPORT_DIR}/rootfs.tar.zst ${q(putUrl)}`,
   ].join("\n");
 }
 
