@@ -453,6 +453,27 @@ def test_the_callers_pass_whether_their_own_checks_passed():
         assert job["with"]["own_checks_green"] == (
             "${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}"), workflow
 
+def test_only_ci_yml_runs_the_comment_green_on_a_new_head():
+    # 2026-11-25: three callers ran the comment job on every event (~800 jobs an hour), most of them green with no
+    # red line, so they changed nothing. ci.yml's call runs green on a new head (the `ran` line, a superseded
+    # head's red) and on a label event only when changes read a red line; the other two run green only on a label
+    # event or a re-run.
+    import yaml
+    def job(workflow):
+        return yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())["jobs"]
+    own_red = "contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')"
+    ci = job("ci.yml")
+    assert "changes" in ci["pr-red-checks"]["needs"]
+    assert ("github.event.action != 'labeled' && github.event.action != 'unlabeled' || github.run_attempt > 1 || "
+            f"{own_red} || needs.changes.outputs.red_line != 'false')") in ci["pr-red-checks"]["if"]
+    assert ci["changes"]["outputs"]["red_line"] == "${{ steps.red-line.outputs.red_line }}"
+    step = next(s for s in ci["changes"]["steps"] if s.get("id") == "red-line")
+    assert step["continue-on-error"] is True
+    for workflow in ("cmux-next.yml", "cmux-next-guards.yml"):
+        assert ("(github.event.action == 'labeled' || github.event.action == 'unlabeled' || github.run_attempt > 1 || "
+                f"{own_red})") in job(workflow)["pr-red-checks"]["if"], workflow
+
+
 def test_a_call_for_a_superseded_head_writes_nothing():
     # A late call for an old head: its red is not the pull request's, and the current head's line stays.
     fake = FakeGitHub([run("web / react-apps-check", "failure")], [{"id": 5, "body": status(checks="web and size checks: green")}],
