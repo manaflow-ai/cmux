@@ -544,6 +544,9 @@ pub struct Peer {
     /// How long this peer's links may stay silent: longer for one that answers late. Made from
     /// `timings` at the first link, so a test can set them first.
     silence: StdMutex<Option<SilenceBudget>>,
+    /// A link dialed while the last one sat silent past its budget, and opened first
+    /// (`Peer::serve_heard`): the next connect serves it instead of dialing.
+    replacement: StdMutex<Option<(crate::peer_paths::Via, carriers::Opened)>>,
     /// When the hub last saved this peer's sessions (`hub/peer_cache.rs`).
     pub(crate) cache_saved_at: AtomicU64,
     /// The last successful cache write still records an outage that Connected must clear.
