@@ -45,6 +45,8 @@ let gatewayOutage = "(turn failed on claude: API Error: 503 no non-exhausted cla
             ("Repeated 529 Overloaded errors. The API is at capacity — this is usually temporary. Try again in a moment.", .modelBusy),
             ("API Error: 429 rate limit exceeded", .modelBusy),
             ("API Error: 401 {\"type\":\"authentication_error\"}", .modelSignIn),
+            // acpmux's own words on a fresh Mac with no Claude sign-in, cut before Claude's "Not logged in".
+            ("Claude is not signed in here. This agent found no sign-in (Claude home ~/.claude). Your terminal has no Claude sign-in either. Run `claude auth login` in a terminal, or set ANTHROPIC_API_KEY (or ANTHR", .modelSignIn),
             ("the harness exited with status 2", .other),
             // A port is not a status code.
             ("harness crashed at 10.0.0.4:14290", .other),

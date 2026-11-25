@@ -136,13 +136,135 @@ extension SettingsModels {
         setChatGPT(attempt: nil, error: error)
     }
 
-    /// Add an API key: into the Keychain first, then `connections/key.add` with its reference only.
-    /// A refused add takes the stored item back out.
+    /// Connect Claude in one click (Leo, 2026-11-25: no copy and paste at all): acpmux runs
+    /// `claude setup-token` in its own PTY, never a visible terminal, and answers its sign-in page,
+    /// which opens in the app's own browser; the token the run prints is captured by acpmux, stored in
+    /// the Keychain and added as a reference, never shown or sent here. The wait loop is
+    /// ``awaitChatGPT``'s; a code the page shows instead of returning goes in with ``claudeTokenCode``.
+    func connectClaudeToken(label: String?) async throws -> JSONValue {
+        let environment = try requireDaemonEnvironment()
+        if let attempt = claudeTokenAttempt { await endClaudeToken(attempt, environment) }
+        setClaudeToken(attempt: nil, phase: "starting", error: nil)
+        var params: [String: any Sendable] = [:]
+        if let label = label?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty { params["label"] = label }
+        let reply: JSONValue
+        do { reply = try JSONValue.parse(try await daemon(environment, .claudeTokenBegin, params)) } catch {
+            setClaudeToken(attempt: nil, phase: nil, error: Self.daemonRefusal(error) ?? "unreachable")
+            throw error
+        }
+        // Only Claude's own sign-in page: the daemon's answer never opens anything else. No link at all
+        // (`url: null`) is a run that printed its token straight away (a claude.ai session it already
+        // had): nothing to open, the wait below sees it saved.
+        let link = reply["url"]?.stringValue
+        let url = link.flatMap(URL.init(string:))
+        guard let attempt = reply["attempt"]?.stringValue, !attempt.isEmpty,
+              link == nil || url.map(Self.isClaudeSignInPage) == true else {
+            if let attempt = reply["attempt"]?.stringValue, !attempt.isEmpty { await endClaudeToken(attempt, environment) }
+            setClaudeToken(attempt: nil, phase: nil, error: "claude_token.bad_reply")
+            throw PageError(code: "cmux.models.claude_token_bad_reply", message: "acpmux did not start a Claude sign-in")
+        }
+        if let url {
+            setClaudeToken(attempt: attempt, phase: "signing_in", error: nil)
+            await openInAppSignIn(url)
+        } else {
+            setClaudeToken(attempt: attempt, phase: "saving", error: nil)
+        }
+        // task-owner: SettingsModels.claudeTokenTask: one attempt's wait loop; a new attempt or Cancel replaces it.
+        replaceClaudeTokenTask(Task { [weak self] in await self?.awaitClaudeToken(attempt, environment) })
+        return ["attempt": .string(attempt)]
+    }
+
+    /// The Cloud chat's Set up Cloud button in place (`cloud.setUp`, whose click the pane already took):
+    /// `setUpClaude` runs Claude's one-click connection, `connectChatGPT` Continue with ChatGPT, and the
+    /// chat starts once the connection shows (``onConnections``). False when this Mac's acpmux cannot
+    /// (an older daemon, no daemon): the caller opens Settings > Cloud instead, as before.
+    public func connectInPlace(_ action: String) async -> Bool {
+        do {
+            switch action {
+            case "setUpClaude": _ = try await connectClaudeToken(label: nil)
+            case "connectChatGPT": _ = try await connectChatGPT(id: nil)
+            default: return false
+            }
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// `https://claude.ai/...` or `https://console.anthropic.com/...`: the pages `claude setup-token` signs in on.
+    nonisolated static func isClaudeSignInPage(_ url: URL) -> Bool {
+        url.scheme == "https" && ["claude.ai", "console.anthropic.com", "platform.claude.com"].contains(url.host ?? "")
+    }
+
+    func awaitClaudeToken(_ attempt: String, _ environment: AcpmuxEnvironment) async {
+        var failures = 0
+        // wakeup-allow: each round awaits acpmux's long poll (up to 25 s); chatgptRounds bounds the attempt
+        for _ in 0..<Self.chatgptRounds {
+            guard !Task.isCancelled, claudeTokenAttempt == attempt else { return }
+            let reply: JSONValue
+            do {
+                reply = try JSONValue.parse(try await daemon(environment, .claudeTokenWait, ["attempt": attempt]))
+                failures = 0
+            } catch {
+                let refusal = Self.daemonRefusal(error)
+                failures += 1
+                guard refusal != nil || failures >= Self.chatgptFailures else { continue }
+                guard claudeTokenAttempt == attempt else { return }
+                await endClaudeToken(attempt, environment)
+                return finishClaudeToken(attempt, error: refusal ?? "unreachable")
+            }
+            guard claudeTokenAttempt == attempt else { return }
+            switch reply["status"]?.stringValue {
+            case "pending":
+                continue
+            case "done":
+                setClaudeToken(attempt: attempt, phase: "saving", error: nil)
+                await refresh()
+                return finishClaudeToken(attempt, error: nil, saved: true)
+            case "cancelled":
+                return finishClaudeToken(attempt, error: nil)
+            default:
+                return finishClaudeToken(attempt, error: reply["error"]?.stringValue ?? "failed")
+            }
+        }
+        await endClaudeToken(attempt, environment)
+        finishClaudeToken(attempt, error: "timed_out")
+    }
+
+    /// The code Claude's page showed (when it did not return to the run on its own), typed into the run.
+    func claudeTokenCode(_ code: String) async throws {
+        let code = Self.withoutWhitespace(code)
+        guard let attempt = claudeTokenAttempt else { throw PageError.invalidParams("claudeTokenCode needs a Claude sign-in in progress") }
+        guard !code.isEmpty, code.utf8.count <= 4096 else { throw PageError.invalidParams("claudeTokenCode needs the code Claude showed") }
+        _ = try await daemon(try requireDaemonEnvironment(), .claudeTokenCode, ["attempt": attempt, "code": code])
+    }
+
+    func cancelClaudeToken() async {
+        guard let attempt = claudeTokenAttempt else { return }
+        replaceClaudeTokenTask(nil)
+        finishClaudeToken(attempt, error: nil)
+        if let environment = environment() { await endClaudeToken(attempt, environment) }
+    }
+
+    private func endClaudeToken(_ attempt: String, _ environment: AcpmuxEnvironment) async {
+        _ = try? await daemon(environment, .claudeTokenCancel, ["attempt": attempt])
+    }
+
+    private func finishClaudeToken(_ attempt: String, error: String?, saved: Bool = false) {
+        guard claudeTokenAttempt == attempt else { return }
+        setClaudeToken(attempt: nil, phase: nil, error: error, saved: saved)
+    }
+
+    /// Add an API key: every whitespace character out first (`withoutWhitespace`: a key a page or terminal
+    /// wrapped across lines is still the one key), into the Keychain, then acpmux checks it with the
+    /// provider (`connections/key.check`, by reference) and `connections/key.add` saves the reference.
+    /// A key the provider refuses, or of another provider's shape, is taken back out and said
+    /// (`cmux.models.key_rejected`, acpmux's sentence); a provider that does not answer saves anyway.
     func addKey(provider: String, key: String, label: String?) async throws {
         guard Self.providers.contains(provider) else { throw PageError.invalidParams("addKey needs a known provider") }
-        let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard Self.isOneWord(key) else { throw PageError.invalidParams("addKey needs a key of printable characters with no spaces") }
-        try await addSecret(key, store: provider, method: .connectionsKeyAdd, params: ["provider": provider], label: label)
+        let key = Self.withoutWhitespace(key)
+        guard Self.isOneWord(key) else { throw PageError.invalidParams("addKey needs a key of printable characters") }
+        try await addSecret(key, store: provider, method: .connectionsKeyAdd, params: ["provider": provider], label: label, checked: true)
     }
 
     /// Add a Claude setup token (`claude setup-token`'s `sk-ant-oat…`, pasted after the terminal tab ran
@@ -189,11 +311,15 @@ extension SettingsModels {
 
     /// SECRET into the Keychain (as STORE), then METHOD with its reference only; a refused add takes it back out.
     private func addSecret(_ secret: String, store: String, method: AcpmuxHarnessMethod,
-                           params base: [String: any Sendable], label: String?) async throws {
+                           params base: [String: any Sendable], label: String?, checked: Bool = false) async throws {
         let environment = try requireDaemonEnvironment()
         let reference = try await storeKey(secret, provider: store)
         var params = base
         params["secret"] = reference
+        if checked, let refusal = await keyRefusal(environment, params) {
+            await deleteKey(reference)
+            throw refusal
+        }
         if let label = label?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty { params["label"] = String(label.prefix(128)) }
         do {
             let reply = try JSONValue.parse(try await daemon(environment, method, params))
@@ -202,6 +328,14 @@ extension SettingsModels {
             await deleteKey(reference)
             throw error
         }
+    }
+
+    /// acpmux's `key.check` answer for a stored key: the refusal to show when the provider refused it or
+    /// it is another provider's shape; nil when it saves (ok, unreachable, or a daemon without the check).
+    private func keyRefusal(_ environment: AcpmuxEnvironment, _ params: [String: any Sendable]) async -> PageError? {
+        guard let data = try? await daemon(environment, .connectionsKeyCheck, params),
+              let reply = try? JSONValue.parse(data), reply["save"] == .bool(false) else { return nil }
+        return PageError(code: "cmux.models.key_rejected", message: reply["message"]?.stringValue ?? "Key rejected by the provider")
     }
 
     /// The team's shared key for an agent: `key` sets or replaces it, nil removes it (owners and admins).
