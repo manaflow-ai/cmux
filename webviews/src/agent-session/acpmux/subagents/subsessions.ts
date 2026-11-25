@@ -440,13 +440,21 @@ export class SubsessionStore {
   private last: readonly AcpmuxSessionEntry[] | undefined;
   private readonly nameListeners = new Set<() => void>();
 
-  senderEntries = (): ReadonlyMap<string, AcpmuxSessionEntry> => (this.sendersView ??= new Map(this.senders));
+  senderEntries = (): ReadonlyMap<string, AcpmuxSessionEntry> => {
+    this.rebuild();
+    return (this.sendersView ??= new Map(this.senders));
+  };
 
   /// Replaces the views with those of the sub-sessions among `sessions`; one whose content did not
   /// change keeps its object. The pane sends the list with every snapshot, reusing the entry of a
   /// session that did not change, so an entry seen last time is not read again: a call costs the
   /// entries that changed, came or went, not one per listed chat.
   set(sessions: readonly AcpmuxSessionEntry[]): void {
+    if (this.released) {
+      this.dirty ||= sessions !== this.pending;
+      this.pending = sessions;
+      return;
+    }
     const last = this.last;
     this.last = sessions;
     const change = this.changeSince(last, sessions);
@@ -562,9 +570,9 @@ export class SubsessionStore {
     }
     if (renamed) {
       this.sendersView = undefined;
-      for (const listener of this.nameListeners) listener();
+      this.notify(this.nameListeners);
     }
-    if (changed) for (const listener of this.listeners) listener();
+    if (changed) this.notify(this.listeners);
   }
 
   /// What changed from `last` to `sessions`: the ids that left and the entries that are new or not
@@ -802,7 +810,7 @@ export class SubsessionStore {
       if (renamed) this.runs = runs;
       if (renamed) this.machines = machines;
       this.namedKey = namedKey;
-      if (renamed) for (const listener of this.nameListeners) listener();
+      if (renamed) this.notify(this.nameListeners);
     }
     for (const entry of sessions) {
       if (!entry.startedBy) continue;
@@ -827,49 +835,126 @@ export class SubsessionStore {
     this.infos = infos;
     this.keys = keys;
     this.entries = entries;
-    if (changed) for (const listener of this.listeners) listener();
+    if (changed) this.notify(this.listeners);
+  }
+
+  /// The page is hidden: every index made from the list goes, the list stays (the pane's snapshot
+  /// holds it). A hidden chat keeps its data and nothing derived from it, so 100 open chats do not
+  /// each hold a name index over every listed chat (hq#21290). Lists set while released wait for
+  /// ``restore``; a read while released makes the indexes again first, telling no one.
+  release(): void {
+    if (this.released) return;
+    this.pending = this.last;
+    this.released = true;
+    this.infos = new Map();
+    this.keys = new Map();
+    this.entries = new Map();
+    this.senders = new Map();
+    this.sendersView = undefined;
+    this.named = new Map();
+    this.harnesses = new Map();
+    this.runs = new Map();
+    this.hosts = new Map();
+    this.places = new Map();
+    this.machines = new Map();
+    this.ids = new Set();
+    this.rows = undefined;
+    this.candidates = new Map();
+    this.formerCandidates = new Map();
+    this.namedKey = "";
+    this.nameFrom = new Map();
+    this.nameSigs = new Map();
+    this.nameCount = -1;
+    this.last = undefined;
+  }
+
+  /// The page shows again: the indexes are made from the latest list, and readers are told when a
+  /// list came while it was hidden.
+  restore(): void {
+    if (!this.released) return;
+    const dirty = this.dirty;
+    this.rebuild();
+    if (dirty) {
+      this.notify(this.nameListeners);
+      this.notify(this.listeners);
+    }
+  }
+
+  private released = false;
+  /// A list set while released (``dirty``), or the last one before it.
+  private pending: readonly AcpmuxSessionEntry[] | undefined;
+  private dirty = false;
+  private quiet = false;
+
+  private rebuild(): void {
+    if (!this.released) return;
+    this.released = false;
+    this.dirty = false;
+    const pending = this.pending;
+    this.pending = undefined;
+    if (!pending) return;
+    this.quiet = true;
+    try {
+      this.set(pending);
+    } finally {
+      this.quiet = false;
+    }
+  }
+
+  private notify(listeners: ReadonlySet<() => void>): void {
+    if (this.quiet) return;
+    for (const listener of listeners) listener();
   }
 
   get(sessionId: string): SubsessionInfo | undefined {
+    this.rebuild();
     return this.infos.get(sessionId);
   }
 
   /// The listed chat named `name`, if one is.
   find(name: string): string | undefined {
+    this.rebuild();
     return this.named.get(name.trim());
   }
 
   /// Whether the list has chat `sessionId` (any listed chat, not only a sub-session).
   has(sessionId: string): boolean {
+    this.rebuild();
     return this.ids.has(sessionId);
   }
 
   harness(sessionId: string): string | undefined {
+    this.rebuild();
     return this.harnesses.get(sessionId);
   }
 
   sender(sessionId: string): AcpmuxSessionEntry | undefined {
+    this.rebuild();
     return this.senders.get(sessionId);
   }
 
   /// The model and effort listed chat `sessionId` runs on, when the list names them.
   run(sessionId: string): SenderRun | undefined {
+    this.rebuild();
     return this.runs.get(sessionId);
   }
 
   /// The other machine listed chat `sessionId` runs on; undefined for this Mac's.
   host(sessionId: string): string | undefined {
+    this.rebuild();
     return this.hosts.get(sessionId);
   }
 
   /// The listed chats on machine `host`, by name; none for this Mac's (no host). The same array
   /// until the list changes, so a reader can hand it to `useSyncExternalStore`.
   chatsOn(host: string): readonly MachineChat[] {
+    this.rebuild();
     return this.machines.get(host) ?? NO_CHATS;
   }
 
   /// Where listed chat `sessionId` works: its folder, and the other machine it runs on.
   place(sessionId: string): SenderPlace | undefined {
+    this.rebuild();
     return this.places.get(sessionId);
   }
 
