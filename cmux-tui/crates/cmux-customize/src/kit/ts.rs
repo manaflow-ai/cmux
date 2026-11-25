@@ -145,7 +145,7 @@ fn string_lit(text: &str) -> Option<String> {
         return None;
     }
     let inner = &text[1..text.len() - 1];
-    if inner.contains(q as char) && !inner.contains('\\') || (q == b'`' && inner.contains("${")) {
+    if (inner.contains(q as char) && !inner.contains('\\')) || (q == b'`' && inner.contains("${")) {
         return None;
     }
     Some(inner.replace(&format!("\\{}", q as char), &(q as char).to_string()))
@@ -293,10 +293,10 @@ fn brace_statements(text: &str, keyword: &str) -> Vec<BraceStatement> {
         let after = text[close + 1..].trim_start();
         let Some(after) = after.strip_prefix("from") else { continue };
         let after = after.trim_start();
-        let Some(end) = skip_trivia(after.as_bytes(), 0).filter(|_| after.starts_with(['"', '\'']))
-        else {
+        if !after.starts_with(['"', '\'']) {
             continue;
-        };
+        }
+        let Some(end) = skip_trivia(after.as_bytes(), 0) else { continue };
         let Some(spec) = string_lit(&after[..end]) else { continue };
         let names = split_top(&text[open + 1..close], b",", false)
             .into_iter()
@@ -392,8 +392,8 @@ fn lookup_order(name: &str, file: &'static str) -> Vec<&'static str> {
             }
         }
     }
-    for (path, _) in SOURCES {
-        if !order.contains(path) {
+    for &(path, _) in SOURCES {
+        if !order.contains(&path) {
             order.push(path);
         }
     }
@@ -686,7 +686,7 @@ pub(super) struct Entry {
 
 pub(super) fn gallery_entries() -> Vec<Entry> {
     let mut out = Vec::new();
-    for (file, text) in GALLERIES {
+    for &(file, text) in GALLERIES {
         let b = text.as_bytes();
         let mut from = 0;
         while let Some(at) = find_from(b, from, b"componentEntry") {
