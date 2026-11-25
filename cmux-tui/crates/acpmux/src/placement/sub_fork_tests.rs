@@ -9,7 +9,7 @@ fn sh(dir: &Path, args: &[&str]) {
 
 /// A checkout with a committed tree, an uncommitted edit and an untracked file (both in the
 /// snapshot a fork starts from), and a gitignored file (never carried).
-fn checkout() -> tempfile::TempDir {
+pub(crate) fn checkout() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path();
     sh(p, &["init", "-q", "-b", "main"]);
@@ -31,7 +31,7 @@ fn checkout() -> tempfile::TempDir {
 }
 
 /// Copy a checkout as a fork's disk would be: every byte and mode, `.git` included.
-fn fork_of(src: &Path) -> tempfile::TempDir {
+pub(crate) fn fork_of(src: &Path) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     let ok = std::process::Command::new("cp")
         .arg("-a")
@@ -46,7 +46,7 @@ fn fork_of(src: &Path) -> tempfile::TempDir {
 
 /// What a sub-agent does on its fork: delete a file, rename one, set an executable bit, edit a
 /// binary, add a new executable, edit a file the parent had changed but not committed.
-fn work_on(p: &Path) {
+pub(crate) fn work_on(p: &Path) {
     std::fs::remove_file(p.join("gone.txt")).unwrap();
     std::fs::rename(p.join("old_name.rs"), p.join("new_name.rs")).unwrap();
     std::fs::set_permissions(p.join("run.sh"), std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -59,7 +59,7 @@ fn work_on(p: &Path) {
 }
 
 /// Every file under `p` but `.git`: its bytes and its executable bit.
-fn files(p: &Path) -> BTreeMap<String, (Vec<u8>, bool)> {
+pub(crate) fn files(p: &Path) -> BTreeMap<String, (Vec<u8>, bool)> {
     let mut out = BTreeMap::new();
     let mut stack = vec![p.to_owned()];
     while let Some(dir) = stack.pop() {
@@ -206,6 +206,7 @@ impl SubRun for FakeRun {
                     report: format!("done: {}", task.prompt),
                     patch: capture(disk.path(), &task.base_tree)?,
                     first_output_ms: Some(42),
+                    files_back_ms: None,
                 })
             }
         }
@@ -217,7 +218,8 @@ async fn placed_on_a_fork_the_patch_lands_and_the_fork_is_deleted() {
     let parent = checkout();
     let machines = Arc::new(FakeMachines::default());
     let out = place(true, Some("m"), machines.clone(), &FakeRun::Work, "edit", parent.path()).await;
-    let Outcome::Applied { fork, report, files: n, first_output_ms, fork_deleted } = &out else {
+    let Outcome::Applied { fork, report, files: n, first_output_ms, fork_deleted, .. } = &out
+    else {
         panic!("{out:?}")
     };
     assert_eq!(
@@ -353,7 +355,7 @@ async fn with_the_key_off_the_start_hook_does_nothing() {
     let before = files(parent.path());
     let objects = |p: &Path| git(p, None, &["count-objects", "-v"], None).unwrap();
     let before_objects = objects(parent.path());
-    assert_eq!(on_start(&StartPlan::Today, "edit", parent.path()).await, None);
+    assert_eq!(on_start(&StartPlan::Today, "edit", None, parent.path()).await, None);
     assert_eq!(files(parent.path()), before);
     assert_eq!(objects(parent.path()), before_objects, "not even a snapshot is written");
 }
@@ -367,7 +369,7 @@ async fn without_cloud_credentials_the_start_hook_falls_back_and_changes_nothing
     if std::env::var(API_ENV).is_ok() || std::env::var(TOKEN_ENV).is_ok() {
         return;
     }
-    let out = on_start(&StartPlan::Fork { machine: "m".into() }, "edit", parent.path()).await;
+    let out = on_start(&StartPlan::Fork { machine: "m".into() }, "edit", None, parent.path()).await;
     let Some(Outcome::Fallback { cause: Cause::Fork, ref detail, fork_deleted: None }) = out else {
         panic!("{out:?}")
     };
@@ -376,6 +378,7 @@ async fn without_cloud_credentials_the_start_hook_falls_back_and_changes_nothing
     assert_eq!(files(parent.path()), before);
 }
 
+#[cfg(unix)]
 #[test]
 fn the_cloud_backend_reads_its_api_and_credential_and_names_what_is_missing() {
     let env = |pairs: &'static [(&'static str, &'static str)]| {
