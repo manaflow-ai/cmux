@@ -292,6 +292,91 @@ const widthVariants = Object.fromEntries(
   ),
 );
 
+/// The model chip holds still (cmux#53226, the person: "we need to make sure that the model picker doesn't move
+/// around and stuff when i select cloud, change modes and stuff"). Every frame from This Mac at rest through Cloud,
+/// a Mode pick and back to This Mac, the model chip's box is where it was at rest (within rounding), and the
+/// location strip's chips keep their row. A frame with no model chip is a move too.
+const MODEL = ".acpmux-model .acpmux-picker-button";
+const SHIFT_PX = 1;
+type Box = { x: number; y: number; width: number; height: number };
+const boxOf = (element: Element | null): Box | null => {
+  if (!element) return null;
+  const rect = element.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0
+    ? { x: rect.left, y: rect.top, width: rect.width, height: rect.height }
+    : null;
+};
+const moved = (box: Box | null, rest: Box) =>
+  !box ||
+  Math.abs(box.x - rest.x) > SHIFT_PX ||
+  Math.abs(box.y - rest.y) > SHIFT_PX ||
+  Math.abs(box.width - rest.width) > SHIFT_PX ||
+  Math.abs(box.height - rest.height) > SHIFT_PX;
+const shown = (box: Box | null) =>
+  box ? `${Math.round(box.x)},${Math.round(box.y)} ${Math.round(box.width)}x${Math.round(box.height)}` : "gone";
+
+const modelHoldsStill: Play = async (ctx) => {
+  const view = ctx.document.defaultView as Frame;
+  await ctx.waitFor(() => ctx.document.querySelector(FIELD), { capMs: 10_000 });
+  await ctx.waitFor(() => boxOf(ctx.document.querySelector(MODEL)) && ctx.document.querySelector(".acpmux-mode-text"), {
+    capMs: 10_000,
+  });
+  await frames(view);
+  await frames(view);
+  const rest = boxOf(ctx.document.querySelector(MODEL))!;
+  const stripTop = () => boxOf(ctx.document.querySelector(STRIP))?.y;
+  const restStrip = stripTop();
+  // Each frame's model box, by the step it belongs to.
+  let step = "This Mac";
+  const problems: string[] = [];
+  let sampling = true;
+  const sample = () => {
+    if (!sampling) return;
+    const box = boxOf(ctx.document.querySelector(MODEL));
+    if (moved(box, rest) && problems.length < 6)
+      problems.push(`${step}: the model chip is at ${shown(box)}, it rested at ${shown(rest)}`);
+    const top = stripTop();
+    if (restStrip !== undefined && top !== undefined && Math.abs(top - restStrip) > SHIFT_PX && problems.length < 6)
+      problems.push(`${step}: the location strip's row moved from y ${Math.round(restStrip)} to ${Math.round(top)}`);
+    view.requestAnimationFrame(sample);
+  };
+  view.requestAnimationFrame(sample);
+  try {
+    step = "Cloud picked";
+    await pickCloud(ctx);
+    await frames(view);
+    step = "a Mode picked with Cloud";
+    await pickBypass(ctx);
+    await frames(view);
+    step = "This Mac picked again";
+    await ctx.waitFor(() => view.cmuxAcpmuxDebug?.runMode("persistent").runMode === "persistent", { capMs: 10_000 });
+    await ctx.waitFor(
+      () =>
+        ![...ctx.document.querySelectorAll(`${STRIP} .acpmux-location-button`)].some((button) =>
+          /cloud/i.test(button.getAttribute("aria-label") ?? ""),
+        ),
+      { capMs: 10_000 },
+    );
+    await frames(view);
+    await frames(view);
+  } finally {
+    sampling = false;
+  }
+  if (problems.length) throw new Error(problems.join("; "));
+};
+
+const holdsStill = (width: number): AgentPaneVariant => ({
+  ...variant(
+    `The model chip holds still at ${width} px: This Mac, Cloud, a Mode pick and This Mac again move it by no pixel (cmux#53226).`,
+    STATES["personal-default"].team,
+    STATES["personal-default"].teams,
+    async (ctx) => {
+      if (ctx.document.defaultView!.innerWidth !== width) await ctx.resize(width);
+      await modelHoldsStill(ctx);
+    },
+  ),
+});
+
 export default agentPaneEntry({
   id: "agent-pane.cloud-composer-chips",
   title: "Cloud composer chips",
@@ -323,5 +408,8 @@ export default agentPaneEntry({
     "team-bypass": atStage(STATES["team-bypass"]),
     "removed-team": atStage(STATES["removed-team"]),
     ...widthVariants,
+    "model-holds-still-full": holdsStill(FULL),
+    "model-holds-still-760": holdsStill(WIDE_ENOUGH),
+    "model-holds-still-400": holdsStill(NARROW),
   },
 });
