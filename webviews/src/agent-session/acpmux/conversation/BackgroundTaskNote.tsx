@@ -21,7 +21,7 @@ import type { AcpmuxBackgroundTask } from "../model";
 import { openProcessTerminal } from "../processTerminal";
 import { useBackgroundTaskOutput } from "./backgroundTaskOutput";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
-import { ChevronRight, TerminalSquare } from "./icons";
+import { TerminalSquare } from "./icons";
 import { ShellBlock } from "./ShellBlock";
 import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { useTranscriptReadOnly } from "./readOnly";
@@ -29,6 +29,7 @@ import { SubagentNavContext } from "../subagents/subagentGroupModel";
 import { commandSummary } from "./commandActions";
 import { currentCommandRules } from "../session-info/commandLabelSettings";
 import { spanDuration } from "./turns";
+import { DisclosureChevron } from "./DisclosureChevron";
 
 /// The longest a click waits for the registry before the note opens with what it has.
 export const OPEN_HOLD_MS = 1500;
@@ -138,7 +139,7 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
             {t(`bgTask.state.${state}`)}
           </span>
         </span>
-        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
+        <DisclosureChevron open={open} />
       </button>
       {fold.present && (
         <div {...fold.bodyProps}>

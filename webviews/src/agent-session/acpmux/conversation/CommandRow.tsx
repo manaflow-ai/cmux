@@ -15,7 +15,7 @@ import { inBackground } from "./runElsewhereModel";
 import { ReactionMark } from "./ReactionMark";
 import { ApprovedMark } from "./ApprovedMark";
 import { RowShimmer } from "./ShimmerText";
-import { ChevronRight, TerminalSquare, OpenBook } from "./icons";
+import { TerminalSquare, OpenBook } from "./icons";
 import { ReadLabel } from "./ReadLabel";
 import { readFullPath, readPath } from "./readPath";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
@@ -28,6 +28,7 @@ import { ToolLabel } from "./ToolVerb";
 import { leadingVerb } from "./toolVerbModel";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord, useInStep } from "./toolFailureCauseModel";
+import { DisclosureChevron } from "./DisclosureChevron";
 
 // direct.ts replaces only the changed item. Keep every expanded sibling out of that stream's
 // render/output work; the row's own disclosure, Find and language subscriptions still update it.
@@ -162,7 +163,7 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
           {/* How long it has run, counting each second (RunningTime.tsx). */}
           {running && <RunningTime startedAt={tool.startedAt} background={!foreground} />}
         </span>
-        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
+        <DisclosureChevron open={open} />
       </button>
       {/* A call that went on in the background says how it stands there, not why it failed. */}
       {!tool.background && <ToolFailureCause failure={failure} />}
