@@ -434,6 +434,7 @@ labs.liveTree
 labs.machineJoin
 labs.pauseAgentMachines
 labs.previewFeatures
+labs.previousBuild
 labs.voiceRoom
 labs.voiceRoomURL
 layout.centerFocusedColumn
