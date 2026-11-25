@@ -1881,8 +1881,8 @@ button.cv-subagent > :last-child {
 
 /* ---------- A failed subagent's line, quiet (SubagentDoneLine.tsx, failedLine.experiment.ts) ----------
    Leo, 2026-11-03, on three failed lines all in red, their titles in grey chips cut short, and Retry
-   floating after text of every length: "this ui is pretty awkward looking". Red is on the mark only;
-   the title is plain text in the tool rows' tone and the reason is muted. */
+   floating after text of every length: "this ui is pretty awkward looking". The title is plain text in
+   the tool rows' tone; the reason after it and a dot on the mark are red (cmux#54927). */
 .cv-subagent-done-row:is([data-look="grid"], [data-look="quiet"]) > .cv-subagent-done[data-state="failed"] {
   color: var(--cv-activity-text);
 }
@@ -1896,7 +1896,21 @@ button.cv-subagent > :last-child {
   color: var(--cv-text);
 }
 .cv-subagent-done-row:is([data-look="grid"], [data-look="quiet"]) > .cv-subagent-done .cv-tool__icon {
+  position: relative;
   color: var(--agent-status-failure);
+}
+/* The agent's mark is its harness's own glyph, which takes no text color: the failure is a red dot
+   on its corner, so the line reads failed at a glance (cmux#54927: "the failed subagent shown as a
+   clear failed state"). */
+.cv-subagent-done-row:is([data-look="grid"], [data-look="quiet"]) > .cv-subagent-done[data-state="failed"] .cv-tool__icon::after {
+  content: "";
+  position: absolute;
+  inset-inline-end: -1px;
+  inset-block-end: -1px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--agent-status-failure);
 }
 .cv-subagent-done-row:is([data-look="grid"], [data-look="quiet"]) .cv-subagent-done__time {
   color: var(--cv-text-dim);
@@ -1919,9 +1933,10 @@ button.cv-subagent > :last-child {
 .cv-subagent-failed__title {
   flex: 0 1 auto;
 }
+/* Why it failed, right after its title in the failure's red: the error is the line's news. */
 .cv-subagent-failed__reason {
   flex: 0 1000 auto;
-  color: var(--cv-text-dim);
+  color: var(--agent-status-failure);
 }
 /* A quiet Retry: the tool rows' text, no accent border; its hover plate covers only the button. */
 .cv-subagent-done-row:is([data-look="grid"], [data-look="quiet"]) .cv-subagent-retry {
@@ -1933,8 +1948,8 @@ button.cv-subagent > :last-child {
 }
 
 /* The grid: every failed line has the same columns, so Retry and the time line up from row to row
-   whatever the title's or reason's length. The title and the reason split the line's room evenly,
-   each cut with an ellipsis, so the reason starts at one x on every line. */
+   whatever the title's or reason's length. The reason follows its title, as a tool row's words do:
+   split evenly, it started at the line's middle and floated alone there (cmux#54927). */
 .cv-tool.cv-subagent-done-row[data-look="grid"] {
   display: grid;
   /* words | Retry | refusal note | ⋯ | time | chevron. Retry and the time have a floor that lines
@@ -1950,10 +1965,6 @@ button.cv-subagent > :last-child {
 .cv-subagent-done-row[data-look="grid"] > .cv-subagent-done {
   grid-column: 1;
   grid-row: 1;
-}
-.cv-subagent-done-row[data-look="grid"] .cv-subagent-failed__text {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 .cv-subagent-done-row[data-look="grid"] > :is(.cv-subagent-retry, .cv-subagent-retry-link) {
   grid-column: 2;

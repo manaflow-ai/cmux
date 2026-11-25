@@ -59,6 +59,7 @@ import { turnCopyParts, turnCopySaid, turnCallParts } from "./turnCopy";
 import { turnEndActions } from "./turnEndActions.experiment";
 import { turnWork } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
+import { agentCall } from "./agentCalls";
 import { hidesEveryCall } from "./mcpPresentation";
 import { isThought, isQuietThought, thoughtDuration } from "./thoughts";
 import { SILENT_MS } from "./thinkingModel";
@@ -215,14 +216,10 @@ export const isStopped = (row: AcpmuxRow) =>
 export function footerLabel(t: Translate, row: AcpmuxRow): string | undefined {
   return (footerSays(row) && workedLabel(t, row)) || undefined;
 }
-
-/// A fold whose line would have nothing to say (`workedLabel` empty): no time, no calls, no messages.
-/// It is no fold; its rows draw as they ran (cmux#54927).
-const saysNothing = (row: Pick<AcpmuxRow, "durationMs" | "toolCount" | "previous" | "workedMessages">) =>
-  row.previous === undefined && row.durationMs === undefined && !row.toolCount && !row.workedMessages;
 const footerSays = (row: AcpmuxRow) =>
   !row.folded &&
   (row.previous !== undefined || row.durationMs === undefined || row.durationMs >= 1000 || row.status === "cancelled");
+
 
 /// A footer with nothing to show at rest and only hover controls (Pin, Fork, its time): no answer to
 /// copy or read aloud and the turn did not fail. A stopped turn resumes from the composer.
@@ -1718,6 +1715,28 @@ const callsIn = (rows: readonly AcpmuxRow[]) =>
     .flatMap(withoutDrafts)
     .reduce((n, row) => n + (row.kind === "activity" ? (row.items ?? []).filter((item) => item.tool).length : 0), 0);
 
+/// How many of `rows`' calls are Agent calls (agentCalls.ts) whose subagent draws its own row in
+/// the turn `body` (its group, started line or done line), so the call says nothing that row does not.
+const agentCallsIn = (rows: readonly AcpmuxRow[], body: readonly AcpmuxRow[]) =>
+  body.some((row) => isSubagentGroup(row) || row.kind === SUBAGENT_STARTED || row.kind === SUBAGENT_DONE)
+    ? rows
+        .flatMap(withoutDrafts)
+        .reduce(
+          (n, row) =>
+            n +
+            (row.kind === "activity"
+              ? (row.items ?? []).filter((item) => item.tool && agentCall(item.tool)).length
+              : 0),
+          0,
+        )
+    : 0;
+
+/// An activity row whose every item is an Agent call whose subagent's row is in sight (`agentCallsIn`).
+const onlySpawnsShownAgents = (row: AcpmuxRow, body: readonly AcpmuxRow[]) =>
+  row.kind === "activity" &&
+  (row.items?.length ?? 0) > 0 &&
+  agentCallsIn([row], body) === row.items!.length;
+
 const isUnsent = (row: AcpmuxRow) => Boolean(row.pending || row.failed);
 
 /// The tagged ask (nextStepAsk.ts) of the reply right before a message that was not the person's
@@ -2146,12 +2165,16 @@ function shapeTurn(
           ? undefined
           : Math.max(0, (segment.until ?? firstFinal?.at ?? summary.at) - segment.anchor.at);
     // A fold with no time and nothing counted would read "0 tool calls" over, say, a subagent's end
-    // alone: it draws no fold, its rows in place (`outside`), as Claude's and Codex's apps draw a
-    // lone subagent. Only where its work holds no call and no message between agents to count.
+    // alone, and one under a second "Worked for 0s", which is no news (`footerSays`): either draws no
+    // fold, its rows in place (`outside`), as Claude's and Codex's apps draw a lone subagent
+    // (cmux#54927: "Worked for 0s" over a failed subagent, its rule through the subagent's row). Only
+    // where its work holds no call but the Agent calls whose subagents draw in sight, and no message
+    // between agents to count.
     const unlabeled =
-      saysNothing({ durationMs, toolCount, previous, ...(named && { workedMessages: messages }) }) &&
-      callsIn(work) === 0 &&
-      messages.sent + messages.received === 0;
+      previous === undefined &&
+      (durationMs === undefined || durationMs < 1000) &&
+      messages.sent + messages.received === 0 &&
+      callsIn(work) === agentCallsIn(work, body);
     if ((work.length && !dialogue && !unlabeled) || promptOnly) {
       if (!promptOnly) folded = style.conclusion;
       const from = segment.anchor.at;
@@ -2246,9 +2269,10 @@ function shapeTurn(
             ? [endedPlan(row)]
             : dialogue
               ? [row]
-              : // An unfolded segment's rows draw as they ran; its edits draw in the card (`editsCard`).
+              : // An unfolded segment's rows draw as they ran; its edits draw in the card (`editsCard`),
+                // and an Agent call whose subagent's row is in sight draws as that row alone.
                 unlabeled
-                ? withoutDrafts(row).filter((part) => !isEdit(part))
+                ? withoutDrafts(row).filter((part) => !isEdit(part) && !onlySpawnsShownAgents(part, body))
                 : renderRows([row], version),
       );
     // Closed over a turn that said something before its answer, the replies read in order and the
