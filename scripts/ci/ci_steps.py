@@ -306,6 +306,13 @@ class StepResults:
         self.write = write
         self.meta = meta
         self.timeout = timeout
+        self.error = ""  # the first failed call, for the job's summary line: a silent miss hides a refusal
+
+    def failed(self, what: str, err: Exception) -> None:
+        if not self.error:
+            code = getattr(err, "code", None)
+            reason = getattr(err, "reason", None) or err
+            self.error = f"{what} {'HTTP ' + str(code) if code else 'failed'}: {str(reason)[:160]}"
 
     @classmethod
     def from_env(cls, env: dict[str, str]) -> "StepResults | None":
@@ -334,7 +341,12 @@ class StepResults:
         try:
             with urllib.request.urlopen(f"{self.url}?{query}", timeout=self.timeout) as resp:
                 found = json.loads(resp.read())
-        except (OSError, ValueError, urllib.error.URLError):
+        except urllib.error.HTTPError as err:
+            if err.code != 404:  # 404 is the store's plain miss
+                self.failed("lookup", err)
+            return None
+        except (OSError, ValueError) as err:
+            self.failed("lookup", err)
             return None
         return found if isinstance(found, dict) and found.get("key") == key else None
 
@@ -347,8 +359,8 @@ class StepResults:
                                      headers={"Content-Type": "application/json"})
         try:
             urllib.request.urlopen(req, timeout=self.timeout).close()
-        except (OSError, urllib.error.URLError):
-            pass
+        except (OSError, ValueError) as err:
+            self.failed("write", err)
 
 
 def audited(key: str, env: dict[str, str]) -> bool:
@@ -516,6 +528,8 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
             if r.step.name in audit and not r.ok:
                 print(f"::error title=Step results::step {r.step.name} failed its audit: a stored pass of the same "
                       f"inputs did not hold (the key is evicted)", file=out)
+        if store.error:
+            print(f"::warning title=Step results::{store.url} {store.error}; nothing reused or stored", file=out)
     return finish(results, job, out)
 
 

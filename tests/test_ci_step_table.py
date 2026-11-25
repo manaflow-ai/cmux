@@ -267,6 +267,7 @@ class FakeStore:
         self.posts: list[tuple[str, str, str, bool]] = []
         self.lookups: list[tuple[str, str, bool]] = []
         self.write = write
+        self.error = ""
 
     def lookup(self, key: str, step: str, audit: bool = False) -> dict | None:
         self.lookups.append((key, step, audit))
@@ -369,6 +370,40 @@ class StepResultsTest(unittest.TestCase):
         self.assertNotEqual(self.key("a", ["a/x.txt"]), self.key("a", ["a/y.txt"]),
                             "the changed inputs are part of the key (a step's own router reads them)")
         self.assertEqual(self.key("a", ["a/x.txt", "b.txt"]), self.key("a", ["a/x.txt"]))
+
+    def test_a_refusing_store_is_named_in_the_log_and_a_plain_miss_is_not(self) -> None:
+        # 2026-11-25: the pool runners' calls were refused and every one read as a miss, so the store stayed empty
+        # with nothing in any log saying why.
+        import http.server
+        import threading
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            status = 401
+
+            def do_GET(self) -> None:
+                self.send_response(Handler.status)
+                self.end_headers()
+                self.wfile.write(b'{"miss":true}' if Handler.status == 404 else b"tagged node carries no client tag")
+
+            do_POST = do_GET
+
+            def log_message(self, *args) -> None:
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        store = ci_steps.StepResults(f"http://127.0.0.1:{server.server_port}", True, {})
+        code, out, _ran = self.run_job(store)
+        self.assertEqual(code, 0, out)
+        self.assertIn("lookup HTTP 401", out)
+        self.assertIn("nothing reused or stored", out)
+        Handler.status = 404
+        store = ci_steps.StepResults(f"http://127.0.0.1:{server.server_port}", True, {})
+        code, out, _ran = self.run_job(store)
+        self.assertEqual(code, 0, out)
+        self.assertIn("write HTTP 404", out, "a 404 lookup is a miss; the refused write still shows")
+        self.assertNotIn("lookup HTTP", out)
 
     def test_a_pass_is_stored_then_reused_and_the_setup_skipped(self) -> None:
         store = FakeStore()
