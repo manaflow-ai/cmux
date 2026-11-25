@@ -1131,6 +1131,9 @@ export type ExternalAccess = {
 
 export type AcpmuxPermission = {
   externalAccess?: ExternalAccess;
+  /// A risky step on a Cloud machine (acpmux fork_risky.rs, behind `cloud.autoCloud`): "Fork first"
+  /// has the app fork the machine under `clientKey` before the step runs; the copy stays as the checkpoint.
+  forkOffer?: { machine: string; reason: string; clientKey: string };
   permissionId: string;
   groupId?: string;
   turnId?: string;
