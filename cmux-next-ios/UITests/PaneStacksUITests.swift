@@ -117,7 +117,10 @@ final class PaneStacksUITests: XCTestCase {
         chevrons(app)[1].tap()
         pause(1.2)
         attach("\(p)-7-both-open")
-        XCTAssertEqual(closeButtons(app).count, 5, "every card but the two stacks' first")
+        // Seven cards in four rows: logs, the seventh, is below the screen on a 402 pt phone,
+        // so the close buttons on screen are zsh's, build's, server's and cmux.com's.
+        XCTAssertEqual(closeButtons(app).count, 4, "every card on screen but the two stacks' first")
+        XCTAssertEqual(chevrons(app).count, 2, "both stacks keep their chevron, open")
 
         // A tab inside an open stack opens; back on the grid the stack is still open, that tab in place.
         let build = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'build'")).firstMatch
