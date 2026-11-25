@@ -2035,20 +2035,19 @@ class MacFastTierFollowsTheRoute(unittest.TestCase):
         self.assertFalse(self.runs("fast-tier", "pull_request", macos))
         self.assertTrue(self.runs("macos-placement", "pull_request", macos))
 
-    def test_a_red_linux_cargo_tier_holds_the_pr_mac_jobs(self):
-        """About 17.6k Mac min/day ran on PR heads whose Linux cargo fast tier was already red
-        (2026-11-24). A PR head starts its Mac placement only once that tier passed or was skipped;
-        the base push never waits on it."""
+    def test_the_pr_compile_does_not_wait_for_the_linux_cargo_tier(self):
+        """Leo, 2026-11-25: "is this literally preventing shit from compiling and building so we
+        can find true reds or not". The compile and the Mac placement start beside the Linux cargo
+        fast tier, never after it: a cargo red no longer hides a compile red, and a green head no
+        longer waits one cargo run (median 12 min) before its compile starts."""
         macos = self.route_macos(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/WindowRootView.swift"])
-        for job in ("macos-placement",):
+        for job in ("macos-placement", "app-compile-placement"):
             with self.subTest(job=job):
-                self.assertIn("fast-tier-cargo", self.jobs[job]["needs"])
-                self.assertTrue(self.runs(job, "pull_request", macos, cargo="skipped"))
-                self.assertFalse(self.runs(job, "pull_request", macos, cargo="failure"))
-                self.assertFalse(self.runs(job, "pull_request", macos, cargo="cancelled"))
-                self.assertTrue(self.runs(job, "push", macos, cargo="failure"))
-        self.assertIn("fast-tier-cargo", self.jobs["app-compile-placement"]["needs"])
-        self.assertIn("needs.fast-tier-cargo.result == 'success'", self.jobs["app-compile-placement"]["if"])
+                self.assertNotIn("fast-tier-cargo", self.jobs[job]["needs"])
+                self.assertNotIn("fast-tier-cargo", self.jobs[job]["if"])
+        for cargo in ("success", "skipped", "failure", "cancelled"):
+            with self.subTest(cargo=cargo):
+                self.assertTrue(self.runs("macos-placement", "pull_request", macos, cargo=cargo))
 
     def test_no_route_answer_and_the_base_push_still_run_it(self):
         self.assertFalse(self.runs("fast-tier", "pull_request", None))  # pr-pipeline.yml's `mac` job (note-556)
