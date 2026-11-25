@@ -298,6 +298,42 @@ pub unsafe extern "C" fn cmux_pane_drop_rects(
     .unwrap_or(ERR_PANIC)
 }
 
+/// The zone of pane cell `rect` under point (`x`, `y`) by `screen`'s style, with a `header`-point tab bar on
+/// top and a `footer`-point one below; `previous` is the zone the preview shows in this pane now (a
+/// `CMUX_PANE_DROP_ZONE_*`, any other value for none). Writes a `CMUX_PANE_DROP_ZONE_*` and returns 1.
+///
+/// # Safety
+///
+/// `screen` is a live handle, `out` is null or writable.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "a flat C signature: the point, the cell and its bars"
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_pane_drop_zone(
+    screen: *const PaneDropScreen,
+    x: f64,
+    y: f64,
+    rect: CmuxPaneDropRect,
+    header: f64,
+    footer: f64,
+    previous: u8,
+    out: *mut u8,
+) -> i32 {
+    // SAFETY: guaranteed by the C caller.
+    let (Some(screen), Some(out)) = (unsafe { screen.as_ref() }, unsafe { out.as_mut() }) else {
+        return ERR_NULL;
+    };
+    catch_unwind(AssertUnwindSafe(|| {
+        let style = &screen.screen.style;
+        let zone =
+            pane_drop_zones::zone(x, y, &rect.into(), header, footer, style, zone_from(previous));
+        *out = zone_code(zone);
+        1
+    }))
+    .unwrap_or(ERR_PANIC)
+}
+
 /// Classic cmux's pane drop overlay for `zone` (a `CMUX_PANE_DROP_ZONE_*`) inside `body`, inset `padding`
 /// (the app's 4 pt); 0 for an unknown zone.
 ///

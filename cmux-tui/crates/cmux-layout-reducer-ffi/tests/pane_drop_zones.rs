@@ -7,7 +7,7 @@ use cmux_layout_reducer_ffi::pane_drop_zones::{
     CmuxPaneDropRect, CmuxPaneDropRects, CmuxPaneDropTarget, KIND_COLUMN, KIND_DOCK, KIND_NONE,
     KIND_PANE, PaneDropScreen, cmux_pane_drop_classic_highlight, cmux_pane_drop_dock,
     cmux_pane_drop_rects, cmux_pane_drop_screen_free, cmux_pane_drop_screen_new,
-    cmux_pane_drop_target, cmux_pane_drop_target_in_content,
+    cmux_pane_drop_target, cmux_pane_drop_target_in_content, cmux_pane_drop_zone,
 };
 use cmux_layout_reducer_ffi::tab_drag::{
     EDGE_BOTTOM, EDGE_LEFT, EDGE_TOP, ZONE_CENTER, ZONE_LEFT, ZONE_RIGHT,
@@ -154,6 +154,31 @@ fn classic_highlight_is_the_inset_half() {
 }
 
 #[test]
+fn zone_reads_the_screen_style() {
+    let screen = Screen::new(SCREEN);
+    let cell = CmuxPaneDropRect { x: 0.0, y: 0.0, width: 400.0, height: 300.0 };
+    let zone = |x: f64, y: f64, previous: u8| {
+        let mut out = u8::MAX;
+        // SAFETY: a live handle and pointer.
+        assert_eq!(
+            unsafe { cmux_pane_drop_zone(screen.0, x, y, cell, 30.0, 0.0, previous, &mut out) },
+            1
+        );
+        out
+    };
+    assert_eq!(zone(10.0, 150.0, u8::MAX), ZONE_LEFT);
+    assert_eq!(zone(200.0, 10.0, u8::MAX), ZONE_CENTER, "over the tab bar a tab joins");
+    assert_eq!(zone(105.0, 165.0, u8::MAX), ZONE_CENTER);
+    assert_eq!(zone(105.0, 165.0, ZONE_LEFT), ZONE_LEFT, "the shown zone holds past its line");
+    let mut out = 0;
+    // SAFETY: null pointers are part of the contract.
+    assert_eq!(
+        unsafe { cmux_pane_drop_zone(ptr::null(), 0.0, 0.0, cell, 0.0, 0.0, 0, &mut out) },
+        ERR_NULL
+    );
+}
+
+#[test]
 fn null_and_bad_input_write_nothing() {
     let bad = b"{";
     // SAFETY: live bytes; null pointers are part of the contract.
@@ -198,6 +223,7 @@ fn structs_and_kinds_match_the_header() {
         "cmux_pane_drop_dock",
         "cmux_pane_drop_rects",
         "cmux_pane_drop_classic_highlight",
+        "cmux_pane_drop_zone",
     ] {
         assert!(HEADER.contains(&format!("{symbol}(")), "{symbol}");
     }

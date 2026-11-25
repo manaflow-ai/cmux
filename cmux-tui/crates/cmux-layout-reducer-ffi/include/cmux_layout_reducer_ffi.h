@@ -1428,6 +1428,10 @@ int32_t cmux_pane_drop_dock(const CmuxPaneDropScreen *screen, double x, double y
 /* the preview's rects in view space with the strip at offset */
 int32_t cmux_pane_drop_rects(const CmuxPaneDropScreen *screen, const CmuxPaneDropTarget *target, double offset,
                              CmuxPaneDropRects *out);
+/* the zone of pane cell rect under (x, y) by the screen's style, below a header tab bar and above a footer one;
+ * previous is a CMUX_PANE_DROP_ZONE_* or any other value for none; out gets a CMUX_PANE_DROP_ZONE_* */
+int32_t cmux_pane_drop_zone(const CmuxPaneDropScreen *screen, double x, double y, CmuxPaneDropRect rect, double header,
+                            double footer, uint8_t previous, uint8_t *out);
 /* classic cmux's pane drop overlay inside body, inset padding */
 int32_t cmux_pane_drop_classic_highlight(CmuxPaneDropRect body, uint8_t zone, double padding,
                                          CmuxPaneDropRect *out);
