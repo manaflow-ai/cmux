@@ -23,6 +23,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use bytes::Bytes;
+use futures_util::{StreamExt, stream::FuturesUnordered};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, watch};
@@ -550,57 +551,28 @@ impl TurnCarrier {
             }
             None
         };
-        let stream_attempt = |delay: Duration| {
-            let streams = streams.clone();
-            let silent = udp_silent.clone();
-            async move {
-                tokio::select! {
-                    () = tokio::time::sleep(delay) => {}
-                    () = until_silent(silent) => {}
-                }
-                let deadline = tokio::time::Instant::now() + STREAM_WAIT;
-                let stream_count = streams.len();
-                for (index, server) in streams.into_iter().enumerate() {
-                    let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-                    if remaining.is_zero() {
-                        break;
-                    }
-                    // A silently black-holed preferred relay must not consume the
-                    // whole stream budget. Share the remaining time among the
-                    // endpoints still to try, while letting a fast failure pass
-                    // its unused time to the next endpoint.
-                    let endpoints_left = (stream_count - index) as u32;
-                    let attempt = remaining / endpoints_left;
-                    if attempt.is_zero() {
-                        break;
-                    }
-                    if let Some(carrier) = bounded(attempt, Self::spawn_on(server, options), late).await {
-                        return Some(carrier);
-                    }
-                }
-                None
-            }
-        };
+        let stream = Self::allocate_streams(streams, options, late);
         if !tried_udp {
-            return stream_attempt(Duration::ZERO).await;
+            return stream.await;
         }
         tokio::pin!(udp);
-        let started = tokio::time::Instant::now();
-        // Relay first (a dial): the stream attempt runs beside UDP from the
-        // start, so a network that drops UDP has TLS ready by the time STUN
-        // has been silent long enough to tell.
-        let staggered = stream_attempt(if stream_now { Duration::ZERO } else { STREAM_STAGGER });
-        tokio::pin!(staggered);
+        if !stream_now {
+            tokio::select! {
+                udp = &mut udp => return match udp {
+                    Some(carrier) => Some(carrier),
+                    None => stream.await,
+                },
+                () = tokio::time::sleep(STREAM_STAGGER) => {}
+                () = until_silent(udp_silent.clone()) => {}
+            }
+        }
+        tokio::pin!(stream);
         tokio::select! {
             udp = &mut udp => match udp {
                 Some(carrier) => Some(carrier),
-                // UDP failed: the stream need not wait out its stagger, and
-                // one already under way (its stagger over, or cut short
-                // because UDP looked blocked) goes on.
-                None if started.elapsed() >= STREAM_STAGGER || silent_now() => staggered.await,
-                None => stream_attempt(Duration::ZERO).await,
+                None => stream.await,
             },
-            stream = &mut staggered => match stream {
+            stream = &mut stream => match stream {
                 // UDP looks blocked: its allocation would only run out its wait.
                 Some(carrier) if silent_now() => Some(carrier),
                 // UDP gets its grace, cut short once STUN has been silent.
@@ -614,6 +586,40 @@ impl TurnCarrier {
                 None => udp.await,
             },
         }
+    }
+
+    /// Stagger ranked streams within the existing allocation deadline. Starting
+    /// a backup leaves earlier attempts eligible until a relay answers.
+    async fn allocate_streams(
+        streams: Vec<TurnServer>,
+        options: &DialOptions,
+        late: Option<&LateTurn>,
+    ) -> Option<Self> {
+        let deadline = tokio::time::Instant::now() + STREAM_WAIT;
+        let mut pending = FuturesUnordered::new();
+        let mut servers = streams.into_iter();
+        while let Some(server) = servers.next() {
+            let now = tokio::time::Instant::now();
+            if now >= deadline {
+                break;
+            }
+            let slots = u32::try_from(servers.len() + 1).unwrap_or(u32::MAX);
+            let next_start = now + (deadline - now) / slots;
+            pending.push(Self::spawn_on(server, options));
+            while let Ok(Some(result)) = tokio::time::timeout_at(next_start, pending.next()).await {
+                match result {
+                    Ok(Ok(carrier)) => return Some(carrier),
+                    Ok(Err(error)) => tracing::debug!(%error, "TURN stream allocation failed"),
+                    Err(_) => tracing::debug!("TURN stream allocation task ended"),
+                }
+            }
+        }
+        if let Some(late) = late {
+            for attempt in pending {
+                late.keep(attempt);
+            }
+        }
+        None
     }
 
     /// Allocate on `server` in a task of its own: a caller that gives up (a
@@ -1515,6 +1521,33 @@ mod tests {
         let carrier = TurnCarrier::allocate(&options).await.expect("a second allocation");
         assert!(second.is_relayed(&carrier.relayed), "allocated on {}", carrier.relayed);
         assert!(started.elapsed() < UDP_WAIT, "waited on the dead server: {:?}", started.elapsed());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_slow_working_turn_stream_can_win_after_a_backup_fails() {
+        let turn = crate::testing::TestTurn::start().await;
+        // This relay answers within STREAM_WAIT, after the backup gets its turn.
+        turn.delay_streams(STREAM_WAIT / 2 + Duration::from_millis(400));
+        let backup = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let backup_addr = backup.local_addr().unwrap();
+        let mut ice = turn.ice.clone();
+        ice.urls.retain(|url| url.starts_with("turns:"));
+        ice.urls.push(format!("turns:{backup_addr}?transport=tcp"));
+        let options = DialOptions {
+            ice_servers: vec![ice],
+            turn_tls_roots: Some(Arc::clone(&turn.roots)),
+            ..DialOptions::default()
+        };
+        let reject = async {
+            let (socket, _) = backup.accept().await.unwrap();
+            drop(socket);
+        };
+        let (carrier, ()) = tokio::time::timeout(STREAM_WAIT + Duration::from_secs(1), async {
+            tokio::join!(TurnCarrier::allocate(&options), reject)
+        })
+        .await
+        .expect("the backup was attempted");
+        assert!(turn.is_relayed(&carrier.expect("the preferred allocation was kept").relayed));
     }
 
     fn ice(urls: &[&str]) -> Vec<IceServer> {
