@@ -1926,7 +1926,8 @@
         "CmuxNextDaemonService",
         "CmuxNextDesign",
         "CmuxNextMobileHost",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
