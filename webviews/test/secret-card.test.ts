@@ -71,4 +71,11 @@ await requireBrowserLane("secret-card.test.ts", async () => {
     expect(result.pageText).not.toContain("sk-test-51Hx9");
     expect(result.fields).not.toContain("sk-test-51Hx9");
   });
+
+  test("Keep as key NAME sends keepAs with the value, so acpmux stores it as that key", async () => {
+    const result = await play("secret-card-keep");
+    expect(playFailures(result.report)).toEqual([]);
+    expect(result.answers).toEqual([{ secretId: "gallery-secret", value: "sk-test-51Hx9", keepAs: "STRIPE_API_KEY" }]);
+    expect(result.pageText).not.toContain("sk-test-51Hx9");
+  });
 });

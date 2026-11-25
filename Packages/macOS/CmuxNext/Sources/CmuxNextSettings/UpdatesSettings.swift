@@ -17,8 +17,8 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     /// What's New's Versions list offers Install on each build (off until a nightly proves it).
     public var whatsNewInstall = UpdatesSettings.whatsNewInstallDefault
     public var installOnQuit = UpdatesSettings.installOnQuitDefault
-    /// Opt-in: a downloaded update installs by itself once cmux has been idle
-    /// `installWhenIdleMinutes`, never while an agent works or a message is unsent.
+    /// A downloaded update installs by itself once the person is away (`installWhenIdleMinutes` with no
+    /// input, or the screen locked), never over an unsent message; on by default in NIGHTLY (a build default).
     public var installWhenIdle = UpdatesSettings.installWhenIdleDefault
     /// Minutes cmux must be idle before `installWhenIdle` installs.
     public var installWhenIdleMinutes = UpdatesSettings.installWhenIdleMinutesDefault
@@ -28,7 +28,7 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     public var meteredNetwork = UpdatesSettings.meteredNetworkDefault
     /// Web UI updates between app updates (plans/cmux-next/web-ota.md); NIGHTLY builds only.
     public var web = UpdatesSettings.webDefault
-    /// Pages and agent panes load from the server or overlay `~/.config/cmux/web-dev.json` names
+    /// Pages and agent panes load from the server or overlay `~/.config/cmux-next/web-dev.json` names
     /// (the live web loop, docs/cmux-next/hot-reload.md); every build, on by default.
     public var liveWebReload = UpdatesSettings.liveWebReloadDefault
     /// The bottom-left "cmux Updated!" card after an update

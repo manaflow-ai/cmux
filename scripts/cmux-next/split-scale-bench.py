@@ -503,8 +503,10 @@ def record(run, gesture, label, content="focused", static=True):
     return ssm.transition(strip, trace, opts.strip_tolerance, static=static)
 
 
-def record_raw(run, gesture, label, content="focused"):
-    """(strip, trace) of one gesture: the frame strip's reply and the motion trace around it (either an error dict)."""
+def record_raw(run, gesture, label, content="focused", at=None):
+    """(strip, trace) of one gesture: the frame strip's reply and the motion trace around it (either an error dict).
+    `at="commit"`: each trace sample is what its tick shows (the views right after the last commit), not what they
+    hold mid-pass (MotionFrameTrace)."""
     folder = os.path.join(tempfile.gettempdir(), f"split-scale-{os.getpid()}", label)
     trace_path = os.path.join(folder, "trace.json")
     os.makedirs(folder, exist_ok=True)
@@ -512,7 +514,7 @@ def record_raw(run, gesture, label, content="focused"):
               "tolerance": opts.strip_tolerance}
     if content == "none":
         params["content"] = "none"
-    run.rpc("debug.motion", {"action": "trace_start"})
+    run.rpc("debug.motion", {"action": "trace_start", **({"at": at} if at else {})})
     strip = run.rpc("debug.new_tab", params, timeout=opts.strip_ms / 1000 + 90) or {}
     stopped = run.rpc("debug.motion", {"action": "trace_stop", "path": trace_path}) or {}
     trace = {"error": stopped.get("error")} if stopped.get("error") else {"error": "trace never written"}
@@ -734,7 +736,7 @@ def move_row(run, workspace, gesture, label, static, expect=None, content="focus
     """One recorded move, judged (split_move_metrics.move). `expect`: a check that the move happened (returns a
     truthy value once it did); a move that did not happen is the round's error."""
     before = workspace_tabs(run, workspace)
-    strip, trace = record_raw(run, gesture, label, content)
+    strip, trace = record_raw(run, gesture, label, content, at="commit")
     done = STRESS.wait(expect, 5, step=0.05) if expect else True
     row = smm.move(strip, trace, static=static, tabs_before=list(before), tabs_after=list(workspace_tabs(run, workspace)))
     if not done:
@@ -803,10 +805,10 @@ def run_move_cell(run, workspace, panes, results, cell, content):
             stress.action(MOVE_ACTIONS[back], target=f"tab:{moving}")
             motion_ends(run, "the untimed move back")
 
-    def drag(source, target, edge, along=0.72):
+    def drag(source, target, edge, along=0.72, inset=14):
         """Mouse events: the pane at `source` dragged by its tab bar's empty space to the `edge` of the one at
-        `target` (Option-drag: a plain press in the window's top row moves the window)."""
-        to_x = target[0] + 14 if edge == "left" else target[0] + target[2] - 14
+        `target`, `inset` points in (Option-drag: a plain press in the window's top row moves the window)."""
+        to_x = target[0] + inset if edge == "left" else target[0] + target[2] - inset
         return {"gesture": "mouse", "mouse": {"action": "drag", "x": source[0] + source[2] * along, "y": source[1] + 16,
                                               "to_x": to_x, "to_y": target[1] + target[3] * 0.5, "steps": 30,
                                               "modifiers": ["option"]}}
@@ -829,9 +831,14 @@ def run_move_cell(run, workspace, panes, results, cell, content):
                     continue
                 source, target = (frames[0], frames[-1]) if edge == "right" else (frames[-1], frames[0])
                 row = {}
-                for along in (0.72, 0.5):  # the tab bar's empty space: right of the tabs, left of the pane's buttons
-                    row = move_row(run, workspace, drag(source, target, edge, along), f"{cell}-{name}-{rnd}", static)
+                # The tab bar's empty space (right of the tabs, left of the pane's buttons) and the drop's distance from
+                # the edge: a press on a tab drags that tab, and a drop too near the window's edge can miss the zone.
+                # Every half cell's forward drag took nothing at (0.72, 14) and (0.5, 14) (fleet job
+                # dddaf321bef3d1c25f19cc43), so a few more places are tried before the drag counts as unmeasured.
+                for along, inset in ((0.72, 14), (0.5, 14), (0.88, 40), (0.6, 40), (0.35, 40)):
+                    row = move_row(run, workspace, drag(source, target, edge, along, inset), f"{cell}-{name}-{rnd}", static)
                     if "nothing moved" not in str(row.get("error") or ""):
+                        row["drag_at"] = [along, inset]
                         break
                     run.rpc("debug.mouse", {"action": "up", "x": 4, "y": 4})  # untimed: no press stays down
                     time.sleep(opts.settle)  # test script: a drag that took nothing ends

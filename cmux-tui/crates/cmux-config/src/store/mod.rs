@@ -17,6 +17,7 @@ pub use replay::REPLAY_CAPACITY;
 pub use state::{FileRead, State, ThemeRead};
 
 use crate::domains::Domains;
+use crate::history::HistoryEntry;
 use crate::keypath::key_path;
 use crate::managed::TeamPolicyLayer;
 use crate::refusal::Refusal;
@@ -111,6 +112,24 @@ pub enum Op {
     /// `removeUnchanged`). A refused edit refuses the op and writes nothing.
     Edit {
         edits: Vec<Edit>,
+        meta: WriteMeta,
+    },
+    /// `settings.undo`: restores the `before` of the newest history entry
+    /// that is not an undo and was not undone yet (`history::undo_pick`).
+    Undo {
+        meta: WriteMeta,
+    },
+    /// `settings.restore`: the file becomes the text it had just before the
+    /// change that produced `revision`, as one write with the checks of
+    /// [`apply_with_history`].
+    Restore {
+        revision: u64,
+        meta: WriteMeta,
+    },
+    /// `settings.reset_group`: every row of a section (`appearance`) or of a
+    /// group in it (`appearance.sidebar`) back to its default, as one edit.
+    ResetGroup {
+        group: String,
         meta: WriteMeta,
     },
     /// Accept only from the hosting app's connection (the daemon checks).
@@ -211,14 +230,35 @@ pub struct Applied {
     pub changes: Vec<Change>,
     pub outcome: Outcome,
     pub write: Option<String>,
+    /// The revision a `settings.undo` took back (its history entry records it).
+    pub undoes: Option<u64>,
 }
 
-/// The reducer.
+/// The reducer, without a settings history: `settings.undo` has nothing to
+/// undo and `settings.restore` knows no revision.
 pub fn apply(state: &State, op: Op) -> Result<Applied, Refusal> {
+    apply_with_history(state, op, &[])
+}
+
+/// The reducer with the owner's settings history (oldest first), which
+/// `settings.undo` and `settings.restore` read. A restore (and an undo) is
+/// one write of an earlier file text: refused while the file does not
+/// parse, idempotency and `if_revision` honored, a managed key's file value
+/// may change while the managed value still wins, and an origin other than
+/// the person may change only the rows `settings.set` lets it change.
+pub fn apply_with_history(
+    state: &State,
+    op: Op,
+    history: &[HistoryEntry],
+) -> Result<Applied, Refusal> {
     match op {
-        Op::Set { .. } | Op::Reset { .. } | Op::ResetAll { .. } | Op::Edit { .. } => {
-            write::apply_write(state, op)
-        }
+        Op::Set { .. }
+        | Op::Reset { .. }
+        | Op::ResetAll { .. }
+        | Op::Edit { .. }
+        | Op::Undo { .. }
+        | Op::Restore { .. }
+        | Op::ResetGroup { .. } => write::apply_write(state, op, history),
         Op::DomainsPublish { themes, font_families, sounds } => {
             let mut next = state.clone();
             next.domains = Domains::published(themes, font_families, sounds);
