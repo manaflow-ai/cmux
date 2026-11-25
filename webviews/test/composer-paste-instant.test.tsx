@@ -12,11 +12,7 @@ import type { Composer as ComposerView, ComposerHandle } from "../src/agent-sess
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { KeptAttachments } from "../src/agent-session/acpmux/composer/keptAttachments";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
-import {
-  DEFAULT_COMPOSER,
-  setComposerSettings,
-  type AttachmentView,
-} from "../src/agent-session/acpmux/composerSettings";
+import { setComposerSettings, type AttachmentView } from "../src/agent-session/acpmux/composerSettings";
 import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
@@ -72,7 +68,7 @@ afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
-  showAttachments(DEFAULT_COMPOSER.attachmentView);
+  showAttachments("inline");
   // Each test's chat starts with no kept draft: an attachment brought is the person's edit, so the
   // prompt holding it is kept for the chat (Composer.tsx `place`).
   dom.window.localStorage.clear();
@@ -211,7 +207,7 @@ async function openComposer(
 const field = () => host.querySelector<HTMLElement>('[role="combobox"]')!;
 /// Settings' attachment view: the default draws a paste's chip in the prompt where it went (at the
 /// caret); the strip view draws it in the strip (inlineAttachments.tsx).
-let view: AttachmentView = DEFAULT_COMPOSER.attachmentView;
+let view: AttachmentView = "inline";
 const showAttachments = (next: AttachmentView) => {
   view = next;
   act(() => setComposerSettings({ attachmentView: next }));
@@ -682,7 +678,7 @@ test("a send resumed after its screenshot asks the hold again as a late check", 
   await paste([shot.file]);
   act(() => composer.current!.restore("open Notes with @computer-use", [], true));
   act(() => {
-    composer.current!.send();
+    host.querySelector<HTMLButtonElement>(".acpmux-send")!.click();
   });
   // Computer Use stops while the screenshot is still being read.
   ready = false;
