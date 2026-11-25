@@ -35,6 +35,8 @@
 //! (cmux-sdk-ffi, include/cmux_sdk_ffi.h): the app reaches the daemon through it.
 //! `terminal_prediction` is predictive local echo for a terminal whose shell runs
 //! on another machine (cmux-terminal-prediction, include/cmux_terminal_prediction.h).
+//! `sign_clone_sweep` removes the Chromium code-sign clones that cmux apps
+//! left in the per-user temp folder (include/cmux_sign_clone_sweep.h).
 
 //! `keymap` is the keymap layer of app.keyStyle and app.shortcutLayout: list keys
 //! per style and shortcut matching per layout (cmux-keymap, include/cmux_keymap.h).
@@ -58,6 +60,9 @@ pub mod hover;
 pub mod motion;
 /// cbindgen:ignore
 pub mod settings;
+/// Its own header (include/cmux_sign_clone_sweep.h), not the motion one:
+/// cbindgen:ignore
+pub mod sign_clone_sweep;
 /// cbindgen:ignore
 pub mod system_calendar;
 pub mod terminal_selection;

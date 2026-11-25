@@ -199,6 +199,8 @@ cmux-computer-use = { workspace = true, features = ["desktop", "server"] }
 # The UI-loop watchdog's stack sample of the loop thread (ui_watchdog/sampler.rs); the lockfile
 # already has it through other crates.
 backtrace = "0.3"
+# `cmux sign-clones sweep [--dry-run]`: the app's leftover Chromium clones (cli/sign_clones.rs).
+cmux-sign-clone-sweep = { path = "../cmux-sign-clone-sweep" }
 # The browser host and the app host run from this binary, chosen by argv[0]
 # (`cmux-browser-host`, `cmux-app-host` links beside bin/cmux; `main` in
 # src/main.rs): one copy of std, serde and QuickJS instead of three.

@@ -65,6 +65,7 @@ FIRST_PARTY_GPL = {
     "cmux-daemon-launch-core",
     "cmux-health-core",
     "cmux-keymap",
+    "cmux-sign-clone-sweep",
     "cmux-launch-image",
     "cmux-pane-pictures",
     "cmux-local-auth",
