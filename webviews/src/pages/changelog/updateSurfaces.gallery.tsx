@@ -699,8 +699,31 @@ export default componentEntry<Props>({
       },
     },
     card: {
-      note: "Picked and shipped (Leo 2026-11-07: \"just update it to Nightly, and then What's New with the up and to the right arrow that you can click as a thing\"): \"Updated to Nightly · What's New ↗\" on one line over the top change, in the composer's material at the composer's one-line height (48) and corner. Chosen over What's New at the line's far end because it reads as one sentence, keeps the link beside the words it belongs to, and leaves the line's end free for the x that shows on hover, so nothing shifts when it does. The freed button row is the height the card gives back. The x on hover only; a click on Nightly copies the full build.",
+      note: "Shipped (Lawrence 2026-11-23, back to the original two-line card; Leo 2026-11-23 on the one-line card: the title cut to an ellipsis, a gap at the end, a useless arrow, an oddly proportioned x, not useful info): \"Updated to Nightly\" whole on the first line, the update's top change in full under it, in the composer's material and corner. No What's New link or arrow on the card: What's New is in the changes it shows beside the sidebar on hover. The x shows on hover, centred on the title line, the app's one card x (ui/DismissButton.tsx proportions); a click on Nightly copies the full build.",
       props: { surface: "card", data: base, theme: "dark" },
+    },
+    "card-light": {
+      note: "The same card in a light theme.",
+      props: { surface: "card", data: base, theme: "light" },
+    },
+    "card-long-change": {
+      note: 'u51892 (2026-11-23: "the stuff in this message box is now just cut off ... we need to show everything"): the change line of the two-line card, longer than the card, wraps and the card grows to hold every line, in a narrow sidebar. The x stays centred on the title line.',
+      props: {
+        surface: "card",
+        data: {
+          ...base,
+          items: [
+            {
+              id: "glass",
+              title: "Fix the glass on the settings panels, so toggles read on bright wallpapers",
+              summary: null,
+              category: "fixed",
+            },
+          ],
+        },
+        theme: "dark",
+        width: 196,
+      },
     },
     "card-loading-dots": {
       note: "Picked and shipped (Leo 2026-11-09: \"it should have the updated to Nightly already loaded in, instead of just having a blank glass bit ... should have a loading indicator, like an ellipsis-type thing\"): the card draws with its title from its first frame, and while the update's notes load its change line is three small still dots in the note's quiet color on the line's baseline, then the words take their place once, at the same height (card-loading-after). Chosen because it is the quietest look that still reads as an indicator rather than cut text, with no motion at all: a dot that breathes or blinks forever is the look Leo had removed (2026-10-21), and the line never stays (after 1.5 s the host's top change stands in). Refs: cmux/live/updates-nightly-whats-new-modal (the compact nightly card), claude/live/transcript-task-list-in-progress (a small mark while work runs), against cmux/live/session-info-context-breakdown-loading (a spinner and \"Loading ...\" words Leo found heavy).",
@@ -747,7 +770,7 @@ export default componentEntry<Props>({
       props: { surface: "card", data: base, theme: "dark", photo: "bright-clouds" },
     },
     "card-whats-new-top-right": {
-      note: "Variant: What's New ↗ at the far end of the title line, beside the x's room. It lines up with the x, but in a narrow sidebar the title and the link meet in the middle, and the x that shows on hover crowds the link.",
+      note: "Variant: What's New at the far end of the title line, beside the x's room. It lines up with the x, but in a narrow sidebar the title and the link meet in the middle, and the x that shows on hover crowds the link.",
       props: { surface: "card", data: base, theme: "dark", placement: "top-right" },
     },
     "card-whats-new-button": {

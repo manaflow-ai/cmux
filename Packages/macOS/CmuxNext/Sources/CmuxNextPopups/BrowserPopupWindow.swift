@@ -57,6 +57,8 @@ public final class BrowserPopupWindow: NSWindow {
     /// Connects the omnibar to the page (URL, security, page info, loads).
     public let omnibar: OmnibarTabBinding
     private var observation: Task<Void, Never>?
+    /// Shows the page's pending prompts (a custom-scheme link's question, a JavaScript dialog): a popup has no tab chrome.
+    private var prompts: BrowserPromptPresenter?
     private var sizeObservation: Task<Void, Never>?
     private let separator = NSBox()
     private var toolbarHeightConstraint: NSLayoutConstraint?
@@ -95,6 +97,7 @@ public final class BrowserPopupWindow: NSWindow {
         // background; the opener's scope is adopted when it opens.
         install(kind: .browserPopup, content: makeContent(), scope: .app, activeLook: activeLook)
         title = Self.title(for: page.state)
+        if let root = contentView { prompts = BrowserPromptPresenter(tab: page, container: root) }
         observeTitle()
         observeFullscreen()
         observeOmnibarSize()
@@ -212,6 +215,9 @@ public final class BrowserPopupWindow: NSWindow {
 
     public var isToolbarShown: Bool { !locationBar.isHidden }
 
+    /// True while a prompt of the page is on screen in this window (`debug.popups`).
+    public var showsPrompts: Bool { prompts?.isShowing ?? false }
+
     /// Escape the page did not use stops a load (Chrome's
     /// `IDC_CLOSE_FIND_OR_STOP`); it never closes the popup, so an Escape
     /// in a sign-in form cannot lose it.
@@ -236,6 +242,8 @@ public final class BrowserPopupWindow: NSWindow {
         sizeObservation?.cancel()
         sizeObservation = nil
         fullscreenObservers.removeAll()
+        prompts?.stop()
+        prompts = nil
         omnibar.stop()
         let closed = onClose
         onClose = nil

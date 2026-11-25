@@ -135,16 +135,14 @@ public final class ChiefSidebar {
     }
 
     /// The Home item's look: it is the Chief (the person, 2026-11-20: "replace home with chief"; David Beyer: the
-    /// Chief is a thread like the others). The Chief's name and glyph, its `picture` (nil keeps the glyph), its status
+    /// Chief is a thread like the others). The name "Chief" beside Home's house, its status
     /// and the subagents that need the person, and the blue unread dot of a workspace row while any of the person's
     /// `homeUnread` chats is unread, never a count (Lawrence 2026-10-23: "home unread indicator should just be blue dot").
-    public func decorateHome(_ info: inout SidebarItemInfo, homeUnread: Int, picture: SidebarFavicon?) {
-        // The Chief's look (sparkles, the Chief's picture) under the top row's own name, "Chief": the Chief Activity
-        // item keeps its own title (cmux#48416).
-        let chief = SidebarBuiltIn.chief.defaultInfo
-        (info.title, info.symbol, info.icon, info.favicon) = (SidebarBuiltIn.home.title, chief.symbol, chief.icon, picture)
-        // The row draws the title alone, so it reads as the top of the list, not as one more glyph row (Lucas 2026-11-23).
-        info.hidesGlyphBesideTitle = true
+    public func decorateHome(_ info: inout SidebarItemInfo, homeUnread: Int) {
+        // The top row's own name, "Chief", beside Home's house (Lucas 2026-11-23), not the Chief's sparkles or picture:
+        // the Chief Activity item keeps those and its own title (cmux#48416).
+        let home = SidebarBuiltIn.home.defaultInfo
+        (info.title, info.symbol, info.icon, info.favicon) = (home.title, home.symbol, home.icon, nil)
         decorate(&info)
         // The top row dots for any of the person's unread chats (the Chief's own among them), not only the Chief's.
         info.unreadDot = homeUnread > 0

@@ -610,6 +610,13 @@ impl PageRow for BuiltRow {
             Self::Peer(_, r) => r.summary.status(),
         }
     }
+
+    fn top_level(&self) -> bool {
+        match self {
+            Self::Tree(row) => PageRow::top_level(row),
+            Self::Peer(_, r) => r.summary.top_level(),
+        }
+    }
 }
 
 /// A row [`serialize_in_order`] writes: its text, and its paging keys.

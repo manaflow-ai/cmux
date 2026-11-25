@@ -90,7 +90,9 @@ import Testing
         let (window, controller) = controller()
         var app: [String] = []
         controller.onAppLink = { app.append($0.absoluteString) }
-        let link = try #require(links(try #require(controller.accessibilityElements(parent: controller.host).first)).first)
+        // Two steps: a `#require` inside another is a recursive macro expansion, which the compiler rejects.
+        let element = try #require(controller.accessibilityElements(parent: controller.host).first)
+        let link = try #require(links(element).first)
         let actions = try #require(link.accessibilityCustomActions())
         #expect(actions.map(\.name) == [CmuxStrings.openLinkAction])
         #expect(actions[0].handler?() == true)

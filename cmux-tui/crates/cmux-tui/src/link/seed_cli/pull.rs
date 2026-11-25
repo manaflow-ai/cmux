@@ -23,7 +23,9 @@
 //!
 //! Output: one JSON line on stdout, the engine's `{"ok":true,"unchanged",
 //! "written","deleted","bytes","bundle_bytes","fast_forwarded","staged",
-//! "head","base":{"head","index","work"},"left_out"}` with `"mode":"seed"`
+//! "head","base":{"head","index","work"},"left_out","merged","conflict_files",
+//! "kept_edits"}` (the working-tree paths both sides changed, as the three-tree module settled
+//! them) with `"mode":"seed"`
 //! (or the copy's own summary with `"mode":"copy"`), exit 0. A conflict is
 //! `{"ok":false,"error","error_code":"sync_conflict","conflicts":[paths]}`
 //! with nothing changed here; any other failure `{"ok":false,"error",
