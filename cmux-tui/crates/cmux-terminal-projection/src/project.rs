@@ -76,13 +76,22 @@ pub fn wrap_line(
     // Ghostty's own reflow trims them: a space the program printed is a
     // cell of the line (a right-aligned row's padding, a line ending in a
     // space), and its rows wrap on the phone as on a resized Mac.
-    // Compact also drops written spaces that pad the line to the host's
-    // edge (an app filling its row), not a space the line ends in before
-    // the edge: the program drawn at the phone's width wraps that one too.
-    let padded = rows
+    // Compact also drops written spaces that pad the line (a run of them,
+    // or one reaching the host's edge: an app filling its row or centering
+    // a title), not the one space a line ends in before the edge: the
+    // program drawn at the phone's width wraps that one too.
+    let edge = rows
         .last()
         .and_then(|row| row.cells.get(host_cols.saturating_sub(1)))
         .is_some_and(|c| c.ch == u32::from(b' '));
+    let run = units
+        .iter()
+        .rev()
+        .skip_while(|(_, c)| c.ch == 0)
+        .take_while(|(_, c)| c.ch == u32::from(b' '))
+        .take(2)
+        .count();
+    let padded = edge || run >= 2;
     while let Some((_, cell)) = units.last() {
         let style = term.styles.get(cell.style);
         let trimmed = if compact {
@@ -1316,10 +1325,11 @@ mod tests {
         // Exact: the space the prompt printed is a cell of the line, as
         // Ghostty's reflow keeps it (only never-written cells are trimmed).
         assert_eq!(wrapped.rows[0].width(), 2, "the prompt's printed space is kept");
-        // Compact: the trailing space is not drawn.
+        // Compact too: the shell drawn at the phone's width prints that
+        // one space as well (a run of spaces padding the row would go).
         let wrapped = wrap_line(&term, &rows, 120, 33, Some((0, 10)), true);
         assert_eq!(wrapped.cursor, Some((0, 10)));
-        assert_eq!(wrapped.rows[0].width(), 1, "the prompt's trailing space is not drawn");
+        assert_eq!(wrapped.rows[0].width(), 2, "the prompt's one trailing space is a cell");
     }
 
     #[test]

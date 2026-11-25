@@ -544,14 +544,20 @@ fn left_and_right_aligned() {
     }
     assert!(texts[prompt_rows[0] - 1].starts_with("leo@cosmic-gray ~/Projects/cmux % ls"));
     assert!(texts[prompt_rows[1]].starts_with("leo@cosmic-gray ~/Projects/cmux %  [main"));
-    let clock = texts.iter().find(|t| t.contains("build finished")).unwrap();
+    let clock = texts
+        .iter()
+        .find(|t| t.contains("build finished"))
+        .unwrap_or_else(|| panic!("the clock is on the phone: {texts:#?}"));
     assert_eq!(
         UnicodeWidthStr::width(clock.trim_end()),
         54,
         "right-aligned at the edge: {clock:?}"
     );
     // The title centered on the Mac is centered on the phone, on one row.
-    let title = texts.iter().find(|t| t.contains("Release notes")).unwrap();
+    let title = texts
+        .iter()
+        .find(|t| t.contains("Release notes"))
+        .unwrap_or_else(|| panic!("the title is on the phone: {texts:#?}"));
     assert_eq!(title.trim_end(), format!("{}== Release notes ==", " ".repeat(17)));
 
     // The cursor waits after the left prompt, as on the Mac.

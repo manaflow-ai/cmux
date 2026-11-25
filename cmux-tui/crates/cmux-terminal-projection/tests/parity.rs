@@ -1225,6 +1225,24 @@ fn compare_grid(mac: &Snapshot, phone: &Snapshot) -> Score {
             m_extra,
             p_extra
         ));
+        // Where the two part: the first row from the top whose text differs.
+        let text = |r: &(Vec<Read>, bool)| -> String {
+            r.0.iter().map(|c| Key::of(c).text).collect::<String>().trim_end().to_string()
+        };
+        if let Some(i) = (0..both).find(|&i| text(&m[i]) != text(&p[i])) {
+            let show = |rows: &[(Vec<Read>, bool)]| -> String {
+                rows[i.saturating_sub(1)..(i + 2).min(rows.len())]
+                    .iter()
+                    .map(|r| format!("{:?}{}", text(r), if r.1 { " (soft)" } else { "" }))
+                    .collect::<Vec<_>>()
+                    .join(" | ")
+            };
+            score.note(format!(
+                "first parting row {i} from the top:\n      mac   {}\n      phone {}",
+                show(m),
+                show(p)
+            ));
+        }
     }
     let blank = Key::of(&(Cell::default(), false));
     for i in 1..=both {
@@ -2131,7 +2149,7 @@ fn run_width_case(case: &WidthCase, grid: (usize, usize)) -> WidthRow {
             let mode = if compact { "compact" } else { "exact" };
             let noted = row.notes.iter().filter(|n| n.contains(mode)).count();
             if (score.mismatched > 0 || score.cursor_mismatches > 0) && noted < 4 {
-                for what in score.first.iter().take(1) {
+                for what in score.first.iter().take(2) {
                     row.notes.push(format!("{}x{} {mode} step {i}: {what}", grid.0, grid.1));
                 }
             }
