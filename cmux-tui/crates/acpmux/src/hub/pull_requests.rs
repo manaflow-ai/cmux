@@ -490,11 +490,10 @@ fn bare_urls(output: &str) -> Vec<String> {
     let mut urls: Vec<String> = vec![];
     let mut previous = "";
     for line in output.lines().map(str::trim) {
-        if PULL_URL.is_match(line)
-            && !previous.contains("already exists")
-            && !urls.iter().any(|u| u == line)
+        if let Some(url) = normalize_pull_url(line).filter(|_| !previous.contains("already exists"))
+            && !urls.iter().any(|u| u == &url)
         {
-            urls.push(line.to_owned());
+            urls.push(url);
         }
         if !line.is_empty() {
             previous = line;
@@ -529,23 +528,15 @@ fn created_url(output: &str) -> Option<String> {
         if answer.get("ok").and_then(Value::as_bool) == Some(false) {
             return None;
         }
-        if let Some(url) = answer
-            .pointer("/data/url")
-            .or_else(|| answer.pointer("/data/html_url"))
-            .or_else(|| answer.get("url"))
-            .or_else(|| answer.get("html_url"))
-            .and_then(Value::as_str)
-            .and_then(normalize_pull_url)
-        {
-            return Some(url.to_owned());
+        for pointer in ["/data/url", "/data/html_url", "/url", "/html_url"] {
+            if let Some(url) =
+                answer.pointer(pointer).and_then(Value::as_str).and_then(normalize_pull_url)
+            {
+                return Some(url);
+            }
         }
     }
-    output
-        .lines()
-        .map(str::trim)
-        .filter_map(normalize_pull_url)
-        .last()
-        .or_else(|| printed_url(output))
+    printed_url(output)
 }
 
 /// Notes a `tool_call` or `tool_call_update` into `m`: a shell call that runs `gh pr create` is

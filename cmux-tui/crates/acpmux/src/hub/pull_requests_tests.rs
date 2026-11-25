@@ -215,6 +215,10 @@ fn a_broker_pr_create_tool_counts_the_url_its_answer_names() {
         track(&mut calls, &published_json).as_deref(),
         Some("https://github.com/o/r/pull/10")
     );
+
+    let existing = json!({"toolCallId": "p3", "title": "repo_publish", "status": "completed",
+        "content": [{"type": "text", "text": "a pull request already exists:\nhttps://api.github.com/repos/o/r/pulls/11"}]});
+    assert_eq!(track(&mut calls, &existing), None);
 }
 
 #[test]
