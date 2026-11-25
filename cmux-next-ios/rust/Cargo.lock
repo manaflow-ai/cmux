@@ -546,6 +546,7 @@ version = "0.1.0"
 name = "cmux-braid-path"
 version = "0.1.0"
 dependencies = [
+ "cmux-transport",
  "futures-util",
  "tokio",
 ]
@@ -559,10 +560,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cloud-wire"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-composer-send"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+]
+
+[[package]]
+name = "cmux-deadline"
+version = "0.1.0"
+dependencies = [
+ "tokio",
 ]
 
 [[package]]
@@ -614,6 +630,14 @@ name = "cmux-message-preview"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-mobile-core"
+version = "0.1.0"
+dependencies = [
+ "cmux-cloud-wire",
+ "cmux-terminal-sizing",
+]
+
+[[package]]
 name = "cmux-mobile-host"
 version = "0.1.0"
 dependencies = [
@@ -622,10 +646,12 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "cmux-build-space",
+ "cmux-deadline",
  "cmux-egress",
  "cmux-fault",
  "cmux-message-preview",
  "cmux-mobile-link",
+ "cmux-output-paint",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-proto",
@@ -663,6 +689,7 @@ dependencies = [
 name = "cmux-mobile-link"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
  "anyhow",
  "async-trait",
  "base64 0.22.1",
@@ -680,6 +707,9 @@ dependencies = [
  "flate2",
  "futures-util",
  "getrandom 0.3.4",
+ "hkdf",
+ "libc",
+ "p256",
  "rcgen 0.13.2",
  "reqwest",
  "rustls",
@@ -708,6 +738,7 @@ dependencies = [
  "base64 0.22.1",
  "cmux-composer-send",
  "cmux-follow-cam",
+ "cmux-mobile-core",
  "cmux-mobile-host",
  "cmux-mobile-last-place",
  "cmux-mobile-link",
@@ -734,6 +765,10 @@ dependencies = [
  "url",
  "uuid",
 ]
+
+[[package]]
+name = "cmux-output-paint"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-process"
@@ -840,6 +875,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-terminal-sizing"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "cmux-transport"
 version = "0.1.0"
 dependencies = [
@@ -862,6 +904,7 @@ dependencies = [
  "base64 0.22.1",
  "boringtun",
  "bytes",
+ "cmux-braid-path",
  "cmux-transport",
  "getrandom 0.3.4",
  "ip_network",
@@ -1209,7 +1252,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2598,7 +2641,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2655,7 +2698,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3131,7 +3174,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4044,7 +4087,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
