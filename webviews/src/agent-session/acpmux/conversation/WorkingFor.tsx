@@ -18,7 +18,8 @@ import { useContext, useMemo } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { usePageNow as useTicking } from "../../../ui/pageClock";
-import { ChevronRight, TerminalSquare } from "./icons";
+import { TerminalSquare } from "./icons";
+import { DisclosureChevron } from "./DisclosureChevron";
 import { useTextSwap } from "../../../ui/motion/useTextSwap";
 import { BackgroundHint } from "./BackgroundHint";
 import { TimedLabel } from "./TurnTokens";
@@ -130,11 +131,11 @@ export function WorkingFor({
         <button type="button" className="cv-worked__toggle" aria-expanded={expanded} onClick={onToggle}>
           <span className="cv-worked__hug">
             {label}
-            <ChevronRight size={14} className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`} />
+            <DisclosureChevron open={expanded} look="worked" />
           </span>
           <span className="cv-worked__toggle-sizer" aria-hidden="true">
             {sizer && <span className="cv-worked__label">{sizer}</span>}
-            <ChevronRight size={14} className="cv-worked__chevron cv-rotor is-reserved" />
+            <DisclosureChevron open={false} look="worked" reserved />
           </span>
         </button>
       ) : (
@@ -156,9 +157,7 @@ export function WorkingFor({
       {/* Over the work it is the turn's header in its running phase (turns.ts `turnHeaderId`): the
           ended "Worked for"'s chevron has its slot already, right after the words as it draws
           there, unseen until the turn ends and the line opens what it folded. */}
-      {!row.below && !toggles && (
-        <ChevronRight size={14} className="cv-worked__chevron cv-rotor is-reserved" aria-hidden="true" />
-      )}
+      {!row.below && !toggles && <DisclosureChevron open={false} look="worked" reserved />}
     </div>
   );
 }

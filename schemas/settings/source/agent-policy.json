@@ -1533,6 +1533,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "Whether Connections lists the servers that cannot be connected yet (Slack, Google): the person decides when this preview appears.",
+      "keys": [
+        "labs.connectionsUpcoming"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "Whether cmux's own pages open developer tools, which read and change their live content: the person's call.",
       "keys": [
         "developerTools.appPages"

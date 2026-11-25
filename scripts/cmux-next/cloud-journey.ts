@@ -22,7 +22,8 @@
  * It signs in as the agent test account (Stack password sign-in; CMUX_DOGFOOD_STACK_EMAIL and
  * CMUX_DOGFOOD_STACK_PASSWORD from the environment or a KEY=value --credentials file; or, in a GitHub Actions
  * job with `id-token: write`, --sign-in oidc: the job's OIDC token for a short session, no stored password,
- * hq#7076) and walks the
+ * hq#7076; or --fresh-account: a new person's own sign-up on the dev Stack project, made for this run, so the
+ * journey sees what a teammate's first account gets) and walks the
  * same routes the app and the cmux CLI use, against the cmux API Worker (which forwards Cloud ops to
  * cmux-platform):
  *
@@ -1085,6 +1086,45 @@ export async function waitForSpareReady(api: Api, machine: string, budgetMs = 12
   }
 }
 
+/**
+ * The app's machine choice for a Cloud chat (`cmux link start-chat plan`, cmux-tui start_chat_cli/pick.rs), asked as
+ * a person's second chat from the same Mac workspace is: one VM per agent means the second chat gets a new machine
+ * (`machine: null`), never the first chat's, and a retry of the first chat's own send keeps its machine. The plan runs
+ * on a ledger of its own, sends no credential and so asks the platform nothing.
+ */
+export async function secondChatPlan(cmux: string, account: string, first: { id: string; title: string }): Promise<string> {
+  const stateDir = mkdtempSync(path.join(tmpdir(), "cmux-journey-plan-"));
+  const workspace = "journey-workspace";
+  const run = (args: string[]) => new Promise<Record<string, any>>((resolve, reject) => {
+    const child = spawn(cmux, ["link", "start-chat", ...args], { env: { ...process.env, CMUX_TUI_STATE_DIR: stateDir }, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "", stderr = "";
+    child.stdout!.setEncoding("utf8").on("data", (chunk: string) => stdout += chunk);
+    child.stderr!.setEncoding("utf8").on("data", (chunk: string) => stderr += chunk);
+    const timer = setTimeout(() => { child.kill("SIGTERM"); reject(new Error(`start-chat ${args[0]} timed out`)); }, 30_000);
+    child.on("error", reject);
+    child.on("close", (code: number | null) => {
+      clearTimeout(timer);
+      const answer = cliAnswer(stdout);
+      if (code !== 0 || !answer || answer.ok === false) reject(new Error(`start-chat ${args[0]} exit ${code}: ${short(answer ?? (stderr.trim().split("\n").pop() || stdout))}`));
+      else resolve(answer);
+    });
+  });
+  try {
+    const firstKey = randomUUID(), secondKey = randomUUID();
+    const plan = (key: string) => run(["plan", "--request", JSON.stringify({ key, account, workspace, loaded: true, machines: [first] })]);
+    const one = await plan(firstKey);
+    if (one.machine !== null) throw new Error(`the first chat's plan named ${one.machine}, not a new machine`);
+    await run(["pin", "--key", firstKey, "--account", account, "--machine", first.id, "--workspace", workspace]);
+    const retry = await plan(firstKey);
+    if (retry.machine !== first.id) throw new Error(`a retry of the first chat's send went to ${retry.machine ?? "a new machine"}, not its own ${first.id}`);
+    const two = await plan(secondKey);
+    if (two.machine !== null) throw new Error(`the second chat from the same workspace shares the first chat's VM ${two.machine}: one VM per agent is broken`);
+    return `second chat: a new machine (${two.new_name ?? "unnamed"}), not ${first.id}; a retry of the first send keeps ${first.id}`;
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+}
+
 async function runWarmSpare(cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, stateDir: string, installToken: string, request: Record<string, unknown>): Promise<Record<string, any>> {
   const env = { ...process.env, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer, CMUX_TUI_STATE_DIR: stateDir };
   const args = ["link", "start-chat", "warm-spare", "--request", JSON.stringify(request), ...(api.team ? ["--team", api.team] : [])];
@@ -1919,6 +1959,22 @@ export async function runPreclaimBurst(args: {
 }
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Why a running machine has not paused, from its record: `last_active_at` (Idle.ts idleClockStart: null means no
+ * report speaks for its activity, so the idle rule never runs; a recent time means something keeps it in use) and the
+ * activity the platform keeps (open sessions, the workload block), whichever the record carries.
+ */
+export async function idleHeldBy(api: Api, machine: string, now = Date.now()): Promise<string> {
+  const m = await Promise.resolve().then(() => api.read("cloud.machine.get", { machine })).catch((error) => error as Error);
+  if (m instanceof Error) return `idle facts unreadable: ${m.message.slice(0, 200)}`;
+  const last = m?.last_active_at;
+  const clock = typeof last === "number" ? `idle clock started ${Math.round((now - last) / 1000)} s ago` : "idle clock not running (last_active_at null: no report speaks for its activity)";
+  const activity = m?.activity ?? m?.report?.activity;
+  const bits = [clock, `idle policy ${m?.idle_seconds ?? m?.idle_policy?.idle_seconds ?? "?"} s`];
+  if (activity && typeof activity === "object") bits.push(`activity ${short(activity)}`);
+  return bits.join("; ");
+}
 
 /** Test-side bounded wait on a machine field (the product never polls; this is the harness). */
 export async function waitMachine(api: Api, machine: string, want: (m: any) => boolean, budgetMs: number, goneOk = false): Promise<any> {
@@ -4091,6 +4147,29 @@ export async function deleteJourneyMachines(ids: string[], scopes: MachineScope[
   return { deleted, failed };
 }
 
+/**
+ * --fresh-account: a new person's first sign-up, made for this run on the dev Stack project (staging, dev, preview,
+ * local), so the journey walks what a teammate who has never used cmux gets, with no stored test account. Stack takes
+ * only a whitelisted verification callback; the local handler's is one, and nothing reads the mail. Production's Stack
+ * project is refused: a fresh production account is a real person's sign-up, not a test's.
+ */
+export function freshAccountIdentity(now = Date.now(), random = Math.random): { email: string; password: string } {
+  const nonce = `${now}-${Math.floor(random() * 1e9).toString(36)}`;
+  return { email: `cmux-journey+fresh-${nonce}@example.com`, password: `Jf-${nonce}-${Math.floor(random() * 1e12).toString(36)}!` };
+}
+
+export async function freshAccountSignUp(stackName: StackName, identity = freshAccountIdentity()): Promise<{ email: string; password: string; access: string; refresh: string }> {
+  if (stackName !== "dev") throw new Error("--fresh-account signs up on the dev Stack project only (staging, dev, preview, local), never production's");
+  const stack = STACK[stackName];
+  const r = await http("POST", `${STACK_API}/api/v1/auth/password/sign-up`, { ...identity, verification_callback_url: "http://localhost:3000/handler/email-verification" }, {
+    "x-stack-access-type": "client",
+    "x-stack-project-id": stack.project,
+    "x-stack-publishable-client-key": stack.clientKey,
+  });
+  if (r.status !== 200 || typeof r.body.access_token !== "string") throw new Error(`Stack sign-up HTTP ${r.status} ${String(r.body.code ?? short(r.body))}`);
+  return { ...identity, access: r.body.access_token, refresh: String(r.body.refresh_token ?? "") };
+}
+
 /** The agent test account's Stack access token lasts about an hour (the first resume matrix run read 401 from
  * 56 to 70 min after its sign-in); the resume matrix signs in again past this age, before a sample starts. */
 export const RESIGN_AFTER_MS = 30 * 60_000;
@@ -4371,13 +4450,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (outDir) mkdirSync(outDir, { recursive: true });
   const credFile = argValue("--credentials", argv);
   const creds: Record<string, string> = { ...(credFile ? readEnvFile(readFileSync(credFile, "utf8")) : {}) };
-  const email = process.env.CMUX_STAGING_STACK_EMAIL ?? process.env.CMUX_DOGFOOD_STACK_EMAIL ??
+  let email = process.env.CMUX_STAGING_STACK_EMAIL ?? process.env.CMUX_DOGFOOD_STACK_EMAIL ??
     creds.CMUX_STAGING_STACK_EMAIL ?? creds.CMUX_DOGFOOD_STACK_EMAIL ?? creds.CMUX_UITEST_STACK_EMAIL;
-  const password = process.env.CMUX_STAGING_STACK_PASSWORD ?? process.env.CMUX_DOGFOOD_STACK_PASSWORD ??
+  let password = process.env.CMUX_STAGING_STACK_PASSWORD ?? process.env.CMUX_DOGFOOD_STACK_PASSWORD ??
     creds.CMUX_STAGING_STACK_PASSWORD ?? creds.CMUX_DOGFOOD_STACK_PASSWORD ?? creds.CMUX_UITEST_STACK_PASSWORD;
   const team = argValue("--team", argv) ?? process.env.CMUX_JOURNEY_TEAM ?? undefined;
   const signIn = argValue("--sign-in", argv) ?? "password";
   if (signIn !== "password" && signIn !== "oidc") throw new Error(`--sign-in ${signIn}: password or oidc`);
+  const freshAccount = argv.includes("--fresh-account");
+  if (freshAccount && signIn !== "password") throw new Error("--fresh-account signs up and in with a password: drop --sign-in oidc");
   // When the password sign-in ran: the resume matrix signs in again once it is RESIGN_AFTER_MS old.
   let signedInAt = 0;
   // --machines (list) and --delete-ids (delete exact ids): the operator's leaked-machine cleanup, no journey.
@@ -4677,6 +4758,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (r.status !== 200) throw new Error(`HTTP ${r.status} ${short(r.body)}`);
       return { value: null, detail: `commit ${r.body.commit ?? r.body.version ?? "?"}` };
     });
+    if (freshAccount) {
+      // The new person's sign-up, then the same password sign-in the stored test account takes.
+      const made = await J.step("sign up (fresh account)", async () => {
+        const a = await freshAccountSignUp(backend.stack);
+        J.secrets.push(a.password, a.access, a.refresh);
+        return { value: a, detail: `${a.email} on Stack project ${STACK[backend.stack].project.slice(0, 8)}` };
+      });
+      email = made.email;
+      password = made.password;
+    }
     if (signIn === "oidc") {
       api.bearer = await J.step("sign in (agent test account)", async () => {
         const s = await oidcSignIn(backend.api, process.env, J.secrets);
@@ -5385,6 +5476,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
 
     J.firstText.mark("login_ready");
+    if (provider === "codex") {
+      // Codex spawns codex-code-mode-host from beside its real executable for each tool call; an image whose codex came
+      // from a release tarball (codex alone) started every chat and failed every tool call (2026-11-25). The stub's
+      // plain exec_command turn never spawns the host, so the journey checks the file itself.
+      await J.step("Codex has its code-mode host", async () => {
+        const r = await exec(
+          `p=$(bash -lc 'command -v codex' 2>/dev/null </dev/null); [ -n "$p" ] || p=/opt/cmux/current/bin/codex; ` +
+            `r=$(readlink -f "$p"); h="$(dirname "$r")/codex-code-mode-host"; ` +
+            `if [ -x "$h" ]; then echo "@@host $h"; else echo "@@missing $r"; fi`,
+        );
+        const host = /@@host (\S+)/.exec(r.stdout)?.[1];
+        if (!host) throw new Error(`failed to spawn code-mode host: no codex-code-mode-host beside ${/@@missing (\S*)/.exec(r.stdout)?.[1] || "codex"} (exit ${r.code} ${r.stderr.slice(-200)})`);
+        return { value: null, detail: host };
+      });
+    }
     if (gatewayStub && provider === "codex" && !only.has("chat")) {
       // The stub lists no models, and with the image's default model slug Codex sends it no tools (codex-cli 0.164
       // against the stub: tools=0 with the default, 9 with "stub-model"), so the turn gets the stub's side reply
@@ -6069,6 +6175,59 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }).catch(() => undefined);
     J.skip("handoff (agent move)", "headless agent move requires a local session daemon socket; the Cloud guest session has no local source socket");
 
+    // One VM per agent: the person's second chat from the same Mac workspace gets a machine of its own.
+    if (cmux) await J.step("second chat gets its own VM", async () => {
+      const value = await secondChatPlan(cmux, `${user.id ?? user.user?.id ?? "user"}/`, { id: created.id, title: String(created.name ?? created.title ?? created.id) });
+      return { value: null, detail: value };
+    }).catch(() => undefined);
+    else J.skip("second chat gets its own VM", "--cmux is required for the app's start-chat plan");
+    // --idle-pause SECONDS: the pause a person never asks for. The machine's idle policy is set short, nothing is sent,
+    // and the platform must pause it on its own from the VM's activity reports (team policy cloud.idlePause); then
+    // the person's next message, with no start asked, must wake it and get a reply.
+    // --idle-pause default: no idle policy is set, so the deployment's own default (staging CLOUD_IDLE_PAUSE_SECONDS)
+    // must pause it; the step reports the seconds from the last turn's end (this step starts right after it) to paused.
+    const idleArg = argValue("--idle-pause", argv);
+    const idleDefault = idleArg === "default";
+    const idlePauseS = idleDefault ? 0 : Number(idleArg ?? 0);
+    if ((idleDefault || idlePauseS > 0) && !only.has("pause")) {
+      const idleSet = Date.now();
+      // The short idle pause needs the team policy cloud.idlePause, false by default (cmux-platform protocol/policy.ts):
+      // a new person's team never pauses an idle machine before the 24 h backstop. A --fresh-account run's team is its
+      // own, so the journey turns it on there and says the default was off; any other team's policy is left alone.
+      const POST_CHAT_HOLD_S = 600;
+      const teamIdle = await J.step("team idle pause policy", async () => {
+        const got = await api.read("team.policy.get", {});
+        const on = got?.policy?.values?.["cloud.idlePause"]?.value === true;
+        if (on) return { value: true, detail: "cloud.idlePause on" };
+        // A fresh team starts with it on (cmux#51850, Leo 2026-11-23: "well, if this is the whole point of the product,
+        // then obviously, yes."): the journey never turns it on for a new team, so an off here is kink K8 back.
+        if (freshAccount) throw new Error("a brand-new team's cloud.idlePause is off: new teams should start with it on (K8, cmux#51850)");
+        throw new Error("team policy cloud.idlePause is off for this team (a team made before new teams started with it on): turn it on for this team or run --fresh-account");
+      }).catch(() => false);
+      if (teamIdle) await J.step("paused after idle", async () => {
+        if (!idleDefault) await api.op("cloud.machine.idle_policy.set", { machine: created.id, idle_seconds: idlePauseS }, `${tag}-idle`);
+        // The deadline covers the post-chat hold (staging CLOUD_POST_CHAT_WARM_SECONDS=600 keeps a machine up after a
+        // chat turn whatever its idle policy) plus the alarm's re-check, so a pause the platform owes is never missed.
+        const m = await waitMachine(api, created.id, (x) => x.status === "paused", (Math.max(idlePauseS, POST_CHAT_HOLD_S) + 300) * 1000).catch(async (error) => {
+          // A pause that never came: name what held the machine (the idle clock's start, the report's open sessions and
+          // workload), so the failure says why instead of only "still running" (two walks on 2026-11-24 could not tell).
+          throw new Error(`${(error as Error).message}; ${await idleHeldBy(api, created.id)}`);
+        });
+        const took = Math.round((Date.now() - idleSet) / 1000);
+        return { value: m, detail: idleDefault ? `paused ${took} s after the turn ended, at the deployment's default idle pause` : `paused ${took} s after a ${idlePauseS} s idle policy was set` };
+      });
+      if (teamIdle) await J.step("resume by a message", async () => {
+        const t0 = Date.now();
+        if (lifecycle) {
+          const turn = await laterTurn("Back after an idle pause: answer in one short sentence.");
+          return { value: null, detail: `reply ${Math.round((Date.now() - t0) / 1000)} s after the message: ${turn.detail}` };
+        }
+        const r = await exec("echo woke");
+        if (r.code !== 0 || !r.stdout.includes("woke")) throw new Error(`exit ${r.code} ${r.stderr.slice(-200)}`);
+        const m = await api.read("cloud.machine.get", { machine: created.id });
+        return { value: null, detail: `exec answered ${Math.round((Date.now() - t0) / 1000)} s after it was sent; status ${m?.status}` };
+      });
+    } else J.skip("paused after idle", idleDefault || idlePauseS > 0 ? "--skip pause" : "--idle-pause SECONDS|default is not set");
     if (!only.has("pause")) {
       await J.step("pause", async () => {
         await api.op("cloud.machine.pause", { machine: created.id }, `${tag}-pause`);
