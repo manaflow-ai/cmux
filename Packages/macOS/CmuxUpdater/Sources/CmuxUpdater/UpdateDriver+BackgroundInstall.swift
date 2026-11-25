@@ -116,7 +116,8 @@ extension UpdateDriver {
     /// An automatic install whose host reopens itself (``UpdateActionDelegate/updaterQuitsForAutomaticInstall(build:)``)
     /// leaves the held reply unanswered: Sparkle's prepared installer installs when the app exits
     /// and does not relaunch it. The relaunch gate is not involved, so only a host without it
-    /// (`holdsUserInstalls` off) is asked.
+    /// (`holdsUserInstalls` off) is asked. Such a host is asked about a click's install too
+    /// (``UpdateActionDelegate/updaterQuitsForInstall(build:)``).
     @discardableResult
     func installStaged(automatic: Bool = false) -> Bool {
         guard let install = stagedInstall else { return false }
@@ -128,11 +129,17 @@ extension UpdateDriver {
         stagedCancel = nil
         installsWhenStaged = false
         backgroundItem = nil
-        if automatic, !holdsUserInstalls, let item {
+        if !holdsUserInstalls, let item {
             // Set before asking: the host may start its quit at once.
             quitInstall = (item, install, cancel)
             quitInstallCommitted = false
-            if actionDelegate?.updaterQuitsForAutomaticInstall(build: item.versionString) == true {
+            if !automatic, actionDelegate?.updaterQuitsForInstall(build: item.versionString) == true {
+                // A click in an app launched in a custom home: it reopens itself in that home.
+                log.append("background install: the app quits for the click's install; Sparkle installs as it exits, the app reopens itself")
+                setState(.installing(.init(retryTerminatingApplication: {}, dismiss: {})))
+                return true
+            }
+            if automatic, actionDelegate?.updaterQuitsForAutomaticInstall(build: item.versionString) == true {
                 log.append("background install: the app quits for the install; Sparkle installs as it exits, the app reopens itself")
                 // The quit may wait (the host's moment hold): the update shows as staged, and a
                 // click installs it at once instead of waiting with it.
