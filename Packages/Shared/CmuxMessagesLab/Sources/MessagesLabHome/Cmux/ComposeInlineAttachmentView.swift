@@ -69,9 +69,6 @@ final class ComposeInlineAttachmentView: NSView {
         tracking = t
     }
 
-    /// The attachment shown (nil once it is gone).
-    var attachmentID: ID? { attachment?.attachmentID }
-
     /// A picture's thumbnail as shown (nil: the placeholder grey, or a file pill).
     var thumbnail: CGImage? { attachment?.isImage == true ? attachment?.thumbnail : nil }
 
