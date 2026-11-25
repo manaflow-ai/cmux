@@ -1494,6 +1494,11 @@
   display: flex;
   flex-direction: column;
   gap: var(--grid-gap-inner);
+  /* A token that cannot break (a hash, a long URL's query) wraps at the column's edge instead of
+     running past it in a heading, paragraph, list item, quote or inline code. `anywhere` also drops
+     the min-content width, so a list item's text never asks for more room; table cells keep
+     `break-word` (.cv-table td), and code, math and diagrams scroll sideways as before. */
+  overflow-wrap: anywhere;
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: var(--cv-line-height);
@@ -1739,7 +1744,10 @@
    it (sideways.ts MORE_RIGHT), so nothing reads as cut.
    Open and Copy belong to the table's box, not the column: they show on hover or keyboard focus
    with the transcript's shared hover fade, at the table's top-right corner wherever the table
-   ends (tableActions.experiment.ts arms: `corner` ships). */
+   ends (tableActions.experiment.ts arms: `corner` ships).
+   A table narrower than the column sits centered in it (Leo 2026-11-22, on a four-column table flush
+   left and narrower than the text: "i dont know why we dont simply center tables in our agent
+   chats"); one as wide as the column fills it, so the auto side margins only ever split leftover room. */
 .cv-table-block {
   --cv-table-tools-pad: 2px;
   --cv-table-tools-width: calc(
@@ -1751,7 +1759,7 @@
   margin: var(--cv-table-before, 6.5px) 0 14px;
   margin-inline: auto;
 }
-/* Beside: the pair sits just past the table's right edge, so the block leaves room for it. */
+/* Leave equal gutters so the centered table's trailing controls fit inside the column. */
 .cv-table-block[data-actions="beside"] {
   max-width: calc(100% - 2 * (var(--cv-table-tools-width) + var(--cv-action-gap, 4px)));
 }
@@ -3087,10 +3095,7 @@ body {
    flickers", hovering the chat's right edge). A long command's words give way to it, behind their
    ellipsis, as they did on hover (Leo, 2026-10-24: "if the command is too long, hide it under the run
    in background"). */
-.cv-activity {
-  position: relative;
-}
-:is(.cv-worked, .cv-activity) .cv-command__bg {
+.cv-worked .cv-command__bg {
   display: flex;
   flex: none;
   align-items: center;
@@ -3099,41 +3104,41 @@ body {
   pointer-events: none;
 }
 /* `end`, the default: at the line's right end. */
-:is(.cv-worked, .cv-activity) .cv-command__bg[data-room="end"] {
+.cv-worked .cv-command__bg[data-room="end"] {
   margin-inline-start: auto;
 }
 /* `inline`: right after the tokens, a dot before it as before each count. */
-:is(.cv-worked, .cv-activity) .cv-command__bg[data-room="inline"] {
+.cv-worked .cv-command__bg[data-room="inline"] {
   margin-inline-start: calc(4px - var(--grid-gap));
 }
-:is(.cv-worked, .cv-activity) .cv-command__bg[data-room="inline"]::before {
+.cv-worked .cv-command__bg[data-room="inline"]::before {
   content: "·";
   padding-inline-end: 4px;
   color: var(--cv-text-dim);
 }
-:is(.cv-worked, .cv-activity) .cv-command__bg[data-room="always"] {
+.cv-worked .cv-command__bg[data-room="always"] {
   margin-inline-start: auto;
   opacity: 1;
   pointer-events: auto;
 }
-:is(.cv-worked, .cv-activity):hover .cv-command__bg {
+.cv-worked:hover .cv-command__bg {
   opacity: 1;
   pointer-events: auto;
 }
 /* A button (BackgroundHint.tsx): reached by Tab, it shows as on hover. */
-:is(.cv-worked, .cv-activity) .cv-command__bg:focus-visible {
+.cv-worked .cv-command__bg:focus-visible {
   opacity: 1;
   pointer-events: auto;
 }
 /* It fades as a message's hover row does (#23769): in for as long as the pointer stays, out a little faster. */
 @media (prefers-reduced-motion: no-preference) {
-  :is(.cv-worked, .cv-activity) .cv-command__bg {
+  .cv-worked .cv-command__bg {
     transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
   }
-  :is(.cv-worked, .cv-activity):hover .cv-command__bg {
+  .cv-worked:hover .cv-command__bg {
     transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
   }
-  :is(.cv-worked, .cv-activity) .cv-command__bg:focus-visible {
+  .cv-worked .cv-command__bg:focus-visible {
     transition: none;
   }
 }
@@ -7911,6 +7916,9 @@ a.cv-sha:focus-visible {
   min-height: 120px;
   padding: 12px;
   overflow-x: auto;
+  /* A chart narrower than the card sits centered in it, as a narrower table and display math sit
+     in the column (Leo 2026-11-22: "i dont know why we dont simply center tables in our agent chats"). */
+  text-align: center;
 }
 .cv-diagram__chart svg {
   max-width: 100%;
@@ -7924,6 +7932,7 @@ a.cv-sha:focus-visible {
   display: block;
   width: min(100%, var(--cv-diagram-w));
   aspect-ratio: var(--cv-diagram-ratio);
+  margin-inline: auto;
 }
 /* Ondine's monochrome diagrams take the pane's colors (its defaults are black on white). */
 .cv-diagram__chart svg.ondine {
@@ -8297,238 +8306,6 @@ a.cv-sha:focus-visible {
 :root[data-reduce-transparency] .acpmux-scroll[data-fade-bottom] {
   --acpmux-fade-top: 0px;
   --acpmux-fade-bottom: 0px;
-}
-
-/* The agent's todo list (PlanList.tsx, cx-ncc.80): a quiet card, as in Claude desktop. A filled
-   check is done, a thin spinner runs and a dashed circle waits; no heading, strike-through or bold. */
-.cv-plan {
-  position: relative;
-  margin: var(--ds-space-2) 0;
-  padding: var(--ds-space-2) var(--ds-space-3);
-  border-radius: var(--cv-card-radius, var(--grid-cards-radius));
-  background: var(--cv-card-fill);
-  box-shadow: inset 0 0 0 1px var(--cv-look-card-ring);
-  font-size: var(--text-body);
-  letter-spacing: var(--text-body--letter-spacing);
-}
-.cv-plan__items {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.cv-plan__item {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  min-height: 24px;
-  padding-block: 4px;
-  box-sizing: border-box;
-  line-height: 16px;
-}
-.cv-plan__text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-/* A step's first line (PlanList.tsx PlanStep): at most two lines in a card, its chips inline; the
-   rest of its words are its detail, muted and smaller, at most two lines more. */
-.cv-plan__title,
-.cv-plan__detail {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
-}
-.cv-plan__detail {
-  margin-top: var(--grid-half-step);
-  color: var(--cv-text-muted);
-  font-size: var(--text-caption);
-  line-height: 14px;
-}
-.cv-plan__title .cv-chip {
-  vertical-align: baseline;
-}
-.cv-plan__mark {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 12px;
-  height: 12px;
-  border: 1.5px solid var(--cv-text-muted);
-  margin-top: var(--grid-half-step);
-  border-radius: 50%;
-  box-sizing: border-box;
-}
-/* The progress and each item's state for screen readers only (the pane does not load ui.css's
-   .ui-sr-only). */
-.cv-plan__state {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-.cv-plan__item[data-status="completed"] {
-  color: var(--cv-text-muted);
-}
-.cv-plan__item[data-status="completed"] .cv-plan__mark {
-  border-color: transparent;
-  background: var(--cv-text-muted);
-  color: var(--agent-accent-text, #fff);
-}
-.cv-plan__item[data-status="pending"] .cv-plan__mark {
-  border-style: dashed;
-}
-/* The step at work draws the shared Spinner inside the mark (PlanList.tsx), so the mark has no ring of
-   its own while the turn runs. */
-.cv-plan:not([data-ended], [data-earlier], [data-still]) .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
-  border-width: 0;
-}
-/* Left in progress when its turn ended, or kept between turns (the hat's `still` list): a plain
-   ring, not a spinner frozen mid-turn, and never a blank mark (cmux#51039). */
-.cv-plan[data-ended] .cv-plan__item[data-status="in_progress"] .cv-plan__mark,
-.cv-plan[data-earlier] .cv-plan__item[data-status="in_progress"] .cv-plan__mark,
-.cv-plan[data-still] .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
-  border-color: var(--cv-text-muted);
-}
-
-/* An earlier turn's list under the running turn (PlanList.tsx `earlier`): its one muted line says it
-   is from before the person's last message, and its steps read muted. */
-.cv-plan__earlier {
-  min-height: 24px;
-  padding-block: 4px;
-  box-sizing: border-box;
-  color: var(--cv-text-muted);
-  line-height: 16px;
-}
-.cv-plan[data-earlier] .cv-plan__item {
-  color: var(--cv-text-muted);
-}
-
-/* A step's change fades in place (Leo, 2026-11-03: the pinned list "animates in place with no layout
-   shift"): only colours move, never a size, so nothing under the list shifts. */
-@media (prefers-reduced-motion: no-preference) {
-  .cv-plan__item,
-  .cv-plan__mark {
-    transition:
-      color var(--agent-motion-in) var(--agent-ease-out, ease-out),
-      background-color var(--agent-motion-in) var(--agent-ease-out, ease-out),
-      border-color var(--agent-motion-in) var(--agent-ease-out, ease-out);
-  }
-}
-/* An ended turn's list folds where it stood to its one progress line, which opens the steps
-   (PlanList.tsx): a muted row with the tool rows' chevron after its words. */
-.cv-plan__summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-height: 24px;
-  padding: 4px 0;
-  border: 0;
-  background: none;
-  color: var(--cv-text-muted);
-  font: inherit;
-  line-height: 16px;
-  text-align: start;
-  cursor: default;
-}
-.cv-plan__summary:hover {
-  color: var(--cv-text);
-}
-.cv-plan__summary:focus-visible {
-  outline: 1.5px solid var(--agent-text);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-.cv-plan__summary .cv-plan__mark {
-  margin-top: 0;
-}
-.cv-plan__summary .cv-plan__mark[data-status="completed"] {
-  border-color: transparent;
-  background: var(--cv-text-muted);
-  color: var(--agent-accent-text, #fff);
-}
-.cv-plan__summary .cv-plan__mark[data-status="pending"] {
-  border-style: dashed;
-}
-.cv-plan__chevron {
-  color: var(--cv-text-muted);
-}
-/* Its ink --cv-chevron-gap after the progress words, like every row's chevron: the summary's 8px gap
-   and the glyph's own inset taken back (test/transcript-chevron-after-label.test.ts). */
-.cv-plan__summary .cv-plan__chevron {
-  flex: none;
-  width: var(--cv-chevron-glyph);
-  height: var(--cv-chevron-glyph);
-  margin-inline-start: calc(var(--cv-chevron-gap) - 8px - var(--cv-chevron-ink));
-}
-/* An ended list is that line alone: no card around it, like the turn's other summary lines. Opened,
-   its steps draw under it on the same left edge, still with no card (Lucas, 2026-11-12: "make the
-   spacing left. and remove the background on open"); the running turn's pinned list keeps its card. */
-.cv-plan[data-ended] {
-  /* A row like the turn's other lines: the transcript's row gap is all the room around it, with no
-     card padding or margin left over (Lucas, 2026-11-12: "still substantial spacing there below").
-     model.ts estimates it at its 24px line. */
-  margin-block: 0;
-  padding-block: 0;
-  /* The folded 12px mark sits centred in the transcript's icon column (gallery invariant icon-column). */
-  padding-inline: calc((var(--cv-row-icon) - 12px) / 2) 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-/* The running turn's activity line under its todo list (ActivityLine.tsx, agent.sessionStatus,
-   cx-ncc.102): what the agent is doing now and the turn's time. */
-.cv-activity {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: var(--grid-row);
-  margin: 0;
-  padding-inline-start: 0;
-  font-size: var(--text-body);
-  color: var(--cv-text-muted);
-  letter-spacing: var(--text-body--letter-spacing);
-}
-.cv-activity__label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* The words' rolling cell (ui/motion/TextRoll.tsx): it gives way before the time. */
-.cv-activity__roll {
-  flex: 0 1 auto;
-  min-width: 0;
-}
-.cv-activity__time {
-  flex: none;
-  font-variant-numeric: var(--instrument-type-numerals, tabular-nums);
-}
-/* A live line under a plan is the finished turn footer's slot. Keep its content at the same
-   leading edge while the row holds the footer's 32 line, so `turnSummary` can replace it in place
-   when the turn ends. */
-.acpmux-row.acpmux-activityLine.acpmux-row--below {
-  min-height: 0;
-  height: var(--cv-footer-row);
-  padding-bottom: 0;
-}
-.acpmux-row.acpmux-activityLine.acpmux-row--below .cv-activity {
-  min-height: var(--cv-live-line-box, var(--cv-footer-row));
-}
-/* Right under a step row it takes the live line's box in a run, as the Thinking line does (transcriptGrid.ts
-   TRANSCRIPT_LIVE_STEP_BOX, --cv-live-step-height). */
-.acpmux-row.acpmux-activityLine.acpmux-row--below.acpmux-row--after-step {
-  height: var(--cv-live-step-height);
-}
-.acpmux-row.acpmux-activityLine.acpmux-row--below.acpmux-row--after-step .cv-activity {
-  min-height: min(var(--cv-live-line-box, var(--cv-footer-row)), var(--cv-live-step-height));
 }
 
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
@@ -9627,7 +9404,6 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 .cv-worked__time,
 .cv-worked__label-time,
 .cv-command__time,
-.cv-activity__time,
 .cv-waterfall__time,
 .cv-agentmsg__time,
 .cv-subagent__time,
