@@ -431,7 +431,7 @@ pub mod ws {
     where
         R: IntoClientRequest,
         D: FnOnce(Request) -> F,
-        F: std::future::Future<Output = Result<TcpStream, WsError>>,
+        F: Future<Output = Result<TcpStream, WsError>>,
     {
         let request = checked(request, site)?;
         #[cfg(feature = "capture")]
