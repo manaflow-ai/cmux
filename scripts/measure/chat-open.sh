@@ -39,7 +39,7 @@ ask_engine="$(measure_engine_asked "$@")"
 tag="chatopen"
 out="$(mktemp -d)"
 # Remove the scratch folder on every exit (a failed build, a TERM), not only at the end: a leaked one holds a build.
-trap 'rm -rf -- "$out"' EXIT
+trap 'measure_remove_scratch "$out"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 reload_config=(--config bench) reload_args=() bench_args=() app="" skip_build=0 build_at=""

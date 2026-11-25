@@ -11,7 +11,7 @@ public extension Metrics {
     ///
     /// ```swift
     /// let card = Metrics.buttonContainer(padding: 16)
-    /// glass.cornerRadius = card.outerRadius           // 24 at the default density
+    /// glass.cornerRadius = card.outerRadius           // 20 at the default density
     /// ChromeHover(button, cornerRadius: card.childRadius)
     /// ```
     /// - Parameter padding: Points from the container's edge to a button, the same on the top, the bottom and

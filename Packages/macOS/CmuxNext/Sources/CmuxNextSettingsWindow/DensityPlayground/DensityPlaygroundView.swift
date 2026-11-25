@@ -209,6 +209,7 @@ struct DensityPlaygroundView: View {
                 }
             }
             .padding(.bottom, Size.gap)
+            .thinScrollers() // the shared scroller that follows "Show scroll bars" (SCROLLBARS-THIN)
         }
         .scrollBounceBehavior(.basedOnSize)
         .accessibilityIdentifier("cmux.densityPlayground.list")

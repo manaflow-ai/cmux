@@ -1,0 +1,7 @@
+Duress: load 43.00 39.57 32.45 cores 16 git version 2.56.1 remote https://github.com/manaflow-ai/cmux.git branch main
+| row | run | repo-ready s | from GitHub MB | clean+upstream |
+|---|---|---|---|---|
+| before | 1 | 921.28 | 14517.2 | ok |
+| after-cold | 1 | 175.68 | 580.9 | ok |
+| after-warm | 1 | 11.29 | 2.0 | ok |
+Duress end: load 8.79 25.83 30.76; mirror 671M

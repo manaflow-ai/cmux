@@ -23,25 +23,47 @@ import Testing
 
     nonisolated final class Recorder: @unchecked Sendable {
         var calls: [[String]] = []
+        var environments: [[String: String]] = []
         var list = SettingsMcpServersTests.list
         var removeReply: (Int32, Data, Data) = (0, Data(#"{"status":"removed"}"#.utf8), Data())
         var signInLines: [String] = [#"{"status":"waiting","page":"https://slack.com/oauth/v2_user/authorize?x=1"}"#, #"{"status":"connected"}"#]
     }
 
-    static func model(_ recorder: Recorder, opened: @escaping @MainActor (URL) -> Void = { _ in }) -> SettingsMcpServers {
+    static func model(_ recorder: Recorder, home: URL? = nil, opened: @escaping @MainActor (URL) -> Void = { _ in }) -> SettingsMcpServers {
         SettingsMcpServers(
             chief: { SettingsMcpServersTests.chief },
+            home: { home },
             openPage: opened,
-            runCLI: { _, arguments in
+            runCLI: { _, arguments, environment in
                 recorder.calls.append(arguments)
+                recorder.environments.append(environment)
                 if arguments.last == "list" { return (0, Data(recorder.list.utf8), Data()) }
                 return recorder.removeReply
             },
-            streamCLI: { _, arguments, line in
+            streamCLI: { _, arguments, environment, line in
                 recorder.calls.append(arguments)
+                recorder.environments.append(environment)
                 for text in recorder.signInLines { if let value = try? JSONValue.parse(Data(text.utf8)) { line(value) } }
                 return 0
             })
+    }
+
+    /// The page reads and changes the store this build's agents use: the helper runs with the
+    /// app's acpmux home (a DEV or tagged build has its own), not whatever home the app inherited.
+    @Test func theHelperRunsInTheAppsOwnHome() async throws {
+        let recorder = Recorder()
+        let home = URL(fileURLWithPath: "/Users/me/.acpmux/builds/com.cmuxterm.app.debug.x", isDirectory: true)
+        let model = Self.model(recorder, home: home)
+        _ = try await model.run(["action": "refresh"], context: Self.script)
+        _ = try await model.run(["action": "signin", "name": "slack"], context: Self.click)
+        for _ in 0..<200 where recorder.calls.count < 3 { await Task.yield() }
+        _ = try await model.run(["action": "remove", "name": "linear"], context: Self.click)
+        #expect(recorder.environments.count >= 4)
+        #expect(recorder.environments.allSatisfy { $0 == ["ACPMUX_HOME": home.path] })
+        // No home known: the helper keeps the app's environment as it is.
+        let plain = Recorder()
+        _ = try await Self.model(plain).run(["action": "refresh"], context: Self.script)
+        #expect(plain.environments == [[:]])
     }
 
     @Test func listsEachServerAndRunsNothingBeforeAsked() async throws {
@@ -104,5 +126,25 @@ import Testing
         #expect(SettingsMcpServers.isWebPage(URL(string: "https://linear.app/oauth/authorize")!))
         #expect(!SettingsMcpServers.isWebPage(URL(string: "file:///etc/passwd")!))
         #expect(!SettingsMcpServers.isWebPage(URL(string: "cmux://settings")!))
+    }
+
+    /// A build without the helper beside its CLI says so ("unavailable"), not "failed"; one with it
+    /// finds it. Only an executable file counts.
+    @Test func aBuildWithoutTheHelperShowsUnavailable() async throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "mcp-servers-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let cli = folder.appending(path: "cmux", directoryHint: .notDirectory)
+        let model = SettingsMcpServers(cli: { cli }, home: { nil }, openPage: { _ in })
+        await model.refresh()
+        #expect(model.state["problem"] == .string("unavailable"))
+        #expect(model.state["servers"] == .array([]))
+
+        let helper = folder.appending(path: "optchat-chief", directoryHint: .notDirectory)
+        try Data("#!/bin/sh\n".utf8).write(to: helper)
+        #expect(await SettingsMcpServers.chief(besideCLI: cli) == nil, "not executable")
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helper.path)
+        #expect(await SettingsMcpServers.chief(besideCLI: cli) == helper)
+        #expect(await SettingsMcpServers.chief(besideCLI: nil) == nil)
     }
 }

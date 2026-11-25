@@ -140,18 +140,17 @@ final class TooltipTracker: NSResponder {
         return window.convertToScreen(view.convert(local, to: nil))
     }
 
-    /// The view's own visible label already says the tooltip's text (a titled button, a label):
-    /// no tooltip, as #20375 rules for pages (webviews/test/tooltip-rules.ts). Icon-only controls,
-    /// shortcuts and regions keep theirs.
-    var repeatsVisibleLabel: Bool {
-        guard region == nil, shortcut == nil, let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), let view else { return false }
+    /// The view shows its own text (a titled button, a label): no tooltip, whatever it says (a1315's cut 2: a
+    /// tooltip names a control that shows no name; pages follow the same rule, webviews/test/tooltip-rules.ts).
+    /// Icon-only controls, a shortcut (no text the control shows) and regions keep theirs.
+    var showsOwnText: Bool {
+        guard region == nil, shortcut == nil, let view else { return false }
         let label: String? = switch view {
         case let button as NSButton where button.imagePosition != .imageOnly: button.title
         case let field as any ShownText: field.stringValue
         default: nil
         }
-        guard let label = label?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty else { return false }
-        return label.caseInsensitiveCompare(text) == .orderedSame
+        return label?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 
     /// Adds the tracking area while there is text, removes it without.

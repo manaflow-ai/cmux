@@ -69,6 +69,16 @@ def executable(app: Path) -> Path:
         return app / "Contents/MacOS" / plistlib.load(handle)["CFBundleExecutable"]
 
 
+# The app's code, which links the library: CmuxNextApp.framework behind a stub executable (CMUX-629),
+# or the executable itself in a static (live code) build.
+CODE_FRAMEWORK_BINARY = "Contents/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp"
+
+
+def code_image(app: Path) -> Path:
+    framework = app / CODE_FRAMEWORK_BINARY
+    return framework if framework.is_file() else executable(app)
+
+
 def _git(repo: Path, *args: str) -> str:
     done = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, errors="replace")
     if done.returncode != 0:
@@ -232,8 +242,9 @@ def archs(path: Path) -> list[str]:
 
 
 def imports(app: Path) -> set[str]:
-    """The symbols the app's executable binds to libcmux_app_ffi (nm -m: `(from libcmux_app_ffi)`)."""
-    out = _run("nm", "-m", "-u", "-arch", host_arch(), str(executable(app))).stdout
+    """The symbols the app's code binds to libcmux_app_ffi (nm -m: `(from libcmux_app_ffi)`). The stub
+    executable binds none, so it is the code image's, or every library would pass this check."""
+    out = _run("nm", "-m", "-u", "-arch", host_arch(), str(code_image(app))).stdout
     return {line.split()[2] for line in out.splitlines() if line.rstrip().endswith("(from libcmux_app_ffi)")}
 
 
@@ -355,20 +366,51 @@ def quit_keeping_sessions(app: Path) -> int | None:
     raise RuntimeError(f"the app (pid {pid}) did not quit within {QUIT_SECONDS} s of quit --keep-sessions")
 
 
-def open_app(app: Path) -> dict:
+# The app's own background-reopen argument (UpdateRelaunchFocus.reopenArgument): a launch with it starts behind the
+# front app and refuses its launch activation, as an unclicked update's reopen does.
+REOPEN_BEHIND_ARGUMENT = "--cmux-update-reopened-behind"
+
+
+def is_frontmost(pid: int | None) -> bool:
+    """Whether pid is the frontmost app now (lsappinfo). False when it is not, or when lsappinfo cannot say (ssh, no
+    window server): a relaunch then stays behind, and a person who was in the app clicks it once, rather than a
+    relaunch nobody watched taking the keyboard from the app a person types in (Leo, 2026-10-31: "WHY THE F*** DOES
+    THE DEV BUILD KEEP STEALING F*** FOCUS")."""
+    if pid is None:
+        return False
+    try:
+        front = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True, timeout=5).stdout.strip()
+        if not front:
+            return False
+        info = subprocess.run(["lsappinfo", "info", "-only", "pid", front], capture_output=True, text=True,
+                              timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    digits = "".join(ch if ch.isdigit() else " " for ch in info.split("=", 1)[-1]).split()
+    return bool(digits) and int(digits[0]) == pid
+
+
+def open_argv(app: Path, behind: bool) -> list[str]:
+    """`open` for APP: in front as before when the app was frontmost at its quit, else behind (-g, and the reopen
+    argument so the app refuses its own launch activation)."""
+    return ["open", "-g", str(app), "--args", REOPEN_BEHIND_ARGUMENT] if behind else ["open", str(app)]
+
+
+def open_app(app: Path, behind: bool = True) -> dict:
     """Opens APP: `open`, or, where LaunchServices does not answer, a one-shot agent in the user's GUI domain.
 
     `open` fails in the two places hot-apply runs from most: a terminal of the app itself, which outlives
     `cmux app quit --keep-sessions` but whose LaunchServices connection went with the app (error -600), and an
     ssh session, which has no window server. launchd's gui/<uid> domain opens the app in the console session from
     both. Returns {"via": "open"} or {"via": "launchd", "label", "plist"} for close_opener()."""
-    done = _run("open", str(app), check=False)
+    argv = open_argv(app, behind)
+    done = _run(*argv, check=False)
     if done.returncode == 0:
         return {"via": "open"}
     label = f"com.cmux.hot-apply-ffi.open.{os.getpid()}.{time.monotonic_ns()}"
     plist = Path(tempfile.mkdtemp(prefix="hot-apply-ffi-open.")) / f"{label}.plist"
     with open(plist, "wb") as handle:
-        plistlib.dump({"Label": label, "ProgramArguments": ["/usr/bin/open", str(app)], "RunAtLoad": True,
+        plistlib.dump({"Label": label, "ProgramArguments": ["/usr/bin/open", *argv[1:]], "RunAtLoad": True,
                        "LaunchOnlyOnce": True}, handle)
     boot = _run("launchctl", "bootstrap", f"gui/{os.getuid()}", str(plist), check=False)
     if boot.returncode != 0:
@@ -386,10 +428,11 @@ def close_opener(opener: dict) -> None:
     shutil.rmtree(Path(opener["plist"]).parent, ignore_errors=True)
 
 
-def launch(app: Path, old_pid: int | None) -> dict:
-    """Opens APP and waits until a new pid's control socket answers, then that it stays up STAY_SECONDS."""
+def launch(app: Path, old_pid: int | None, front: bool = False) -> dict:
+    """Opens APP (behind unless `front`: it was frontmost at its quit) and waits until a new pid's control socket
+    answers, then that it stays up STAY_SECONDS."""
     t0 = time.monotonic()
-    opener = open_app(app)
+    opener = open_app(app, behind=not front)
     try:
         deadline = t0 + LAUNCH_SECONDS
         pid = None
@@ -403,7 +446,11 @@ def launch(app: Path, old_pid: int | None) -> dict:
     finally:
         close_opener(opener)
     answered = time.monotonic() - t0
-    time.sleep(STAY_SECONDS)
+    # The check is that the app stays up STAY_SECONDS, so that whole window is spent; it is watched throughout so a
+    # crash fails at once instead of at its end.
+    stay_until = time.monotonic() + STAY_SECONDS
+    while time.monotonic() < stay_until and app_pid(app) == pid:
+        time.sleep(min(0.5, max(0.0, stay_until - time.monotonic())))
     if app_pid(app) != pid:
         raise RuntimeError(f"the app (pid {pid}) did not stay up {STAY_SECONDS:g} s")
     return {"pid": pid, "answered_seconds": round(answered, 3), "stayed_seconds": STAY_SECONDS, "opened_via": opener["via"]}
@@ -464,6 +511,8 @@ def swap(app: Path, new: Path, state: Path, how: str, identity: str | None, phas
         step = {"from": prior, "to": to, "signed": how}
         with phases("quit"):
             started = time.monotonic()
+            front = is_frontmost(app_pid(app))
+            undo["front"] = front
             step["quit_pid"] = quit_keeping_sessions(app)
             step["quit_seconds"] = round(time.monotonic() - started, 3)
         try:
@@ -479,7 +528,7 @@ def swap(app: Path, new: Path, state: Path, how: str, identity: str | None, phas
                 step["launch"] = None
             else:
                 with phases("launch"):
-                    step["launch"] = launch(app, step["quit_pid"])
+                    step["launch"] = launch(app, step["quit_pid"], front)
         except Exception as error:
             error.undo = undo  # type: ignore[attr-defined]
             raise
@@ -493,7 +542,9 @@ def put_back(app: Path, undo: dict) -> dict:
         running = app_pid(app)
         if running and app_answers(app):
             return {"ok": True, "running_sha256": undo["sha256"], "app": "unchanged"}
-    old = quit_keeping_sessions(app) if app_pid(app) else None
+    running = app_pid(app)
+    front = bool(undo.get("front")) or (running is not None and is_frontmost(running))
+    old = quit_keeping_sessions(app) if running else None
     place(Path(undo["copy"]), dest)
     if undo.get("signature"):
         restore_signature(app, undo["signature"])
@@ -501,4 +552,4 @@ def put_back(app: Path, undo: dict) -> dict:
         raise RuntimeError(f"{DYLIB} does not hash to the library put back ({undo['sha256']})")
     if old is None and not undo.get("was_running", True):
         return {"ok": True, "running_sha256": undo["sha256"], "launch": None}  # it was not running: it stays stopped
-    return {"ok": True, "running_sha256": undo["sha256"], "launch": launch(app, old)}
+    return {"ok": True, "running_sha256": undo["sha256"], "launch": launch(app, old, front)}

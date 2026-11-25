@@ -18,9 +18,11 @@
 //! cmux quit, and in safe mode.
 
 mod brief;
+pub mod checklist;
 pub mod community;
 mod diff;
 mod engine;
+mod file_refs;
 pub mod library;
 mod paths;
 pub mod profile;
@@ -34,11 +36,11 @@ mod validate;
 
 use serde::Serialize;
 
-pub use brief::brief;
+pub use brief::{SURFACE_KEYS, brief};
 pub use engine::Customize;
 pub use paths::{Roots, STATE_OVERRIDE};
 pub use redact::Reader;
-pub use store::{Ask, Draft, Generation, Kind, TryOn};
+pub use store::{Ask, Draft, Generation, Kind, LibraryMark, TryOn};
 pub use tree::{Part, Skipped};
 pub use try_on::{DEFAULT_TRY_ON_MINUTES, MAX_TRY_ON_MINUTES, Settled, TriedOn};
 pub use validate::Problem;

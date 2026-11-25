@@ -27,6 +27,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 fn repo() -> PathBuf {
+    // affected-reads: Packages/macOS/CmuxNext/Sources/CmuxNextApp/MainMenu.swift Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/MacOSSystemShortcutsTests.swift schemas/keybindings/ghostty-reserved-keys.json first-party-apps
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
