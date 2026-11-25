@@ -35,7 +35,7 @@ import { lastWrapUp, withoutWrapUp, execWrapUp, isWrapUp, wrapUpAsk } from "./wr
 import { lastWalkthrough } from "./walkthroughModel";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
-import { commandLine, commandSaid, scriptNoun } from "./commandActions";
+import { scriptNoun, commandLine, commandSaid } from "./commandActions";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups, countsFailed } from "./toolGroups";
 import { toolRunPhrases } from "./toolRunSummary";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
@@ -92,6 +92,7 @@ import { MEMORY_OFFER } from "./memoryInbox";
 import { PROMPT_COACH } from "./promptCoach";
 import { PRESET_APPROVAL } from "./presetApproval";
 import { githubConnectNeed } from "./githubConnect";
+import { planStepTitle } from "./planStepText";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -1976,18 +1977,30 @@ function foldedAgentMessages(rows: readonly AcpmuxRow[]): { sent: number; receiv
   for (const row of rows) {
     if (isReceivedLine(row) && row.kind === "user")
       received += row.incoming?.kind === "inbox" ? Math.max(1, inboxCounts(row.incoming.notice).messages) : 1;
-    else if (row.kind === "activity" && row.items?.length)
-      for (const group of toolGroups(row.items))
-        sent +=
-          group.type === "sendGroup"
-            ? group.entries.length
-            : group.type === "message" ||
-                group.type === "send" ||
-                (group.type === "subsession" && group.call.tool === "send")
-              ? 1
-              : 0;
+    else if (row.kind === "activity" && row.items?.length) sent += sentMessages(row.items);
   }
   return { sent, received };
+}
+
+/// The messages one step's calls sent, by its immutable items array: a running turn's "Worked for"
+/// is shaped again on every record the pane draws, and grouping each earlier step's calls again
+/// (toolGroups.ts) was most of that (bench/replay-under-load.bench.ts --profile).
+const sentCounts = new WeakMap<readonly AcpmuxActivity[], number>();
+function sentMessages(items: readonly AcpmuxActivity[]): number {
+  const kept = sentCounts.get(items);
+  if (kept !== undefined) return kept;
+  let sent = 0;
+  for (const group of toolGroups(items))
+    sent +=
+      group.type === "sendGroup"
+        ? group.entries.length
+        : group.type === "message" ||
+            group.type === "send" ||
+            (group.type === "subsession" && group.call.tool === "send")
+          ? 1
+          : 0;
+  sentCounts.set(items, sent);
+  return sent;
 }
 
 /// The calls of a step that edited, other than its edits, which the turn's edits card draws: they stay
@@ -2274,8 +2287,10 @@ function shapeTurn(
     // A stretch before a steer whose only work was compacting the conversation draws no "Worked
     // for" of its own: its note stays in place, and the turn's one fold is the work after the steer
     // (Leo, 2026-11-25: "the worked for for collapsing the compaction and then the next worked for
-    // + thinking is weird. layout shifts and awkward looking animations").
-    const compactOnly = !final && said === undefined && onlyCompaction(work);
+    // + thinking is weird. layout shifts and awkward looking animations"). A /compact alone ends the
+    // same way: its note ("Compacted · 152k → 18k") stays in the place its live "Compacting" line
+    // held, never shut inside a "Worked for 1s" that hides what it did.
+    const compactOnly = said === undefined && onlyCompaction(work);
     const unlabeled =
       compactOnly ||
       (previous === undefined &&
@@ -4046,7 +4061,7 @@ function activityLine(
         .find((item) => item.tool?.status === "pending" || item.tool?.status === "in_progress");
   const label = running?.tool
     ? runningLabel(running.tool, running.text)
-    : (plan.plan?.find((entry) => entry.status === "in_progress")?.content ?? "");
+    : planStepTitle(plan.plan?.find((entry) => entry.status === "in_progress")?.content ?? "");
   // A started command offers ⌃B here, as on the turn's other live lines (ActivityLine.tsx).
   const command =
     running?.tool?.kind === "execute" && !isDraftCall(running.tool) && running.tool.background === undefined;
