@@ -1,3 +1,4 @@
+import CmuxNextApps
 public import CmuxNextPages
 public import CmuxNextSettings
 public import Foundation
@@ -17,7 +18,7 @@ public extension PageDescriptor {
     /// bundle images under `__appbundle/` (``AppsPanelsPageProvider``), and the chart and diagram
     /// libraries (Ondine, Mermaid, Vega) under `__lib/` (``AgentPageResources``).
     static let agent = PageDescriptor(
-        id: "cmux.agent", resource: "agent-pane", namespaces: [AgentPageOps.namespace, AppsPanelsPageProvider.namespace],
+        id: "cmux.agent", resource: "agent-pane", namespaces: [AgentPageOps.namespace, AppsPanelsPageProvider.namespace, CustomizeChatPage.namespace],
         csp: PageCSP(connect: ["'none'"],
                      frame: [AgentPaneRenderFrame.source, "cmux-page://cmux.agent/__artifact", "http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
                      media: ["'self'"],
