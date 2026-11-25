@@ -9,13 +9,19 @@
 //! - [`select`]: what a feed offers this Mac: the newest item its macOS can run.
 //! - [`numeric`]: the numeric order of kept builds and channel tracks.
 //! - [`rollback`]: which kept build a rollback goes to, and where a slower ring sends this Mac.
+//! - [`feed`]: which appcast a build follows, the ring tags it accepts, its manual download.
+//! - [`install`]: an accepted install from the click to a download, and the watchdog's verdicts.
+//! - [`relaunch`]: whether an update may relaunch the app now.
 //! - [`ops`]: the JSON requests the app sends over the app FFI (`updater_*`).
 //!
 //! No I/O: the app fetches the feed and passes its bytes.
 
 pub mod appcast;
+pub mod feed;
+pub mod install;
 pub mod numeric;
 pub mod ops;
+pub mod relaunch;
 pub mod rollback;
 pub mod select;
 pub mod system_version;

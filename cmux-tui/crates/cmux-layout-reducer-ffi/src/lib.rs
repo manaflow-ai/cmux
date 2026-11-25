@@ -375,6 +375,25 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&ops::ring_return(&request)).map_err(|_| ERR_INVALID)?
             }
+            b"updater_feed_resolve" => {
+                use cmux_updater_core::ops;
+                let request: ops::FeedRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&ops::feed_resolve(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"updater_install_attempt" => {
+                use cmux_updater_core::ops;
+                let request: ops::AttemptRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&ops::install_attempt(&request).ok_or(ERR_INVALID)?)
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"updater_relaunch_permits" => {
+                use cmux_updater_core::ops;
+                let request: ops::RelaunchRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&ops::relaunch_permits(&request)).map_err(|_| ERR_INVALID)?
+            }
             b"bookmarks_apply" => {
                 let request: cmux_bookmarks_core::preview::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;

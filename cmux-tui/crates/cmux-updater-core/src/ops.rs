@@ -7,7 +7,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use crate::appcast::{self, AppcastItem};
+use crate::feed::{self, Architecture, Channel, Resolution, Ring};
+use crate::install::{self, Action, Attempt, Phase};
 use crate::numeric;
+use crate::relaunch::{Blockers, Waits};
 use crate::rollback::{self, Kept, Refusal, RingReturn};
 use crate::select::{self, Candidate, Outcome};
 use crate::system_version::SystemVersion;
@@ -162,6 +165,122 @@ pub fn ring_return(request: &RingReturnRequest) -> RingReturn {
     )
 }
 
+/// `updater_feed_resolve`: the feed for `SUFeedURL`, what it accepts on `ring`, and where a
+/// failed update downloads by hand.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeedRequest {
+    #[serde(default, rename = "infoFeedURL")]
+    pub info_feed_url: Option<String>,
+    pub architecture: Architecture,
+    #[serde(default)]
+    pub ring: Option<Ring>,
+    #[serde(default)]
+    pub bundle_identifier: Option<String>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FeedReply {
+    #[serde(flatten)]
+    pub resolution: Resolution,
+    pub allowed_sparkle_channels: Vec<&'static str>,
+    #[serde(rename = "manualDownloadURL")]
+    pub manual_download_url: String,
+    pub dev_like: bool,
+}
+
+pub fn feed_resolve(request: &FeedRequest) -> FeedReply {
+    let resolution = feed::resolve(request.info_feed_url.as_deref(), request.architecture);
+    // Recovery classifies the raw `SUFeedURL`, as `UpdateManualDownloadRecovery` did.
+    let recovery = Channel::classify(request.info_feed_url.as_deref().unwrap_or_default());
+    FeedReply {
+        allowed_sparkle_channels: resolution
+            .channel
+            .allowed_sparkle_channels(request.ring.unwrap_or(Ring::Nightly)),
+        manual_download_url: recovery.manual_download_url(request.architecture),
+        dev_like: feed::is_dev_like_bundle_identifier(request.bundle_identifier.as_deref()),
+        resolution,
+    }
+}
+
+/// `updater_install_attempt`: one step of an accepted install. `event` is `request` (the user
+/// asked to install, `phase` is the phase showing), `freshCheckStarted`, or `phase` (a change).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttemptRequest {
+    #[serde(default)]
+    pub attempt: Attempt,
+    pub event: AttemptEvent,
+    #[serde(default)]
+    pub phase: Option<Phase>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AttemptEvent {
+    Request,
+    FreshCheckStarted,
+    Phase,
+    Cancel,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AttemptReply {
+    pub attempt: Attempt,
+    pub action: Action,
+    pub monitoring: bool,
+    /// The watchdog disarms: the step ended the attempt without an install, or `phase` resolves it.
+    pub disarm: bool,
+    /// Were the watchdog to fire now, `phase` would be a stall.
+    pub stalled: bool,
+}
+
+pub fn install_attempt(request: &AttemptRequest) -> Option<AttemptReply> {
+    let (attempt, action) = match request.event {
+        AttemptEvent::Request => request.attempt.request_install_latest(request.phase?),
+        AttemptEvent::FreshCheckStarted => (request.attempt.did_start_fresh_check(), Action::None),
+        AttemptEvent::Phase => request.attempt.handle(request.phase?),
+        AttemptEvent::Cancel => (Attempt::Inactive, Action::None),
+    };
+    let monitoring = attempt.is_monitoring();
+    let disarm = (request.event == AttemptEvent::Phase
+        && install::ended_without_install(action, monitoring))
+        || request.phase.is_some_and(install::resolved);
+    Some(AttemptReply {
+        attempt,
+        action,
+        monitoring,
+        disarm,
+        stalled: request.phase.is_some_and(install::stalled),
+    })
+}
+
+/// `updater_relaunch_permits`.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelaunchRequest {
+    #[serde(default)]
+    pub blockers: Blockers,
+    pub automatic: bool,
+    pub waits: Waits,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RelaunchReply {
+    pub permits: bool,
+    pub empty: bool,
+}
+
+pub fn relaunch_permits(request: &RelaunchRequest) -> RelaunchReply {
+    RelaunchReply {
+        permits: request.blockers.permits_relaunch(request.automatic, &request.waits),
+        empty: request.blockers.is_empty(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,5 +368,57 @@ mod tests {
     fn system_versions_parse_each_text() {
         let reply = system_versions(&SystemVersionRequest { texts: vec!["26".into(), "x".into()] });
         assert_eq!(reply.versions, vec![Some(SystemVersion::new(26, 0, 0)), None]);
+    }
+
+    #[test]
+    fn feed_resolve_answers_feed_ring_and_recovery() {
+        let request: FeedRequest = serde_json::from_value(json!({
+            "infoFeedURL": "https://x/nightly-next/appcast.xml",
+            "architecture": "arm64", "ring": "canary", "bundleIdentifier": "com.cmuxterm.app.debug.t",
+        }))
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(feed_resolve(&request)).unwrap(),
+            json!({
+                "url": "https://x/nightly-next/appcast-arm64.xml", "channel": "nightlyNext",
+                "usedFallback": false,
+                "allowedSparkleChannels": ["cmux-next-stable", "cmux-next", "cmux-next-canary"],
+                "manualDownloadURL": "https://cmux.com/api/download/next", "devLike": true,
+            })
+        );
+    }
+
+    #[test]
+    fn install_attempt_steps_and_tells_the_watchdog() {
+        let request: AttemptRequest =
+            serde_json::from_value(json!({"event": "request", "phase": "updateAvailable"}))
+                .unwrap();
+        assert_eq!(
+            serde_json::to_value(install_attempt(&request)).unwrap(),
+            json!({"attempt": "awaitingFreshCheck", "action": "startFreshCheck", "monitoring": true,
+                   "disarm": false, "stalled": true})
+        );
+        let request: AttemptRequest = serde_json::from_value(
+            json!({"attempt": "awaitingResult", "event": "phase", "phase": "idle"}),
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(install_attempt(&request)).unwrap(),
+            json!({"attempt": "inactive", "action": "installFailed", "monitoring": false,
+                   "disarm": true, "stalled": true})
+        );
+        let request: AttemptRequest = serde_json::from_value(json!({"event": "phase"})).unwrap();
+        assert_eq!(install_attempt(&request), None);
+    }
+
+    #[test]
+    fn relaunch_permits_reads_the_gate() {
+        let request: RelaunchRequest = serde_json::from_value(json!({
+            "blockers": {"busyAgentCount": 1}, "automatic": false,
+            "waits": {"waited": 5, "daemonUnavailableFor": 0, "agentTimeout": 5,
+                      "daemonUnavailableTimeout": 30, "automaticWaitCap": 600},
+        }))
+        .unwrap();
+        assert_eq!(relaunch_permits(&request), RelaunchReply { permits: true, empty: false });
     }
 }
