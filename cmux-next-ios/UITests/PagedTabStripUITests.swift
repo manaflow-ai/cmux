@@ -22,11 +22,27 @@ final class PagedTabStripUITests: XCTestCase {
 
     /// Settings › Horizontal tabs off: the address capsule, as before.
     @MainActor
-    func testStripOffKeepsTheCapsule() throws {
-        let app = open(appearance: "dark", strip: false)
+    func testStripOffKeepsTheCapsule() throws { try runOff(appearance: "dark") }
+
+    @MainActor
+    func testStripOffLight() throws { try runOff(appearance: "light") }
+
+    /// With the strip off the pages run under the bar too: the agent chat and a terminal.
+    @MainActor
+    private func runOff(appearance a: String) throws {
+        let app = open(appearance: a, strip: false)
         XCTAssertFalse(app.descendants(matching: .any)["tabs.strip"].exists, "no strip with the setting off")
         XCTAssertTrue(app.buttons["Page Menu"].firstMatch.waitForExistence(timeout: 10) || app.buttons["Tabs"].exists)
-        shot(app, "dark-off-capsule")
+        pause(1.0)
+        shot(app, "\(a)-off-capsule")
+        let tabs = app.buttons.matching(NSPredicate(format: "label ==[c] 'Tabs'")).firstMatch
+        if tabs.waitForExistence(timeout: 5) { tabs.tap() }
+        pause(1.2)
+        let zsh = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'zsh'")).firstMatch
+        if zsh.waitForExistence(timeout: 5), zsh.isHittable { zsh.tap() }
+        pause(1.2)
+        shot(app, "\(a)-off-terminal")
+        assertNoSeam(app, below: 140, "\(a) terminal, strip off")
     }
 
     @MainActor
@@ -37,6 +53,7 @@ final class PagedTabStripUITests: XCTestCase {
         pause(1.0)
         report(app, "\(a)-rest-first")
         shot(app, "\(a)-01-rest-first")
+        assertNoSeam(app, below: strip.frame.maxY + 40, "\(a) agent chat, strip on")
         XCTAssertEqual(chipIDs(app), ["t-strip-wellbeing", "t-strip-ho", "t-strip-greeting", "t-strip-zsh", "t-strip-docs",
                                       "t-strip-long"], "the strip lists the first pane's tabs only")
         assertCentered(app, "t-strip-wellbeing")
@@ -76,6 +93,7 @@ final class PagedTabStripUITests: XCTestCase {
         print("CMUX_STRIP_TRACE \(strip.value as? String ?? "-")")
         report(app, "\(a)-after-tap")
         shot(app, "\(a)-05-tap-neighbor")
+        assertNoSeam(app, below: strip.frame.maxY + 40, "\(a) terminal, strip on")
         assertActive(app, "t-strip-zsh", "a tapped chip becomes the tab")
 
         // Back toward the start: a drag right.
@@ -182,6 +200,35 @@ final class PagedTabStripUITests: XCTestCase {
         let frames = chips.map { "\($0.identifier)=\(Int($0.frame.minX)),\(Int($0.frame.minY)),\(Int($0.frame.width))x\(Int($0.frame.height))\($0.isSelected ? "*" : "")" }
         let back = app.buttons["Back"].firstMatch
         print("CMUX_STRIP \(label) screen=\(Int(app.frame.width)) back=\(back.exists ? "\(back.frame)" : "none") \(frames.joined(separator: " "))")
+    }
+
+    /// The page's background runs up under the bar to the top of the screen: the color at the
+    /// very top (beside the status bar's clock and icons) is the page's own color below the bar.
+    private func assertNoSeam(_ app: XCUIApplication, below y: CGFloat, _ label: String) {
+        let image = app.screenshot().image
+        let top = pixel(image, at: CGPoint(x: app.frame.midX, y: 2))
+        let page = pixel(image, at: CGPoint(x: app.frame.maxX - 3, y: y))
+        print("CMUX_STRIP_SEAM \(label) top=\(top) page=\(page) y=\(Int(y))")
+        guard let top, let page else { return XCTFail("\(label): no pixels") }
+        let delta = zip(top, page).map { abs(Int($0) - Int($1)) }.max() ?? 0
+        XCTAssertLessThanOrEqual(delta, 12, "\(label): the top of the screen \(top) is not the page's color \(page)")
+    }
+
+    /// One pixel's RGB at a point of `image` (points, top-left origin).
+    private func pixel(_ image: UIImage, at p: CGPoint) -> [UInt8]? {
+        guard let cg = image.cgImage else { return nil }
+        let x = Int(p.x * image.scale), y = Int(p.y * image.scale)
+        guard x >= 0, y >= 0, x < cg.width, y < cg.height else { return nil }
+        var data = [UInt8](repeating: 0, count: 4)
+        let drawn = data.withUnsafeMutableBytes { buffer -> Bool in
+            guard let ctx = CGContext(data: buffer.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            // The pixel at (x, y) from the top lands on the 1x1 context.
+            ctx.draw(cg, in: CGRect(x: -x, y: y - cg.height + 1, width: cg.width, height: cg.height))
+            return true
+        }
+        return drawn ? Array(data[0..<3]) : nil
     }
 
     private func pause(_ seconds: TimeInterval) {
