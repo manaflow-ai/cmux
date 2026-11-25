@@ -38,14 +38,14 @@ public enum PhoneTrace {
     /// Runs on the caller's actor (`isolation`), so a main-actor body stays there.
     public static func action<T>(_ name: String, floorRoundTrips: Int? = nil, args: [String: String] = [:],
                                  isolation: isolated (any Actor)? = #isolation,
-                                 _ body: () async throws -> T) async throws -> T {
+                                 _ body: () async throws -> T) async rethrows -> T {
         try await action(name, floorRoundTrips: floorRoundTrips, args: args, recorder: recorder, isolation: isolation, body)
     }
 
     /// ``action(_:floorRoundTrips:args:_:)`` into `recorder` (tests pass their own).
     static func action<T>(_ name: String, floorRoundTrips: Int?, args: [String: String], recorder: Recorder?,
                           isolation: isolated (any Actor)? = #isolation,
-                          _ body: () async throws -> T) async throws -> T {
+                          _ body: () async throws -> T) async rethrows -> T {
         let id = traceID ?? newTraceID()
         let count = TripCount()
         let start = Recorder.now()
