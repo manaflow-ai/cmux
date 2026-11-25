@@ -280,12 +280,13 @@ struct ClassicFolderItemsMoveTests {
     }
 
     /// The folders BuildStatePaths and the Rust defaults now keep in `cmux-next` (agent homes, chat
-    /// attachments, cmux-remote's identity, the browser host's backups, cmux-tasks' store) move once, each
+    /// attachments, cmux-remote's identity, the browser host's backups, cmux-tasks' store, app-try, the codex
+    /// bundle) move once, each
     /// leaving a link: chats and agent configs name agent-home and Chat Uploads paths.
     @Test func theApplicationSupportFoldersMoveOnceWithALinkBack() throws {
         let support = try Self.support()
         defer { try? FileManager.default.removeItem(at: support) }
-        let moved = ["agent-home", "Chat Uploads", "remote", "browser-host", "tasks"]
+        let moved = ["agent-home", "Chat Uploads", "remote", "browser-host", "tasks", "app-try", "codex-app-server"]
         for name in moved { try Self.write(name, support.appending(path: "cmux/\(name)/f")) }
         try Self.write("classic", support.appending(path: "cmux/session-com.cmuxterm.app.json"))
 

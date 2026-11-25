@@ -56,6 +56,7 @@ html[data-cmux-page="changelog"] body {
 /* The enlarged picture: on glass over the page, the picture whole (contain), never cut. */
 .cl-lightbox-backdrop {
   background: color-mix(in srgb, var(--cmux-surface-background, Canvas) 60%, transparent);
+  /* one-material-allow: the lightbox's modal scrim (the dialog above it is the .ui-glass), not a glass surface */
   -webkit-backdrop-filter: var(--surface-blur);
   backdrop-filter: var(--surface-blur);
 }
