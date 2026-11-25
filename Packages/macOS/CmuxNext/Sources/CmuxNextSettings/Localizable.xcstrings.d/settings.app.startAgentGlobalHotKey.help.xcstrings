@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.app.startAgentGlobalHotKey.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⌃⌥⌘Space starts an agent while another app is in front."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ほかのアプリが前面にあるときも、⌃⌥⌘Space でエージェントを開始します。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يبدأ ⌃⌥⌘Space وكيلًا أثناء وجود تطبيق آخر في المقدمة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌃⌥⌘Space pokreće agenta dok je druga aplikacija u prvom planu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌃⌥⌘Space starter en agent, mens en anden app er forrest."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌃⌥⌘Space startet einen Agenten, während eine andere App im Vordergrund ist."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌃⌥⌘Space inicia un agente mientras otra app está en primer plano."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌃⌥⌘Space démarre un agent lorsqu’une autre app est au premier plan."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌃⌥⌘Space avvia un agente mentre un’altra app è in primo piano."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌃⌥⌘Space ចាប់ផ្តើមភ្នាក់ងារ ពេលកម្មវិធីផ្សេងនៅខាងមុខ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "다른 앱이 앞에 있어도 ⌃⌥⌘Space로 에이전트를 시작합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌃⌥⌘Space starter en agent mens en annen app er foran."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌃⌥⌘Space uruchamia agenta, gdy na pierwszym planie jest inna aplikacja."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌃⌥⌘Space inicia um agente enquanto outro app está em primeiro plano."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌃⌥⌘Space запускает агента, когда впереди другое приложение."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌃⌥⌘Space เริ่มเอเจนต์ได้ขณะที่แอปอื่นอยู่ด้านหน้า"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌃⌥⌘Space, başka bir uygulama öndeyken bir ajan başlatır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌃⌥⌘Space запускає агента, коли попереду інша програма."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "⌃⌥⌘Space bắt đầu tác tử khi một ứng dụng khác ở phía trước."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "其他应用在前台时，⌃⌥⌘Space 也可启动智能体。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "其他 App 在前景時，⌃⌥⌘Space 也可啟動代理。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
