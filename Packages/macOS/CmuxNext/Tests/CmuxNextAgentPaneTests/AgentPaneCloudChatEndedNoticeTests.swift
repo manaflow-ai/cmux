@@ -52,4 +52,25 @@ struct AgentPaneCloudChatEndedNoticeTests {
         #expect(notice.detail == AgentPaneView.cloudChatEndedDetail(promptBack: false))
         #expect(notice.detail != AgentPaneView.cloudChatEndedDetail(promptBack: true))
     }
+
+    /// Review of cmux#55066: only a Cloud chat that went soon after its start puts its prompt back; one that ran
+    /// for a while says only that it ended, and one a repick moved on (no start this run) gets no notice at all.
+    @Test func theEndedSeedPutsThePromptBackOnlyForAChatThatWentSoonAfterItStarted() async throws {
+        let opened = Date(timeIntervalSince1970: 1_000_000)
+        let started = AgentPaneCloudStarted(
+            start: AgentPaneCloudStart(task: "reply ok", cwd: "/tmp/p", key: UUID().uuidString),
+            chat: "/tmp/p", workspace: nil, account: [], machineID: "vm_1", at: opened)
+
+        let fresh = try #require(AgentPaneCloudStarted.endedSeed(started, machine: "box", now: opened.addingTimeInterval(30)))
+        #expect(fresh.cloudChatEnded?.machine == "box")
+        #expect(fresh.cloudChatEnded?.promptBack == true)
+        #expect(await fresh.peek()?.draft == "reply ok")
+
+        let later = opened.addingTimeInterval(AgentPaneCloudStarted.freshEnd + 1)
+        let stale = try #require(AgentPaneCloudStarted.endedSeed(started, machine: "box", now: later))
+        #expect(stale.cloudChatEnded?.promptBack == false)
+        #expect(await stale.peek()?.draft == nil)
+
+        #expect(AgentPaneCloudStarted.endedSeed(nil, machine: "box") == nil)
+    }
 }

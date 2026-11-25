@@ -854,6 +854,7 @@ function TurnFailure({
             rowId={retryRowId}
             prompt={prompt}
             keyOnly={otherAccountKeyOnly}
+            another
             gateway={offersGateway(message)}
             actionsRef={actionsRef}
           />

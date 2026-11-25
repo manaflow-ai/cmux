@@ -1391,6 +1391,8 @@ fn a_pushed_turn_failed_on_an_account_limit_says_what_happened_and_the_way_on() 
             "account.disabled",
             "Codex's account was turned off by its provider",
         ),
+        // A rate limit is not the account's allowance: its words pass through as they were.
+        ("You've hit your rate limit, slow down.", "", "You've hit your rate limit, slow down."),
     ] {
         let mut fake = Fake::new(vec![
             signed_in(),
@@ -1410,6 +1412,12 @@ fn a_pushed_turn_failed_on_an_account_limit_says_what_happened_and_the_way_on() 
         };
         assert_eq!(error["code"], "chat.turn_failed", "{error}");
         let message = error["message"].as_str().unwrap();
+        assert!(message.contains(starts), "{message}");
+        if kind.is_empty() {
+            assert!(!message.contains("--agent claude"), "{message}");
+            assert!(error["details"].get("errorKind").is_none(), "{error}");
+            continue;
+        }
         assert!(message.starts_with(starts), "{message}");
         assert!(message.contains("ask Claude instead (--agent claude)"), "{message}");
         assert_eq!(error["details"]["errorKind"], kind, "{error}");

@@ -412,6 +412,9 @@ test("an account out of usage or turned off says so, with its reset and the ways
   expect(limitResetWords(`(turn failed: ${weekly})`)).toBe("Nov 27, 7am (UTC)");
   expect(limitResetWords("You've hit your session limit · resets 3am")).toBe("3am");
   expect(failureKind("You've hit your limit · resets 3pm", claude)).toBe("usage-limit");
+  // A rate or token limit is not the account's allowance.
+  expect(failureKind("You've hit your rate limit, slow down", claude)).not.toBe("usage-limit");
+  expect(failureKind("You've hit your context token limit", claude)).not.toBe("usage-limit");
   // Codex's own words.
   const codex = { name: "Codex", harness: "codex" };
   const codexLimit =

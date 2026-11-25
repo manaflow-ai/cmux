@@ -6,6 +6,7 @@
 
 #[cfg(unix)]
 mod account_limit;
+#[cfg(unix)]
 mod action_hint;
 #[cfg(unix)]
 mod agent_config;

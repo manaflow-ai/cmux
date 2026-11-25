@@ -24,7 +24,7 @@ public nonisolated struct AgentPaneCloudStarted: Sendable, Equatable {
     /// The seed of the Mac tab whose Cloud chat `started` (shown there in place) went at `now`: its new page
     /// says the Cloud chat on `machine` ended, with the start's prompt back in its composer when the chat went
     /// within ``freshEnd`` of its start. Nil without a start this run (a repick moved it on): no notice.
-    public static func endedSeed(_ started: Self?, machine: String?, now: Date = Date()) -> AgentPaneSeedSource? {
+    @MainActor public static func endedSeed(_ started: Self?, machine: String?, now: Date = Date()) -> AgentPaneSeedSource? {
         guard let started else { return nil }
         let fresh = now.timeIntervalSince(started.at) < freshEnd && started.start.task.contains { !$0.isWhitespace }
         let seed = AgentPaneSeedSource(AgentPaneSeed(cwd: started.chat, draft: fresh ? started.start.task : nil))

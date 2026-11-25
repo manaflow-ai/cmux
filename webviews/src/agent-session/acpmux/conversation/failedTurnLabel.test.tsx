@@ -99,3 +99,40 @@ test("a turn failed on a used-up usage limit draws the account card with its way
   // The agent's own words stay under Details.
   expect(markup).not.toContain(t("turn.failure.generic", { harness: "Claude Code" }));
 });
+
+/// cmux#55066 review: on a Cloud chat the card's other-account way is the machine's own sign-in
+/// (CloudSignIn). It reads Sign in with another account and is outlined: Use another agent stays the
+/// card's one filled button.
+test("a Cloud chat's used-up account card offers the machine's sign-in as another account, outlined", () => {
+  const weekly = "You've hit your weekly limit · resets Nov 27, 7am (UTC)";
+  const never = () => new Promise<never>(() => {});
+  const markup = renderToStaticMarkup(
+    <TurnActionsContext.Provider
+      value={{
+        route: { name: "Claude Code", harness: "claude", hostKind: "cloud" },
+        switchModel: () => {},
+        reauthenticate: () => {},
+        retryFailed: async () => undefined,
+        cloudSignIn: {
+          agent: "claude",
+          start: never,
+          open: () => {},
+          openOnMachine: async () => false,
+          finish: async () => false,
+          apiKey: async () => false,
+          gateway: async () => false,
+          cancel: () => {},
+          reserve: async () => undefined,
+          resend: async () => {},
+        },
+      }}
+    >
+      <TurnFooter row={row({ error: weekly })} />
+    </TurnActionsContext.Provider>,
+  );
+  expect(markup).toContain('data-failure-kind="usage-limit"');
+  expect(markup).toContain(t("turn.failure.signInAnotherAccount"));
+  expect(markup).not.toContain(t("turn.signIn.claude"));
+  expect(markup).toMatch(/cv-turn-auth-action cv-turn-error__primary"[^>]*>Use another agent</);
+  expect(markup.match(/cv-turn-error__primary/g)?.length).toBe(1);
+});

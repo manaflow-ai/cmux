@@ -106,6 +106,10 @@ fn hit_your_limit(lower: &str) -> Option<Option<String>> {
         };
         let window =
             words[..limit].iter().rev().find(|w| WINDOWS.contains(w)).map(|w| (*w).to_owned());
+        // "hit your limit" is; "hit your rate limit" or "hit your token limit" is not an account's allowance.
+        if limit > 0 && window.is_none() && !words[..limit].contains(&"usage") {
+            continue;
+        }
         return Some(window);
     }
     None
@@ -226,13 +230,16 @@ impl AccountLimit {
     /// What to do, in one sentence, naming the other agent and the sign-in.
     pub fn what_to_do(&self, harness: Option<&str>) -> String {
         let name = harness.map(harness_name).unwrap_or_else(|| "the agent".to_owned());
-        let other = harness_name(other_agent(harness.unwrap_or("claude")));
+        // With no harness named there is no agent to suggest: it may be the one the account is on.
+        let such_as = harness
+            .map(|h| format!(" (such as {})", harness_name(other_agent(h))))
+            .unwrap_or_default();
         let wait = match self.kind {
             AccountLimitKind::UsageLimit => " or wait for the reset",
             AccountLimitKind::Disabled => "",
         };
         format!(
-            "Retrying fails the same way: switch the chat to another agent (such as {other}), or \
+            "Retrying fails the same way: switch the chat to another agent{such_as}, or \
              sign {name} in with another account{wait}, then send the message again."
         )
     }

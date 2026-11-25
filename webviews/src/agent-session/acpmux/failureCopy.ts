@@ -192,7 +192,7 @@ const CODEX_CONFIG_AT = /invalid configuration at (.+?):\d+:\d+(?!\S)/i;
 /// another agent or another account goes on now. acpmux types the same words `usage.limit`
 /// (usage_limit.rs); this reads an older machine's untyped text. Never the cmux model router's own codes.
 const USAGE_LIMIT =
-  /hit your (?:[\w-]+ ){0,3}limit\b|(?:usage|weekly|session) limit reached|reached your (?:weekly|session|usage) limit|out of extra usage/i;
+  /hit your (?:(?:[\w-]+ ){0,2}(?:usage|weekly|session|daily|monthly|5-hour|five-hour|opus|sonnet|fable) )?limit\b|(?:usage|weekly|session) limit reached|reached your (?:weekly|session|usage) limit|out of extra usage/i;
 /// The agent's provider turned the account off: "This organization has been disabled.", a suspended or
 /// banned account. No wait helps: another agent or another account does.
 const ACCOUNT_DISABLED = /\b(?:organization|account) (?:has been|is|was) (?:disabled|suspended|banned|deactivated)\b/i;
