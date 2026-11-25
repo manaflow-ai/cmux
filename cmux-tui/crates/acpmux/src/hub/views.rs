@@ -802,7 +802,6 @@ impl Hub {
             last_message: last_message(&m),
             // An expired list is no longer the chat's plan (`task_list.rs`): the row and the hat drop it.
             task_list: super::task_list::current_task_list(&m),
-            rolling_summary: m.rolling_summary.clone(),
             approved_plan: m.approved_plan.clone(),
             queued: session.queued(),
             // The person's unsent text (`set_composer_draft`): an idle app update waits for it.
@@ -1242,6 +1241,9 @@ impl Hub {
             "defaultHarness": cfg.default_harness,
             "permissionPolicy": cfg.permission_policy.to_string(),
             "peers": self.peers(),
+            // This daemon's scale-up: idle, adding or cooling, and the last run's outcome
+            // (`fleet_elastic.rs`, version 1).
+            "scaleUp": super::admission_scale_up::ScaleUp::daemon().status(std::time::Instant::now()),
             "remoteSessions": self.remote_sessions.read().len(),
             "openWaits": self.open_waits.load(Ordering::SeqCst),
             // Messages this daemon sent near the per-message cap, or refused over it
