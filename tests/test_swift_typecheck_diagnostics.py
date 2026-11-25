@@ -57,7 +57,7 @@ class SwiftTypecheckDiagnosticsTests(unittest.TestCase):
             "/* End PBXShellScriptBuildPhase section */", 1
         )[0]
         blocks = re.findall(r"\t\t[A-Z0-9]+ /\* .*? \*/ = \{.*?\n\t\t\};", phases, re.DOTALL)
-        self.assertEqual(len(blocks), 15)
+        self.assertEqual(len(blocks), 16)
         for block in blocks:
             self.assertRegex(block, r"inputPaths = \(\n\s+\"[^\"]+\",")
             self.assertRegex(block, r"outputPaths = \(\n\s+\"[^\"]+\",")

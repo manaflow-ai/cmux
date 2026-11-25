@@ -62,6 +62,8 @@ pub fn layout_env() -> LayoutEnv {
         program_files: var("ProgramFiles"),
         mac_app_bundle: var("CMUX_SERVER_APP_BUNDLE"),
         uid: cfg!(unix).then(sys::uid),
+        // The layout keeps an old install's roots itself (layout::macos_user_dir).
+        mac_legacy_install: false,
     }
 }
 

@@ -47,6 +47,13 @@ REUSABLE_GUARDS = {
 }
 
 
+
+
+def all_guards_no_release():
+    """Every route a pull request falls open to when it changes none of the GhosttyKit release check's inputs."""
+    return {name: "false" if name == "ghosttykit_release" else "true" for name in JOBS}
+
+
 # ci.yml skips label events for labels it does not read (tests/test_ci_label_events_skip_full_ci.py).
 LABEL_EVENT_GUARD = (
     "!(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('[\"full-ci\",\"dev-build\"]'), github.event.label.name))"
@@ -67,7 +74,9 @@ def route_decision(paths, event="pull_request", macos="false"):
     groups = tuple(json.loads(outputs.pop("linux_guard_test_groups")))
     # The submodule guard is an unconditional reusable-workflow job rather
     # than a routed input. Include its synthetic result in this gate payload.
-    outputs["submodule_forward_only"] = "true" if outputs and all(value == "true" for value in outputs.values()) else "false"
+    # The release check routes on its own inputs, not on the guard fail-open.
+    guards = {name: value for name, value in outputs.items() if name != "ghosttykit_release"}
+    outputs["submodule_forward_only"] = "true" if guards and all(value == "true" for value in guards.values()) else "false"
     return outputs, groups
 
 
@@ -290,7 +299,8 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                         ["tests/test_build_graph_health.py"],
                         event="pull_request", macos="false",
                     ),
-                    dict.fromkeys(detect_linux_guard_changes.ROUTES, True),
+                    # The release check reads its own inputs, not ci-guards.yml.
+                    {route: route != "ghosttykit_release" for route in detect_linux_guard_changes.ROUTES},
                 )
             finally:
                 detect_linux_guard_changes.GUARD_WORKFLOW = original
@@ -311,7 +321,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
     def test_linux_preflight_skips_when_macos_route_is_false(self):
         block = workflow_job_block("linux-preflight")
         self.assertIn(
-            "if: ${{ (!cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.next_line != 'true' && needs.changes.outputs.macos != 'false') && "
+            "if: ${{ (!cancelled() && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')) && needs.changes.outputs.next_line != 'true' && needs.changes.outputs.macos != 'false') && "
             + LABEL_EVENT_GUARD + " }}",
             block,
         )
@@ -351,7 +361,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "linux_guard_history": "false",
             "linux_guard_cli": "false",
             "linux_guard_source": "false",
-            "ghosttykit_release": "true",
+            "ghosttykit_release": "false",
             "submodule_forward_only": "false",
         })
         self.assertEqual(groups, GROUPS)
@@ -359,7 +369,6 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         outputs, groups = route_decision(
             [
                 ".github/workflows/web-complexity.yml",
-                ".github/workflows/web-complexity-trusted.yml",
                 "tests/test_web_complexity_trusted_workflow.py",
             ],
             macos="false",
@@ -379,7 +388,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         self.assertEqual(outputs, {
             "linux_guard_tests": "true", "linux_guard_history": "false",
             "linux_guard_cli": "false", "linux_guard_source": "true",
-            "ghosttykit_release": "true",
+            "ghosttykit_release": "false",
             "submodule_forward_only": "false",
         })
 
@@ -414,11 +423,11 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                         "skills/cmux-cloud-vm/references/new-contract.md",
                         "skills/cmux-cloud-vm/scripts/check.py"):
             with self.subTest(unknown=unknown):
-                self.assertEqual(route(paths + [unknown]), dict.fromkeys(JOBS, "true"))
+                self.assertEqual(route(paths + [unknown]), all_guards_no_release())
         self.assertEqual(route(paths + ["Packages/macOS/CmuxNext/Sources/CmuxNextPalette/PaletteContentView.swift"], macos="true"), {
             "linux_guard_tests": "true", "linux_guard_history": "false",
             "linux_guard_cli": "false", "linux_guard_source": "true",
-            "ghosttykit_release": "true",
+            "ghosttykit_release": "false",
             "submodule_forward_only": "false",
         })
 
@@ -503,10 +512,33 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                     expected |= groups
         self.assertLessEqual(expected, set(groups_for_path("tests/workflow_jobs.py") or GROUPS))
 
+    def test_release_check_runs_only_when_its_inputs_change(self):
+        """A pull request whose pin and release scripts match its base's skips the check: the base push verified that
+        pin, and every Mac job downloads and checks the archive itself (cmuxterm-hq goals/ci-min-per-pr-140.md)."""
+        for macos in ("true", "false"):
+            for paths in (["Packages/macOS/CmuxNext/Sources/CmuxNextApp/X.swift"], ["web/app/page.tsx"],
+                          ["scripts/ci/future_unknown_helper.py"], ["new-area/input", "README.md"]):
+                with self.subTest(macos=macos, paths=paths):
+                    self.assertEqual(route(paths, macos=macos)["ghosttykit_release"], "false")
+            for path in sorted(detect_linux_guard_changes.GHOSTTYKIT_RELEASE_INPUTS):
+                with self.subTest(macos=macos, path=path):
+                    self.assertEqual(route(["web/app/page.tsx", path], macos=macos)["ghosttykit_release"], "true")
+        # A push, an unread diff or an unknown macOS route still runs it.
+        self.assertEqual(route(["web/app/page.tsx"], event="push")["ghosttykit_release"], "true")
+        self.assertEqual(route(None)["ghosttykit_release"], "true")
+        self.assertEqual(route(["web/app/page.tsx"], macos="")["ghosttykit_release"], "true")
+
+    def test_release_inputs_match_the_provenance_only_route(self):
+        """ci.yml's provenance-only case lists the check's inputs too; the two lists cannot drift apart."""
+        text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        listed = re.search(r"^\s*(ghostty\|scripts/download-prebuilt-ghosttykit\.sh\|[^)]*)\)", text, re.M)
+        self.assertIsNotNone(listed)
+        self.assertLessEqual(set(listed.group(1).split("|")), detect_linux_guard_changes.GHOSTTYKIT_RELEASE_INPUTS)
+
     def test_unknown_ci_helper_still_runs_every_guard(self):
         self.assertEqual(
             route(["scripts/ci/future_unknown_helper.py"]),
-            dict.fromkeys(JOBS, "true"),
+            all_guards_no_release(),
         )
 
     def test_web_edit_skips_native_history_cli_and_binary_download(self):
@@ -534,7 +566,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
 
     def test_executable_docs_and_unknown_inputs_never_take_docs_shortcut(self):
         for path in (
-            "skills/cmux-cua/AGENTS.md", "docs/cli-contract.md",
+            "skills/cmux-computer-use/AGENTS.md", "docs/cli-contract.md",
             "skills/unknown/SKILL.md", "ghostty", ".gitmodules",
             "scripts/download-prebuilt-ghosttykit.sh", "scripts/ghosttykit-checksums.txt",
             ".github/workflows/ci.yml", "scripts/ci/detect_linux_guard_changes.py",
@@ -544,7 +576,11 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "../README.md",
         ):
             with self.subTest(path=path):
-                self.assertEqual(route(["CLAUDE.md", path]), dict.fromkeys(JOBS, "true"))
+                # A path outside the checkout is unreadable, so even the release check runs.
+                expected = (dict.fromkeys(JOBS, "true")
+                            if path in detect_linux_guard_changes.GHOSTTYKIT_RELEASE_INPUTS or path.startswith("../")
+                            else all_guards_no_release())
+                self.assertEqual(route(["CLAUDE.md", path]), expected)
 
     def test_missing_empty_or_uncertain_diff_and_non_pr_events_run_all(self):
         for paths in (None, []):
@@ -559,6 +595,16 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                 result = run_guard_status(results={JOBS["submodule_forward_only"]: outcome})
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(f"{JOBS['submodule_forward_only']}: {outcome}", result.stderr)
+        # A feat-cmux-next pull request runs it as the ci/steps.toml step: only there is its skip fine.
+        job = JOBS["submodule_forward_only"]
+        self.assertEqual(run_guard_status(results={job: "skipped"}, event="pull_request",
+                                          base_ref="feat-cmux-next").returncode, 0)
+        for event, base_ref in (("pull_request", "main"), ("push", ""), ("workflow_dispatch", "")):
+            with self.subTest(event=event, base_ref=base_ref):
+                self.assertNotEqual(run_guard_status(results={job: "skipped"}, event=event,
+                                                     base_ref=base_ref).returncode, 0)
+        self.assertNotEqual(run_guard_status(results={job: "failure"}, event="pull_request",
+                                             base_ref="feat-cmux-next").returncode, 0)
 
         for route_name, job in REUSABLE_GUARDS.items():
             for outcome in ("skipped", "failure", "cancelled"):
@@ -746,7 +792,7 @@ class FeatGuardRoutingTests(unittest.TestCase):
             "release-notes/next/highlights/x.md", "release-notes/next/retired-feed-announcements.json",
             "cmux.nightly.entitlements", "cmux-helper.entitlements", "Resources/cmux.entitlements",
             "cmux-next-ios/App/CmuxMobileApp-Production.entitlements",
-            "Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift",
+            "Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateRing.swift",
             "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/AppcastParser.swift",
             "Native/OptChat/optchat-chief/inspector/index.html", "ghostty", "ghostty-next",
             "cmux-tui/Cargo.toml",

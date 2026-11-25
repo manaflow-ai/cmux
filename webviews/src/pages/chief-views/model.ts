@@ -5,6 +5,7 @@
 // clock (parts.tsx Ago, woken when its words change) and the views get only the day, so a passing
 // minute draws no row.
 import type { AgentState, ChiefAgent, FleetMachine, FleetPR, LandingPR, LandingReply } from "./types";
+import { intl } from "../../ui/intl";
 
 export const LOCAL_MACHINE = "local";
 /** The label that marks a pull request as handed to the autolander. */
@@ -29,7 +30,7 @@ export function shortDuration(ms: number, locale?: string): string {
       : minutes < 48 * 60
         ? [Math.round(minutes / 60), "hour"]
         : [Math.round(minutes / (24 * 60)), "day"];
-  return new Intl.NumberFormat(locale, { style: "unit", unit, unitDisplay: "narrow" }).format(value);
+  return intl.NumberFormat(locale, { style: "unit", unit, unitDisplay: "narrow" }).format(value);
 }
 
 /** Rounded minutes since `at` as `shortDuration` counts them. */

@@ -10,13 +10,38 @@ import Testing
 struct AgentPaneGitHubRequestTests {
     @Test func decodesTheThreeMethodsAndRefusesOtherParams() {
         #expect(AgentPaneRequest(body: ["method": "github.status", "params": [String: Any]()]) == .gitHub(.status))
-        #expect(AgentPaneRequest(body: ["method": "github.connect"]) == .gitHub(.connect))
+        #expect(AgentPaneRequest(body: ["method": "github.connect"]) == .gitHub(.connect(repo: nil)))
+        // #55104: a Cloud start card's Connect names the repository its machine could not clone; nothing else passes.
+        #expect(AgentPaneRequest(body: ["method": "github.connect", "params": ["repo": "manaflow-ai/cmuxterm-hq"]]) == .gitHub(.connect(repo: "manaflow-ai/cmuxterm-hq")))
+        #expect(AgentPaneRequest(body: ["method": "github.connect", "params": ["repo": NSNull()]]) == .gitHub(.connect(repo: nil)))
+        for bad: Any in ["https://github.com/acme/api", "acme", "acme/api/x", 4] {
+            #expect(AgentPaneRequest(body: ["method": "github.connect", "params": ["repo": bad]]) == .unsupported("github.connect"), "\(bad)")
+        }
         #expect(AgentPaneRequest(body: ["method": "github.repos.list", "params": ["query": "cm"]]) == .gitHub(.repos(query: "cm")))
         #expect(AgentPaneRequest(body: ["method": "github.repos.list", "params": ["query": NSNull()]]) == .gitHub(.repos(query: nil)))
         #expect(AgentPaneRequest(body: ["method": "github.repos.list"]) == .gitHub(.repos(query: nil)))
         #expect(AgentPaneRequest(body: ["method": "github.repos.list", "params": ["query": 4]]) == .unsupported("github.repos.list"))
         #expect(AgentPaneRequest(body: ["method": "github.repos.list", "params": ["query": String(repeating: "a", count: 1025)]]) == .unsupported("github.repos.list"))
         #expect(AgentPaneRequest(body: ["method": "github.nope"]) == .unsupported("github.nope"))
+    }
+
+    /// `github.repos.checkout`: an `owner/name`, a key, and only absolute folders the page knows for it.
+    @Test func decodesCheckoutAndRefusesAnythingButARepositoryAndFolders() {
+        let checkout = { (params: [String: Any]) in AgentPaneRequest(body: ["method": "github.repos.checkout", "params": params]) }
+        #expect(checkout(["repo": "acme/api", "idempotency_key": "k1"]) == .gitHub(.checkout(repo: "acme/api", candidates: [], key: "k1")))
+        #expect(checkout(["repo": "acme/api", "candidates": ["/Users/me/api"], "idempotency_key": "k1"])
+            == .gitHub(.checkout(repo: "acme/api", candidates: ["/Users/me/api"], key: "k1")))
+        for bad: [String: Any] in [
+            ["repo": "acme/api"],
+            ["repo": "https://github.com/acme/api", "idempotency_key": "k1"],
+            ["repo": "../api", "idempotency_key": "k1"],
+            ["repo": "acme/api", "candidates": ["relative/api"], "idempotency_key": "k1"],
+            ["repo": "acme/api", "candidates": "/Users/me/api", "idempotency_key": "k1"],
+        ] {
+            #expect(checkout(bad) == .unsupported("github.repos.checkout"), "\(bad)")
+        }
+        #expect(AgentPaneRequest.gitHub(.checkout(repo: "acme/api", candidates: ["/Users/me/secret"], key: "k1")).description
+            == "github.repos.checkout")
     }
 
     @Test func thePageHostServesThem() {
@@ -48,6 +73,27 @@ struct AgentPaneGitHubRequestTests {
         #expect((none["value"] as? [String: Any])?["reason"] as? String == "unreachable")
     }
 
+    @Test func statusSaysWhyConnectIsNeededAgain() async {
+        let cases: [(CloudGitHubPicker.Status, String, String)] = [
+            (.needsReauth(detail: "the GitHub App was uninstalled"), "needs_reauth", "the GitHub App was uninstalled"),
+            (.needsReauth(detail: nil), "needs_reauth", AgentPaneModel.gitHubReauthMessage),
+            (.linking, "linking", AgentPaneModel.gitHubConnectPendingMessage),
+            (.error, "error", AgentPaneModel.gitHubConnectionErrorMessage),
+            (.linkRefused(reason: nil), "link_refused", AgentPaneModel.gitHubLinkExpiredMessage),
+            (.linkRefused(reason: "Only an owner can connect GitHub."), "link_refused", "Only an owner can connect GitHub."),
+        ]
+        for (status, problem, message) in cases {
+            let reply = await AgentPaneGitHubRequest.status.reply(Self.gitHub(status: status)) { false }
+            let value = reply["value"] as? [String: Any]
+            #expect(value?["state"] as? String == "not_connected")
+            #expect(value?["problem"] as? String == problem)
+            #expect(value?["message"] as? String == message)
+        }
+        let plain = await AgentPaneGitHubRequest.status.reply(Self.gitHub(status: .notConnected)) { false }
+        #expect((plain["value"] as? [String: Any])?["problem"] is NSNull)
+        #expect((plain["value"] as? [String: Any])?["message"] is NSNull)
+    }
+
     /// Unavailable says why, so the picker can still offer Connect GitHub (sign in first, or not set up here).
     @Test(arguments: [(.signedOut, "signed_out"), (.notConfigured, "not_configured"), (.unreachable, "unreachable")] as [(CloudGitHubPicker.Unavailable, String)])
     func unavailableStatusSaysWhy(reason: CloudGitHubPicker.Unavailable, text: String) async {
@@ -66,22 +112,22 @@ struct AgentPaneGitHubRequestTests {
             (.unreachable, "github.unavailable", AgentPaneModel.gitHubUnavailableMessage),
         ]
         for (reason, code, message) in cases {
-            let reply = await AgentPaneGitHubRequest.connect.reply(Self.gitHub(status: .unavailable(reason), connect: .unavailable(reason))) { true }
+            let reply = await AgentPaneGitHubRequest.connect(repo: nil).reply(Self.gitHub(status: .unavailable(reason), connect: .unavailable(reason))) { true }
             #expect((reply["error"] as? [String: Any])?["code"] as? String == code)
             #expect((reply["error"] as? [String: Any])?["userMessage"] as? String == message)
         }
-        let connected = await AgentPaneGitHubRequest.connect.reply(Self.gitHub(connect: .alreadyConnected)) { true }
+        let connected = await AgentPaneGitHubRequest.connect(repo: nil).reply(Self.gitHub(connect: .alreadyConnected)) { true }
         #expect((connected["value"] as? [String: Any])?["opened"] as? Bool == false)
-        let none = await AgentPaneGitHubRequest.connect.reply(nil) { true }
+        let none = await AgentPaneGitHubRequest.connect(repo: nil).reply(nil) { true }
         #expect((none["error"] as? [String: Any])?["code"] as? String == "github.unavailable")
     }
 
     @Test func connectNeedsTheClickAndSaysWhetherItOpened() async {
-        let noClick = await AgentPaneGitHubRequest.connect.reply(Self.gitHub()) { false }
+        let noClick = await AgentPaneGitHubRequest.connect(repo: nil).reply(Self.gitHub()) { false }
         #expect((noClick["error"] as? [String: Any])?["code"] as? String == AgentPaneTransportError.gestureRequired.rawValue)
-        let opened = await AgentPaneGitHubRequest.connect.reply(Self.gitHub()) { true }
+        let opened = await AgentPaneGitHubRequest.connect(repo: nil).reply(Self.gitHub()) { true }
         #expect((opened["value"] as? [String: Any])?["opened"] as? Bool == true)
-        let failed = await AgentPaneGitHubRequest.connect.reply(Self.gitHub(connect: .failed("Sign in to cmux to connect GitHub."))) { true }
+        let failed = await AgentPaneGitHubRequest.connect(repo: nil).reply(Self.gitHub(connect: .failed("Sign in to cmux to connect GitHub."))) { true }
         #expect((failed["error"] as? [String: Any])?["code"] as? String == "github.connect_failed")
         #expect((failed["error"] as? [String: Any])?["userMessage"] as? String == "Sign in to cmux to connect GitHub.")
     }
@@ -125,8 +171,6 @@ struct AgentPaneGitHubRequestTests {
         let unavailable = AgentPaneGitHubConnect(.unavailable(.unreachable)) { opened.append($0) }
         let notConfigured = AgentPaneGitHubConnect(.unavailable(.notConfigured)) { opened.append($0) }
         let failed = AgentPaneGitHubConnect(.failed) { opened.append($0) }
-        let pending = AgentPaneGitHubConnect(.pending) { opened.append($0) }
-        #expect(pending == .failed(AgentPaneModel.gitHubConnectPendingMessage))
         #expect(open == .opened)
         #expect(connected == .alreadyConnected)
         #expect(unavailable == .unavailable(.unreachable))
@@ -150,6 +194,61 @@ struct AgentPaneGitHubRequestTests {
         #expect(opened.isEmpty)
     }
 
+    @Test func signedOutConnectRetriesTheSameRequestAfterSignIn() async {
+        let page = URL(string: "https://github.com/apps/cmux/installations/new?repository=acme/api")!
+        var signIns = 0
+        var connects = 0
+        var opened: [URL] = []
+        let work = AgentPaneGitHub.signInAndRetry(
+            beginSignIn: {
+                signIns += 1
+                return Task { true }
+            },
+            connect: {
+                connects += 1
+                return .open(page)
+            },
+            open: { opened.append($0) })
+
+        await work.value
+
+        #expect(signIns == 1)
+        #expect(connects == 1)
+        #expect(opened == [page])
+    }
+
+    @Test func canceledSignInDoesNotReplayConnect() async {
+        var connects = 0
+        var opened: [URL] = []
+        let work = AgentPaneGitHub.signInAndRetry(
+            beginSignIn: { Task { false } },
+            connect: {
+                connects += 1
+                return .connected
+            },
+            open: { opened.append($0) })
+
+        await work.value
+
+        #expect(connects == 0)
+        #expect(opened.isEmpty)
+    }
+
+    @Test func connectedRetryNotifiesTheWaitingPicker() async {
+        var opened: [URL] = []
+        var changes = 0
+        let work = AgentPaneGitHub.signInAndRetry(
+            beginSignIn: { Task { true } },
+            connect: { .connected },
+            open: { opened.append($0) },
+            connected: { changes += 1 })
+
+        await work.value
+
+        #expect(opened.isEmpty)
+        #expect(changes == 1)
+    }
+
     @Test(arguments: [
         ("github:acme/api", "acme/api"),
         ("github:manaflow-ai/cmux.next_2", "manaflow-ai/cmux.next_2"),
@@ -164,5 +263,11 @@ struct AgentPaneGitHubRequestTests {
     ] as [(String, String?)])
     func aGitHubFolderNamesOneRepository(folder: String, repository: String?) {
         #expect(AgentPaneGitHubFolder.repository(folder) == repository)
+    }
+    @Test func cloneRequiresTheURLAndIdempotencyKey() {
+        let url = "https://git.example.test/acme/api"
+        #expect(AgentPaneRequest(body: ["method": "repo.clone", "params": ["url": url, "idempotency_key": "k1"]])
+                == .gitHub(.cloneURL(url: url, key: "k1")))
+        #expect(AgentPaneRequest(body: ["method": "repo.clone", "params": ["url": url]]) == .unsupported("repo.clone"))
     }
 }

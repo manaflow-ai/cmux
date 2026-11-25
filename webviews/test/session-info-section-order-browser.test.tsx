@@ -148,9 +148,12 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
     });
 
     // Since #27570 the section list owns the spacing (sessionInfo.css). The lean panel (Lucas, 2026-11-05,
-    // Session Info lab) has no blocks and no hairlines: one grid gap between every two items of the list,
-    // the Show more line included.
-    test("the default order draws one grid gap between every two sections, and no hairline", async () => {
+    // Session Info lab) has no blocks: one grid gap between every two items of the list, the Show more
+    // line included. Leo, 2026-11-19: "there should be a faint divider between the sections there on
+    // session info idk why it doesnt show up there": a hairline centered in the gap between every two
+    // sections that draw (`--acpmux-session-info-divider`), none above the first or the Show more line,
+    // and none that moves a section.
+    test("the default order draws one grid gap between every two sections, and a faint divider in it", async () => {
       const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
       try {
         await show(page, { grid: true });
@@ -162,11 +165,44 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
               .slice(1)
               .map((slot, index) => slot.getBoundingClientRect().top - slots[index]!.getBoundingClientRect().bottom),
             rules: slots.filter((slot) => getComputedStyle(slot, "::before").content !== "none").length,
+            // A rule that matches but draws nothing (its color variable unset where the sections are, which
+            // makes its border-top invalid) is the line not showing up.
+            painted: slots.filter((slot) => {
+              const line = getComputedStyle(slot, "::before");
+              return line.content !== "none" && line.borderTopStyle === "solid" && parseFloat(line.borderTopWidth) > 0;
+            }).length,
+            // A section that draws, after one that draws: the slots the divider rule selects.
+            between: slots.filter((slot) => {
+              const before = slot.previousElementSibling as HTMLElement | null;
+              const draws = (el: Element | null): el is HTMLElement =>
+                el instanceof HTMLElement &&
+                el.dataset.slot !== undefined &&
+                el.dataset.slot !== "more" &&
+                el.childElementCount > 0;
+              return draws(slot) && draws(before);
+            }).length,
           };
         });
         expect(geometry.count).toBeGreaterThanOrEqual(5);
         for (const gap of geometry.gaps) expect(gap).toBeCloseTo(gridLength("gap"), 1);
-        expect(geometry.rules).toBe(0);
+        expect(geometry.between).toBeGreaterThanOrEqual(4);
+        expect(geometry.rules).toBe(geometry.between);
+        expect(geometry.painted, "dividers that draw a line").toBe(geometry.between);
+        // The panel with its dividers differs from it with them switched off. Both are written for a person
+        // to look at when a CI run collects files (`cmux-ci test --artifact`, $FAST_CHECKS_OUT).
+        await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
+        const body = page.locator(".acpmux-session-info__body");
+        const withLines = await body.screenshot();
+        await page.addStyleTag({ content: ".acpmux-session-info-slot::before { content: none !important }" });
+        const withoutLines = await body.screenshot();
+        expect(withLines.equals(withoutLines), "the panel looks the same with its dividers off").toBe(false);
+        const out = process.env.FAST_CHECKS_OUT;
+        if (out) {
+          const { mkdirSync, writeFileSync } = await import("node:fs");
+          mkdirSync(out, { recursive: true });
+          writeFileSync(path.join(out, "session-info-dividers.png"), withLines);
+          writeFileSync(path.join(out, "session-info-no-dividers.png"), withoutLines);
+        }
       } finally {
         await page.close();
       }

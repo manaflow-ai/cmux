@@ -5,7 +5,7 @@
 import { useState, type KeyboardEvent } from "react";
 import { Button } from "../../ui/Button";
 import { Tabs, TabsList, TabsTrigger } from "../../ui/Tabs";
-import { answerState, isPending, plain, rowActions, type FeedProps } from "./context";
+import { isPending, plain, type FeedProps, answerState, rowActions } from "./context";
 import { AnswerControls } from "./AnswerControls";
 import { FeedIcon } from "./icons";
 import { useButtonMenu } from "./menus";
@@ -22,10 +22,10 @@ import {
   isRequest,
   isUnread,
   moveSelection,
-  relativeTime,
   shownItem,
   type FeedLine,
   type InboxConnection,
+  relativeTime,
 } from "./model";
 import { EmptyState, FeedLines, FeedRow, Glyph, PosterLine, PromptSummary } from "./parts";
 import { ReportsView } from "./ReportsView";
@@ -132,7 +132,6 @@ function InboxHeader({ store, snap, strings, hasUnread, onListKeys }: HeaderProp
         <button
           type="button"
           className="feed-add"
-          title={t("feed.addConnection")}
           aria-label={t("feed.addConnection")}
           onClick={() => store.addConnection()}
         >

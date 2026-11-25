@@ -122,6 +122,14 @@ impl Surface {
                 crate::launch_credential::LAUNCH_CREDENTIAL_ENV,
                 &credential,
             );
+            // Where its shell saves its state before a park and finds it after
+            // (`shell_state`); set empty without one, like the credential.
+            let shell_state = terminal_public_id
+                .as_ref()
+                .and_then(|terminal| mux.shell_state_prefix(terminal, &opts.extra_env))
+                .map(|prefix| prefix.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            set_env(&mut opts.extra_env, crate::shell_state::SHELL_STATE_ENV, &shell_state);
         }
         let kitty_reservation = mux
             .upgrade()
@@ -189,10 +197,11 @@ impl Surface {
         #[cfg(not(windows))]
         let host_start_failed = false;
         // The holder runs the shell; this daemon parses it (holder_runtime).
+        // A holder that cannot start sends the terminal to a host of its own.
         #[cfg(unix)]
         if lifetime == PtyLifetime::SessionOwned
-            && crate::holder_runtime::enabled()
             && let Some(host_root) = opts.terminal_host_root.clone()
+            && crate::holder_runtime::serves(&host_root)
         {
             return Self::spawn_on_holder(HolderSpawn {
                 id,
@@ -318,7 +327,7 @@ impl Surface {
         let writer = master.take_writer()?;
         let launch = LocalLaunch {
             master,
-            reader,
+            reader: Box::new(reader),
             writer,
             killer,
             wait: Box::new(move || TerminalEnd::ProcessEnded(child.wait_for_exit())),

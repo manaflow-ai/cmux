@@ -6,7 +6,8 @@
 //! fails as a whole unless it is not JSONC) and edits it in place
 //! ([`edit`]). The app validates commands, `when` and `args` against its
 //! action catalog. A first stroke needs cmd or ctrl, or is bare under a
-//! `when` that requires a page owning bare keys ([`bare`], K1).
+//! `when` that requires a page owning bare keys or a user key mode
+//! ([`bare`], K1, design/key-modes.md).
 
 pub mod bare;
 pub mod edit;
@@ -96,6 +97,16 @@ pub fn parse(source: &str) -> Parsed {
     parsed
 }
 
+/// One entry in keybindings.json form, checked as [`parse`] checks a file's
+/// entries (an extension's `contributes.keybindings`, cmux-app-manifest).
+pub fn parse_entry(item: &Value) -> Result<Entry, EntryDiagnostic> {
+    entry(0, item).map_err(|(problem, message)| EntryDiagnostic {
+        index: Some(0),
+        problem,
+        message,
+    })
+}
+
 fn unreadable(message: String) -> Parsed {
     Parsed {
         entries: vec![],
@@ -176,8 +187,9 @@ pub(super) fn keys(text: &str, first: FirstStroke<'_>) -> Result<Vec<String>, (P
         return Err((
             Problem::FirstKeyNeedsCommandOrControl,
             format!(
-                "the first stroke needs cmd or ctrl; a bare first stroke (no cmd, ctrl or opt) binds only under a \"when\" that requires a bare-key page ({}) as an && term and no text-field context ({})",
+                "the first stroke needs cmd or ctrl; a bare first stroke (no cmd, ctrl or opt) binds only under a \"when\" that requires a bare-key page ({}) or a key mode ({} == 'name') as an && term and no text-field context ({})",
                 bare::OWNER_KEYS.join(", "),
+                bare::MODE_KEY,
                 bare::TEXT_KEYS.join(", ")
             ),
         ));

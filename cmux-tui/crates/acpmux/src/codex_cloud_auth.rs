@@ -40,6 +40,9 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+/// Where `cr use` records each agent's choice, under the home (`<dir>/<agent>`: `own` or `team`).
+pub(crate) const CHOICE_DIR: &str = ".config/cmux/agent-auth";
+
 /// The public placeholder every guest sends (`agent-auth.sh` `cmux_aa_placeholder`).
 /// An owner's cmux Cloud machine whose image has the own-or-team script, under `root`.
 pub(crate) fn owner_cloud_image_at(root: &Path) -> bool {
@@ -64,7 +67,7 @@ pub struct Inputs<'a> {
 }
 
 impl Inputs<'_> {
-    fn codex_home(&self) -> PathBuf {
+    pub(crate) fn codex_home(&self) -> PathBuf {
         (self.var)("CODEX_HOME").map(PathBuf::from).unwrap_or_else(|| self.home.join(".codex"))
     }
 
@@ -78,12 +81,11 @@ impl Inputs<'_> {
 
     /// The mode `cr use` recorded for `agent` (`~/.config/cmux/agent-auth/<agent>`).
     pub(crate) fn choice_for(&self, agent: &str) -> Option<&'static str> {
-        let text =
-            std::fs::read_to_string(self.home.join(".config/cmux/agent-auth").join(agent)).ok()?;
+        let text = std::fs::read_to_string(self.home.join(CHOICE_DIR).join(agent)).ok()?;
         mode(text.lines().next().unwrap_or(""))
     }
 
-    fn own_login(&self) -> bool {
+    pub(crate) fn own_login(&self) -> bool {
         (self.var)("CODEX_API_KEY").is_some()
             || crate::agent_login::signed_in_at(
                 crate::agent_login::Agent::Codex,
@@ -202,7 +204,7 @@ pub async fn host_resolves(host: String) -> bool {
     }
 }
 
-/// Own mode for one codex launch (module docs): the provider override right after the program, and
+/// Own mode for one codex launch (module docs): the provider override right after the subcommand, and
 /// the model-plane OpenAI pair out of the profile env and the inherited env (`routes::UNSET_KEY`).
 /// A value the person set (any other base URL or key) stays.
 pub fn apply(
@@ -212,8 +214,11 @@ pub fn apply(
     cmux_config: bool,
 ) {
     if cmux_config && !argv.iter().any(|a| a.starts_with("model_provider=")) && !argv.is_empty() {
+        // After the profile's own overrides (`codex_config_index`); the launch keeps them all before
+        // the subcommand (`harness_limits::codex_args`).
+        let at = crate::agent_credentials::codex_config_index(argv);
         for (i, a) in OWN_PROVIDER_ARGS.iter().enumerate() {
-            argv.insert(1 + i, (*a).to_owned());
+            argv.insert(at + i, (*a).to_owned());
         }
     }
     let origin = var("CMUX_CODEROUTER_URL").map(|o| o.trim_end_matches('/').to_owned());
@@ -420,7 +425,7 @@ mod tests {
         apply(&mut argv, &mut env, &var, true);
         assert_eq!(
             argv,
-            ["/opt/cmux/current/bin/codex", "-c", "model_provider=\"openai\"", "app-server"]
+            ["/opt/cmux/current/bin/codex", "app-server", "-c", "model_provider=\"openai\""]
         );
         // Still the app-server launch the bridge recognizes.
         assert!(crate::codex_app_server::is_profile_launch(&argv));
@@ -487,7 +492,7 @@ mod tests {
                 ("OPENAI_BASE_URL".to_owned(), "https://coderouter.cmux.internal/v1".to_owned()),
             ]);
             apply(&mut argv, &mut env, &var, inputs.cmux_config());
-            assert_eq!(argv[1..3], ["-c", "model_provider=\"openai\""]);
+            assert_eq!(argv[2..4], ["-c", "model_provider=\"openai\""]);
             assert!(!env.contains_key("OPENAI_API_KEY"), "{env:?}");
             assert!(!env.contains_key("OPENAI_BASE_URL"), "{env:?}");
             assert_eq!(env[crate::routes::UNSET_KEY], "OPENAI_BASE_URL,OPENAI_API_KEY");

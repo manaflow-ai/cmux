@@ -21,6 +21,8 @@ public nonisolated enum SurfaceRole: String, CaseIterable, Sendable {
     case toast
     /// Dialogs, confirms, prompt bars and sheets: a little denser veil for longer text.
     case sheet
+    /// Prompts that float over every app (a device asking to see or control this Mac, the join consent, Computer use acting as me): the theme's tint at a denser veil, since any app's pixels show through.
+    case prompt
     /// Tooltips: the frost (TooltipSurface), the popup surface at the least alpha that keeps 4.5:1 over a blur.
     case tooltip
 
@@ -35,6 +37,7 @@ public nonisolated enum SurfaceRole: String, CaseIterable, Sendable {
         case .group: return .group
         case .toast: return .toast
         case .sheet: return .dialog
+        case .prompt: return .prompt
         default: return nil
         }
     }
@@ -54,13 +57,14 @@ public nonisolated enum SurfaceRole: String, CaseIterable, Sendable {
         case .group: return 0
         case .toast: return 0
         case .sheet: return 0
+        case .prompt: return 0
         case .tooltip: return 2
         }
     }
 
     /// Whether the role casts the popups' soft shadow (a floating panel); a card on the sidebar does not.
     public var castsShadow: Bool {
-        [.popover, .menu, .toast, .sheet, .tooltip].contains(self)
+        [.popover, .menu, .toast, .sheet, .prompt, .tooltip].contains(self)
     }
 
     /// What the role draws under Reduce Transparency, its one opaque path.
@@ -72,6 +76,7 @@ public nonisolated enum SurfaceRole: String, CaseIterable, Sendable {
         case .group: return "the veil and tint composited over the sidebar's opaque background, with a hairline"
         case .toast: return "the opaque popup surface, no rim"
         case .sheet: return "the opaque popup surface, no rim"
+        case .prompt: return "the opaque popup surface, no rim"
         case .tooltip: return "the opaque popup surface (--tooltip-tint becomes --surface-popup)"
         }
     }
@@ -89,4 +94,8 @@ extension FloatingGlassStyle {
     /// Dialogs, confirms, prompt bars and sheets: a little denser veil for longer text.
     nonisolated public static let dialog = FloatingGlassStyle(cornerDepth: 0, darkVeilAlpha: 0.48, lightVeilAlpha: 0.62,
                                                          darkRim: (0.28, 0.05), lightRim: (0.85, 0.1), castsShadow: true)
+    /// Prompts that float over every app (a device asking to see or control this Mac, the join consent, Computer use acting as me): the theme's tint at a denser veil, since any app's pixels show through.
+    nonisolated public static let prompt = FloatingGlassStyle(cornerDepth: 0, darkVeilAlpha: 0.74, lightVeilAlpha: 0.8,
+                                                         darkRim: (0.3, 0.06), lightRim: (0.85, 0.1), castsShadow: true,
+                                                         veilTakesThemeTint: true)
 }
