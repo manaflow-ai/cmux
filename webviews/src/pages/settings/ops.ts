@@ -238,7 +238,8 @@ export type DevicesJoinState = {
   known: boolean;
   /** The label of the action that turns every switch off while the record is unknown; null while it is known. */
   revoke_all: string | null;
-  switches: Array<{ surface: JoinConsentSurface; title: string; help: string; on: boolean }>;
+  /** Each switch; `keywords` are what Settings search also finds it by (the page's language and English). */
+  switches: Array<{ surface: JoinConsentSurface; title: string; help: string; keywords?: string[]; on: boolean }>;
 };
 
 /** The lists the host shows beside the schema rows; `rooms` is null when spaces are unsupported. */
@@ -1166,6 +1167,30 @@ export type LibraryEntry = {
   added_ms: number | null;
   /** Keys and files a higher entry that is on sets too, so this one's value is not in use. */
   overridden: string[];
+  /** The unmerged pull request a `pr-N` entry is (`cmux customize use pr:N`; cmux-customize
+   * `library/code.rs` `CodeLayer`). Absent on every other entry. */
+  code?: LibraryCode;
+};
+
+/** A pull request's code as a library entry: its web part is served on this app while it is on and
+ * the highest such entry; what it cannot carry needs a build. */
+export type LibraryCode = {
+  /** `owner/name`. */
+  repo: string;
+  pr: number;
+  title: string;
+  /** The PR head the layer was built from. */
+  head: string;
+  /** The commit CI merged the head onto. */
+  base: string;
+  /** The published web bundle key; absent when the PR changes no web bundle (nothing applies to a
+   * running app, so the CLI refuses to turn it on). */
+  web?: string;
+  abi?: number;
+  /** What the layer cannot carry, one line each: "needs a build: ...". */
+  needs_build?: string[];
+  /** The last refresh's word on it: `in your build`, `no longer applies: ...`, `newer head ...`. */
+  note?: string;
 };
 
 /** Two or more entries that are on set the same key or file; the highest one's value is in use. */

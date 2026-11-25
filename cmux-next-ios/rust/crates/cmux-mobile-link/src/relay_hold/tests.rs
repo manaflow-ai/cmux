@@ -152,10 +152,10 @@ fn kill_and_wake_100_runs_zero_duplicates_zero_lost() {
             phone_kills += 1;
             now += 200;
             for again in phone.resend() {
-                if let Some(a) = relay.on_text(&again, now + 20) {
-                    if let Some(SenderEvent::Accepted { ms, .. }) = phone.on_frame(&a, now + 40) {
-                        accepted_ms.push(ms);
-                    }
+                if let Some(a) = relay.on_text(&again, now + 20)
+                    && let Some(SenderEvent::Accepted { ms, .. }) = phone.on_frame(&a, now + 40)
+                {
+                    accepted_ms.push(ms);
                 }
             }
         } else if let Some(SenderEvent::Accepted { ms, .. }) = phone.on_frame(&answer.unwrap(), now + 40) {
