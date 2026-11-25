@@ -101,7 +101,7 @@ fn promisors_become_remotes_in_the_order_git_tries_them() {
     let stranger = mirror(&world, "stranger.git", "https://github.com/o/other.git");
     let pack = world.home.join("carry.pack");
     let out = std::fs::File::create(&pack).unwrap();
-    let mut child = std::process::Command::new("git")
+    let mut child = Command::new("git")
         .arg("-C")
         .arg(&world.mac)
         .args(["pack-objects", "--revs", "--stdout", "-q"])
