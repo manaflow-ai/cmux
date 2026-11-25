@@ -163,7 +163,11 @@ final class SwipeBackWholePageUITests: XCTestCase {
             attach(app, "\(label)-cancel-after")
             if keyboard {
                 // The dock as it was before the swipe, the composer usable.
-                XCTAssertTrue(app.descendants(matching: .any)[page.field].isHittable, "\(label): the composer is usable after a cancelled swipe")
+                let field = app.descendants(matching: .any)[page.field].firstMatch
+                let keys = app.keyboards.firstMatch
+                XCTAssertTrue(field.exists && keys.exists && field.frame.minX >= 0 && field.frame.maxX <= app.frame.maxX + 1
+                              && field.frame.maxY <= keys.frame.minY + 1,
+                              "\(label): the composer is back in place above the keyboard after a cancelled swipe (\(field.frame), keyboard \(keys.frame))")
             }
 
             // 3. The back button.

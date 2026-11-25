@@ -150,11 +150,18 @@ final class PaneLayerController: UIViewController {
             let paneSpan: ClosedRange<CGFloat> = pane === top ? edge...width : 0...edge
             // The bar belongs to the page under this one: it slides with that page (its parallax),
             // as a page's own header does, instead of standing still at full width over both.
+            // UIKit moves the bar itself too (its own show animation): the shift is what is left
+            // to put its leading edge on the under page's.
+            let presentedTx = (bar.layer.presentation() ?? bar.layer).affineTransform().tx
+            let ownMinX = (PaneLayerGeometry.presentedMinX(of: bar, in: navigation.view) ?? 0) - presentedTx
+            var barMinX = ownMinX + presentedTx
             if pane === top, PaneLayerProbe.follows,
                let underMinX = PaneLayerGeometry.presentedMinX(of: under.view, in: navigation.view) {
-                shift(bar, by: min(0, underMinX))
+                let target = min(0, underMinX)
+                shift(bar, by: max(-width, min(width, target - ownMinX)))
+                barMinX = target
             }
-            mask(bar, to: visible, in: navigation.view)
+            mask(bar, to: visible, in: navigation.view, barMinX: barMinX)
             PaneLayerProbe.shared?.sample(bar: bar, root: navigation.view, paneSpan: paneSpan)
             graceUntil = pane === top ? now + 0.6 : 0
             return
@@ -164,7 +171,8 @@ final class PaneLayerController: UIViewController {
         report(false)
         // This pane on top: the bar stays off it until SwiftUI hides it.
         if navigation.topViewController === pane, now < graceUntil, !bar.isHidden {
-            mask(bar, to: 0...0, in: navigation.view)
+            mask(bar, to: 0...0, in: navigation.view,
+                 barMinX: PaneLayerGeometry.presentedMinX(of: bar, in: navigation.view) ?? 0)
             PaneLayerProbe.shared?.sample(bar: bar, root: navigation.view, paneSpan: 0...width)
             return
         }
@@ -173,10 +181,10 @@ final class PaneLayerController: UIViewController {
         if now - lastTransition > 0.5 { stopTracking() }
     }
 
-    private func mask(_ bar: UINavigationBar, to visible: ClosedRange<CGFloat>, in root: UIView) {
+    /// `barMinX`: the bar's leading edge as it is drawn this frame (with its shift), in `root`.
+    private func mask(_ bar: UINavigationBar, to visible: ClosedRange<CGFloat>, in root: UIView, barMinX: CGFloat) {
         guard PaneLayerProbe.masks else { return }
-        // The bar's edge as set this frame (with its shift), in the mask's own space.
-        let barMinX = bar.superview.map { $0.convert(bar.frame, to: root).minX } ?? 0
+        if PaneLayerProbe.follows { fadeGlass(in: bar, to: visible, barMinX: barMinX) }
         let layer: CALayer
         if let existing = bar.layer.mask, maskedBar === bar {
             layer = existing
@@ -211,9 +219,40 @@ final class PaneLayerController: UIViewController {
     }
 
     private func unmask() {
+        unfadeGlass()
         guard let bar = maskedBar else { return }
         if bar.layer.mask != nil { bar.layer.mask = nil }
         maskedBar = nil
+    }
+
+    /// The bar's Liquid Glass item groups (the trailing filter and compose capsule, the menu
+    /// button) draw through a backdrop that the bar's mask does not clip: each is shown only
+    /// while it lies wholly inside `visible`, fading in over its last points there, so it is
+    /// never drawn over the page that hides the bar (no doubled bars).
+    private var fadedGlass: [(view: UIView, alpha: CGFloat, set: CGFloat)] = []
+
+    private func fadeGlass(in bar: UINavigationBar, to visible: ClosedRange<CGFloat>, barMinX: CGFloat) {
+        if fadedGlass.isEmpty || fadedGlass.contains(where: { $0.view.superview == nil || !$0.view.isDescendant(of: bar) }) {
+            unfadeGlass()
+            fadedGlass = PaneLayerGeometry.glassGroups(in: bar).map { ($0, $0.alpha, $0.alpha) }
+        }
+        for index in fadedGlass.indices {
+            let view = fadedGlass[index].view
+            // Fade the group only where nobody else changed it since the last frame.
+            guard abs(view.alpha - fadedGlass[index].set) < 0.002 else { continue }
+            let span = view.convert(view.bounds, to: bar)
+            let minX = barMinX + span.minX
+            let maxX = barMinX + span.maxX
+            let room = min(minX - visible.lowerBound, visible.upperBound - maxX)
+            let alpha = fadedGlass[index].alpha * max(0, min(1, room / 24))
+            if abs(view.alpha - alpha) >= 0.002 { view.alpha = alpha }
+            fadedGlass[index].set = alpha
+        }
+    }
+
+    private func unfadeGlass() {
+        for entry in fadedGlass where abs(entry.view.alpha - entry.set) < 0.002 { entry.view.alpha = entry.alpha }
+        fadedGlass = []
     }
 
     deinit {
@@ -221,6 +260,7 @@ final class PaneLayerController: UIViewController {
             link?.invalidate()
             maskedBar?.layer.mask = nil
             shiftedBar?.transform = .identity
+            for entry in fadedGlass where abs(entry.view.alpha - entry.set) < 0.002 { entry.view.alpha = entry.alpha }
         }
     }
 }
@@ -247,6 +287,29 @@ enum PaneLayerGeometry {
             layer = current.superlayer
         }
         return layer == nil ? nil : x
+    }
+
+    /// The bar's Liquid Glass groups: the outermost views narrower than most of the bar that
+    /// draw a backdrop (a layer the bar's mask does not clip).
+    @MainActor
+    static func glassGroups(in bar: UINavigationBar) -> [UIView] {
+        func drawsBackdrop(_ layer: CALayer, depth: Int) -> Bool {
+            if NSStringFromClass(type(of: layer)).contains("Backdrop") { return true }
+            guard depth < 8 else { return false }
+            return layer.sublayers?.contains { drawsBackdrop($0, depth: depth + 1) } ?? false
+        }
+        var groups: [UIView] = []
+        func walk(_ view: UIView, depth: Int) {
+            for sub in view.subviews where !sub.isHidden {
+                if sub.bounds.width > 0, sub.bounds.width < bar.bounds.width * 0.6, drawsBackdrop(sub.layer, depth: 0) {
+                    groups.append(sub)
+                } else if depth < 8 {
+                    walk(sub, depth: depth + 1)
+                }
+            }
+        }
+        walk(bar, depth: 0)
+        return groups
     }
 
     /// The bar's span as drawn (empty when hidden or transparent), clipped by

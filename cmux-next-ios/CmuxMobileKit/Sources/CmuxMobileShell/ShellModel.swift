@@ -73,6 +73,11 @@ final class ShellModel {
     var workspacesMacPanelShown = false
     var feedPath: [AgentChatDestination] = [] { didSet { updateInteractiveOpen() } }
     var settingsPath: [SettingsRoute] = [] { didSet { updateInteractiveOpen() } }
+    /// Tabs whose navigation stack is mid-transition (a swipe back, held or let go, or Back).
+    /// SwiftUI empties a path as a swipe back starts, so a tab's root chrome drawn outside its
+    /// stack (the tab bar, New Task) waits for the page to finish leaving instead of showing
+    /// over it (Leo, 2026-11-25: "tons of bullshit overlap ... esp near composer bar").
+    var stackMoving: Set<RootTab> = []
     /// Taps on the selected tab at its root, per tab: each one asks that tab's list to scroll to
     /// its top (`TabRetapScroll`; the Feed takes its own).
     private(set) var topRequests: [RootTab: Int] = [:]
@@ -743,7 +748,12 @@ final class ShellModel {
     /// showed over the bar, and a screen that hid it in some branches only
     /// (a conversation still loading) showed it in the others.
     func showsTabBar(on tab: RootTab) -> Bool {
-        tab == .settings || depth(of: tab) == 0
+        tab == .settings || (depth(of: tab) == 0 && !stackMoving.contains(tab))
+    }
+
+    /// Whether a tab's root shows on its own: its stack empty and no page still leaving it.
+    func atRoot(_ tab: RootTab) -> Bool {
+        depth(of: tab) == 0 && !stackMoving.contains(tab)
     }
 
     /// A tap on the tab that is already selected (the iOS Mail pattern): a pushed screen pops
