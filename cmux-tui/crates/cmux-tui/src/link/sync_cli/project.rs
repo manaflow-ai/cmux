@@ -1054,10 +1054,11 @@ fn list_with_carry(folder: &Path, carry: Option<&CarryFiles>) -> anyhow::Result<
     Ok(Listed { manifest, served, links: set.links })
 }
 
-/// Builds the carry files only for the opt-in projection swap. A repository without a commit, or
-/// one that is itself a partial clone, simply keeps its projected `.git` and continues normally.
+/// Builds the carry files for the default-on projection swap. The live git probes make carry
+/// opportunistic, so a repository without a commit, or one that is itself a partial clone, simply
+/// keeps its projected `.git` and continues normally.
 fn projection_carry(folder: &Path) -> Option<CarryFiles> {
-    if !std::env::var_os("CMUX_PROJECTION_GIT_SWAP").is_some_and(|value| value == "1") {
+    if !cmux_projection::git_swap::enabled() {
         return None;
     }
     let output = |args: &[&str]| {
