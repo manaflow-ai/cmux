@@ -1387,9 +1387,10 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private var restTimer: Timer?
     private func watchForRest() {
         guard restTimer == nil else { return }
-        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] timer in
+        // The controller's deinit invalidates it (a gone controller leaves nothing to release).
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, let view = self.collectionView else { timer.invalidate(); return }
+                guard let self, let view = self.collectionView else { return }
                 guard !view.isTracking, !view.isDecelerating, !self.jumpingToTop else { return }
                 self.trace("released by the rest check")
                 self.releaseHeld()

@@ -110,17 +110,20 @@ final class FeedShiftProbe {
         lastOffset = table.contentOffset.y
         token = FrameClock.shared.subscribe { [weak self] tick in self?.frame(at: tick.timestamp) }
         if let every = Self.headerEvery {
-            var shown = false
-            let timer = Timer(timeInterval: every, repeats: true) { _ in
-                MainActor.assumeIsolated {
-                    shown.toggle()
-                    if shown { FeedStore.shared.setRefreshErrorForDemo() } else { FeedStore.shared.clearRefreshErrorForDemo() }
-                }
+            let timer = Timer(timeInterval: every, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.toggleHeader() }
             }
             RunLoop.main.add(timer, forMode: .common)
             headerTimer = timer
         }
         publish()
+    }
+
+    /// The header's refresh error shows and clears in turn (`CMUX_MOBILE_FEED_STRESS_HEADER`).
+    private var headerShown = false
+    private func toggleHeader() {
+        headerShown.toggle()
+        if headerShown { FeedStore.shared.setRefreshErrorForDemo() } else { FeedStore.shared.clearRefreshErrorForDemo() }
     }
 
     /// The list's own correction of the offset (keeping the read row in place): not the scroll.
