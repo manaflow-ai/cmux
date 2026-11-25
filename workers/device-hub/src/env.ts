@@ -43,6 +43,11 @@ export interface Env {
   MACHINE_ORIGINS?: string;
   /** Deadline (ms) for that lookup; default 5000. */
   MACHINE_TIMEOUT_MS?: string;
+  /**
+   * Which deployment this is: `production` (the top level of wrangler.toml), `dev` (env.dev, and a tag's
+   * stack), `test` (vitest.config.ts). Only dev, test and local serve dev build spaces (src/buildSpace.ts).
+   */
+  ENVIRONMENT?: string;
 }
 
 export function csv(value: string | undefined): string[] {
@@ -65,3 +70,5 @@ export const SCOPE_HEADER = "x-hub-scope";
 export const SESSION_DEVICE_HEADER = "x-hub-session-device";
 /** A host-scoped session's cmux relay entitlement, recorded at the last anchor (`1` or `0`). */
 export const HOST_RELAY_HEADER = "x-hub-host-relay";
+/** The request's build space (src/buildSpace.ts), "" for the default space: the User DO hands it to its Session DOs. */
+export const SPACE_HEADER = "x-hub-build-space";
