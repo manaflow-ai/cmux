@@ -3719,7 +3719,11 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
      * it was parked and its hold has not passed. The tunnel then moves onto
      * a fresh socket (as on a network change) and the caller probes; the
      * first frame back ends the park on both sides.
+     * This link's relay-held send route (RFD 0142 R8), or `None` while [`relay_hold::set_relay_hold_enabled`]
+     * is off or the link is not a WireGuard session. One per link: keep it while the link lives.
      */
+    func relayHold()  -> RelayHoldRoute?
+    
     func resume()  -> Bool
     
     /**
@@ -4160,7 +4164,17 @@ open func receivedAgoMs() -> UInt64  {
      * it was parked and its hold has not passed. The tunnel then moves onto
      * a fresh socket (as on a network change) and the caller probes; the
      * first frame back ends the park on both sides.
+     * This link's relay-held send route (RFD 0142 R8), or `None` while [`relay_hold::set_relay_hold_enabled`]
+     * is off or the link is not a WireGuard session. One per link: keep it while the link lives.
      */
+open func relayHold() -> RelayHoldRoute?  {
+    return try!  FfiConverterOptionTypeRelayHoldRoute.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_relay_hold(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
 open func resume() -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_resume(
@@ -6804,6 +6818,144 @@ public func FfiConverterTypeRelayViewerKey_lift(_ handle: UInt64) throws -> Rela
 #endif
 public func FfiConverterTypeRelayViewerKey_lower(_ value: RelayViewerKey) -> UInt64 {
     return FfiConverterTypeRelayViewerKey.lower(value)
+}
+
+
+
+
+
+
+/**
+ * One link's relay-held send route.
+ */
+public protocol RelayHoldRouteProtocol: AnyObject, Sendable {
+    
+    /**
+     * Hold `sealed` under `id` and wait up to `wait_ms` for the relay.
+     */
+    func send(id: String, sealed: String, waitMs: UInt32) async  -> RelayHoldOutcome
+    
+}
+/**
+ * One link's relay-held send route.
+ */
+open class RelayHoldRoute: RelayHoldRouteProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_relayholdroute(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_relayholdroute(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Hold `sealed` under `id` and wait up to `wait_ms` for the relay.
+     */
+open func send(id: String, sealed: String, waitMs: UInt32)async  -> RelayHoldOutcome  {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_relayholdroute_send(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(id),FfiConverterString.lower(sealed),FfiConverterUInt32.lower(waitMs)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeRelayHoldOutcome_lift,
+            errorHandler: nil
+            
+        )
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRelayHoldRoute: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = RelayHoldRoute
+
+    public static func lift(_ handle: UInt64) throws -> RelayHoldRoute {
+        return RelayHoldRoute(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: RelayHoldRoute) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RelayHoldRoute {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: RelayHoldRoute, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelayHoldRoute_lift(_ handle: UInt64) throws -> RelayHoldRoute {
+    return try FfiConverterTypeRelayHoldRoute.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelayHoldRoute_lower(_ value: RelayHoldRoute) -> UInt64 {
+    return FfiConverterTypeRelayHoldRoute.lower(value)
 }
 
 
@@ -15728,6 +15880,105 @@ public func FfiConverterTypeProjectionSegment_lower(_ value: ProjectionSegment) 
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum RelayHoldOutcome: Equatable, Hashable {
+    
+    /**
+     * The relay holds it; `ms` after the first write.
+     */
+    case accepted(ms: UInt64
+    )
+    /**
+     * The Mac has it already.
+     */
+    case delivered
+    /**
+     * The relay will not hold it (`off`, `bad`, `full`): route the same item another way.
+     */
+    case refused(code: String
+    )
+    /**
+     * No relay socket now, or no answer in time: route the same item another way.
+     */
+    case unanswered
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension RelayHoldOutcome: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRelayHoldOutcome: FfiConverterRustBuffer {
+    typealias SwiftType = RelayHoldOutcome
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RelayHoldOutcome {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .accepted(ms: try FfiConverterUInt64.read(from: &buf)
+        )
+        
+        case 2: return .delivered
+        
+        case 3: return .refused(code: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 4: return .unanswered
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: RelayHoldOutcome, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .accepted(ms):
+            writeInt(&buf, Int32(1))
+            FfiConverterUInt64.write(ms, into: &buf)
+            
+        
+        case .delivered:
+            writeInt(&buf, Int32(2))
+        
+        
+        case let .refused(code):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(code, into: &buf)
+            
+        
+        case .unanswered:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelayHoldOutcome_lift(_ buf: RustBuffer) throws -> RelayHoldOutcome {
+    return try FfiConverterTypeRelayHoldOutcome.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelayHoldOutcome_lower(_ value: RelayHoldOutcome) -> RustBuffer {
+    return FfiConverterTypeRelayHoldOutcome.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
  * A row against the heights kept for it.
  */
@@ -16467,6 +16718,30 @@ fileprivate struct FfiConverterOptionTypeLinkObserver: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeLinkObserver.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeRelayHoldRoute: FfiConverterRustBuffer {
+    typealias SwiftType = RelayHoldRoute?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeRelayHoldRoute.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeRelayHoldRoute.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -18347,6 +18622,15 @@ public func pairRequestsSupported(capabilities: [String]) -> Bool  {
 })
 }
 /**
+ * Turn relay-held sends on or off for links made from now on (default off).
+ */
+public func setRelayHoldEnabled(on: Bool)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_set_relay_hold_enabled(
+        FfiConverterBool.lower(on),$0
+    )
+}
+}
+/**
  * A stable 64-bit FNV-1a fingerprint of `text`: the same on every launch, so a kept
  * height is found again after the app opens again.
  */
@@ -18705,6 +18989,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_pair_requests_supported() != 49678) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_relay_hold_enabled() != 23892) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_row_layout_fingerprint() != 59393) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -18831,7 +19118,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_received_ago_ms() != 55134) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_resume() != 43166) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_relay_hold() != 44510) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_resume() != 26847) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_resume_hedge_ms() != 7041) {
@@ -19255,6 +19545,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_phonereadstore_remove_all() != 47779) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_relayholdroute_send() != 31091) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_rowlayoutmemory_diff() != 485) {
