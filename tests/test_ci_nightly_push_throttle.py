@@ -4,7 +4,8 @@
 Runs the real `decide` github-script under Node with a mocked GitHub API and
 checks that only pushes to main are throttled, by the age of the commit the
 `nightly` tag points at; that a push whose changed paths cannot reach the app
-skips the build; and that every lookup failure builds. The build-input check
+skips the build; and that lookup failures before the first in-flight page build
+while partial reads skip the tick. The build-input check
 runs the real `scripts/ci/nightly_build_inputs.py`, so the classification it
 asserts is the one the workflow gets.
 """
@@ -72,6 +73,7 @@ const notFound = () => Object.assign(new Error('Not Found'), { status: 404 });
 const actions = scenario.runs ? {
   listWorkflowRuns: async ({ status, branch }) => {
     if (branch !== 'main') throw new Error(`expected main's runs, got ${branch}`);
+    if (scenario.failStatus === status) throw new Error(`failed listing ${status} runs`);
     return { data: scenario.runs.filter((run) => run.status === status) };
   },
   listJobsForWorkflowRun: async ({ run_id }) => ({ data: scenario.jobs[String(run_id)] || [] }),
@@ -160,6 +162,7 @@ def run_decide(
     runs=None,
     jobs=None,
     max_in_flight: str = "3",
+    fail_status=None,
 ):
     env = {
         "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
@@ -187,6 +190,7 @@ def run_decide(
                 "root": str(ROOT),
                 "runs": runs,
                 "jobs": jobs or {},
+                "failStatus": fail_status,
             }
         ),
     }
@@ -332,17 +336,23 @@ def test_force_and_manual_dispatch_bypass_the_input_check() -> None:
     assert summary_values(manual)["app build inputs changed"] == "(not checked)"
 
 
-# 2026-11-25T08:17:00Z and 09:17:00Z.
+# 2026-11-25T08:17:00Z, 08:37:00Z and 09:17:00Z.
 AT_0817 = 1795594620000
+AT_0837 = AT_0817 + 20 * 60_000
 AT_0917 = 1795598220000
+BACKSTOP = "5 8 * * *"
 
 
 def test_the_daily_catch_up_still_builds_as_a_backstop() -> None:
-    """One build a day (the 08:17 UTC tick) bounds the cost of a path this check gets wrong."""
-    daily = run_decide(event="schedule", schedule="2,17,32,47 * * * *", interval="0",
+    """One delayed daily backstop bounds the cost of a path this check gets wrong."""
+    daily = run_decide(event="schedule", schedule=BACKSTOP, interval="0",
                        comparison=NEUTRAL_CHANGE, now_ms=AT_0817)
     assert should_build(daily)
     assert summary_values(daily)["app build inputs changed"] == "(not checked)"
+    delayed = run_decide(event="schedule", schedule=BACKSTOP, interval="0",
+                         comparison=NEUTRAL_CHANGE, now_ms=AT_0837)
+    assert should_build(delayed)
+    assert summary_values(delayed)["app build inputs changed"] == "(not checked)"
     # Nothing at all changed: the published-commit check skips it as before.
     idle = run_decide(event="schedule", schedule="2,17,32,47 * * * *", interval="0",
                       tag_sha=HEAD_SHA)
@@ -611,13 +621,24 @@ def test_a_tick_of_a_commit_already_building_is_a_duplicate_not_a_cap() -> None:
     assert summary_values(dup)["duplicate of run"] == "7"
 
 
-def test_a_failed_in_flight_read_builds() -> None:
-    assert should_build(run_decide(event="schedule", schedule=TICK, now_ms=AT_0917))
+def test_a_failed_in_flight_read_skips_the_tick() -> None:
+    result = run_decide(event="schedule", schedule=TICK, now_ms=AT_0917,
+                        runs=in_flight((1, "c" * 40))["runs"],
+                        jobs={"1": in_flight((1, "c" * 40))["jobs"]["1"]},
+                        fail_status="queued")
+    assert not should_build(result)
+    assert "complete main-run list" in summary_values(result)["reason"]
+    assert result["warnings"]
+
+
+def test_an_unavailable_in_flight_read_does_not_change_non_tick_liveness() -> None:
+    assert should_build(run_decide(event="push", interval="0"))
 
 
 def test_each_main_tick_has_its_own_concurrency_group() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "github.event_name == 'schedule' && format('main-tick-{0}', github.run_id)" in text
+    assert f'cron: "{BACKSTOP}"' in text
 
 
 def main() -> None:
