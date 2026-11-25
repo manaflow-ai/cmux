@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Login flows on the Chromium engine, against any running cmux (a `cmux app try .` copy or a tagged build).
+"""Login flows on the Chromium or WebKit engine, against any running cmux (a `cmux app try .` copy or a tagged build).
 
-  scripts/cmux-next/browser-auth-flows-live.py --socket PATH [--port 8765]
+  scripts/cmux-next/browser-auth-flows-live.py --socket PATH [--port 8765] [--engine chromium|webkit]
 
 Serves a local fixture OAuth provider (browser-auth-flows-fixture/provider.py: relying party on
-localhost, identity provider on 127.0.0.1, no real credentials) and drives one agent browser tab with
-`cmux browser right`. Checks, each as a fail-or-ok line:
+localhost, identity provider on 127.0.0.1, no real credentials) and drives one browser tab, opened by
+`action.run openBrowser.<engine>`, over the control socket (the agent verbs of `cmux browser`). Checks, each as a fail-or-ok line:
 
   1. window.open popup (user gesture) keeps window.opener and postMessages the code back, origin intact;
   2. a popup with window features, same;
@@ -18,35 +18,60 @@ localhost, identity provider on 127.0.0.1, no real credentials) and drives one a
 
 Exits 1 on any failure. Run on a GUI host that may draw (offscreen on Leo's Macs).
 """
-import argparse, json, subprocess, sys, time, os
+import argparse, json, socket, subprocess, sys, time, os
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True)
 parser.add_argument("--port", type=int, default=8765)
+parser.add_argument("--engine", choices=("chromium", "webkit"), default="chromium")
 opts = parser.parse_args()
 HERE = os.path.dirname(os.path.abspath(__file__))
 failures = []
 
 
-def cli(*args):
-    out = subprocess.run(["cmux", "--app-socket", opts.socket, "browser", "right", *args, "--agent", "authflows"],
-                         capture_output=True, text=True, timeout=60)
-    return out.stdout + out.stderr
+def rpc(method, params=None, timeout=60):
+    """One request on the app's control socket (line JSON); the result or {"error": ...}."""
+    try:
+        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        conn.settimeout(timeout)
+        conn.connect(opts.socket)
+        conn.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
+        buf = b""
+        while not buf.endswith(b"\n"):
+            chunk = conn.recv(1 << 20)
+            if not chunk:
+                break
+            buf += chunk
+        conn.close()
+        reply = json.loads(buf)
+        return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
+    except (OSError, ValueError) as error:
+        return {"error": str(error)}
 
 
-def value(text):
-    for line in text.splitlines():
-        if line.startswith("value"):
-            return line[5:].strip()
-    return ""
+TAB = None
+
+
+def open_tab(url):
+    for _ in range(2):
+        reply = rpc("action.run", {"action": "openBrowser." + opts.engine, "args": {"url": url}, "focus": True}, timeout=90)
+        created = [c for c in (reply.get("created") or []) if str(c).startswith("tab_")]
+        if created:
+            return created[0]
+        rpc("action.run", {"action": "newTab", "origin": "script", "focus": True})  # a launch on Home has no pane
+        time.sleep(2)
+    sys.exit("could not open a " + opts.engine + " tab")
 
 
 def ev(js):
-    return value(cli("eval", js))
+    # An agent's eval runs as a user gesture (cmux's agent scripts do); a fresh other-origin page has none.
+    reply = rpc("browser.page.eval", {"tab": TAB, "script": js}) or {}
+    value = reply.get("value")
+    return "" if value is None else (value if isinstance(value, str) else json.dumps(value))
 
 
 def nav(url, settle=2):
-    cli("navigate", url)
+    rpc("browser.page.navigate", {"tab": TAB, "url": url})
     time.sleep(settle)
 
 
@@ -60,8 +85,8 @@ RP, IDP = f"http://localhost:{opts.port}", f"http://127.0.0.1:{opts.port}"
 server = subprocess.Popen([sys.executable, os.path.join(HERE, "browser-auth-flows-fixture/provider.py"), str(opts.port)])
 try:
     time.sleep(1)
-    # eval runs as a user gesture (cmux's agent scripts do); a fresh other-origin page has none.
-    nav(RP + "/rp")
+    TAB = open_tab(RP + "/rp")
+    time.sleep(2)
     ev("window.__msgs=[];1")
     ev("document.querySelector('#gesture').click();1"); time.sleep(3)
     check(ev("String(window.__w)") == "true" and '"code":"abc"' in ev("JSON.stringify(__msgs)"),

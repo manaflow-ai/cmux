@@ -25,7 +25,8 @@
     "_acpmux/agent_login/start", "_acpmux/agent_login/finish", "_acpmux/agent_login/api_key", "_acpmux/agent_login/cancel",
     "_acpmux/account/sign_in", "_acpmux/account/sign_in.finish", "_acpmux/account/sign_in.cancel",
     "_acpmux/presets", "_acpmux/run_elsewhere/plan", "_acpmux/run_elsewhere/start", "_acpmux/bg/output", "_acpmux/bg/stop",
-    "_acpmux/cold_archive", "_acpmux/prompt_coach"
+    "_acpmux/cold_archive", "_acpmux/prompt_coach", "_acpmux/customize_run",
+    "_acpmux/auto_session/set", "_acpmux/auto_session/leftover", "_acpmux/auto_session/transcript"
   ],
   "notifications": ["session/cancel"],
   "maximum_frame_bytes": 33554432,
@@ -43,6 +44,7 @@
     "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
     "_acpmux/presets", "_acpmux/run_elsewhere/plan", "_acpmux/run_elsewhere/start", "_acpmux/bg/output", "_acpmux/bg/stop",
     "_acpmux/cold_archive", "_acpmux/prompt_coach",
+    "_acpmux/auto_session/set", "_acpmux/auto_session/leftover", "_acpmux/auto_session/transcript",
     "_acpmux/account/sign_in", "_acpmux/account/sign_in.finish", "_acpmux/account/sign_in.cancel"
   ],
   "optionally_session_scoped": [
@@ -82,9 +84,13 @@
     "_acpmux/plan/build": "always",
     "_acpmux/race/start": "always",
     "_acpmux/presets": "always",
-    "_acpmux/run_elsewhere/start": "always"
+    "_acpmux/run_elsewhere/start": "always",
+    "_acpmux/customize_run": "always",
+    "_acpmux/auto_session/set": "always",
+    "_acpmux/auto_session/leftover": "always"
   },
   "click_only": [
+    "_acpmux/customize_run",
     "_acpmux/permission_group_respond",
     "_acpmux/permission_respond",
     "_acpmux/plan/build",
@@ -96,7 +102,7 @@
   "setting_methods": ["session/set_mode", "session/set_config_option"],
   "known_params": {
     "initialize": {"params": ["protocolVersion", "clientInfo", "clientCapabilities", "_meta"], "acpmux": ["peerRowBatches"]},
-    "session/new": {"params": ["cwd", "mcpServers", "additionalDirectories", "_meta"], "acpmux": ["harness", "adopt", "peer", "noProject", "model", "restricted"]},
+    "session/new": {"params": ["cwd", "mcpServers", "additionalDirectories", "_meta"], "acpmux": ["harness", "adopt", "peer", "noProject", "model", "restricted", "autoPlace"]},
     "chat.fix_from_link": {"params": ["url", "cwd", "harness", "model", "_meta"], "acpmux": []},
     "chat.fix_from_link.prepare": {"params": ["url", "cwd", "harness", "model"], "acpmux": []},
     "session/prompt": {"params": ["sessionId", "prompt", "_meta"], "acpmux": ["promptId", "steer", "interrupt", "context", "surface", "inlineParts", "promptSuggestion"]},
@@ -203,6 +209,10 @@
     "_acpmux/presets": {"params": ["name", "approveMode", "approveDigest", "sessionId"], "acpmux": []},
     "_acpmux/cold_archive": {"params": ["sessionId", "archived"], "acpmux": []},
     "_acpmux/prompt_coach": {"params": ["sessionId", "coachId"], "acpmux": []},
+    "_acpmux/customize_run": {"params": ["run", "_meta"], "acpmux": []},
+    "_acpmux/auto_session/set": {"params": ["sessionId", "auto", "keepInCloud"], "acpmux": []},
+    "_acpmux/auto_session/leftover": {"params": ["sessionId", "action"], "acpmux": []},
+    "_acpmux/auto_session/transcript": {"params": ["sessionId", "after", "version"], "acpmux": []},
     "_acpmux/run_elsewhere/plan": {"params": ["sessionId", "command"], "acpmux": []},
     "_acpmux/run_elsewhere/start": {"params": ["sessionId", "command", "peer", "digest", "sendSecrets"], "acpmux": []},
     "_acpmux/bg/output": {"params": ["sessionId", "id", "fromByte", "maxBytes"], "acpmux": []},
