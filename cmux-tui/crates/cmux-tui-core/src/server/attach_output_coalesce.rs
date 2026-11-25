@@ -148,19 +148,22 @@ pub(super) const DRAIN_MAX_BYTES: usize = 256 * 1024;
 
 /// The plain byte attach (no timer) once its writer frees, for the reads already pending:
 /// `first` and then `next()` merge into one `output` event of at most `max_bytes` (a single
-/// read over it goes alone, unsplit). The drain stops at the first frame that does not merge
-/// (another kind of event, or a read past the cap): that frame goes out as its own event and
-/// whatever is still queued waits for the next drain. So one drain pushes at most two frames
-/// and holds at most `max_bytes` plus one read. Same bytes, same order.
+/// read over it goes alone, unsplit). The drain stops at the first frame that does not merge.
+/// Another kind of event goes out as its own event after the merged one; a read past the cap
+/// is returned, to start the next drain (the duress model's `merge_ready`: a read past it starts
+/// the next event), so a backlog goes out as events of about `max_bytes`, never a read alone.
+/// Whatever is still queued waits for the next drain. So one drain pushes at most two frames and
+/// holds at most `max_bytes` plus one read. Same bytes, same order.
+#[must_use = "a returned read starts the next drain"]
 pub(super) fn drain_merged(
     first: AttachFrame,
     mut next: impl FnMut() -> Option<AttachFrame>,
     max_bytes: usize,
     out: &mut Vec<AttachFrame>,
-) {
+) -> Option<AttachFrame> {
     let AttachFrame::Output(mut merged) = first else {
         out.push(first);
-        return;
+        return None;
     };
     while merged.len() < max_bytes {
         let Some(frame) = next() else { break };
@@ -168,14 +171,19 @@ pub(super) fn drain_merged(
             AttachFrame::Output(bytes) if merged.len() + bytes.len() <= max_bytes => {
                 merged.extend_from_slice(&bytes);
             }
+            AttachFrame::Output(bytes) => {
+                out.push(AttachFrame::Output(merged));
+                return Some(AttachFrame::Output(bytes));
+            }
             other => {
                 out.push(AttachFrame::Output(merged));
                 out.push(other);
-                return;
+                return None;
             }
         }
     }
     out.push(AttachFrame::Output(merged));
+    None
 }
 
 #[cfg(test)]
@@ -279,9 +287,10 @@ mod tests {
         let mut queue: std::collections::VecDeque<AttachFrame> =
             burst.chunks(97).map(|read| AttachFrame::Output(read.to_vec())).collect();
         let mut sent = Vec::new();
-        while let Some(first) = queue.pop_front() {
+        let mut carry = None;
+        while let Some(first) = carry.take().or_else(|| queue.pop_front()) {
             let mut ready = Vec::new();
-            drain_merged(first, || queue.pop_front(), CAP, &mut ready);
+            carry = drain_merged(first, || queue.pop_front(), CAP, &mut ready);
             assert!(ready.len() <= 2, "one drain pushes at most two frames");
             sent.extend(ready);
         }
@@ -296,8 +305,9 @@ mod tests {
         let mut queue: std::collections::VecDeque<AttachFrame> =
             burst.chunks(16 * 1024).map(|read| AttachFrame::Output(read.to_vec())).collect();
         let mut sent = Vec::new();
-        while let Some(first) = queue.pop_front() {
-            drain_merged(first, || queue.pop_front(), DRAIN_MAX_BYTES, &mut sent);
+        let mut carry = None;
+        while let Some(first) = carry.take().or_else(|| queue.pop_front()) {
+            carry = drain_merged(first, || queue.pop_front(), DRAIN_MAX_BYTES, &mut sent);
         }
         let events = bytes(&sent);
         assert_eq!(events.len(), 4);
@@ -317,13 +327,20 @@ mod tests {
         ]
         .into();
         let mut out = Vec::new();
-        drain_merged(AttachFrame::Output(b"a".to_vec()), || queue.pop_front(), 10, &mut out);
+        let carry =
+            drain_merged(AttachFrame::Output(b"a".to_vec()), || queue.pop_front(), 10, &mut out);
+        assert!(carry.is_none(), "another event goes out, not back");
         assert_eq!(bytes(&out), [b"ab".to_vec(), b"<other>".to_vec()]);
         assert_eq!(queue.len(), 2, "the rest waits for the next drain");
         out.clear();
         let first = queue.pop_front().unwrap();
-        drain_merged(first, || queue.pop_front(), 10, &mut out);
-        assert_eq!(bytes(&out), [b"c".to_vec(), vec![b'x'; 20]]);
+        let carry = drain_merged(first, || queue.pop_front(), 10, &mut out);
+        assert_eq!(bytes(&out), [b"c".to_vec()]);
+        // The read past the cap starts the next drain, where it goes alone, unsplit.
+        let big = carry.expect("the read past the cap comes back");
+        out.clear();
+        assert!(drain_merged(big, || queue.pop_front(), 10, &mut out).is_none());
+        assert_eq!(bytes(&out), [vec![b'x'; 20]]);
     }
 
     #[test]
