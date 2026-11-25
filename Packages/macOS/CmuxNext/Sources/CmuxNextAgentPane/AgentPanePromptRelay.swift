@@ -1,10 +1,12 @@
+import CmuxNextWakeups
 import Foundation
 import os
 
 /// The relay's side of ``AgentPanePromptJournal`` for one connection of ``AgentPaneTransport``: a
 /// person's prompt is recorded before it goes and forgotten at acpmux's acknowledgement or reply;
-/// a prompt left over from an earlier run goes again, once, right after the connection's first
-/// frame and person proof. Only a connection to this Mac's acpmux has one; its daemon is named by
+/// a prompt left over from an earlier run goes again right after the connection's first frame and
+/// person proof, and again after each "not now" from acpmux (a just-restarted or busy daemon), until
+/// acpmux takes it, refuses it for good, or the journal lets it age out. Only a connection to this Mac's acpmux has one; its daemon is named by
 /// its unix socket, which outlives a daemon restart.
 nonisolated struct AgentPanePromptRelay: Sendable {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.prompt-journal")
@@ -109,7 +111,16 @@ nonisolated struct AgentPanePromptRelay: Sendable {
 
     /// The backoff before resend attempt `attempt` after a "not now": 1 s, 2 s, 4 s ... up to 30 s.
     static func backoff(attempt: Int) -> Duration {
-        .milliseconds(min(30_000, 1_000 << min(max(attempt, 0), 5)))
+        var spacing = spacing(attempt: attempt)
+        return spacing.next()
+    }
+
+    /// The ``Backoff`` that waits `backoff(attempt:)` next: unjittered, so the wait the page is told
+    /// (`retryInMs`) is the one the outbox waits.
+    static func spacing(attempt: Int) -> Backoff {
+        var spacing = Backoff(initial: .seconds(1), maximum: .seconds(30), jitter: 0)
+        for _ in 0..<min(max(attempt, 0), 6) { _ = spacing.next() }
+        return spacing
     }
 
     /// A refusal that says "not now", never "no": the daemon or host will take it later.
@@ -158,8 +169,9 @@ nonisolated struct AgentPanePromptRelay: Sendable {
         let wait = Self.backoff(attempt: attempt)
         Self.tell(socket, entry, .retrying, attempt: attempt, reply: reply, retryIn: wait)
         let relay = self
-        Task.detached {
-            try? await Task.sleep(for: wait)
+        Task.detached(priority: .utility) {
+            var spacing = Self.spacing(attempt: attempt)
+            try? await spacing.wait(owner: "agent-pane.prompt-outbox")
             // A closed connection left it over for the next one (``ended()``); one acpmux took
             // meanwhile (its `_acpmux/prompt_accepted`) is no longer kept.
             guard !socket.isClosed, relay.journal.keeps(daemon: relay.daemon, promptId: entry.promptId) else { return }
