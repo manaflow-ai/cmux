@@ -240,8 +240,11 @@ final class FeedStressRig {
                     self.liveEvent(store)
                 }
             }
-            // FeedShiftProbe: the load can wait so a test places the list first.
-            if FeedShiftProbe.liveDelay > 0 { timer.fireDate = Date().addingTimeInterval(FeedShiftProbe.liveDelay) }
+            // FeedShiftProbe: the load waits for the UI test's signal, sent once it has placed the list.
+            if FeedShiftProbe.enabled {
+                timer.fireDate = .distantFuture
+                FeedShiftProbe.shared.whenStarted { timer.fireDate = Date() }
+            }
             RunLoop.main.add(timer, forMode: .common)
             liveTimer = timer
         }

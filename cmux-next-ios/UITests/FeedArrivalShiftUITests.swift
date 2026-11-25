@@ -1,3 +1,4 @@
+import Darwin
 import XCTest
 
 /// FEED-15 (Aziz 2026-11-24, iPhone 16 Plus, 84 live Codex workspaces: "When a new feed row comes in as
@@ -56,8 +57,13 @@ final class FeedArrivalShiftUITests: XCTestCase {
         case onScreenResize = "OnScreenResize guard (Show more below the first row: the first row stays)"
     }
 
-    /// The rig's load starts this long after launch: the list is placed before rows arrive.
-    static let liveDelay = 20.0
+    /// The app's load and measure start on this Darwin notification (FeedShiftProbe.startSignal),
+    /// posted once the list is placed. Placing runs with no load: XCUITest waits for the app to go
+    /// idle before each action, and a running load never lets it (feed15-red-2 c4876285 took 40-118 s
+    /// to place the list). The measured gestures then run under load, driven as PagedLabDriver drives
+    /// PagedListStressUITests' drags under inserts on the same fleet: XCUICoordinate
+    /// press-and-drag for a held drag, swipeUp for a fling.
+    static let startSignal = "dev.cmux.mobile.feed-shift.start"
 
     @MainActor
     private func run(_ which: Case, liveHz: Int) {
@@ -66,14 +72,12 @@ final class FeedArrivalShiftUITests: XCTestCase {
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchEnvironment["CMUX_MOBILE_FEED_STRESS"] = "300"
         if liveHz > 0 { app.launchEnvironment["CMUX_MOBILE_FEED_STRESS_LIVE"] = String(liveHz) }
-        app.launchEnvironment["CMUX_MOBILE_FEED_STRESS_LIVE_DELAY"] = String(Self.liveDelay)
         app.launchEnvironment["CMUX_MOBILE_FEED_SHIFT_PROBE"] = "1"
         if which == .headerOffTop { app.launchEnvironment["CMUX_MOBILE_FEED_STRESS_HEADER"] = "1.5" }
         if which == .headerDuringDrag { app.launchEnvironment["CMUX_MOBILE_FEED_STRESS_HEADER"] = "0.5" }
         app.launchArguments += ["-cmux-mobile-tab", "feed", "-cmux-mobile-no-restore"]
         app.launch()
         defer { app.terminate() }
-        let launched = Date()
         _ = feedChipsAfterSetup(app)
         // Finished: no open asks pinned above the events, so the rig's new rows land on top, above the reader.
         app.buttons["Finished"].firstMatch.tap()
@@ -90,10 +94,9 @@ final class FeedArrivalShiftUITests: XCTestCase {
         default:
             for _ in 0..<4 { app.swipeUp(velocity: .fast) }
         }
-        let placed = Date().timeIntervalSince(launched)
-        XCTAssertLessThan(placed, Self.liveDelay - 1, "\(which.rawValue): placing the list took \(placed) s, past the load's start")
-        // The load starts; the case's motion runs under it.
-        Thread.sleep(forTimeInterval: max(0, Self.liveDelay - placed) + 0.5)
+        // Placed: the load and the measure start, and the case's motion runs under them.
+        notify_post(Self.startSignal)
+        Thread.sleep(forTimeInterval: 1)
         switch which {
         case .drag:
             for _ in 0..<4 {

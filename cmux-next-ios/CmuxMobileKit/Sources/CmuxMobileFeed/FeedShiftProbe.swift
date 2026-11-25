@@ -1,6 +1,7 @@
 // DEBUG only: the Feed's frame-shift measure for FEED-15 (FeedArrivalShiftUITests).
 #if DEBUG && os(iOS)
 import CmuxMobileDesign
+import Darwin
 import OSLog
 import QuartzCore
 import UIKit
@@ -26,8 +27,11 @@ import UIKit
 /// counted. The rows above it are reported too
 /// (`above=…`: the most any visible row above it moved), so a test of rule (b) checks both.
 ///
-/// The rig's load waits `CMUX_MOBILE_FEED_STRESS_LIVE_DELAY` seconds (default 0), so a test can
-/// place the list before rows arrive; the measure starts with it. `CMUX_MOBILE_FEED_STRESS_HEADER=S`
+/// With the probe on, the rig's load waits for the test's signal: a Darwin notification
+/// (`FeedShiftProbe.startSignal`) the UI test posts once it has placed the list. XCUITest waits for
+/// the app to go idle before each action, and a running load never lets it, so placing the list
+/// under load took 40-118 s (feed15-red-2 c4876285); a timer could not know when placing ends. The
+/// measure starts with the load. `CMUX_MOBILE_FEED_STRESS_HEADER=S`
 /// shows and clears the Feed's refresh error every S seconds once the load starts: the header
 /// changes height away from the top. The reading is the table's accessibility label:
 /// `shift samples=… shifted=… max=… arrivals=…`.
@@ -36,7 +40,12 @@ final class FeedShiftProbe {
     static let shared = FeedShiftProbe()
 
     static let enabled = ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_SHIFT_PROBE"] == "1"
-    static let liveDelay: TimeInterval = ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_STRESS_LIVE_DELAY"].flatMap(Double.init) ?? 0
+    /// The Darwin notification that starts the load and the measure (posted by the UI test).
+    static let startSignal = "dev.cmux.mobile.feed-shift.start"
+    /// What waits for the signal (the rig's live timer), run when it comes.
+    private var onStart: [() -> Void] = []
+    private var started = false
+    private var signalToken: Int32 = 0
     static let headerEvery: TimeInterval? = ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_STRESS_HEADER"].flatMap(Double.init)
 
     private weak var table: UITableView?
@@ -65,18 +74,26 @@ final class FeedShiftProbe {
     private(set) var arrivals = 0
     private var headerTimer: Timer?
 
-    /// The Feed's table: the measure starts when the rig's load does.
+    /// The Feed's table: the measure starts when the test's signal comes.
     func attach(_ table: UITableView) {
         guard Self.enabled, self.table == nil else { return }
         self.table = table
         lastOffset = table.contentOffset.y
-        Timer.scheduledTimer(withTimeInterval: Self.liveDelay, repeats: false) { [weak self] _ in
+        notify_register_dispatch(Self.startSignal, &signalToken, DispatchQueue.main) { [weak self] _ in
             MainActor.assumeIsolated { self?.start() }
         }
     }
 
+    /// Runs `body` when the test's signal comes (at once if it came already).
+    func whenStarted(_ body: @escaping () -> Void) {
+        if started { body() } else { onStart.append(body) }
+    }
+
     private func start() {
-        guard let table else { return }
+        guard let table, !started else { return }
+        started = true
+        for body in onStart { body() }
+        onStart = []
         measuring = true
         lastRows = rows(table)
         lastOffset = table.contentOffset.y
