@@ -33,7 +33,7 @@ use crate::store::LinePos;
 use crate::subagents::SubagentTree;
 
 /// The checkpoint's format and the folds' meaning. Another one is not read.
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
 
 /// Every adoption fold's state through one record.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

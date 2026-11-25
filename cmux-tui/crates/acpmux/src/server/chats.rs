@@ -66,6 +66,7 @@
 
 mod ledger;
 mod offers;
+mod scorecard;
 mod search;
 mod stats;
 mod team_audit;
@@ -80,12 +81,11 @@ use serde_json::{Value, json};
 use tokio::sync::broadcast::error::RecvError;
 
 use super::{Conn, Origin};
-use crate::chats::{
-    ChatQuery, ChatService, activity_change, change_value, changes_activity, transcript_turns,
-};
+use crate::chats::{ChatQuery, ChatService, change_value, changes_activity, transcript_turns};
 use crate::heap_future::heap;
 use crate::hub::Hub;
 use crate::hub::HubEvent;
+use crate::hub::chat_activity::activity_change;
 use crate::rpc::{Message, RpcError};
 
 const PREFIX: &str = "_acpmux/chat";
@@ -116,6 +116,10 @@ pub(super) async fn route(
         return reply;
     }
     if let Some(reply) = super::machine_tunnel::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
+    // Agent byte channels: listen, unlisten, open (`channels.rs`).
+    if let Some(reply) = super::channels::dispatch(hub, conn, m, &params).await {
         return reply;
     }
     // Adding a machine this computer reaches over ssh (`machine_join_ssh.rs`): the app's only.
@@ -185,6 +189,9 @@ pub(super) async fn route(
     if let Some(reply) = super::github_prs::dispatch(conn, m, &params).await {
         return reply;
     }
+    if let Some(reply) = heap(|| super::surgery::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
     if let Some(reply) = super::goal::dispatch(hub, conn, m, &params) {
         return reply;
     }
@@ -193,6 +200,9 @@ pub(super) async fn route(
     }
     // The plan approval card's builds (`plan_build.rs`): sub-sessions of this daemon.
     if let Some(reply) = heap(|| super::plan_build::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
+    if let Some(reply) = super::agent_home::dispatch(conn, m, &params).await {
         return reply;
     }
     if let Some(reply) = heap(|| super::memory_inbox::dispatch(hub, conn, m, &params)).await {
@@ -222,6 +232,10 @@ pub(super) async fn route(
     // Personal stats over the session logs (`stats.rs`): local, never a peer's.
     if m == crate::rpc::method::MUX_STATS {
         return stats::handle(hub, conn.origin, &params).await;
+    }
+    // The harness-magic scorecard over the session logs (`scorecard.rs`): local, never a peer's.
+    if m == crate::rpc::method::MUX_SCORECARD {
+        return scorecard::handle(hub, conn.origin, &params).await;
     }
     // The review queue, review verdicts and the approvals audit trail (`review_queue.rs`).
     if let Some(reply) =
@@ -640,7 +654,7 @@ pub(super) fn push_activity(hub: &Hub, conn: &Conn, ev: &HubEvent) {
         || {
             hub.resolve(&ev.session_id)
                 .ok()
-                .and_then(|session| crate::chats::session_chat_key(&session))
+                .and_then(|session| crate::hub::chat_activity::session_chat_key(&session))
                 .map(|key| crate::chats::key_text(&key))
         },
         // Read now, after the record: the newest session of the chat decides its fold.

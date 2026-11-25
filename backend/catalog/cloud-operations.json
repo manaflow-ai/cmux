@@ -1655,11 +1655,92 @@
             "name": "int64"
           }
         },
+        "origin": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "CloudMachineOrigin"
+          }
+        },
+        "expires_at": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
         "revision": {
           "required": true,
           "type": {
             "kind": "ref",
             "name": "Revision"
+          }
+        }
+      }
+    },
+    "CloudMachineOrigin": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": false,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "workflow",
+              "lane",
+              "agent",
+              "person"
+            ]
+          }
+        },
+        "label": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 200,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+          }
+        },
+        "url": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 500,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+          }
+        },
+        "run": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 200,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+          }
+        },
+        "workflow": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 200,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+          }
+        },
+        "lane": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 200,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
           }
         }
       }
@@ -2660,6 +2741,240 @@
           "type": {
             "kind": "primitive",
             "name": "boolean"
+          }
+        }
+      }
+    },
+    "CloudUsageCurrent": {
+      "kind": "object",
+      "fields": {
+        "period": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "pattern": "^\\d{4}-\\d{2}$"
+          }
+        },
+        "as_of": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "metered_since": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "vcpu_seconds": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        },
+        "memory_gib_seconds": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        },
+        "stored_gib_seconds": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        },
+        "usd": {
+          "required": true,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "vcpu": {
+                "required": true,
+                "type": {
+                  "kind": "union",
+                  "variants": [
+                    {
+                      "kind": "primitive",
+                      "name": "float64"
+                    },
+                    {
+                      "kind": "enum",
+                      "values": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "memory": {
+                "required": true,
+                "type": {
+                  "kind": "union",
+                  "variants": [
+                    {
+                      "kind": "primitive",
+                      "name": "float64"
+                    },
+                    {
+                      "kind": "enum",
+                      "values": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "stored": {
+                "required": true,
+                "type": {
+                  "kind": "union",
+                  "variants": [
+                    {
+                      "kind": "primitive",
+                      "name": "float64"
+                    },
+                    {
+                      "kind": "enum",
+                      "values": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "total": {
+                "required": true,
+                "type": {
+                  "kind": "union",
+                  "variants": [
+                    {
+                      "kind": "primitive",
+                      "name": "float64"
+                    },
+                    {
+                      "kind": "enum",
+                      "values": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "gaps": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "payment_method": {
+          "required": true,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "attached": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              },
+              "brand": {
+                "required": false,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                }
+              },
+              "last4": {
+                "required": false,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "pattern": "^\\d{4}$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "stripe_mode": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "test",
+              "live"
+            ]
           }
         }
       }
@@ -26110,7 +26425,7 @@
         "selectors": {},
         "fields": {
           "plan": {
-            "required": true,
+            "required": false,
             "type": {
               "kind": "primitive",
               "name": "string",
@@ -26152,6 +26467,7 @@
         "auth.sso_required",
         "auth.unauthenticated",
         "client.too_old",
+        "cloud.billing.off",
         "idempotency.conflict",
         "owner.unreachable",
         "revision.conflict",
@@ -26180,7 +26496,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Start a plan checkout: an https URL the client opens in the browser. No card data enters cmux. Agent principals are refused; the client asks a person first.",
+      "docs": "Start a checkout: an https URL the client opens in the browser. With a plan it changes the plan; without one it attaches a payment method. No card data enters cmux. cloud.billing.off: payments are not open for this deployment. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -26190,9 +26506,6 @@
             "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
           }
         },
-        "required": [
-          "plan"
-        ],
         "additionalProperties": true,
         "$defs": {}
       },
@@ -26496,6 +26809,59 @@
             ],
             "additionalProperties": true
           },
+          "CloudMachineOrigin": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "workflow",
+                  "lane",
+                  "agent",
+                  "person"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
+                "allOf": [
+                  {
+                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
+                  }
+                ]
+              },
+              "run": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "workflow": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "lane": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              }
+            },
+            "required": [
+              "label"
+            ],
+            "additionalProperties": true
+          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -26738,6 +27104,14 @@
                 ]
               },
               "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "origin": {
+                "$ref": "#/$defs/CloudMachineOrigin"
+              },
+              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -28372,6 +28746,59 @@
             ],
             "additionalProperties": true
           },
+          "CloudMachineOrigin": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "workflow",
+                  "lane",
+                  "agent",
+                  "person"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
+                "allOf": [
+                  {
+                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
+                  }
+                ]
+              },
+              "run": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "workflow": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "lane": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              }
+            },
+            "required": [
+              "label"
+            ],
+            "additionalProperties": true
+          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -28614,6 +29041,14 @@
                 ]
               },
               "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "origin": {
+                "$ref": "#/$defs/CloudMachineOrigin"
+              },
+              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -29005,6 +29440,20 @@
               "name": "SnapshotId"
             }
           },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "CloudMachineOrigin"
+            }
+          },
+          "ttl_seconds": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -29082,7 +29531,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.",
+      "docs": "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine. origin {kind?, label, url?, run?, workflow?, lane?} says who started it and ttl_seconds (300 to 604800) when the platform deletes it (expires_at on the machine). After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -29102,6 +29551,14 @@
           },
           "from_snapshot": {
             "$ref": "#/$defs/SnapshotId"
+          },
+          "origin": {
+            "$ref": "#/$defs/CloudMachineOrigin"
+          },
+          "ttl_seconds": {
+            "type": "integer",
+            "minimum": 300,
+            "maximum": 604800
           }
         },
         "required": [
@@ -29135,6 +29592,59 @@
             "type": "string",
             "pattern": "^snap_[a-z0-9]{20}$",
             "description": "A Cloud machine snapshot."
+          },
+          "CloudMachineOrigin": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "workflow",
+                  "lane",
+                  "agent",
+                  "person"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
+                "allOf": [
+                  {
+                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
+                  }
+                ]
+              },
+              "run": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "workflow": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "lane": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              }
+            },
+            "required": [
+              "label"
+            ],
+            "additionalProperties": true
           }
         }
       },
@@ -29238,6 +29748,59 @@
               "kind",
               "at",
               "delete_at"
+            ],
+            "additionalProperties": true
+          },
+          "CloudMachineOrigin": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "workflow",
+                  "lane",
+                  "agent",
+                  "person"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
+                "allOf": [
+                  {
+                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
+                  }
+                ]
+              },
+              "run": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "workflow": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "lane": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              }
+            },
+            "required": [
+              "label"
             ],
             "additionalProperties": true
           },
@@ -29483,6 +30046,14 @@
                 ]
               },
               "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "origin": {
+                "$ref": "#/$defs/CloudMachineOrigin"
+              },
+              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -29811,6 +30382,59 @@
             ],
             "additionalProperties": true
           },
+          "CloudMachineOrigin": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "workflow",
+                  "lane",
+                  "agent",
+                  "person"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
+                "allOf": [
+                  {
+                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
+                  }
+                ]
+              },
+              "run": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "workflow": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "lane": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              }
+            },
+            "required": [
+              "label"
+            ],
+            "additionalProperties": true
+          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -30053,6 +30677,14 @@
                 ]
               },
               "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "origin": {
+                "$ref": "#/$defs/CloudMachineOrigin"
+              },
+              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -30299,6 +30931,59 @@
             ],
             "additionalProperties": true
           },
+          "CloudMachineOrigin": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "workflow",
+                  "lane",
+                  "agent",
+                  "person"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
+                "allOf": [
+                  {
+                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
+                  }
+                ]
+              },
+              "run": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "workflow": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "lane": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              }
+            },
+            "required": [
+              "label"
+            ],
+            "additionalProperties": true
+          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -30541,6 +31226,14 @@
                 ]
               },
               "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "origin": {
+                "$ref": "#/$defs/CloudMachineOrigin"
+              },
+              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -30785,6 +31478,59 @@
             ],
             "additionalProperties": true
           },
+          "CloudMachineOrigin": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "workflow",
+                  "lane",
+                  "agent",
+                  "person"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
+                "allOf": [
+                  {
+                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
+                  }
+                ]
+              },
+              "run": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "workflow": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "lane": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              }
+            },
+            "required": [
+              "label"
+            ],
+            "additionalProperties": true
+          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -31027,6 +31773,14 @@
                 ]
               },
               "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "origin": {
+                "$ref": "#/$defs/CloudMachineOrigin"
+              },
+              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -31550,6 +32304,59 @@
             ],
             "additionalProperties": true
           },
+          "CloudMachineOrigin": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "workflow",
+                  "lane",
+                  "agent",
+                  "person"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
+                "allOf": [
+                  {
+                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
+                  }
+                ]
+              },
+              "run": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "workflow": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "lane": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              }
+            },
+            "required": [
+              "label"
+            ],
+            "additionalProperties": true
+          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -31792,6 +32599,14 @@
                 ]
               },
               "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "origin": {
+                "$ref": "#/$defs/CloudMachineOrigin"
+              },
+              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -32029,6 +32844,59 @@
             ],
             "additionalProperties": true
           },
+          "CloudMachineOrigin": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "workflow",
+                  "lane",
+                  "agent",
+                  "person"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
+                "allOf": [
+                  {
+                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
+                  }
+                ]
+              },
+              "run": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "workflow": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "lane": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              }
+            },
+            "required": [
+              "label"
+            ],
+            "additionalProperties": true
+          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -32271,6 +33139,14 @@
                 ]
               },
               "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "origin": {
+                "$ref": "#/$defs/CloudMachineOrigin"
+              },
+              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -32519,6 +33395,59 @@
             ],
             "additionalProperties": true
           },
+          "CloudMachineOrigin": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "workflow",
+                  "lane",
+                  "agent",
+                  "person"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
+                "allOf": [
+                  {
+                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
+                  }
+                ]
+              },
+              "run": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "workflow": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "lane": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              }
+            },
+            "required": [
+              "label"
+            ],
+            "additionalProperties": true
+          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -32761,6 +33690,14 @@
                 ]
               },
               "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "origin": {
+                "$ref": "#/$defs/CloudMachineOrigin"
+              },
+              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -33039,6 +33976,59 @@
             ],
             "additionalProperties": true
           },
+          "CloudMachineOrigin": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "workflow",
+                  "lane",
+                  "agent",
+                  "person"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
+                "allOf": [
+                  {
+                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
+                  }
+                ]
+              },
+              "run": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "workflow": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "lane": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              }
+            },
+            "required": [
+              "label"
+            ],
+            "additionalProperties": true
+          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -33281,6 +34271,14 @@
                 ]
               },
               "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "origin": {
+                "$ref": "#/$defs/CloudMachineOrigin"
+              },
+              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -33524,6 +34522,59 @@
             ],
             "additionalProperties": true
           },
+          "CloudMachineOrigin": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "workflow",
+                  "lane",
+                  "agent",
+                  "person"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
+                "allOf": [
+                  {
+                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
+                  }
+                ]
+              },
+              "run": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "workflow": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "lane": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              }
+            },
+            "required": [
+              "label"
+            ],
+            "additionalProperties": true
+          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -33766,6 +34817,14 @@
                 ]
               },
               "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "origin": {
+                "$ref": "#/$defs/CloudMachineOrigin"
+              },
+              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -34003,6 +35062,59 @@
             ],
             "additionalProperties": true
           },
+          "CloudMachineOrigin": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "workflow",
+                  "lane",
+                  "agent",
+                  "person"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
+                "allOf": [
+                  {
+                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
+                  }
+                ]
+              },
+              "run": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "workflow": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "lane": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              }
+            },
+            "required": [
+              "label"
+            ],
+            "additionalProperties": true
+          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -34245,6 +35357,14 @@
                 ]
               },
               "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "origin": {
+                "$ref": "#/$defs/CloudMachineOrigin"
+              },
+              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -36103,6 +37223,59 @@
             ],
             "additionalProperties": true
           },
+          "CloudMachineOrigin": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "workflow",
+                  "lane",
+                  "agent",
+                  "person"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
+                "allOf": [
+                  {
+                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
+                  }
+                ]
+              },
+              "run": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "workflow": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "lane": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              }
+            },
+            "required": [
+              "label"
+            ],
+            "additionalProperties": true
+          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -36349,6 +37522,14 @@
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
               },
+              "origin": {
+                "$ref": "#/$defs/CloudMachineOrigin"
+              },
+              "expires_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -36461,7 +37642,7 @@
           "count": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 8
+            "maximum": 100
           },
           "ttl_seconds": {
             "type": "integer",
@@ -36543,7 +37724,7 @@
               "count": {
                 "type": "integer",
                 "minimum": 1,
-                "maximum": 8
+                "maximum": 100
               },
               "ttl_seconds": {
                 "type": "integer",
@@ -36638,7 +37819,7 @@
           "count": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 8
+            "maximum": 100
           },
           "ttl_seconds": {
             "type": "integer",
@@ -36662,7 +37843,7 @@
               "count": {
                 "type": "integer",
                 "minimum": 1,
-                "maximum": 8
+                "maximum": 100
               },
               "ttl_seconds": {
                 "type": "integer",
@@ -36711,6 +37892,270 @@
               "available",
               "reason",
               "estimated_cost_usd"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "cloud.usage.current": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "CloudUsageCurrent"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.sso_required",
+        "auth.unauthenticated",
+        "client.too_old",
+        "owner.unreachable",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "cloud usage current",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "The team's Cloud usage so far this month (awake vCPU and memory, disk held while paused), its price from the billing owner, and whether a payment method is on file.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/CloudUsageCurrent",
+        "$defs": {
+          "CloudUsageCurrent": {
+            "type": "object",
+            "properties": {
+              "period": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}$"
+              },
+              "as_of": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "metered_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "vcpu_seconds": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "memory_gib_seconds": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "stored_gib_seconds": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "usd": {
+                "type": "object",
+                "properties": {
+                  "vcpu": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  "memory": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  "stored": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  "total": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "vcpu",
+                  "memory",
+                  "stored",
+                  "total"
+                ],
+                "additionalProperties": true
+              },
+              "gaps": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "payment_method": {
+                "type": "object",
+                "properties": {
+                  "attached": {
+                    "type": "boolean"
+                  },
+                  "brand": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "last4": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^\\d{4}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "attached"
+                ],
+                "additionalProperties": true
+              },
+              "stripe_mode": {
+                "type": "string",
+                "enum": [
+                  "test",
+                  "live"
+                ]
+              }
+            },
+            "required": [
+              "period",
+              "as_of",
+              "metered_since",
+              "vcpu_seconds",
+              "memory_gib_seconds",
+              "stored_gib_seconds",
+              "usd",
+              "gaps",
+              "payment_method",
+              "stripe_mode"
             ],
             "additionalProperties": true
           }
@@ -37774,6 +39219,59 @@
             ],
             "additionalProperties": true
           },
+          "CloudMachineOrigin": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "workflow",
+                  "lane",
+                  "agent",
+                  "person"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
+                "allOf": [
+                  {
+                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
+                  }
+                ]
+              },
+              "run": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "workflow": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              },
+              "lane": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
+              }
+            },
+            "required": [
+              "label"
+            ],
+            "additionalProperties": true
+          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -38016,6 +39514,14 @@
                 ]
               },
               "spend_cap_pause_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "origin": {
+                "$ref": "#/$defs/CloudMachineOrigin"
+              },
+              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991

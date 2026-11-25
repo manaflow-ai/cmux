@@ -170,7 +170,8 @@ public struct MacStatusLine: Equatable, Sendable {
         let reach = MacReachability.resolve(mac: mac, connection: connection, failure: failure, live: live)
         switch reach {
         case .connected: return MacStatusLine(dot: .connected, text: "Online")
-        case .connecting: return MacStatusLine(dot: .connecting, text: "Online · Connecting…")
+        // A link dialing or redialing on its own says nothing more than the presence.
+        case .connecting: return MacStatusLine(dot: .connecting, text: "Online")
         case .notConnected: return MacStatusLine(dot: .connecting, text: "Online · Not connected")
         case .offline: return MacStatusLine(dot: .offline, text: presence)
         default: return MacStatusLine(dot: .failed, text: reach.statusText(now: now))

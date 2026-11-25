@@ -15,9 +15,24 @@ import os
 ///   phone never claims a size: attach, an app switch, a lock, the keyboard
 ///   and a rotation change nothing on the Mac, and a rotation re-wraps here
 ///   at once. The screen sees a session whose grid is the phone's own.
-/// - Alternate screen (vim, htop): the bytes pass through and the phone
-///   claims its size as before, only while the page claims it (on screen, in
-///   the foreground). Leaving the alternate screen releases it.
+/// - Alternate screen (vim, htop), by default: the bytes pass through and the
+///   phone claims its size while the page claims it (on screen, in the
+///   foreground); what the Mac drew at its own grid waits for the answer
+///   (``claimHold``). Leaving the alternate screen releases it.
+///
+/// Settings → Terminal → Zoom Full-Screen Apps (off by default, ``zooms``):
+/// - Alternate screen (vim, htop): the bytes pass through at the Mac's grid
+///   and the page shows that grid scaled (pinch, double tap and pan:
+///   `TerminalViewController+Zoom`). Viewing never resizes the Mac.
+/// - The exception (`TerminalFitPolicy`, Rust `fit_policy`): typing text
+///   into a TUI (the alternate screen, or an inline TUI such as Claude Code
+///   on the primary screen) makes the phone claim its grid, only while the
+///   page claims it (on screen, in the foreground). The program is
+///   remembered (``TerminalFitMemory``): the next time it is in the
+///   foreground the phone claims at once, and its frames at the Mac's grid
+///   are held until the Mac answers (``fitHoldLimit``), so it never shows
+///   scaled and then fitted. The program exiting or the page leaving
+///   releases it; the title menu's Fit to Phone toggles it.
 ///
 /// Settings → Terminal → Fit to Phone turns this off (``isEnabled``), and the
 /// page menu's Fit to Phone per program (``isEnabled(for:)``): the session is
@@ -51,15 +66,57 @@ public final class TerminalProjectingSession: TerminalSession {
     private var resetPending = false
     private let log = Logger(subsystem: "dev.cmux.mobile", category: "terminal-sizing")
 
+    /// How long a full-screen app's claim may take to bring the phone's grid
+    /// before the Mac's grid shows (tests shorten it).
+    public var reclaimWait: Duration = TerminalReclaimHold.reclaimWait
+
+    /// A full-screen app came up at a Mac grid other than the phone's while
+    /// the page claims its size (Leo, 2026-11-23: "im sometimes seeing these
+    /// 118x69 load ins which are wide... then it properly goes"). The primary
+    /// screen claims nothing, so a page that opens on a full-screen app
+    /// attached at the Mac pane's grid and drew it, then the phone's once its
+    /// claim was answered. What the screen would be told waits here, in
+    /// order, until the Mac answers at the phone's grid (what waited is
+    /// superseded by that answer's reset and replay) or ``reclaimWait`` passes
+    /// (the Mac keeps its grid: what waited shows).
+    private var claimHold: [TerminalSessionEvent]?
+    /// The grid the screen had when the hold began.
+    private var gridBeforeHold: (columns: Int, rows: Int)?
+    private var claimHoldDeadline: Task<Void, Never>?
+
     /// Size claims this session made on the Mac (for the sizing harness).
     public private(set) var macClaimsMade = 0
+    /// Settings → Terminal → Zoom Full-Screen Apps, read when the page opens:
+    /// a full-screen app shows at the Mac's grid, zoomed, and claims only per
+    /// ``fit``. Off, it claims the phone's grid as soon as it shows.
+    public let zooms: Bool
+    /// When the phone claims its grid after all (the fit policy, in Rust).
+    private let fit: TerminalFitPolicy
+    /// A remembered program's first frames at the Mac's grid, held while
+    /// the claim is on its way (`replay`: a reset's replay, shown as one).
+    private var fitHold: (replay: Bool, segments: [ProjectionSegment])?
+    private var fitHoldTimer: Task<Void, Never>?
+    /// The longest the held frames wait for the Mac's answer; then they
+    /// show at the Mac's grid (a Mac that keeps its grid: Prefer this Mac).
+    static let fitHoldLimit: Duration = .milliseconds(1_500)
 
-    public init(inner: any TerminalSession) {
+    public init(inner: any TerminalSession, zooms: Bool = CmuxMobilePreferences.terminalZoomFullScreenApps()) {
         self.inner = inner
+        self.zooms = zooms
         macGrid = (inner.remoteColumns ?? 80, inner.remoteRows ?? 24)
         projection = TerminalProjection(hostCols: UInt32(clamping: macGrid.columns), hostRows: UInt32(clamping: macGrid.rows))
+        fit = TerminalFitPolicy(remembered: TerminalFitMemory.programs)
         inner.setProjectsLocally(true)
         inner.setClaimsSize(false)
+    }
+
+    public var fitsToPhone: Bool? { zooms ? fit.isFitted() : nil }
+
+    public func toggleFitToPhone() {
+        guard zooms else { return }
+        let decision = fit.toggle()
+        log.notice("projection: Fit to Phone toggled: \(decision.claims ? "fits" : "Mac's grid", privacy: .public) (\(decision.program ?? "-", privacy: .public))")
+        apply(decision)
     }
 
     public var programName: String { inner.programName }
@@ -68,9 +125,17 @@ public final class TerminalProjectingSession: TerminalSession {
     public var clearsHistory: Bool { inner.clearsHistory }
     public var underlyingSession: AnyObject { inner.underlyingSession }
 
-    /// The primary screen is the phone's own grid; the alternate screen the Mac's.
-    public var remoteRows: Int? { shownAlternate ? inner.remoteRows : phoneGrid?.rows ?? inner.remoteRows }
-    public var remoteColumns: Int? { shownAlternate ? inner.remoteColumns : phoneGrid?.columns }
+    /// The primary screen is the phone's own grid; the alternate screen the
+    /// Mac's. While a full-screen app's claim is out (``claimHold``), the grid
+    /// the screen still has.
+    public var remoteRows: Int? {
+        if claimHold != nil { return (gridBeforeHold ?? phoneGrid)?.rows ?? inner.remoteRows }
+        return shownAlternate ? inner.remoteRows : phoneGrid?.rows ?? inner.remoteRows
+    }
+    public var remoteColumns: Int? {
+        if claimHold != nil { return (gridBeforeHold ?? phoneGrid)?.columns }
+        return shownAlternate ? inner.remoteColumns : phoneGrid?.columns
+    }
     public var hostGridOwnerName: String? { shownAlternate ? inner.hostGridOwnerName : nil }
 
     public func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void) {
@@ -81,9 +146,44 @@ public final class TerminalProjectingSession: TerminalSession {
         inner.start { [weak self] event in self?.innerEvent(event) }
     }
 
-    public func send(_ bytes: Data) { inner.send(bytes) }
+    public func send(_ bytes: Data) {
+        // A key shows the app's live screen first: what it answers draws there.
+        returnToLiveScreen()
+        inner.send(bytes)
+        typed(bytes)
+    }
     public func sendReply(_ bytes: Data) { inner.sendReply(bytes) }
-    public func stop() { inner.stop() }
+    /// The composer's Send goes to the Mac's session as one request. Without
+    /// this the protocol's default (false) sent every projected terminal's
+    /// Send through the mirror: the paste, then Return as a separate send
+    /// 60 ms later, which a link blip could split (Leo, 2026-11-23: "the
+    /// text goes through. But then the send doesn't go through").
+    public func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool {
+        let sent = inner.sendPasteAndSubmit(text, notSent: notSent, maybeSent: maybeSent)
+        if sent { typed(Data(text.utf8)) }
+        return sent
+    }
+    public func sendTypedAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool {
+        let sent = inner.sendTypedAndSubmit(text, notSent: notSent, maybeSent: maybeSent)
+        if sent { typed(Data(text.utf8)) }
+        return sent
+    }
+    /// Zoom Full-Screen Apps: text typed into a TUI fits it to the phone (`fit_policy`).
+    private func typed(_ bytes: Data) {
+        guard zooms else { return }
+        let decision = fit.typed(bytes: bytes)
+        if decision.changed {
+            log.notice("projection: typed into \(decision.program ?? "a TUI", privacy: .public): fitting it to the phone")
+        }
+        apply(decision)
+    }
+    public func stop() {
+        fitHoldTimer?.cancel()
+        claimHoldDeadline?.cancel()
+        claimHoldDeadline = nil
+        claimHold = nil
+        inner.stop()
+    }
     public func setOutputPaused(_ paused: Bool) { inner.setOutputPaused(paused) }
     public func noteInteraction() { inner.noteInteraction() }
     public func clearHistory() async throws { try await inner.clearHistory() }
@@ -142,9 +242,69 @@ public final class TerminalProjectingSession: TerminalSession {
     public func requestHistoryRows(_ rows: Int) { inner.requestHistoryRows(rows) }
     /// A pan's frame times go to the Mac the same way under a projection (`phone-frames`).
     public func reportScrollFrames(_ pan: TerminalPanFrames) { inner.reportScrollFrames(pan) }
+    public func discardHeldInput() { inner.discardHeldInput() }
 
     public func noteReaderRowsFromEnd(_ rows: Int) {
         projection.setReaderRowsFromEnd(rows: UInt32(clamping: max(0, rows)))
+    }
+
+    // MARK: Held rows (Leo, 2026-11-23: "if the data was sent through... why
+    // cant you simply scroll through the depiction that was already given?")
+
+    /// Rust decides: within the rows the app scrolled off, the phone paints
+    /// them (nothing is sent), also for an app that asked for the mouse;
+    /// past them, or with nothing held, the wheel goes to the Mac as before.
+    public func panHeldRows(_ rows: Double) -> Double {
+        #if DEBUG
+        guard holdsRows else { return rows }
+        let gestureMs = TerminalPaintReport.nowMs
+        #endif
+        let step = projection.altPan(rows: rows)
+        if !step.paint.isEmpty {
+            handler?(.output(step.paint))
+            #if DEBUG
+            heldPaints += 1
+            if stampsPans {
+                // Gesture to paint: the present that shows these bytes.
+                panSeq += 1
+                handler?(.paintMark(seq: -panSeq, receivedMs: gestureMs))
+            }
+            #endif
+        }
+        return step.forwardRows
+    }
+
+    public func returnToLiveScreen() {
+        let live = projection.altReturnLive()
+        if !live.isEmpty { handler?(.output(live)) }
+    }
+
+    /// Rows held for a pan over the alternate screen, and their bytes (tests, the bench).
+    public var heldRows: (rows: Int, bytes: Int) {
+        let held = projection.held()
+        return (Int(clamping: held.rows), Int(clamping: held.bytes))
+    }
+
+    /// How many held rows back the screen shows the app (0: live).
+    public var heldRowsBack: Int { Int(projection.altRowsBack()) }
+
+    #if DEBUG
+    /// DEBUG bench (`tuiheld`): false sends every pan to the app, as before held rows.
+    public var holdsRows = true
+    /// DEBUG bench: pans painted from held rows.
+    public private(set) var heldPaints = 0
+    /// DEBUG bench: stamps each held-row paint with its gesture's time
+    /// (`.paintMark`, negative seq), for gesture-to-paint.
+    public var stampsPans = false
+    private var panSeq = 0
+    /// DEBUG bench: what the screen reported painted.
+    public var onPaintReport: (@MainActor ([TerminalPaintTally.Sample]) -> Void)?
+    #endif
+
+    public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {
+        #if DEBUG
+        onPaintReport?(samples)
+        #endif
     }
 
     private var lastOlderLoad: CFAbsoluteTime?
@@ -174,7 +334,9 @@ public final class TerminalProjectingSession: TerminalSession {
 
     public func setClaimsSize(_ claims: Bool) {
         pageClaims = claims
-        updateClaim()
+        // The page left: no claim will answer what waits.
+        if !claims { releaseClaimHold() }
+        if zooms { apply(fit.setPagePresent(present: claims)) } else { updateClaim() }
     }
 
     // MARK: Events
@@ -192,17 +354,33 @@ public final class TerminalProjectingSession: TerminalSession {
                 resetPending = true
                 return
             }
-            if resetPending {
-                resetPending = false
-                paintScheduled = false
-                showReplay(projection.feed(bytes: data, paint: true))
-            } else {
-                // Parsed now, painted once for every chunk that arrived
-                // before the main thread got to it (`flushPaint`). Switches to
-                // and from the alternate screen still come back here, in order.
-                emit(projection.feed(bytes: data, paint: false))
-                schedulePaint()
+            let replay = resetPending
+            resetPending = false
+            // A replay paints at once (its reset holds whatever waited to
+            // paint); any other chunk is parsed now and painted once for every
+            // chunk that arrived before the main thread got to it
+            // (`flushPaint`). Switches to and from the alternate screen still
+            // come back here, in order, with what the primary drew before them.
+            if replay { paintScheduled = false }
+            let segments = projection.feed(bytes: data, paint: replay)
+            let decision = zooms ? fit.observe(projection: projection, fallbackProgram: inner.programName) : nil
+            if let decision, decision.changed {
+                log.notice("projection: \(decision.program ?? "the foreground", privacy: .public) \(decision.claims ? "fits the phone (\(decision.reason))" : "keeps the Mac's grid", privacy: .public)")
             }
+            if fitHold != nil {
+                // Held for a claim on its way: these bytes are at the Mac's grid too.
+                if replay { fitHold = (true, segments) } else { fitHold?.segments += segments }
+            } else if let decision, decision.changed, decision.claims, decision.reason == .remembered, projection.isAlternate() {
+                // A program fitted before came to the foreground: its frames
+                // at the Mac's grid wait for the Mac's answer to the claim.
+                holdForFit(replay: replay, segments: segments)
+            } else if replay {
+                showReplay(segments)
+            } else {
+                emit(segments)
+            }
+            if !replay { schedulePaint() }
+            if let decision { apply(decision) }
             let replies = projection.takeReplies()
             if !replies.isEmpty { inner.sendReply(replies) }
         case .alternateScreen:
@@ -211,9 +389,20 @@ public final class TerminalProjectingSession: TerminalSession {
         case .hostGrid(let columns, let rows):
             macGrid = (columns, rows)
             projection.setHostGrid(cols: UInt32(clamping: columns), rows: UInt32(clamping: rows))
+            if fitHold != nil, let phone = phoneGrid, columns <= phone.columns {
+                // The Mac answered the claim: its reset and replay at the
+                // phone's grid follow; the held frames are never shown.
+                fitHold = nil
+                fitHoldTimer?.cancel()
+                log.notice("projection: the Mac fitted the phone's grid; held frames at its old grid dropped")
+            }
+            if claimHold != nil, let phone = phoneGrid, phone.columns == columns, phone.rows == rows { claimAnswered() }
             if shownAlternate { showGrid() }
         case .hostGridOwner(let name):
-            if shownAlternate { handler?(.hostGridOwner(name)) }
+            if shownAlternate { deliver(.hostGridOwner(name)) }
+        case .exited:
+            releaseClaimHold()
+            handler?(event)
         default:
             handler?(event)
         }
@@ -270,7 +459,10 @@ public final class TerminalProjectingSession: TerminalSession {
         paintScheduled = false
         lastPaint = .now()
         paintsMade += 1
-        emit(projection.flush())
+        let segments = projection.flush()
+        // Held for a claim on its way: the primary screen's paint waits behind
+        // the held frames, in the Mac's order.
+        if fitHold != nil { fitHold?.segments += segments } else { emit(segments) }
     }
 
     /// A reset and its replay: the alternate screen state and grid the replay
@@ -284,15 +476,15 @@ public final class TerminalProjectingSession: TerminalSession {
             }
         }
         setShownAlternate(projection.isAlternate())
-        handler?(.output(TerminalReclaimHold.reset))
-        if !bytes.isEmpty { handler?(.output(bytes)) }
+        deliver(.output(TerminalReclaimHold.reset))
+        if !bytes.isEmpty { deliver(.output(bytes)) }
     }
 
     private func emit(_ segments: [ProjectionSegment]) {
         var pending = Data()
         func flush() {
             guard !pending.isEmpty else { return }
-            handler?(.output(pending))
+            deliver(.output(pending))
             pending = Data()
         }
         for segment in segments {
@@ -301,7 +493,7 @@ public final class TerminalProjectingSession: TerminalSession {
                 pending.append(bytes)
             case .reset(let bytes):
                 flush()
-                handler?(.output(TerminalReclaimHold.reset))
+                deliver(.output(TerminalReclaimHold.reset))
                 pending = bytes
             case .alternate(let on):
                 flush()
@@ -313,9 +505,14 @@ public final class TerminalProjectingSession: TerminalSession {
 
     private func setShownAlternate(_ on: Bool) {
         if on != shownAlternate {
+            // Back on the primary screen: the phone's own grid, nothing to wait for.
+            if !on { releaseClaimHold() }
             shownAlternate = on
-            handler?(.alternateScreen(on))
-            handler?(.hostGridOwner(on ? inner.hostGridOwnerName : nil))
+            if on, !zooms, pageClaims, let phone = phoneGrid, phone.columns != macGrid.columns || phone.rows != macGrid.rows {
+                startClaimHold()
+            }
+            deliver(.alternateScreen(on))
+            deliver(.hostGridOwner(on ? inner.hostGridOwnerName : nil))
         }
         showGrid()
         updateClaim()
@@ -327,20 +524,104 @@ public final class TerminalProjectingSession: TerminalSession {
         let grid = shownAlternate ? macGrid : (phoneGrid ?? macGrid)
         if let shown = shownGrid, shown.columns == grid.columns, shown.rows == grid.rows { return }
         shownGrid = grid
-        handler?(.hostGrid(columns: grid.columns, rows: grid.rows))
+        deliver(.hostGrid(columns: grid.columns, rows: grid.rows))
     }
 
-    /// The phone claims its size only for the alternate screen, while the page claims.
+    // MARK: A full-screen app's first frame
+
+    /// An event for the screen: held while a full-screen app's claim is out.
+    private func deliver(_ event: TerminalSessionEvent) {
+        if claimHold != nil {
+            claimHold?.append(event)
+        } else {
+            handler?(event)
+        }
+    }
+
+    private func startClaimHold() {
+        guard claimHold == nil else { return }
+        claimHold = []
+        gridBeforeHold = shownGrid
+        log.notice("projection: full-screen app at the Mac's \(self.macGrid.columns, privacy: .public)x\(self.macGrid.rows, privacy: .public): held until the phone's grid is answered")
+        let wait = reclaimWait
+        claimHoldDeadline = Task { @MainActor [weak self] in
+            // A bounded deadline for the claim's answer, not a synchronization wait.
+            do { try await Task.sleep(for: wait) } catch { return }
+            guard let self, self.claimHold != nil else { return }
+            self.log.notice("projection: the Mac kept its grid past the wait: the full-screen app shows at it")
+            self.releaseClaimHold()
+        }
+    }
+
+    /// The Mac answered at the phone's grid: its reset and replay follow and
+    /// supersede the bytes held. The screen switches still go to it.
+    private func claimAnswered() {
+        claimHoldDeadline?.cancel()
+        claimHoldDeadline = nil
+        let held = claimHold ?? []
+        claimHold = nil
+        shownGrid = gridBeforeHold
+        gridBeforeHold = nil
+        for event in held {
+            switch event {
+            case .alternateScreen, .hostGridOwner: handler?(event)
+            default: break
+            }
+        }
+    }
+
+    /// Shows what was held, in order.
+    private func releaseClaimHold() {
+        claimHoldDeadline?.cancel()
+        claimHoldDeadline = nil
+        guard let held = claimHold else { return }
+        claimHold = nil
+        gridBeforeHold = nil
+        for event in held { handler?(event) }
+    }
+
+    /// A fit decision: persists the remembered programs and claims or releases.
+    private func apply(_ decision: TerminalFitDecision) {
+        if decision.rememberedChanged { TerminalFitMemory.programs = fit.remembered() }
+        updateClaim()
+    }
+
+    /// Holds a remembered program's frames at the Mac's grid until the Mac
+    /// answers the claim (``fitHoldLimit`` at most, then they show).
+    private func holdForFit(replay: Bool, segments: [ProjectionSegment]) {
+        // What the primary screen drew before the switch shows now.
+        var before: [ProjectionSegment] = []
+        var rest = segments[...]
+        if !replay, let switchAt = segments.firstIndex(of: .alternate(on: true)) {
+            before = Array(segments[..<switchAt])
+            rest = segments[switchAt...]
+        }
+        if !before.isEmpty { emit(before) }
+        fitHold = (replay, Array(rest))
+        log.notice("projection: \(self.inner.programName, privacy: .public) fits at once (remembered): holding its frames at the Mac's grid for the claim")
+        fitHoldTimer?.cancel()
+        fitHoldTimer = Task { @MainActor [weak self] in
+            try? await ContinuousClock().sleep(for: Self.fitHoldLimit)
+            guard let self, !Task.isCancelled, let held = self.fitHold else { return }
+            self.fitHold = nil
+            self.log.notice("projection: no answer to the claim in time; showing the Mac's grid")
+            if held.replay { self.showReplay(held.segments) } else { self.emit(held.segments) }
+        }
+    }
+
+    /// The phone claims its size for the alternate screen while the page
+    /// claims; with ``zooms``, only when the fit policy says so (typed into a
+    /// TUI, remembered, or chosen), while the page claims.
     private func updateClaim() {
-        let want = pageClaims && shownAlternate
+        let want = zooms ? fit.claims() : pageClaims && shownAlternate
         guard want != macClaims else { return }
         macClaims = want
         if want {
             macClaimsMade += 1
             if let grid = phoneGrid { inner.resize(columns: grid.columns, rows: grid.rows) }
-            log.notice("projection: alternate screen on screen, claiming the phone's grid")
+            log.notice("projection: claiming the phone's grid (fit to phone)")
         } else {
-            log.notice("projection: releasing the phone's grid (primary screen, or the page left)")
+            log.notice("projection: releasing the phone's grid (the program left, or the page did)")
         }
         inner.setClaimsSize(want)
     }

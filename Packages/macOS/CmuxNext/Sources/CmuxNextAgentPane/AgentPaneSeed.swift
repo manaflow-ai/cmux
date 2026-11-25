@@ -53,6 +53,8 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     /// `/cd --on cloud`; webviews commandPlace.ts), for the new page to find what it handed over.
     /// Handed out once, with ``picksCloud``.
     public var cloudStartHandoff: String?
+    /// The Auto Cloud start whose arrival line belongs to this seeded chat.
+    public var autoCloudStartKey: String?
     /// A Sandboxed send that already ended, shown by this new page as its own (a Run notification's
     /// click, ``AgentPaneSandboxRuns``).
     public var sandboxResult: SandboxResult?
@@ -219,6 +221,7 @@ public final class AgentPaneSeedSource {
         value?.showsHarnesses = false
         value?.picksCloud = false
         value?.cloudStartHandoff = nil
+        value?.autoCloudStartKey = nil
         // A missing folder is taken once; Choose Folder changes or clears it (cx-nn3e.1).
         if let needed = value?.folderNeeded {
             folderNeeded = needed

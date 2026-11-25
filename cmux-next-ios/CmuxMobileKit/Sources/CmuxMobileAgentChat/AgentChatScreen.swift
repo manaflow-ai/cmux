@@ -7,6 +7,7 @@ import CmuxMobileDiff
 import CmuxMobileMarkdown
 import CmuxMobileModel
 import CmuxSpinner
+import GameController
 import SwiftUI
 import UIKit
 
@@ -713,12 +714,17 @@ struct AgentChatLoadingState: View {
     var body: some View {
         VStack(spacing: 12) {
             CmuxSpinner()
+            // The words keep their room while hidden, so they fade in later without moving the
+            // spinner (``AgentChatStore/loadingTextShows``).
             Text(Self.text(store))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+                .opacity(store.loadingTextShows ? 1 : 0)
+                .animation(.cmuxMobileSmooth.unlessReduceMotion, value: store.loadingTextShows)
         }
         .multilineTextAlignment(.center)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(Self.text(store)))
         .accessibilityIdentifier("agentChat.loadingHistory")
     }
 }
@@ -739,6 +745,7 @@ struct AgentChatConnectionLine: View {
                     .padding(.leading, 20)
                     .alignmentGuide(.top) { $0[.bottom] + 8 }
                     .accessibilityIdentifier("agentChat.connectionLine")
+                    .placeholderBound("chat.connection.chip", .milliseconds(0))
                     .transition(.opacity)
             }
         }
@@ -849,6 +856,10 @@ public struct AgentChatBottomStack: View {
                     PlanProgressBar(progress: progress, entries: entries)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
+                if !store.outgoing.isEmpty {
+                    OutgoingMessagesView(store: store)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
                 if !store.queue.isEmpty {
                     QueuedPromptsView(store: store, text: $surface.text)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -888,6 +899,14 @@ public struct AgentChatBottomStack: View {
                                  })
                         .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .named(Self.stackSpace)).minY }) { offset in
                             if composerOffset != offset { composerOffset = offset }
+                        }
+                        // The space between the composer and a raised keyboard is darkened from the
+                        // card's middle down, as the ChatGPT and Claude iOS apps draw it (Leo,
+                        // 2026-11-23: "they properly darken the ... space between the ios composer
+                        // and the built in keyboard"). The band runs on under the keyboard, which
+                        // covers it, so it never shows an edge while the keyboard moves.
+                        .background(alignment: .top) {
+                            KeyboardSkirt(shown: composerFocused && GCKeyboard.coalesced == nil)
                         }
                         // After the geometry reader: the entrance is render only, so the stack's
                         // measured place (the transcript's inset, the keyboard pin) is the resting one.
@@ -973,6 +992,27 @@ public struct AgentChatBottomStack: View {
     }
 }
 
+/// The darkened band from a composer's middle down to and under the system keyboard
+/// (`Color.cmuxMobileKeyboardSkirt`). Shown while the composer has focus and no hardware keyboard is
+/// attached (one leaves no software keyboard to sit on). Draws only; touches pass through.
+struct KeyboardSkirt: View {
+    var shown: Bool
+    /// How far the band runs on below the composer: past the gap and into the keyboard's area.
+    static let reach: CGFloat = 400
+
+    var body: some View {
+        GeometryReader { proxy in
+            Color.cmuxMobileKeyboardSkirt
+                .frame(width: proxy.size.width, height: proxy.size.height / 2 + Self.reach)
+                .offset(y: proxy.size.height / 2)
+                .opacity(shown ? 1 : 0)
+                .animation(.cmuxMobileSmooth.unlessReduceMotion, value: shown)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
 /// Hands its animated height to `report` on every frame it is drawn (an
 /// animatable modifier's body runs once per animation frame with the
 /// interpolated value).
@@ -1044,11 +1084,7 @@ struct StreamingMarkdown: View {
         // blocks keep their ids: only the last block's inline markers change).
         MarkdownView(MarkdownDocument(blocks: parse.blocks(markdown, isStreaming: isStreaming)), isStreaming: isStreaming,
                      animatesBlocks: animatesBlocks, marks: findMarks)
-            .contextMenu {
-                Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = markdown }
-                Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(markdown) }
-                ShareLink(item: markdown) { Label("Share", systemImage: "square.and.arrow.up") }
-            }
+            .selectionMenu { source in messageSelectionActions({ markdown }, from: source) }
     }
 }
 
@@ -1062,7 +1098,7 @@ final class StreamParseBox {
     }
 }
 
-/// SPEC 4.4 user bubble with a timestamp-headed context menu and select-text sheet.
+/// User bubble with the message actions under its timestamp in the selection menu.
 struct UserBubble: View {
     let prompt: String
     let attachments: [AgentAttachment]
@@ -1072,7 +1108,7 @@ struct UserBubble: View {
     /// Edit and Resend of an earlier prompt (a fork before it), when the chat offers it.
     var editEarlier: (() -> Void)?
     /// Bookmark and Read Aloud.
-    var polish: ChatPolishMenuButtons?
+    var polishActions: (() -> [UIMenuElement])?
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
@@ -1082,25 +1118,22 @@ struct UserBubble: View {
             bubbleText
                 .padding(.horizontal, 16)
                 .padding(.vertical, 11)
-                .foregroundStyle(Color.cmuxMobileChatBubbleText.map(AnyShapeStyle.init) ?? AnyShapeStyle(.primary))
                 .background(Color.cmuxMobileChatBubble, in: .rect(cornerRadius: 20, style: .continuous))
-                .contentShape(.contextMenuPreview, .rect(cornerRadius: 20, style: .continuous))
-                .contextMenu {
-                    Section(AgentTurn.menuTimestamp(promptAt)) {
-                        Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = prompt }
-                        Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(prompt) }
-                        if isLast {
-                            Button("Edit and Resend", systemImage: "pencil") { editAndResend() }
-                        } else if let editEarlier {
-                            Button("Edit and Resend", systemImage: "pencil") { editEarlier() }
-                        }
-                        ShareLink(item: prompt) { Label("Share", systemImage: "square.and.arrow.up") }
-                        polish
-                    }
-                }
+                // A bubble with no words and no attachment is an empty grey bubble: never drawn.
+                .placeholderBound("chat.user.empty", .milliseconds(0), when: prompt.isEmpty && attachments.isEmpty)
         }
+        .selectionMenu(menuRows)
         .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in Self.maxWidth(in: width) }
         .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private func menuRows(from source: UIView) -> [UIMenuElement] {
+        var actions = messageSelectionActions({ prompt }, from: source)
+        if let edit = isLast ? editAndResend : editEarlier {
+            actions.append(SelectionMenu.action("Edit and Resend", "pencil") { edit() })
+        }
+        actions += polishActions?() ?? []
+        return [UIMenu(title: AgentTurn.menuTimestamp(promptAt), options: .displayInline, children: actions)]
     }
 
     /// 80% of the column, at most 560 pt: on an unfolded foldable's wide screen 80% would
@@ -1111,17 +1144,39 @@ struct UserBubble: View {
 extension UserBubble {
     /// The prompt, its leading quote drawn as the Mac draws one: muted, behind a bar.
     @ViewBuilder var bubbleText: some View {
-        if let split = NextStepAsk.replyQuote(prompt) {
+        if prompt.isEmpty {
+            // An attachment-only message has no word to hold.
+            MessageActionsButton(rows: menuRows)
+        } else if let split = NextStepAsk.replyQuote(prompt) {
             VStack(alignment: .leading, spacing: 6) {
-                Text(split.quote)
-                    .font(.body).lineSpacing(4).foregroundStyle(.secondary)
+                SelectableText(split.quote, color: .secondaryLabel, lineSpacing: 4)
                     .padding(.leading, 10)
                     .overlay(alignment: .leading) { Capsule().fill(.tertiary).frame(width: 2) }
-                Text(split.body).font(.body).lineSpacing(4)
+                SelectableText(split.body, color: .cmuxMobileChatBubbleText, lineSpacing: 4)
             }
         } else {
-            Text(prompt).font(.body).lineSpacing(4)
+            SelectableText(prompt, color: .cmuxMobileChatBubbleText, lineSpacing: 4)
         }
+    }
+}
+
+/// The same menu as a held word on a prompt that contains only attachments.
+private struct MessageActionsButton: UIViewRepresentable {
+    let rows: @MainActor (UIView) -> [UIMenuElement]
+
+    func makeUIView(context: Context) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setImage(UIImage(systemName: "ellipsis"), for: .normal)
+        button.accessibilityLabel = String(localized: "Message actions")
+        button.showsMenuAsPrimaryAction = true
+        return button
+    }
+
+    func updateUIView(_ button: UIButton, context: Context) {
+        button.menu = UIMenu(children: [UIDeferredMenuElement.uncached { [weak button, rows] completion in
+            guard let button else { completion([]); return }
+            completion(rows(button))
+        }])
     }
 }
 

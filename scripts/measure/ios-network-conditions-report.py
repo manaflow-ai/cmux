@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 from collections import defaultdict
 
@@ -40,6 +41,99 @@ PHASE_ORDER = ["cold", "warm", "reconnect", "fixture", "home", "settled_serial",
 # mode=duress: the idle fixture and the loaded daemon (mobile_link_conditions.rs open_path_under_duress).
 DURESS_SCALES = {"idle": 0, "duress": 1}
 DURESS_METRICS = ["round_trips", "bytes_down", "first_content_ms", "setup_ms", "interactive_ms", "workspaces_shown"]
+
+
+# mode=background (cmux-next-ios/design/background-delta-sync.md): scale `<away>-<load>`, phase
+# the phone's form (before: today's; after: the cursor form; after_bounded: + resume_max_bytes).
+BACKGROUND_SCALE = re.compile(r"^(\d+)([smh])-(idle|busy)$")
+BACKGROUND_PHASES = ("before", "after", "after_bounded")
+BACKGROUND_SURFACES = ("workspaces", "chat", "terminal")
+
+
+def background_scale(scale: str):
+    """`1h-busy`: (load, seconds away), or None for another mode's scale."""
+    match = BACKGROUND_SCALE.match(scale)
+    if not match:
+        return None
+    number, unit, load = match.groups()
+    return load, int(number) * {"s": 1, "m": 60, "h": 3600}[unit]
+
+
+def background_table(rows: list[dict]) -> list[str]:
+    """mode=background: one table, a row per surface x load x time away x profile; per phone
+    form the catch-up p50 / p95, bytes down and round trips (p50), and whether the host answered
+    from the cursor (cursor_hit: the runs that did / n)."""
+    bg = [row for row in rows if background_scale(row["scale"]) and row["phase"] in BACKGROUND_PHASES]
+    if not bg:
+        return []
+    by_key = {(row["surface"], row["scale"], row["profile"], row["phase"], row["metric"]): row["after"] for row in bg}
+    phases = [phase for phase in BACKGROUND_PHASES if any(row["phase"] == phase for row in bg)]
+    keys = sorted(
+        {(row["surface"], row["scale"], row["profile"]) for row in bg},
+        key=lambda k: (
+            BACKGROUND_SURFACES.index(k[0]) if k[0] in BACKGROUND_SURFACES else 9,
+            background_scale(k[1])[0] != "idle",
+            background_scale(k[1])[1],
+            k[2],
+        ),
+    )
+
+    def p50(summary):
+        return summary.get("p50") if summary and "p50" in summary else None
+
+    def num(value, unit=""):
+        if value is None:
+            return "-"
+        if unit == " B":
+            for size, name in ((1 << 20, " MiB"), (1 << 10, " KiB")):
+                if value >= size:
+                    return f"{value / size:,.1f}{name}"
+        return f"{value:,.0f}{unit}"
+
+    def latency(summary):
+        if not summary:
+            return "-"
+        if "p50" not in summary:
+            return f"miss {summary['miss']}"
+        text = f"{num(summary['p50'])} / {num(summary['p95'])}"
+        return text + (f" ({summary['miss']} miss)" if summary["miss"] else "")
+
+    def hit(summary):
+        if not summary or "p50" not in summary:
+            return ""
+        # cursor_hit is 0 or 1 per run: p50 1 is most runs.
+        return " [cursor]" if summary["p50"] >= 1 else " [full]" if summary["p95"] < 1 else " [cursor some runs]"
+
+    head = ["surface", "load", "away", "profile", "events behind"]
+    for phase in phases:
+        head += [f"catch-up ms {phase} p50 / p95", f"bytes down {phase}", f"round trips {phase}"]
+    out = [
+        "### background: catch-up after time away (p50 / p95 ms; bytes and round trips p50; "
+        "`[cursor]`: the host answered from the phone's cursor, `[full]`: it sent the whole surface)",
+        "",
+        "| " + " | ".join(head) + " |",
+        "|" + "---|" * len(head),
+    ]
+    for surface, scale, profile in keys:
+        load, secs = background_scale(scale)
+        away = scale.rsplit("-", 1)[0]
+        behind = p50(by_key.get((surface, scale, profile, "before", "events_behind")))
+        held = p50(by_key.get((surface, scale, profile, "after", "held_behind")))
+        unit = " B" if surface == "terminal" else ""
+        behind_text = num(behind, unit)
+        if held is not None and behind is not None and held < behind:
+            behind_text += f" (host held {num(held, unit)})"
+        cells = [surface, load, away, profile, behind_text]
+        for phase in phases:
+            get = lambda metric: by_key.get((surface, scale, profile, phase, metric))
+            cells += [
+                latency(get("catch_up_ms")) + ("" if phase == "before" else hit(get("cursor_hit"))),
+                num(p50(get("bytes_down")), " B"),
+                num(p50(get("round_trips"))),
+            ]
+        out.append("| " + " | ".join(cells) + " |")
+    out.append("")
+    return out
 
 
 def percentile(values: list[float], q: float) -> float:
@@ -157,6 +251,7 @@ def main() -> int:
             profile,
             PHASE_ORDER.index(phase) if phase in PHASE_ORDER else 9,
             int(scale.rstrip("x")) if scale.rstrip("x").isdigit() else DURESS_SCALES.get(scale, 99),
+            scale,
             METRIC_ORDER.index(metric) if metric in METRIC_ORDER else 99,
         )
 
@@ -184,7 +279,7 @@ def main() -> int:
     # store, so its first_content_ms (first content from the real daemon) is R2; R1 comes from the
     # simulator leg's r1_ms rows when present.
     out = [READ_FIRST_LEGEND, ""]
-    for surface in sorted({row["surface"] for row in rows}):
+    for surface in sorted({row["surface"] for row in rows if not background_scale(row["scale"])}):
         out.append(f"### {surface} (p50 / p95; after {args.after[:12]}" + (f", before {args.before[:12]})" if args.before else ")"))
         out.append("")
         if args.before:
@@ -194,7 +289,7 @@ def main() -> int:
             out.append("| profile | phase | scale | metric | value |")
             out.append("|---|---|---|---|---|")
         for row in rows:
-            if row["surface"] != surface:
+            if row["surface"] != surface or background_scale(row["scale"]):
                 continue
             cells = [row["profile"], row["phase"], row["scale"], row["metric"]]
             if args.before:
@@ -204,6 +299,7 @@ def main() -> int:
             out.append("| " + " | ".join(cells) + " |")
         out.append("")
     out += duress_table(rows, args.before)
+    out += background_table(rows)
     with open(args.markdown, "w") as handle:
         handle.write("\n".join(out))
     return 0

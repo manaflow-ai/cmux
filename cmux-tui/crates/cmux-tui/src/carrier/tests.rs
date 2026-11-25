@@ -147,6 +147,15 @@ fn detail_codes_are_short_tokens_and_never_the_text() {
         ("relay WebSocket read failed", "closed"),
         ("relay WebSocket authentication was rejected", "rejected"),
         ("the machine has no daemon key", "daemon_key"),
+        ("SSH connection group is closed", "ssh_group_closed"),
+        ("could not start ssh: No such file or directory", "ssh_spawn"),
+        ("link transport failed: link closed during handshake", "handshake_closed"),
+        ("link is closed", "link_closed"),
+        ("opening lane interactive on ssh://h did not finish within 15000 ms", "open_timeout"),
+        ("network changed", "network_changed"),
+        ("link protocol failed: bad frame", "link_protocol"),
+        ("noise handshake failed: decrypt", "noise"),
+        ("authorization failed: grant expired", "unauthorized"),
         ("unexpected Bearer eyJhbGciOi.secret-ticket", "other"),
     ];
     let token = |code: &str| {

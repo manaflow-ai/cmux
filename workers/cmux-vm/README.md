@@ -40,7 +40,17 @@ two `sha256`, VM `scopes`, `labels`, `maxVms` up to 500, `maxUsdPerHour` up to
 team (`X-Cmux-Team-Id` optional, another team 403), reaches only VMs carrying its
 labels, gets those labels on every create, and every create is held to its
 caps: over `maxVms` live VMs, or over `maxUsdPerHour` estimated (the agent-key
-estimate, every live VM counted), is 429 naming the cap. It cannot resize, fork
+estimate, every live VM counted), is 429 naming the cap. Three optional caps
+(RFD 0016; unset, no limit) also hold on every create, start and resume:
+`maxRunningVms` (running or booting VMs; paused and stopped ones do not count),
+and `maxUsdPerDay` / `maxUsdPerMonth` (estimated list-price spend this UTC day
+or month: each live VM from its create, ending at its pause when paused; a VM
+gone at the provider and each VM deleted in the window at the default size,
+summed in SQL; it errs high). A start or resume counts every live VM of the key,
+up to 5000 (past that it refuses). A refusal is 429
+with `budget` `agent_running_vms`, `agent_usd_per_day` or `agent_usd_per_month`,
+naming the cap and its current value. These checks read then act, so two
+concurrent starts can pass together at the cap. It cannot resize, fork
 or mint keys. It never expires and nothing deletes its VMs; rotating keeps them
 (second hash, move holders, drop the first). Mint with `bun scripts/team-key.ts
 mint --out FILE ...` (the key only to FILE, the row to stdout); revoke by
@@ -442,14 +452,14 @@ ids), remove all but the create for those services. Unset, nothing changes.
   answer 503 without sending until the 10 minute send grace has passed
   (`CREATE_SEND_GRACE_MS`), each later round that boots another snapshot
   making and deleting one VM. What the provider answers for a snapshot it no
-  longer has is not confirmed; confirm it before listing a caller other than
-  cmux-platform development. A mismatched VM whose delete fails runs
+  longer has is not confirmed; confirm it before listing production. A mismatched VM whose delete fails runs
   unrecorded until the orphan sweep; it is logged as
   `vm_create_discard_failed` (public VM id, `reason` `receipt` or
   `oversized`, the delete's `status`).
 
-The staging Worker lists `cloud-platform-dev` in both (it also serves
-cmux-platform staging, which stays as before); production lists none. The
+The staging Worker lists `cloud-platform-dev` and `cloud-platform-staging` in
+both; production lists none. Staging takes the unconfirmed missing-snapshot
+case above: at worst a staging create answers 503 for the send grace. The
 `vm_create` line (Operations) says what each create did: `imageVariant`, and
 null `recoverMs`, `verifyImageMs` and `resizeMs` for a call that was not made.
 
