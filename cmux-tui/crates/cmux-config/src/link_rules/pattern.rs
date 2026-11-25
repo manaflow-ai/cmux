@@ -559,7 +559,7 @@ fn quantifier_end(characters: &[char], start: usize) -> Option<(usize, bool)> {
         text.parse::<u64>().ok().filter(|n| *n <= MAXIMUM_REPEAT)
     };
     let lower = number(parts[0])?;
-    let upper = match parts.get(1) {
+    let upper = match parts.get(1).copied() {
         None => Some(lower),
         Some("") => None,
         Some(text) => Some(number(text).filter(|upper| *upper >= lower)?),
