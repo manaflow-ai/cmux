@@ -262,7 +262,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case tabState(refresh: Bool, terminalSwitch: Bool = false)
     /// `pane.tabRowTools {width, need?}`: the chat header's tools take `width` CSS pixels at the trailing
     /// end of the pane's tab row (``AgentPaneTabRow``), 0 when the page draws none there; `need` is that width less
-    /// what takes only the row's leftover room (the rolling summary), what decides whether the pane offers the row.
+    /// what takes only the row's leftover room, what decides whether the pane offers the row.
     case tabRowTools(width: Double, need: Double? = nil)
     /// The current page-owned Session Info model, or its withdrawal.
     case sessionInfo(AgentPaneSessionInfoModel?)

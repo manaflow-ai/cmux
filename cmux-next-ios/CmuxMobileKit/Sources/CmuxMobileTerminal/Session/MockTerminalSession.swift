@@ -1,5 +1,7 @@
 // In every build: DEBUG mock mode and the App Review demo account (server-flagged,
 // AppStore.loadReviewDemo) use it. A live account never does (TerminalSessionChoice).
+// The host-load model (`HostLoadSim`) is DEBUG only.
+import CmuxMobileDesign
 import CmuxMobileTransport
 import Foundation
 
@@ -13,6 +15,8 @@ public final class MockTerminalSession: TerminalSession {
     public private(set) var isAlternateScreen = false
 
     private var handler: (@MainActor (TerminalSessionEvent) -> Void)?
+    /// `HostLoadSim`'s observers (DEBUG host load: a busy Mac's output, a dropped link).
+    private var hostLoad: [NSObjectProtocol] = []
     private let clock: any Clock<Duration>
     private let playsIntro: Bool
     /// The intro is written at once (the review demo): the terminal opens on its
@@ -134,6 +138,7 @@ public final class MockTerminalSession: TerminalSession {
     public func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void) {
         self.handler = handler
         handler(.title("zsh — cmux-next"))
+        observeHostLoad()
         let intro = playsIntro
         if instantIntro { paced = false }
         run { session in
@@ -299,6 +304,8 @@ public final class MockTerminalSession: TerminalSession {
     }
 
     public func stop() {
+        hostLoad.forEach(NotificationCenter.default.removeObserver)
+        hostLoad.removeAll()
         resizeAnswer?.cancel()
         resizeAnswer = nil
         answers.removeAll()
@@ -309,6 +316,33 @@ public final class MockTerminalSession: TerminalSession {
         inFlight.removeAll()
         handler = nil
     }
+
+    // MARK: Host load
+
+    /// `HostLoadSim`: a heavy tick writes a build's status line over the top
+    /// row (cursor saved and restored), as a streaming Mac does; a cut takes
+    /// the link offline.
+    private func observeHostLoad() {
+        #if DEBUG
+        guard hostLoad.isEmpty else { return }
+        let center = NotificationCenter.default
+        if HostLoadSim.mode == .cut { handler?(.connection(.offline(mac: nil))) }
+        hostLoad.append(center.addObserver(forName: HostLoadSim.tick, object: nil, queue: .main) { [weak self] note in
+            let tick = note.object as? Int ?? 0
+            MainActor.assumeIsolated { self?.hostLoadTick(tick) }
+        })
+        hostLoad.append(center.addObserver(forName: HostLoadSim.cut, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.handler?(.connection(.offline(mac: nil))) }
+        })
+        #endif
+    }
+
+    #if DEBUG
+    private func hostLoadTick(_ tick: Int) {
+        guard case .shell = program else { return }
+        write("\u{1B}7\u{1B}[1;1H\u{1B}[2K   Compiling cmux-mobile-host step \(tick) of 4000\u{1B}8")
+    }
+    #endif
 
     // MARK: Output
 
@@ -535,6 +569,14 @@ public final class MockTerminalSession: TerminalSession {
             let rows = (older + 1...older + shown).map(row)
             heldBack = ((1...older).map(row), rows, delay)
             write(rows.map { $0 + "\r\n" }.joined())
+        case "widetable":
+            // widetable [COLUMNS=180] [ROWS=12]: a table wider than the phone
+            // (Leo, 2026-11-23: "an extra wide table... just doesnt even work
+            // right now"), every row one line: `|` cells of 10 columns named
+            // by their first column, the last one `END`.
+            let width = parts.count > 1 ? Int(parts[1]) ?? 180 : 180
+            let count = parts.count > 2 ? Int(parts[2]) ?? 12 : 12
+            try await stream(MockOutput.wideTable(columns: width, rows: count), lineDelay: 4)
         case "clear": write("\u{1B}[H\u{1B}[2J")
         case "echo": write(parts.dropFirst().joined(separator: " ") + "\r\n")
         case "cat": try await stream(MockOutput.file(named: parts.dropFirst().first ?? ""))
