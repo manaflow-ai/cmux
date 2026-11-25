@@ -49,8 +49,7 @@ import { rememberNewChatPlace } from "../lastNewChatPlace";
 import { HarnessHealthNotice } from "../HarnessHealthNotice";
 import { Notice } from "../NoticeSlot";
 import { AutoResumeNotice } from "../AutoResumeNotice";
-import { MoveDock, PlaceChip } from "../place/PlaceMounts";
-import { HybridChip } from "../hybrid/HybridMounts";
+import { MoveDock } from "../place/PlaceMounts";
 import { OverloadNotice } from "../OverloadNotice";
 import type { HostOverload } from "../overloadNoticeModel";
 import { liveAutoResume, type TurnPhase } from "../turnPhase";
@@ -213,6 +212,9 @@ export type PaneComposerDeps = {
   shareNudge: ShareNudgeState;
   setShareOpen: React.Dispatch<React.SetStateAction<boolean>>;
   notices: PaneToasts;
+  /// A started chat's Local, Cloud, Auto chips (undefined in the floating chat or before a session): one element per
+  /// chat and toast sink, so a pane render that changes neither hands the composer the same one.
+  placeControl: React.ReactNode | undefined;
   worktreeCreatingHere: boolean;
   worktreeSetupHere: boolean;
   worktreeSetupFolder: string | undefined;
@@ -450,6 +452,7 @@ export function drawPaneComposer({
   chatSignIns,
   switchLoginCommand,
   composerHandle,
+  placeControl,
   healthStale,
   connectMachine,
   chooseWorkspaceFolder,
@@ -1558,30 +1561,9 @@ export function drawPaneComposer({
               : {})}
             onConnect={connectMachine}
             // A started chat's Local, Cloud, Auto (beside the picker's own move row); the floating chat has none.
-            {...(quick || !snapshot.sessionId
-              ? {}
-              : {
-                  placeControl: (
-                    <>
-                      <PlaceChip
-                        session={snapshot.sessionId}
-                        say={notices.transient}
-                        claims={() => ({
-                          queued: snapshot.queue.length,
-                          hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
-                        })}
-                      />
-                      <HybridChip
-                        session={snapshot.sessionId}
-                        say={notices.transient}
-                        claims={() => ({
-                          queued: snapshot.queue.length,
-                          hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
-                        })}
-                      />
-                    </>
-                  ),
-                })}
+            // Built once per chat by the pane (App.tsx `placeControl`): an inline element here was a new prop on
+            // every pane render, so each streamed chunk drew the composer and its box again while keys waited.
+            {...(placeControl ? { placeControl } : {})}
             // The floating chat has no tab to move.
             {...(quick
               ? {}
