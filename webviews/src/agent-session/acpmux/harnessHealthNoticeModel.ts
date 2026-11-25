@@ -27,6 +27,33 @@ export type HarnessHealth = {
   login?: string | null;
   /// How to update it; `elevated`: it needs sudo, so the pane never offers it.
   update?: { command: string; elevated: boolean } | null;
+  /// acpmux's typed verdict (`harness_health/readiness.rs`); absent from an older acpmux. The page
+  /// renders it and never derives a state of its own when it is present.
+  readiness?: HarnessReadiness;
+};
+
+/// One harness's readiness as acpmux computed it: `unverified` is usable (an unknown or stale
+/// sign-in, labelled so), an update on offer is only `repair`, never a gate.
+export type HarnessReadiness = {
+  state: "ready" | "unverified" | "signIn" | "missing";
+  usable: boolean;
+  /// Where the sign-in verdict came from.
+  provenance: "none" | "check" | "files" | "probeError" | "session";
+  checkedAt: number;
+  stale: boolean;
+  /// Operations it cannot do here and why (`update`: elevated, manual or managed).
+  blockers: { capability: string; kind: string; reason: string }[];
+  repair?:
+    | { kind: "install" }
+    | { kind: "signIn"; command?: string }
+    | { kind: "recheck" }
+    | { kind: "update"; command: string }
+    | { kind: "restart" };
+  /// The provider's versions: on disk, the one the newest chat started on, the newest offered.
+  versions: { installed?: string | null; running?: string | null; target?: string | null };
+  side?: "provider";
+  /// False: the newest chat runs an older version than is installed (the update has not reached it).
+  updateApplied?: boolean;
 };
 
 /// Whether a health row's sign-in needs the person to log in: signed out, or its credential expired.

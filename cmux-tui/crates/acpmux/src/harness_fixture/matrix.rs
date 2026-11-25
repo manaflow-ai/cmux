@@ -232,6 +232,11 @@ pub fn fixture(cell: &str) -> Result<Fixture, String> {
             latest_checked_at: Some(1),
             outdated: false,
             auth,
+            auth_source: if auth == Auth::Unknown {
+                crate::harness_health::AuthSource::None
+            } else {
+                crate::harness_health::AuthSource::Check
+            },
             auth_detail: Some(detail.into()),
             login: Some(agent.login.to_owned()),
             update: None,

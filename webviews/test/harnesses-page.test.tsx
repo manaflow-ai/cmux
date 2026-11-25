@@ -312,6 +312,55 @@ for (const result of ["rejected", "empty", "unknown"] as const) {
   });
 }
 
+// acpmux's typed readiness (competitor-teardown row 3): the page renders it. Unverified is usable,
+// labelled as not verified, never Ready; a missing program and a missing login keep their own fixes.
+const readiness = (state: string, usable: boolean, repair?: Record<string, unknown>) => ({
+  state,
+  usable,
+  provenance: "none",
+  checkedAt: 1,
+  stale: false,
+  blockers: [],
+  versions: { installed: "1.0.0", target: "1.1.0" },
+  ...(repair ? { repair, side: "provider" } : {}),
+});
+
+test("an unverified sign-in starts a chat, labelled as not verified and never Ready", async () => {
+  const calls: Call[] = [];
+  const container = await renderPage(calls, [], {
+    healthReply: (id) =>
+      Promise.resolve({
+        health:
+          id === "grok"
+            ? {
+                id,
+                auth: "unknown",
+                login: "grok login",
+                readiness: readiness("unverified", true, { kind: "recheck" }),
+              }
+            : id === "codex"
+              ? {
+                  id,
+                  auth: "signedOut",
+                  login: "codex login",
+                  readiness: readiness("signIn", false, { kind: "signIn" }),
+                }
+              : { id, auth: "signedIn", outdated: true, readiness: readiness("ready", true) },
+      }),
+  });
+  const grok = row(container, "Grok")!;
+  expect(grok.dataset.harnessStatus).toBe("unverified");
+  expect(grok.textContent).toContain("Sign-in not verified");
+  expect(grok.textContent).not.toContain("Ready");
+  const start = grok.querySelector<HTMLButtonElement>("button")!;
+  expect(start.textContent).toBe("Start Chat");
+  await act(async () => start.click());
+  expect(calls.some((call) => call.method === "chat.new" && call.params.harness === "grok")).toBe(true);
+  // A missing login is still Sign In; an outdated but signed-in CLI is Ready (an update is no gate).
+  expect(row(container, "Codex")!.dataset.harnessStatus).toBe("signIn");
+  expect(row(container, "Claude Code")!.dataset.harnessStatus).toBe("ready");
+});
+
 test("a health answer with no sign-in is unknown: never Ready or Start Chat, and offers a fix", async () => {
   const calls: Call[] = [];
   const closed: string[] = [];

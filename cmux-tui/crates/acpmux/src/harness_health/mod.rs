@@ -23,6 +23,8 @@ mod update_prepare;
 pub(crate) use update_prepare::UPDATE_PREPARE_FEATURE;
 pub mod latest;
 pub mod probe;
+pub mod readiness;
+pub use readiness::AuthSource;
 
 use channel::{Channel, UpdatePlan};
 use serde::{Deserialize, Serialize};
@@ -64,6 +66,9 @@ pub struct HarnessHealth {
     pub latest_checked_at: Option<u64>,
     pub outdated: bool,
     pub auth: Auth,
+    /// Where `auth` came from (`readiness.rs`); a copy saved before it reads `none`.
+    #[serde(default)]
+    pub auth_source: AuthSource,
     /// Why `auth` is what it is (the probe error, or the check that ran).
     pub auth_detail: Option<String>,
     /// The command that signs it in, for a terminal tab.
@@ -154,6 +159,9 @@ pub struct HealthService {
     /// harness id, with the program path the session ran (an id that later
     /// names another program does not inherit it) and the detail shown.
     acp_auth: Mutex<HashMap<String, (Option<String>, String)>>,
+    /// The installed version, by harness id, when its newest chat's ACP session started (since
+    /// the daemon started): the version that chat runs (`readiness::Versions::running`).
+    running: Mutex<HashMap<String, String>>,
     inventory: inventory_feed::InventoryFeed,
     /// One check at a time.
     checking: tokio::sync::Mutex<()>,
@@ -538,6 +546,15 @@ impl HealthService {
         self.rows.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 
+    /// Each row's typed readiness now (`readiness.rs`): a capture fixture's rows are never stale.
+    pub fn readiness(&self, rows: &[HarnessHealth]) -> Vec<readiness::Readiness> {
+        let now = (!self.fixed()).then(now_ms);
+        let running = self.running.lock().unwrap_or_else(PoisonError::into_inner);
+        rows.iter()
+            .map(|row| readiness::of(row, running.get(&row.id).map(String::as_str), now))
+            .collect()
+    }
+
     /// Records the authentication proof returned by an ACP session handshake.
     /// A successful `session/new` or `session/load` can be stronger evidence
     /// than an unavailable provider probe (Muse has no verified status command).
@@ -555,10 +572,20 @@ impl HealthService {
                 .unwrap_or_else(PoisonError::into_inner)
                 .insert(id.to_owned(), (row.as_ref().and_then(|r| r.path.clone()), detail.clone()));
             let Some(row) = row else { return };
-            if row.auth == Auth::SignedIn && row.auth_detail.as_deref() == Some(detail.as_str()) {
+            if let Some(version) = &row.version {
+                self.running
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .insert(row.id.clone(), version.clone());
+            }
+            if row.auth == Auth::SignedIn
+                && row.auth_source == AuthSource::Session
+                && row.auth_detail.as_deref() == Some(detail.as_str())
+            {
                 return;
             }
             row.auth = Auth::SignedIn;
+            row.auth_source = AuthSource::Session;
             row.auth_detail = Some(detail);
             row.checked_at = now_ms();
             if let Some(path) = cache.as_deref() {
@@ -672,6 +699,7 @@ impl HealthService {
                 Auth::Unknown => {
                     if let Some((_, detail)) = evidence.get(&row.id) {
                         row.auth = Auth::SignedIn;
+                        row.auth_source = AuthSource::Session;
                         row.auth_detail = Some(detail.clone());
                     }
                 }
@@ -740,10 +768,20 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
     // or a provider that `codex login` cannot fix, outranks an older probe's
     // sign-in error.
     let builtin = (s.check.is_empty() && found.is_some()).then(|| builtin_auth(&s, None)).flatten();
-    let (auth, auth_detail) = match &s.probe_error {
+    // The agent's own files: a verdict they gave is theirs; none is no source.
+    let from_files = |b: Option<(Auth, Option<String>)>| match b {
+        Some((Auth::Unknown, detail)) => (Auth::Unknown, detail, AuthSource::None),
+        Some((auth, detail)) => (auth, detail, AuthSource::Files),
+        None => (Auth::Unknown, None, AuthSource::None),
+    };
+    let (auth, auth_detail, auth_source) = match &s.probe_error {
         _ if !s.check.is_empty() && found.is_some() => {
             match probe::auth_check(&s.check, &s.env, &s.family) {
-                Ok((true, _)) => (Auth::SignedIn, Some(format!("`{}` passed", s.check.join(" ")))),
+                Ok((true, _)) => (
+                    Auth::SignedIn,
+                    Some(format!("`{}` passed", s.check.join(" "))),
+                    AuthSource::Check,
+                ),
                 Ok((false, output)) => {
                     let auth = auth_failure(&output);
                     let detail = match auth {
@@ -753,18 +791,18 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
                         }
                         _ => format!("`{}` failed", s.check.join(" ")),
                     };
-                    (auth, Some(detail))
+                    (auth, Some(detail), AuthSource::Check)
                 }
-                Err(e) => (Auth::Unknown, Some(e)),
+                Err(e) => (Auth::Unknown, Some(e), AuthSource::None),
             }
         }
         _ if builtin.as_ref().is_some_and(|(auth, _)| *auth != Auth::SignedOut) => {
-            builtin.unwrap_or((Auth::Unknown, None))
+            from_files(builtin)
         }
         Some(e) if SIGN_IN.is_match(e) || auth_failure(e) == Auth::Expired => {
-            (auth_failure(e), Some(e.clone()))
+            (auth_failure(e), Some(e.clone()), AuthSource::ProbeError)
         }
-        _ => builtin.unwrap_or((Auth::Unknown, None)),
+        _ => from_files(builtin),
     };
     HarnessHealth {
         id: s.id,
@@ -784,6 +822,7 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
         latest_checked_at: None,
         outdated: false,
         auth,
+        auth_source,
         auth_detail,
         update,
         problem,
@@ -909,6 +948,7 @@ mod tests {
             latest_checked_at: None,
             outdated: false,
             auth: Auth::SignedOut,
+            auth_source: Default::default(),
             auth_detail: None,
             login: Some("codex login".into()),
             update: None,
@@ -946,6 +986,7 @@ mod tests {
             latest_checked_at: None,
             outdated: false,
             auth: Auth::Unknown,
+            auth_source: Default::default(),
             auth_detail: None,
             login: Some("muse login".into()),
             update: None,
