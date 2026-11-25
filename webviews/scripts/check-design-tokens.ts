@@ -1063,7 +1063,8 @@ function report(current: Map<string, number>, baseline: Map<string, number>, fin
  * own allowance to its new value in the baseline, one for one, only for the lines it rewrote, and
  * never adds a finding the declaration did not already have; its token-copy row empties and
  * --update-baseline drops it.
- * The rewrite keeps the literal as the fallback, `var(--cmux-motion-micro, 120ms)`, so a page that never
+ * The rewrite keeps the step as the fallback, written as the motion scale writes it (`0.12s` becomes
+ * `var(--cmux-motion-micro, 120ms)`, the form gen-motion-scale.py --check expects), so a page that never
  * loads the token's sheet still computes the same value. Easing keywords are not rewritten: `ease-out`
  * draws the same curve as --cmux-ease-out but computes to a different string.
  * Then run --update-baseline to drop the rows the fix emptied.
@@ -1118,16 +1119,16 @@ export function isPinnedToken(name: string): boolean {
 }
 
 /** The token a top-level literal in `property` can become, if the swap is pixel-identical (see above). */
-function fixToken(property: string, literal: string, item: string): string | undefined {
+function fixToken(property: string, literal: string, item: string): { name: string; value: string } | undefined {
   if (propertyFamily(property) !== "duration" || !/^-?[\d.]+m?s$/i.test(literal) || /settle/.test(item))
     return undefined;
   const number = Number(literal.replace(/m?s$/i, ""));
   const ms = /ms$/i.test(literal) ? number : Math.round(number * 1e6) / 1e3;
   const step = designTokens().find((token) => MOTION_STEPS.includes(token.name) && token.value === `${ms}ms`);
-  return step && isPinnedToken(step.name) ? step.name : undefined;
+  return step && isPinnedToken(step.name) ? { name: step.name, value: step.value } : undefined;
 }
 
-/** `value` with each fixable top-level literal swapped for `var(<token>, <literal>)`. */
+/** `value` with each fixable top-level literal swapped for `var(<token>, <the token's value>)`. */
 function fixValue(property: string, value: string): { value: string; swaps: number } {
   let out = "";
   let depth = 0;
@@ -1158,7 +1159,7 @@ function fixValue(property: string, value: string): { value: string; swaps: numb
       const match = FIX_LITERAL.exec(value);
       if (match) {
         const token = fixToken(property, match[0], itemAt(i));
-        out += token ? `var(${token}, ${match[0]})` : match[0];
+        out += token ? `var(${token.name}, ${token.value})` : match[0];
         if (token) swaps++;
         i += match[0].length;
         continue;

@@ -75,7 +75,7 @@
   letter-spacing: inherit;
   color: inherit;
   cursor: default;
-  transition: color var(--cmux-motion-micro, 0.12s) ease-out;
+  transition: color var(--cmux-motion-micro, 120ms) ease-out;
 }
 /* Outranks the surfaces' `button { user-select: none }` above: the version is words to quote. */
 :is(.wn-card, .wn-pop) .wn-copy-version {
@@ -109,7 +109,7 @@
   /* Only on hover or keyboard focus (u2441), an opacity fade as every hover button; clickable
      while it fades in. */
   opacity: 0;
-  transition: opacity var(--cmux-motion-micro, 0.12s) ease-out;
+  transition: opacity var(--cmux-motion-micro, 120ms) ease-out;
 }
 .wn-card:is(:hover, :has(:focus-visible)) .wn-card-close { opacity: 1; }
 @media (prefers-reduced-motion: reduce) {

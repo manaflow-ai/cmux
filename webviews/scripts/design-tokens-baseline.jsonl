@@ -544,7 +544,7 @@
 {"file":"gallery/fixtures/VisualMediaBoard.css","kind":"color","property":"color","values":{"#fff":3}}
 {"file":"gallery/fixtures/VisualMediaBoard.css","kind":"color","property":"text-shadow","values":{"0 1px 4px #000":2}}
 {"file":"gallery/fixtures/VisualMediaBoard.css","kind":"duration","property":"transition","values":{"opacity .15s ease-out":1}}
-{"file":"gallery/fixtures/VisualMediaBoard.css","kind":"easing","property":"transition","values":{"opacity var(--cmux-motion-standard, .18s) ease-out":1}}
+{"file":"gallery/fixtures/VisualMediaBoard.css","kind":"easing","property":"transition","values":{"opacity var(--cmux-motion-standard, 180ms) ease-out":1}}
 {"file":"gallery/fixtures/VisualMediaBoard.css","kind":"height","property":"height","values":{"1px":1}}
 {"file":"gallery/fixtures/VisualMediaBoard.css","kind":"height","property":"min-height","values":{"30px":1}}
 {"file":"gallery/fixtures/VisualMediaBoard.css","kind":"radius","property":"border-radius","values":{"5px":1}}
@@ -638,7 +638,7 @@
 {"file":"pages/changelog/styles.css","kind":"token-copy","property":"padding","values":{"2px":3}}
 {"file":"pages/changelog/updatedCardDrag.gallery.tsx","kind":"color","property":"background","values":{"#2a2a2a":1}}
 {"file":"pages/changelog/updatedCardDrag.gallery.tsx","kind":"color","property":"color","values":{"#d4d4d4":1}}
-{"file":"pages/changelog/updateSurfaces.css","kind":"easing","property":"transition","values":{"color var(--cmux-motion-micro, 0.12s) ease-out":1,"opacity var(--cmux-motion-micro, 0.12s) ease-out":1}}
+{"file":"pages/changelog/updateSurfaces.css","kind":"easing","property":"transition","values":{"color var(--cmux-motion-micro, 120ms) ease-out":1,"opacity var(--cmux-motion-micro, 120ms) ease-out":1}}
 {"file":"pages/changelog/updateSurfaces.css","kind":"font-weight","property":"font-weight","values":{"500":2}}
 {"file":"pages/changelog/updateSurfaces.css","kind":"height","property":"height","values":{"18px":1}}
 {"file":"pages/changelog/updateSurfaces.css","kind":"radius","property":"border-radius","values":{"var(--cmux-sidebar-card-radius, 10px)":1}}
