@@ -35,6 +35,15 @@ pub mod customize {
 
 pub use cmux_app_manifest::{Issue, PackageReport, Severity, is_valid};
 
+/// The scene motion contract (`cmux.motion/1`): the typed `animation`, `loop`, `transition` and
+/// `contentTransition` vocabulary, its clamps, and the normalizer the app host runs on every scene
+/// batch, so a tool can check a motion value exactly as cmux will.
+pub use cmux_app_host::motion;
+
+/// A look's `motion` block (theme file `motion`): named `{duration, bounce}` spring presets and
+/// design-token spring and fade overrides, clamped to `cmux.motion/1`.
+pub use cmux_app_host::motion_profile;
+
 use serde_json::{Map, Value, json};
 use std::path::Path;
 
@@ -185,7 +194,7 @@ impl Manifest {
         self.implement("cmux.pane/1", export, title, symbol, None)
     }
 
-    /// A whole New Tab page (`cmux.newtab/1`) drawn by the script's `export`. It shows only once
+    /// A New Tab view (`cmux.newtab/1`, over cmux's composer) drawn by the script's `export`. It shows only once
     /// the person names the extension in `tabs.newTabApp`; otherwise cmux draws its own page.
     pub fn new_tab(self, export: &str, title: &str, symbol: &str) -> Self {
         self.implement("cmux.newtab/1", export, title, symbol, None)

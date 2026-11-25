@@ -22,15 +22,15 @@ import Testing
         #expect(hold.hold { installs += 1 })
         #expect(hold.state?.reason == .notIdle)
 
-        // Away long enough, but an agent turn runs: still held, with the new reason.
-        gate.reason = .agentWorking
+        // Away long enough, but the agents' state is unread: still held, with the new reason.
+        gate.reason = .unknown
         try await clock.waitForSleeper()
         clock.advance(by: UpdateRelaunchMomentHold.recheckInterval)
         try await clock.waitForSleeper()
         #expect(installs == 0)
-        #expect(hold.state?.reason == .agentWorking)
+        #expect(hold.state?.reason == .unknown)
 
-        // The turn ended; a draft is unsent.
+        // Read now; a draft is unsent.
         gate.reason = .unsentDraft
         clock.advance(by: UpdateRelaunchMomentHold.recheckInterval)
         try await clock.waitForSleeper()

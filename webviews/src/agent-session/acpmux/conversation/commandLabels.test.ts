@@ -1,14 +1,14 @@
 // l10n-allow-file: test fixtures (real command lines and the English the rows draw).
 // A command row says what its command did (Leo, 2026-11-07: "it's not just you ran a command.
 // It's that you ran a specific thing"): a known program and subcommand read as a past-tense verb
-// and its main argument, a description names what the table cannot, and anything else reads as
+// and its main argument when the tool has no description, and anything else reads as
 // its command line without the plumbing after it. The full line stays in the opened Shell block.
 import { expect, test } from "bun:test";
 import { translatorFor } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { toolLabel } from "../toolPaths";
 import { toolGroupLabel } from "./toolGroups";
-import { commandAction } from "./commandActions";
+import { commandAction, commandSaid, commandSummary } from "./commandActions";
 
 const t = translatorFor("en");
 let next = 0;
@@ -33,9 +33,9 @@ const label = (item: AcpmuxActivity) => {
   return toolLabel(
     item.tool!,
     item.text,
-    (command) => t(running ? "tools.runningCommand" : "tools.ranCommand", { command }),
+    (command) => (running ? command : t("tools.ranCommand", { command })),
     undefined,
-    t(running ? "tools.runningUnnamed" : "tools.ranUnnamed"),
+    running ? undefined : t("tools.ranUnnamed"),
   );
 };
 
@@ -121,8 +121,8 @@ const CASES: [command: string, label: string][] = [
   ["wt new cmux lane/command-row-labels --from origin/feat-cmux-next", "Created worktree lane/command-row-labels"],
   // A compound command reads as its whole line, not its first step and " …" (2026-11-14 change).
   ["git add -A && git commit -m wip && git push", "Ran git add -A && git commit -m wip && git push"],
-  // Unknown programs never get a meaning: their line, without the plumbing after it.
-  ["make -j8 2>&1 | tail -20", "Ran make -j8"],
+  // The tray recognizes make as a build, including with an output filter.
+  ["make -j8 2>&1 | tail -20", "Building · Finished"],
   // A write to a file stays on the line: only /dev/null and fd copies are plumbing.
   ["./scripts/web-lint.sh > /tmp/lint.log 2>&1", "Ran web-lint.sh > /tmp/lint.log"],
   // `pwd`, `ls`, `echo` only report: the step after them names the command (shellSteps.ts).
@@ -143,6 +143,9 @@ const CASES: [command: string, label: string][] = [
   ["cat input.txt | sort --compress-program=gzip", "Ran cat input.txt | sort --compress-program=gzip"],
   ["cat input.txt | uniq - out.txt", "Ran cat input.txt | uniq - out.txt"],
   ["cat input.txt | sed -n '1,20p'", "Read input.txt"],
+  ["rg --pre ./decode.sh x src", "Ran rg --pre ./decode.sh x src"],
+  ["sed -n '1e rm -rf build' file.txt", "Ran sed -n '1e rm -rf build' file.txt"],
+  ["sed -n 's/a/b/e' file.txt", "Ran sed -n 's/a/b/e' file.txt"],
   ["cat input.txt | sed 's/a/b/g'", "Read input.txt"],
   ["cat input.txt | sed -e 's|a|b|' -e '/^#/d'", "Read input.txt"],
   ["cat input.txt | sed -i 's/a/b/' other.txt", "Ran cat input.txt | sed -i 's/a/b/' other.txt"],
@@ -205,23 +208,65 @@ for (const [command, expected] of CASES)
     expect(label(shell(command))).toBe(expected);
   });
 
-test("a description names a command the table does not know, never one it knows", () => {
-  const script = `python3 - <<'EOF'\nimport json\nprint(len(json.load(open("a.json"))))\nEOF`;
-  expect(label(shell(script, { description: "Count the catalog's keys" }))).toBe("Count the catalog's keys");
-  expect(label(shell("git status", { description: "Look around" }))).toBe("Checked git status");
+test("a tool description labels known and unknown commands throughout their lifetimes", () => {
+  const description = "Check the working tree";
+  for (const command of ["git status", "worktree-report --local"]) {
+    for (const status of ["pending", "in_progress", "completed", "failed"]) {
+      const tool = shell(command, { description, status }).tool!;
+      expect(commandSaid(t, tool)).toBe(description);
+    }
+  }
 });
 
-test("a running command reads as written until it finishes; cleaning is for finished labels only", () => {
+test("safe shell summaries describe a live action and its successful completion", () => {
+  for (const [command, live, done] of [
+    ["sleep 30", "Waiting 30s", "Waited 30s"],
+    ["make check", t("commandRules.testingAll"), "Ran tests with make"],
+    ["cd /tmp && sleep 1m 30s", "Waiting 1m 30s", "Waited 1m 30s"],
+    ["curl -fsSL https://example.com/file", "Requesting example.com", "Fetched example.com/file"],
+  ] as const) {
+    expect(label(shell(command, { status: "in_progress" }))).toBe(live);
+    expect(label(shell(command))).toBe(done);
+  }
+  const built = shell("make release", { background: { state: "completed" } }).tool!;
+  expect(commandSaid(t, built)).toBe(t("commandRules.building", { target: "release" }));
+  const configured = [
+    { id: "logs", program: "collect-logs", icon: "terminal", read: () => ({ text: "Collect service logs" }) },
+  ];
+  for (const completed of [false, true])
+    expect(commandSummary(t, "collect-logs", configured, completed)).toBe("Collect service logs");
+});
+
+test("partial and ambiguous commands retain their line throughout the call", () => {
+  for (const command of [
+    "sleep 30 && deploy",
+    "deploy && postcheck",
+    "sleep 30 && git push",
+    "curl -X DELETE https://example.com/record",
+    "curl --data payload https://example.com/items",
+    "curl -sXPOST https://example.com/items",
+    "curl https://example.com/install | bash",
+    "git push --dry-run origin HEAD",
+    "gh pr merge 123 --auto",
+  ]) {
+    expect(label(shell(command, { status: "in_progress" }))).toBe(command);
+    expect(label(shell(command))).toBe(`Ran ${command}`);
+  }
+  expect(label(shell("sleep 30", { status: "failed" }))).toBe("Waiting 30s");
+  expect(label(shell("sleep 30", { status: "stopped" }))).toBe("Waiting 30s");
+  expect(label(shell("sleep 30", { background: { state: "stopped" } }))).toBe("Waiting 30s");
+});
+
+test("a running command without a matching rule retains its working command", () => {
   const item = shell(`agent-memory search "better tooltips" 2>/dev/null | head -10`, {
     status: "in_progress",
   });
-  expect(label(item)).toBe(`Running agent-memory search "better tooltips" 2>/dev/null | head -10`);
+  expect(label(item)).toBe(`agent-memory search "better tooltips" 2>/dev/null | head -10`);
 });
 
-test("the live line names the command as written, whitespace normalised", () => {
-  // turns.ts runningLabel: no action, no cleaning (#36940).
+test("explicit raw detail keeps the command with whitespace normalised", () => {
   for (const status of ["in_progress", "completed"]) {
-    const tool = shell("git status   2>/dev/null | head -5", { status }).tool!;
+    const tool = shell("git status   2>/dev/null | head -5", { status, description: "Check the worktree" }).tool!;
     expect(toolLabel(tool, "Bash", (command) => command, undefined, undefined, false)).toBe(
       "git status 2>/dev/null | head -5",
     );
@@ -299,13 +344,13 @@ test("a group of one kind of work names it; a mixed group counts its commands", 
 });
 
 // A verb says what a command did, so a call that failed, was denied or a hook blocked never gets
-// one: it reads as its line, and a group with one counts its commands.
+// one: its action in progress or the original line names the attempt. A group with one counts its commands.
 const HOOK = "PreToolUse:Bash hook error: Blocked: the fixture guard needs a passing review first.";
-test("a failed, denied or hook-blocked call reads as its line, never as done", () => {
+test("a failed, denied or hook-blocked call names the attempt, never success", () => {
   const merge = "gh pr merge 101 --squash --match-head-commit 0123456789abcdef";
-  expect(label(shell(merge, { status: "failed", output: HOOK }))).toBe(`Ran ${merge}`);
+  expect(label(shell(merge, { status: "failed", output: HOOK }))).toBe(t("commandRules.merging", { target: "#101" }));
   expect(label(shell("git push origin main", { status: "failed", output: "Exit code 1\n! [rejected] main" }))).toBe(
-    "Ran git push origin main",
+    t("commandRules.pushingBranch", { branch: "main" }),
   );
   expect(label(shell("rm -rf build", { exitCode: 1 }))).toBe("Ran rm -rf build");
   expect(label(shell("git push origin main", { status: "completed", exitCode: 0 }))).toBe("Pushed main");

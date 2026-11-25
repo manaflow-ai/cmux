@@ -22,7 +22,7 @@ struct SidebarChromeReveal: Equatable {
     /// The pinned footer row: the profile control and the Search button.
     var footer: CGFloat
     /// Everything else the sidebar draws that is not its content (``SidebarView/minimalChromeViews``): the cards
-    /// (Restart to Update, notices, Now Playing, cmux Updated), the card stack, app health's line, the Update
+    /// (Restart to Update, notices, Now Playing, cmux Updated), the card stack, the Update
     /// Available button, the Priority bell, the titlebar accessory, the needs-you tray, and any view added later.
     /// Only Minimal Mode hides them (user 2026-11-17, msg 38388: "minimal mode should hide everything in sidebar
     /// including cards like update, iff user is not hovered in sidebar"); the older controls-on-hover toggle keeps them.
