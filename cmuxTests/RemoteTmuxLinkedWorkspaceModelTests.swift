@@ -38,6 +38,40 @@ import Testing
         #expect(Set(result.remove) == ["first", "second"])
     }
 
+    /// Closing a mirror records a `detached` intent that keeps its session unmirrored, which is
+    /// right for the stream's own reconciles. An explicit `cmux ssh-tmux host` or
+    /// `attach <session>` must lift it, or the closed session never comes back (#53678).
+    @Test func anExplicitAttachLiftsTheDetachOfAClosedMirror() {
+        let workspaces: [Model.Workspace] = [
+            .init(sessionName: "live", windowIds: ["@1"], sessionId: 1),
+            .init(sessionName: "reprotest", windowIds: ["@2"], sessionId: 2),
+            .init(sessionName: "other", windowIds: ["@3"], sessionId: 3),
+        ]
+        let existing = [RemoteTmuxMultiplexReconciler.ExistingMirror(
+            sessionName: "live", sessionId: 1, windowIds: [1])]
+        let intents = RemoteTmuxMultiplexReconciler.Intents(
+            pendingKills: [.init(name: "gone", id: 9)],
+            detached: [.init(name: "reprotest", id: 2), .init(name: "other", id: 3)]
+        )
+
+        let stream = RemoteTmuxMultiplexReconciler.plan(
+            workspaces: workspaces, existingMirrors: existing, intents: intents).plan
+        #expect(stream.create.isEmpty)
+
+        let bulk = intents.liftingDetach(forAttachOf: nil)
+        #expect(bulk.detached.isEmpty)
+        #expect(bulk.pendingKills == intents.pendingKills)
+        #expect(RemoteTmuxMultiplexReconciler.plan(
+            workspaces: workspaces, existingMirrors: existing, intents: bulk
+        ).plan.create.map(\.view.sessionName) == ["reprotest", "other"])
+
+        let one = intents.liftingDetach(forAttachOf: "reprotest")
+        #expect(one.detached == [.init(name: "other", id: 3)])
+        #expect(RemoteTmuxMultiplexReconciler.plan(
+            workspaces: workspaces, existingMirrors: existing, intents: one
+        ).plan.create.map(\.view.sessionName) == ["reprotest"])
+    }
+
     @Test func parseRowsReadsAllFieldsIncludingSessionId() {
         let rows = Model.parseRows("$3:@7:2:1:work\n$3:@8:0:0:work\n")
         #expect(rows == [

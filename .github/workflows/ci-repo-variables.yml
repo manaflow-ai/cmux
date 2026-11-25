@@ -53,7 +53,7 @@ jobs:
     name: Check repository variables
     if: ${{ github.repository == 'manaflow-ai/cmux' }}
     # The linux pool, not LINUX_RUNNER: this job checks LINUX_RUNNER, so it must not wait on it.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -93,8 +93,12 @@ jobs:
             CI_CONTROL_RUNNER=${{ vars.CI_CONTROL_RUNNER }}
             CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
             CI_LINUX_GATE_OWNED_RUNNER=${{ vars.CI_LINUX_GATE_OWNED_RUNNER }}
+            CI_REACT_SHARD_RUNNER=${{ vars.CI_REACT_SHARD_RUNNER }}
+            CI_DEV_COMPILE_NIGHTLY_RUNNER=${{ vars.CI_DEV_COMPILE_NIGHTLY_RUNNER }}
             CI_LINUX_HOSTED_RUNNER=${{ vars.CI_LINUX_HOSTED_RUNNER }}
             CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
+            CI_OVERFLOW_LINUX=${{ vars.CI_OVERFLOW_LINUX }}
+            CI_OVERFLOW_MAC=${{ vars.CI_OVERFLOW_MAC }}
             CI_NIGHTLY_NEXT_BUILD_RUNNER=${{ vars.CI_NIGHTLY_NEXT_BUILD_RUNNER }}
             CI_NIGHTLY_NEXT_TRUSTED_POOL=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_POOL }}
             CI_NIGHTLY_NEXT_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER }}
@@ -173,10 +177,13 @@ jobs:
             CI_DEPLOY_SKIP_FLEET=${{ vars.CI_DEPLOY_SKIP_FLEET }}
             CI_EVAL_STEP_GATEWAY=${{ vars.CI_EVAL_STEP_GATEWAY }}
             CI_FFI_RELEASE_POOL=${{ vars.CI_FFI_RELEASE_POOL }}
+            CI_FORK_LINUX_RUNNER=${{ vars.CI_FORK_LINUX_RUNNER }}
             CI_GATE_SKIP_FLEET=${{ vars.CI_GATE_SKIP_FLEET }}
             CI_IOS_INTERNAL_RUNNER=${{ vars.CI_IOS_INTERNAL_RUNNER }}
             CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
             CI_LINUX_GATE_OWNED_RUNNER=${{ vars.CI_LINUX_GATE_OWNED_RUNNER }}
+            CI_REACT_SHARD_RUNNER=${{ vars.CI_REACT_SHARD_RUNNER }}
+            CI_DEV_COMPILE_NIGHTLY_RUNNER=${{ vars.CI_DEV_COMPILE_NIGHTLY_RUNNER }}
             CI_NEXT_DAEMON_POOL=${{ vars.CI_NEXT_DAEMON_POOL }}
             CI_NEXT_PROMOTE_POOL=${{ vars.CI_NEXT_PROMOTE_POOL }}
             CI_NIGHTLY_MINI=${{ vars.CI_NIGHTLY_MINI }}
@@ -189,6 +196,7 @@ jobs:
             CI_NIGHTLY_SIGN_RUNNER=${{ vars.CI_NIGHTLY_SIGN_RUNNER }}
             CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
             CI_OVERFLOW_LINUX=${{ vars.CI_OVERFLOW_LINUX }}
+            CI_OVERFLOW_MAC=${{ vars.CI_OVERFLOW_MAC }}
             CI_PAID_MACOS_OVERFLOW=${{ vars.CI_PAID_MACOS_OVERFLOW }}
             CI_PERF_CRON_GATEWAY=${{ vars.CI_PERF_CRON_GATEWAY }}
             CI_PIN_DAEMON_POOL=${{ vars.CI_PIN_DAEMON_POOL }}

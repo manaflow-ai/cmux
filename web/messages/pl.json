@@ -5776,5 +5776,13 @@
     "unavailableTitle": "Nie udało się potwierdzić logowania",
     "unavailableBody": "Nasz dostawca logowania jest przeciążony. Odczekaj kilka sekund i ponownie otwórz zaproszenie. Nie musisz logować się ponownie.",
     "retry": "Spróbuj ponownie"
+  },
+  "analyticsConsent": {
+    "label": "Analityka",
+    "message": "Czy możemy używać analityki, aby zobaczyć, jak korzystasz ze strony? Nic nie jest zbierane i żaden analityczny plik cookie nie jest zapisywany bez Twojej zgody.",
+    "privacy": "Polityka prywatności",
+    "accept": "Zezwól",
+    "decline": "Nie, dziękuję",
+    "settings": "Ustawienia analityki"
   }
 }
