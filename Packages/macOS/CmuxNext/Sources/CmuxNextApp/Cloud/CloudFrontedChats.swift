@@ -105,8 +105,8 @@ extension CloudFrontedChats {
         // The Mac tab's new page says the Cloud chat ended, the start's prompt back in its composer: never a blank chat (cmux#55066).
         fronts.ended = { [weak services] mac, cloud in
             guard let tabs = services?.agentTabs else { return }
-            let started = tabs.pageChats.cloudStarted.removeValue(forKey: cloud), seed = AgentPaneSeedSource(AgentPaneSeed(cwd: started?.chat, draft: started?.start.task))
-            seed.cloudChatEnded = (services?.machines.session(cloud.machine)?.machine.title, started?.start.task.contains { !$0.isWhitespace } == true); tabs.seeds[mac] = seed
+            let started = tabs.pageChats.cloudStarted.removeValue(forKey: cloud)
+            if let seed = AgentPaneCloudStarted.endedSeed(started, machine: services?.machines.session(cloud.machine)?.machine.title) { tabs.seeds[mac] = seed }
         }
         // After the release that dropped the front: a show now would make the Mac tab's page inside that release.
         // task-owner: one main hop; it shows nothing once the app's services went

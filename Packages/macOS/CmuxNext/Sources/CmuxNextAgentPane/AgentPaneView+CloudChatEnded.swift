@@ -3,8 +3,8 @@ import Foundation
 /// A Mac tab that showed a Cloud chat in place, whose Cloud chat went (its tab closed on the machine, the
 /// machine deleted, the start's first turn failing there): the tab draws its own new page again, and that
 /// page says so above the composer instead of opening blank (cmux#55066: "it just shows a blank screen
-/// after not working"). The prompt the start took goes back into the composer (the app's seed); the notice
-/// says where it went and the ways on, and Dismiss closes it. The app seeds the page with it
+/// after not working"). A chat that went soon after its start gets its prompt back in the composer
+/// (``AgentPaneCloudStarted/endedSeed(_:machine:now:)``) and the notice says so; Dismiss closes it. The app seeds the page with it
 /// (``AgentPaneSeedSource/cloudChatEnded``), so it shows from the page's first frame.
 extension AgentPaneView {
     /// Shows the notice; `machine` is the Cloud machine's name, when known.
@@ -24,19 +24,19 @@ extension AgentPaneView {
     static func cloudChatEndedTitle(machine: String?) -> String {
         guard let machine, !machine.isEmpty else {
             return String(localized: "agentPane.cloudChatEnded.title",
-                          defaultValue: "The Cloud chat ended before it could go on.", bundle: .localizedModule)
+                          defaultValue: "The Cloud chat ended.", bundle: .localizedModule)
         }
         return String(format: String(localized: "agentPane.cloudChatEnded.titleOn",
-                                     defaultValue: "The Cloud chat on %@ ended before it could go on.", bundle: .localizedModule), machine)
+                                     defaultValue: "The Cloud chat on %@ ended.", bundle: .localizedModule), machine)
     }
 
     static func cloudChatEndedDetail(promptBack: Bool) -> String {
         promptBack
             ? String(localized: "agentPane.cloudChatEnded.promptBack",
-                     defaultValue: "Its agent may be out of usage, or the machine stopped. Your message is back in the composer: send it again, or pick another agent or machine first.",
+                     defaultValue: "It ended soon after it started: its agent may be out of usage, or the machine stopped. Your message is back in the composer: send it again, or pick another agent or machine first.",
                      bundle: .localizedModule)
             : String(localized: "agentPane.cloudChatEnded.detail",
-                     defaultValue: "Its agent may be out of usage, or the machine stopped. Send a message to start a new chat, or pick another agent or machine first.",
+                     defaultValue: "Its machine or its tab there went. Send a message to start a new chat here, or pick another agent or machine first.",
                      bundle: .localizedModule)
     }
 

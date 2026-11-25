@@ -387,6 +387,7 @@ export {
   textFromContent,
   appendThought,
 } from "./direct/toolItems";
+import { unknownParamRefused, withoutParam } from "./relaySkew";
 export { permissionFromMessage, permissionDiffs, permissionPlan } from "./direct/permissions";
 export {
   queuedMessage,
@@ -5819,7 +5820,14 @@ export class AcpmuxDirectClient {
       waitsForSlot(method, params) ? send : undefined,
     );
     this.budget.admit(id, method, send, params);
-    return result;
+    // An older relay that refused a key it does not know (relaySkew.ts, cmux#55066): the same request
+    // without it, as a newer relay sends it on. Each try drops one key the request carries, so it ends.
+    return result.catch((error: unknown) => {
+      const key = unknownParamRefused(error, params);
+      if (key === undefined) throw error;
+      this.wire.lifecycle("relay refused an unknown param, sent again without it", { method, key });
+      return this.request(method, withoutParam(params, key), deadline, maySend);
+    });
   }
 
   /// Whether `method` is one a chat open waits on (`CHAT_OPEN_METHODS`). An acpmux that follows the
