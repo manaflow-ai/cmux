@@ -596,15 +596,16 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
         });
       } else {
         await installBoxTracker(page);
-        const rowsBefore = await page.locator(TRANSCRIPT_ROW).count();
+        const rowsBefore = new Set(await page.locator(TRANSCRIPT_ROW).allInnerTexts());
         for (const [index, [step, play]] of flows(turn)[flow].entries()) {
           report.push(await measure(page, step, () => play(pane!, page), seeded && index === 1));
           if (SHOWS[step]) expect(await page.locator(".acpmux-scroll").innerText()).toMatch(SHOWS[step]!);
         }
-        // The flow drew what it plays (a fixture that renders nothing would pass with 0px): new rows,
-        // and the flow's own text in the transcript.
+        // The flow drew what it plays (a fixture that renders nothing would pass with 0px): rows it did
+        // not find (by text: the transcript is virtual, so a count can fall as rows grow and older ones
+        // leave the window), and the flow's own text in the transcript.
         const drawn = await page.locator(TRANSCRIPT_ROW).allInnerTexts();
-        expect(drawn.length).toBeGreaterThan(rowsBefore);
+        expect(drawn.filter((text) => !rowsBefore.has(text)).length).toBeGreaterThan(0);
         expect(drawn.join("\n")).toContain(DRAWN[flow]);
       }
       for (const entry of report)
