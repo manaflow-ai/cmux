@@ -50,17 +50,18 @@ import {
   newIdempotencyKey,
   wireError,
   type AccountsRun,
-  type AllotmentSet,
-  type AllotmentView,
   type AccountsState,
   type AgentsRun,
   type AgentsState,
   type AppUpdateAction,
+  type PreviousBuild,
   type ChannelsState,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
+  type LibraryListing,
+  type LibraryRun,
+  type LooksRun,
   type SharesState,
-  type KeysState,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -72,8 +73,6 @@ import {
   type HostLists,
   type IntegrationsRun,
   type IntegrationsState,
-  type McpServersRun,
-  type McpServersState,
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
@@ -87,35 +86,37 @@ import {
   SETTINGS_SENTENCES,
   type CustomizeTryOn,
   type JoinConsentSurface,
-  type LibraryListing,
-  type LibraryRun,
+  type KeysState,
   type ModelsRun,
   type ModelsState,
-  type LooksRun,
   type AgentToolsCardRun,
   type AgentToolsCardState,
+  type McpServersRun,
+  type McpServersState,
   type RowNoteData,
+  type AgentSkillsRun,
+  type AgentSkillsState,
   type AgentMcpRun,
   type AgentMcpState,
   type AgentHooksRun,
   type AgentHooksState,
-  type AgentSkillsRun,
-  type AgentSkillsState,
   type AgentConfigAnswer,
   type AgentConfigRun,
+  type AllotmentSet,
+  type AllotmentView,
+  type HubRun,
+  type HubState,
   type AccountsRunReply,
   type DoctorReport,
   type DoctorRun,
-  type HubRun,
-  type HubState,
+  type ConnectionsRun,
+  type ConnectionsState,
   type Checklist,
   type ChecklistFact,
   type TailnetVMReply,
   type AutocloudAction,
   type AutocloudAnswer,
   type AutocloudState,
-  type ConnectionsRun,
-  type ConnectionsState,
   type ArchivedRun,
   type ArchivedState,
 } from "./ops";
@@ -750,6 +751,18 @@ export class SettingsStore {
     const reply = await this.request("cmux.settings.app_update.run", { action });
     await this.refreshHost();
     return reply.ok;
+  }
+
+  /** Updates > App Update's Go Back to Previous Build row; null when nothing is kept or the host has no updater. */
+  async previousBuild(): Promise<PreviousBuild | null> {
+    const reply = await this.request("cmux.settings.app_update.previous", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** That row's Go Back: the app restarts into the kept build; else the host's reason. */
+  async goBackToPreviousBuild(build: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.app_update.rollback", { build });
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
   }
 
   /** Updates > Web UI: Check Now or Roll Back, then re-read the host lists; false when the host refused. */
