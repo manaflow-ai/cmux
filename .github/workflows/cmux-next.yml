@@ -2460,6 +2460,7 @@ jobs:
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-175
       - name: Setup Node
+        timeout-minutes: 5
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
@@ -2469,6 +2470,8 @@ jobs:
         run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
 
       - name: Look up the cached web bundles
+        timeout-minutes: 5
+        continue-on-error: true
         id: web-bundle-cache
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -2478,6 +2481,8 @@ jobs:
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-176
       - name: Cache the webviews Bun package cache
+        timeout-minutes: 3
+        continue-on-error: true
         if: ${{ (steps.web-bundle-cache.outputs.cache-hit != 'true') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -4254,6 +4259,7 @@ jobs:
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-227
       - name: Setup Node
+        timeout-minutes: 5
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -4267,6 +4273,8 @@ jobs:
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-229
       - name: Restore the web bundles from R2
+        timeout-minutes: 5
+        continue-on-error: true
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         id: web-bundle-r2
         uses: ./.github/actions/cache-restore
@@ -4279,6 +4287,8 @@ jobs:
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
 
       - name: Restore the web bundles built for this source key
+        timeout-minutes: 5
+        continue-on-error: true
         id: web-bundle-cache
         if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true') && steps.reuse.outputs.hit != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -4791,6 +4801,7 @@ jobs:
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-254
       - name: Setup Node
+        timeout-minutes: 5
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
@@ -4802,6 +4813,8 @@ jobs:
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-256
       - name: Restore the web bundles from R2
+        timeout-minutes: 5
+        continue-on-error: true
         id: web-bundle-r2
         uses: ./.github/actions/cache-restore
         env:
@@ -4813,6 +4826,8 @@ jobs:
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
 
       - name: Restore the web bundles built for this source key
+        timeout-minutes: 5
+        continue-on-error: true
         id: web-bundle-cache
         if: steps.web-bundle-r2.outputs.cache-hit != 'true'
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -5283,6 +5298,7 @@ jobs:
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-274
       - name: Setup Node
+        timeout-minutes: 5
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -5296,6 +5312,8 @@ jobs:
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-276
       - name: Restore the web bundles from R2
+        timeout-minutes: 5
+        continue-on-error: true
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         id: web-bundle-r2
         uses: ./.github/actions/cache-restore
@@ -5308,6 +5326,8 @@ jobs:
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
 
       - name: Restore the web bundles built for this source key
+        timeout-minutes: 5
+        continue-on-error: true
         id: web-bundle-cache
         if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true') && steps.reuse.outputs.hit != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -6361,6 +6381,7 @@ jobs:
       # R2 first (feat-cmux-next's bundles, published by the web-bundles job of
       # Why: docs/ci/cmux-next-workflow-notes.md#note-314
       - name: Restore the web bundles from R2
+        timeout-minutes: 5
         id: web-bundle-r2
         if: ${{ steps.web-bundle-key.outputs.key != '' }}
         continue-on-error: true
@@ -6374,6 +6395,7 @@ jobs:
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
 
       - name: Restore the web bundles built for this source key
+        timeout-minutes: 5
         id: web-bundle-cache
         if: ${{ steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-key.outputs.key != '' }}
         continue-on-error: true
@@ -6404,6 +6426,7 @@ jobs:
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-317
       - name: Setup Node
+        timeout-minutes: 5
         if: ${{ ((inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success') && steps.fleet-app.outputs.ok != 'true' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -7018,6 +7041,7 @@ jobs:
         if: steps.dev-product.outputs.hit != 'true'
         run: scripts/cmux-next/private-bun.sh
       - name: Setup Node
+        timeout-minutes: 5
         if: steps.dev-product.outputs.hit != 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
