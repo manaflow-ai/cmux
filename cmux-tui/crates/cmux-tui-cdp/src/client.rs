@@ -26,6 +26,9 @@ use locks::{close_inner, frame_sessions, frame_state_error, pending_calls};
 /// Downstream queue implementations use the same limit so moving an event
 /// between CDP layers cannot expand the maximum pending event count.
 pub const CDP_EVENT_QUEUE_CAPACITY: usize = 64;
+/// Events one ingress queue holds besides its byte bound.
+/// Measured: the bytes are bounded by CDP_EVENT_QUEUE_MAX_BYTES; this bounds the per-event
+/// overhead (a `QueuedEvent` and a `VecDeque` slot) of many tiny events a stalled reader leaves.
 const CDP_INGRESS_EVENT_CAPACITY: usize = 1024;
 // Navigation may invalidate a frame tree while its response is in flight.
 // Bound retries so a continuously navigating page cannot block the caller forever.

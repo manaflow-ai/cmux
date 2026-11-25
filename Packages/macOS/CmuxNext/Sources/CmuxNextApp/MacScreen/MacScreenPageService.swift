@@ -192,7 +192,7 @@ extension AppServices {
     }
 
     func registerMacScreenDebug(on router: ControlRouter?) {
-        macScreenPages.registerControl(on: router) { [weak self] record, key in self?.openDebugMacScreen(record, pane: key, byPerson: false) ?? "no pane" }
+        macScreenPages.registerControl(on: router) { [weak self] record, key in self.map { $0.openDebugMacScreen(record, pane: key, byPerson: false) } ?? "no pane" }
     }
 
     var cmuxRemoteActions: CmuxRemoteActionEnvironment {
@@ -253,7 +253,7 @@ extension AppServices {
     /// `debug.device_hub` (DEV builds).
     func registerDeviceHubDebug(on router: ControlRouter?) {
         macScreenPages.registerDeviceHubDebug(on: router, settings: deviceHub.settingsModel) { [weak self] record, key in
-            self?.openDebugMacScreen(record, pane: key, byPerson: true) ?? "no pane"
+            self.map { $0.openDebugMacScreen(record, pane: key, byPerson: true) } ?? "no pane"
         }
     }
 
