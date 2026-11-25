@@ -185,7 +185,11 @@ pub fn prepare(projected: &Path, local: &Path, url: &str) -> anyhow::Result<Stri
         std::fs::remove_dir_all(local)?;
     }
     let mut init = Command::new("git");
-    init.args(["init", "--bare", "--quiet"]).arg(local);
+    init.args(["init", "--bare", "--quiet"]);
+    if base.len() == 64 {
+        init.arg("--object-format=sha256");
+    }
+    init.arg(local);
     output(init)?;
     for (key, value) in [
         ("core.repositoryformatversion", "1"),
@@ -228,7 +232,11 @@ pub fn prepare_carry(
         std::fs::remove_dir_all(local)?;
     }
     let mut init = Command::new("git");
-    init.args(["init", "--bare", "--quiet"]).arg(local);
+    init.args(["init", "--bare", "--quiet"]);
+    if base.len() == 64 {
+        init.arg("--object-format=sha256");
+    }
+    init.arg(local);
     output(init)?;
     for (key, value) in [
         ("core.repositoryformatversion", "1"),
@@ -240,8 +248,8 @@ pub fn prepare_carry(
         set.args(["config", key, value]);
         output(set)?;
     }
-    index_carry(local, pack)?;
     write_atomic(&local.join("shallow"), format!("{base}\n").as_bytes())?;
+    index_carry(local, pack)?;
     let mut check = git(local);
     check.args(["rev-list", "--objects", "--no-walk", "--missing=print", base]);
     let missing = output(check)?;
@@ -280,10 +288,13 @@ fn index_carry(local: &Path, pack: &Path) -> anyhow::Result<()> {
     index.args(["index-pack", "--strict"]).arg(&incoming);
     let name = String::from_utf8_lossy(&output(index)?).trim().to_owned();
     anyhow::ensure!(valid_object_name(&name), "index-pack answered {name:?}");
-    for extension in ["idx", "pack"] {
+    for extension in ["rev", "idx", "pack"] {
         let from = packs.join(format!("tmp_cmux_carry.{extension}"));
         let to = packs.join(format!("pack-{name}.{extension}"));
-        std::fs::rename(from, to)?;
+        match std::fs::rename(from, to) {
+            Err(error) if extension == "rev" && error.kind() == std::io::ErrorKind::NotFound => {}
+            done => done?,
+        }
     }
     Ok(())
 }
