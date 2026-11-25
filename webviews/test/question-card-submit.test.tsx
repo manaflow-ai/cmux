@@ -339,3 +339,13 @@ test("a single question keeps the compact header without pagination", async () =
   expect(container.querySelector(".acpmux-question-navigation")).toBeNull();
   expect(container.querySelector('.acpmux-question-bar [aria-label="Dismiss"]')).not.toBeNull();
 });
+
+test("the pane's asks stack lets its card's tooltips open above it (#56534)", async () => {
+  // The stack scrolls and is as tall as its card (bottomStack.css), so a tooltip held inside it had
+  // no room above the bar and flipped below, over the question (ui/titleTooltips.ts boundsOf).
+  const app = await Bun.file(new URL("../src/agent-session/acpmux/App.tsx", import.meta.url)).text();
+  const stack = app.match(/<div\s+className="acpmux-permission acpmux-asks-stack"[^>]*>/)?.[0] ?? "";
+  expect(stack).toContain("data-tooltip-escape");
+  const tooltips = await Bun.file(new URL("../src/ui/titleTooltips.ts", import.meta.url)).text();
+  expect(tooltips).toContain('hasAttribute("data-tooltip-escape")');
+});
