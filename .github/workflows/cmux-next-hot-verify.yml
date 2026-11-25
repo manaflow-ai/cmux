@@ -369,12 +369,29 @@ jobs:
           CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
           CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
         run: python3 scripts/ci/ci_pool_tokens.py
+      # The cmux-bot App's installation has an hour of its own (the plan job's dispatch uses it the same way): a
+      # read refused on github.token moves to it at once instead of sleeping (gh_budget_wait.sh GH_TOKEN_SPARE).
+      # Read-only, and only the pull request read below takes it.
+      - name: Mint the pull request read's spare token
+        id: cmux-bot-token
+        if: ${{ vars.CMUX_BOT_APP_ID != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-pull-requests: read
       - name: Wait through GitHub API rate limits in this job's gh calls
         run: bash scripts/ci/gh_budget_wait.sh --install
       - name: Read the pull request
         id: check
         env:
           GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
+          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
+          # The job ends at 5 minutes: a wait for a reset further away than this was killed unfinished, a
+          # 5-minute runner for no look (517 runs on 11-23T18..11-24T18). Only a short backoff fits.
+          GH_BUDGET_WAIT_MAX_SECONDS: 120
           GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
           PR: ${{ inputs.pr }}
           HEAD_SHA: ${{ inputs.head }}
@@ -586,12 +603,26 @@ jobs:
           CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
           CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
         run: python3 scripts/ci/ci_pool_tokens.py
+      # The cmux-bot App's installation has an hour of its own (the plan job's dispatch uses it the same way): a
+      # read refused on github.token moves to it at once instead of sleeping (gh_budget_wait.sh GH_TOKEN_SPARE).
+      # Read-only, and only the pull request read below takes it.
+      - name: Mint the pull request read's spare token
+        id: cmux-bot-token
+        if: ${{ vars.CMUX_BOT_APP_ID != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-pull-requests: read
       - name: Wait through GitHub API rate limits in this job's gh calls
         run: bash scripts/ci/gh_budget_wait.sh --install
       - name: Read the pull request
         id: check
         env:
           GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
+          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
           GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
           PR: ${{ inputs.pr }}
           HEAD_SHA: ${{ inputs.head }}

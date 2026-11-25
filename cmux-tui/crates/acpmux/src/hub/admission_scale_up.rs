@@ -169,6 +169,7 @@ pub(crate) struct ScaleUp {
 }
 
 impl ScaleUp {
+    #[cfg(test)]
     pub(crate) fn new(runner: Runner, cooldown: Duration) -> Self {
         Self { state: Arc::default(), runner, cooldown }
     }
