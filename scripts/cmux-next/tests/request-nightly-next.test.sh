@@ -65,12 +65,13 @@ mkdir -p "$TMP/bin"
 # commit), unless $cdn/unmarked lists the commit or $cdn/NOAUTO exists (the writer's own test).
 cat > "$TMP/bin/curl" <<STUB
 #!/usr/bin/env bash
-raw="\$*"; out="" url="" fmt="" fail_http=0
+raw="\$*"; out="" url="" fmt="" ua="" fail_http=0
 while [[ \$# -gt 0 ]]; do
   case "\$1" in
     -o) out="\$2"; shift 2 ;;
     -w) fmt="\$2"; shift 2 ;;
-    --proto|--retry|--retry-delay|--connect-timeout|--max-time|-A) shift 2 ;;
+    -A|--user-agent) ua="\$2"; shift 2 ;;
+    --proto|--retry|--retry-delay|--connect-timeout|--max-time) shift 2 ;;
     --fail|--fail-with-body|-f*) fail_http=1; shift ;;
     -*) shift ;;
     *) url="\$1"; shift ;;
@@ -81,11 +82,14 @@ done
 if [[ "\$url" == https://gh-events.cmux.com/compile-checks/v1/* ]]; then
   echo "\$url" >> "$TMP/precheck.log"
   printf '%s\n' "\$raw" >> "$TMP/precheck-args.log"
+  printf '%s\n' "\$ua" >> "$TMP/precheck-user-agents.log"
+  [[ "\$ua" == cmux-ci-fleet-compile-result/1 ]] || { printf 403; exit 0; }
   c="\${url#https://gh-events.cmux.com/compile-checks/v1/}"; c="\${c%%\?*}"
   st=pass; [[ ! -f "$TMP/precheck/\$c" ]] || st="\$(cat "$TMP/precheck/\$c")"
   case "\$st" in
     down) printf 000; exit 7 ;;
     404) printf 404; exit 0 ;;
+    429|503) printf "\$st"; exit 0 ;;
   esac
   printf '{"sha": "%s", "repo": "o/r", "recipe_version": 2, "configuration": "release-onone", "state": "%s"}\n' "\$c" "\$st" > "\${out:-/dev/stdout}"
   printf 200; exit 0
@@ -227,7 +231,7 @@ request --sha "$head" --release-compile-green
 # The nightly-next precheck reads the build fleet's existing Release verdict before
 # doing the strings and promotion work. Its result-service request carries an
 # explicit user agent so the service can attribute and rate-limit this read.
-grep -q -- '-A cmux-nightly-precheck/1' "$TMP/precheck-args.log" \
+grep -q '^cmux-ci-fleet-compile-result/1$' "$TMP/precheck-user-agents.log" \
   || fail "the precheck result read must identify its caller:" "$(cat "$TMP/precheck-args.log")"
 precheck_commit() { # <ignored marker> <name> -> app-identical commit sha
   git_q -C "$src" commit --allow-empty -m "$2"
@@ -257,6 +261,19 @@ request --sha "$pending" --release-compile-green
 [[ "$status" == 0 ]] && ! dispatched "$pending" \
   || fail "a pending Release verdict must defer promotion (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 grep -q "not prechecked yet" <<<"$out" || fail "the pending precheck refusal must be reported:" "$out"
+
+# HTTP 429 and 503 mean the results service is busy. They defer this candidate
+# just like a queued verdict, instead of being treated as an outage.
+git_q -C "$src" checkout -q --detach "$precheck_green"
+busy=$(precheck_commit busy "precheck busy")
+for code in 429 503; do
+  echo "$code" > "$TMP/precheck/$busy"
+  RUN_ID="busy-$code" request --sha "$busy" --release-compile-green
+  [[ "$status" == 0 ]] && ! dispatched "$busy" \
+    || fail "HTTP $code must defer promotion (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+  grep -q "not prechecked yet" <<<"$out" \
+    || fail "HTTP $code must be reported as pending:" "$out"
+done
 
 # A missing verdict can reuse the nearest first-parent ancestor when the app
 # inputs are unchanged. The candidate itself has no result, but its ancestor's
