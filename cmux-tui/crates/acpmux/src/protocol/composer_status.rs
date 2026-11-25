@@ -18,8 +18,9 @@ use serde_json::Value;
 use super::peer_state::{MachineLink, OfflineAction, OfflineReason};
 use crate::session_liveness::StuckReason;
 
-/// How long a transient link state (connecting, reconnecting, degraded, restarting) stays off
-/// the dot: a blip that heals inside it is never shown.
+/// How long a transient link state stayed off the dot before it went off it for good: a link
+/// that heals on its own now says nothing at any age (Leo, 2026-11-24: "let's just keep
+/// optimistically connecting"). Kept for the webview's mirror (`CONNECTION_QUIET_MS`).
 pub const LINK_QUIET_MS: u64 = 10_000;
 
 /// How much an item matters; ordered, `problem` worst.
@@ -354,7 +355,11 @@ impl<'a> SessionFacts<'a> {
 
 /// The machine-link item for peer `peer`'s link in `link` since `since`, with the reason it
 /// will not heal on its own (`reason`); `removed` when the peer was removed. None while the
-/// link is up (connected) or paused on purpose.
+/// link is up (connected), paused on purpose, or on its way back on its own (connecting,
+/// reconnecting, degraded, restarting): reconnects are silent (Leo, 2026-11-24: "let's just keep
+/// optimistically connecting and reinforcing the connection and sync-ups can be satisfying
+/// instead of making the user think they're constsntly suspended in a state of connection
+/// limbo"). Offline past its bound, a refused sign-in and an update still say so.
 pub fn machine_link_item(
     peer: &str,
     link: MachineLink,
@@ -364,31 +369,25 @@ pub fn machine_link_item(
 ) -> Option<StatusItem> {
     use MachineLink::*;
     let kind = StatusKind::MachineLink;
-    let (level, words, action, quiet) = match link {
+    let (level, words, action) = match link {
         Connected | Paused => return None,
-        _ if removed => (StatusLevel::Attention, "removed".to_owned(), None, false),
-        Connecting => (StatusLevel::Info, "connecting".to_owned(), None, true),
-        Reconnecting => (StatusLevel::Info, "reconnecting".to_owned(), None, true),
-        Degraded => (StatusLevel::Info, "degraded".to_owned(), None, true),
-        Restarting => (StatusLevel::Info, "restarting".to_owned(), None, true),
+        _ if removed => (StatusLevel::Attention, "removed".to_owned(), None),
+        Connecting | Reconnecting | Degraded | Restarting => return None,
         Offline => {
             let words = match reason {
                 Some(reason) => format!("offline.{}", offline_reason_word(reason)),
                 None => "offline".to_owned(),
             };
-            (StatusLevel::Attention, words, offline_action(reason), false)
+            (StatusLevel::Attention, words, offline_action(reason))
         }
-        AuthFailed => {
-            (StatusLevel::Problem, "authFailed".to_owned(), Some(StatusAction::SignIn), false)
-        }
+        AuthFailed => (StatusLevel::Problem, "authFailed".to_owned(), Some(StatusAction::SignIn)),
         UpdateRequired => {
-            (StatusLevel::Problem, "updateRequired".to_owned(), Some(StatusAction::Update), false)
+            (StatusLevel::Problem, "updateRequired".to_owned(), Some(StatusAction::Update))
         }
     };
     let mut item = StatusItem::new(kind, level, format!("{}.{words}", kind.words_prefix()));
     item.subject = Some(peer.to_owned());
     item.since = since;
-    item.show_at = if quiet { since.map(|s| s.saturating_add(LINK_QUIET_MS)) } else { None };
     item.action = action;
     Some(item)
 }

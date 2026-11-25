@@ -493,12 +493,13 @@ import Testing
         }
     }
 
-    /// A current Mac (new phone, new Mac): the reattach's newest page says it reaches the end
-    /// (`pageThrough` = `lastSeq`), so no `_acpmux/events` read follows it, and the attach went
+    /// A narrow hole (a wide one opens fresh, with no gap to read), its gap pages failing so the
+    /// gap stays open. A current Mac (new phone, new Mac): the reattach's newest page says it
+    /// reaches the end (`pageThrough` = `lastSeq`), so no `_acpmux/events` read follows it, and the attach went
     /// out with `initialize` and the watch, read from that write. The chat shows the same turns
     /// as against an older Mac.
     @Test func aCurrentMacNeedsNoReadAfterTheNewestPageAndTheAttachRidesWithInitialize() async throws {
-        let last = Chat.turns + 299
+        let last = Self.narrowMissed
         let fake = Fake(turns: 0..<(last + 1), visibleThrough: Chat.turns * 5, current: true)
         fake.failGapPages(true)
         let (hub, source, store, link) = try await Self.reconnect(fake, missedThrough: last)
@@ -519,7 +520,7 @@ import Testing
     /// An older Mac (new phone, old Mac): no `pageThrough` in its reply, so the read after the
     /// newest page still goes, and no attach rides with `initialize` (it names no kinds).
     @Test func anOlderMacStillGetsTheReadAfterTheNewestPage() async throws {
-        let last = Chat.turns + 299
+        let last = Self.narrowMissed
         let fake = Fake(turns: 0..<(last + 1), visibleThrough: Chat.turns * 5)
         fake.failGapPages(true)
         let (hub, _, store, link) = try await Self.reconnect(fake, missedThrough: last)
@@ -528,6 +529,50 @@ import Testing
 
         #expect(fake.eventsCallCount == fake.gapPageCount + 1)
         #expect(hub.pipelinedAttachesRead == 0)
+    }
+
+    /// The first connection since launch with the chat already open (a cold launch back into
+    /// it): its attach goes right behind `initialize` and the watch with every kind the phone
+    /// draws, and a current Mac's reply is read from that write: one round trip to the page.
+    @Test func aFirstConnectionWithTheChatOpenSendsItsAttachWithInitialize() async throws {
+        let fake = Fake(turns: 0..<Chat.turns, visibleThrough: Chat.turns * 5, current: true)
+        let link = fake.link()
+        let hub = AcpmuxHub()
+        let source = hub.source(sessionID: "s1", summary: Chat.summary)
+        let store = AgentChatStore(source: source)
+        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+        defer { withExtendedLifetime((hub, link)) {} }
+        await Self.waitUntil { store.turns.count == Chat.turns }
+
+        #expect(store.turns.map(\.id) == Self.ids(0..<Chat.turns))
+        #expect(Array(fake.methods.prefix(3)) == ["initialize", "_acpmux/watch", "_acpmux/attach"])
+        #expect(fake.methods.filter { $0 == "_acpmux/attach" }.count == 1)
+        #expect(hub.pipelinedAttachesRead == 1)
+    }
+
+    /// The same cold launch against an older Mac (its `initialize` names no capabilities): the
+    /// written attach asked for kinds it does not serve, so it is asked again with the kinds it
+    /// does, and the chat shows the same turns. Its next connection writes no attach early.
+    @Test func aFirstConnectionToAnOlderMacAsksTheAttachAgain() async throws {
+        let fake = Fake(turns: 0..<Chat.turns, visibleThrough: Chat.turns * 5)
+        let link = fake.link()
+        let hub = AcpmuxHub()
+        let source = hub.source(sessionID: "s1", summary: Chat.summary)
+        let store = AgentChatStore(source: source)
+        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+        defer { withExtendedLifetime((hub, link)) {} }
+        await Self.waitUntil { store.turns.count == Chat.turns }
+
+        #expect(store.turns.map(\.id) == Self.ids(0..<Chat.turns))
+        #expect(fake.methods.filter { $0 == "_acpmux/attach" }.count == 2)
+        #expect(hub.pipelinedAttachesRead == 0)
+
+        await hub.bind(nil)
+        fake.resetCounts()
+        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+        await Self.waitUntil { fake.methods.contains("_acpmux/attach") }
+        #expect(Array(fake.methods.prefix(2)) == ["initialize", "_acpmux/watch"])
+        #expect(fake.methods.filter { $0 == "_acpmux/attach" }.count == 1)
     }
 
     /// `pageReachesEnd` reads only a reply that says so.
