@@ -87,6 +87,8 @@ pub struct Catalog {
     pub threads: Vec<T3Thread>,
     /// Tables present that are never read (auth, peers), for the plan's "not carried" list.
     pub skipped_tables: Vec<String>,
+    /// Tables cut at `MAX_ROWS`: the plan says so instead of moving part of them silently.
+    pub truncated: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -139,6 +141,7 @@ fn rows(
     conn: &Connection,
     table: &str,
     wanted: &[&str],
+    truncated: &mut Vec<String>,
 ) -> Result<Vec<BTreeMap<String, Option<String>>>, ReadError> {
     let have = columns(conn, table)?;
     let present: Vec<&str> =
@@ -147,11 +150,12 @@ fn rows(
         return Ok(Vec::new());
     }
     let sql = format!(
-        "SELECT {} FROM \"{table}\" LIMIT {MAX_ROWS}",
-        present.iter().map(|c| format!("\"{c}\"")).collect::<Vec<_>>().join(", ")
+        "SELECT {} FROM \"{table}\" LIMIT {}",
+        present.iter().map(|c| format!("\"{c}\"")).collect::<Vec<_>>().join(", "),
+        MAX_ROWS + 1
     );
     let mut stmt = conn.prepare(&sql).map_err(|e| ReadError::Schema(e.to_string()))?;
-    let out = stmt
+    let mut out: Vec<_> = stmt
         .query_map([], |r| {
             let mut row = BTreeMap::new();
             for (i, name) in present.iter().enumerate() {
@@ -171,6 +175,10 @@ fn rows(
         .map_err(|e| ReadError::Schema(e.to_string()))?
         .filter_map(Result::ok)
         .collect();
+    if out.len() > MAX_ROWS {
+        out.truncate(MAX_ROWS);
+        truncated.push(table.to_owned());
+    }
     Ok(out)
 }
 
@@ -228,6 +236,7 @@ pub fn read(database: &Path) -> Result<Catalog, ReadError> {
         &conn,
         "projection_projects",
         &["project_id", "title", "workspace_root", "scripts_json", "archived_at", "deleted_at"],
+        &mut catalog.truncated,
     )? {
         let (Some(id), Some(root)) = (get(&row, "project_id"), get(&row, "workspace_root")) else {
             continue;
@@ -257,6 +266,7 @@ pub fn read(database: &Path) -> Result<Catalog, ReadError> {
             &conn,
             "orchestration_v2_projection_provider_threads",
             &["provider_thread_id", "thread_id", "payload_json"],
+            &mut catalog.truncated,
         )? {
             let payload = json(get(&row, "payload_json"));
             let driver = json_str(&payload, &["nativeThreadRef", "driver"])
@@ -301,6 +311,7 @@ pub fn read(database: &Path) -> Result<Catalog, ReadError> {
                 "deleted_at",
                 "payload_json",
             ],
+            &mut catalog.truncated,
         )? {
             let Some(id) = get(&row, "thread_id") else { continue };
             let payload = json(get(&row, "payload_json"));
@@ -339,6 +350,7 @@ pub fn read(database: &Path) -> Result<Catalog, ReadError> {
                 "archived_at",
                 "deleted_at",
             ],
+            &mut catalog.truncated,
         )? {
             let Some(id) = get(&row, "thread_id") else { continue };
             if !seen.insert(id.to_owned()) {
@@ -421,6 +433,11 @@ pub fn plan(home: &Path, t3_home: &Path, catalog: &Catalog, git: &dyn GitFacts) 
         catalog.projects.iter().map(|p| (p.id.as_str(), p.title.as_str())).collect();
     let mut keys = BTreeSet::new();
     let mut names = BTreeSet::new();
+    for table in &catalog.truncated {
+        plan.warnings.push(format!(
+            "T3 table {table} has more than {MAX_ROWS} rows: only the first {MAX_ROWS} are in this plan"
+        ));
+    }
     let mut push = |plan: &mut Plan, mut project: Project| {
         if !keys.insert(project.key.clone()) {
             plan.warnings
@@ -476,11 +493,12 @@ pub fn plan(home: &Path, t3_home: &Path, catalog: &Catalog, git: &dyn GitFacts) 
         if t.native.is_some() && chat.is_none() {
             unlinked += 1;
         }
-        let Some(worktree) = t.worktree.as_deref().filter(|w| w.is_dir()) else {
+        let root = catalog.projects.iter().find(|p| p.id == t.project_id).map(|p| p.root.as_path());
+        let Some(worktree) = t.worktree.as_deref().filter(|w| w.is_dir() && Some(*w) != root)
+        else {
             // Ran in the project folder (or its worktree is gone): its transcript joins that
             // project.
             if let Some(chat) = chat {
-                let root = catalog.projects.iter().find(|p| p.id == t.project_id).map(|p| &p.root);
                 let key = root.map(|r| laptop::tilde(home, r));
                 if let Some(project) =
                     plan.projects.iter_mut().find(|p| Some(&p.key) == key.as_ref())
