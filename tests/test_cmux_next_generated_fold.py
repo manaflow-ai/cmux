@@ -3,13 +3,15 @@
 swift-test, daemon-test and generated-files each ran their own `swift build --build-tests` of
 Packages/macOS/CmuxNext on a separate Mac (HQ#4724; 265-579 s of Mac time each, plus each job's
 setup). Path routing now names one job that checks the generated files (path_route's
-generated_host): daemon-test on a push it runs on, swift-test where it runs and builds, daemon-test
-on a pull request it runs on, and only otherwise the generated-files job's own build. The folded
+generated_host): the Linux generated-files job by default (Leo, 2026-11-25); with
+vars.CI_GENERATED_FILES_LINUX=0, swift-test where it runs and builds, else daemon-test where it runs, and only
+otherwise the generated-files job's own build. The folded
 verdict is its own check (generated-verdict), never the host's result."""
 
 from __future__ import annotations
 
 import itertools
+import json
 import math
 import os
 import re
@@ -121,6 +123,12 @@ class Expr:
             self.i += 1
             if tok == "cancelled":
                 return bool(self.ctx.get("cancelled"))
+            if tok == "fromJSON":
+                return json.loads(args[0])
+            if tok == "startsWith":
+                return str(args[0] or "").lower().startswith(str(args[1] or "").lower())
+            if tok == "format":
+                return args[0].format(*("" if a is None else a for a in args[1:]))
             if tok == "contains":
                 hay, needle = args
                 return needle in hay if isinstance(hay, (list, str)) else False
@@ -172,9 +180,10 @@ REPO = "manaflow-ai/cmux"
 NEXT = "refs/heads/feat-cmux-next"
 
 
-def route_ctx(event, ref, generated, swift, targets, daemon, tree, marker, labels=()):
-    """path_route's own expression context: its route step, the tree probes and the marker upload."""
-    return {"github": {"event_name": event, "ref": ref,
+def route_ctx(event, ref, generated, swift, targets, daemon, tree, marker, labels=(), linux="0"):
+    """path_route's own expression context: its route step, the tree probes and the marker upload.
+    linux is vars.CI_GENERATED_FILES_LINUX: "0" is the Mac fallback mode the fold cases below cover."""
+    return {"vars": {"CI_GENERATED_FILES_LINUX": linux}, "github": {"event_name": event, "ref": ref,
                        "event": {"pull_request": {"base": {"ref": "feat-cmux-next"}, "labels": [{"name": label} for label in labels]}}},
             "steps": {"route": {"outputs": {"generated": generated, "swift": swift, "swift_targets": targets,
                                             "daemon": daemon}},
@@ -318,6 +327,18 @@ class GeneratedFoldTest(unittest.TestCase):
         # A dispatch builds in swift-test, else in daemon-test.
         self.assertEqual(self.host("workflow_dispatch", NEXT, "true", "true", "all", "true", "ready", ""), "swift-test")
         self.assertEqual(self.host("workflow_dispatch", NEXT, "true", "false", "", "true", "ready", ""), "daemon-test")
+
+    def test_the_linux_job_checks_every_routed_run_unless_turned_off(self):
+        """Leo 2026-11-25: generated files run on Linux by default; daemon-test and swift-test fold them only with
+        vars.CI_GENERATED_FILES_LINUX=0 (the Mac fallback)."""
+        events = [("push", NEXT), ("push", "refs/heads/main"),
+                  ("pull_request", "refs/pull/1/merge"), ("workflow_dispatch", NEXT)]
+        for (event, ref), swift, targets, daemon, tree, labels, linux in itertools.product(
+                events, ("true", "false"), ("all", ""), ("true", "false"), ("ready", "deferred", ""),
+                ((), ("full-ci",)), (None, "", "1")):
+            with self.subTest(event=event, swift=swift, targets=targets, daemon=daemon, tree=tree, labels=labels, linux=linux):
+                self.assertEqual(self.host(event, ref, "true", swift, targets, daemon, tree, "", labels, linux), "generated-files")
+                self.assertEqual(self.host(event, ref, "false", swift, targets, daemon, tree, "", labels, linux), "none")
 
     def test_the_evaluator_follows_github_semantics(self):
         ctx = {"inputs": {}, "a": {"b": [{"n": "x"}, {"n": "y"}]}}
