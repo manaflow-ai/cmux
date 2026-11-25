@@ -5770,7 +5770,14 @@ function TranscriptView({
     const node = ref.current;
     const room = layout.origin ?? 0;
     const first = rows[0];
-    if (!node || !first || !canLoadOlder || room <= 0.5 || !didOpenAtLatest.current || node.clientHeight === 0) return;
+    if (!node || !first || !canLoadOlder || room <= 0.5 || !didOpenAtLatest.current) return;
+    // Rows that fill the view keep the room, read from the placed layout first: the thread is drawn
+    // that tall (its `height` below), so the scroller is at least as tall. This runs after every
+    // commit, a streamed chunk's too; read from the scroller, it laid a long chat's page out again in
+    // each one (chat-100k-flat's long_x1 streaming profile: 386 ms of 10 s here, none in an empty
+    // chat). Only a short tail reads the scroller below.
+    if (height > 0 && measured.layout.totalHeight - room >= height * OLDER_KEEP_ROOM_VIEWPORTS) return;
+    if (node.clientHeight === 0) return;
     if (userScrollIntent(node).isScrollbarDragging()) return;
     if (node.scrollHeight - room >= node.clientHeight * OLDER_KEEP_ROOM_VIEWPORTS) return;
     if (layoutScrollTop(node) - room >= node.clientHeight * OLDER_LATE_VIEWPORTS) return;
