@@ -1525,6 +1525,10 @@ export function drawPaneBody({
                 <ComputerUsePreviewCard
                   preview={previewShown ? computerUsePreview : null}
                   onClose={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "close" }))}
+                  onMove={(_session, move) =>
+                    ignoreFailure(callNative("chat.computerUsePreview", { action: "place", ...move }))
+                  }
+                  onShow={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "show" }))}
                 />
                 {environmentCardNode}
                 {underHeader.watching &&

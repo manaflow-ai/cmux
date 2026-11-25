@@ -215,6 +215,8 @@ import { useToolCards } from "./toolCards/toolCardStore";
 import {
   COMPUTER_USE_PREVIEW_RESERVE,
   useComputerUsePreview,
+  computerUsePreviewDocked,
+  useComputerUsePreviewControls,
   useComputerUsePreviewRoom,
 } from "./computerUse/computerUsePreview";
 import {
@@ -4026,6 +4028,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           `${sessionId}\u0000${turnId}`,
           () => directClient.current?.turnFrames(turnId) ?? Promise.resolve([]),
         );
+      },
+      full: async (rowId, index) => {
+        const turnId = turnOf(rowId);
+        if (!turnId) return undefined;
+        return directClient.current?.turnFrameFull(turnId, index).catch(() => undefined);
       },
     };
   }, [turnFramesCache, latestSummary, snapshot.sessionId]);
@@ -9243,7 +9250,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const previewRoom = useComputerUsePreviewRoom();
   const previewShown = computerUsePreview !== null && previewRoom && !quick && !inspectorOpen;
   const sessionInfoPushes = useChatDisplay().sessionInfo === "push";
-  const previewBeside = previewShown && !(sessionInfo.shown && sessionInfoPushes);
+  const previewMovable = useComputerUsePreviewControls();
+  // Moved, larger or hidden, the card no longer sits beside the column: the column takes its room back.
+  const previewBeside =
+    previewShown &&
+    computerUsePreview !== null &&
+    computerUsePreviewDocked(computerUsePreview, previewMovable) &&
+    !(sessionInfo.shown && sessionInfoPushes);
   // The Environment card and the changes pill (session-info/EnvironmentCard.tsx), off by default: a
   // look turns them on. The card takes the chat's top right only when the gutter beside the column
   // holds it, and gives the place to Session Info and the computer use preview, which sit there too.
@@ -9436,6 +9449,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                               true,
                                                                             ) ?? Promise.resolve()
                                                                         : undefined
+                                                                  }
+                                                                  onLoadFold={
+                                                                    !childRows
+                                                                      ? (fold: number) =>
+                                                                          directClient.current?.loadFold(fold) ??
+                                                                          Promise.resolve()
+                                                                      : undefined
                                                                   }
                                                                   canLoadNewer={
                                                                     !workflowTranscript.rows &&
