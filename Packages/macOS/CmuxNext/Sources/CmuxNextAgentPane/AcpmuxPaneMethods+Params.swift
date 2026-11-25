@@ -122,6 +122,8 @@ nonisolated extension AcpmuxPaneMethods {
         // Only the live-tree read: `waitLogs: false` answers from the session list at once.
         "_acpmux/info": (["sessionId", "waitLogs", "includeLiveTree"], []),
         "_acpmux/status": ([], []),
+        // This Mac's load and swap verdict (OverloadNotice.tsx): no params.
+        "_acpmux/host_overload": ([], []),
         "_acpmux/peers": ([], []),
         // Which of the page's requests the daemon still runs (AcpmuxRequestIds.requestStateMethod).
         "_acpmux/request_state": ([], []),

@@ -45,6 +45,10 @@ nonisolated enum AcpmuxPaneMethods {
         // the child chat, which the click's scope credit brings in (``sourceScoped``). Only `sessionId` and `subagentId` (``knownParams``): never `_meta`,
         // which carries acpmux's control and trust-gate marks.
         "_acpmux/retry",
+        // This Mac's load and swap verdict for the composer's overload warning (direct.ts
+        // hostOverload, OverloadNotice.tsx; acpmux host_overload.rs): numbers only, no path or chat.
+        // Left off this list, the app refused every read and the warning never showed.
+        "_acpmux/host_overload",
         "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond", "_acpmux/perf",
         // The model picker's catalog (direct.ts modelCatalog, App.tsx `models.catalog`): acpmux's
         // public model list, and its Refresh, which fetches the same feeds acpmux reads on its own.
