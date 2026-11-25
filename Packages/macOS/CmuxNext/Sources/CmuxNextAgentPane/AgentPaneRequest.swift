@@ -436,8 +436,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// (AgentPaneCapture.swift).
     case composerCapture(mode: String?)
     /// `transport.open`: open the host's acpmux socket named by the last handshake
-    /// (``AgentPaneTransport``); answers `{connection}` once it is open.
-    case transportOpen
+    /// (``AgentPaneTransport``); answers `{connection}` once it is open. `{initialize}`: the page's
+    /// `initialize` params, sent at once as the host's early initialize (its frame here), so the
+    /// handshake runs while the page's bundle loads (``AcpmuxRequestIds/earlyInitializePageID``).
+    case transportOpen(earlyInitialize: String?)
     /// `transport.send` with `{connection, frames}`: page frames for the host's socket, checked
     /// against ``AcpmuxPaneMethods``.
     case transportSend(connection: Int, frames: [String])
@@ -492,6 +494,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
 
     /// Most frames in one `transport.send` (the page sends what one task wrote).
     public static let maximumSendFrames = 4096
+    /// The largest early `initialize` frame `transport.open` sends (the page's is about 200 bytes).
+    public static let maximumEarlyInitializeBytes = 8192
 
     /// A shell mode request: a command can carry secrets and `shell.read` polls, so never logged.
     public var isShell: Bool {

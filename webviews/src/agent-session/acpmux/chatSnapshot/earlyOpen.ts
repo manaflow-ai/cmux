@@ -5,7 +5,9 @@
 // coming back"). The bundle takes each answer once (native.ts `postNative` takes the `ready`,
 // bridgeSocket.ts the open), only within `EARLY_OPEN_FRESH_MS` of the ask; past that, or for any
 // other ask, it asks the host itself as before. An open nobody took is closed. Shared by the boot
-// script and the bundle, so it imports nothing.
+// script and the bundle, so it imports nothing but the initialize params (which import nothing).
+
+import { initializeParams } from "../initializeParams";
 
 /// The global the boot script sets: the early asks and whether the bundle took them.
 export const EARLY_OPEN_GLOBAL = "__cmuxEarlyOpen";
@@ -78,7 +80,10 @@ export function askEarlyOpen(now: () => number = () => performance.now()): void 
   void early.ready.then((reply) => {
     const transport = reply.ok ? (reply.value as { transport?: unknown } | null)?.transport : undefined;
     if (transport !== "acpmux-bridge") return;
-    const open = call("transport.open", {}, EARLY_CALL_ID + 1).then(
+    // The page's initialize params: the host sends the initialize at once and keeps its answer
+    // for the bundle's own (AcpmuxRequestIds.swift `adoptEarlyInitialize`), one round trip fewer
+    // after the bundle loads.
+    const open = call("transport.open", { initialize: initializeParams() }, EARLY_CALL_ID + 1).then(
       (answer) => {
         const connection = answer.ok ? (answer.value as { connection?: unknown } | null)?.connection : undefined;
         return typeof connection === "number" ? connection : undefined;

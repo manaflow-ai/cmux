@@ -303,7 +303,10 @@ import CmuxNextCompat
     var queuedFrames: Int { socket?.queuedFrames ?? 0 }
 
     /// Opens a new socket (closing the current one) and returns its id once it is open.
-    public func open(_ connection: AcpmuxConnection) async throws(AgentPaneTransportError) -> Int {
+    /// `earlyInitialize`: the page's `initialize` frame (``AcpmuxRequestIds/earlyInitializePageID``),
+    /// sent as the connection's first frame right away, while the page's bundle still loads; the
+    /// page's own `initialize` with the same params then takes its answer instead of a round trip.
+    public func open(_ connection: AcpmuxConnection, earlyInitialize: String? = nil) async throws(AgentPaneTransportError) -> Int {
         close(connection: current)
         pacer.reset()
         questionKeyCredit = nil
@@ -392,6 +395,12 @@ import CmuxNextCompat
         guard self.socket === socket, id == current else { throw .staleConnection }
         modeFields = answer?.modeFields
         AgentPaneLaunchTimings.shared.mark("agent_pane.transport_open")
+        if let earlyInitialize {
+            // First in the send line, so the usual first-frame rules apply to it (the LocalApp
+            // token, the person proof right after); the page cannot send before this returns.
+            ids.expectEarlyInitialize(earlyInitialize)
+            submit(connection: id, frames: [earlyInitialize]) { _ in }
+        }
         Self.logger.info("agent pane transport open connection=\(id, privacy: .public) localApp=\(self.localAppToken != nil, privacy: .public)")
         return id
     }

@@ -40,6 +40,89 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         /// Each `_acpmux/request_state` question on the wire: the relay ids written before it,
         /// which the daemon read before the question (``snapshotWritten(for:)``).
         var stateQueries: [Int: [Int]] = [:]
+        /// The host's own `initialize`, sent as the page's bundle loads (``earlyInitializePageID``).
+        var early: Early = .none
+        /// The early frame the host is about to send (``expectEarlyInitialize(_:)``).
+        var earlyFrame: String?
+    }
+
+    /// Where the host's early `initialize` is: sent and unanswered (its relay id), answered (the
+    /// page's reply text, under ``earlyInitializePageID``), or taken by the page's own initialize.
+    private nonisolated enum Early {
+        case none
+        case waiting(relayID: Int, frame: String)
+        case answered(String, frame: String)
+        case taken
+    }
+
+    /// The page id of the `initialize` the host sends itself right after `transport.open`
+    /// (``AgentPaneTransport/open(_:earlyInitialize:)``), while the page's bundle still loads: its
+    /// answer is kept, and the page's own `initialize` with the same params takes it in place of a
+    /// second round trip (Leo, 2026-11-22: "get that gui agent chat sped up to be nearly as fast as
+    /// the terminal coming back"). The page never uses a string id (direct.ts counts them up).
+    static let earlyInitializePageID = #""cmux-early-initialize""#
+
+    /// What the page's own `initialize` gets from the host's early one (``adoptEarlyInitialize(_:)``).
+    nonisolated enum Adoption: Equatable {
+        /// No early initialize, or its params differ: the page's frame goes to the daemon.
+        case none
+        /// The early answer, with the page's id: straight to the page.
+        case answered(String)
+        /// Still on the wire: its reply now goes to the page's id.
+        case waiting
+    }
+
+    /// The early `initialize` frame (``earlyInitializePageID``) for the page's `initialize` params;
+    /// nil when they do not encode.
+    static func earlyInitializeFrame(params: [String: Any]) -> String? {
+        encode(["jsonrpc": "2.0", "id": "cmux-early-initialize", "method": AcpmuxPaneMethods.initialize, "params": params])
+    }
+
+    /// Whether an early initialize waits for the page to take it (a cheap check before any parse).
+    var earlyInitializeOutstanding: Bool {
+        state.withLock { state in
+            switch state.early {
+            case .waiting, .answered: true
+            case .none, .taken: false
+            }
+        }
+    }
+
+    /// The page's frame `text`, when it is an `initialize` with the early one's params, takes the
+    /// early one's answer: already here (with the page's id), or on its way to the page's id. Any
+    /// other frame, or other params, is sent as it is.
+    func adoptEarlyInitialize(_ text: String) -> Adoption {
+        guard earlyInitializeOutstanding,
+              let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+              object["method"] as? String == AcpmuxPaneMethods.initialize,
+              let rawID = object["id"].flatMap(AcpmuxPaneMethods.rawID), rawID != Self.earlyInitializePageID,
+              let pageID = Self.value(rawID) else { return .none }
+        let params = object["params"] as? [String: Any] ?? [:]
+        func sameParams(_ frame: String) -> Bool {
+            guard let early = (try? JSONSerialization.jsonObject(with: Data(frame.utf8))) as? [String: Any] else { return false }
+            return NSDictionary(dictionary: early["params"] as? [String: Any] ?? [:]).isEqual(to: params)
+        }
+        return state.withLock { state -> Adoption in
+            switch state.early {
+            case .none, .taken:
+                return .none
+            case .waiting(let relayID, let frame):
+                guard sameParams(frame), var entry = state.entries[relayID], !state.inFlight.contains(rawID) else { return .none }
+                state.inFlight.remove(entry.pageID)
+                state.inFlight.insert(rawID)
+                entry.pageID = rawID
+                state.entries[relayID] = entry
+                state.early = .taken
+                return .waiting
+            case .answered(let reply, let frame):
+                guard sameParams(frame),
+                      var answer = (try? JSONSerialization.jsonObject(with: Data(reply.utf8))) as? [String: Any] else { return .none }
+                answer["id"] = pageID
+                guard let text = Self.encode(answer) else { return .none }
+                state.early = .taken
+                return .answered(text)
+            }
+        }
     }
 
     /// The page asks which of its requests the daemon still runs (acpmux `server/in_flight.rs`
@@ -120,13 +203,24 @@ nonisolated final class AcpmuxRequestIds: Sendable {
             state.next += 1
             state.inFlight.insert(pageID)
             state.entries[id] = Entry(pageID: pageID, method: method, subject: subject)
+            if pageID == Self.earlyInitializePageID, let frame = state.earlyFrame {
+                state.earlyFrame = nil
+                state.early = .waiting(relayID: id, frame: frame)
+            }
             return id
         }
+    }
+
+    /// The host is about to send its early `initialize` `frame` (``earlyInitializePageID``): its
+    /// relay id (``begin(pageID:method:subject:)``) is the one whose answer is kept.
+    func expectEarlyInitialize(_ frame: String) {
+        state.withLock { $0.earlyFrame = frame }
     }
 
     /// The request was not sent after all.
     func cancel(_ id: Int) {
         state.withLock { state in
+            if case .waiting(let relayID, _) = state.early, relayID == id { state.early = .none }
             if let entry = state.entries.removeValue(forKey: id) { state.inFlight.remove(entry.pageID) }
             state.answered[id] = nil
             state.replies[id] = nil
@@ -197,6 +291,9 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         case drop
         /// A duplicate key: two parsers could read the frame differently, so the socket closes.
         case close
+        /// The answer to the host's early `initialize` (``earlyInitializePageID``): its observers
+        /// read it now, and it is kept for the page's own `initialize` (``adoptEarlyInitialize(_:)``).
+        case early(object: [String: Any])
     }
 
     /// One daemon frame (ad349, round 8): the duplicate-key check, then one parse only when a
@@ -297,10 +394,21 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         if entry.method == AgentPaneAgentReply.method {
             return .complete(object: object, pageID: entry.pageID, subject: entry.subject)
         }
+        let fresh: String
         if let shape = AcpmuxPaneMethods.replyShapes[entry.method] {
-            return .page(AcpmuxPaneMethods.filteredReply(object, shape: shape, pageID: entry.pageID), object: object, replyTo: entry.method)
+            fresh = AcpmuxPaneMethods.filteredReply(object, shape: shape, pageID: entry.pageID)
+        } else {
+            guard let text = text ?? Self.encode(object) else { return .drop }
+            fresh = text
         }
-        guard let fresh = text ?? Self.encode(object) else { return .drop }
+        if entry.pageID == Self.earlyInitializePageID {
+            let kept = state.withLock { state -> Bool in
+                guard case .waiting(_, let frame) = state.early else { return false }
+                state.early = .answered(fresh, frame: frame)
+                return true
+            }
+            if kept { return .early(object: object) }
+        }
         return .page(fresh, object: object, replyTo: entry.method)
     }
 
