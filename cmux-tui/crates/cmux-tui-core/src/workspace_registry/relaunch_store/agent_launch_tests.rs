@@ -276,6 +276,24 @@ fn a_launcher_that_runs_the_cli_by_name_is_kept() {
     }
     let python = strings(&["python3", "/tmp/fake.py", "codex", "-m", "gpt-5.5"]);
     assert!(agent_launch_from_job("codex", &python, &[]).unwrap().wrapper.is_empty());
+    // A launcher script shows as its interpreter and its path: it runs by itself.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("cmux-agent-launcher-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("sr2");
+        std::fs::write(&script, "#!/bin/bash\nexec \"$@\"\n").unwrap();
+        let script = script.to_string_lossy().into_owned();
+        let argv = strings(&["/bin/bash", &script, "claude", "--verbose"]);
+        assert!(
+            agent_launch_from_job("claude", &argv, &[]).unwrap().wrapper.is_empty(),
+            "not executable: not a launcher"
+        );
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(agent_launch_from_job("claude", &argv, &[]).unwrap().wrapper, vec![script]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     // A launcher word that looks like a credential drops the launcher.
     let secret = strings(&["sr2", "--token=sk-ant-abcdefghijklmnop", "claude"]);
     assert!(agent_launch_from_job("claude", &secret, &[]).unwrap().wrapper.is_empty());

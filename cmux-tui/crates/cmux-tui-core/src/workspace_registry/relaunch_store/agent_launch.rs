@@ -100,7 +100,10 @@ const INTERPRETERS: &[&str] = &[
 /// The launcher words `before` the harness's program word `program` as kept:
 /// only when the launcher runs the CLI by its bare name (`sr2 claude`, not
 /// `node .../cli.js`), no word is an interpreter, and none looks like a
-/// credential. `program` is `None` when read back from a stored record.
+/// credential. A launcher that is a script shows as its interpreter and its
+/// path (`/bin/bash /Users/a/bin/sr2 claude`): the interpreter is dropped when
+/// the next word is an absolute path to an executable file, which runs by
+/// itself. `program` is `None` when read back from a stored record.
 pub(crate) fn kept_wrapper(
     harness: &str,
     before: &[String],
@@ -116,6 +119,10 @@ pub(crate) fn kept_wrapper(
             || name.starts_with("node")
             || resumable_harness(name)
     };
+    let before = match before {
+        [first, script, ..] if interpreter(first) && executable_script(script) => &before[1..],
+        _ => before,
+    };
     if before.is_empty() || !by_name || before.iter().any(interpreter) {
         return Vec::new();
     }
@@ -128,6 +135,22 @@ pub(crate) fn kept_wrapper(
         return Vec::new();
     }
     before.to_vec()
+}
+
+/// Whether `path` is an absolute path to a file anyone may execute.
+fn executable_script(path: &str) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        Path::new(path).is_absolute()
+            && std::fs::metadata(path)
+                .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        false
+    }
 }
 
 /// Claude Code's subcommands: none starts a session.

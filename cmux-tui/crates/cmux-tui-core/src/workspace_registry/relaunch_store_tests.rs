@@ -123,7 +123,7 @@ fn a_stored_agent_launcher_reads_back_filtered() {
         record["wrapper"] = wrapper.clone();
         assert!(stored_agent_launch(&record).unwrap().wrapper.is_empty(), "{wrapper}");
     }
-    let mut older = record.clone();
+    let mut older = record;
     older.as_object_mut().unwrap().remove("wrapper");
     assert!(stored_agent_launch(&older).unwrap().wrapper.is_empty(), "a record from before");
 }
