@@ -15,6 +15,7 @@
     "CmuxHomeRender": "Packages/Shared/CmuxHomeRender",
     "CmuxInstallAuthCore": "Packages/Shared/CmuxInstallAuthCore",
     "CmuxMessagesLab": "Packages/Shared/CmuxMessagesLab",
+    "CmuxPagePushBound": "Packages/Shared/CmuxPagePushBound",
     "CmuxScreenKit": "Packages/Shared/CmuxScreenKit",
     "CmuxSentryTelemetry": "Packages/Shared/CmuxSentryTelemetry",
     "CmuxTheme": "Packages/Shared/CmuxTheme",
@@ -197,7 +198,8 @@
       ],
       "packages": [
         "CmuxAppAttest",
-        "CmuxEgress"
+        "CmuxEgress",
+        "CmuxPagePushBound"
       ]
     },
     "CmuxNextAgentPanePlacement": {
@@ -2309,6 +2311,7 @@
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
         "Resources/theme-files/",
         "cmux-tui/crates/cmux-computer-use/src/policy.rs",
+        "cmux-tui/crates/cmux-customize-recipes/recipes/",
         "cmux-tui/crates/cmux-tui-core/tests/fixtures/browser_site_engines.json",
         "docs/configuration.md",
         "docs/mdm/",

@@ -445,7 +445,10 @@ export function ComposerContext({
     () =>
       computers.map((computer) => {
         const warning = environmentReady(computer) ? warningText(computer.resources) : undefined;
-        return warning ? { ...computer, loadWarning: warning } : computer;
+        const autoCloud = computer.kind === "ssh" ? computer.resources?.autoCloud : undefined;
+        return warning || autoCloud
+          ? { ...computer, ...(warning ? { loadWarning: warning } : {}), ...(autoCloud ? { autoCloud } : {}) }
+          : computer;
       }),
     [computers, warningText],
   );
