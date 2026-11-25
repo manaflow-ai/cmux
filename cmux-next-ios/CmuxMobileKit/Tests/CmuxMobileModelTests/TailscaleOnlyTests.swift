@@ -65,4 +65,13 @@ import Testing
         #expect(next.result == .failed(.mac))
         #expect(next.action == .retry)
     }
+
+    @Test func eachTailscaleProblemHasAShortStatusThatFitsTheHeader() {
+        let problems: [TailscaleProblem] = [.phoneOff, .macOff, .unreachable, .noAnswer, .unsupported]
+        for problem in problems {
+            let status = MacReachability.tailscale(problem).shortStatus
+            #expect(!status.isEmpty)
+            #expect(status.count <= 22)
+        }
+    }
 }

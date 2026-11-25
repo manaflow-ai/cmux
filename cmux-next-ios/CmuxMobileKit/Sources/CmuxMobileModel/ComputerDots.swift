@@ -35,7 +35,7 @@ public enum ComputerDots {
         switch reach {
         case .connected, .connecting, .notConnected: true
         case .phoneOffline: listedOnline
-        case .slow, .offline, .noAnswer, .serviceDown, .authRequired, .notAllowed: false
+        case .slow, .offline, .noAnswer, .serviceDown, .authRequired, .notAllowed, .tailscale: false
         }
     }
 

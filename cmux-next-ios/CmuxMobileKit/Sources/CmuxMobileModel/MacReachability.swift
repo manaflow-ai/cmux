@@ -216,6 +216,10 @@ public enum MacReachability: Equatable, Sendable {
         case .authRequired: "Signed out"
         case .notAllowed: "Not allowed"
         case .phoneOffline: "iPhone offline"
+        case .tailscale(.phoneOff): "Tailscale off"
+        case .tailscale(.macOff): "Tailscale off on Mac"
+        case .tailscale(.unreachable), .tailscale(.noAnswer): "Not on tailnet"
+        case .tailscale(.unsupported): "Tailscale unavailable"
         }
     }
 
