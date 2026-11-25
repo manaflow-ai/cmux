@@ -26,6 +26,7 @@ after that.
 | Bring fonts, colors and terminal behavior over from another terminal | Not supported: `cmux import` was removed with the Swift CLI. Copy the values into Ghostty config by hand. |
 | Workspace names, descriptions, colors, read state | cmux CLI app actions (`cmux workspace set-color --target ws_… --color blue`), see [../cmux/references/windows-workspaces.md](../cmux/references/windows-workspaces.md) |
 | Agent hooks (agent state in the sidebar) | `cmux agent hook install [provider…]`; `cmux agent hook status` to check |
+| What Chief or any agent chat is told at the start or end of a turn, on a condition | `agents.turnRules` in `cmux-next.json`, or `~/.config/cmux/turn-rules.json` beside it (see [Turn rules](#turn-rules)) |
 
 Not yet supported in cmux-next, even though classic cmux read them:
 `text`, `workspaceCommand` and `workspace` action types (reported and skipped by
@@ -345,6 +346,29 @@ copy-paste focus timer template are in
 
 The worked example, as copy-paste files, and the recipe for adding a view:
 [references/local-app-views.md](references/local-app-views.md).
+
+### Turn rules
+
+A turn rule says one line into an agent's prompt when its conditions hold: a start rule
+on the prompt it matches, an end rule (matched on the turn's final message and tool calls)
+at the session's next prompt, never by sending the session back. Same path for Chief and
+every chat acpmux runs. Rules are read at every prompt, so an edit takes effect on the next turn.
+
+```json
+{"rules": [
+  {"id": "chief-asks-first", "at": "start", "if": {"chief": true, "prompt_any": ["\\b(delete|remove)\\b"]},
+   "say": "Before deleting anything, list what it is and who made it."},
+  {"id": "say-the-cause", "at": "end", "if": {"chief": false, "draft_any": ["\\bfixed\\b"], "draft_none": ["cause"]},
+   "say": "You said something is fixed: name its cause in one line."}
+]}
+```
+
+Conditions (all must hold; regexes, case-insensitive): `prompt_any`, `prompt_none`, `draft_any`,
+`draft_none`, `tools_any`, `tools_none`, `min_tools`, `min_prompt_chars`, `session_any`,
+`host_any`, `chief` (`true` only Chief, `false` every other chat). One rule per boundary;
+`cooldown` (turns, default 6). Cost: a firing adds about 0.4 input tokens per character of its
+line; each turn's `turn_result` counts them in `harnessMagic.turnRules.saidChars`. Off:
+`agents.harnessMagic.turnRules.enabled: false`. Reference: `cmux-tui/crates/acpmux/src/hub/turn_rules.rs`.
 
 ### Change what cmux does
 

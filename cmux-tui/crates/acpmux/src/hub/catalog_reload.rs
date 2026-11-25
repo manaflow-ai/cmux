@@ -93,6 +93,7 @@ impl Hub {
                 auto_evacuate,
                 default_permission_mode,
                 remote_daemon,
+                lane_gh_broker,
                 direct_port,
                 notify_command,
                 disk_low_bytes,
@@ -101,13 +102,14 @@ impl Hub {
                 page_rule,
                 hold_agent_starts_to_starter,
                 auto_resume_delays_ms,
+                capacity_fallback_after,
+                auto_resume_disk_free_bytes,
                 login_env_allow,
                 coderouter_claude_route,
                 machine_wake,
                 peer_wake,
                 btw,
                 titles,
-                summaries,
                 context_overrides,
                 send_relay,
                 new_relay,
@@ -118,6 +120,7 @@ impl Hub {
                 // configures (`daemon.rs`), or is this run's own state.
                 acpmux_v2: _,      // the v2 surfaces are registered at start
                 artifacts_sync: _, // its sync task starts with the daemon
+                memory: _,         // its sync task starts with the daemon
                 write_journal: _,  // the replica and journal open at start
                 store: _,          // the open store
                 // The bound listener, its port and token stay; the hosts and origins it admits
@@ -186,6 +189,8 @@ impl Hub {
             // The next circuit asking for the cmux-tui remote daemon reads it
             // (`cmux_tui_service.rs`): `acpmux config --set remote_daemon=...` serves it at once.
             current.remote_daemon = remote_daemon;
+            // The next broker stream reads it (`hub_carrier_broker.rs`).
+            current.lane_gh_broker = lane_gh_broker;
             // The carrier binds its direct port at its start (`hub_carrier_direct.rs`); a
             // restart applies a change.
             current.direct_port = direct_port;
@@ -200,6 +205,9 @@ impl Hub {
             current.mcp_store = mcp_store;
             current.hold_agent_starts_to_starter = hold_agent_starts_to_starter;
             current.auto_resume_delays_ms = auto_resume_delays_ms;
+            current.capacity_fallback_after = capacity_fallback_after;
+            // The disk waiter reads it at each re-check (`auto_resume/disk_wait.rs`).
+            current.auto_resume_disk_free_bytes = auto_resume_disk_free_bytes;
             current.coderouter_claude_route = coderouter_claude_route;
             current.machine_wake = machine_wake;
             // The next wake of any peer runs the new command (`Peer::wake`).
@@ -208,7 +216,6 @@ impl Hub {
             current.peer_wake = peer_wake;
             current.btw = btw;
             current.titles = titles;
-            current.summaries = summaries;
             current.context_overrides = context_overrides;
             current.send_relay = send_relay;
             current.new_relay = new_relay;
@@ -409,6 +416,7 @@ mod tests {
         changed.agent_inbox = Some(false);
         changed.hold_agent_starts_to_starter = true;
         changed.auto_resume_delays_ms = Some(vec![]);
+        changed.capacity_fallback_after = Some(0);
         changed.login_env_allow = vec!["RELOAD_TEST_*".into()];
         changed.coderouter_claude_route = Some("claude".into());
         changed.btw.model.insert("claude".into(), "claude-haiku".into());
@@ -424,6 +432,7 @@ mod tests {
         assert_eq!(current.agent_inbox, Some(false));
         assert!(current.hold_agent_starts_to_starter);
         assert_eq!(current.auto_resume_delays_ms, Some(vec![]));
+        assert_eq!(current.capacity_fallback_after, Some(0));
         assert_eq!(current.login_env_allow, expected.login_env_allow);
         assert_eq!(current.coderouter_claude_route, expected.coderouter_claude_route);
         assert_eq!(current.btw, expected.btw);
