@@ -69,7 +69,9 @@ import Testing
     /// The themes that turn an opaque, unblurred window translucent. A change to this list is a
     /// change to what a theme switch does to a person who turned the blur off.
     static let translucentThemes: Set<String> = [
-        "harbor", "lily-pond", "teal",
+        "harbor", "lily-pond", "miku", "teal",
+        "recipe-apps-lamina-mist-theme", "recipe-apps-lamina-mist-theme-light", "recipe-apps-lamina-theme",
+        "recipe-apps-lamina-theme-light", "recipe-apps-lamina-tide-theme", "recipe-apps-lamina-tide-theme-light",
         "recipe-looks-aero-sky-theme", "recipe-looks-aurora-night-theme", "recipe-looks-deep-currents-theme",
         "recipe-looks-dot-grid-theme", "recipe-looks-engraving-theme", "recipe-looks-fuji-mist-theme",
         "recipe-looks-gilded-theme", "recipe-looks-hiroshige-dusk-theme", "recipe-looks-moonrise-theme",
