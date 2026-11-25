@@ -254,8 +254,11 @@ export function Tree({
   }, [virtualizer, model]);
 
   // The selected row comes into view as the keys move it (and once it is listed, if it was not yet).
+  // A selection that leaves the lines (none while Bookmarks searches, a closed folder) is revealed
+  // again when it comes back, as a row that mounted selected scrolled itself into view.
   const revealed = useRef<string | undefined>(undefined);
   useLayoutEffect(() => {
+    if (selectedLine < 0) revealed.current = undefined;
     if (selected === revealed.current || selectedLine < 0) return;
     revealed.current = selected;
     virtualizer.scrollToIndex(selectedLine, { align: "auto" });

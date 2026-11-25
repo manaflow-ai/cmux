@@ -409,15 +409,32 @@ export class BookmarksStore {
     }
   }
 
-  /** Show in Folder and the `reveal` page command: clear the search, show the node's folder,
-   * select it and scroll to it. */
+  /** Show in Folder and the `reveal` page command: clear the search, open the folders it sits in
+   * (as Finder does), show the node's folder, select it and scroll to it. */
   reveal(id: string): void {
-    const node = this.snapshot.tree.nodes.get(id);
+    const { tree, collapsed } = this.snapshot;
+    const node = tree.nodes.get(id);
     // Asked before the tree arrived (the page opened to reveal it): shown with the first listing.
     this.pendingReveal = node ? undefined : id;
     if (!node) return;
+    // A folder inside a collapsed one is not a line of the left tree: open its folder and every
+    // folder above, in the update that selects it, so the tree lists it and scrolls to it.
+    let opened: Set<string> | undefined;
+    for (let folder: string | undefined = node.parent; folder !== undefined; folder = tree.nodes.get(folder)?.parent) {
+      if (!collapsed.has(folder)) continue;
+      opened ??= new Set(collapsed);
+      opened.delete(folder);
+    }
     this.searchGeneration += 1;
-    this.set({ text: "", results: null, folder: node.parent, selection: [id], focus: id, anchor: id });
+    this.set({
+      text: "",
+      results: null,
+      folder: node.parent,
+      selection: [id],
+      focus: id,
+      anchor: id,
+      ...(opened ? { collapsed: opened } : {}),
+    });
   }
 
   dismissNotice(): void {
