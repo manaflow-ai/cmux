@@ -5,12 +5,30 @@ import { and, eq, inArray, isNotNull } from "drizzle-orm";
 
 import { cloudDb } from "../../../db/client";
 import { appleSubscriptions, appleTransactions, type AppleSubscriptionStatus } from "../../../db/schema";
+import { nextPlanId, nextPlanRank, type NextPlanId } from "../nextPlans";
 import type { PersonalPlanId } from "../pro";
 import { planTierRank } from "../planTier";
-import { APP_STORE_BUNDLE_ID, appleEnvironmentGrantsEntitlement, appleSandboxGrantNeedsAccountEmail } from "./config";
+import {
+  APP_STORE_BUNDLE_ID,
+  appleEnvironmentGrantsEntitlement,
+  appleSandboxGrantNeedsAccountEmail,
+  isApplePlanId,
+} from "./config";
 
-/** Personal plans sold in the App Store; the best grant wins by tier. */
-const APPLE_PLAN_IDS: ReadonlySet<string> = new Set(["go", "pro", "max"]);
+/**
+ * Rank of an App Store plan within its family: classic Go 1 < Pro 2 < Max 3,
+ * NEXT Plus 1 < Pro 2 < Max 3. The two families are separate grants (a
+ * classic plan goes to `cmuxPlan`, a NEXT plan to `cmuxNextPlan`), so a rank
+ * only orders plans of one family.
+ */
+function applePlanRank(planId: string): number {
+  const next = nextPlanId(planId);
+  return next ? nextPlanRank(next) + 1 : planTierRank(planId);
+}
+
+function sameFamily(left: string, right: string): boolean {
+  return (nextPlanId(left) !== null) === (nextPlanId(right) !== null);
+}
 
 type Env = Record<string, string | undefined>;
 
@@ -43,7 +61,7 @@ export function appleEntitlementPlanAt(row: AppleEntitlementRow, now: Date): str
   if (!carried || !row.carriedUntil || row.carriedUntil.getTime() <= now.getTime() || row.carriedRevokedAt) {
     return row.planId;
   }
-  return planTierRank(carried) > planTierRank(row.planId) ? carried : row.planId;
+  return sameFamily(carried, row.planId) && applePlanRank(carried) > applePlanRank(row.planId) ? carried : row.planId;
 }
 
 
@@ -63,7 +81,7 @@ export function appleSubscriptionGrantsAccess(
   env: Env = process.env,
   accountEmail: string | null = null,
 ): boolean {
-  if (!APPLE_PLAN_IDS.has(row.planId)) return false;
+  if (!isApplePlanId(row.planId)) return false;
   if (!appleEnvironmentGrantsEntitlement({ ...row, accountEmail }, env)) return false;
   return appleStatusGrantsAt(row, now);
 }
@@ -88,17 +106,26 @@ export function appleStatusGrantsAt(
   }
 }
 
-/** The granting subscription with the highest plan, or null. */
+/** Which grant a lookup wants: a classic plan (`cmuxPlan`) or a NEXT plan (`cmuxNextPlan`). */
+export type ApplePlanFamily = "classic" | "next";
+
+function inFamily(planId: string, family: ApplePlanFamily): boolean {
+  return (nextPlanId(planId) !== null) === (family === "next");
+}
+
+/** The granting subscription with the highest plan of one family (classic by default), or null. */
 export function bestAppleEntitlement<Row extends AppleEntitlementRow>(
   rows: readonly Row[],
   now: Date = new Date(),
   env: Env = process.env,
   accountEmail: string | null = null,
+  family: ApplePlanFamily = "classic",
 ): Row | null {
   let best: Row | null = null;
   for (const row of rows) {
+    if (!inFamily(row.planId, family)) continue;
     if (!appleSubscriptionGrantsAccess(row, now, env, accountEmail)) continue;
-    if (!best || planTierRank(row.planId) > planTierRank(best.planId)) best = row;
+    if (!best || applePlanRank(row.planId) > applePlanRank(best.planId)) best = row;
   }
   return best;
 }
@@ -163,17 +190,20 @@ export type AppleEntitlementLookupOptions = {
   readonly env?: Env;
   /** Defaults to the Stack account's primary email. */
   readonly accountEmail?: (userId: string) => Promise<string | null>;
+  /** The classic grant (default) or the NEXT grant. */
+  readonly family?: ApplePlanFamily;
 };
 
 /**
- * The user's granting Apple subscription (highest plan), or null. A
- * deployment without a database grants nothing, like the Stripe query.
+ * The user's granting Apple subscription (highest plan of the family asked
+ * for, classic by default), or null. A deployment without a database grants
+ * nothing, like the Stripe query.
  */
 export async function activeAppleEntitlementForUser(
   userId: string,
   options: AppleEntitlementLookupOptions | Date = {},
 ): Promise<AppleEntitlementRow | null> {
-  const { now = new Date(), env = process.env, accountEmail = stackPrimaryEmail } =
+  const { now = new Date(), env = process.env, accountEmail = stackPrimaryEmail, family = "classic" } =
     options instanceof Date ? { now: options } : options;
   let rows: AppleEntitlementRow[];
   try {
@@ -187,12 +217,22 @@ export async function activeAppleEntitlementForUser(
   rows = (await withCarriedRefunds(rows, now)).map((row) => ({ ...row, planId: appleEntitlementPlanAt(row, now) }));
   const needsEmail = appleSandboxGrantNeedsAccountEmail(env) &&
     rows.some((row) => row.environment === "Sandbox" && row.bundleId === APP_STORE_BUNDLE_ID &&
-      appleSubscriptionGrantsAccess(row, now, {}));
+      inFamily(row.planId, family) && appleSubscriptionGrantsAccess(row, now, {}));
   const email = needsEmail ? await accountEmail(userId) : null;
-  return bestAppleEntitlement(rows, now, env, email);
+  return bestAppleEntitlement(rows, now, env, email, family);
 }
 
+/** The user's classic plan from the App Store (mirrored in `cmuxPlan`), or null. */
 export async function activeApplePlanForUser(userId: string): Promise<PersonalPlanId | null> {
   const row = await activeAppleEntitlementForUser(userId);
   return row ? row.planId as PersonalPlanId : null;
+}
+
+/** The user's cmux NEXT plan from the App Store (mirrored in `cmuxNextPlan`), or null. */
+export async function activeAppleNextPlanForUser(
+  userId: string,
+  options: Omit<AppleEntitlementLookupOptions, "family"> = {},
+): Promise<NextPlanId | null> {
+  const row = await activeAppleEntitlementForUser(userId, { ...options, family: "next" });
+  return row ? nextPlanId(row.planId) : null;
 }
