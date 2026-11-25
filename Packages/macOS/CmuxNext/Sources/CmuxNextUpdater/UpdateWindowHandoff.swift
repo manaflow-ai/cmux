@@ -97,7 +97,7 @@ public final class UpdateWindowHandoff {
             // With pictures coming, the windows wait for them (about 100 to 250 ms, the quit's saves run meanwhile),
             // and for the pictures of their pages, which an ordered-out window can no longer give.
             let saved = saveBeforeLeaving()
-            let leave = { @MainActor [weak self] in self?.leave(after: saved) }
+            let leave: @MainActor @Sendable () -> Void = { [weak self] in self?.leave(after: saved) }
             if let afterimage, afterimage.isActive { afterimage.whenShown(leave) } else { leave() }
         }
         #if DEBUG || CMUX_BENCH_HOOKS
