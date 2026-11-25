@@ -729,6 +729,14 @@ pub struct QueuedPromptSummary {
     #[serde(default)]
     #[schemars(default)]
     pub inbox_notice: Option<Value>,
+    /// Who put it in the queue, from its provenance alone (`hub/queue_origin.rs`): `person` (the
+    /// composer's steer rows), `agent` (another agent's message or acpmux's notice of such), or
+    /// `acpmux` (the daemon's own prompt: a surge digest, a subagent's resume, a cut turn's
+    /// continuation), which an app draws apart from the person's rows with none of their actions.
+    /// Absent from an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub origin: Option<crate::hub::queue_origin::QueueOrigin>,
 }
 
 /// The subagent a queued resume asks the agent to resume (`QueuedPromptSummary.subagentRetry`).
