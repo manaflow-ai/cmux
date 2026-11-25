@@ -44,6 +44,7 @@ pub type WireName = String;
 
 /// What one protocol speaks, at one revision.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+// skew: strict: a committed spec/wire manifest read by this repo's own checks, never a peer's message.
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
     /// `acpmux`, `mobile-link` or `cmux-remote`.
