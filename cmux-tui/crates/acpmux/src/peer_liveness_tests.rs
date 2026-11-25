@@ -123,6 +123,42 @@ async fn a_silent_peer_still_loses_the_link_within_8_s() {
     assert!(started.elapsed() <= Duration::from_secs(8), "{:?}", started.elapsed());
 }
 
+/// A 5G/LTE handoff: the peer's last frame came 0.5 s after the link opened, then nothing. Its
+/// link was dropped at the first ping tick past the 6 s budget, open + 8 s, 1.5 s after the
+/// budget ran out; most of a direct handoff's 8 s was this wait. It is dropped at the budget.
+#[tokio::test(start_paused = true)]
+async fn a_dead_link_drops_at_its_budget_not_the_next_ping_tick() {
+    use futures_util::SinkExt;
+    use tokio_tungstenite::tungstenite::Message as Frame;
+    let (tx, _rx) = mpsc::channel(8);
+    let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    Arc::get_mut(&mut peer).expect("only this test holds it").timings.handshake =
+        Duration::from_secs(3_600);
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let opened = tokio::time::Instant::now();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    server.send(Frame::Pong(Vec::new().into())).await.unwrap();
+    let ended = tokio::time::timeout(Duration::from_secs(10), serving)
+        .await
+        .expect("the link ends")
+        .unwrap()
+        .expect_err("the link ends with why");
+    assert!(ended.contains("stopped answering"), "{ended}");
+    let budget = peer.timings.silence_budget();
+    let took = opened.elapsed();
+    assert!(took >= budget + Duration::from_millis(500), "dropped before its budget: {took:?}");
+    assert!(
+        took <= budget + Duration::from_millis(600),
+        "dropped {took:?} after open, past its budget"
+    );
+    drop(server);
+}
+
 /// Run 43783279032: the network went for 10 s without a reset and a request went out on the
 /// link. It is dropped within `NETWORK_PROBE` of that request, not after the silence budget.
 #[tokio::test(start_paused = true)]
