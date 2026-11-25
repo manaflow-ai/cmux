@@ -513,12 +513,12 @@ fn bring_back_pulls_a_seed_as_its_diff_and_a_copy_as_a_copy() {
 
     write(&repo.join("b"), "b\nfrom the mac\n");
     write(&vm.join("b"), "b\nfrom the vm\n");
-    let before = everything(&repo);
-    let (ok, refused) = world.bring_back(&repo, "app");
-    assert!(!ok, "{refused}");
-    assert_eq!(refused["error_code"], "sync_conflict", "{refused}");
-    assert_eq!(conflicted(&refused), vec!["b"], "{refused}");
-    assert_eq!(everything(&repo), before, "a conflict changed something here");
+    // Both made `b`: the three-tree module keeps both, the machine's at the path.
+    let (ok, settled) = world.bring_back(&repo, "app");
+    assert!(ok, "{settled}");
+    assert_eq!(settled["conflict_files"], json!(["b.cmux-sync-conflict"]), "{settled}");
+    assert_eq!(read(&repo.join("b")), "b\nfrom the vm\n");
+    assert_eq!(read(&repo.join("b.cmux-sync-conflict")), "b\nfrom the mac\n");
 
     // Not a git folder: `cmux link seed push` copied it.
     let plain = world.mac.home().join("plain");
