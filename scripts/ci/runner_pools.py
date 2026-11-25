@@ -448,8 +448,8 @@ def parse_value(raw: str | None, pools: Mapping[str, Mapping[str, Any]]) -> tupl
 
 
 def value_problems(value: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
-    """Why a RUNNER_POOLS value would misroute a job: a missing pool, or a label that is neither its member nor
-    nothing else (allowed())."""
+    """Why a RUNNER_POOLS value would misroute a job: a missing pool, or a label that is not one of its declared
+    members (allowed())."""
     found = []
     for name, spec in sorted(pools.items()):
         label = value.get(name)
