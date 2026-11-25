@@ -1803,8 +1803,6 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         // The turn's end, which its cost is ready after (`turn_cost.rs`).
         let ended = std::time::Instant::now();
-        let started_at =
-            session.turn.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|t| t.started_at);
         // This turn's number, before taking it lets the next one start (`lane_reports.rs`).
         let turn = session.meta().turn_count;
         // A turn its agent ended well clears the chat's rate-limit strikes (`rate_hold.rs`):
@@ -1819,14 +1817,18 @@ impl Hub {
         let in_place = next.map(|n| n.next.clone());
         // Taken under the shutdown's lock: its sweep finds the turn running or here, never in
         // between (`shutdown.rs` `settle_ends`).
-        let detached = {
+        // Its start comes from the turn taken here, not a read of the live-turn lock before
+        // `take_turn`: that read took `turn` ahead of `auto_resume`, against Stop's order
+        // (`auto_resume/turn_completion_tests.rs`).
+        let (detached, started_at) = {
             let _ends = self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner());
             let taken = self.take_turn(session, turn_id, in_place);
+            let started_at = taken.as_ref().map(|t| t.started_at);
             let took = taken.as_ref().is_some_and(|t| t.turn_id == turn_id);
             if took {
                 *session.ending.lock().unwrap_or_else(|e| e.into_inner()) = taken;
             }
-            !took
+            (!took, started_at)
         };
         let ending = EndUnderWay { hub: self, session, turn_id };
         // Named in this turn's `turn_result`, so a restart before it starts still runs it.
