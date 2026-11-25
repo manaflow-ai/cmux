@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.chief.subagentSidebar.help" : {
+      "comment" : "Chief subagent sidebar choice (a1018, 2026-11-05).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Where subagent workspaces go: the sidebar or the collapsed Chief's group."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "サブエージェントのワークスペースの置き場所：サイドバー、または折りたたまれた Chief's workspaces グループ。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مكان مساحات عمل الوكلاء الفرعيين: الشريط الجانبي أو مجموعة مساحات عمل Chief المطوية."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wohin Subagent-Workspaces kommen: in die Seitenleiste oder in die eingeklappte Gruppe Chief's Workspaces."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dónde van los espacios de trabajo de los subagentes: la barra lateral o el grupo contraído del Chief."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Où vont les espaces de travail des sous-agents : la barre latérale ou le groupe replié du Chief."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "하위 에이전트 워크스페이스를 둘 곳: 사이드바 또는 접힌 Chief 그룹."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "子代理工作区的位置：边栏或折叠的 Chief 工作区分组。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "子代理工作區的位置：側邊欄或收合的 Chief 工作區群組。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gdje idu radni prostori podagenata: na bočnu traku ili u skupljenu grupu Chiefovih radnih prostora."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvor underagenters arbejdsområder havner: sidepanelet eller Chiefs sammenklappede gruppe."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dove vanno gli spazi di lavoro dei subagenti: la barra laterale o il gruppo compresso Chief's Workspaces."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កន្លែងដែលកន្លែងធ្វើការរបស់ភ្នាក់ងាររងទៅ៖ របារចំហៀង ឬក្រុមរបស់ Chief ដែលបានបង្រួម។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvor underagentenes arbeidsområder havner: sidepanelet eller Chiefs sammenslåtte gruppe."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gdzie trafiają obszary robocze podagentów: na pasek boczny lub do zwiniętej grupy Chiefa."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Para onde vão os espaços de trabalho dos subagentes: a barra lateral ou o grupo recolhido do Chief."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Куда попадают рабочие пространства субагентов: на боковую панель или в свёрнутую группу Chief."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ตำแหน่งของพื้นที่ทำงานเอเจนต์ย่อย: แถบด้านข้าง หรือกลุ่มของ Chief ที่ยุบไว้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alt ajan çalışma alanlarının yeri: kenar çubuğu veya daraltılmış Chief's workspaces grubu."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Куди потрапляють робочі простори субагентів: на бічну панель або в згорнуту групу робочих просторів Chief."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nơi đặt không gian làm việc của tác tử phụ: thanh bên hoặc nhóm không gian làm việc của Chief đã thu gọn."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
