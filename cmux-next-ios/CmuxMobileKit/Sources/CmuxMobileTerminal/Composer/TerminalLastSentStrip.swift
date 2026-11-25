@@ -48,7 +48,7 @@ struct TerminalLastSentStrip: View {
                     taps += 1
                     model.jumpToLastSent()
                 }
-                .sensoryFeedback(.impact(weight: .light), trigger: taps)
+                .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: taps)
                 .transition(.opacity.combined(with: .offset(y: -8)))
             }
         }
