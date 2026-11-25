@@ -12,8 +12,8 @@
     },
     {
       "path": "ActivitySnapshot.java",
-      "sha256": "04419a7b4fd3d610114d725f947e061e6084ac3929651f830f28a421e726a0f2",
-      "size": 4759
+      "sha256": "d4282dee3fdbf4251e69d5481781fbd03af8b7ec29e9f49f33024739d32f5c16",
+      "size": 7130
     },
     {
       "path": "ActivitySubscribeResult.java",
@@ -942,8 +942,8 @@
     },
     {
       "path": "ConversationInboxOpRequest.java",
-      "sha256": "bed0fa7ae8f6ce55f8c5a223d78fe506ca20eaa8c67fc64ec403642b27140dfc",
-      "size": 2852
+      "sha256": "0257ad93b9c6c04608af84a099da93a0c2300a0f65d4c566f2bf434383da3eae",
+      "size": 3453
     },
     {
       "path": "ConversationInboxOpResult.java",
@@ -2287,7 +2287,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "849c00af5d8f3e1ff953bc173f57fa6c589b15d1c653737199de2d17aa3d19dc",
+      "sha256": "0df6d69871dbd75dd2d7b41155e9873ab0612b1fb407ed11c2ddc5a9d9696642",
       "size": 8511
     },
     {
@@ -3847,7 +3847,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "5161bf1c7fc874844d16f2c7c8cfca7f78ac9b593d375046db2fb06645051f89",
+  "ir_sha256": "4168e773b62bc51d383ffcce2f4b89e4a9edfac00772e438340291dd737a3eef",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
