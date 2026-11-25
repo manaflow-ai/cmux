@@ -172,6 +172,9 @@ public final class AgentPaneModel {
         cloudReserveOut?.dropped = true
         AgentPaneCloudReservationRequest.log.notice("cloud reserve: the Send went without it (the page stopped waiting); it is released as it answers")
     }
+    /// The person pressed Send with Cloud picked: the page reserved that Send's gesture, before its speculative lease settles and
+    /// ``onCloudStartChat`` runs (up to `RESERVATION_SEND_WAIT_MS`). Its tab reads as a Cloud chat from now (cmux#51000).
+    @ObservationIgnored public var onCloudSendGesture: (@MainActor () -> Void)?
     /// A new chat's first send with Cloud picked (``AgentPaneCloudStart``); nil: no Cloud chats here.
     @ObservationIgnored public var onCloudStartChat: (@MainActor (AgentPaneCloudStart) async -> [String: Any])?
     /// Signs into the app's Cloud account for inline first-send recovery; nil when Cloud is unavailable.

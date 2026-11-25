@@ -267,8 +267,10 @@ const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
 /// logged to `phone-frames.jsonl`, `phone_frames.rs`).
 /// `tab-snapshots-v1`: the `tabs` service (every tab's title, favicon, thumbnail or screen text,
 /// with deltas and content-addressed blobs, `tab_snapshots.rs`).
+/// `mailbox-send-v1`: the mailbox takes `send` and `compose` items, held up to 24 hours and
+/// applied once in each phone's `seq` order (`mailbox.rs`, PROTOCOL.md "Store and forward").
 /// The names are declared once in `cmux_mobile_link::names`.
-pub const CAPABILITIES: [&str; 10] = [
+pub const CAPABILITIES: [&str; 11] = [
     names::REMOVAL,
     names::FILE_PREVIEW,
     names::LOCALHOST_FORWARD,
@@ -279,6 +281,7 @@ pub const CAPABILITIES: [&str; 10] = [
     names::PAIR_REQUESTS,
     names::PHONE_FRAMES,
     names::TAB_SNAPSHOTS,
+    names::MAILBOX_SEND,
 ];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = names::BROWSER_STREAM;
@@ -747,6 +750,8 @@ async fn splice(
     let daemon_exposure = exposure.clone();
     let request_exposure = daemon_exposure.clone();
     let answers = Arc::clone(&pending);
+    // The daemon lane: when each output byte went to the phone (output_paint.rs).
+    let output_stamps = reply_phone.as_deref().map(crate::output_paint::Tracker::start);
     let mut from_daemon = tokio::spawn(async move {
         let mut reader = BufReader::with_capacity(64 * 1024, daemon_read);
         loop {
@@ -763,6 +768,9 @@ async fn splice(
                     let Some(line) = exposed_daemon_line(line, daemon_exposure.as_ref()) else { continue };
                     // A redraw's id and its read time (Mac redraw to iPhone paint).
                     let (line, _) = crate::paint_latency::stamp_line(line);
+                    if let Some(stamps) = &output_stamps {
+                        stamps.line(&line);
+                    }
                     if daemon_lines.send(line).await.is_err() {
                         return;
                     }
@@ -2552,7 +2560,8 @@ mod tests {
                 "appearance-v1",
                 "pair-requests-v1",
                 "phone-frames-v1",
-                "tab-snapshots-v1"
+                "tab-snapshots-v1",
+                "mailbox-send-v1"
             ]
         );
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
@@ -2572,6 +2581,7 @@ mod tests {
                 "pair-requests-v1",
                 "phone-frames-v1",
                 "tab-snapshots-v1",
+                "mailbox-send-v1",
                 BROWSER_STREAM,
                 BROWSER_VIDEO_TRACK
             ]
