@@ -6,7 +6,7 @@ import os
 /// App's models hold, runs the resume or the re-pause the rules answer, and logs each hint wake's
 /// outcome. Every decision (which signal counts, debounce, cap, the no-input bound) is Rust's:
 /// `cloud_handler_wake_*` (cmux-cloud-handlers `wake_hint`), whose ledger lives in the app FFI. The
-/// App sets ``Port``; the hidden setting `cloud.wakeOnIntent` is one of its facts (default off).
+/// App sets ``Port``; the hidden setting `cloud.wakeOnIntent` is one of its facts (default on; the kill switch).
 @MainActor
 public final class AgentPaneCloudWakeOnIntent {
     public struct Port {

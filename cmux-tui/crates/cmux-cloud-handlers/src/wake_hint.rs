@@ -62,7 +62,7 @@ pub struct Hint {
     pub v: u32,
     pub machine: String,
     pub signal: Option<Signal>,
-    /// The hidden setting (`cloud.wakeOnIntent`, default off).
+    /// The hidden setting (`cloud.wakeOnIntent`, default on; the kill switch).
     pub enabled: bool,
     /// The typing prewarm's facts: Cloud may be called, the list is loaded, the machine's status.
     pub allowed: bool,

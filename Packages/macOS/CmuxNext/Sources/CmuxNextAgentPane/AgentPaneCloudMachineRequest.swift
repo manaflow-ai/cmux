@@ -27,7 +27,7 @@ public import Foundation
 /// - `cloudMachine.wakeHint {v, id, signal}` -> `{resume}`: wake on intent (v1): the page or shell saw
 ///   the person focus that machine's chat, open a terminal on it or unlock with it in front, before any
 ///   key. The App only forwards it; Rust decides (`cloud_handler_wake_hint`, cmux-cloud-handlers
-///   `wake_hint`): hidden setting `cloud.wakeOnIntent` (default off), paused machines only, debounced,
+///   `wake_hint`): hidden setting `cloud.wakeOnIntent` (default on; the setting is the kill switch), paused machines only, debounced,
 ///   capped, and re-paused when no input follows. Never a gesture. A host without it answers
 ///   `unsupported`, which the page drops; a page without it never sends one.
 ///
