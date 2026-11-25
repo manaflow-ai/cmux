@@ -61,11 +61,6 @@ pub struct SubOpts {
     /// attach reply does (`requests/time_breakdown_gate.rs`). A full row of a long chat is mostly
     /// that field (32 KiB of 36 KiB at 3,000 records, the time-away bench).
     pub omit_time_breakdown: bool,
-}
-
-/// Whether `conn` attached `session_id` asking for no `timeBreakdown` (`SubOpts`).
-fn omits_time_breakdown(conn: &Conn, session_id: &str) -> bool {
-    conn.subs.lock_or_recover().get(session_id).is_some_and(|o| o.omit_time_breakdown)
     /// The client draws nothing of the chat while it is `hidden` (`_acpmux/attach`
     /// `quietHidden`, the app's pane): its agent's `session/update` stream is left out until a
     /// view shows it, which then says how much in one `_acpmux/lagged` (`view.rs`).
@@ -76,6 +71,11 @@ fn omits_time_breakdown(conn: &Conn, session_id: &str) -> bool {
     /// as `afterSeq`, since the turn ends and status records that still went out moved the client's
     /// own cursor past the chunks it never got (`view.rs`).
     pub left_from: u64,
+}
+
+/// Whether `conn` attached `session_id` asking for no `timeBreakdown` (`SubOpts`).
+fn omits_time_breakdown(conn: &Conn, session_id: &str) -> bool {
+    conn.subs.lock_or_recover().get(session_id).is_some_and(|o| o.omit_time_breakdown)
 }
 
 /// Which of one chat's `_acpmux/message` records a connection has heard, so each reaches it once.
