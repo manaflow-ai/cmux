@@ -675,6 +675,10 @@ path = "tests/test_ci_fetch_complexity_base.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_red_autofix.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_guard_workflow_structure.py"
 lane = "linux-guard"
 
@@ -897,6 +901,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_source_lint_guard_structure.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cas_mac_archive_manifest.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cas_mac_archive_manifest.py"
 
 [[test]]
 path = "tests/test_ci_test_execution_registry.py"
@@ -2427,4 +2436,12 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_shed_retired_route.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_required_gate_never_skips_into_main.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_shed_superseded_runs.py"
 lane = "linux-guard"

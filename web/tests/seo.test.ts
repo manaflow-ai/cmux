@@ -1080,6 +1080,29 @@ describe("SEO middleware", () => {
     expect(canonicalEnglish.headers.get("location")).toBeNull();
   });
 
+  test("keeps the English-only main-thread docs canonical during locale negotiation", () => {
+    for (const path of ["/de/docs/main-thread", "/ja/docs/main-thread"]) {
+      const unsupportedLocale = middleware(
+        requestFor(path, { "accept-language": "de" }),
+      );
+      expect(unsupportedLocale.status).toBe(301);
+      expect(unsupportedLocale.headers.get("location")).toBe(
+        "https://cmux.com/docs/main-thread",
+      );
+    }
+
+    for (const path of ["/docs/main-thread"]) {
+      const canonicalEnglish = middleware(
+        requestFor(path, { "accept-language": "de" }),
+      );
+      expect(canonicalEnglish.status).toBe(200);
+      expect(canonicalEnglish.headers.get("x-middleware-rewrite")).toBe(
+        "https://cmux.com/en/docs/main-thread",
+      );
+      expect(canonicalEnglish.headers.get("location")).toBeNull();
+    }
+  });
+
   test("serves the English remote tmux docs without locale redirect loops", () => {
     const unsupportedLocale = middleware(
       requestFor("/de/docs/remote-tmux", { "accept-language": "de" }),
