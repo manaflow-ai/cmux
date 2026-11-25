@@ -91,10 +91,6 @@ impl PeerGuard<'_> {
         self.change(|m| m.remove(name))
     }
 
-    pub(crate) fn retain(&mut self, keep: impl FnMut(&String, &mut Arc<Peer>) -> bool) {
-        self.change(|m| m.retain(keep));
-    }
-
     pub(crate) fn clear(&mut self) {
         self.change(HashMap::clear);
     }
