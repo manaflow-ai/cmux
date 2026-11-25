@@ -18,6 +18,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
+import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 
 type Frame = {
   t: number;
@@ -31,26 +32,26 @@ type Frame = {
 };
 type Shift = { at: number; value: number; recent: boolean; sources: string[] };
 
-/// web-vitals CLS: the largest session window's sum (a window ends after a 1 s gap or at 5 s).
-function clsOf(shifts: readonly Shift[]): number {
-  let best = 0;
-  let sum = 0;
-  let first = -Infinity;
-  let last = -Infinity;
-  for (const shift of shifts) {
-    if (shift.recent) continue;
-    if (shift.at - last > 1000 || shift.at - first > 5000) {
-      sum = 0;
-      first = shift.at;
-    }
-    sum += shift.value;
-    last = shift.at;
-    best = Math.max(best, sum);
-  }
-  return best;
-}
-
 await requireBrowserLane("agent-pane-send-attachment-shift.test.ts", async () => {
+  /// web-vitals CLS: the largest session window's sum (a window ends after a 1 s gap or at 5 s).
+  function clsOf(shifts: readonly Shift[]): number {
+    let best = 0;
+    let sum = 0;
+    let first = -Infinity;
+    let last = -Infinity;
+    for (const shift of shifts) {
+      if (shift.recent) continue;
+      if (shift.at - last > 1000 || shift.at - first > 5000) {
+        sum = 0;
+        first = shift.at;
+      }
+      sum += shift.value;
+      last = shift.at;
+      best = Math.max(best, sum);
+    }
+    return best;
+  }
+
   setDefaultTimeout(300_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -118,7 +119,7 @@ await requireBrowserLane("agent-pane-send-attachment-shift.test.ts", async () =>
   /// Records every painted frame's sent bubble box (the newest `.cv-user` row, in view coordinates) and
   /// every layout shift, until `stop`.
   const record = (page: Page) =>
-    page.evaluate(() => {
+    page.evaluate((TRANSCRIPT_ROW) => {
       const w = window as any;
       w.__frames = [] as unknown[];
       w.__shifts = [] as unknown[];
@@ -142,7 +143,7 @@ await requireBrowserLane("agent-pane-send-attachment-shift.test.ts", async () =>
       }).observe({ type: "layout-shift", buffered: false });
       const tick = () => {
         if (!w.__recording) return;
-        const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")];
+        const rows = [...document.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW)];
         const bubbles = [...document.querySelectorAll<HTMLElement>(".cv-user")];
         const bubble = bubbles.at(-1)?.closest<HTMLElement>("[data-row-id]") ?? null;
         const box = bubble?.getBoundingClientRect();
@@ -157,10 +158,12 @@ await requireBrowserLane("agent-pane-send-attachment-shift.test.ts", async () =>
           scrollTop: scroller?.scrollTop ?? -1,
           below,
         });
+        // raf-read: every frame of the send is sampled as it is drawn, to count the Thinking line's positions.
         requestAnimationFrame(tick);
       };
+      // raf-read: the first sample of the send (above).
       requestAnimationFrame(tick);
-    });
+    }, TRANSCRIPT_ROW);
 
   const stop = (page: Page) =>
     page.evaluate(() => {
