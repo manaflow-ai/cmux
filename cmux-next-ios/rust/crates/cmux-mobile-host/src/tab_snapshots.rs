@@ -593,6 +593,68 @@ fn truncate(mut text: String, cap: usize) -> String {
     text
 }
 
+/// The most an agent tab's text of its last turns holds ([`agent_screen`]).
+pub const MAX_AGENT_SCREEN_BYTES: usize = 4 << 10;
+/// The turns an agent tab's text shows, newest last.
+pub const AGENT_SCREEN_TURNS: usize = 3;
+/// The width an agent tab's text is laid out to, in characters.
+pub const AGENT_SCREEN_COLS: usize = 80;
+
+/// One turn of an agent chat, as an agent tab's text shows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AgentTurn {
+    /// Who spoke ("You", the agent's name).
+    pub who: String,
+    pub text: String,
+}
+
+/// An agent tab's last turns (the newest [`AGENT_SCREEN_TURNS`] of `turns`)
+/// as text: each speaker's name, then what they said wrapped to
+/// [`AGENT_SCREEN_COLS`], each turn's share of [`MAX_AGENT_SCREEN_BYTES`]
+/// cut short with an ellipsis. None when no turn has text.
+pub fn agent_screen(turns: &[AgentTurn]) -> Option<String> {
+    let shown: Vec<&AgentTurn> = turns.iter().filter(|t| !t.text.trim().is_empty()).collect();
+    let shown = shown.get(shown.len().saturating_sub(AGENT_SCREEN_TURNS)..).unwrap_or_default();
+    if shown.is_empty() {
+        return None;
+    }
+    let share = MAX_AGENT_SCREEN_BYTES / shown.len();
+    let mut out = String::new();
+    for turn in shown {
+        let mut block = String::new();
+        block.push_str(truncate(turn.who.trim().to_owned(), AGENT_SCREEN_COLS).as_str());
+        block.push('\n');
+        for line in turn.text.trim().lines() {
+            for row in wrap(line.trim_end(), AGENT_SCREEN_COLS) {
+                block.push_str(&row);
+                block.push('\n');
+            }
+        }
+        block.push('\n');
+        if block.len() > share {
+            let cut = truncate(block, share.saturating_sub('…'.len_utf8() + 2));
+            block = format!("{}…\n\n", cut.trim_end());
+        }
+        out.push_str(&block);
+    }
+    Some(truncate(out.trim_end().to_owned(), MAX_AGENT_SCREEN_BYTES))
+}
+
+/// `line` in rows of at most `cols` characters, broken at a space when one is in the row.
+fn wrap(line: &str, cols: usize) -> Vec<String> {
+    let mut rows = Vec::new();
+    let mut rest: Vec<char> = line.chars().collect();
+    while rest.len() > cols {
+        let at = rest.get(..=cols).and_then(|r| r.iter().rposition(|c| *c == ' ')).filter(|at| *at > 0);
+        let end = at.unwrap_or(cols);
+        rows.push(rest.get(..end).unwrap_or_default().iter().collect::<String>().trim_end().to_owned());
+        let skip = if at.is_some() { end.saturating_add(1) } else { end };
+        rest = rest.get(skip..).unwrap_or_default().to_vec();
+    }
+    rows.push(rest.into_iter().collect());
+    rows
+}
+
 /// Where a tab's pictures are held: by its durable id when it has one, so
 /// they follow it across daemon runs, else by its surface id.
 fn picture_key(tab_id: &str, tab_key: Option<&str>) -> String {
