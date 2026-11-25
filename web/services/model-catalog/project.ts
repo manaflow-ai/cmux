@@ -78,7 +78,25 @@ function projectHarness(override: HarnessOverride, providers: Map<string, FeedPr
     modelSource: override.modelSource,
     ...(override.docsUrl ? { docsUrl: override.docsUrl } : {}),
     ...(defaultModel ? { defaultModel } : {}),
+    ...(override.runsAnyModel ? { runsAnyModel: true } : {}),
+    ...(override.modelSource === "catalog" && override.sources?.length ? { feed: feedRules(override) } : {}),
     models,
+  };
+}
+
+/** The override's feed rules, for clients that read the feed themselves (types.ts `HarnessFeed`). */
+function feedRules(override: HarnessOverride): NonNullable<CatalogHarness["feed"]> {
+  const hidden = Object.entries(override.models ?? {})
+    .filter(([, model]) => model.hidden)
+    .map(([id]) => id);
+  return {
+    sources: (override.sources ?? []).map((source) => ({ ...source })),
+    ...(override.shortNamePrefix ? { shortNamePrefix: override.shortNamePrefix } : {}),
+    ...(override.familyNames ? { familyNames: { ...override.familyNames } } : {}),
+    ...(override.dropEfforts?.length ? { dropEfforts: [...override.dropEfforts] } : {}),
+    ...(override.defaultEffort ? { defaultEffort: override.defaultEffort } : {}),
+    ...(override.groupByProvider ? { groupByProvider: true } : {}),
+    ...(hidden.length ? { hidden } : {}),
   };
 }
 

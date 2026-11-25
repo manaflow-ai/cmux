@@ -16,6 +16,7 @@ optchat-chief spawn \"task\" [\"task\" ...] | tell ID \"message\"     section 9'
 optchat-chief trace [--since 1h] [--turn ID] [--json] [--mux-home DIR]  the monitoring trace as a timeline
 optchat-chief workspace                                   the person's Home workspace now (panes, terminal tails, browsers)
 optchat-chief engine show | set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M]
+optchat-chief brains [list] | migrate hermes [--from DIR] [--apply NAME|all]   open-source brains (hermes, openclaw): state, fallbacks, job import
 optchat-chief stats [--since 24h] [--json] [--mux-home DIR]      per turn, node and subagent: latency, tools, cache, cost
 optchat-chief usage [--since 7d] [--by chief|agent|model|harness|kind|person] [--top N] [--json] [--mux-home DIR]... [--chiefs]
                                                           tokens, cost, cache hit and turn time over time (the usage ledger)
@@ -53,6 +54,17 @@ fn main() -> std::process::ExitCode {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64);
     let mut args: Vec<String> = std::env::args().skip(1).collect();
+    // `--version`: the crate version and, in a published build, the commit it
+    // was built from (the Cloud machine's updater smoke-runs a download with it).
+    if matches!(args.as_slice(), [a] if a == "--version" || a == "-V" || a == "version") {
+        match option_env!("OPTCHAT_CHIEF_BUILD_COMMIT") {
+            Some(commit) if !commit.is_empty() => {
+                println!("optchat-chief {} ({commit})", env!("CARGO_PKG_VERSION"));
+            }
+            _ => println!("optchat-chief {}", env!("CARGO_PKG_VERSION")),
+        }
+        return std::process::ExitCode::SUCCESS;
+    }
     // Agent memory parses its own arguments: note text keeps every word,
     // including the Chief's own flags below.
     if args.first().is_some_and(|a| a == "agent-memory") {
@@ -196,9 +208,11 @@ fn main() -> std::process::ExitCode {
             }
         }
         Some(
-            tool @ ("zoom" | "date" | "spawn" | "tell" | "peers" | "react" | "reply" | "send"
-            | "stop" | "sleep" | "watch" | "remember" | "transcript" | "control"
-            | "profile" | "chiefs" | "escalate-auth" | "escalate_auth" | "cloud-workspace"
+            tool @ ("zoom" | "date" | "recall" | "follow_up" | "follow_ups" | "check_ins"
+            | "nothing" | "ask" | "memory_read" | "memory_write" | "memory_forget"
+            | "spawn" | "tell" | "peers" | "react" | "reply" | "send" | "stop" | "sleep"
+            | "watch" | "remember" | "transcript" | "control" | "automation" | "profile"
+            | "chiefs" | "escalate-auth" | "escalate_auth" | "cloud-workspace"
             | "cloud_workspace"),
         ) => {
             let socket = flags
@@ -303,6 +317,18 @@ fn main() -> std::process::ExitCode {
                 eprintln!(
                     "chief workspace: this cmux session has no Home workspace (the cmux app makes it)"
                 );
+                1
+            }
+        },
+        // The open-source brains (brain_home.rs): their state, and the move of a brain's own
+        // jobs into cmux automations.
+        Some("brains") => match optchat_chief::brain_home::run(&flags) {
+            Ok(out) => {
+                print!("{out}");
+                0
+            }
+            Err(e) => {
+                eprintln!("optchat-chief brains: {e}");
                 1
             }
         },

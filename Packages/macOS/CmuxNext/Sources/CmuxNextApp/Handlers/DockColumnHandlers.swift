@@ -33,6 +33,7 @@ enum DockColumnHandlers {
             try dock(invocation, edge: nil, mode: .overlay, ctx)
         })
         WindowDockActions(host: ctx.services).bind(into: registry)
+        ctx.services.chiefSidePanel.follow(host: ctx.services) // Chief in Side Panel follows its setting into every window
         registry.bind("column.undock", requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in
             guard let (content, column) = ColumnHandlers.column(invocation, ctx) else { return }
             try ColumnDocking.apply(nil, to: column, in: content)

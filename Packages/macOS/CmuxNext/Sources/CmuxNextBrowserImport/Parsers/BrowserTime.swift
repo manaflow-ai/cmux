@@ -26,16 +26,3 @@ public struct BrowserTime {
         return Date(timeIntervalSinceReferenceDate: seconds)
     }
 }
-
-/// URLs worth importing: web pages and files, never browser-internal pages.
-enum ImportableURL {
-    /// SQL filter for the same schemes, so `LIMIT` counts only importable rows.
-    static func sqlFilter(_ column: String) -> String {
-        "(\(column) LIKE 'http:%' OR \(column) LIKE 'https:%' OR \(column) LIKE 'file:%' OR \(column) LIKE 'ftp:%')"
-    }
-
-    static func parse(_ text: String) -> URL? {
-        guard let url = URL(string: text), let scheme = url.scheme?.lowercased() else { return nil }
-        return ["http", "https", "file", "ftp"].contains(scheme) ? url : nil
-    }
-}

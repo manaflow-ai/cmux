@@ -51,7 +51,7 @@ nonisolated public struct MenuBarIcon: Sendable {
 nonisolated enum MenuBarExtraStrings {
     /// The icon's accessibility label while an agent acts through Computer Use.
     static func computerUseActive(_ app: String) -> String {
-        String(localized: "menuBar.computerUseActive", defaultValue: "\(app), an agent is using Computer Use", bundle: .module)
+        String(localized: "menuBar.computerUseActive", defaultValue: "\(app), an agent is using Computer Use", bundle: .localizedModule)
     }
 }
 

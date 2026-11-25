@@ -290,6 +290,18 @@ describe("start, stop, pause, resume", () => {
     expect(await json(response)).toMatchObject({ id: vmId, state: "running" });
     expect(t.upstreamRequests.map((call) => `${call.method} ${call.path}`)).toEqual([`POST /v5/vms/${upstreamId}/start`]);
     expect(t.audit).toEqual([expect.objectContaining({ action: "vm.start", cmuxId: vmId, outcome: "ok" })]);
+    // The provider's share of the request, for the caller's own trace (cmuxterm-hq goals/cloud-resume-gap.md).
+    expect(response.headers.get("server-timing")).toMatch(/^upstream;dur=\d+;desc="1 call"$/);
+  });
+
+  it("names no upstream time on an answer that made no upstream call", async () => {
+    const t = await harness();
+    const key = await t.addKey(TENANT_A, ["vm:read"]);
+
+    const response = await t.request("/v1/vms", bearer(key));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("server-timing")).toBeNull();
   });
 
   it("resume is start of a paused VM", async () => {
@@ -302,6 +314,8 @@ describe("start, stop, pause, resume", () => {
     expect(response.status).toBe(200);
     expect(await json(response)).toMatchObject({ state: "running" });
     expect(t.upstream.callsTo("POST", new RegExp(`^/v5/vms/${upstreamId}/start$`))).toHaveLength(1);
+    // The state read and the start: both the provider's.
+    expect(response.headers.get("server-timing")).toMatch(/^upstream;dur=\d+;desc="2 calls"$/);
   });
 
   it("resume refuses a VM that is not paused", async () => {

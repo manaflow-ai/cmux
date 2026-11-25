@@ -56,6 +56,8 @@ pub const ALLOWED_KEYS: [&str; 9] = [
 pub const ALLOWED_PREFIXES: [&str; 3] = ["LC_", "XDG_", "CMUX_"];
 /// Process identity the daemon itself needs, from the app process only.
 pub const DAEMON_IDENTITY_KEYS: [&str; 5] = ["HOME", "USER", "LOGNAME", "TMPDIR", "SSH_AUTH_SOCK"];
+/// The app's settings file, from the app process only, for the app's own daemon.
+pub const DAEMON_SETTINGS_KEYS: [&str; 1] = ["CMUX_NEXT_CONFIG_FILE"];
 /// Name parts that mark a credential.
 const CREDENTIAL_PARTS: [&str; 9] = [
     "PASSWORD",
@@ -133,6 +135,11 @@ pub fn daemon(login: Option<&Env>, base: &Env, overrides: &Env) -> Env {
     let mut env = terminal(login, base);
     for key in DAEMON_IDENTITY_KEYS {
         if let Some(value) = base.get(key) {
+            env.insert(key.into(), value.clone());
+        }
+    }
+    for key in DAEMON_SETTINGS_KEYS {
+        if let Some(value) = base.get(key).filter(|value| !value.is_empty()) {
             env.insert(key.into(), value.clone());
         }
     }

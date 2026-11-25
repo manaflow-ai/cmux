@@ -6,8 +6,8 @@ import { topModelsFor } from "../src/agent-session/acpmux/topModels";
 
 // Leo's requested releases are an independent behavioral oracle, not a copy of the source being tested.
 const requested = {
-  claude: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"],
-  codex: ["gpt-6.1-sol", "gpt-6.1-terra", "gpt-6.1-luna", "gpt-6-astra"],
+  claude: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-2"],
+  codex: ["gpt-6.2-sol", "gpt-6.1-terra", "gpt-6.1-luna", "gpt-6.2-astra"],
 };
 const ids = (models: readonly { id: string }[]) => models.map((model) => model.id);
 
@@ -53,6 +53,8 @@ test("a later release and a new harness family remain visible without changing a
   expect(ids(retry.more)).toContain("gpt-6-luna");
 });
 
+// GPT-6.1 Luna is the identity-only example: the public feed has no row for it (GPT-6.1 Terra had
+// none until 2026-11-19 and is now an ordinary feed model).
 test("identity-only current releases stay offline until a live account reports them", () => {
   const catalog = buildPickerCatalog({
     catalog: BUNDLED_MODEL_CATALOG,
@@ -68,7 +70,6 @@ test("identity-only current releases stay offline until a live account reports t
     provisional: false,
   });
   const harness = catalog.harnesses.find((entry) => entry.id === "codex")!;
-  expect(ids(harness.models)).not.toContain("gpt-6.1-terra");
   expect(ids(harness.models)).not.toContain("gpt-6.1-luna");
 
   const reported = buildPickerCatalog({
@@ -80,14 +81,14 @@ test("identity-only current releases stay offline until a live account reports t
         name: "Codex",
         models: [
           { id: "gpt-6.1-sol", name: "GPT-6.1 Sol" },
-          { id: "gpt-6.1-terra", name: "GPT-6.1 Terra" },
+          { id: "gpt-6.1-luna", name: "GPT-6.1 Luna" },
         ],
       },
     ],
     session: { harness: "codex" },
     provisional: false,
   });
-  expect(ids(reported.harnesses.find((entry) => entry.id === "codex")!.models)).toContain("gpt-6.1-terra");
+  expect(ids(reported.harnesses.find((entry) => entry.id === "codex")!.models)).toContain("gpt-6.1-luna");
 
   const profile = buildPickerCatalog({
     catalog: BUNDLED_MODEL_CATALOG,
@@ -102,7 +103,7 @@ test("identity-only current releases stay offline until a live account reports t
     session: { harness: "codex-sr" },
     provisional: false,
   });
-  expect(ids(profile.harnesses.find((entry) => entry.id === "codex-sr")!.models)).not.toContain("gpt-6.1-terra");
+  expect(ids(profile.harnesses.find((entry) => entry.id === "codex-sr")!.models)).not.toContain("gpt-6.1-luna");
 });
 
 test("a live profile owns its reported list even while the host catalog is provisional", () => {
@@ -127,7 +128,6 @@ test("a live profile owns its reported list even while the host catalog is provi
   });
   for (const id of ["codex", "codex-sr"]) {
     const models = catalog.harnesses.find((entry) => entry.id === id)!.models;
-    expect(ids(models)).not.toContain("gpt-6.1-terra");
     expect(ids(models)).not.toContain("gpt-6.1-luna");
   }
 });
@@ -135,7 +135,7 @@ test("a live profile owns its reported list even while the host catalog is provi
 for (const provisional of [true, false]) {
   test(`host provisional=${provisional}: no profile keeps offline identities; an empty profile does not`, () => {
     const offline = buildPickerCatalog({ catalog: BUNDLED_MODEL_CATALOG, acpmux: [], provisional });
-    expect(ids(offline.harnesses.find((entry) => entry.id === "codex")!.models)).toContain("gpt-6.1-terra");
+    expect(ids(offline.harnesses.find((entry) => entry.id === "codex")!.models)).toContain("gpt-6.1-luna");
     const joined = buildPickerCatalog({
       catalog: BUNDLED_MODEL_CATALOG,
       acpmux: [
@@ -146,7 +146,6 @@ for (const provisional of [true, false]) {
     });
     for (const id of ["codex", "codex-sr"]) {
       const models = joined.harnesses.find((entry) => entry.id === id)!.models;
-      expect(ids(models)).not.toContain("gpt-6.1-terra");
       expect(ids(models)).not.toContain("gpt-6.1-luna");
     }
   });

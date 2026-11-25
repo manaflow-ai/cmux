@@ -18,6 +18,7 @@
 //! indexes and fractional integers gave NaN or JavaScript-only results there.
 
 pub mod ffi;
+pub mod filter;
 mod rank;
 mod shortcut;
 mod text;
@@ -153,6 +154,10 @@ pub struct RankRequest {
     /// true when that sum is below the threshold, so they decide the pass as one request would.
     /// (Rust only: the TypeScript ranker has no such field.)
     pub typo_pass: Option<bool>,
+    /// The page's section names, one list (title, id) per section index. With them, filter
+    /// tokens in the query (`in:tabs`, `-in:history`, [`filter`]) keep or drop sections' rows.
+    /// (Rust only.)
+    pub section_names: Option<Vec<Vec<String>>>,
 }
 
 /// The typo pass runs only when the strict pass found fewer rows than this at the substring tier
@@ -325,6 +330,14 @@ fn rank_entries(
     narrowing: Option<&mut rank::Narrowing>,
     work: &mut usize,
 ) -> RankAnswer {
+    if request.operation != "rankEmpty"
+        && let Some(names) = request.section_names.as_deref()
+    {
+        let parsed = filter::parse(request.query.as_deref().unwrap_or(""), names);
+        if parsed.applied {
+            return rank_filtered(request, &parsed, entries, prepared, store, narrowing, work);
+        }
+    }
     if request.operation == "rankEmpty" {
         return RankAnswer {
             sections: rank::rank_empty(request, entries, store),
@@ -335,6 +348,84 @@ fn rank_entries(
         Some(prepared) => rank::rank(request, entries, prepared, store, narrowing, work),
         None => rank::rank(request, entries, &rank::Prepared::new(entries), store, None, work),
     }
+}
+
+/// A request without its entries and history (passed beside it), its query `query`.
+fn narrowed_request(request: &RankRequest, query: String, row_limit: Option<i64>) -> RankRequest {
+    RankRequest {
+        operation: request.operation.clone(),
+        entries: None,
+        version: request.version,
+        query: Some(query),
+        section_orders: request.section_orders.clone(),
+        frecency: None,
+        history_revision: request.history_revision,
+        now: request.now,
+        shows_recent: request.shows_recent,
+        keeps_section_order: request.keeps_section_order,
+        ranks_prefix_first: request.ranks_prefix_first,
+        recent_limit: request.recent_limit,
+        aliases: request.aliases.clone(),
+        pins: request.pins.clone(),
+        pinned_section_index: request.pinned_section_index,
+        row_limit,
+        highlight_limit: request.highlight_limit,
+        typo_pass: request.typo_pass,
+        section_names: None,
+    }
+}
+
+/// Keeps at most `limit` rows across `sections`, in order, and drops the emptied sections.
+fn keep_rows(
+    sections: Vec<RankedSection>,
+    limit: usize,
+    keeps: impl Fn(&RankedRow) -> bool,
+) -> Vec<RankedSection> {
+    let mut left = limit;
+    sections
+        .into_iter()
+        .filter_map(|mut section| {
+            section.rows.retain(&keeps);
+            section.rows.truncate(left);
+            left -= section.rows.len();
+            (!section.rows.is_empty()).then_some(section)
+        })
+        .collect()
+}
+
+/// Ranks a query with filter tokens ([`filter`]): the rest of the query over the rows the
+/// filter keeps. With no rest (`in:tabs` alone), every kept row, most used first, so a filter
+/// alone lists its kind.
+fn rank_filtered(
+    request: &RankRequest,
+    parsed: &filter::QueryFilter,
+    entries: &[Entry],
+    prepared: Option<&rank::Prepared>,
+    store: Option<&Frecency>,
+    narrowing: Option<&mut rank::Narrowing>,
+    work: &mut usize,
+) -> RankAnswer {
+    let row_limit = usize::try_from(request.row_limit.unwrap_or(400)).unwrap_or(0);
+    if parsed.rest.trim().is_empty() {
+        let sections = if parsed.restricts() {
+            rank::rank_kept(request, entries, store, |entry| parsed.allows_entry(entry), row_limit)
+        } else {
+            rank::rank_empty(request, entries, store)
+        };
+        return RankAnswer { sections, strict_matches: 0 };
+    }
+    // Every match, so the filter keeps up to `row_limit` rows of the kept sections.
+    let every =
+        i64::try_from(entries.len()).unwrap_or(i64::MAX).max(request.row_limit.unwrap_or(400));
+    let inner = narrowed_request(request, parsed.rest.clone(), Some(every));
+    let answer = match prepared {
+        Some(prepared) => rank::rank(&inner, entries, prepared, store, narrowing, work),
+        None => rank::rank(&inner, entries, &rank::Prepared::new(entries), store, None, work),
+    };
+    let sections = keep_rows(answer.sections, row_limit, |row| {
+        entries.get(row.index).is_some_and(|entry| parsed.allows_entry(entry))
+    });
+    RankAnswer { sections, strict_matches: answer.strict_matches }
 }
 
 /// Ranks a request that carries its own entries and history.

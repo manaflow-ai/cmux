@@ -22,18 +22,18 @@
       "provider": "anthropic"
     },
     {
-      "id": "claude-fable-5-1",
-      "name": "Claude Fable 5.1",
-      "shortName": "Fable 5.1",
+      "id": "claude-fable-5-2",
+      "name": "Claude Fable 5.2",
+      "shortName": "Fable 5.2",
       "family": "Fable",
       "provider": "anthropic"
     }
   ],
   "codex": [
     {
-      "id": "gpt-6.1-sol",
-      "name": "GPT-6.1 Sol",
-      "shortName": "GPT-6.1 Sol",
+      "id": "gpt-6.2-sol",
+      "name": "GPT-6.2 Sol",
+      "shortName": "GPT-6.2 Sol",
       "family": "Sol",
       "provider": "openai"
     },
@@ -52,9 +52,9 @@
       "provider": "openai"
     },
     {
-      "id": "gpt-6-astra",
-      "name": "GPT-6 Astra",
-      "shortName": "GPT-6 Astra",
+      "id": "gpt-6.2-astra",
+      "name": "GPT-6.2 Astra",
+      "shortName": "GPT-6.2 Astra",
       "family": "Astra",
       "provider": "openai"
     }

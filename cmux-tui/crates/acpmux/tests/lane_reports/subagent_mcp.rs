@@ -213,6 +213,48 @@ async fn lane_report_subagent_mcp_bg_start_runs_as_the_subagent_that_called_it()
     assert_eq!(written(&dir.join("after.txt")).await.trim(), "");
 }
 
+/// `run_wait` given a background task and a bound (`{"id": "bg-...", "timeoutSeconds": 900}`,
+/// the call an agent made 2026-11-21 that came back at once with the task "running") blocks
+/// until the task ends; with a bound shorter than the task it says plainly that it timed out.
+#[tokio::test]
+async fn run_wait_given_a_bg_task_and_a_timeout_waits_for_it_to_end() {
+    let hub = hub();
+    hub.set_bg_runner(daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
+    let sock = socket(&hub, "run-wait").await;
+    let mut person = Client::new(&hub);
+    let parent = person.new_session("run-wait", json!({})).await;
+    let start = |command: &str| json!({"command": command, "notify": false});
+    let task = mcp(&sock, &parent, "bg_start", start("sleep 1; echo slept"), json!({})).await;
+    let id = task["structuredContent"]["id"].as_str().unwrap().to_owned();
+    let asked = Instant::now();
+    let r =
+        mcp(&sock, &parent, "run_wait", json!({"id": id, "timeoutSeconds": 900}), json!({})).await;
+    let took = asked.elapsed();
+    let s = &r["structuredContent"];
+    assert_eq!((s["state"].as_str(), s["exitCode"].as_i64()), (Some("exited"), Some(0)), "{r}");
+    assert!(s["text"].as_str().unwrap().contains("slept"), "{r}");
+    assert_eq!(
+        (s["wait"]["timedOut"].as_bool(), s["wait"]["clamped"].as_bool()),
+        (Some(false), Some(false)),
+        "{r}"
+    );
+    assert!(took < Duration::from_secs(60), "waited {took:?} for a 1 s task");
+    // A bound shorter than the task: it waits the bound, then says it timed out, still running.
+    let task = mcp(&sock, &parent, "bg_start", start("sleep 30"), json!({})).await;
+    let id = task["structuredContent"]["id"].as_str().unwrap().to_owned();
+    let asked = Instant::now();
+    let r = mcp(&sock, &parent, "run_wait", json!({"id": id, "timeout": 1}), json!({})).await;
+    assert!(asked.elapsed() >= Duration::from_secs(1), "{r}");
+    assert!(text_of(&r).contains("timed out after waiting 1 s and it is still running"), "{r}");
+    assert_eq!(r["structuredContent"]["wait"]["timedOut"], true, "{r}");
+    let stop = mcp(&sock, &parent, "bg_stop", json!({"id": id}), json!({})).await;
+    assert_eq!(stop["isError"], false, "{stop}");
+}
+
+fn text_of(result: &Value) -> String {
+    result["content"][0]["text"].as_str().unwrap_or_default().to_owned()
+}
+
 /// The texts of the background task end messages session `parent` got, queued or run
 /// (`hub/bg_notify.rs`: provenance with `bgTaskId`), once per task.
 async fn bg_ends(person: &mut Client, parent: &str) -> Vec<String> {

@@ -68,6 +68,9 @@ import urllib.request
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
+
 HERE = Path(__file__).resolve().parent
 STABLE_CHANNEL = "cmux-next-stable"
 NIGHTLY_CHANNELS = (None, "cmux-next", STABLE_CHANNEL)
@@ -145,8 +148,9 @@ def notes_published(source: str, build: int) -> bool:
     last = None
     for attempt in range(3):  # a transient 5xx or timeout must not fail plan (it counts toward the night's 3 failures)
         try:
-            with urllib.request.urlopen(request, timeout=30):
-                return True
+            # The whole call ends in 30 s, not each socket wait (tests/test_ci_no_bare_urlopen.py).
+            deadline_http.request(request, 30, raise_errors=True)
+            return True
         except urllib.error.HTTPError as error:
             if error.code == 404:
                 return False
@@ -167,8 +171,8 @@ def read_verdict(source: str | None, build: int) -> str | None:
         # The feed's CDN refuses Python's default user agent (403).
         request = urllib.request.Request(f"{source.rstrip('/')}/{build}.json", headers={"User-Agent": "cmux-stable-next/1"})
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                return json.load(response).get("verdict")
+            _, body, _ = deadline_http.request(request, 30, raise_errors=True)
+            return json.loads(body).get("verdict")
         except urllib.error.HTTPError as error:
             if error.code == 404:
                 return None
@@ -422,8 +426,9 @@ def sentry_new_crashes(release: str, org: str, project: str, token: str) -> list
     params = urllib.parse.urlencode({"project": project, "query": query, "statsPeriod": "14d", "limit": 25})
     request = urllib.request.Request(f"https://sentry.io/api/0/organizations/{org}/issues/?{params}",
                                      headers={"Authorization": f"Bearer {token}"})
-    with urllib.request.urlopen(request, timeout=60) as response:
-        return json.load(response)
+    # user-agent: sentry.io's API, no CDN of ours
+    _, body, _ = deadline_http.request(request, 60, raise_errors=True)
+    return json.loads(body)
 
 
 # main ---------------------------------------------------------------------------------------------
