@@ -112,6 +112,36 @@ final class EventLog: @unchecked Sendable {
         #expect(first.closed)
     }
 
+    @Test(.timeLimit(.minutes(1))) func aHungConnectTimesOutAndRetries() async {
+        struct HangingConnector: DeviceHubSocketConnector {
+            func connect() async throws -> any DeviceHubSocketConnection {
+                try await Task.sleep(for: .seconds(3600))
+                throw CancellationError()
+            }
+        }
+        let socket = DeviceHubSocket(connector: HangingConnector(),
+                                     backoff: Backoff(initial: .milliseconds(1), maximum: .milliseconds(1), jitter: 0),
+                                     connectTimeout: .milliseconds(10))
+        let log = EventLog()
+        let (retry, signal) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+        let task = Task {
+            await socket.run { event in
+                log.append(event)
+                if case .state(.reconnecting) = event { signal.yield() }
+            }
+        }
+        for await _ in retry { break }
+        task.cancel()
+        await task.value
+
+        #expect(log.all.contains(.state(.connecting)))
+        #expect(log.all.contains {
+            if case let .state(.reconnecting(reason)) = $0 { return reason.contains("timed out") }
+            return false
+        })
+        #expect(log.all.last == .state(.disconnected))
+    }
+
     @Test(.timeLimit(.minutes(1))) func aRemovedDevicesSocketStopsReconnecting() async {
         final class Removed: DeviceHubSocketConnection, @unchecked Sendable {
             func receive() async throws -> String { throw DeviceHubSocket.Closed(code: 4001) }

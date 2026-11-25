@@ -74,17 +74,17 @@ import Testing
     }
 
     @Test(arguments: Density.allCases)
-    func theMoreButtonSitsOnThePanesTrailingControlColumn(density: Density) {
+    func theTrailingButtonSitsOnThePanesTrailingControlColumn(density: Density) throws {
         defer { reset() }
         load(.floating, density: density)
         let toolbar = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 120, height: PaneChromeMetrics.current.resolvedStripHeight(scale: 2)))
-        toolbar.show(more: true, lit: false)
+        toolbar.show([PaneToolbarItem(id: "splitRight", title: "Split Right", symbol: "rectangle.split.2x1", shortcut: nil)])
         toolbar.layoutSubtreeIfNeeded()
-        // The fixed trailing slot, at rest and throughout the hover fade.
-        let more = toolbar.moreFrame()
-        let center = toolbar.bounds.maxX - more.midX
-        #expect(more.minY > 0)
+        // The trailing slot (a pin, or a zoomed pane's Exit Zoom), at rest and throughout the hover fade.
+        let last = try #require(toolbar.buttons.last).frame
+        let center = toolbar.bounds.maxX - last.midX
+        #expect(last.minY > 0)
         #expect(abs(center - Metrics.paneTrailingControlCenter) <= 0.01,
-                "\(density): \"…\" centered \(center) pt from the trailing edge, the column is \(Metrics.paneTrailingControlCenter) pt")
+                "\(density): the trailing button centered \(center) pt from the trailing edge, the column is \(Metrics.paneTrailingControlCenter) pt")
     }
 }

@@ -57,6 +57,11 @@ impl CursorReader {
         Self { bounds, scale, seed: None, shape: 0, shape_read: None }
     }
 
+    /// The streamed area moved (a shared window, same size).
+    pub fn move_to(&mut self, bounds: Bounds) {
+        self.bounds = bounds;
+    }
+
     pub fn sample(&mut self) -> Option<CursorSample> {
         let point = location()?;
         let (x, y) = to_pixels(point, self.bounds, self.scale);

@@ -1638,7 +1638,7 @@ def _operation_catalog(
                 diagnostics, path, text, f"{operation}.params must be an object", operation
             )
             return
-        allowed = {"selectors", "fields", "extra", "constraints", "one_of"}
+        allowed = {"selectors", "fields", "extra", "unknown_params", "constraints", "one_of"}
         if set(value) - allowed or not {"selectors", "fields", "extra"} <= set(value):
             _catalog_diagnostic(
                 diagnostics, path, text, f"{operation}.params has a schema hole", operation
@@ -1646,6 +1646,14 @@ def _operation_catalog(
         if value.get("extra") is not False:
             _catalog_diagnostic(
                 diagnostics, path, text, f"{operation}.params.extra must be false", operation
+            )
+        if "unknown_params" in value and value["unknown_params"] != "refuse":
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                f"{operation}.params.unknown_params must be \"refuse\" when present",
+                operation,
             )
         selector_map = value.get("selectors")
         if not isinstance(selector_map, dict):

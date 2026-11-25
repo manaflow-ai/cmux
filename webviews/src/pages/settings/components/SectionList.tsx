@@ -1,14 +1,14 @@
 import {
+  useSyncExternalStore,
   useCallback,
   useEffect,
   useId,
   useRef,
   useState,
-  useSyncExternalStore,
   type ComponentProps,
   type ReactNode,
 } from "react";
-import { createLink, type AnyRouter } from "@tanstack/react-router";
+import { type AnyRouter, createLink } from "@tanstack/react-router";
 import { useSettingsState } from "../context";
 import { categoryRows, shownSidebarSections, type Category, type SidebarSection } from "../categories";
 import { settingsFileName } from "../format";
@@ -17,6 +17,8 @@ import type { SettingsState } from "../store";
 import { managedOf } from "../store";
 import { t, text } from "../strings";
 import { harnessesNeedAttention } from "../harnesses";
+import { isExperimentalCategory, useBetaChips } from "../betaChips";
+import { BetaChip } from "./BetaChip";
 import { followScrollEdges } from "../../../ui/scrollEdges";
 import { followStripWheel, revealInStrip } from "./sectionStrip";
 
@@ -112,6 +114,7 @@ const SectionLink = createLink(function SectionAnchor({
  * it opens on a click, and while one of its categories is shown. */
 export function SectionList({ current, onSelect }: { current: string | null; onSelect: (section: string) => void }) {
   const state = useSettingsState();
+  const betaChips = useBetaChips();
   // A narrow pane's strip (sectionStrip.ts): its edges fade where categories are past them, a wheel
   // scrolls it sideways, and the shown category scrolls into view.
   const strip = useRef<HTMLElement | null>(null);
@@ -155,6 +158,7 @@ export function SectionList({ current, onSelect }: { current: string | null; onS
           <CategoryIcon symbol={category.symbol} />
         </span>
         <span className="section-name">{text(category.title)}</span>
+        {betaChips && isExperimentalCategory(category.id) && <BetaChip />}
         {mark && (
           <span className={`badge badge-${mark}`} data-badge={mark}>
             <Icon name={mark} />

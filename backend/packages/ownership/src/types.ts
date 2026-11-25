@@ -50,6 +50,12 @@ export interface Principal {
   /** A VM install's one machine (kind vm, made at bind), resolved by UserDO with the grant. */
   readonly bound_machine?: string
   /**
+   * A VM install bearer that cmux-platform's own GitHub egress minted (claim `edge`), never one the guest holds.
+   * On a machine whose git reaches GitHub through its platform edge, only this bearer may mint a GitHub token
+   * (github-token-route.ts, `github.edge_only`).
+   */
+  readonly edge?: true
+  /**
    * Agents (chiefs) the user owns, resolved by the Worker from UserDO's chief records for ops
    * that add participants (Home). Owners trust it only because the Worker builds every
    * principal; frames and params never carry it.

@@ -3,7 +3,6 @@ import Foundation
 public nonisolated enum HomeEngineStrings {
     static var title: String { String(localized: "home.engine.title", defaultValue: "Chief Settings", table: "Home", bundle: .localizedModule) }
     public static var pillHelp: String { String(localized: "home.engine.pillHelp", defaultValue: "Shows or hides this Chief's settings", table: "Home", bundle: .localizedModule) }
-    static var nextTurn: String { String(localized: "home.engine.nextTurn", defaultValue: "Changes apply from the next turn.", table: "Home", bundle: .localizedModule) }
     static var openTraces: String { String(localized: "home.engine.openTraces", defaultValue: "Show Traces", table: "Home", bundle: .localizedModule) }
     static var showMemory: String { String(localized: "home.engine.showMemory", defaultValue: "Show Memory", table: "Home", bundle: .localizedModule) }
     /// The popover's link to Settings > Chief, the page with every Chief setting.
@@ -114,9 +113,6 @@ public nonisolated enum HomeEngineStrings {
     /// The harness field's placeholder while neither this Chief nor cmux.json names one.
     static var reactionHarnessDefault: String { String(localized: "home.engine.reactions.harnessDefault", defaultValue: "Default (Claude route)", table: "Home", bundle: .localizedModule) }
     static var reactionPromptBuiltIn: String { String(localized: "home.engine.reactions.promptBuiltIn", defaultValue: "Built-in instructions", table: "Home", bundle: .localizedModule) }
-    static var reactionsNote: String {
-        String(localized: "home.engine.reactions.note", defaultValue: "A cheap model decides whether your reaction on a Chief message needs an answer. Only then does the Chief start typing. Empty fields use your settings.", table: "Home", bundle: .localizedModule)
-    }
     /// A picker's "Default" item naming what it runs: "Default (claude)", "Default (Opus 5.5)".
     static var defaultNamedFormat: String {
         String(localized: "home.engine.defaultNamed", defaultValue: "Default (%@)", table: "Home", bundle: .localizedModule)
