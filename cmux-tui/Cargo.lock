@@ -1585,6 +1585,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cas"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "blake3",
+ "cmux-signed-envelope",
+ "ring",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "zstd",
+]
+
+[[package]]
 name = "cmux-chat-index"
 version = "0.1.0"
 dependencies = [
