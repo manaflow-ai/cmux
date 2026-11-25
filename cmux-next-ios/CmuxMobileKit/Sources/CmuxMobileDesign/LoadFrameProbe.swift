@@ -56,7 +56,7 @@ public final class LoadFrameProbe {
     }
 
     @ObservationIgnored private var nextTag = 0
-    @ObservationIgnored private let trace: SendFrameTrace? =
+    @ObservationIgnored private var trace: SendFrameTrace? =
         ProcessInfo.processInfo.environment["CMUX_MOBILE_SEND_TRACE"] == "1" ? SendFrameTrace() : nil
 
     private init() {
