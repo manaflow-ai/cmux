@@ -76,7 +76,7 @@ Where the time goes:
 ## Fast fallback off a dead direct path (`CMUX_BRAID_FAST_FALLBACK`, cmux#56738)
 
 `sudo cmux-tui/scripts/remote-fast-fallback-bench.sh BIN 5` with `ARMS="off on off-nochange on-nochange"`,
-binary at 8490f9d2 (release), gcp-agent-lane-5, load 2.2 at start, 16.5 at end. Route 0 (ws, direct) is
+binary at 8490f9d2 (release), a 16-core Linux VM, load 2.2 at start, 16.5 at end. Route 0 (ws, direct) is
 black-holed at T0; the `*-nochange` arms black-hole it with no kernel network change (the ordinary heartbeat
 timeout, the control). `leave` is T0 to the first SYN on route 1; `up` is T0 to the end of the first burst
 there (the link carries again).
