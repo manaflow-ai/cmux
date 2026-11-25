@@ -16,7 +16,6 @@
 
 pub mod accept_errors;
 pub(crate) mod acp_key_auth;
-pub mod acp_todo_plan;
 pub mod acpmux_mcp;
 pub mod acpmux_mcp_names;
 pub mod adopt;
@@ -69,6 +68,7 @@ pub mod close_why;
 pub mod cloud_folder;
 pub mod cloud_host;
 pub mod cloud_model_plane;
+pub mod cloud_readme;
 pub mod cloud_repo_mcp;
 pub mod cloud_rewind;
 /// The cmux-tui remote daemon this machine serves to its other machines (`cmux_tui_service.rs`).
@@ -109,6 +109,7 @@ pub mod disk_usage;
 pub(crate) mod disk_writer;
 pub mod folder_instructions;
 pub mod fork_place;
+pub mod fork_risky;
 #[cfg(all(test, unix))]
 mod fork_tests;
 pub mod forum;
@@ -411,7 +412,6 @@ pub(crate) mod supervise;
 pub mod surge_triage;
 pub mod tailnet;
 pub mod tailnet_carrier;
-pub mod task_list;
 #[cfg(unix)]
 #[path = "daemon/term_sender.rs"]
 pub(crate) mod term_sender;
@@ -425,6 +425,7 @@ mod test_stack;
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub mod test_support;
 pub(crate) mod time_breakdown;
+pub mod todo_tools;
 pub(crate) mod tool_env;
 pub mod tool_mentions;
 pub mod tools_mcp;
