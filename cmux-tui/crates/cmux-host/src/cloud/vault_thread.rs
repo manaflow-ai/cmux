@@ -13,7 +13,7 @@
 //!
 //! [`STATE_FILE`]: super::vault::STATE_FILE
 
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
 use std::time::Duration;
 
@@ -130,7 +130,7 @@ pub fn pass(
     let Some(home) = super::daemon_noise_key::session_home(marker.as_deref()) else {
         return Outcome::Failed("vault.no_layout");
     };
-    let owner = if home == PathBuf::from(ROOT_HOME) {
+    let owner = if home == Path::new(ROOT_HOME) {
         Some((0, 0))
     } else {
         lookup_user(WORK_USER).map(|u| (u.uid, u.gid))

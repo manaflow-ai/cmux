@@ -292,7 +292,7 @@ fn the_secrets_file_is_private_atomic_and_never_written_through_a_symlink() {
     assert!(std::fs::read_dir(&target).unwrap().next().is_none());
 
     // A home of another user is not written into.
-    let mut theirs = SecretsFile { home: home.clone(), uid: uid.wrapping_add(1), gid };
+    let mut theirs = SecretsFile { home, uid: uid.wrapping_add(1), gid };
     assert_eq!(theirs.write("export D='4'\n").unwrap_err(), "vault.folder_not_owned");
 }
 
