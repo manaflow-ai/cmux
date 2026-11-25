@@ -25,6 +25,7 @@ on:
     branches: [feat-cmux-next]
     paths:
       - scripts/cmux-next/cloud-chaos-move.ts
+      - scripts/cmux-next/cloud-journey.ts
       - .github/workflows/cloud-move-kill.yml
 
 permissions:
