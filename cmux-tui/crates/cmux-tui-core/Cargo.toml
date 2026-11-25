@@ -119,6 +119,8 @@ cmux-app-manifest.workspace = true
 cmux-app-host.workspace = true
 
 [dev-dependencies]
+# The headless Mac output to iPhone paint row (server/output_to_paint_tests.rs).
+cmux-output-paint.workspace = true
 cmux-tui-cloud-conversations = { workspace = true, features = ["test-support"] }
 cmux-tui-platform = { workspace = true, features = ["test-support"] }
 cmux-tui-remote-access = { workspace = true, features = ["test-support"] }

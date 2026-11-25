@@ -356,6 +356,30 @@
           ]
         },
         {
+          "key": "experiments.quietConnect",
+          "note": "Taste prototype: quiet connections (Leo, 2026-11-14: \"i also want all our connectivity stuff to shut the fuck up and load faster/percievably load faster\"). A paused Cloud machine resuming for an attach shows no \"Resuming…\" in its sidebar header until the resume lasts past the shared connection quiet time (SidebarPlaceholderGrace.quietConnect, from DesignSettings.experiments). Off by default (Leo's UI merge hold, 2026-11-24); off says \"Resuming…\" at once, as before.",
+          "title": {
+            "key": "settings.experiments.quietConnect",
+            "text": "Quiet Connections"
+          },
+          "help": {
+            "key": "settings.experiments.quietConnect.help",
+            "text": "Hide Resuming… and connection waits that end within 10 seconds."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "experiments",
+            "experimental",
+            "connection",
+            "connecting",
+            "resuming",
+            "quiet",
+            "cloud"
+          ]
+        },
+        {
           "key": "experiments.forum",
           "note": "Taste prototype: the team's hosted agent forum as a page in the app (webviews/src/pages/forum, gallery pages.forum; data from cmux-tui/crates/cmux-forum-hosted). Off by default; off shows no Forum entry anywhere.",
           "title": {
