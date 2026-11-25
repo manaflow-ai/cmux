@@ -89,7 +89,13 @@ impl Action {
     }
 
     fn button(&self, id: String) -> Button {
-        Button { id, action_id: self.id(), title: Some(self.title.clone()), tooltip: self.tooltip.clone(), icon: self.icon.clone() }
+        Button {
+            id,
+            action_id: self.id(),
+            title: Some(self.title.clone()),
+            tooltip: self.tooltip.clone(),
+            icon: self.icon.clone(),
+        }
     }
 }
 
@@ -173,19 +179,31 @@ fn agent_command(agent: &str) -> &str {
     }
 }
 
-fn command_text(kind: &str, fields: &Map<String, Value>, path: &str, diags: &mut Vec<Diag>) -> Option<String> {
+fn command_text(
+    kind: &str,
+    fields: &Map<String, Value>,
+    path: &str,
+    diags: &mut Vec<Diag>,
+) -> Option<String> {
     match kind {
         "command" => {
             let command = trimmed(fields.get("command"));
             if command.is_none() {
-                diags.push(Diag::invalid(format!("{path}.command"), "command actions need a command"));
+                diags.push(Diag::invalid(
+                    format!("{path}.command"),
+                    "command actions need a command",
+                ));
             }
             command
         }
         "agent" => {
-            let agent = trimmed(fields.get("agent")).filter(|a| !a.chars().any(char::is_whitespace));
+            let agent =
+                trimmed(fields.get("agent")).filter(|a| !a.chars().any(char::is_whitespace));
             let Some(agent) = agent else {
-                diags.push(Diag::invalid(format!("{path}.agent"), "agent must be one command name; put flags in args"));
+                diags.push(Diag::invalid(
+                    format!("{path}.agent"),
+                    "agent must be one command name; put flags in args",
+                ));
                 return None;
             };
             let name = agent_command(&agent).to_string();
@@ -232,13 +250,16 @@ fn parse_actions(root: &Value, ctx: &Context, diags: &mut Vec<Diag>) -> BTreeMap
             diags.push(Diag::invalid(path, "expected an object"));
             continue;
         };
-        let kind = trimmed(fields.get("type"))
-            .unwrap_or_else(|| if fields.contains_key("agent") { "agent" } else { "command" }.to_string());
+        let kind = trimmed(fields.get("type")).unwrap_or_else(|| {
+            if fields.contains_key("agent") { "agent" } else { "command" }.to_string()
+        });
         let Some(command) = command_text(&kind, fields, &path, diags) else { continue };
         let tooltip = trimmed(fields.get("tooltip"));
         let action = Action {
             name: name.clone(),
-            title: trimmed(fields.get("title")).or_else(|| tooltip.clone()).unwrap_or_else(|| name.clone()),
+            title: trimmed(fields.get("title"))
+                .or_else(|| tooltip.clone())
+                .unwrap_or_else(|| name.clone()),
             tooltip,
             icon: ctx.icon(fields.get("icon")),
             command,
@@ -269,9 +290,15 @@ pub(super) fn surface_tab_bar_op(request: &Value) -> Result<Value, OpError> {
             uses_defaults = false;
             for (index, entry) in entries.iter().enumerate() {
                 let entry_path = format!("{path}.{index}");
-                let Some(button) = resolve(entry, &entry_path, &mut actions, &ctx, &mut diags) else { continue };
+                let Some(button) = resolve(entry, &entry_path, &mut actions, &ctx, &mut diags)
+                else {
+                    continue;
+                };
                 if buttons.iter().any(|seen| seen.id == button.id) {
-                    diags.push(Diag::invalid(entry_path, format!("duplicate button id '{}'", button.id)));
+                    diags.push(Diag::invalid(
+                        entry_path,
+                        format!("duplicate button id '{}'", button.id),
+                    ));
                     continue;
                 }
                 buttons.push(button);
@@ -285,7 +312,13 @@ pub(super) fn surface_tab_bar_op(request: &Value) -> Result<Value, OpError> {
     }))
 }
 
-fn reference(identifier: &str, id: Option<String>, path: &str, actions: &BTreeMap<String, Action>, diags: &mut Vec<Diag>) -> Option<Button> {
+fn reference(
+    identifier: &str,
+    id: Option<String>,
+    path: &str,
+    actions: &BTreeMap<String, Action>,
+    diags: &mut Vec<Diag>,
+) -> Option<Button> {
     if let Some(action) = actions.get(identifier) {
         return Some(action.button(id.unwrap_or_else(|| identifier.to_string())));
     }
@@ -299,7 +332,10 @@ fn reference(identifier: &str, id: Option<String>, path: &str, actions: &BTreeMa
         });
     }
     if UNSUPPORTED.contains(&identifier) {
-        diags.push(Diag::unknown_action(path, format!("'{identifier}' is not supported in cmux-next yet")));
+        diags.push(Diag::unknown_action(
+            path,
+            format!("'{identifier}' is not supported in cmux-next yet"),
+        ));
         return None;
     }
     Some(Button {
@@ -311,7 +347,13 @@ fn reference(identifier: &str, id: Option<String>, path: &str, actions: &BTreeMa
     })
 }
 
-fn resolve(entry: &Value, path: &str, actions: &mut BTreeMap<String, Action>, ctx: &Context, diags: &mut Vec<Diag>) -> Option<Button> {
+fn resolve(
+    entry: &Value,
+    path: &str,
+    actions: &mut BTreeMap<String, Action>,
+    ctx: &Context,
+    diags: &mut Vec<Diag>,
+) -> Option<Button> {
     if entry.is_string() {
         let Some(identifier) = trimmed(Some(entry)) else {
             diags.push(Diag::invalid(path, "blank button"));
@@ -323,8 +365,10 @@ fn resolve(entry: &Value, path: &str, actions: &mut BTreeMap<String, Action>, ct
         diags.push(Diag::invalid(path, "expected a string or an object"));
         return None;
     };
-    let forms: Vec<&str> =
-        ["action", "builtin", "command", "agent", "type"].into_iter().filter(|k| fields.contains_key(*k)).collect();
+    let forms: Vec<&str> = ["action", "builtin", "command", "agent", "type"]
+        .into_iter()
+        .filter(|k| fields.contains_key(*k))
+        .collect();
     if forms.len() > 1 {
         diags.push(Diag::invalid(path, format!("define only one of {}", forms.join(", "))));
         return None;
@@ -349,9 +393,13 @@ fn resolve(entry: &Value, path: &str, actions: &mut BTreeMap<String, Action>, ct
             let tooltip = trimmed(fields.get("tooltip"));
             let action = Action {
                 name: name.clone(),
-                title: trimmed(fields.get("title")).or_else(|| tooltip.clone()).unwrap_or_else(|| command.clone()),
+                title: trimmed(fields.get("title"))
+                    .or_else(|| tooltip.clone())
+                    .unwrap_or_else(|| command.clone()),
                 tooltip,
-                icon: Some(ctx.icon(fields.get("icon")).unwrap_or_else(|| json!({"symbol": "terminal"}))),
+                icon: Some(
+                    ctx.icon(fields.get("icon")).unwrap_or_else(|| json!({"symbol": "terminal"})),
+                ),
                 command,
                 target: target(fields.get("target"), path, diags),
             };

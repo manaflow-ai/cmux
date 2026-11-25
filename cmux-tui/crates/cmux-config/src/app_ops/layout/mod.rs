@@ -57,7 +57,10 @@ impl Diag {
 
 pub(crate) fn diags_json(diags: &[Diag]) -> Value {
     Value::Array(
-        diags.iter().map(|d| json!({"kind": d.kind, "path": d.path, "message": d.message})).collect(),
+        diags
+            .iter()
+            .map(|d| json!({"kind": d.kind, "path": d.path, "message": d.message}))
+            .collect(),
     )
 }
 

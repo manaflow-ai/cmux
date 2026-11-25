@@ -5,7 +5,8 @@ use serde_json::{Map, Value, json};
 use super::{Diag, OpError, at, diags_json, opt_string, root_of};
 
 const PLACEMENTS: [&str; 3] = ["afterCurrent", "top", "end"];
-const TOKENS: [&str; 9] = ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
+const TOKENS: [&str; 9] =
+    ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
 
 pub(super) fn parse_op(request: &Value) -> Result<Value, OpError> {
     let (config, diags) = parse(root_of(request)?);
@@ -13,18 +14,26 @@ pub(super) fn parse_op(request: &Value) -> Result<Value, OpError> {
 }
 
 pub(super) fn key_op(request: &Value) -> Result<Value, OpError> {
-    let directory = opt_string(request, "directory")?.ok_or_else(|| OpError::Invalid("expected `directory`".into()))?;
-    let home = opt_string(request, "home")?.ok_or_else(|| OpError::Invalid("expected `home`".into()))?;
+    let directory = opt_string(request, "directory")?
+        .ok_or_else(|| OpError::Invalid("expected `directory`".into()))?;
+    let home =
+        opt_string(request, "home")?.ok_or_else(|| OpError::Invalid("expected `home`".into()))?;
     Ok(json!({"key": key_for(directory, home)}))
 }
 
 pub(super) fn entry_op(request: &Value) -> Result<Value, OpError> {
-    let home = opt_string(request, "home")?.ok_or_else(|| OpError::Invalid("expected `home`".into()))?;
-    let config = request.get("config").ok_or_else(|| OpError::Invalid("expected `config`".into()))?;
+    let home =
+        opt_string(request, "home")?.ok_or_else(|| OpError::Invalid("expected `home`".into()))?;
+    let config =
+        request.get("config").ok_or_else(|| OpError::Invalid("expected `config`".into()))?;
     let directory = opt_string(request, "directory")?;
     let found = directory.and_then(|directory| entry_for(config, directory, home));
     let global = config.get("newWorkspacePlacement").filter(|p| p.is_string()).cloned();
-    let own = found.as_ref().and_then(|(_, entry)| entry.get("newWorkspacePlacement")).filter(|p| p.is_string()).cloned();
+    let own = found
+        .as_ref()
+        .and_then(|(_, entry)| entry.get("newWorkspacePlacement"))
+        .filter(|p| p.is_string())
+        .cloned();
     let configured = own.or(global);
     let placement = configured.clone().unwrap_or_else(|| json!("end"));
     let mut reply = Map::new();
@@ -103,7 +112,8 @@ fn entry(fields: &Map<String, Value>, path: &str, diags: &mut Vec<Diag>) -> Valu
             Some(wire) => {
                 entry.insert("color".into(), json!(wire));
             }
-            None => diags.push(Diag::invalid(format!("{path}.color"), "expected a group color or #RRGGBB")),
+            None => diags
+                .push(Diag::invalid(format!("{path}.color"), "expected a group color or #RRGGBB")),
         }
     }
     if let Some(raw) = fields.get("icon") {
@@ -111,7 +121,8 @@ fn entry(fields: &Map<String, Value>, path: &str, diags: &mut Vec<Diag>) -> Valu
             Some(icon) => {
                 entry.insert("icon".into(), json!(icon));
             }
-            None => diags.push(Diag::invalid(format!("{path}.icon"), "expected a symbol name or an emoji")),
+            None => diags
+                .push(Diag::invalid(format!("{path}.icon"), "expected a symbol name or an emoji")),
         }
     }
     if let Some(raw) = fields.get("newWorkspacePlacement")
@@ -131,7 +142,10 @@ fn entry(fields: &Map<String, Value>, path: &str, diags: &mut Vec<Diag>) -> Valu
         for (index, row) in rows.iter().enumerate() {
             let action = row.get("action").and_then(Value::as_str).filter(|a| !a.is_empty());
             let Some(action) = action else {
-                diags.push(Diag::invalid(format!("{path}.contextMenu.{index}"), "expected an action"));
+                diags.push(Diag::invalid(
+                    format!("{path}.contextMenu.{index}"),
+                    "expected an action",
+                ));
                 continue;
             };
             let title = row.get("title").and_then(Value::as_str).filter(|t| !t.is_empty());
@@ -200,7 +214,9 @@ fn fnmatch(pattern: &[char], text: &[char]) -> bool {
                 None => c == '[' && fnmatch(rest, &text[1..]),
             }
         }
-        '\\' if !rest.is_empty() => text.first() == Some(&rest[0]) && fnmatch(&rest[1..], &text[1..]),
+        '\\' if !rest.is_empty() => {
+            text.first() == Some(&rest[0]) && fnmatch(&rest[1..], &text[1..])
+        }
         _ => text.first() == Some(&first) && fnmatch(rest, &text[1..]),
     }
 }
