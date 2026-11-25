@@ -67,14 +67,14 @@ pub(in crate::cli) fn parse(words: &[String]) -> Result<Request, String> {
                     })?);
             }
             "--prompt" if verb == "add" => {
-                prompt = Some(Prompt::Text(words.next().ok_or("--prompt needs the text")?.clone()))
+                prompt = Some(Prompt::Text(words.next().ok_or("--prompt needs the text")?.clone()));
             }
             "--prompt-file" if verb == "add" => {
                 let file = words.next().ok_or("--prompt-file needs a file, or - for stdin")?;
                 prompt = Some(if file == "-" { Prompt::Stdin } else { Prompt::File(file.into()) });
             }
             "--description" if verb == "add" => {
-                description = words.next().ok_or("--description needs the text")?.clone()
+                description = words.next().ok_or("--description needs the text")?.clone();
             }
             "--replace" if verb == "add" => replace = true,
             "-h" | "--help" => return Ok(Request::Help),
