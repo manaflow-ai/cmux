@@ -2827,16 +2827,16 @@ fn pushed_turn(
         if slice.is_zero() {
             return Pushed::TimedOut;
         }
-        let answer = match runner.observe(&socket, surface, after, slice) {
-            Ok(answer) => answer,
+        let observed = match runner.observe(&socket, surface, after, slice) {
+            Ok(observed) => observed,
             Err(link_wait::Failure::Timeout) if deadline.passed(runner) => return Pushed::TimedOut,
             Err(_) => return Pushed::Unavailable,
         };
-        if let Some(page) = answer.get("records").and_then(Value::as_array) {
+        if let Some(page) = observed.get("records").and_then(Value::as_array) {
             records.extend(page.iter().cloned());
         }
-        after = answer.get("last_seq").and_then(Value::as_u64).unwrap_or(after);
-        match answer.get("ended").and_then(Value::as_str) {
+        after = observed.get("last_seq").and_then(Value::as_u64).unwrap_or(after);
+        match observed.get("ended").and_then(Value::as_str) {
             Some("turn_end") => {
                 let Some(ended) = PushedTurn::read(&records) else { return Pushed::Unavailable };
                 let failure = ended.failure.as_ref();
