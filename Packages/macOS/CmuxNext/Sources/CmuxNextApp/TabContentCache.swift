@@ -29,7 +29,7 @@ final class TabContentCache {
         didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged(); pageInstalls.bump(Set(browsers.keys).symmetricDifference(oldValue.keys), installed: false); for key in oldValue.keys where browsers[key] == nil { openTabFeed.stop(key); phonePictures?.stopFavicon(tab: key) } } } // a page that left takes its Switch to Tab row
     }
     let openTabFeed = OmniboxOpenTabFeed() // the omnibar engines' open-tab indexes, kept as pages open, navigate and close
-    var phonePictures: PhoneTabPictures? { didSet { phonePictures?.held = (keys: { [weak self] in self.map { Array($0.browsers.keys) } ?? [] }, picture: { [weak self] key in await self?.previewImage(for: key, maxPixelSize: CGSize(width: 576, height: 4096)) }) } } // browser tabs' thumbnails and favicons for the phones' tab overview (and each page's held picture for a phone that pairs); nil: none
+    var phonePictures: PhoneTabPictures? { didSet { phonePictures?.held = (keys: { [weak self] in self.map { Array(Set($0.browsers.keys).union($0.pageFrames?.keys ?? [])) } ?? [] }, picture: { [weak self] key in if let image = await self?.previewImage(for: key, maxPixelSize: CGSize(width: 576, height: 4096)) { return image }; return await self?.pageFrames?.lastPicture(key) }) } } // browser tabs' thumbnails and favicons for the phones' tab overview (and each tab's held picture for a phone: its page's, else its last on disk, so a tab restored and not shown or hibernated has its card; Leo 2026-11-24: "too many empty previews in the safari grid"); nil: none
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
     var presenters: [ObjectIdentifier: WeakPresenter] = [:]
     var withdrawnBy: [String: WeakPresenter] = [:] // the pane that last withdrew each tab (`release`)
@@ -43,6 +43,8 @@ final class TabContentCache {
     /// Set while a smaller warm budget evicts: surfaces close at once, with no last picture.
     var evictsAtOnce = false
     var onRelease: ((String) -> Void)?
+    /// Tab `key` is leaving the screen, before its pane shows another view (`AgentPanePictures.willLeaveScreen`).
+    var onConceal: ((String) -> Void)?
     /// Hibernates hidden pages (time, memory pressure) and restores them.
     var hibernation: BrowserHibernation?
     /// Hibernated tabs, observed by the tab strips.
@@ -363,9 +365,9 @@ final class TabContentCache {
         return blank
     }
 
-    /// The surface the phones know tab `key` by (``PhoneTabPictures``): a tab of this Mac's daemon showing a page that is not incognito.
+    /// The surface the phones know tab `key` by (``PhoneTabPictures``): a tab of this Mac's daemon showing a page that is not incognito, or with no page yet (restored, not shown) and a last picture on disk.
     func phoneSurface(_ key: String) -> UInt64? {
-        guard let page = browsers[key]?.tab, !cef.stores.offTheRecord.isOffTheRecord(page.profileID),
+        guard browsers[key] != nil || (pageFrames?.keys.contains(key) == true && !browserTabs.isIncognitoTab(key)), !cef.stores.offTheRecord.isOffTheRecord(browsers[key]?.tab.profileID ?? browserProfile?(key) ?? .default),
               let tab = tabModel(key), browserTabs.daemon(for: tab).isLocal else { return nil }
         return tab.surface.rawValue
     }
