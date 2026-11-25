@@ -2155,6 +2155,50 @@ class DiedInCheckout(unittest.TestCase):
         self.assertIsNone(reds.died_in_checkout("##[error]before any step"))
 
 
+ENOSPC_JOBS = ("139341128013", "139340766008")  # cmux#50809 (run 45639356121), cmux#50827 (run 45649635922)
+
+
+class RunnerWorkerCrashed(unittest.TestCase):
+    """A job whose runner's worker crashed under it on a full disk (`No space left on device` on its own _diag trace,
+    then `Unhandled exception.` in GitHub.Runner.Worker) is infra to re-run, never the PR's own red."""
+
+    def real(self, job_id):
+        return (json.loads((FIXTURES / f"runner-enospc-job-{job_id}.json").read_text()),
+                json.loads((FIXTURES / f"runner-enospc-annotations-{job_id}.json").read_text()))
+
+    def test_both_real_jobs_read_as_a_worker_crash(self):
+        for job_id in ENOSPC_JOBS:
+            job, notes = self.real(job_id)
+            said = reds.runner_worker_crashed(job, notes)
+            self.assertIn("No space left on device", said)
+            self.assertIn("/actions-runner/_diag/Worker_", said)
+            self.assertIn("worker crashed", reds.lost_runner(job, notes))
+            # As cmuxterm-hq's next-autoland infra_noted asks: a conclusion and the annotations, nothing else.
+            self.assertIn("worker crashed", reds.lost_runner({"conclusion": "failure"}, notes))
+            self.assertTrue(reds.lost_runner({"conclusion": "failure"}, [n["message"] for n in notes]))
+
+    def test_the_unhandled_worker_exception_alone_is_a_crash(self):
+        _, notes = self.real(ENOSPC_JOBS[0])
+        tail = notes[0]["message"][notes[0]["message"].index("Unhandled exception."):]
+        alone = tail.replace("No space left on device", "Broken pipe")
+        self.assertIn("Unhandled exception", reds.runner_worker_crashed({"conclusion": "failure"}, [alone]))
+
+    def test_a_failed_step_keeps_its_verdict(self):
+        job, notes = self.real(ENOSPC_JOBS[0])
+        job["steps"][20] = dict(job["steps"][20], status="completed", conclusion="failure")
+        self.assertIsNone(reds.runner_worker_crashed(job, notes))
+
+    def test_a_test_quoting_the_words_is_no_crash(self):
+        job = {"conclusion": "failure"}
+        for message in ("Unhandled exception. TypeError: x is undefined\n    at Object.<anonymous> (a.test.ts:3:1)",
+                        "No space left on device : '/tmp/build/out.bin'",
+                        "Process completed with exit code 1."):
+            self.assertIsNone(reds.runner_worker_crashed(job, [{"annotation_level": "failure", "message": message}]))
+        _, notes = self.real(ENOSPC_JOBS[0])
+        self.assertIsNone(reds.runner_worker_crashed(job, [dict(notes[0], annotation_level="warning")]))
+        self.assertIsNone(reds.runner_worker_crashed({"conclusion": "cancelled"}, notes))
+
+
 class LostRunner(unittest.TestCase):
     """A job whose runner was lost is infra, not a verdict: never the PR's own red, it needs a re-run."""
 
