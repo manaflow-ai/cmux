@@ -1901,6 +1901,31 @@ though Claude Code fires two hooks for it in either order (PermissionRequest
 carries no `tool_use_id`). The phone answers a notification only while that
 very question is pending on its tab; any other push is answered from the Feed card.
 
+## Agent calls (added 2026-11-24, backward compatible)
+
+A phone call from cmux's number when an agent is stuck on the person (verify/agent-alarms.md
+"Phone calls"). Settings live in the caller's user hub (`agent_call`, `agent_call_seen`), wiped
+by `DELETE /v1/me`.
+
+- `GET /v1/me/agent-call` → `{configured, voice: "melotts"|"twilio-say", from, enabled,
+  triggers: ["permission","question","needsInput","agentFailed"], number, pendingNumber,
+  lastCallAt, log: [{at, trigger, decision: "call"|"debounced"|"failed", reason?}]}`. Numbers
+  are masked; times are milliseconds; `log` is newest first, at most 20.
+- `PUT /v1/me/agent-call {enabled?, triggers?, number?: null}` → the same view. `number: null`
+  forgets the number and turns calls off.
+- `POST /v1/me/agent-call/verify {number}` (E.164, spaces and dashes allowed) → `{calling}`;
+  the service calls the number and reads a 6-digit code. `400 bad_request`, `429 rate_limited`
+  (3 an hour), `502 call_failed`, `503 calls_not_configured`.
+- `POST /v1/me/agent-call/confirm {code}` → the view, with `enabled: true`. `400 wrong_code`,
+  `410 no_code|expired|too_many_tries` (5 tries, 10 minutes).
+- `POST /v1/me/agent-call/test` → `{calling}`. `409 no_number`, `429 debounced` (within 30 s of
+  the last call), `502`, `503`.
+- `GET /v1/agent-call/audio/:token` (no bearer; Twilio fetches it during the call): the
+  sentence as MeloTTS audio. The token is HMAC-signed and lives 10 minutes; `404` otherwise.
+- From `POST /v1/devices/:macId/notify`: a non-batch event that is a permission request,
+  question, terminal `waiting` or `failed` goes through the gate after the push is sent (one
+  call per event key, at most one call in any 30 s per user).
+
 ## Sealed pushes and the reply mailbox (API 0.14.0, `feat-cmux-next-ios-push-fallback`)
 
 Held for the #13742 decision (`verify/notifications-trust.md`). Every

@@ -3,6 +3,17 @@ import { primaryProject, type Caller } from "./auth.ts"
 import type { CachedIce } from "./ice.ts"
 import type { Env } from "./env.ts"
 import { MAILBOX_PENDING_LIMIT, MAILBOX_TTL_MS } from "./push.ts"
+import {
+  AGENT_CALL_SEEN_MS,
+  AGENT_CALL_TRIGGERS,
+  decideCall,
+  VERIFY_CALLS_PER_HOUR,
+  VERIFY_TRIES,
+  VERIFY_TTL_MS,
+  type AgentCallClaim,
+  type AgentCallSettings,
+  type AgentCallTrigger
+} from "./agent-call.ts"
 import { userTeams } from "./stack.ts"
 
 /** Per-socket identity, set by the Worker after auth and device checks (never by the client). */
@@ -344,6 +355,10 @@ export class TeamHub extends DurableObject<Env> {
     this.sql.exec(`CREATE TABLE IF NOT EXISTS forgotten (device_id TEXT PRIMARY KEY)`)
     // The last turn-ending push per Mac and session (`turnPushAllowed`); rows older than the window go.
     this.sql.exec(`CREATE TABLE IF NOT EXISTS turn_pushes (key TEXT PRIMARY KEY, at INTEGER NOT NULL)`)
+    // Agent Calls (src/agent-call.ts): one row of settings, the pending code, the events seen and the last call,
+    // so the 30 second window is one clock across every Mac of this person.
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS agent_call (k TEXT PRIMARY KEY, v TEXT NOT NULL)`)
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS agent_call_seen (key TEXT PRIMARY KEY, at INTEGER NOT NULL)`)
     // Sealed replies for a Mac (`mailboxPost`): queued until the Mac acknowledges one or it expires; a settled
     // row keeps only its state (the blob is cleared) until `keep_until`, so the phone can read the outcome.
     this.sql.exec(
@@ -518,6 +533,116 @@ export class TeamHub extends DurableObject<Env> {
     return true
   }
 
+  // ---- Agent Calls ------------------------------------------------------------------------------
+
+  private callGet<T>(k: string): T | null {
+    const v = this.sql.exec<{ v: string }>(`SELECT v FROM agent_call WHERE k = ?`, k).toArray()[0]?.v
+    return v === undefined ? null : (JSON.parse(v) as T)
+  }
+
+  private callSet(k: string, v: unknown | null) {
+    if (v === null) this.sql.exec(`DELETE FROM agent_call WHERE k = ?`, k)
+    else this.sql.exec(`INSERT INTO agent_call (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v`, k, JSON.stringify(v))
+  }
+
+  async agentCallSettings(owner: HubOwner): Promise<AgentCallSettings & { lastCallAt: number | null }> {
+    this.bind(owner)
+    const s = this.callGet<AgentCallSettings>("settings")
+    return {
+      enabled: s?.enabled ?? false,
+      triggers: s?.triggers ?? [...AGENT_CALL_TRIGGERS],
+      number: s?.number ?? null,
+      pendingNumber: this.callGet<{ number: string }>("pending")?.number ?? null,
+      lastCallAt: this.callGet<number>("last")
+    }
+  }
+
+  async setAgentCallSettings(owner: HubOwner, change: { enabled?: boolean; triggers?: ReadonlyArray<AgentCallTrigger>; clearNumber?: boolean }) {
+    const cur = await this.agentCallSettings(owner)
+    const number = change.clearNumber ? null : cur.number
+    const next: AgentCallSettings = {
+      enabled: number ? (change.enabled ?? cur.enabled) : false,
+      triggers: change.triggers ?? cur.triggers,
+      number,
+      pendingNumber: null
+    }
+    this.callSet("settings", next)
+    if (change.clearNumber) this.callSet("pending", null)
+    return this.agentCallSettings(owner)
+  }
+
+  /** A new code for `number`, or why not: at most VERIFY_CALLS_PER_HOUR code calls an hour. */
+  async startAgentCallVerify(owner: HubOwner, number: string, code: string, now: number): Promise<{ ok: true } | { ok: false; reason: "rate_limited" }> {
+    this.bind(owner)
+    const calls = (this.callGet<Array<number>>("verify_calls") ?? []).filter((t) => t > now - 3_600_000)
+    if (calls.length >= VERIFY_CALLS_PER_HOUR) return { ok: false, reason: "rate_limited" }
+    this.callSet("verify_calls", [...calls, now])
+    this.callSet("pending", { number, code, expiresAt: now + VERIFY_TTL_MS, tries: 0 })
+    return { ok: true }
+  }
+
+  async confirmAgentCallVerify(owner: HubOwner, code: string, now: number): Promise<{ ok: true; number: string } | { ok: false; reason: "no_code" | "expired" | "wrong_code" | "too_many_tries" }> {
+    this.bind(owner)
+    const p = this.callGet<{ number: string; code: string; expiresAt: number; tries: number }>("pending")
+    if (!p) return { ok: false, reason: "no_code" }
+    if (p.expiresAt <= now) {
+      this.callSet("pending", null)
+      return { ok: false, reason: "expired" }
+    }
+    if (p.code !== code) {
+      if (p.tries + 1 >= VERIFY_TRIES) {
+        this.callSet("pending", null)
+        return { ok: false, reason: "too_many_tries" }
+      }
+      this.callSet("pending", { ...p, tries: p.tries + 1 })
+      return { ok: false, reason: "wrong_code" }
+    }
+    this.callSet("pending", null)
+    const cur = this.callGet<AgentCallSettings>("settings")
+    this.callSet("settings", { enabled: true, triggers: cur?.triggers ?? [...AGENT_CALL_TRIGGERS], number: p.number, pendingNumber: null })
+    return { ok: true, number: p.number }
+  }
+
+  /**
+   * The gate (src/agent-call.ts `decideCall`) over what this hub holds, and its record: a call or a held event is
+   * remembered, so the event never calls later and the next call waits out the window.
+   */
+  async claimAgentCall(owner: HubOwner, trigger: AgentCallTrigger, key: string, now: number, force = false): Promise<AgentCallClaim> {
+    const s = await this.agentCallSettings(owner)
+    this.sql.exec(`DELETE FROM agent_call_seen WHERE at <= ?`, now - AGENT_CALL_SEEN_MS)
+    const seen = this.sql.exec(`SELECT 1 FROM agent_call_seen WHERE key = ?`, key).toArray().length > 0
+    const settings = force ? { ...s, triggers: [...s.triggers, trigger] } : s
+    const claim = decideCall(settings, trigger, seen, s.lastCallAt, now)
+    if (claim.decision === "call") this.callSet("last", now)
+    if (claim.decision === "call" || claim.decision === "debounced")
+      this.sql.exec(`INSERT INTO agent_call_seen (key, at) VALUES (?, ?) ON CONFLICT(key) DO NOTHING`, key, now)
+    this.logAgentCall({ at: now, trigger, decision: claim.decision })
+    return claim
+  }
+
+  private logAgentCall(entry: { at: number; trigger: AgentCallTrigger | "test" | "verify"; decision: string; reason?: string }) {
+    if (entry.decision === "duplicate" || entry.decision === "off" || entry.decision === "no_number" || entry.decision === "trigger_off") return
+    const log = [entry, ...(this.callGet<Array<unknown>>("log") ?? [])].slice(0, 20)
+    this.callSet("log", log)
+  }
+
+  /** A call Twilio refused: Recent says so. */
+  async noteAgentCallFailure(owner: HubOwner, trigger: AgentCallTrigger | "test" | "verify", reason: string, now: number) {
+    this.bind(owner)
+    this.logAgentCall({ at: now, trigger, decision: "failed", reason })
+  }
+
+  async noteAgentCallTest(owner: HubOwner, now: number) {
+    this.bind(owner)
+    this.callSet("last", now)
+    this.logAgentCall({ at: now, trigger: "test", decision: "call" })
+  }
+
+  async agentCallLog(owner: HubOwner): Promise<Array<{ at: number; trigger: string; decision: string; reason?: string }>> {
+    this.bind(owner)
+    return this.callGet("log") ?? []
+  }
+
   /** Account data deletion (`DELETE /v1/me`): close every socket with 4002 `removed` and wipe this hub. */
   async purge(owner: HubOwner): Promise<void> {
     this.bind(owner)
@@ -530,7 +655,7 @@ export class TeamHub extends DurableObject<Env> {
     this.live.clear()
     this.sessions.clear()
     this.members.clear()
-    for (const t of ["macs", "devices", "sessions", "meta", "forgotten", "turn_pushes", "mailbox"]) this.sql.exec(`DELETE FROM ${t}`)
+    for (const t of ["macs", "devices", "sessions", "meta", "forgotten", "turn_pushes", "mailbox", "agent_call", "agent_call_seen"]) this.sql.exec(`DELETE FROM ${t}`)
     this.ownerKey = null
   }
 

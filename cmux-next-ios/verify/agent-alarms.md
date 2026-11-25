@@ -76,6 +76,41 @@ permission is off" and nothing rings.
   notification still shows and Recent says "Not rung: iOS refused the alarm". Confirm it on
   each new iOS release with the phone step below.
 
+## Phone calls (Settings → Notifications → Phone Calls)
+
+cmux's own number calls the person and reads out what needs them, for the same events as the
+alarm (permission, question, waiting in a terminal, agent stopped with an error) and with the same
+30 second window. The **service** places the call, from the Mac's `notify` (PROTOCOL.md "Agent
+calls"), so it rings with cmux closed, swiped away, the phone locked, or with notifications off.
+
+- **Provider: Twilio Programmable Voice.** One `POST /2010-04-01/Accounts/:sid/Calls.json`
+  per call with inline TwiML, so there is no webhook to host. It needs a paid Twilio account and
+  one purchased voice number (`TWILIO_FROM_NUMBER`), set as Worker secrets
+  `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_FROM_NUMBER`. Until they are set, the
+  service answers `configured: false` and the page says calls aren't set up.
+- **Voice: MeloTTS** (`@cf/myshell-ai/melotts`, MIT licence) on Cloudflare Workers AI, via the
+  Worker's `AI` binding. Twilio fetches the audio from `GET /v1/agent-call/audio/:token`, an
+  HMAC-signed link (`AGENT_CALL_AUDIO_KEY`) that holds the sentence and lives 10 minutes; the
+  Worker synthesizes it then. Without the binding or key, the call falls back to Twilio's own
+  `<Say>` voice. The sentence plays twice, then the call hangs up.
+- **What it says:** "Hi, this is cmux. Claude Code on Mac mini needs your permission. Open cmux
+  to answer." (`callScript` in `backend/src/agent-call.ts`; names are trimmed to 40 characters
+  and stripped of anything a voice can't say).
+- **The number** is verified first: the service calls it and reads a 6-digit code (10 minutes,
+  5 tries, at most 3 code calls an hour). The app only ever sees it masked.
+- **Rules** (`decideCall`): off, no number or trigger off → no call; an event already called
+  for (`ask:<permissionId>` or `event:<mac>:<id>`, kept a day) → no call; within 30 s of the
+  last call, from any Mac or a test call → held, and the held event never calls later.
+  Recent keeps the last 20 calls, held calls and provider failures.
+- **Not covered:** "Mac stopped responding" (only the phone can notice it); a Mac that is
+  asleep or has no network sends no event, so nothing calls. A phone set to Silence Unknown
+  Callers or a Focus that blocks unknown numbers will not ring until the cmux number is saved as
+  a contact; the page says so.
+- **Verify:** `backend/test/agent-call.test.ts` (rules, script, TwiML, signed audio, verify
+  flow, rate limit, notify → call, debounce, duplicate, trigger off, test call, provider
+  failure, not configured); `UITests/AgentCallsCaptureUITests.swift` (every page state in
+  light and dark, against `AgentCallMockService`, `CMUX_MOBILE_DEV_AGENT_CALL=<scenario>`).
+
 ## Verify
 
 - Unit tests: `CmuxMobileKit/Tests/CmuxMobileNotificationsTests/AgentAlarmTests.swift`

@@ -33,6 +33,11 @@ export default defineConfig({
           STACK_TEST_PRIVATE_JWK: JSON.stringify(stackPrivate),
           TEST_DEPLOYED_APNS_TOPICS: JSON.stringify(deployedApnsTopics),
           // test/connectivity-alerts.test.ts: the Slack app and its two channels (the Slack call is faked).
+          // test/agent-call.test.ts: a Twilio account (its calls are faked) and the audio link key.
+          TWILIO_ACCOUNT_SID: "ACtest",
+          TWILIO_AUTH_TOKEN: "twilio-test-token",
+          TWILIO_FROM_NUMBER: "+14155550199",
+          AGENT_CALL_AUDIO_KEY: "agent-call-test-key",
           SLACK_BOT_TOKEN: "xoxb-test",
           CONNECTIVITY_ALERT_CHANNEL: "CTEAM",
           CONNECTIVITY_ALERT_TEST_CHANNEL: "CTEST",

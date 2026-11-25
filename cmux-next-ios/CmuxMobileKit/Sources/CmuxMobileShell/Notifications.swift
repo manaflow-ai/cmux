@@ -442,3 +442,41 @@ final class MockDeviceDirectory: SettingsDeviceDirectory {
     }
 }
 #endif
+
+/// Settings → Notifications → Phone Calls over the live service (PROTOCOL.md "Agent calls").
+extension LiveDeviceDirectory: AgentCallService {
+    private func agentCallData(_ method: String, _ subpath: String = "", body: [String: Any]? = nil) async throws -> Data {
+        guard let live else { throw NotSignedIn() }
+        do {
+            return try await live.agentCall(method, subpath, body: body)
+        } catch let failure as LiveAPI.Failure {
+            throw AgentCallFailure(code: failure.code, message: failure.message)
+        }
+    }
+
+    private struct Calling: Decodable { var calling: String }
+
+    func agentCall() async throws -> AgentCallState {
+        try JSONDecoder().decode(AgentCallState.self, from: try await agentCallData("GET"))
+    }
+
+    func setAgentCall(enabled: Bool?, triggers: [String]?, clearNumber: Bool) async throws -> AgentCallState {
+        var body: [String: Any] = [:]
+        if let enabled { body["enabled"] = enabled }
+        if let triggers { body["triggers"] = triggers }
+        if clearNumber { body["number"] = NSNull() }
+        return try JSONDecoder().decode(AgentCallState.self, from: try await agentCallData("PUT", body: body))
+    }
+
+    func verifyAgentCall(number: String) async throws -> String {
+        try JSONDecoder().decode(Calling.self, from: try await agentCallData("POST", "/verify", body: ["number": number])).calling
+    }
+
+    func confirmAgentCall(code: String) async throws -> AgentCallState {
+        try JSONDecoder().decode(AgentCallState.self, from: try await agentCallData("POST", "/confirm", body: ["code": code]))
+    }
+
+    func testAgentCall() async throws -> String {
+        try JSONDecoder().decode(Calling.self, from: try await agentCallData("POST", "/test", body: [:])).calling
+    }
+}

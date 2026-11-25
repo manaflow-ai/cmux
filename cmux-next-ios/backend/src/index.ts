@@ -19,6 +19,24 @@ import {
   wantedKinds,
   notifyTargets,
 } from "./push.ts";
+import {
+  AGENT_CALL_TRIGGERS,
+  audioText,
+  callKey,
+  callScript,
+  callTrigger,
+  callTwiml,
+  maskNumber,
+  newCode,
+  normalizeNumber,
+  parseTriggers,
+  placeCall,
+  synthesize,
+  testScript,
+  twilioConfig,
+  verifyScript,
+  type AgentCallTrigger
+} from "./agent-call.ts"
 import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
 import { StoreSchemaError } from "./store-mysql.ts"
 import { userHubName, type Attachment, type HubOwner, type Ingress } from "./team-hub.ts"
@@ -201,6 +219,36 @@ type Ctx = Caller & { readonly space: string; readonly hint?: DurableObjectLocat
  */
 const userHub = (env: Env, caller: Ctx) =>
   env.TEAM_HUB.get(env.TEAM_HUB.idFromName(userHubName(ownerKey(env, caller), caller.space)), caller.hint ? { locationHint: caller.hint } : undefined)
+/** The settings as the app reads them: the number masked, whether this server can call at all. */
+const agentCallView = (
+  env: Env,
+  s: { enabled: boolean; triggers: ReadonlyArray<AgentCallTrigger>; number: string | null; pendingNumber: string | null; lastCallAt: number | null },
+  log: ReadonlyArray<{ at: number; trigger: string; decision: string; reason?: string }>
+) => ({
+  configured: twilioConfig(env) !== null,
+  voice: env.AI && env.AGENT_CALL_AUDIO_KEY ? "melotts" : "twilio-say",
+  from: env.TWILIO_FROM_NUMBER ?? null,
+  enabled: s.enabled,
+  triggers: s.triggers,
+  number: s.number ? maskNumber(s.number) : null,
+  pendingNumber: s.pendingNumber ? maskNumber(s.pendingNumber) : null,
+  lastCallAt: s.lastCallAt,
+  log
+})
+
+/** One event from a Mac: the gate, then the call. */
+const agentCall = async (env: Env, caller: Ctx, who: HubOwner, origin: string, trigger: AgentCallTrigger, key: string, macName: string, agent?: string) => {
+  const config = twilioConfig(env)
+  if (!config) return
+  const hub = userHub(env, caller)
+  const now = Date.now()
+  const claim = await hub.claimAgentCall(who, trigger, key, now)
+  if (claim.decision !== "call" || !claim.number) return
+  const placed = await placeCall(config, claim.number, await callTwiml(env, origin, callScript(trigger, macName, agent), now))
+  if (!placed.placed) await hub.noteAgentCallFailure(who, trigger, placed.reason, Date.now())
+  console.log(JSON.stringify({ msg: "agent call", trigger, placed: placed.placed }))
+}
+
 /** What every call into the caller's hub names: the owner key and build space, which must be the hub's own. */
 const hubOwner = (env: Env, caller: Ctx): HubOwner => ({ ownerKey: ownerKey(env, caller), space: caller.space })
 /**
@@ -389,6 +437,18 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
   if (path === "/v1/health" && method === "GET")
     return json({ ok: true, version: env.API_VERSION, stackProjects: stackProjects(env).map((p) => p.id), colo: colo(req) })
 
+  // Agent Calls' voice (src/agent-call.ts): Twilio fetches it during the call, with no bearer; the link itself is
+  // signed and lives 10 minutes, and carries the one sentence the call says.
+  const audio = path.match(/^\/v1\/agent-call\/audio\/([A-Za-z0-9_.-]+)$/)
+  if (audio && method === "GET") {
+    if (!env.AGENT_CALL_AUDIO_KEY) return fail(404, "not_found", "no audio")
+    const text = await audioText(env.AGENT_CALL_AUDIO_KEY, audio[1]!, Date.now())
+    if (!text) return fail(404, "not_found", "no audio")
+    const mp3 = await synthesize(env, text)
+    if (!mp3) return fail(503, "tts_unavailable", "the voice is unavailable")
+    return new Response(mp3, { headers: { "content-type": "audio/mpeg", "cache-control": "no-store" } })
+  }
+
   const bearer = bearerOf(req)
   if (!bearer) return fail(401, "unauthorized", "missing or invalid Stack access token")
   const t = timingFor(ctx)
@@ -560,6 +620,61 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     })
   }
 
+  // Agent Calls (PROTOCOL.md "Agent calls"): the person's number, verified by a call that reads a code, and which
+  // events call it. The calls themselves go from the Mac's notify below.
+  if (path === "/v1/me/agent-call" && method === "GET") {
+    const s = await userHub(env, caller).agentCallSettings(who)
+    const log = await userHub(env, caller).agentCallLog(who)
+    return json(agentCallView(env, s, log))
+  }
+  if (path === "/v1/me/agent-call" && method === "PUT") {
+    const b = await readJson(req)
+    if (b.enabled !== undefined && typeof b.enabled !== "boolean") throw new HttpError(400, "bad_request", "enabled must be true or false")
+    const triggers = b.triggers === undefined ? undefined : parseTriggers(b.triggers)
+    if (triggers === null) throw new HttpError(400, "bad_request", `triggers must be some of ${AGENT_CALL_TRIGGERS.join(", ")}`)
+    const s = await userHub(env, caller).setAgentCallSettings(who, { enabled: b.enabled as boolean | undefined, triggers, clearNumber: b.number === null })
+    return json(agentCallView(env, s, await userHub(env, caller).agentCallLog(who)))
+  }
+  if (path === "/v1/me/agent-call/verify" && method === "POST") {
+    const config = twilioConfig(env)
+    if (!config) throw new HttpError(503, "calls_not_configured", "agent calls are not set up on this server")
+    const b = await readJson(req)
+    const number = normalizeNumber(b.number)
+    if (!number) throw new HttpError(400, "bad_request", "number must be a phone number with its country code, like +1 415 555 0100")
+    const code = newCode()
+    const started = await userHub(env, caller).startAgentCallVerify(who, number, code, Date.now())
+    if (!started.ok) throw new HttpError(429, "rate_limited", "too many code calls; try again in an hour")
+    const placed = await placeCall(config, number, await callTwiml(env, url.origin, verifyScript(code), Date.now()))
+    if (!placed.placed) {
+      await userHub(env, caller).noteAgentCallFailure(who, "verify", placed.reason, Date.now())
+      throw new HttpError(502, "call_failed", "the call could not be placed")
+    }
+    return json({ calling: maskNumber(number) })
+  }
+  if (path === "/v1/me/agent-call/confirm" && method === "POST") {
+    const b = await readJson(req)
+    if (typeof b.code !== "string" || !/^\d{6}$/.test(b.code)) throw new HttpError(400, "bad_request", "code must be 6 digits")
+    const r = await userHub(env, caller).confirmAgentCallVerify(who, b.code, Date.now())
+    if (!r.ok) throw new HttpError(r.reason === "wrong_code" ? 400 : 410, r.reason, r.reason.replace(/_/g, " "))
+    const s = await userHub(env, caller).agentCallSettings(who)
+    return json(agentCallView(env, s, await userHub(env, caller).agentCallLog(who)))
+  }
+  if (path === "/v1/me/agent-call/test" && method === "POST") {
+    const config = twilioConfig(env)
+    if (!config) throw new HttpError(503, "calls_not_configured", "agent calls are not set up on this server")
+    const s = await userHub(env, caller).agentCallSettings(who)
+    if (!s.number) throw new HttpError(409, "no_number", "verify a number first")
+    // The test call is held by the same 30 second window as every other call.
+    if (s.lastCallAt !== null && Date.now() - s.lastCallAt < 30_000) throw new HttpError(429, "debounced", "a call went out less than 30 seconds ago")
+    const placed = await placeCall(config, s.number, await callTwiml(env, url.origin, testScript(), Date.now()))
+    if (!placed.placed) {
+      await userHub(env, caller).noteAgentCallFailure(who, "test", placed.reason, Date.now())
+      throw new HttpError(502, "call_failed", "the call could not be placed")
+    }
+    await userHub(env, caller).noteAgentCallTest(who, Date.now())
+    return json({ calling: maskNumber(s.number) })
+  }
+
   if (path === "/v1/me" && method === "DELETE") {
     // Account deletion (PROTOCOL.md): purge everything stored for the caller and evict their sockets. The
     // stable app's deletion takes every build space with it (it is the person's account); a dev build's
@@ -653,6 +768,10 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       if (!device) throw new HttpError(404, "not_found", "no such device")
       if (device.ownerUserId !== me || device.kind !== "mac") throw new HttpError(403, "not_owner", "notify from your own Mac")
       await limit(env.NOTIFY_LIMIT, notifyLimitKey(deviceId, parsed.kind, parsed.batch), "notifications")
+      // Agent Calls: the same events the iPhone's Agent Alarms ring for, one call per event and at most one
+      // in any 30 seconds (the user hub's ledger), off the response path. A batch is part of its lead's event.
+      const trigger = parsed.batch ? null : callTrigger(parsed)
+      if (trigger) ctx.waitUntil(agentCall(env, caller, who, url.origin, trigger, callKey(deviceId, parsed), clean(device.name, 40), parsed.agent).catch(() => {}))
       const config = apnsConfig(env)
       const kind = parsed.kind
       const regs = await withStore(env, ctx, (s) => s.listOwnerPush(space, me))

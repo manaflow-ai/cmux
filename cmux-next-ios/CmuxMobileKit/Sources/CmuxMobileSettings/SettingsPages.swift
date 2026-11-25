@@ -478,8 +478,12 @@ struct NotificationsPage: View {
                                   value: AgentAlarmStore.live().preferences().enabled ? String(localized: "On") : String(localized: "Off"))
                 }
                 .accessibilityIdentifier("settings.notifications.agentAlarms")
+                NavigationLink(value: SettingsRoute.agentCalls) {
+                    SettingsLabel("Phone Calls", symbol: "phone.arrow.down.left")
+                }
+                .accessibilityIdentifier("settings.notifications.agentCalls")
             } footer: {
-                Text("Ring an alarm, even in Silent mode, when an agent needs permission, asks a question or stops.")
+                Text("Ring an alarm, even in Silent mode, or have cmux call you, when an agent needs permission, asks a question or stops.")
             }
             if push {
                 kindsSection(settings: $settings)

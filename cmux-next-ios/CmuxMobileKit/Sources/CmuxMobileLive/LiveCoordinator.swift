@@ -1034,6 +1034,11 @@ public final class LiveCoordinator {
 
     // MARK: Devices (Settings → Connection) and account
 
+    /// Settings → Notifications → Phone Calls (`/v1/me/agent-call…`).
+    public func agentCall(_ method: String, _ subpath: String = "", body: [String: Any]? = nil) async throws -> Data {
+        try await api.agentCall(method, subpath, body: body)
+    }
+
     /// Every Mac and phone of this account.
     public func myDevices() async throws -> [LiveAPI.Device] {
         try await api.myDevices()
