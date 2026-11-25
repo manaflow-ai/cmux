@@ -62,8 +62,8 @@
 //! detaches it from the folder tree lazily (a file the agent holds open stays readable until it
 //! closes it) and removes the empty mount point (a later write there fails `ENOENT` instead of
 //! landing outside every projection), and records it detached (`cmux_projection::state::Detached`). Its upper layer
-//! stays whole for Bring Back or Discard (`projection.drop`) while chat `chat` lives; the reaper
-//! frees it with that chat. The agents working there, and chat `chat`, are told once.
+//! keeps edits and deletions for Bring Back or Discard (`projection.drop`). The reaper
+//! can reclaim an empty detached layer once the chat is archived or the orphan grace expires. The agents working there, and chat `chat`, are told once.
 //! `{"detached": true, "was_mounted", "mark"}`; serving the name again (the folder added back)
 //! clears the record's detach.
 //!
@@ -868,10 +868,15 @@ fn free(cmd: &str, line: &WayBackLine, state: &Path) -> Result<Value, Refusal> {
     let now = record::ms_of(std::time::SystemTime::now());
     // Held throughout: no mount of this name starts while its state goes.
     let mut table = projections().lock().unwrap_or_else(PoisonError::into_inner);
-    let at = record::read(state)
-        .map(|found| found.at)
-        .or_else(|| table.get(&line.name).map(|projected| projected.at.clone()));
-    let recorded_at = at.clone().unwrap_or_default();
+    let record = record::read(state);
+    let recorded_at = record
+        .as_ref()
+        .map(|r| r.at.clone())
+        .or_else(|| table.get(&line.name).map(|projected| projected.at.clone()))
+        .unwrap_or_default();
+    // Detach gave up this path. Only the state directory still belongs to this projection.
+    let at = (!recorded_at.as_os_str().is_empty() && !record.is_some_and(|r| r.detached.is_some()))
+        .then_some(recorded_at.as_path());
     let why = if cmd == BROUGHT_BACK {
         let Some(mark) = line.mark.as_deref() else {
             return Err(("projection.params_invalid", "brought_back needs the mark".into()));
@@ -887,7 +892,7 @@ fn free(cmd: &str, line: &WayBackLine, state: &Path) -> Result<Value, Refusal> {
             found.brought_back = Some(BroughtBack { ms: now, mark: mark.to_owned() });
         })
         .map_err(io)?;
-        end(&mut table, &line.name, at.as_deref());
+        end(&mut table, &line.name, at);
         // A write that landed before the unmount is in the upper layer now.
         let current = record::mark(state).map_err(io)?;
         if current != mark {
@@ -904,10 +909,10 @@ fn free(cmd: &str, line: &WayBackLine, state: &Path) -> Result<Value, Refusal> {
             })
             .map_err(io)?;
         }
-        end(&mut table, &line.name, at.as_deref());
+        end(&mut table, &line.name, at);
         release.into()
     };
-    let freed = reap::free_projection(state, at.as_deref(), why);
+    let freed = reap::free_projection(state, at, why);
     drop(table);
     let freed = freed.map_err(io)?;
     eprintln!("cmux projection: freed {} ({}): {freed} bytes", state.display(), why.as_str());
@@ -958,7 +963,9 @@ fn detach(line: &WayBackLine, state: &Path) -> Result<Value, Refusal> {
         }
     }
     let found = table.remove(&line.name);
-    let at = record::read(state)
+    let previous = record::read(state);
+    let already_detached = previous.as_ref().is_some_and(|r| r.detached.is_some());
+    let at = previous
         .map(|found| found.at)
         .or_else(|| found.as_ref().map(|projected| projected.at.clone()));
     let recorded_at = at.clone().unwrap_or_default();
@@ -980,7 +987,7 @@ fn detach(line: &WayBackLine, state: &Path) -> Result<Value, Refusal> {
                     .spawn(move || mounted.unmount());
             }
         }
-    } else if !table.values().any(|other| Some(&other.at) == at.as_ref()) {
+    } else if !already_detached && !table.values().any(|other| Some(&other.at) == at.as_ref()) {
         end(&mut table, &line.name, at.as_deref());
     }
     let now = record::ms_of(std::time::SystemTime::now());

@@ -381,7 +381,7 @@ fn projections(
             record.as_ref().is_some_and(|r| r.detached.is_some() && r.released.is_none())
                 && matches!(why, Why::Orphan | Why::Archived);
         // Detach already unmounted this projection. Another chat may have reused its path.
-        let at = record.as_ref().filter(|_| !detached).map(|r| r.at.as_path());
+        let at = record.as_ref().filter(|r| r.detached.is_none()).map(|r| r.at.as_path());
         // Detach or re-attach can change the record after the scan. Check again under the
         // mount lock, before unmounting a path that another chat could already be using.
         let still_eligible =

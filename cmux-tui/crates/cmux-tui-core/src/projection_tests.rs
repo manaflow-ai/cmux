@@ -593,6 +593,18 @@ fn release_frees_the_state_and_its_empty_mount_point() {
     assert_eq!(free(RELEASE, &line, &state).unwrap_err().0, "projection.params_invalid");
 }
 
+#[test]
+fn releasing_detached_state_leaves_its_former_mount_path_alone() {
+    let home = cmux_unix_socket::short_test_dir("proj");
+    let (state, at) = projected_state(home.path(), "p-detached-release");
+    let line = control_line("p-detached-release", None, Some("deleted"));
+    detach(&line, &state).unwrap();
+    std::fs::create_dir_all(&at).unwrap();
+    free(RELEASE, &line, &state).unwrap();
+    assert!(!state.exists());
+    assert!(at.is_dir());
+}
+
 fn pin_line(name: &str, path: Option<&str>) -> WayBackLine {
     WayBackLine { path: path.map(str::to_owned), ..control_line(name, None, None) }
 }

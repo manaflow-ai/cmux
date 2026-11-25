@@ -417,6 +417,7 @@ fn a_removed_folders_edits_stay_even_when_its_notification_chat_is_gone() {
     .unwrap();
     assert_eq!(run(&machine, &archived, Duration::ZERO).reclaimed.len(), 1);
     assert!(!state.exists());
+    assert!(extra.exists(), "release removed the path given up by detach");
 }
 
 #[test]
