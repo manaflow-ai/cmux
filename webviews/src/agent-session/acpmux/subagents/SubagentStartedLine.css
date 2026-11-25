@@ -61,7 +61,7 @@
 .cv-subagent-started .cv-agent-activity__sentence > .cv-subagent-started__faces {
   flex: 0 1 auto;
   flex-wrap: wrap;
-  height: 14px;
+  height: var(--cmux-menu-icon-size);
   overflow: hidden;
 }
 .cv-subagent-started__more {
