@@ -1016,7 +1016,7 @@ async function installAgentTools(ctx: Ctx): Promise<void> {
 async function installGraduated(ctx: Ctx): Promise<void> {
   const g = readGraduated();
   if (g.apt.length + g.npm.length === 0) return;
-  ctx.result.graduated = (await ctx.L.step(ctx.vm, "graduated", graduatedInstallCommand(g, APT_UPDATE_COMMAND), 290_000)).trim().split("\n").at(-1);
+  ctx.result.graduated = (await ctx.L.step(ctx.vm, "graduated", graduatedInstallCommand(g, APT_UPDATE_COMMAND), 540_000)).trim().split("\n").at(-1);
 }
 
 /** The npm cache a first `npm install` finds (dep-cache.ts); the image record's size is read after clean. */
