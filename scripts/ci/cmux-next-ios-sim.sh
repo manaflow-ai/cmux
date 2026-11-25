@@ -8,6 +8,12 @@
 #   cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA \
 #     --arg MODE --artifact artifacts/ios-sim/evidence.zip
 #
+# Add `--sim-features none` (or the features the step needs, e.g. push,storekit) to a `test` or
+# `shots` step that needs no photo picker, voice, document picker or App Intents: it gets a slim
+# simulator (about 1/5 of a stock one's memory), from the warm pool when one is booted (leased in
+# under a second, 2026-11-25), so more steps fit per Mac and they start sooner. Only `build` is slim
+# by default. BrowserOpenDefaultUITests and WelcomeGlideUITests pass slim with `none`.
+#
 # Any MODE that boots a simulator also takes, as further `--arg`s (see "The simulator's options"
 # below): device=NAME (an iPhone type other than the default, e.g. --arg device=iPhone,16e or
 # --arg device=iPhone,17,Pro,Max; commas stand for spaces; an unknown type exits 3 with the list)
