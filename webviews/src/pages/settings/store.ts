@@ -49,8 +49,7 @@ import {
   newIdempotencyKey,
   wireError,
   type AccountsRun,
-  type AllotmentSet,
-  type AllotmentView,
+  type AccountsRunReply,
   type AccountsState,
   type AgentsRun,
   type AgentsState,
@@ -92,10 +91,6 @@ import {
   type AgentToolsCardState,
   type McpServersRun,
   type McpServersState,
-  type HubRun,
-  type HubState,
-  type ConnectionsRun,
-  type ConnectionsState,
   type RowNoteData,
   type AgentSkillsRun,
   type AgentSkillsState,
@@ -105,9 +100,16 @@ import {
   type AgentHooksState,
   type AgentConfigAnswer,
   type AgentConfigRun,
-  type AccountsRunReply,
+  type AllotmentSet,
+  type AllotmentView,
+  type ArchivedRun,
+  type ArchivedState,
   type DoctorReport,
   type DoctorRun,
+  type HubRun,
+  type HubState,
+  type ConnectionsRun,
+  type ConnectionsState,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -1074,6 +1076,20 @@ export class SettingsStore {
   async shares(): Promise<SharesState | null> {
     const reply = await this.request("cmux.settings.shares.list", {});
     return reply.ok ? reply.value : null;
+  }
+
+  /** Settings > Sidebar > Archived Workspaces: the archived rows; null when the host has no list or the
+   * read failed. */
+  async archived(): Promise<ArchivedState | null> {
+    const reply = await this.request("cmux.settings.archived.list", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** Opens, restores or deletes one archived row; the refusal's text, else null. */
+  async runArchived(run: ArchivedRun): Promise<string | null> {
+    const reply = await this.request("cmux.settings.archived.run", run);
+    if (!reply.ok) return userMessage(reply.error, SETTINGS_SENTENCES);
+    return reply.value?.error ?? null;
   }
 
   /** Appearance > Customization Library: one `cmux customize library` verb. Answers the

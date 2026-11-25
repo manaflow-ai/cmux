@@ -209,6 +209,12 @@ impl LocalPeers {
             .unwrap_or_default()
     }
 
+    /// Forget every ad (the phone changed network: what it saw is not on the new one; the browser
+    /// re-reports the live ones).
+    pub fn clear(&mut self) {
+        self.peers.clear();
+    }
+
     /// Every live peer.
     pub fn live(&self, now: Instant) -> Vec<LocalPeer> {
         self.peers.values().filter(|p| now.saturating_duration_since(p.seen) < AD_TTL).cloned().collect()
