@@ -519,6 +519,31 @@ fn a_stash_only_delta_moves_both_creation_and_deletion_without_touching_work() {
 }
 
 #[test]
+fn a_big_untracked_file_reaches_the_machine_and_one_past_the_cap_is_named() {
+    // RFD 0066 piece 4: an untracked file over 5 MiB used to stay on the Mac unsaid.
+    let w = World::new(Serves::Seed);
+    let model = noise(7, 6 * 1024 * 1024);
+    std::fs::create_dir_all(w.work.join("assets")).unwrap();
+    std::fs::write(w.work.join("assets/model.bin"), &model).unwrap();
+    // Past the one-file cap (100 MB); sparse, so the test writes nothing.
+    std::fs::File::create(w.work.join("assets/huge.bin")).unwrap().set_len(100_000_001).unwrap();
+    let remote = w.remote("widget");
+
+    let (ok, seeded, _) = w.push(&w.work, &remote, false);
+    assert!(ok, "{seeded}");
+    assert_eq!(seeded["mode"], json!("seed"), "{seeded}");
+    assert!(seeded["bundle_bytes"].as_u64().unwrap() > model.len() as u64, "{seeded}");
+    assert_eq!(std::fs::read(remote.join("assets/model.bin")).unwrap(), model);
+    assert!(!remote.join("assets/huge.bin").exists());
+    let skipped = seeded["skipped_files"].as_array().unwrap();
+    let huge = skipped.iter().find(|item| item["path"] == json!("assets/huge.bin"));
+    let huge = huge.unwrap_or_else(|| panic!("huge.bin not named: {seeded}"));
+    assert_eq!(huge["kind"], json!("big"), "{seeded}");
+    assert!(huge["why"].as_str().unwrap().contains("(100 MB)"), "{seeded}");
+    assert!(!skipped.iter().any(|item| item["path"] == json!("assets/model.bin")), "{seeded}");
+}
+
+#[test]
 fn since_last_never_copies_and_says_why() {
     let w = World::new(Serves::Seed);
     let remote = w.remote("widget");

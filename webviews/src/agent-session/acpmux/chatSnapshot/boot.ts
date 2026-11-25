@@ -3,8 +3,9 @@
 // `__snapshot/chat.js` sets (paint.ts). That script loads `async`, so neither the document nor the
 // bundle waits on the host's answer (a busy main thread at launch answers late): it calls the boot
 // once it set the globals, and the boot runs now if it came first. A copy that comes after the live
-// page drew the chat draws nothing. A page with none, or with one for another size or theme, draws
-// nothing here and opens as before.
+// page drew the chat draws nothing. A page with none, or with one for another theme, draws nothing
+// here and opens as before; one written at another size draws the pane's chrome only (shared.ts
+// `fitsChromeOnly`).
 import { paintSnapshot } from "./paint";
 import { askEarlyOpen } from "./earlyOpen";
 import {
