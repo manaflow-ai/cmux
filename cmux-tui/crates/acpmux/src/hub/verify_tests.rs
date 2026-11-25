@@ -84,6 +84,26 @@ fn plan_picks_checks_by_language() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+#[test]
+fn rust_edition_follows_the_nearest_package_or_workspace() {
+    let dir = std::env::temp_dir().join(format!("verify-edition-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(dir.join("c")).unwrap();
+    std::fs::write(dir.join("Cargo.toml"), "[workspace.package]\nedition = \"2024\"\n").unwrap();
+    std::fs::write(
+        dir.join("c/Cargo.toml"),
+        "[package]\nname = \"cc\"\nversion = \"0.1.0\"\nedition.workspace = true\n",
+    )
+    .unwrap();
+    assert_eq!(rust_edition(&dir.join("c")), "2024");
+    std::fs::write(
+        dir.join("c/Cargo.toml"),
+        "[package]\nname = \"cc\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    assert_eq!(rust_edition(&dir.join("c")), "2021");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 #[tokio::test]
 async fn run_checks_flag_breakage_and_pass_good_files() {
     let dir = std::env::temp_dir().join(format!("verify-run-{}", uuid::Uuid::now_v7()));
