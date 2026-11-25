@@ -305,6 +305,10 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
     count: 2,
     what: "a turn folds: the rows that stay move, and copies of the rows it took away fade on the lead",
   },
+  "src/apps/scene/useSceneMotion.ts": {
+    count: 1,
+    what: "an extension scene node's own `.animation` value changes on a spring or timed curve (js/ABI.md Motion): content the extension author asked for, never app chrome or a menu",
+  },
   "src/agent-session/acpmux/session-info/SessionInfoGroup.tsx": { count: 1, what: "Session Info sections slide" },
   "src/agent-session/acpmux/session-info/foldMotion.ts": {
     count: 2,

@@ -176,6 +176,50 @@ fn a_chat_coming_back_replaces_its_stale_transcript_but_never_a_diverged_one() {
     );
 }
 
+/// An Auto chat's Cloud copy is the chat: its transcript replaces one here that went another
+/// way, and what was here is kept beside it. The same bytes are left alone.
+#[test]
+fn a_cloud_copy_replaces_a_diverged_transcript_and_keeps_what_was_there() {
+    let sid = "4b3c2d1e-aaaa-bbbb-cccc-111122223333";
+    let here = meta("claude", "claude", sid, "/Users/me/src");
+    let rel = Path::new(".claude/projects/-Users-me-src").join(format!("{sid}.jsonl"));
+    let copy = "{\"turn\":1}\n{\"turn\":2,\"on\":\"vm\"}\n";
+    let bundle = tempfile::tempdir().unwrap();
+    put(&bundle.path().join("native/claude-project").join(&rel), copy);
+
+    let home = tempfile::tempdir().unwrap();
+    let mine = "{\"turn\":1}\n{\"turn\":2,\"on\":\"here\"}\n";
+    put(&home.path().join(&rel), mine);
+    assert_eq!(native::restore_replacing_in(bundle.path(), &here, home.path()).unwrap(), 1);
+    assert_eq!(std::fs::read_to_string(home.path().join(&rel)).unwrap(), copy);
+    let kept = home
+        .path()
+        .join(".claude/projects/-Users-me-src")
+        .join(format!("{sid}.jsonl{}", native::REPLACED_SUFFIX));
+    assert_eq!(std::fs::read_to_string(&kept).unwrap(), mine);
+    // What is kept is no session of the chat's: the next copy does not carry it.
+    let found = native::locate_in(&here, home.path());
+    assert_eq!(found, [("claude-project".to_owned(), home.path().join(&rel))]);
+
+    // The same copy again changes nothing.
+    assert_eq!(native::restore_replacing_in(bundle.path(), &here, home.path()).unwrap(), 0);
+    assert_eq!(std::fs::read_to_string(&kept).unwrap(), mine);
+}
+
+/// A chat that ran in another folder of this machine before left a file of its conversation
+/// under that folder's name. The one under the chat's own folder is the one that goes.
+#[test]
+fn a_claude_chat_carries_the_file_of_its_own_folder() {
+    let home = tempfile::tempdir().unwrap();
+    let sid = "4b3c2d1e-aaaa-bbbb-cccc-111122223333";
+    let name = format!("{sid}.jsonl");
+    put(&home.path().join(".claude/projects/-Users-me-old").join(&name), "{\"old\":1}\n");
+    let own = home.path().join(".claude/projects/-Users-me-src").join(&name);
+    put(&own, "{\"turn\":1}\n");
+    let found = native::locate_in(&meta("claude", "claude", sid, "/Users/me/src"), home.path());
+    assert_eq!(found, [("claude-project".to_owned(), own)]);
+}
+
 /// A history-later move's bundle takes the prepare's copy of the agent's transcript and only
 /// what the file grew by since (`grow_into_from`), cut back to its last whole line; a file that
 /// is not that copy grown at its end is left to the whole copy (None). Its restore links the

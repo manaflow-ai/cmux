@@ -9106,6 +9106,399 @@
         }
       }
     },
+    "cloud.place.personOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only you can move chats between this Mac and Cloud, with a click in cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "وحدك يمكنك نقل المحادثات بين هذا الـ Mac وCloud، بنقرة في cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Samo vi možete premještati razgovore između ovog Maca i Clouda, klikom u cmuxu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kun du kan flytte chats mellem denne Mac og Cloud, med et klik i cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur du kannst Chats zwischen diesem Mac und der Cloud verschieben, mit einem Klick in cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo tú puedes mover chats entre este Mac y Cloud, con un clic en cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vous seul pouvez déplacer des chats entre ce Mac et Cloud, d'un clic dans cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo tu puoi spostare le chat tra questo Mac e Cloud, con un clic in cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この Mac と Cloud の間でチャットを移動できるのはあなただけです（cmux でのクリックで）。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មានតែអ្នកទេ ដែលអាចផ្លាស់ទីការជជែករវាង Mac នេះ និង Cloud ដោយចុចក្នុង cmux។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac과 Cloud 사이에서 채팅을 옮길 수 있는 것은 cmux에서 직접 클릭하는 사용자뿐입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bare du kan flytte chatter mellom denne Macen og Cloud, med et klikk i cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tylko ty możesz przenosić czaty między tym Makiem a Cloud, klikając w cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Só você pode mover chats entre este Mac e o Cloud, com um clique no cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Только вы можете переносить чаты между этим Mac и Cloud — щелчком в cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มีเพียงคุณเท่านั้นที่ย้ายแชทระหว่าง Mac เครื่องนี้กับ Cloud ได้ ด้วยการคลิกใน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbetleri bu Mac ile Cloud arasında yalnızca siz, cmux'ta bir tıklamayla taşıyabilirsiniz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Лише ви можете переносити чати між цим Mac і Cloud — клацанням у cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ bạn mới có thể chuyển cuộc trò chuyện giữa máy Mac này và Cloud, bằng một cú nhấp trong cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有你能在 cmux 中点击，在此 Mac 和 Cloud 之间移动聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有你能在 cmux 中點按，在此 Mac 與 Cloud 之間移動聊天。"
+          }
+        }
+      }
+    },
+    "cloud.place.bulkRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats are already moving. Wait for that to finish, or cancel it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المحادثات قيد النقل بالفعل. انتظر حتى ينتهي ذلك، أو ألغِه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Razgovori se već premještaju. Sačekajte da se to završi ili ga otkažite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chats flyttes allerede. Vent, til det er færdigt, eller annuller det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chats werden bereits verschoben. Warte, bis das fertig ist, oder brich es ab."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ya se están moviendo chats. Espera a que termine o cancélalo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Des chats sont déjà en cours de déplacement. Attendez la fin ou annulez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Delle chat sono già in spostamento. Attendi che finisca o annullalo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "すでにチャットを移動中です。完了を待つか、キャンセルしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែកកំពុងផ្លាស់ទីរួចហើយ។ រង់ចាំឱ្យវាចប់ ឬបោះបង់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이미 채팅을 옮기는 중입니다. 끝날 때까지 기다리거나 취소하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chatter flyttes allerede. Vent til det er ferdig, eller avbryt det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czaty są już przenoszone. Poczekaj, aż to się skończy, albo anuluj."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Já há chats sendo movidos. Aguarde terminar ou cancele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Чаты уже переносятся. Дождитесь окончания или отмените."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังย้ายแชทอยู่แล้ว รอให้เสร็จ หรือยกเลิก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbetler zaten taşınıyor. Bitmesini bekleyin ya da iptal edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Чати вже переносяться. Дочекайтеся завершення або скасуйте."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các cuộc trò chuyện đang được chuyển. Hãy đợi xong hoặc hủy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已有聊天正在移动。请等待完成，或取消。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已有聊天正在移動。請等待完成，或取消。"
+          }
+        }
+      }
+    },
+    "cloud.place.identityChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not moved: the Cloud account or team changed after this started."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يتم النقل: تغيّر حساب Cloud أو الفريق بعد بدء ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije premješteno: Cloud račun ili tim se promijenio nakon početka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke flyttet: Cloud-kontoen eller teamet ændrede sig, efter dette startede."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nicht verschoben: Das Cloud-Konto oder Team hat sich nach dem Start geändert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se movió: la cuenta o el equipo de Cloud cambió después de empezar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non déplacé : le compte ou l'équipe Cloud a changé après le début."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non spostata: l'account o il team Cloud è cambiato dopo l'avvio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移動されていません：開始後に Cloud のアカウントまたはチームが変わりました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនបានផ្លាស់ទី៖ គណនី ឬក្រុម Cloud បានផ្លាស់ប្តូរ បន្ទាប់ពីការចាប់ផ្តើម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "옮기지 않음: 시작한 뒤 Cloud 계정이나 팀이 바뀌었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke flyttet: Cloud-kontoen eller teamet endret seg etter at dette startet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie przeniesiono: konto lub zespół Cloud zmieniły się po rozpoczęciu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não movido: a conta ou equipe do Cloud mudou depois do início."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не перенесено: аккаунт или команда Cloud изменились после начала."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ได้ย้าย: บัญชีหรือทีม Cloud เปลี่ยนหลังจากเริ่มแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taşınmadı: Cloud hesabı veya ekibi bu başladıktan sonra değişti."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не перенесено: обліковий запис або команда Cloud змінилися після початку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa chuyển: tài khoản hoặc nhóm Cloud đã thay đổi sau khi bắt đầu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未移动：开始后 Cloud 帐户或团队已更改。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未移動：開始後 Cloud 帳號或團隊已變更。"
+          }
+        }
+      }
+    },
     "cloud.moveAsk.bringBackIsPersons": {
       "extractionState": "manual",
       "localizations": {
@@ -9364,6 +9757,661 @@
           "stringUnit": {
             "state": "translated",
             "value": "此對話現在無法移到 Cloud。"
+          }
+        }
+      }
+    },
+    "cloud.move.vmCouldNotStart": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its Cloud VM could not start."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر تشغيل جهاز Cloud الافتراضي الخاص بها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Njegov Cloud VM se nije mogao pokrenuti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dens Cloud-VM kunne ikke starte."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Cloud-VM dieses Chats konnte nicht starten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Su VM de Cloud no pudo iniciarse."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sa VM Cloud n'a pas pu démarrer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La sua VM Cloud non si è avviata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このチャット専用の Cloud VM を起動できませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "VM Cloud របស់វាមិនអាចចាប់ផ្ដើមបានទេ."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅의 Cloud VM을 시작할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud-VM-en kunne ikke starte."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jego maszyna wirtualna Cloud nie mogła się uruchomić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A VM do Cloud dela não pôde iniciar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось запустить её виртуальную машину Cloud."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถเริ่ม Cloud VM ของแชทนี้ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud VM'i başlatılamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося запустити її віртуальну машину Cloud."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể khởi động VM Cloud của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "它的 Cloud 虚拟机无法启动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "它的 Cloud 虛擬機器無法啟動。"
+          }
+        }
+      }
+    },
+    "cloud.move.vmCouldNotStart.signIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its Cloud VM could not start: sign in to cmux Cloud first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر تشغيل جهاز Cloud الافتراضي الخاص بها: سجّل الدخول إلى cmux Cloud أولاً."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Njegov Cloud VM se nije mogao pokrenuti: prvo se prijavi u cmux Cloud."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dens Cloud-VM kunne ikke starte: log først ind på cmux Cloud."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Cloud-VM dieses Chats konnte nicht starten: melde dich zuerst bei cmux Cloud an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Su VM de Cloud no pudo iniciarse: inicia sesión primero en cmux Cloud."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sa VM Cloud n'a pas pu démarrer: connectez-vous d'abord à cmux Cloud."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La sua VM Cloud non si è avviata: accedi prima a cmux Cloud."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このチャット専用の Cloud VM を起動できませんでした：先に cmux Cloud にサインインしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "VM Cloud របស់វាមិនអាចចាប់ផ្ដើមបានទេ: សូមចូលគណនី cmux Cloud ជាមុនសិន."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅의 Cloud VM을 시작할 수 없습니다: 먼저 cmux Cloud에 로그인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud-VM-en kunne ikke starte: logg først inn på cmux Cloud."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jego maszyna wirtualna Cloud nie mogła się uruchomić: najpierw zaloguj się do cmux Cloud."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A VM do Cloud dela não pôde iniciar: entre primeiro no cmux Cloud."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось запустить её виртуальную машину Cloud: сначала войдите в cmux Cloud."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถเริ่ม Cloud VM ของแชทนี้ได้: โปรดลงชื่อเข้าใช้ cmux Cloud ก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud VM'i başlatılamadı: önce cmux Cloud'da oturum açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося запустити її віртуальну машину Cloud: спершу увійдіть у cmux Cloud."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể khởi động VM Cloud của nó: hãy đăng nhập cmux Cloud trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "它的 Cloud 虚拟机无法启动：请先登录 cmux Cloud。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "它的 Cloud 虛擬機器無法啟動：請先登入 cmux Cloud。"
+          }
+        }
+      }
+    },
+    "cloud.move.vmCouldNotStart.planLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its Cloud VM could not start: your plan's limit of Cloud machines is reached."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر تشغيل جهاز Cloud الافتراضي الخاص بها: تم بلوغ حد خطتك من أجهزة Cloud."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Njegov Cloud VM se nije mogao pokrenuti: dostignuto je ograničenje tvog plana za Cloud mašine."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dens Cloud-VM kunne ikke starte: din plans grænse for Cloud-maskiner er nået."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Cloud-VM dieses Chats konnte nicht starten: das Limit deines Tarifs für Cloud-Maschinen ist erreicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Su VM de Cloud no pudo iniciarse: se alcanzó el límite de máquinas Cloud de tu plan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sa VM Cloud n'a pas pu démarrer: la limite de machines Cloud de votre forfait est atteinte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La sua VM Cloud non si è avviata: è stato raggiunto il limite di macchine Cloud del tuo piano."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このチャット専用の Cloud VM を起動できませんでした：プランの Cloud マシン数の上限に達しました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "VM Cloud របស់វាមិនអាចចាប់ផ្ដើមបានទេ: ឈានដល់ដែនកំណត់ម៉ាស៊ីន Cloud នៃផែនការរបស់អ្នកហើយ."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅의 Cloud VM을 시작할 수 없습니다: 요금제의 Cloud 머신 한도에 도달했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud-VM-en kunne ikke starte: grensen for Cloud-maskiner i abonnementet ditt er nådd."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jego maszyna wirtualna Cloud nie mogła się uruchomić: osiągnięto limit maszyn Cloud w Twoim planie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A VM do Cloud dela não pôde iniciar: o limite de máquinas Cloud do seu plano foi atingido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось запустить её виртуальную машину Cloud: достигнут лимит машин Cloud вашего тарифа."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถเริ่ม Cloud VM ของแชทนี้ได้: ถึงขีดจำกัดจำนวนเครื่อง Cloud ของแพ็กเกจแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud VM'i başlatılamadı: planınızın Cloud makine sınırına ulaşıldı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося запустити її віртуальну машину Cloud: досягнуто ліміту машин Cloud вашого тарифу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể khởi động VM Cloud của nó: đã đạt giới hạn máy Cloud của gói của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "它的 Cloud 虚拟机无法启动：已达到你的套餐的 Cloud 机器上限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "它的 Cloud 虛擬機器無法啟動：已達到你的方案的 Cloud 機器上限。"
+          }
+        }
+      }
+    },
+    "cloud.move.vmCouldNotStart.capacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its Cloud VM could not start: Cloud has no capacity for it right now. Try again in a moment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر تشغيل جهاز Cloud الافتراضي الخاص بها: لا تتوفر سعة في Cloud لها الآن، حاول مجددًا بعد قليل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Njegov Cloud VM se nije mogao pokrenuti: Cloud trenutno nema kapaciteta za njega, pokušaj ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dens Cloud-VM kunne ikke starte: Cloud har ikke kapacitet til den lige nu, prøv igen om lidt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Cloud-VM dieses Chats konnte nicht starten: die Cloud hat gerade keine Kapazität dafür, versuche es gleich noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Su VM de Cloud no pudo iniciarse: Cloud no tiene capacidad para ella ahora mismo, inténtalo de nuevo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sa VM Cloud n'a pas pu démarrer: le Cloud n'a pas de capacité pour elle pour le moment, réessayez dans un instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La sua VM Cloud non si è avviata: il Cloud non ha capacità per la chat in questo momento, riprova tra poco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このチャット専用の Cloud VM を起動できませんでした：現在 Cloud に空き容量がありません。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "VM Cloud របស់វាមិនអាចចាប់ផ្ដើមបានទេ: ឥឡូវនេះ Cloud គ្មានសមត្ថភាពសម្រាប់វាទេ សូមព្យាយាមម្ដងទៀតបន្តិចទៀត."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅의 Cloud VM을 시작할 수 없습니다: 지금은 Cloud에 여유 용량이 없습니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud-VM-en kunne ikke starte: Cloud har ikke kapasitet til den akkurat nå, prøv igjen om litt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jego maszyna wirtualna Cloud nie mogła się uruchomić: Cloud nie ma teraz dla niej zasobów, spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A VM do Cloud dela não pôde iniciar: o Cloud não tem capacidade para ela agora, tente novamente em instantes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось запустить её виртуальную машину Cloud: сейчас в Cloud нет свободных мощностей для неё, повторите попытку чуть позже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถเริ่ม Cloud VM ของแชทนี้ได้: ขณะนี้ Cloud ไม่มีความจุเหลือ ลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud VM'i başlatılamadı: Cloud'da şu anda bunun için kapasite yok, birazdan tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося запустити її віртуальну машину Cloud: зараз у Cloud немає вільних потужностей для неї, спробуйте ще раз трохи згодом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể khởi động VM Cloud của nó: hiện Cloud không còn dung lượng cho nó, hãy thử lại sau giây lát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "它的 Cloud 虚拟机无法启动：Cloud 目前没有可用容量，请稍后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "它的 Cloud 虛擬機器無法啟動：Cloud 目前沒有可用容量，請稍後重試。"
+          }
+        }
+      }
+    },
+    "cloud.move.vmCouldNotStart.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its Cloud VM could not start: this Mac could not reach Cloud."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر تشغيل جهاز Cloud الافتراضي الخاص بها: تعذّر على هذا الـ Mac الوصول إلى Cloud."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Njegov Cloud VM se nije mogao pokrenuti: ovaj Mac nije mogao doći do Clouda."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dens Cloud-VM kunne ikke starte: denne Mac kunne ikke nå Cloud."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Cloud-VM dieses Chats konnte nicht starten: dieser Mac konnte die Cloud nicht erreichen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Su VM de Cloud no pudo iniciarse: este Mac no pudo conectar con Cloud."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sa VM Cloud n'a pas pu démarrer: ce Mac n'a pas pu joindre le Cloud."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La sua VM Cloud non si è avviata: questo Mac non è riuscito a raggiungere il Cloud."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このチャット専用の Cloud VM を起動できませんでした：この Mac から Cloud に接続できませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "VM Cloud របស់វាមិនអាចចាប់ផ្ដើមបានទេ: Mac នេះមិនអាចភ្ជាប់ទៅ Cloud បានទេ."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅의 Cloud VM을 시작할 수 없습니다: 이 Mac에서 Cloud에 연결할 수 없었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud-VM-en kunne ikke starte: denne Macen kunne ikke nå Cloud."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jego maszyna wirtualna Cloud nie mogła się uruchomić: ten Mac nie mógł połączyć się z Cloud."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A VM do Cloud dela não pôde iniciar: este Mac não conseguiu acessar o Cloud."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось запустить её виртуальную машину Cloud: этот Mac не смог подключиться к Cloud."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถเริ่ม Cloud VM ของแชทนี้ได้: Mac เครื่องนี้เชื่อมต่อ Cloud ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud VM'i başlatılamadı: bu Mac Cloud'a ulaşamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося запустити її віртуальну машину Cloud: цей Mac не зміг під'єднатися до Cloud."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể khởi động VM Cloud của nó: Mac này không thể kết nối tới Cloud."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "它的 Cloud 虚拟机无法启动：这台 Mac 无法连接到 Cloud。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "它的 Cloud 虛擬機器無法啟動：這台 Mac 無法連線到 Cloud。"
           }
         }
       }

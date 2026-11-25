@@ -87,6 +87,7 @@
 mod fetch;
 mod held;
 mod hop;
+mod link_speed;
 mod pull;
 mod record;
 mod route;
@@ -119,6 +120,11 @@ const USAGE: &str = "usage: cmux link seed push --socket PATH LOCAL_FOLDER REMOT
 /// Longest time between two `git.seed.status` requests (the first waits are shorter:
 /// [`super::spans::PollWait`]).
 const STATUS_EVERY: Duration = Duration::from_millis(500);
+/// How long a `git.seed.status` asks the machine to hold its answer while the job runs
+/// (cmux-tui-core `git_seed::job`): it answers as soon as the job ends or reaches its head,
+/// so a seed's end costs no poll sleep and no extra request. A machine that answers without
+/// `waited` is older, and is paused for between requests as before.
+pub(crate) const STATUS_HOLD_MS: u64 = 500;
 /// Longest a seed job is waited for (a first clone of a big repository).
 const SEED_DEADLINE: Duration = Duration::from_secs(45 * 60);
 /// Least time between two progress lines.
@@ -806,7 +812,7 @@ pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyh
     if planned.unchanged {
         return Ok(seeded("delta", &planned, &Ended::Done(Value::Null)));
     }
-    let ended = run_seed(machine.socket, remote, &planned, &bundle, None)?;
+    let ended = run_seed(machine.socket, machine.id.as_deref(), remote, &planned, &bundle, None)?;
     keep_seed(&machine, &local, remote, &planned, ended.filling());
     Ok(seeded("delta", &planned, &ended))
 }
@@ -841,7 +847,8 @@ fn seed_full(
     let existed = sync_cli::remote_kind(machine.socket, remote)
         .map_err(|error| Attempt::Failed(SeedError::of(&error)))?
         .is_some();
-    let mut result = run_seed(machine.socket, remote, &planned, &bundle, head_first);
+    let mut result =
+        run_seed(machine.socket, machine.id.as_deref(), remote, &planned, &bundle, head_first);
     // The remote lacks the base (a force-push, a branch never pushed): once
     // more from the remote default branch's tip.
     if let Err(error) = &result
@@ -850,7 +857,8 @@ fn seed_full(
     {
         planned = plan::plan_with_base(local, &bundle.file, &tip).map_err(from_plan)?;
         plan_carry(machine, local, &planned, &mut bundle);
-        result = run_seed(machine.socket, remote, &planned, &bundle, head_first);
+        result =
+            run_seed(machine.socket, machine.id.as_deref(), remote, &planned, &bundle, head_first);
     }
     match result {
         Ok(ended) => {
@@ -877,8 +885,10 @@ fn plan_carry(machine: &Machine<'_>, local: &Path, planned: &Planned, bundle: &m
         return;
     }
     let out = bundle.folder.join("carry.pack");
+    // The cap from the measured link speed to this machine ([`link_speed`]).
+    let cap = link_speed::carry_cap(machine.id.as_deref().and_then(link_speed::rate));
     let packed = super::spans::time("seed.carry_pack", || {
-        super::seed::carry::pack(local, &planned.params.base, &out)
+        super::seed::carry::pack(local, &planned.params.base, &out, cap)
     });
     if let Ok(bytes) = packed {
         bundle.carry = Some((out, bytes));
@@ -1014,6 +1024,7 @@ fn seeded(mode: &'static str, planned: &Planned, ended: &Ended) -> Pushed {
 /// machine opens no other seed at its head).
 fn run_seed(
     socket: &Path,
+    machine_id: Option<&str>,
     remote: &str,
     planned: &Planned,
     bundle: &LocalBundle,
@@ -1038,6 +1049,7 @@ fn run_seed(
     let carry_part =
         carry_target.as_ref().map(|_| format!("{parent}/.{file}.carry.cmux-sync-part"));
     let mut carried = None;
+    let upload_started = Instant::now();
     if let (Some((path, _)), Some(target)) = (&bundle.carry, &carry_target) {
         let uploaded = sync_cli::upload(socket, path, target, &mut |done| {
             report(json!({"phase": "upload", "bytes_done": done, "bytes_total": total}), false);
@@ -1050,6 +1062,11 @@ fn run_seed(
         report(json!({"phase": "upload", "bytes_done": done, "bytes_total": total}), done >= total);
     });
     laps.mark("upload");
+    // What this upload measured, for the next seed's carry choice ([`link_speed`]).
+    if let (Ok(()), Some(id)) = (&uploaded, machine_id) {
+        let sent = planned.bundle_bytes + if carried.is_some() { carry_bytes } else { 0 };
+        link_speed::note(id, sent, upload_started.elapsed());
+    }
     let result = uploaded.map_err(|error| SeedError::of(&error)).and_then(|()| {
         let mut start = serde_json::to_value(&planned.params)
             .map_err(|error| SeedError::new("seed.bad_request", error.to_string()))?;
@@ -1234,7 +1251,7 @@ fn wait_job(
 ) -> Result<Ended, SeedError> {
     let mut report = throttled();
     loop {
-        let status = call("git.seed.status", json!({"job": job}))?;
+        let status = call("git.seed.status", json!({"job": job, "wait_ms": STATUS_HOLD_MS}))?;
         match status.get("state").and_then(Value::as_str) {
             Some("done") => {
                 super::spans::remote("git.seed.start", &status);
@@ -1277,7 +1294,10 @@ fn wait_job(
                 format!("the seed did not finish within {} minutes", SEED_DEADLINE.as_secs() / 60),
             ));
         }
-        pause();
+        // The machine held the answer while the job ran: ask again at once.
+        if status.get("waited").and_then(Value::as_bool) != Some(true) {
+            pause();
+        }
     }
 }
 

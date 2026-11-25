@@ -280,6 +280,8 @@ extension CEFRuntime {
         tab.attach(browser: browser)
         accessibility.attached(browser)
         signInCallbacks.attached(tab)
+        // A web page live again keeps (or asks back) the web spare window and page.
+        spareWindow.webPagesChanged(runtime: self)
         // An import's unpacked extensions, once the profile has a browser to load them through (after this callback).
         if extensionStores.hasPendingUnpacked(tab.profileID) {
             let profile = tab.profileID
@@ -300,6 +302,8 @@ extension CEFRuntime {
             orphans.closedUnregistered(browser)
             spareWindow.browserClosed(browser)
         }
+        // The last live web page gone (closed or hibernated): the web spare's quiet period starts.
+        if shutdownSequence == nil { spareWindow.webPagesChanged(runtime: self) }
         devToolsCalls.failAll(where: { $0.browser == browser }, with: BrowserTabError.closed)
         unawaitedDevTools = unawaitedDevTools.filter { $0.key.browser != browser }
         siteReplies.failAll(where: { siteReplyBrowsers[$0] == browser }, with: BrowserTabError.closed)
@@ -488,7 +492,7 @@ extension CEFShimEvent {
              .devToolsWillOpen(let b), .devToolsOpened(let b, _, _), .devToolsClosed(let b, _),
              .renderTerminated(let b, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
              .navigationReroute(let b, _, _), .localFileHandoff(let b, _), .externalURL(let b, _, _), .keyUnhandled(let b, _, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
-             .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _),
+             .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _), .authPrompt(let b, _, _, _, _),
              .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _, _), .pageDragEnter(let b, _),
              .fileDialog(let b, _, _, _, _),
              .pageMessage(let b, _, _, _), .statusMessage(let b, _):

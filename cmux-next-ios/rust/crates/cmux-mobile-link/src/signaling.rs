@@ -140,6 +140,15 @@ pub enum SignalPayload {
         relayed: Vec<String>,
         #[serde(rename = "relayedTls", default, skip_serializing_if = "Vec::is_empty")]
         relayed_tls: Vec<String>,
+        /// Which of `endpoints` are public addresses the sender's router
+        /// mapped for it (PCP, NAT-PMP or UPnP-IGD; PROTOCOL.md "Mapped
+        /// endpoints"); absent from older peers, which offer none, and older
+        /// peers ignore it (the address is still one of `endpoints`).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        mapped: Vec<String>,
+        /// Which protocol mapped them: `pcp`, `nat-pmp` or `upnp`.
+        #[serde(rename = "mappedBy", default, skip_serializing_if = "Option::is_none")]
+        mapped_by: Option<String>,
     },
     /// This side joined cmux's WebSocket relay for the session (PROTOCOL.md
     /// "WebSocket relay"): its datagrams no longer reach the peer any other
@@ -152,6 +161,13 @@ pub enum SignalPayload {
         #[serde(default)]
         reason: String,
     },
+    /// Local only, never on the wire: a phone resumed a dormant WireGuard
+    /// tunnel with a new in-tunnel connection, no signaling involved
+    /// (`dial::wireguard::dormant`). The Mac's own process puts it in its
+    /// session queue, so its answer loop takes the link as it takes any
+    /// other; `ticket` names the waiting stream.
+    #[serde(skip)]
+    WgResumed { ticket: u64 },
 }
 
 /// One `signal` message.
@@ -182,6 +198,10 @@ pub struct MailboxItem {
     pub sealed: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub at: Option<u64>,
+    /// Its place in the sender phone's queue for this Mac: 1, 2, 3, ... in post order
+    /// (PROTOCOL.md "Store and forward", API 0.18.0). An older hub sends none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seq: Option<u64>,
 }
 
 /// The Mac's answer for one mailbox item.
@@ -248,10 +268,17 @@ pub const RELAY_NOW: &str = "now";
 ///   until the peer's relay marker confirms a direct route;
 /// - 2: never sends relay frames; confirms routes with an in-tunnel `reach`
 ///   message, and may offer TURN relayed addresses reached over TCP or TLS.
+/// - 3: takes datagrams from the peer's second socket on another interface
+///   (cell beside Wi-Fi), and its in-tunnel `metered` message naming them.
 ///
 /// A side treats a version-0 peer's authenticated datagrams as the
 /// confirmation, since that peer's marker can no longer arrive.
-pub const WG_VERSION: u32 = 2;
+pub const WG_VERSION: u32 = 3;
+
+/// The version whose peers read `reach` and trickled endpoints (2). A
+/// feature checks the version that brought it, never [`WG_VERSION`]: a bump
+/// would take the feature away from every peer one version behind.
+pub const WG_REACH_VERSION: u32 = 2;
 
 fn is_zero(value: &u32) -> bool {
     *value == 0
@@ -399,6 +426,10 @@ const UNKNOWN_FRAME_TYPE: &str = "unknown frame type";
 pub struct SignalingClient {
     shared: Arc<Shared>,
     incoming: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<IncomingSession>>>,
+    /// This process's own sessions into the queue [`Self::next_session`]
+    /// reads ([`Self::inject_session`]).
+    local: mpsc::UnboundedSender<IncomingSession>,
+    local_rx: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<IncomingSession>>>,
     mailbox: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<Vec<MailboxItem>>>>,
 }
 
@@ -509,6 +540,7 @@ impl SignalingClient {
         let (sink, mut source) = socket.split();
         let out = Arc::new(SendQueue::default());
         let (incoming_tx, incoming_rx) = mpsc::unbounded_channel();
+        let (local_tx, local_rx) = mpsc::unbounded_channel();
         let (mailbox_tx, mailbox_rx) = mpsc::unbounded_channel();
         let shared = Arc::new(Shared {
             device_id: device_id.to_owned(),
@@ -610,6 +642,8 @@ impl SignalingClient {
         }
         Ok(Self {
             shared,
+            local: local_tx,
+            local_rx: Arc::new(tokio::sync::Mutex::new(local_rx)),
             incoming: Arc::new(tokio::sync::Mutex::new(incoming_rx)),
             mailbox: Arc::new(tokio::sync::Mutex::new(mailbox_rx)),
         })
@@ -716,7 +750,20 @@ impl SignalingClient {
     /// subscribed; `None` once the socket is closed. Drop or
     /// [`unsubscribe`](Self::unsubscribe) a session you refuse.
     pub async fn next_session(&self) -> Option<IncomingSession> {
-        self.incoming.lock().await.recv().await
+        let mut incoming = self.incoming.lock().await;
+        let mut local = self.local_rx.lock().await;
+        tokio::select! {
+            biased;
+            // Never `None`: this client holds the sender.
+            Some(session) = local.recv() => Some(session),
+            session = incoming.recv() => session,
+        }
+    }
+
+    /// Queue a session this process started itself (a resumed dormant
+    /// tunnel) for [`Self::next_session`]; `false` once the socket is gone.
+    pub(crate) fn inject_session(&self, session: IncomingSession) -> bool {
+        self.closed_reason().is_none() && self.local.send(session).is_ok()
     }
 
     /// Route every later signal and relay frame of `session_id` to the
@@ -994,15 +1041,22 @@ mod tests {
     #[test]
     fn mailbox_frames_match_the_contract() {
         let frame: SignalMessage = serde_json::from_str(
-            r#"{"type":"mailbox","items":[{"id":"r1","from":"p","sealed":"AQ","at":5},{"id":"r2","from":"p","sealed":"AQ"}]}"#,
+            r#"{"type":"mailbox","items":[{"id":"r1","from":"p","sealed":"AQ","at":5},{"id":"r2","from":"p","sealed":"AQ"},{"id":"r3","from":"p","sealed":"AQ","at":6,"seq":7}]}"#,
         )
         .unwrap();
         let SignalMessage::Mailbox { items } = frame else { panic!("{frame:?}") };
         assert_eq!(
             items[0],
-            MailboxItem { id: "r1".into(), from: "p".into(), sealed: "AQ".into(), at: Some(5) }
+            MailboxItem { id: "r1".into(), from: "p".into(), sealed: "AQ".into(), at: Some(5), seq: None }
         );
         assert_eq!(items[1].at, None);
+        // A store-and-forward hub (API 0.18.0) adds each item's `seq`; an older one sends none.
+        assert_eq!((items[1].seq, items[2].seq), (None, Some(7)));
+        assert_eq!(
+            serde_json::to_value(&items[2]).unwrap(),
+            serde_json::json!({"id":"r3","from":"p","sealed":"AQ","at":6,"seq":7})
+        );
+        assert!(serde_json::to_value(&items[0]).unwrap().get("seq").is_none());
         let ack = SignalMessage::MailboxAck {
             results: vec![
                 MailboxResult { id: "r1".into(), applied: true, reason: None, sig: Some("ab".into()) },
@@ -1052,6 +1106,34 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(hello, SignalMessage::Hello { .. }));
+    }
+
+    #[test]
+    fn wg_endpoints_mapped_label_old_and_new() {
+        // A new Mac's announcement: the mapped address is a plain endpoint
+        // plus the label, which an older phone (unknown fields) skips.
+        let new = SignalPayload::WgEndpoints {
+            generation: 5,
+            endpoints: vec!["192.168.1.9:4000".into(), "203.0.113.7:4000".into()],
+            relayed: Vec::new(),
+            relayed_tls: Vec::new(),
+            mapped: vec!["203.0.113.7:4000".into()],
+            mapped_by: Some("upnp".into()),
+        };
+        let value = serde_json::to_value(&new).unwrap();
+        assert_eq!(value["mapped"], serde_json::json!(["203.0.113.7:4000"]));
+        assert_eq!(value["mappedBy"], "upnp");
+        assert_eq!(value["endpoints"][1], "203.0.113.7:4000");
+        assert_eq!(serde_json::from_value::<SignalPayload>(value).unwrap(), new);
+        // An older Mac's: nothing mapped, and nothing new written back.
+        let old: SignalPayload = serde_json::from_value(serde_json::json!(
+            {"kind":"wg-endpoints","generation":1,"endpoints":["203.0.113.7:4000"]}))
+        .unwrap();
+        assert!(
+            matches!(&old, SignalPayload::WgEndpoints { mapped, mapped_by: None, .. } if mapped.is_empty())
+        );
+        let text = serde_json::to_string(&old).unwrap();
+        assert!(!text.contains("mapped"), "{text}");
     }
 
     #[test]

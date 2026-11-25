@@ -278,7 +278,7 @@ pub struct Sources {
     pub local: Option<PathBuf>,
     /// The user's own customization app (cx-swovq.1): one package folder,
     /// `$CMUX_CUSTOMIZE_DIR`, else `$XDG_CONFIG_HOME/cmux/customize`, else
-    /// `~/.config/cmux/customize`. Its id is `local/customize`; it installs
+    /// `~/.config/cmux/customize` (`cmux-next` on macOS). Its id is `local/customize`; it installs
     /// by itself with its required scopes (the user wrote it) and reloads
     /// when its files change (`local_reload.rs`).
     pub customize: Option<PathBuf>,
@@ -290,8 +290,8 @@ pub struct Sources {
     pub setups: Option<PathBuf>,
     /// The person's saved prompts (`cmux agent-config commands add --agent cmux`): one `NAME.md`
     /// each, `$CMUX_COMMANDS_DIR`, else `$XDG_CONFIG_HOME/cmux/commands`, else
-    /// `~/.config/cmux/commands`. `apps.composer.list` answers them first, so the composer's `/`
-    /// menu lists them in every chat (`composer.rs`).
+    /// `~/.config/cmux/commands` (`cmux-next` on macOS). `apps.composer.list` answers them
+    /// first, so the composer's `/` menu lists them in every chat (`composer.rs`).
     pub saved_prompts: Option<PathBuf>,
     /// `CMUX_APPS_DEFAULT` (comma separated): replaces the first-party
     /// directory as the default set when present.
@@ -341,7 +341,7 @@ pub fn customize_dir() -> Option<PathBuf> {
     }
     let config =
         non_empty("XDG_CONFIG_HOME").or_else(|| non_empty("HOME").map(|h| h.join(".config")))?;
-    Some(config.join("cmux").join("customize"))
+    Some(config.join(cmux_config::NEXT_DIR).join("customize"))
 }
 
 /// The setups' layers folder (`Sources::setups`): `setups` next to the

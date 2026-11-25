@@ -7,7 +7,7 @@
 use crate::no_panic::LockExt;
 use crate::peer_link::{
     Backoff, Heard, Link, LinkTimings, PeerState, SilenceBudget, SleepWatch, WAKE_PROBE,
-    write_deadline,
+    write_within,
 };
 use crate::rpc::{Message, RpcError, method};
 use cmux_json::JsonSet as _;
@@ -871,10 +871,10 @@ fn connect_timed_out(after: Duration) -> String {
 }
 
 fn stopped_reading(budget: Duration) -> String {
-    format!("peer stopped reading (a send waited {}s)", budget.as_secs())
+    format!("peer stopped reading (a send moved no byte for {}s)", budget.as_secs())
 }
 
-/// Why a write that timed out (`write_deadline`) dropped the link: a wake probe whose deadline
+/// Why a write that timed out (`write_within`) dropped the link: a wake probe whose deadline
 /// passed, else the send budget.
 fn write_late(budget: Duration, wake_probe: Option<tokio::time::Instant>) -> String {
     match wake_probe {

@@ -87,7 +87,9 @@ permissions:
 # Retain pending jobs: a slower older test run must not replace a newer pending deployment.
 concurrency:
   group: backend-${{ github.event.pull_request.number || github.ref }}-${{ github.event.action || 'run' }}${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('-{0}', github.sha) || '' }}
-  cancel-in-progress: false
+  # A pull request's newer push supersedes its running tests (CI cut 2026-11-24: 12 api-workerd shards kept running for
+  # every superseded head); pushes to the base branches each finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   VERCEL_ORG_ID: team_KndpHsJ15gO2OoAP2SO0thYn
@@ -103,8 +105,42 @@ jobs:
   # 55 min (jobs 137458123841, 137465404382, 2026-11-23: 87 of 245 files in 47 min). Six shards with a worker per
   # reported vCPU, then with 4 workers, still timed out there (runs 45172479573, PR #52237): a twelfth of the suite
   # with 3 workers fits a quarter of a VM, and a shard that fails reruns its files once.
+  # Whether a pull request changes what the API Worker suite reads: backend/, the shared libs it imports, the client
+  # and the mirror vectors. The workflow also starts for the journey scripts, the Swift credentials copy, the
+  # migrations workflow and the prod-promote files, none of which the 12 shards test (CI cut 2026-11-24: 12 shards
+  # of this suite were 12,170 runner-min in 24 h, 98% on pull requests). A push, a dispatch or a diff git cannot
+  # list runs them.
+  workerd-changes:
+    if: github.event.action != 'closed'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.route.outputs.run }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/
+      - id: route
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          run=true
+          if [[ "$EVENT_NAME" == pull_request ]] && files=$(git diff --no-renames --name-only HEAD^1 HEAD 2>/dev/null) && [[ -n "$files" ]]; then
+            if ! grep -Eq '^(backend/|clients/ts/|libs/(integrations-core|svix-webhook|vm-instance-identity)/|schemas/ownership-mirror/|web/services/vms/drivers/(acpmuxPersonKey|cmuxTuiDaemon)\.ts$|scripts/cmux-next/(check-acpmux-guest-commands\.ts|release/mint-link-keyset\.mjs)$|\.github/workflows/backend\.yml$)' <<< "$files"; then
+              run=false
+            fi
+          fi
+          echo "API Worker suite needed: $run"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
   api-workerd:
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event.action != 'closed') }}
+    needs: workerd-changes
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && github.event.action != 'closed' && needs.workerd-changes.outputs.run != 'false' }}
     name: api-workerd (${{ matrix.shard }}/12)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 45
@@ -151,7 +187,7 @@ jobs:
   test:
     # Runs after the API Worker shards whatever they end with, and fails on a red shard (its last step), so the
     # `test` check that the deploys and prod-promote.ts read still covers the whole suite.
-    needs: [api-workerd]
+    needs: [api-workerd, workerd-changes]
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled() && github.event.action != 'closed') }}
     # A Blacksmith LINUX_RUNNER is taken as the other jobs here take it (the label the probe saw serving). On
     # 2026-11-20 LINUX_RUNNER was blacksmith-4vcpu (serving) while linux_8 was blacksmith-8vcpu, and this job alone
@@ -275,7 +311,7 @@ jobs:
           echo "::error title=type check::the type check failed; see its step. The steps after it ran anyway."
           exit 1
       - name: Fail on the API Worker shards
-        if: ${{ !cancelled() && needs.api-workerd.result != 'success' }}
+        if: ${{ !cancelled() && needs.api-workerd.result != 'success' && !(needs.api-workerd.result == 'skipped' && needs.workerd-changes.outputs.run == 'false') }}
         env:
           SHARDS: ${{ needs.api-workerd.result }}
         run: |

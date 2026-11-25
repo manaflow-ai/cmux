@@ -10,7 +10,8 @@
 //! eventStream, maxBytes: 128 KiB, toolOutputMaxBytes: 64 KiB}`; a prompt is `session/prompt`
 //! with a `promptId`, shown as sent when its `user_message` record comes back; a reconnect
 //! re-attaches with `afterSeq`. The app's link gives up after 20 s with no inbound frame
-//! (keepalive pings every 15 s) and redials at once on a path change.
+//! (keepalive pings every 15 s) and redials at once on a path change, including the path
+//! coming back after a blackout.
 //!
 //! One chat grows to 1x (20 turns of ~1 KB answers), 10x and 100x; for each profile in
 //! `NETCOND_PROFILES` (default every built-in one), scale in `NETCOND_SCALES` and run in
@@ -49,6 +50,7 @@ use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message as RpcMessage, method};
 use acpmux::server::{AGENT_PANE_ORIGIN, Origin, serve_connection_with};
+use cmux_composer_send::chat::{self, PromptOutbox};
 use cmux_fault::Trace;
 use cmux_fault::shaper::{Disruption, LinkProfile, ProfileFile, Shaper};
 use futures_util::stream::SplitSink;
@@ -140,9 +142,19 @@ struct Link {
     /// Every inbound frame with its arrival: `None` for a ping or pong.
     rx: mpsc::UnboundedReceiver<(Instant, Option<Value>)>,
     pending: VecDeque<(Instant, Value)>,
+    /// Replies that came before the one being waited on: acpmux may answer a later request of a
+    /// burst first, and the phone's connection matches replies by id (`AcpmuxConnection`).
+    early: std::collections::HashMap<i64, (Instant, Value)>,
     next: i64,
     last_inbound: Instant,
     capabilities: Vec<String>,
+    /// The `timeBreakdownVersion` the last attach reply named; a reattach sends it back so the
+    /// daemon leaves out a breakdown this side already holds (the app's AcpmuxSessionSource
+    /// keeps it the same way) with `omitTimeBreakdown`, since the phone draws none. `None`
+    /// against a daemon that names none: nothing is sent.
+    time_breakdown_version: Option<String>,
+    /// How long `open` took to dial and upgrade the WebSocket, before its first request.
+    upgraded: Duration,
     /// Every frame either way, by message type (the bytes-per-minute bench reads it).
     tap: Arc<Tap>,
 }
@@ -186,9 +198,12 @@ impl Link {
             sink,
             rx,
             pending: VecDeque::new(),
+            early: std::collections::HashMap::new(),
             next: 0,
             last_inbound: Instant::now(),
             capabilities: Vec::new(),
+            time_breakdown_version: None,
+            upgraded: Duration::ZERO,
             tap,
         })
     }
@@ -231,25 +246,39 @@ impl Link {
         loop {
             match self.frame(deadline).await {
                 Next::Frame(at, v) if v.get("method").is_some() => return Next::Frame(at, v),
-                Next::Frame(..) => continue,
+                // An answer on the way waits for its `answer` read.
+                Next::Frame(at, v) => {
+                    if let Some(id) = v.get("id").and_then(Value::as_i64) {
+                        self.early.insert(id, (at, v));
+                    }
+                }
                 other => return other,
             }
         }
     }
 
-    /// The answer to `id` and when it came; notifications on the way wait in `pending`.
+    /// The answer to `id` and when it came; notifications on the way wait in `pending`, and
+    /// answers to other requests in `early`.
     async fn answer(&mut self, id: i64, deadline: Instant) -> Result<(Instant, Value), String> {
+        let done = |at: Instant, v: Value| match v.get("error") {
+            Some(e) => Err(format!("request {id}: {e}")),
+            None => Ok((at, v["result"].clone())),
+        };
+        if let Some((at, v)) = self.early.remove(&id) {
+            return done(at, v);
+        }
         loop {
             match self.frame(deadline).await {
                 Next::Frame(at, v) => {
-                    if v.get("id") == Some(&json!(id)) && v.get("method").is_none() {
-                        if let Some(e) = v.get("error") {
-                            return Err(format!("request {id}: {e}"));
-                        }
-                        return Ok((at, v["result"].clone()));
-                    }
                     if v.get("method").is_some() {
                         self.pending.push_back((at, v));
+                    } else if v.get("id") == Some(&json!(id)) {
+                        return done(at, v);
+                    } else if let Some(other) = v.get("id").and_then(Value::as_i64) {
+                        if std::env::var_os("NETCOND_DEBUG").is_some() {
+                            eprintln!("netcond-debug reply {other} came before {id}");
+                        }
+                        self.early.insert(other, (at, v));
                     }
                 }
                 Next::Silent => return Err(format!("no answer to request {id} in time")),
@@ -291,9 +320,11 @@ impl Link {
         if delta {
             meta["sessionChangedDelta"] = json!(true);
         }
+        let dialed = Instant::now();
         let mut link = tokio::time::timeout_at(deadline, Self::dial(addr))
             .await
             .map_err(|_| "connect timed out".to_owned())??;
+        link.upgraded = dialed.elapsed();
         let init = link
             .post(
                 "initialize",
@@ -329,8 +360,17 @@ impl Link {
             }
             Some(after) => params["afterSeq"] = json!(after),
         }
+        if let Some(v) = &self.time_breakdown_version {
+            params["timeBreakdownVersion"] = json!(v);
+            // As the phone does (AcpmuxHub.swift readPages): it draws no breakdown.
+            params["omitTimeBreakdown"] = json!(true);
+        }
         let id = self.post("_acpmux/attach", params).await?;
-        self.answer(id, deadline).await
+        let (at, reply) = self.answer(id, deadline).await?;
+        if let Some(v) = reply.get("timeBreakdownVersion").and_then(Value::as_str) {
+            self.time_breakdown_version = Some(v.to_owned());
+        }
+        Ok((at, reply))
     }
 }
 
@@ -457,6 +497,147 @@ fn env_u64(name: &str, default: u64) -> u64 {
     std::env::var(name).ok().and_then(|v| v.trim().parse().ok()).unwrap_or(default)
 }
 
+/// Reads (and drops) notifications until the link has been quiet for one round trip, the
+/// jitter and two retransmissions (a segment lost twice), or `deadline`.
+/// Returns the newest record seq it read, so the app's held copy stays known.
+async fn settle(link: &mut Link, profile: &LinkProfile, deadline: Instant) -> u64 {
+    let rto = profile.rto_min_ms.max(2 * profile.rtt_ms);
+    let quiet = Duration::from_millis(300.max(profile.rtt_ms + profile.jitter_ms + 3 * rto));
+    let mut last = 0;
+    while let Next::Frame(_, v) = link.notification((Instant::now() + quiet).min(deadline)).await {
+        last = last.max(event_seq(&v).unwrap_or(0));
+    }
+    link.pending.clear();
+    last
+}
+
+/// Duress: the agent streams (a chunk every 50 ms, about a model's token rate) while the app
+/// opens the chat again on the same link; then the app's link drops and it redials with
+/// `afterSeq` while the stream runs (`reconnect` first_content_ms, every profile). Returns the
+/// redialed link.
+#[allow(clippy::too_many_arguments)]
+async fn streaming_and_redial(
+    shaper: &Shaper,
+    control: &mut Control,
+    mut link: Link,
+    token: &str,
+    session: &str,
+    profile: &str,
+    scale: &str,
+    run: u64,
+    seed: u64,
+) -> Option<Link> {
+    let k = Key { profile, phase: "streaming", scale, run, seed };
+    // Long enough for the slowest profile's two attaches; cancelled once they are measured.
+    let turn = control.prompt(session, "ticking:2400:50").await;
+    let deadline = Instant::now() + BOUND;
+    let mut last = 0u64;
+    let mut live = false;
+    while let Next::Frame(_, v) = link.notification(deadline).await {
+        if let Some(seq) = event_seq(&v) {
+            last = last.max(seq);
+            if v.to_string().contains("tick") {
+                live = true;
+                break;
+            }
+        }
+    }
+    let end_turn = |control: &mut Control| {
+        let tx = control.tx.clone();
+        let session = session.to_owned();
+        async move {
+            let _ = tx
+                .send(
+                    RpcMessage::notification(method::SESSION_CANCEL, json!({"sessionId": session}))
+                        .to_line(),
+                )
+                .await;
+        }
+    };
+    if !live {
+        for p in ["streaming", "reconnect"] {
+            let k = Key { phase: p, ..k };
+            emit(&k, "first_content_ms", None);
+            emit_error(&k, "first_content_ms", "the agent's stream never reached the phone");
+        }
+        end_turn(control).await;
+        let _ = control.answer(turn, BOUND).await;
+        return None;
+    }
+    shaper.reset_counters();
+    let start = Instant::now();
+    match link.attach(session, None, start + BOUND).await {
+        Ok((at, reply)) if !rows(&reply).is_empty() => {
+            emit(&k, "first_content_ms", Some(ms(at - start)));
+            emit_bytes(&k, shaper);
+            last = last.max(rows(&reply).into_iter().max().unwrap_or(0));
+        }
+        Ok(_) => {
+            emit(&k, "first_content_ms", None);
+            emit_error(&k, "first_content_ms", "the attach reply carried no rows");
+        }
+        Err(e) => {
+            emit(&k, "first_content_ms", None);
+            emit_error(&k, "first_content_ms", &e);
+        }
+    }
+    // What the app has seen when its link drops.
+    for (_, v) in link.pending.drain(..) {
+        if let Some(seq) = event_seq(&v) {
+            last = last.max(seq);
+        }
+    }
+    while let Ok(Some((_, Some(v)))) = tokio::time::timeout(Duration::ZERO, link.rx.recv()).await {
+        if let Some(seq) = event_seq(&v) {
+            last = last.max(seq);
+        }
+    }
+    drop(link);
+
+    // The redial: a new connection, attach with afterSeq; first content is the first row or
+    // event newer than what the app had.
+    let k = Key { phase: "reconnect", ..k };
+    shaper.reset_counters();
+    let start = Instant::now();
+    let deadline = start + BOUND;
+    let mut out = None;
+    let first = match Link::open(shaper.addr(), token, deadline).await {
+        Err(e) => Err(e),
+        Ok(mut l) => {
+            let got = match l.attach(session, Some(last), deadline).await {
+                Ok((at, reply)) if rows(&reply).iter().any(|s| *s > last) => Ok(at),
+                Ok(_) => loop {
+                    match l.notification(deadline).await {
+                        Next::Frame(at, v) if event_seq(&v).is_some_and(|s| s > last) => {
+                            break Ok(at);
+                        }
+                        Next::Frame(..) => {}
+                        _ => break Err("nothing newer than afterSeq arrived".to_owned()),
+                    }
+                },
+                Err(e) => Err(e),
+            };
+            out = Some(l);
+            got
+        }
+    };
+    match first {
+        Ok(at) => {
+            emit(&k, "first_content_ms", Some(ms(at - start)));
+            emit_bytes(&k, shaper);
+        }
+        Err(e) => {
+            emit(&k, "first_content_ms", None);
+            emit_error(&k, "first_content_ms", &e);
+        }
+    }
+    end_turn(control).await;
+    let _ = control.answer(turn, BOUND).await;
+    let mut l = out?;
+    let _ = settle(&mut l, &shaper.profile(), Instant::now() + BOUND).await;
+    Some(l)
+}
+
 /// cold, then warm on the same connection; returns the open, watched, attached link.
 async fn cold_and_warm(
     shaper: &Shaper,
@@ -481,8 +662,11 @@ async fn cold_and_warm(
             return None;
         }
     };
+    // The newest record the app holds; the iOS reopen sends it as afterSeq.
+    let mut last = 0u64;
     match link.attach(session, None, deadline).await {
         Ok((at, reply)) if !rows(&reply).is_empty() => {
+            last = rows(&reply).into_iter().max().unwrap_or(0);
             emit(&k, "first_content_ms", Some(ms(at - start)));
             emit_bytes(&k, shaper);
         }
@@ -507,14 +691,20 @@ async fn cold_and_warm(
         .await;
     let mut shown = None;
     if sent.is_ok() {
-        while let Next::Frame(at, v) = link.notification(deadline).await {
-            let p = v["params"].to_string();
-            if v["method"] == method::MUX_EVENT
-                && p.contains("user_message")
-                && p.contains(&prompt_id)
-            {
-                shown = Some(at);
-                break;
+        loop {
+            match link.notification(deadline).await {
+                Next::Frame(at, v) => {
+                    last = last.max(event_seq(&v).unwrap_or(0));
+                    let p = v["params"].to_string();
+                    if v["method"] == method::MUX_EVENT
+                        && p.contains("user_message")
+                        && p.contains(&prompt_id)
+                    {
+                        shown = Some(at);
+                        break;
+                    }
+                }
+                _ => break,
             }
         }
     }
@@ -525,11 +715,50 @@ async fn cold_and_warm(
             emit_error(&k, "interactive_ms", "the prompt's user_message never came back");
         }
     }
-    // Let the ping's turn end before the reopen.
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    link.pending.clear();
+    // Let the ping's turn finish arriving before the reopen. A fixed pause was shorter than one
+    // round trip on a slow link: the turn's tail was still in flight and the warm reply queued
+    // behind it (the shaper delivers in order), so warm measured the ping turn too.
+    last = last.max(settle(&mut link, &shaper.profile(), deadline).await);
 
+    // Warm is the app's reopen: it draws its own copy first (AcpmuxHub.swift:679) and attaches
+    // with afterSeq = the newest record it holds (AcpmuxHub.swift:1730, :1780 at 3492894eabe5). Its first content
+    // is local; this measures the attach reply, the point the reopened chat is known current.
     let k = Key { phase: "warm", ..k };
+    shaper.reset_counters();
+    let start = Instant::now();
+    match link.attach(session, Some(last), start + BOUND).await {
+        Ok((at, _)) => {
+            emit(&k, "first_content_ms", Some(ms(at - start)));
+            emit_bytes(&k, shaper);
+        }
+        Err(e) => {
+            emit(&k, "first_content_ms", None);
+            emit_error(&k, "first_content_ms", &e);
+            return None;
+        }
+    }
+    settle(&mut link, &shaper.profile(), start + BOUND).await;
+
+    // A second reopen with nothing new since the first (warm has a turn before it; this has
+    // none): the cost of a reopen when the chat did not move.
+    let k = Key { phase: "warm-again", ..k };
+    shaper.reset_counters();
+    let start = Instant::now();
+    match link.attach(session, Some(last), start + BOUND).await {
+        Ok((at, _)) => {
+            emit(&k, "first_content_ms", Some(ms(at - start)));
+            emit_bytes(&k, shaper);
+        }
+        Err(e) => {
+            emit(&k, "first_content_ms", None);
+            emit_error(&k, "first_content_ms", &e);
+            return None;
+        }
+    }
+    settle(&mut link, &shaper.profile(), start + BOUND).await;
+
+    // For comparison: a reopen that fetches the whole opening page again (afterSeq none).
+    let k = Key { phase: "warm-full", ..k };
     shaper.reset_counters();
     let start = Instant::now();
     match link.attach(session, None, start + BOUND).await {
@@ -550,6 +779,10 @@ async fn cold_and_warm(
     Some(link)
 }
 
+/// The app's wait after a path change before it redials (cmux-next-ios
+/// LinkController.swift:180 `networkSettle`), so a burst of path updates settles first.
+const NETWORK_SETTLE: Duration = Duration::from_millis(150);
+
 /// The agent streams; the link drops (the profile's disruption); the app's policy reconnects.
 #[allow(clippy::too_many_arguments)]
 async fn reconnect(
@@ -559,6 +792,7 @@ async fn reconnect(
     token: &str,
     session: &str,
     k: &Key<'_>,
+    path_back: bool,
 ) {
     let fail = |why: &str| {
         for m in ["gap_after_link_back_ms", "gap_total_ms"] {
@@ -640,14 +874,32 @@ async fn reconnect(
         }
     }
     drop(old);
-    // Redial: each try bounded as the app's requests are, until the overall bound.
+    // Redial: each try bounded as the app's requests are, until the overall bound. With
+    // `path_back` (the path-change row, the app's behaviour), a try still pending when the link
+    // comes back is dropped for a new one after `NETWORK_SETTLE`: the app's NWPathMonitor reports
+    // the path back (cmux-next-ios NetworkPathMonitor.swift:55, LiveCoordinator.swift:392) and
+    // LinkController redials after its settle (LinkController.swift:180, :193). Without it (the
+    // harness-dark-dial row on a blackout) the harness's own dial from the dark rides the shaper's
+    // SYN backoff (cmux-fault shaper.rs `connect_at`); the app does not do that.
     let mut why = String::from("no reconnect before the bound");
+    let mut dialed = None;
     while first.is_none() && Instant::now() < deadline {
-        let attempt = (Instant::now() + Duration::from_secs(30)).min(deadline);
+        let now = Instant::now();
+        let mut attempt = (now + Duration::from_secs(30)).min(deadline);
+        let cut = path_back && now < back;
+        if cut {
+            attempt = attempt.min(back);
+        }
+        let wait_for_back =
+            || tokio::time::sleep_until(if cut { back + NETWORK_SETTLE } else { Instant::now() });
         let mut l = match Link::open(shaper.addr(), token, attempt).await {
-            Ok(l) => l,
+            Ok(l) => {
+                dialed = Some((now, Instant::now()));
+                l
+            }
             Err(e) => {
                 why = e;
+                wait_for_back().await;
                 continue;
             }
         };
@@ -660,6 +912,7 @@ async fn reconnect(
             }
             Err(e) => {
                 why = e;
+                wait_for_back().await;
                 continue;
             }
         }
@@ -675,12 +928,70 @@ async fn reconnect(
             let after = if at >= back { ms(at - back) } else { -ms(back - at) };
             emit(k, "gap_after_link_back_ms", Some(after));
             emit(k, "gap_total_ms", Some(ms(at - t0)));
+            // The path-change gap split: the app's fixed settle before its redial, then the rest
+            // (the dial, the attach, the first record).
+            if k.phase == "path-change" {
+                let settle = ms(NETWORK_SETTLE);
+                emit(k, "settle_ms", Some(settle));
+                emit(k, "gap_after_settle_ms", Some(after - settle));
+            }
+            // The dial that got through: when it went out against the link's return (negative:
+            // in the dark) and how long it took to open.
+            if let Some((sent, open)) = dialed {
+                let from_back = if sent >= back { ms(sent - back) } else { -ms(back - sent) };
+                emit(k, "dial_from_link_back_ms", Some(from_back));
+                emit(k, "dial_open_ms", Some(ms(open - sent)));
+            }
             emit_bytes(k, shaper);
         }
         None => fail(&why),
     }
     // The stream's turn ends before the next run.
     let _ = control.answer(turn, BOUND).await;
+}
+
+/// The daemon runs a connection's requests at once, so the pipelined `_acpmux/watch` may be
+/// answered before `initialize` (on a loss-free link, about 1 open in 60 of the bench's). The
+/// open reads that order too: it dropped the early watch answer and waited its whole bound for
+/// it, a `no answer to request 2` that was never the daemon's. Held: `initialize` runs only
+/// once the watch answer is queued and the pump had time to send it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_open_whose_watch_is_answered_before_initialize_opens() {
+    let _ = HERMETIC;
+    let scratch = daemon_env::Scratch::new("netcond-order");
+    let hub = hub(&scratch.path().join("home"));
+    let queued = Arc::new(tokio::sync::Semaphore::new(0));
+    let watch_first = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (q, first) = (queued.clone(), watch_first.clone());
+    hub.hold_requests_for_tests(Arc::new(move |stage, m: &str, _: &Value| {
+        let (q, first) = (q.clone(), first.clone());
+        let m = m.to_owned();
+        Box::pin(async move {
+            use acpmux::hub::RequestStage;
+            use std::sync::atomic::Ordering;
+            if stage == RequestStage::ListQueued && m == method::MUX_WATCH {
+                q.add_permits(1);
+            } else if stage == RequestStage::Dispatch && m == method::INITIALIZE {
+                let got = tokio::time::timeout(Duration::from_secs(10), q.acquire()).await;
+                first.store(matches!(got, Ok(Ok(_))), Ordering::SeqCst);
+                // The pump takes a read lane's answer (initialize's) ahead of queued bulk
+                // lines: the watch answer leaves the queue first.
+                tokio::time::sleep(Duration::from_millis(300)).await;
+            }
+        })
+    }));
+    let listener = app_ws::listen(&hub).await;
+    let addr: std::net::SocketAddr =
+        listener.url.trim_start_matches("ws://").trim_end_matches('/').parse().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let link = Link::open(addr, &listener.token, deadline).await;
+    assert!(
+        watch_first.load(std::sync::atomic::Ordering::SeqCst),
+        "the watch answer was not queued before initialize ran"
+    );
+    if let Err(e) = link {
+        panic!("an open whose watch was answered first: {e}");
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -745,9 +1056,61 @@ async fn chat_open_and_reconnect_under_mobile_link_profiles() {
                 else {
                     continue;
                 };
+                let Some(link) = streaming_and_redial(
+                    &shaper,
+                    &mut control,
+                    link,
+                    &listener.token,
+                    &session,
+                    &name,
+                    scale,
+                    run,
+                    seed,
+                )
+                .await
+                else {
+                    continue;
+                };
                 if profile.disrupts_lan() {
-                    let k = Key { profile: &name, phase: "reconnect", scale, run, seed };
-                    reconnect(&shaper, &mut control, link, &listener.token, &session, &k).await;
+                    // On a blackout this row is the harness's own dial from the dark, riding the
+                    // shaper's SYN backoff: not the app, which redials on the path change (the
+                    // path-change row below, the one the targets read).
+                    let blackout = matches!(profile.disruption, Some(Disruption::Blackout { .. }));
+                    let phase = if blackout { "harness-dark-dial" } else { "reconnect" };
+                    let k = Key { profile: &name, phase, scale, run, seed };
+                    reconnect(&shaper, &mut control, link, &listener.token, &session, &k, false)
+                        .await;
+                    // path-change: the same drop, redialing when the path comes back. Only a
+                    // blackout differs: an address change redials at once in both rows.
+                    if matches!(profile.disruption, Some(Disruption::Blackout { .. })) {
+                        let k = Key { profile: &name, phase: "path-change", scale, run, seed };
+                        let open = Instant::now() + BOUND;
+                        let link = match Link::open(shaper.addr(), &listener.token, open).await {
+                            Ok(mut link) => match link.attach(&session, None, open).await {
+                                Ok(_) => Some(link),
+                                Err(e) => {
+                                    emit_error(&k, "gap_after_link_back_ms", &e);
+                                    None
+                                }
+                            },
+                            Err(e) => {
+                                emit_error(&k, "gap_after_link_back_ms", &e);
+                                None
+                            }
+                        };
+                        if let Some(link) = link {
+                            reconnect(
+                                &shaper,
+                                &mut control,
+                                link,
+                                &listener.token,
+                                &session,
+                                &k,
+                                true,
+                            )
+                            .await;
+                        }
+                    }
                 }
             }
         }
@@ -1255,6 +1618,529 @@ async fn session_changed_on_a_long_chat_is_a_small_patch_only_for_a_client_that_
 }
 
 // ---------------------------------------------------------------------------------------------
+// Send: tap to "visible as sent", with the phone's retry, and what the host applied
+//
+// Leo, 2026-11-24 (relayed, ask-1124-0818): "i think we can maybe be more optimistic sometimes.
+// it is a bit slow on ios." Item 1, the BEFORE: today the app draws a sent bubble when the Mac's
+// `user_message` record for that `promptId` reaches the phone (`AgentChatStore.applyEvent`), so
+// tap to visible is a full round trip. One send is: tap (the request is written), then the first
+// of the record in the event stream or in a re-attach's rows. A send whose connection goes quiet
+// (20 s with no inbound frame, pings every 15 s) redials, re-attaches with `afterSeq` and, when
+// the record is not there, sends the prompt again with the SAME `promptId` and `resend: true`, as
+// `AcpmuxSessionSource.promptFailed` does. After a row the host's own log says what it applied:
+// a `promptId` with two `user_message` records is a double send, with none a lost send.
+//
+// Rows (phase `send`, scale = the row): idle (no shaper), lte, lossy-3, duress (lte, a long chat,
+// a second chat streaming, every core spinning), link-down (lte; at each tap the link drops for
+// `NETCOND_SEND_BLACKOUT_MS`, default 3000, and comes back). Metrics: `send_visible_ms` (null: not
+// visible within the send's bound), `sends`, `double_sends`, `lost_sends`, `retries`.
+// Env: `NETCOND_SENDS` (25 per row), `NETCOND_SEND_ROWS` (idle,lte,lossy-3,link-down,duress),
+// `NETCOND_SEND_BLACKOUT_MS`, `NETCOND_SEND_BOUND_S` (45), `NETCOND_SEED_BASE`.
+
+/// The longest a send may take to show before it counts as not visible (a miss).
+fn send_bound() -> Duration {
+    Duration::from_secs(env_u64("NETCOND_SEND_BOUND_S", 45))
+}
+
+/// Threads that keep every core busy until dropped: the Mac under load.
+struct Spin {
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    threads: Vec<std::thread::JoinHandle<()>>,
+}
+
+impl Spin {
+    fn start() -> Self {
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let cores = std::thread::available_parallelism().map_or(4, usize::from);
+        let threads = (0..cores)
+            .map(|_| {
+                let stop = stop.clone();
+                std::thread::spawn(move || {
+                    let mut x = 1u64;
+                    while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                        for _ in 0..100_000 {
+                            x = x
+                                .wrapping_mul(6364136223846793005)
+                                .wrapping_add(1442695040888963407);
+                        }
+                        std::hint::black_box(x);
+                    }
+                })
+            })
+            .collect();
+        Self { stop, threads }
+    }
+}
+
+impl Drop for Spin {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        for thread in self.threads.drain(..) {
+            let _ = thread.join();
+        }
+    }
+}
+
+fn is_echo(v: &Value, prompt_id: &str) -> bool {
+    if v["method"] != method::MUX_EVENT {
+        return false;
+    }
+    let p = v["params"].to_string();
+    p.contains("user_message") && p.contains(&format!("\"{prompt_id}\""))
+}
+
+fn reply_has_echo(reply: &Value, prompt_id: &str) -> bool {
+    reply["events"].as_array().is_some_and(|events| {
+        events.iter().any(|e| {
+            let s = e.to_string();
+            s.contains("user_message") && s.contains(&format!("\"{prompt_id}\""))
+        })
+    })
+}
+
+fn prompt_params(session: &str, text: &str, prompt_id: &str, resend: bool) -> Value {
+    json!({"sessionId": session, "prompt": [{"type": "text", "text": text}],
+           "_meta": {"acpmux": {"promptId": prompt_id, "steer": false, "resend": resend}}})
+}
+
+/// One send as the phone does it. Returns (visible_ms, retries); the link may be replaced.
+#[allow(clippy::too_many_arguments)]
+async fn chat_send_once(
+    link: &mut Link,
+    addr: std::net::SocketAddr,
+    token: &str,
+    session: &str,
+    prompt_id: &str,
+    last: &mut u64,
+    tap: Instant,
+) -> (Option<f64>, u64) {
+    let build = |resend: bool| prompt_params(session, "ping", prompt_id, resend);
+    chat_send_with(link, addr, token, session, prompt_id, last, tap, &build, &mut None).await
+}
+
+/// `chat_send_once` with the prompt built by `build(resend)`; `written` gets the ms from the tap
+/// to the first write of it returning (the socket took every byte).
+#[allow(clippy::too_many_arguments)]
+async fn chat_send_with(
+    link: &mut Link,
+    addr: std::net::SocketAddr,
+    token: &str,
+    session: &str,
+    prompt_id: &str,
+    last: &mut u64,
+    tap: Instant,
+    build: &dyn Fn(bool) -> Value,
+    written: &mut Option<f64>,
+) -> (Option<f64>, u64) {
+    let deadline = tap + send_bound();
+    let mut retries = 0;
+    let mut request = link.post(method::SESSION_PROMPT, build(false)).await.ok();
+    *written = Some(ms(Instant::now() - tap));
+    let mut last_ping = Instant::now();
+    loop {
+        if request.is_some() {
+            let give_up = link.last_inbound + GIVE_UP_AFTER;
+            let ping_at = last_ping + PING_EVERY;
+            let wake = give_up.min(ping_at).min(deadline);
+            match link.notification(wake).await {
+                Next::Frame(at, v) => {
+                    if let Some(seq) = event_seq(&v) {
+                        *last = (*last).max(seq);
+                    }
+                    if is_echo(&v, prompt_id) {
+                        return (Some(ms(at - tap)), retries);
+                    }
+                    continue;
+                }
+                Next::Closed => {}
+                Next::Silent => {
+                    let now = Instant::now();
+                    if now >= deadline {
+                        return (None, retries);
+                    }
+                    if now < give_up {
+                        if now >= ping_at {
+                            link.ping().await;
+                            last_ping = now;
+                        }
+                        continue;
+                    }
+                }
+            }
+        }
+        // The link is gone (closed, or 20 s of nothing): redial, re-attach after what was seen,
+        // and send the prompt again under its id when its record is not there.
+        let mut redialed = None;
+        while Instant::now() < deadline {
+            let attempt = (Instant::now() + Duration::from_secs(30)).min(deadline);
+            let Ok(mut fresh) = Link::open(addr, token, attempt).await else {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                continue;
+            };
+            match fresh.attach(session, Some(*last), attempt).await {
+                Ok((at, reply)) => {
+                    for seq in rows(&reply) {
+                        *last = (*last).max(seq);
+                    }
+                    if reply_has_echo(&reply, prompt_id) {
+                        *link = fresh;
+                        return (Some(ms(at - tap)), retries);
+                    }
+                    redialed = Some(fresh);
+                    break;
+                }
+                Err(_) => {
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                    continue;
+                }
+            }
+        }
+        let Some(fresh) = redialed else { return (None, retries) };
+        *link = fresh;
+        retries += 1;
+        request = link.post(method::SESSION_PROMPT, build(true)).await.ok();
+        last_ping = Instant::now();
+    }
+}
+
+/// What the host applied: `user_message` records per promptId after `after`.
+async fn applied_prompts(
+    addr: std::net::SocketAddr,
+    token: &str,
+    session: &str,
+    after: u64,
+    ids: &[String],
+) -> Option<Vec<usize>> {
+    let deadline = Instant::now() + BOUND;
+    let mut link = Link::open(addr, token, deadline).await.ok()?;
+    let mut params = json!({"sessionId": session, "limit": 2000, "kinds": ["user_message"],
+                            "afterSeq": after});
+    params["eventStream"] = json!(false);
+    let id = link.post("_acpmux/attach", params).await.ok()?;
+    let (_, reply) = link.answer(id, deadline).await.ok()?;
+    let events = reply["events"].as_array()?;
+    if events.len() >= 2000 {
+        return None;
+    }
+    Some(
+        ids.iter()
+            .map(|pid| {
+                events
+                    .iter()
+                    .filter(|e| {
+                        let s = e.to_string();
+                        s.contains("user_message") && s.contains(&format!("\"{pid}\""))
+                    })
+                    .count()
+            })
+            .collect(),
+    )
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "the send bench: scripts/measure/ios-network-conditions.sh mode=send runs it"]
+async fn chat_send_under_link_conditions() {
+    let scratch = daemon_env::Scratch::new("netcond-send");
+    let hub = hub(&scratch.path().join("home"));
+    let listener = app_ws::listen(&hub).await;
+    let upstream: std::net::SocketAddr =
+        listener.url.trim_start_matches("ws://").trim_end_matches('/').parse().unwrap();
+    let file = match std::env::var("NETCOND_PROFILES_FILE") {
+        Ok(p) if !p.is_empty() => ProfileFile::load(Path::new(&p)).unwrap(),
+        _ => ProfileFile::builtin(),
+    };
+    let sends = env_u64("NETCOND_SENDS", 25);
+    let seed_base = env_u64("NETCOND_SEED_BASE", 0);
+    let blackout = Duration::from_millis(env_u64("NETCOND_SEND_BLACKOUT_MS", 3000));
+    let rows_wanted =
+        env_list("NETCOND_SEND_ROWS", &["idle", "lte", "lossy-3", "link-down", "duress"]);
+    let mut control = Control::new(&hub);
+    let cwd = scratch.path().join("work");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let trace = Trace::new();
+    for row in &rows_wanted {
+        let (profile, loaded, down) = match row.as_str() {
+            "idle" => (None, false, false),
+            "lte" => (file.get("lte"), false, false),
+            "lossy-3" => (file.get("lossy-3"), false, false),
+            "duress" => (file.get("lte"), true, false),
+            "link-down" => (file.get("lte"), false, true),
+            other => panic!("NETCOND_SEND_ROWS: no row {other}"),
+        };
+        let profile = profile.cloned();
+        let label = profile.as_ref().map_or_else(|| "none".to_owned(), |p| p.label(None));
+        let made = control
+            .call(
+                method::SESSION_NEW,
+                json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"name": format!("send-{row}")}}}),
+            )
+            .await;
+        let session = made["result"]["sessionId"].as_str().unwrap().to_owned();
+        // A loaded Mac: a long chat, a second chat streaming 50 words a second into the watch,
+        // every core spinning.
+        let (_spin, streaming) = if loaded {
+            control.seed(&session, 0, 100).await;
+            let other = control
+                .call(
+                    method::SESSION_NEW,
+                    json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"name": "send-stream"}}}),
+                )
+                .await;
+            let other = other["result"]["sessionId"].as_str().unwrap().to_owned();
+            let turn = control.prompt(&other, "ticking:6000:20").await;
+            (Some(Spin::start()), Some(turn))
+        } else {
+            control.seed(&session, 0, BASE_TURNS).await;
+            (None, None)
+        };
+        let _ = streaming;
+        let shaper = match &profile {
+            Some(p) => match Shaper::start(upstream, p.clone(), seed_base, &trace).await {
+                Ok(s) => Some(s),
+                Err(e) => {
+                    let k =
+                        Key { profile: &label, phase: "send", scale: row, run: 0, seed: seed_base };
+                    emit_error(&k, "send_visible_ms", &format!("shaper: {e}"));
+                    continue;
+                }
+            },
+            None => None,
+        };
+        let addr = shaper.as_ref().map_or(upstream, Shaper::addr);
+        let opened = Instant::now() + BOUND;
+        let Ok(mut link) = Link::open(addr, &listener.token, opened).await else {
+            let k = Key { profile: &label, phase: "send", scale: row, run: 0, seed: seed_base };
+            emit_error(&k, "send_visible_ms", "the phone's first connect failed");
+            continue;
+        };
+        let mut last = 0;
+        match link.attach(&session, None, opened).await {
+            Ok((_, reply)) => {
+                for seq in rows(&reply) {
+                    last = last.max(seq);
+                }
+            }
+            Err(e) => {
+                let k = Key { profile: &label, phase: "send", scale: row, run: 0, seed: seed_base };
+                emit_error(&k, "send_visible_ms", &e);
+                continue;
+            }
+        }
+        let start_seq = last;
+        let tag = std::process::id();
+        let mut ids = Vec::new();
+        let mut retries_total = 0;
+        for i in 0..sends {
+            let prompt_id = format!("send-{row}-{tag}-{i}");
+            let k = Key { profile: &label, phase: "send", scale: row, run: i, seed: seed_base + i };
+            let tap = Instant::now();
+            if down && let Some(s) = &shaper {
+                s.blackout(blackout);
+            }
+            let (visible, retries) = chat_send_once(
+                &mut link,
+                addr,
+                &listener.token,
+                &session,
+                &prompt_id,
+                &mut last,
+                tap,
+            )
+            .await;
+            retries_total += retries;
+            emit(&k, "send_visible_ms", visible);
+            if visible.is_none() {
+                emit_error(&k, "send_visible_ms", "the prompt's user_message did not show in time");
+            }
+            ids.push(prompt_id);
+            // The turn ends (the fake agent echoes) before the next tap: a prompt sent into a
+            // running turn queues and its record waits for it.
+            tokio::time::sleep(Duration::from_millis(400)).await;
+            link.pending.clear();
+        }
+        // What the host holds, read on an unshaped link.
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let k = Key { profile: &label, phase: "send", scale: row, run: 0, seed: seed_base };
+        match applied_prompts(upstream, &listener.token, &session, start_seq, &ids).await {
+            Some(counts) => {
+                emit(&k, "sends", Some(sends as f64));
+                emit(&k, "double_sends", Some(counts.iter().filter(|c| **c > 1).count() as f64));
+                emit(&k, "lost_sends", Some(counts.iter().filter(|c| **c == 0).count() as f64));
+                emit(&k, "retries", Some(retries_total as f64));
+            }
+            None => emit_error(&k, "double_sends", "the host's log could not be read"),
+        }
+        drop(link);
+    }
+}
+
+/// A ~5 MB image-sized blob as the phone sends an image: one base64 `image` block in the prompt.
+fn image_prompt(session: &str, text: &str, prompt_id: &str, resend: bool, bytes: usize) -> Value {
+    use base64::Engine as _;
+    let blob: Vec<u8> = (0..bytes).map(|i| (i.wrapping_mul(2654435761) >> 13) as u8).collect();
+    let data = base64::engine::general_purpose::STANDARD.encode(blob);
+    json!({"sessionId": session,
+           "prompt": [{"type": "text", "text": text},
+                      {"type": "image", "mimeType": "image/png", "data": data}],
+           "_meta": {"acpmux": {"promptId": prompt_id, "steer": false, "resend": resend}}})
+}
+
+/// The attachment row: an image send, then a text send tapped at the same instant that the phone
+/// holds behind it (its prompt chain writes in order). Phase "attach", scale = the row.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "the send bench: scripts/measure/ios-network-conditions.sh mode=send runs it"]
+async fn chat_attach_under_link_conditions() {
+    let scratch = daemon_env::Scratch::new("netcond-attach");
+    let hub = hub(&scratch.path().join("home"));
+    let listener = app_ws::listen(&hub).await;
+    let upstream: std::net::SocketAddr =
+        listener.url.trim_start_matches("ws://").trim_end_matches('/').parse().unwrap();
+    let file = match std::env::var("NETCOND_PROFILES_FILE") {
+        Ok(p) if !p.is_empty() => ProfileFile::load(Path::new(&p)).unwrap(),
+        _ => ProfileFile::builtin(),
+    };
+    let sends = env_u64("NETCOND_ATTACH_SENDS", 20);
+    let bytes = env_u64("NETCOND_ATTACH_BYTES", 5 << 20) as usize;
+    let seed_base = env_u64("NETCOND_SEED_BASE", 0);
+    let rows_wanted = env_list("NETCOND_ATTACH_ROWS", &["idle", "lte"]);
+    let mut control = Control::new(&hub);
+    let cwd = scratch.path().join("work");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let trace = Trace::new();
+    for row in &rows_wanted {
+        let profile = match row.as_str() {
+            "idle" => None,
+            other => file.get(other).cloned(),
+        };
+        let label = profile.as_ref().map_or_else(|| "none".to_owned(), |p| p.label(None));
+        let made = control
+            .call(
+                method::SESSION_NEW,
+                json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"name": format!("attach-{row}")}}}),
+            )
+            .await;
+        let session = made["result"]["sessionId"].as_str().unwrap().to_owned();
+        control.seed(&session, 0, BASE_TURNS).await;
+        let shaper = match &profile {
+            Some(p) => Shaper::start(upstream, p.clone(), seed_base, &trace).await.ok(),
+            None => None,
+        };
+        let addr = shaper.as_ref().map_or(upstream, Shaper::addr);
+        let opened = Instant::now() + BOUND;
+        let Ok(mut link) = Link::open(addr, &listener.token, opened).await else { continue };
+        let mut last = 0;
+        if let Ok((_, reply)) = link.attach(&session, None, opened).await {
+            for seq in rows(&reply) {
+                last = last.max(seq);
+            }
+        }
+        // The uploader's own connection through the same shaped radio, for the queue leg.
+        let mut upload_link = match Link::open(addr, &listener.token, opened).await {
+            Ok(mut l) => l.attach(&session, None, opened).await.ok().map(|_| l),
+            Err(_) => None,
+        };
+        let tag = std::process::id();
+        for i in 0..sends {
+            let k =
+                Key { profile: &label, phase: "attach", scale: row, run: i, seed: seed_base + i };
+            let image_id = format!("img-{row}-{tag}-{i}");
+            let text_id = format!("txt-{row}-{tag}-{i}");
+            let tap = Instant::now();
+            let build = |resend: bool| image_prompt(&session, "photo", &image_id, resend, bytes);
+            let mut written = None;
+            let (visible, _) = chat_send_with(
+                &mut link,
+                addr,
+                &listener.token,
+                &session,
+                &image_id,
+                &mut last,
+                tap,
+                &build,
+                &mut written,
+            )
+            .await;
+            emit(&k, "attach_written_ms", written);
+            emit(&k, "attach_visible_ms", visible);
+            if visible.is_none() {
+                emit_error(&k, "attach_visible_ms", "the image prompt's user_message did not show");
+            }
+            // The text, tapped at the same instant, goes once the image has been written.
+            let text_build = |resend: bool| prompt_params(&session, "after", &text_id, resend);
+            let (text_visible, _) = chat_send_with(
+                &mut link,
+                addr,
+                &listener.token,
+                &session,
+                &text_id,
+                &mut last,
+                tap,
+                &text_build,
+                &mut None,
+            )
+            .await;
+            emit(&k, "text_behind_attach_visible_ms", text_visible);
+            tokio::time::sleep(Duration::from_millis(400)).await;
+            link.pending.clear();
+
+            // The same pair through the one Rust send queue (`cmux_composer_send::chat`): the
+            // image's bytes go up beside the queue (the uploader; here the same blob written on a
+            // second connection through the same shaped radio), and the text, tapped at the same
+            // instant, goes as soon as the queue hands it out. It shares the radio with the upload.
+            let Some(upload_link) = upload_link.as_mut() else { continue };
+            let image_id = format!("img-q-{row}-{tag}-{i}");
+            let text_id = format!("txt-q-{row}-{tag}-{i}");
+            let tap = Instant::now();
+            let mut outbox = PromptOutbox::new(chat::DEFAULT_HOLD, seed_base + i);
+            let std_tap = tap.into_std();
+            outbox.set_link(true, std_tap);
+            outbox.push(&image_id, "photo", vec![image_id.clone()], false, std_tap, std_tap);
+            outbox.push(&text_id, "after", vec![], false, std_tap, std_tap);
+            let first = outbox.next_request(std::time::Instant::now()).map(|r| r.id);
+            assert_eq!(first.as_deref(), Some(text_id.as_str()), "the text waits on no upload");
+            outbox.wrote(&text_id);
+            let build = |resend: bool| image_prompt(&session, "photo", &image_id, resend, bytes);
+            let text_build = |resend: bool| prompt_params(&session, "after", &text_id, resend);
+            let mut upload_last = last;
+            let (mut upload_written, mut text_written) = (None, None);
+            let (upload, text) = tokio::join!(
+                chat_send_with(
+                    upload_link,
+                    addr,
+                    &listener.token,
+                    &session,
+                    &image_id,
+                    &mut upload_last,
+                    tap,
+                    &build,
+                    &mut upload_written,
+                ),
+                chat_send_with(
+                    &mut link,
+                    addr,
+                    &listener.token,
+                    &session,
+                    &text_id,
+                    &mut last,
+                    tap,
+                    &text_build,
+                    &mut text_written,
+                ),
+            );
+            last = last.max(upload_last);
+            emit(&k, "queue_attach_visible_ms", upload.0);
+            emit(&k, "queue_text_beside_attach_visible_ms", text.0);
+            if text.0.is_none() {
+                emit_error(&k, "queue_text_beside_attach_visible_ms", "the text did not show");
+            }
+            tokio::time::sleep(Duration::from_millis(400)).await;
+            link.pending.clear();
+            upload_link.pending.clear();
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
 // Background: the time-away table (Leo, 2026-11-24: "the syncing can arguably happen in the
 // background too, so deltas can be sipped and maintained"; cmux-next-ios/design/
 // background-delta-sync.md). The phone holds the chat at its newest record and its link closes;
@@ -1271,9 +2157,13 @@ async fn session_changed_on_a_long_chat_is_a_small_patch_only_for_a_client_that_
 //   on the new link, then `_acpmux/attach {afterSeq, beforeSeq, maxBytes}` (tail-first); on a
 //   gap with `hasMore`, the `_acpmux/events` read after the newest page that tells the two Mac
 //   kinds apart, then forward pages while `hasMore`.
-// - after (the cursor form, newest page first): the same attach; the chat is current once the
-//   page reaches the host's `lastSeq` (`pageThrough`), with no confirming read.
-// `catch_up_ms` from the dial to the phone holding the host's newest record.
+// - after (the phone with this change, AcpmuxHub.pipelineAttaches and pageReachesEnd): the
+//   attach goes in the same burst as initialize and the watch, with the kinds the last
+//   connection named; the chat is current once the page says it reaches the host's `lastSeq`
+//   (`pageThrough`), with no confirming read (a reply short of it still gets the read).
+// `catch_up_ms` from the dial to the phone holding the host's newest record; `upgrade_ms` the
+// WebSocket upgrade alone (the terminal bench's connect has no such leg: its channel rides the
+// link), and `resume_ms` the rest, which is what compares with the terminal's rows.
 // Rows: surface `chat`, scale `<away>-<load>`.
 
 const BG_BUSY_TURN_EVERY_S: u64 = 2;
@@ -1322,16 +2212,59 @@ async fn bg_chat_once(
     session: &str,
     after: u64,
     phase: &str,
-) -> Result<(Duration, u64, bool), String> {
+    cached: &[String],
+) -> Result<(Duration, Duration, u64, bool), String> {
     shaper.reset_counters();
     let start = Instant::now();
     let deadline = start + BOUND;
-    let mut link = Link::open(shaper.addr(), token, deadline).await?;
-    let params = json!({"sessionId": session, "limit": PAGE_SIZE, "kinds": link.kinds(),
+    let tail = |kinds: Value| {
+        json!({"sessionId": session, "limit": PAGE_SIZE, "kinds": kinds,
         "eventStream": true, "afterSeq": after, "beforeSeq": TAIL_BEFORE_SEQ,
-        "maxBytes": OPEN_BYTES, "toolOutputMaxBytes": TOOL_OUTPUT_MAX_BYTES});
-    let id = link.post("_acpmux/attach", params).await?;
-    let (_, reply) = link.answer(id, deadline).await?;
+        "maxBytes": OPEN_BYTES, "toolOutputMaxBytes": TOOL_OUTPUT_MAX_BYTES,
+        // The phone holds a breakdown version from its last attach, so it asks for none
+        // (`AcpmuxHub.attachParams`).
+        "omitTimeBreakdown": true})
+    };
+    let (upgrade, mut link, reply) = if phase == "before" {
+        let mut link = Link::open(shaper.addr(), token, deadline).await?;
+        let upgrade = link.upgraded;
+        let id = link.post("_acpmux/attach", tail(link.kinds())).await?;
+        let (_, reply) = link.answer(id, deadline).await?;
+        (upgrade, link, reply)
+    } else {
+        // initialize, the watch and the attach in one burst, the attach with the last
+        // connection's kinds; acpmux answers them in order.
+        let mut link = tokio::time::timeout_at(deadline, Link::dial(shaper.addr()))
+            .await
+            .map_err(|_| "connect timed out".to_owned())??;
+        let upgrade = start.elapsed();
+        link.capabilities = cached.to_vec();
+        let pipelined = tail(link.kinds());
+        let init = link
+            .post(
+                "initialize",
+                json!({"protocolVersion": 1, "clientInfo": {"name": "cmux-ios", "version": "1"},
+                       "clientCapabilities": {}, "_meta": {"acpmux": {"localAppToken": token}}}),
+            )
+            .await?;
+        let watch =
+            link.post("_acpmux/watch", json!({"enabled": true, "limit": WATCH_LIMIT})).await?;
+        let id = link.post("_acpmux/attach", pipelined.clone()).await?;
+        let (_, init) = link.answer(init, deadline).await?;
+        link.capabilities = init
+            .pointer("/_meta/acpmux/capabilities")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .unwrap_or_default();
+        link.answer(watch, deadline).await?;
+        let (_, mut reply) = link.answer(id, deadline).await?;
+        if tail(link.kinds()) != pipelined {
+            // initialize named other kinds: the phone asks again.
+            let id = link.post("_acpmux/attach", tail(link.kinds())).await?;
+            reply = link.answer(id, deadline).await?.1;
+        }
+        (upgrade, link, reply)
+    };
     let last = reply["lastSeq"].as_u64().ok_or(format!("attach has no lastSeq: {reply}"))?;
     let page = rows(&reply);
     bg_debug(phase, "attach", &reply);
@@ -1340,7 +2273,11 @@ async fn bg_chat_once(
     let gap = more && page.first().is_some_and(|first| *first > after + 1);
     let hit = !more;
     let mut cursor = page.last().copied();
-    if phase == "before" && gap {
+    let reaches_end = matches!(
+        (reply["pageThrough"].as_u64(), reply["lastSeq"].as_u64()),
+        (Some(through), Some(last)) if through >= last
+    );
+    if gap && (phase == "before" || !reaches_end) {
         // The read that tells a tail-first Mac from a forward-only one.
         let newest = page.last().copied().unwrap_or(after);
         let id = link
@@ -1377,10 +2314,45 @@ async fn bg_chat_once(
         cursor = events.last().copied();
     }
     let took = start.elapsed();
+    if std::env::var_os("NETCOND_DEBUG").is_some() {
+        // What came down, by message type, against the shaper's count.
+        // Each notification, with its biggest session fields, and what lands in the next 1.5 s.
+        let show = |when: &str, v: &Value| {
+            let mut fields: Vec<(String, usize)> = v["params"]["session"]
+                .as_object()
+                .map(|m| m.iter().map(|(k, x)| (k.clone(), x.to_string().len())).collect())
+                .unwrap_or_default();
+            fields.sort_by_key(|f| std::cmp::Reverse(f.1));
+            fields.truncate(6);
+            eprintln!(
+                "netcond-debug {phase} {when} {} kind {} recordKind {} seq {} bytes {} top {:?}",
+                v["method"],
+                v["params"]["kind"],
+                v["params"]["recordKind"],
+                v["params"]["seq"],
+                v.to_string().len(),
+                fields
+            );
+        };
+        for (_, v) in &link.pending {
+            show("held", v);
+        }
+        let tail_end = Instant::now() + Duration::from_millis(1500);
+        while let Next::Frame(_, v) = link.frame(tail_end).await {
+            show("late", &v);
+        }
+        let tapped = link.tap.take();
+        let total: u64 = tapped.down.values().map(|(_, b)| b).sum();
+        eprintln!(
+            "netcond-debug {phase} down: {total} bytes read, {} on the wire, {:?}",
+            shaper.counters().down_bytes,
+            tapped.down
+        );
+    }
     if held < last {
         return Err(format!("the phone holds {held}, the host {last}"));
     }
-    Ok((took, last.saturating_sub(after), hit))
+    Ok((took, upgrade, last.saturating_sub(after), hit))
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1433,16 +2405,19 @@ async fn chat_background_catch_up_after_time_away() {
             let span_turns = if busy { (secs / BG_BUSY_TURN_EVERY_S).min(max_turns) } else { 0 };
             for run in 0..runs {
                 let seed = seed_base + run;
-                // The phone's cursor: the newest record when it left.
-                let after = {
+                // The phone's cursor: the newest record when it left, and the capabilities its
+                // last connection to this Mac named.
+                let (after, cached) = {
                     let deadline = Instant::now() + BOUND;
                     let probe = async {
                         let mut link = Link::open(upstream, &listener.token, deadline).await?;
                         let (_, reply) = link.attach(&session, None, deadline).await?;
-                        reply["lastSeq"].as_u64().ok_or(format!("no lastSeq: {reply}"))
+                        let last =
+                            reply["lastSeq"].as_u64().ok_or(format!("no lastSeq: {reply}"))?;
+                        Ok::<_, String>((last, link.capabilities.clone()))
                     };
                     match probe.await {
-                        Ok(after) => after,
+                        Ok(found) => found,
                         Err(why) => {
                             println!("NETCOND-ERROR chat {scale} run {run}: cursor: {why}");
                             continue;
@@ -1471,10 +2446,21 @@ async fn chat_background_catch_up_after_time_away() {
                     for phase in ["before", "after"] {
                         let k = Key { profile: &name, phase, scale: &scale, run, seed };
                         emit(&k, "stale_s", Some(secs as f64));
-                        match bg_chat_once(&shaper, &listener.token, &session, after, phase).await {
-                            Ok((took, behind, hit)) => {
+                        match bg_chat_once(
+                            &shaper,
+                            &listener.token,
+                            &session,
+                            after,
+                            phase,
+                            &cached,
+                        )
+                        .await
+                        {
+                            Ok((took, upgrade, behind, hit)) => {
                                 emit(&k, "events_behind", Some(behind as f64));
                                 emit(&k, "catch_up_ms", Some(ms(took)));
+                                emit(&k, "upgrade_ms", Some(ms(upgrade)));
+                                emit(&k, "resume_ms", Some(ms(took.saturating_sub(upgrade))));
                                 emit_bytes(&k, &shaper);
                                 emit(&k, "cursor_hit", Some(f64::from(u8::from(hit))));
                             }

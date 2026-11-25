@@ -1485,3 +1485,103 @@ async fn an_old_machine_refuses_the_health_read_and_reads_as_unsupported() {
     assert_eq!(body["version"], 1);
     assert_eq!(body["method"], HOST_HEALTH);
 }
+
+/// A receiver that took the read and is slow but working: it renews its lease every 20 s, each
+/// long-poll on the receipt answers with the renewed lease, and the answer comes after 2 min.
+/// With `works: false` it took the read and then nothing moves.
+struct SlowWorker {
+    started: tokio::time::Instant,
+    works: bool,
+}
+
+impl MeshHub for SlowWorker {
+    fn inbox(&self, _: Duration, _: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+        panic!("a read never leases")
+    }
+
+    fn ack<'a>(&'a self, _: &'a str, _: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+        panic!("a read never acks")
+    }
+
+    fn heartbeat<'a>(
+        &'a self,
+        _: &'a crate::mesh::Heartbeat,
+    ) -> BoxFuture<'a, Result<crate::mesh::HeartbeatReply, HubError>> {
+        panic!("a read never heartbeats")
+    }
+
+    fn send<'a>(&'a self, _: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        Box::pin(async { Ok(queued()) })
+    }
+
+    fn receipt<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        panic!("a read waits on its answer, not the receipt")
+    }
+
+    fn answer<'a>(
+        &'a self,
+        _: &'a str,
+        wait: Duration,
+    ) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        let started = self.started;
+        let works = self.works;
+        Box::pin(async move {
+            const RENEW: Duration = Duration::from_secs(20);
+            const DONE: Duration = Duration::from_secs(120);
+            let now = tokio::time::Instant::now();
+            let at = now.saturating_duration_since(started);
+            if !works {
+                // Leased once, then silent: every long-poll runs out on the same lease.
+                tokio::time::sleep(wait).await;
+                return Ok(serde_json::from_value(json!({
+                    "messageId": "msg_silent", "state": "leased", "leasedUntil": 1
+                }))
+                .unwrap());
+            }
+            if at >= DONE {
+                return Ok(serde_json::from_value(json!({
+                    "messageId": "msg_silent", "state": "delivered", "createdAt": 1,
+                    "result": json!({"ok": true}).to_string()
+                }))
+                .unwrap());
+            }
+            // The next renewal, or the long-poll's own end, whichever is first.
+            let renewals = at.as_secs() / RENEW.as_secs() + 1;
+            let next = started + RENEW * renewals as u32;
+            if next <= now + wait {
+                tokio::time::sleep_until(next).await;
+                return Ok(serde_json::from_value(json!({
+                    "messageId": "msg_silent", "state": "leased", "leasedUntil": renewals
+                }))
+                .unwrap());
+            }
+            tokio::time::sleep(wait).await;
+            Ok(queued())
+        })
+    }
+}
+
+/// Leo, 2026-11-24: "if it's making good progress, it shiukd be allowed to keep going?" A read
+/// whose receiver keeps renewing its lease gets its answer after 2 min; before, the read gave
+/// up at 50 s from its start as unanswered.
+#[tokio::test(start_paused = true)]
+async fn a_read_whose_receiver_keeps_working_is_not_cut_off() {
+    let hub = SlowWorker { started: tokio::time::Instant::now(), works: true };
+    let started = tokio::time::Instant::now();
+    let reply = read(&hub, "machine-b", "own-e2e", method::MUX_INFO, &json!({})).await;
+    let reply = reply.expect("the answer after 2 min of steady progress");
+    assert_eq!(reply["ok"], json!(true));
+    assert!(started.elapsed() >= Duration::from_secs(120), "{:?}", started.elapsed());
+}
+
+/// A receiver that took the read and then goes silent is still let go at `READ_WAIT` of silence.
+#[tokio::test(start_paused = true)]
+async fn a_read_whose_receiver_goes_silent_ends_at_the_silence_bound() {
+    let hub = SlowWorker { started: tokio::time::Instant::now(), works: false };
+    let started = tokio::time::Instant::now();
+    let e = read(&hub, "machine-b", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap_err();
+    let took = started.elapsed();
+    assert_eq!(e.data.unwrap()["reason"], json!("mesh.read_unanswered"));
+    // The lease it took (at the first long-poll's end) was the last progress.
+    assert!(took <= ANSWER_WAIT + READ_WAIT + Duration::from_secs(1), "{took:?}");
+}

@@ -9,6 +9,7 @@
 // agent pane could not be drawn after i opedn up background tasks"; handbook failure-drops-its-reason).
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { useT } from "./i18n";
+import { clearSnapshot } from "./snapshotCache";
 
 /// Stack lines (V8 `at f (url:1:2)`, JSC `f@url:1:2`) as `f@file:1:2`, at most `limit`, on one line.
 function frames(stack: string | undefined, limit: number): string[] {
@@ -70,6 +71,10 @@ export class PaneBoundary extends Component<Props, State> {
       ...(info.componentStack ? { componentStack: info.componentStack } : {}),
     };
     console.error(paneFailureLine(error, info.componentStack ?? undefined), error, info.componentStack ?? "");
+    // The reload copy of the snapshot would paint the rows that threw again on Retry's reload and
+    // fail the same way: the reloaded pane starts empty and draws from its live client. Saves stop for
+    // the rest of this page (`saveSnapshot`), so neither a pending one nor `pagehide` puts it back.
+    clearSnapshot();
   }
 
   render() {

@@ -149,8 +149,7 @@ on:
       - "scripts/cmux-next/cmux-tui.pin"
       - "scripts/ghostty-zig-version.sh"
       - "scripts/install-zig-ci.sh"
-      - "skills/cmux-acpmux/SKILL.md"
-      - "skills/cmux-browser/SKILL.md"
+      - "skills/*/SKILL.md"
       - "skills/cmux-browser/references/authentication.md"
       - "skills/cmux-browser/references/commands.md"
       - "skills/cmux-browser/references/proxy-support.md"
@@ -161,9 +160,6 @@ on:
       - "skills/cmux-browser/templates/authenticated-session.sh"
       - "skills/cmux-browser/templates/capture-workflow.sh"
       - "skills/cmux-browser/templates/form-automation.sh"
-      - "skills/cmux-computer-use/SKILL.md"
-      - "skills/cmux-cua/SKILL.md"
-      - "skills/cmux-customization/SKILL.md"
       - "skills/cmux-customization/references/examples.md"
       - "skills/cmux-customization/references/local-app-views.md"
       - "skills/cmux-customization/references/viewer-types.md"
@@ -171,8 +167,6 @@ on:
       - "skills/cmux-customization/templates/clock-weather/main.js"
       - "skills/cmux-customization/templates/my-prs/cmux-app.json"
       - "skills/cmux-customization/templates/my-prs/main.js"
-      - "skills/cmux-live/SKILL.md"
-      - "skills/cmux/SKILL.md"
       - "webviews/src/agent-session/acpmux/rows/parity/parity.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-2.changes.jsonl"
@@ -331,8 +325,7 @@ on:
       - "scripts/cmux-next/cmux-tui.pin"
       - "scripts/ghostty-zig-version.sh"
       - "scripts/install-zig-ci.sh"
-      - "skills/cmux-acpmux/SKILL.md"
-      - "skills/cmux-browser/SKILL.md"
+      - "skills/*/SKILL.md"
       - "skills/cmux-browser/references/authentication.md"
       - "skills/cmux-browser/references/commands.md"
       - "skills/cmux-browser/references/proxy-support.md"
@@ -343,9 +336,6 @@ on:
       - "skills/cmux-browser/templates/authenticated-session.sh"
       - "skills/cmux-browser/templates/capture-workflow.sh"
       - "skills/cmux-browser/templates/form-automation.sh"
-      - "skills/cmux-computer-use/SKILL.md"
-      - "skills/cmux-cua/SKILL.md"
-      - "skills/cmux-customization/SKILL.md"
       - "skills/cmux-customization/references/examples.md"
       - "skills/cmux-customization/references/local-app-views.md"
       - "skills/cmux-customization/references/viewer-types.md"
@@ -353,8 +343,6 @@ on:
       - "skills/cmux-customization/templates/clock-weather/main.js"
       - "skills/cmux-customization/templates/my-prs/cmux-app.json"
       - "skills/cmux-customization/templates/my-prs/main.js"
-      - "skills/cmux-live/SKILL.md"
-      - "skills/cmux/SKILL.md"
       - "webviews/src/agent-session/acpmux/rows/parity/parity.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-2.changes.jsonl"
@@ -616,6 +604,9 @@ jobs:
         if: matrix.language == 'rust'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # The lockfile and toolchain name the entry: with the environment hash off, a bare key never changed, so the first save
+          # was restored forever and its stale third-party crates rebuilt on every run (ci-min-per-pr-1500, 2026-11-25).
+          key: ${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
@@ -826,6 +817,9 @@ jobs:
         if: matrix.language == 'rust'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # The lockfile and toolchain name the entry: with the environment hash off, a bare key never changed, so the first save
+          # was restored forever and its stale third-party crates rebuilt on every run (ci-min-per-pr-1500, 2026-11-25).
+          key: ${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.lock', 'cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.lock', 'cmux-tui/bindings/examples/rust-sidebar-monitor/rust-toolchain.toml', '.cargo/config.toml') }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
@@ -1014,7 +1008,7 @@ jobs:
             cmux-tui/bindings/examples/rust-agent-screen-detection -> target
             cmux-tui/bindings/examples/rust-agent-dashboard -> target
             cmux-tui/bindings/examples/rust-sidebar-monitor -> target
-          key: rust-1.88.0
+          key: rust-1.88.0-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', 'cmux-tui/bindings/examples/rust-agent-screen-detection/Cargo.lock', 'cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.lock', 'cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: Test public Rust SDK crates and examples on MSRV
@@ -1171,7 +1165,7 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-headless-debug
+          shared-key: cmux-tui-headless-debug-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           cache-workspace-crates: "true"
           save-if: false
 
