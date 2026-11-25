@@ -168,7 +168,7 @@ public struct ChiefTurnFailure: Equatable, Sendable {
             return .modelBusy
         }
         if has("401", "403", "unauthorized", "forbidden", "authentication", "invalid api key", "invalid x-api-key",
-               "oauth", "not logged in", "please run /login", "credential") {
+               "oauth", "not logged in", "not signed in", "please run /login", "credential") {
             return .modelSignIn
         }
         if has("api error: 5", "status 5", " 500", " 502", " 503", " 504", "server-side issue",
