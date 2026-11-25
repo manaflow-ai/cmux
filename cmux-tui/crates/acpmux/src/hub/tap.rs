@@ -141,6 +141,9 @@ impl Hub {
             // deadline nearer and wake the reaper (`stalled_turn.rs`).
             if !muted && matches!(dir, Direction::In) && from_the_model(msg) {
                 tap_session.heard.fetch_add(1, Ordering::SeqCst);
+                if !tap_session.loading.load(Ordering::Relaxed) {
+                    crate::send_trace::first_update(&tap_session.id);
+                }
                 tap_hub.heard_now(&tap_session);
                 tap_session.last_model_at.store(crate::store::now_ms(), Ordering::Relaxed);
                 tap_hub.heard_after_silence(&tap_session);
