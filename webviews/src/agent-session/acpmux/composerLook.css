@@ -161,13 +161,12 @@
    drawn (Composer.tsx quietActions), a soft disc and the dimmed glyph while there is nothing to send,
    the accent once there is, and Stop's square on the soft disc. Claude's look keeps the plain glyph
    (#23763). Gallery agent-pane.composer-look `codex-send-*` shows the alternates. */
-.acpmux-composer[data-composer-look="codex"] .acpmux-send {
+.acpmux-composer[data-composer-look="codex"] .acpmux-send:not(.acpmux-resume) {
   border-radius: 50%;
   background: var(--acpmux-pill-open, color-mix(in srgb, var(--agent-text) 16%, transparent));
 }
-/* Resume uses the filled primary send surface in either composer look. */
-.acpmux-composer[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled),
-.acpmux-composer .acpmux-send.acpmux-resume {
+/* Codex's ready Send takes the filled primary surface. Resume does not (composerStates.css). */
+.acpmux-composer[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, .acpmux-resume, :disabled) {
   background: var(--agent-accent);
   color: var(--agent-accent-text, Canvas);
 }
@@ -176,11 +175,10 @@
   color: var(--agent-text);
 }
 @media (hover: hover) and (pointer: fine) {
-  .acpmux-composer[data-composer-look="codex"] .acpmux-send:not(:disabled):hover {
+  .acpmux-composer[data-composer-look="codex"] .acpmux-send:not(:disabled, .acpmux-resume):hover {
     background: var(--acpmux-pill-press, color-mix(in srgb, var(--agent-text) 22%, transparent));
   }
-  .acpmux-composer[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled):hover,
-  .acpmux-composer .acpmux-send.acpmux-resume:not(:disabled):hover {
+  .acpmux-composer[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, .acpmux-resume, :disabled):hover {
     background: color-mix(in srgb, var(--agent-accent) 86%, var(--agent-text));
   }
 }
@@ -279,7 +277,7 @@
 }
 /* Send is the reference's round accent button at every state: the accent disc, softer while there is
    nothing to send, and Stop's square on a red disc mid-turn. */
-.acpmux-composer[data-composer-look="codex"][data-composer-variant="studio"] .acpmux-send {
+.acpmux-composer[data-composer-look="codex"][data-composer-variant="studio"] .acpmux-send:not(.acpmux-resume) {
   width: var(--acpmux-studio-send);
   height: var(--acpmux-studio-send);
   /* chat-surface-allow: the studio send disc is the accent role colour */
@@ -287,7 +285,7 @@
   background: color-mix(in srgb, var(--agent-accent) 55%, transparent);
   color: var(--agent-accent-text, Canvas);
 }
-.acpmux-composer[data-composer-look="codex"][data-composer-variant="studio"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled) {
+.acpmux-composer[data-composer-look="codex"][data-composer-variant="studio"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, .acpmux-resume, :disabled) {
   background: var(--agent-accent);
 }
 .acpmux-composer[data-composer-look="codex"][data-composer-variant="studio"] .acpmux-send.acpmux-cancel:not([data-escape-armed]) {
@@ -297,7 +295,7 @@
   color: var(--acpmux-studio-on-danger);
 }
 @media (hover: hover) and (pointer: fine) {
-  .acpmux-composer[data-composer-look="codex"][data-composer-variant="studio"] .acpmux-send:not(:disabled):hover {
+  .acpmux-composer[data-composer-look="codex"][data-composer-variant="studio"] .acpmux-send:not(:disabled, .acpmux-resume):hover {
     /* chat-surface-allow: the studio send disc is the accent (Stop: the danger) role colour */
     background: color-mix(in srgb, var(--agent-accent) 86%, var(--agent-text));
   }
