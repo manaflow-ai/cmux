@@ -464,20 +464,26 @@ async fn filtered_pack_is_not_kept() {
 /// A miss starts one background fill of the whole mirror; once it is done the mirror says so,
 /// and the next clone is local.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn miss_fills_the_mirror_in_the_background() {
+async fn a_partial_clone_keeps_no_full_mirror() {
+    // A blobless clone marks the repository partial-only on this machine: no kept pack and no
+    // background full fill (manaflow-ai/cmux's full mirror is 11 GiB on a 20 GiB disk); later
+    // clones of it go upstream.
     let w = world().await;
     git_ok(&w.fake.repo, &["config", "uploadpack.allowFilter", "true"]);
     let (ok, err) =
         clone_args(&w, "p", Some(GOOD), "2", None, &["--filter=blob:none", "--no-checkout"]).await;
     assert!(ok, "{err}");
     let dir = w.state.mirrors.dir("team-a", "o/r");
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    while !cmux_git_cache::mirror::Mirrors::filled(&dir) {
-        assert!(std::time::Instant::now() < deadline, "the fill never finished");
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
+    assert!(cmux_git_cache::mirror::Mirrors::partial_only(&dir));
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    assert!(!w.state.mirrors.filling(&dir), "a partial clone started a full fill");
+    assert!(!cmux_git_cache::mirror::Mirrors::filled(&dir));
     let posts = w.fake.upload_posts.load(Ordering::SeqCst);
     let (ok, err) = clone_with(&w, "f", Some(GOOD), "2", None).await;
-    assert!(ok && err.contains("served by cache"), "{err}");
-    assert_eq!(w.fake.upload_posts.load(Ordering::SeqCst), posts);
+    assert!(ok && !err.contains("served by cache"), "{err}");
+    assert!(
+        w.fake.upload_posts.load(Ordering::SeqCst) > posts,
+        "the whole clone did not go upstream"
+    );
+    assert!(!cmux_git_cache::mirror::Mirrors::filled(&dir));
 }
