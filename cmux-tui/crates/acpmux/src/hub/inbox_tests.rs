@@ -1831,11 +1831,12 @@ fn the_ls_row_counts_new_messages_past_their_deadline_and_names_the_soonest() {
     let mut seen = item("p2", "t", "a", PromptClass::Result, 0, "x");
     seen.noticed = true;
     let result = item("p3", "t", "a", PromptClass::Result, 50 * min, "x");
-    let items = vec![fyi.clone(), seen, result.clone()];
+    let soonest = fyi.due().min(result.due());
+    let items = vec![fyi, seen, result];
     // At 61 min: the fyi (60 min) is past due, the result sent at 50 min (15 min) is not, and
     // the noticed one counts for neither.
     let (overdue, due_at) = deadline_counts(&items, 61 * min);
     assert_eq!(overdue, 1);
-    assert_eq!(due_at, Some(fyi.due().min(result.due())));
+    assert_eq!(due_at, Some(soonest));
     assert_eq!(deadline_counts(&[], 61 * min), (0, None));
 }
