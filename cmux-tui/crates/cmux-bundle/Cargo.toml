@@ -1,0 +1,22 @@
+[package]
+name = "cmux-bundle"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Data bundles (RFD 0142 R7, ultra-connectivity A4/P11): BLAKE3-keyed, sealed, content-defined chunks; the far end asks only for what it lacks, from any copy (peer, relay cache, disk)"
+
+[lints]
+workspace = true
+
+[dependencies]
+blake3 = "1"
+chacha20poly1305 = "0.10"
+zstd.workspace = true
+
+[dev-dependencies]
+zstd = { workspace = true, features = ["zdict_builder"] }
+flate2.workspace = true
+cmux-fault = { path = "../cmux-fault" }
+tokio = { workspace = true, features = ["net", "io-util", "sync", "time", "rt-multi-thread", "macros"] }
