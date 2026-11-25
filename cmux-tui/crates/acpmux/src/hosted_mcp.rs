@@ -39,6 +39,8 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use zeroize::Zeroizing;
 
 pub const SERVER_NAME: &str = "cmux-hosted";
+/// Its acpmux command word: its own stdio process, where the daemon's gateway does not serve it.
+pub const COMMAND: &str = "hosted-mcp";
 /// `0` on the daemon takes this server out of every session (it is on by default).
 pub const SWITCH_ENV: &str = "CMUX_HOSTED_MCP";
 /// The cmux.json setting that turns it off when `false`.
@@ -416,16 +418,17 @@ impl Bridge {
         Ok(bridge)
     }
 
-    /// From this process's env: the Cloud agent socket on a cmux Cloud machine, else
-    /// (`CMUX_BIN`, else `cmux` on PATH) to mint the person's token.
+    /// From this process's env, or the chat's where the daemon's gateway serves it
+    /// ([`crate::tool_env`]): the Cloud agent socket on a cmux Cloud machine, else (`CMUX_BIN`,
+    /// else `cmux` on PATH) to mint the person's token.
     pub fn from_env() -> Result<Self, String> {
         if let Some(socket) = cloud_socket() {
             return Self::cloud(socket);
         }
-        let cmux = std::env::var_os(CMUX_BIN_ENV)
+        let cmux = crate::tool_env::var(CMUX_BIN_ENV)
             .filter(|v| !v.is_empty())
             .unwrap_or_else(|| "cmux".into());
-        Self::new(cmux, std::env::var(ORIGIN_ENV).ok())
+        Self::new(cmux.into(), crate::tool_env::var(ORIGIN_ENV))
     }
 
     async fn token(&mut self, fresh: bool) -> Result<(Arc<Zeroizing<String>>, String), String> {
@@ -610,6 +613,35 @@ impl Bridge {
             other => err(-32601, format!("method not found: {other}")),
         })
     }
+}
+
+/// The server for the chat whose env [`crate::tool_env`] reads, as one of acpmux's own
+/// ([`crate::tools_mcp::SERVERS`]): the daemon's gateway, or the chat's one `acpmux tools-mcp`,
+/// answers it, so a chat runs no `acpmux hosted-mcp` process of its own (on by default on a
+/// Mac, so it was one process per chat there). Its bridge is made at the first request and kept
+/// while the chat's servers are (the gateway makes them again after an idle stop: the next
+/// request mints the token again, as a new process did).
+pub(crate) fn served(
+    _daemon: &Arc<crate::tools_mcp::Daemon>,
+) -> anyhow::Result<crate::tools_mcp::Served> {
+    // Made now, in the chat's env: the request runs in it too, but the bridge outlives it.
+    let bridge = Bridge::from_env().map_err(anyhow::Error::msg)?;
+    let bridge = Arc::new(tokio::sync::Mutex::new(bridge));
+    let handle: crate::tools_mcp::Handle = Arc::new(move |message: Value| {
+        let bridge = Arc::clone(&bridge);
+        // One request at a time per chat, as its own process read them.
+        Box::pin(async move { bridge.lock().await.handle(&message).await })
+    });
+    Ok(crate::tools_mcp::Served {
+        name: SERVER_NAME,
+        session: String::new(),
+        tools: json!([]),
+        instructions: Some(INSTRUCTIONS.to_owned()),
+        call: crate::tools_mcp::boxed(|_, _| async { json!({}) }),
+        on_initialize: None,
+        list: None,
+        handle: Some(handle),
+    })
 }
 
 pub async fn run() -> anyhow::Result<()> {
