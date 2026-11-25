@@ -82,8 +82,9 @@ final class AppControl {
         }
     }
 
-    func start(registry: ActionRegistry, settings: SettingsController, launch: LaunchIdentity, services: AppServices) throws {
-        let service = try ControlService.start(registry: registry, settings: settings, launch: launch, frameSource: frames, watchdog: watchdog)
+    func start(registry: ActionRegistry, settings: SettingsController, launch: LaunchIdentity, services: AppServices, afterFirstFrame: @escaping @MainActor () async -> Void) async throws {
+        await settings.waitForLoad(atLeast: 1)
+        let service = try await ControlService.startAfterFirstFrame(firstFrame: afterFirstFrame, registry: registry, settings: settings, launch: launch, frameSource: frames, watchdog: watchdog)
         self.service = service
         let budget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
                                           overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,

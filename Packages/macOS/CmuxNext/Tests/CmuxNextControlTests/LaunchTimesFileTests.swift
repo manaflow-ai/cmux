@@ -29,6 +29,7 @@ import Testing
         #expect(record.firstWindowFrameMs == 512)
         #expect(record.mainMs == 470.8, "main to the first frame")
         #expect(record.homeFirstPageMs == 830.7)
+        #expect(record.homeRevealMs == 830.7)
         #expect(record.homeRevealedBy == "mark")
         #expect(record.prewarmed)
         #expect(record.version == "1.0.0" && record.build == "200" && record.commit == "31583607")
@@ -39,6 +40,7 @@ import Testing
         let byDeadline = Self.record(marks: deadline)
         #expect(byDeadline.homeRevealedBy == "deadline")
         #expect(byDeadline.homeFirstPageMs == nil)
+        #expect(byDeadline.homeRevealMs == 1700)
         #expect(record.windowUsableMs == nil && record.firstShellLiveMs == nil && record.noSnapshot == false)
     }
 
@@ -90,7 +92,7 @@ import Testing
         #expect(text == line + "\n", "one line per launch")
         let json = try #require(try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
         #expect(Set(json.keys) == ["started_at", "version", "build", "commit", "pre_main_ms", "main_ms", "first_window_frame_ms",
-                                   "home_first_page_ms", "home_revealed_by", "no_snapshot", "prewarmed", "first_launch_of_build", "phases"])
+                                   "home_first_page_ms", "reveal_home_ms", "home_revealed_by", "no_snapshot", "prewarmed", "first_launch_of_build", "phases"])
         var expected = Self.record(prewarmed: true)
         expected.firstLaunchOfBuild = true
         #expect(file.records() == [expected])
