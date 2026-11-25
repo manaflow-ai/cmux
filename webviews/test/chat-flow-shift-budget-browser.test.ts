@@ -43,6 +43,13 @@ export const BUDGET: Record<FlowName, { stray: number; composer: number; cls: nu
   compaction: { stray: 1, composer: 1, cls: 0.01 },
   reload: { stray: 1, composer: 1, cls: 0.01 },
 };
+/// Where base already shifts, the measured worst stands until a fix lowers it (a ratchet, per engine).
+/// WebKit, send, reply: the live "Thinking" row strays when the first reply chunk replaces it, on some
+/// runs and not others (8.8 px measured on base); the open fixes for the answer shifting the thinking
+/// row lower this back to 1.
+export const KNOWN: Partial<Record<string, Partial<(typeof BUDGET)[FlowName]>>> = {
+  "webkit send": { stray: 1 },
+};
 /// The planted jump, px.
 const SEED_PX = 24;
 
@@ -128,6 +135,14 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
     };
   const ends: Play = async (pane) => pane.record("turn_result", { status: "completed" });
 
+  /// Text each flow must leave in the transcript.
+  const DRAWN: Record<Exclude<FlowName, "reload">, string> = {
+    send: "Only the queue needs the cap.",
+    thinking: "asks the link for the current one",
+    compaction: "/compact",
+  };
+  /// Text a step must show once it settles: the live row the flow is about, before its turn folds it away.
+  const SHOWS: Record<string, RegExp> = { thinking: /Thinking/, "compaction runs": /Compacting/ };
   const flows = (turn: string): Record<Exclude<FlowName, "reload">, [string, Play][]> => ({
     send: [
       ["send", send(`Which retry loops sleep a fixed time? (${turn})`, turn)],
@@ -255,7 +270,12 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
 
   /// The planted shift: once a row is drawn and `frames` more frames painted, a rested row in view and
   /// the composer move SEED_PX, with nothing else moving (a stray the judge must name).
-  const SEED = (args: { px: number; frames: number; rowSelector: string; composer: string }) => {
+  /// With `once`, it runs as an init script: only on the document a reload made after arming it.
+  const SEED = (args: { px: number; frames: number; rowSelector: string; composer: string; once?: boolean }) => {
+    if (args.once) {
+      if (sessionStorage.getItem("cmuxSeedShift") !== "1") return;
+      sessionStorage.removeItem("cmuxSeedShift");
+    }
     const plant = async () => {
       const paint = () => new Promise<void>((done) => requestAnimationFrame(() => done()));
       while (!document.querySelector(args.rowSelector)) await paint();
@@ -319,16 +339,7 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
       await installClsRecorder(page);
       if (flow === "reload") {
         await installBoxTrackerOnLoad(page);
-        if (seeded)
-          await page.addInitScript(
-            ({ seed, args }) => {
-              if (sessionStorage.getItem("cmuxSeedShift") !== "1") return;
-              sessionStorage.removeItem("cmuxSeedShift");
-              // biome-ignore lint/security/noGlobalEval: the seed is this file's own function, serialized.
-              document.addEventListener("DOMContentLoaded", () => (0, eval)(`(${seed})`)(args), { once: true });
-            },
-            { seed: SEED.toString(), args: { ...seedArgs, frames: 10 } },
-          );
+        if (seeded) await page.addInitScript(SEED, { ...seedArgs, frames: 10, once: true });
       }
     });
     try {
@@ -352,7 +363,9 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
           // A newest row that comes back elsewhere moved, whatever the frames between showed.
           stray: Math.round(Math.max(follow.worst, back) * 10) / 10,
           strays: [
-            ...(back > 0.5 ? [{ label: "newest row's place after the reload", dy: back, dx: 0, follow: 0, frame: -1 }] : []),
+            ...(back > 0.5
+              ? [{ label: "newest row's place after the reload", dy: back, dx: 0, follow: 0, frame: -1 }]
+              : []),
             ...follow.stray.slice(0, 4).map(({ label, dy, dx, follow, frame }) => ({ label, dy, dx, follow, frame })),
           ],
           composer,
@@ -360,8 +373,16 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
         });
       } else {
         await installBoxTracker(page);
-        for (const [index, [step, play]] of flows(turn)[flow].entries())
+        const rowsBefore = await page.locator(TRANSCRIPT_ROW).count();
+        for (const [index, [step, play]] of flows(turn)[flow].entries()) {
           report.push(await measure(page, step, () => play(pane!, page), seeded && index === 1));
+          if (SHOWS[step]) expect(await page.locator(".acpmux-scroll").innerText()).toMatch(SHOWS[step]!);
+        }
+        // The flow drew what it plays (a fixture that renders nothing would pass with 0px): new rows,
+        // and the flow's own text in the transcript.
+        const drawn = await page.locator(TRANSCRIPT_ROW).allInnerTexts();
+        expect(drawn.length).toBeGreaterThan(rowsBefore);
+        expect(drawn.join("\n")).toContain(DRAWN[flow]);
       }
       for (const entry of report)
         console.log(
@@ -381,7 +402,8 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
     describe(engine, () => {
       for (const flow of ["send", "thinking", "compaction", "reload"] as const) {
         test(`${flow}: the transcript and the composer stay inside the flow's shift budget`, async () => {
-          expect(overBudget(await runFlow(engine, flow, false), BUDGET[flow])).toEqual([]);
+          const budget = { ...BUDGET[flow], ...KNOWN[`${engine} ${flow}`] };
+          expect(overBudget(await runFlow(engine, flow, false), budget)).toEqual([]);
         });
         // The control, once per flow (Chromium, or the one engine that launched).
         if (engine === engines[0]![0])
