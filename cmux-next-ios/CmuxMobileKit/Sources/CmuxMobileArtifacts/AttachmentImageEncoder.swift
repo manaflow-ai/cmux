@@ -12,8 +12,15 @@ package enum AttachmentImageEncoder {
     package static func encode(_ data: Data, allowLargerCopy: Bool = false) -> (data: Data, ext: String)? {
         let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions),
-              CGImageSourceGetCount(source) == 1,
               let typeIdentifier = CGImageSourceGetType(source) else { return nil }
+        let frameCount = CGImageSourceGetCount(source)
+        // A GIF or APNG must retain all frames. Multi-image HEIC/Burst files can
+        // still use their first frame as a compact transfer representation.
+        if frameCount != 1,
+           typeIdentifier as String == UTType.gif.identifier ||
+           typeIdentifier as String == UTType.png.identifier {
+            return nil
+        }
         if typeIdentifier as String == UTType.png.identifier,
            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
            let width = properties[kCGImagePropertyPixelWidth] as? Int,

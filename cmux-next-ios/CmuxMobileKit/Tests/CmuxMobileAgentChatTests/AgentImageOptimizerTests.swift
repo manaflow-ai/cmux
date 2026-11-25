@@ -57,6 +57,24 @@ import UniformTypeIdentifiers
         #expect(AgentImageOptimizer.optimize(animated) == animated)
     }
 
+    @Test func optimizesMultiImageHEICWhenImageIOExposesMultipleFrames() throws {
+        let image = try #require(makeImage(width: 3000, height: 2200, alpha: false))
+        let first = try encode(image, type: UTType.heic.identifier as CFString)
+        let second = try encode(image, type: UTType.heic.identifier as CFString)
+        let data = NSMutableData()
+        let destination = try #require(CGImageDestinationCreateWithData(data, UTType.heic.identifier as CFString, 2, nil))
+        let sourceOne = try #require(CGImageSourceCreateWithData(first as CFData, nil))
+        let sourceTwo = try #require(CGImageSourceCreateWithData(second as CFData, nil))
+        CGImageDestinationAddImage(destination, try #require(CGImageSourceCreateImageAtIndex(sourceOne, 0, nil)), nil)
+        CGImageDestinationAddImage(destination, try #require(CGImageSourceCreateImageAtIndex(sourceTwo, 0, nil)), nil)
+        #expect(CGImageDestinationFinalize(destination))
+        let optimized = AgentImageOptimizer.optimize(data as Data)
+        #expect(optimized != data as Data)
+        let source = try #require(CGImageSourceCreateWithData(optimized as CFData, nil))
+        let thumbnail = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        #expect(max(thumbnail.width, thumbnail.height) <= AgentImageOptimizer.maxPixelSize)
+    }
+
     private func makeImage(width: Int, height: Int, alpha: Bool, smooth: Bool = false) -> CGImage? {
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let bitmapInfo = alpha ? CGImageAlphaInfo.premultipliedLast.rawValue : CGImageAlphaInfo.noneSkipLast.rawValue

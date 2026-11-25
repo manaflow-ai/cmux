@@ -26,7 +26,14 @@ public final class TerminalModel {
     public internal(set) var programName: String
     /// The Mac the session runs on (`Workspace.macID`): the terminal shows that Mac's terminal
     /// theme (``CmuxMobileTerminalThemes``). Nil for a placeholder or mock session.
-    public var hostMacID: String?
+    public var hostMacID: String? {
+        didSet {
+            guard oldValue != nil, oldValue != hostMacID else { return }
+            cancelAttachmentSend()
+            attachmentPrestager.cancelAll()
+            syncAttachmentUploads()
+        }
+    }
     /// The terminal theme the surface shows now (its card paints the same background); nil until
     /// a Mac ever sent one.
     public internal(set) var hostTheme: CmuxMobileTerminalTheme?
@@ -107,8 +114,6 @@ public final class TerminalModel {
     /// Mac to receive them there is nothing honest to attach.
     public var uploader: (@MainActor (_ payload: LinkUpload.Payload, _ name: String) async throws -> String)? {
         didSet {
-            cancelAttachmentSend()
-            attachmentPrestager.cancelAll()
             syncAttachmentUploads()
         }
     }
@@ -954,6 +959,7 @@ public final class TerminalModel {
                     self.attachmentPrestager.cancelClaimed()
                     self.isUploading = false
                     self.uploadTask = nil
+                    self.syncAttachmentUploads()
                     if error is CancellationError { return }
                     self.attachmentError = "Couldn't send \(attachment.name): \(Self.message(error))"
                     return
@@ -988,6 +994,7 @@ public final class TerminalModel {
         uploadTask?.cancel()
         uploadTask = nil
         isUploading = false
+        syncAttachmentUploads()
     }
 
     static func message(_ error: any Error) -> String {
