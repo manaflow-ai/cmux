@@ -13,6 +13,7 @@ agentPane.display.chatListStatusPills
 agentPane.display.code.family
 agentPane.display.code.scale
 agentPane.display.commandLabels
+agentPane.display.compactShortTurns
 agentPane.display.environment.placement
 agentPane.display.environmentCard
 agentPane.display.finishSound
