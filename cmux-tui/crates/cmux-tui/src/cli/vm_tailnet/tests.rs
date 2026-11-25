@@ -140,7 +140,8 @@ fn an_oauth_client_is_traded_on_the_mac_and_only_the_minted_key_goes_to_the_vm()
     let (source, spec) = asked.unwrap();
     assert!(matches!(source, MintSource::TailscaleOauth { .. }));
     assert!(spec.ephemeral);
-    assert_eq!(spec.tags, ["tag:cmux"]);
+    // Raw here; mint_key's check_source gives each tag its tag:NAME form before any call.
+    assert_eq!(spec.tags, ["cmux"]);
     assert_eq!(checked.key_file_contents(), "tskey-auth-ONEUSE");
     let script = cmux_tailnet_join::vm_join_script(&checked);
     assert!(!script.contains("LONGLIVED"));
