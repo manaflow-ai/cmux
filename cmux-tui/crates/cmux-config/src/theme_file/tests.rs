@@ -629,6 +629,83 @@ fn with_no_theme_file_nothing_changes() {
     assert!(state.theme_file().is_none());
 }
 
+/// Leo's Claude desktop menu as a theme file fragment (a dark ~#2b2b2b panel, a 12 pt corner, a
+/// subtle edge, 30 pt rows, an 8 pt hover corner, muted shortcuts and section labels, thin
+/// separators, flush submenus, a muted second line, the usage popover's strong header and thicker
+/// track): every `appearance.menu.*` and `appearance.popover.*` key is a look a theme file sets.
+/// The look packs copy this fragment.
+const CLAUDE_MENU_FRAGMENT: &str = r##"{
+  "appearance.menu.cornerRadius": 12,
+  "appearance.menu.borderOpacity": 0.1,
+  "appearance.menu.shadow": "standard",
+  "appearance.menu.fill": "#2b2b2b",
+  "appearance.menu.padding": 8,
+  "appearance.menu.highlightRadius": 8,
+  "appearance.menu.rowHeight": 30,
+  "appearance.menu.shortcuts": "muted",
+  "appearance.menu.sectionLabel": "muted",
+  "appearance.menu.separator": "subtle",
+  "appearance.menu.destructiveInk": "standard",
+  "appearance.menu.submenu": "flush",
+  "appearance.menu.subtitle": "muted",
+  "appearance.popover.padding": 12,
+  "appearance.popover.header": "strong",
+  "appearance.popover.progressHeight": 6,
+  "appearance.popover.progressFill": "standard"
+}"##;
+
+#[test]
+fn a_theme_file_sets_the_menu_and_popover_look() {
+    let file = overlay(CLAUDE_MENU_FRAGMENT);
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(file.keys().len(), 17, "{:?}", file.keys());
+    let root = file.applied(&json!({}), &none());
+    assert_eq!(at(&root, "appearance.menu.cornerRadius"), Some(&json!(12)));
+    assert_eq!(at(&root, "appearance.menu.fill"), Some(&json!("#2b2b2b")));
+    assert_eq!(at(&root, "appearance.menu.submenu"), Some(&json!("flush")));
+    assert_eq!(at(&root, "appearance.popover.progressHeight"), Some(&json!(6)));
+    // Nested, as cmux-next.json writes it, reads the same.
+    let nested = overlay(r#"{ "appearance": { "menu": { "rowHeight": 28, "shadow": "none" } } }"#);
+    assert!(nested.diagnostics.is_empty(), "{:?}", nested.diagnostics);
+    assert_eq!(nested.keys(), vec!["appearance.menu.rowHeight", "appearance.menu.shadow"]);
+}
+
+/// The schema rows refuse what the app cannot draw, as `cmux settings set` does: a choice the menu
+/// does not know, a size past its range, a fill that is no color.
+#[test]
+fn a_theme_file_menu_look_refuses_bad_values() {
+    let file = overlay(
+        r#"{ "appearance.menu.shadow": "huge", "appearance.menu.rowHeight": 90, "appearance.menu.fill": 3, "appearance.menu.cornerRadius": 10 }"#,
+    );
+    assert_eq!(file.keys(), vec!["appearance.menu.cornerRadius"]);
+    let shadow = file
+        .diagnostics
+        .iter()
+        .find(|d| d.path == "appearance.menu.shadow")
+        .expect("shadow refused");
+    assert!(shadow.message.starts_with("expected one of"), "{}", shadow.message);
+    let height = file
+        .diagnostics
+        .iter()
+        .find(|d| d.path == "appearance.menu.rowHeight")
+        .expect("row height refused");
+    assert!(height.message.starts_with("expected a number from 18 to 40"), "{}", height.message);
+    assert!(file.diagnostics.iter().any(|d| d.path == "appearance.menu.fill"));
+}
+
+/// Unset menu keys are today's look: a theme file without them adds none, so the app and the pages
+/// draw exactly what they drew.
+#[test]
+fn a_theme_file_without_menu_keys_sets_none() {
+    let file = overlay(r#"{ "appearance.accent": "blue" }"#);
+    assert!(
+        file.keys()
+            .iter()
+            .all(|key| !key.starts_with("appearance.menu.")
+                && !key.starts_with("appearance.popover."))
+    );
+}
+
 /// The transcript look rides in a theme file (docs/cmux-next/transcript-customization.md): the look
 /// and its tokens apply, and a tokens object with an unknown token is refused with its key.
 #[test]
