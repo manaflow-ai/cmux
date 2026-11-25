@@ -2465,6 +2465,8 @@ svg[data-icon-fill] {
    the code's Cmd-= zoom), a 15 px icon at 17 px, the counts and controls at
    the right edge. */
 .file-header {
+  /* The bar's gap, which its hover-only actions also use and their zero-width slot gives back. */
+  --file-header-gap: 6px;
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
@@ -2593,7 +2595,7 @@ button.file-header-open:focus-visible {
   align-self: stretch;
   min-width: 0;
   /* The flex gap this slot would otherwise add. */
-  margin-inline-start: -6px;
+  margin-inline-start: calc(-1 * var(--file-header-gap));
 }
 .file-header[data-viewed-state="viewed"] .file-header-actions-anchor {
   flex-basis: 22px;
@@ -2607,7 +2609,7 @@ button.file-header-open:focus-visible {
   z-index: 1;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--file-header-gap);
 }
 /* A bar with no badge or "Load diff" has no controls span to hold a gap for. */
 .file-header .file-review-controls:empty {
