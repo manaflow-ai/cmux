@@ -15,6 +15,9 @@ export type PromptDismissal = "slash" | "mention";
 /// What the frame's render reads of the prompt. Each key recomputes it; the frame renders only when
 /// one field differs.
 export type PromptFacts = {
+  /// The prompt text and caret in the frame's last drawn snapshot.
+  text: string;
+  caret: number;
   /// Exactly empty, as the field draws its placeholder.
   blank: boolean;
   /// Only white space: Send is Stop, Esc stops.
@@ -96,7 +99,10 @@ export class PromptText {
   setMention = (mention: MentionTrigger | undefined) => {
     if (mention?.start === this.#mention?.start && mention?.query === this.#mention?.query) return;
     this.#mention = mention;
-    this.#notify();
+    // The field tells the `@word` before the text it is in (its view update reports the change
+    // after); a render now would build facts with the old text and give the field its old value,
+    // erasing the `@` just typed. The change's own `set` renders it; this covers a caret-only one.
+    queueMicrotask(() => this.#notify());
   };
 
   dismiss(kind: PromptDismissal) {
@@ -142,6 +148,8 @@ export class PromptText {
       return this.#facts;
     this.#factsFor = { text, caret, mention: this.#mention, dismissed, probe };
     const next: PromptFacts = {
+      text,
+      caret,
       blank: text === "",
       empty: !text.trim(),
       command: /^\/\S+/.exec(text.trim())?.[0],
@@ -157,16 +165,16 @@ export class PromptText {
   #notify() {
     for (const listener of Array.from(this.#listeners)) listener();
   }
+
+  /// The frame draws the current prompt, including text that changed without changing its controls.
+  draw() {
+    if (!this.#facts || (this.#facts.text === this.#text && this.#facts.caret === this.#caret)) return;
+    this.#facts = { ...this.#facts, text: this.#text, caret: this.#caret };
+    this.#notify();
+  }
 }
 
 /// The frame's view of the prompt: renders only when a fact changes.
 export function usePromptFacts(prompt: PromptText, probe: RecallProbe): PromptFacts {
   return useSyncExternalStore(prompt.subscribe, () => prompt.facts(probe));
 }
-
-/// The prompt's text, for a component that draws it (ComposerBox): renders on each text change.
-export function usePromptTextValue(prompt: PromptText | undefined, fallback: string): string {
-  return useSyncExternalStore(prompt?.subscribe ?? noSubscribe, prompt ? prompt.getText : () => fallback);
-}
-
-const noSubscribe = () => () => {};
