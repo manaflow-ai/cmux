@@ -42,26 +42,9 @@ const input = (value: Record<string, unknown>) => ({ inputSummary: JSON.stringif
 const at = (path: string) => ({ locations: [{ path }] });
 const label = (tool: Tool) => toolLabel(tool, tool.title, (command) => `Ran ${command}`, CWD);
 
-/// What each reads as. Claude Code keeps its own verbs (Grep), Codex its own (Search).
-const EXPECTED: Record<string, Record<string, string>> = {
-  claude: {
-    read: "Read src/foo.ts",
-    search: "Grep useTool",
-    glob: "Glob **/*.ts",
-    fetch: "Fetch https://example.com/docs",
-    websearch: "Search acp tool kinds",
-  },
-  codex: {
-    read: "Read src/foo.ts",
-    search: "Search useTool",
-    glob: "Glob **/*.ts",
-    fetch: "Fetch https://example.com/docs",
-    websearch: "Search acp tool kinds",
-  },
-};
 const CANONICAL_LABELS = {
   read: "Read src/foo.ts",
-  search: "Search useTool",
+  search: "Search for useTool",
   glob: "Glob **/*.ts",
   fetch: "Fetch https://example.com/docs",
   websearch: "Search acp tool kinds",
@@ -72,7 +55,7 @@ for (const [harness, calls] of Object.entries(HARNESS_CALLS)) {
     for (const [tool, value] of Object.entries(calls)) {
       test(`${tool} reads as its canonical tool`, () => {
         expect(canonicalCall(value)?.tool).toBe(tool as CanonicalTool);
-        expect(label(value)).toBe(EXPECTED[harness]?.[tool] ?? CANONICAL_LABELS[tool as keyof typeof CANONICAL_LABELS]);
+        expect(label(value)).toBe(CANONICAL_LABELS[tool as keyof typeof CANONICAL_LABELS]);
       });
     }
 
@@ -158,8 +141,8 @@ test("Gemini's list_directory and Muse's read_file name their subject", () => {
 test("Gemini's bare folder lists and single-star globs read as such; a regex star does not", () => {
   expect(label(call("src", "search"))).toBe("List src");
   expect(label(call("'src/*.ts' within ./", "search"))).toBe("Glob src/*.ts");
-  expect(label(call("'foo.*bar' within ./", "search"))).toBe("Search foo.*bar");
-  expect(label(call("'foo*bar' within ./", "search"))).toBe("Search foo*bar");
+  expect(label(call("'foo.*bar' within ./", "search"))).toBe("Search for foo.*bar");
+  expect(label(call("'foo*bar' within ./", "search"))).toBe("Search for foo*bar");
 });
 
 test("a Claude Code Grep and Glob draw and count as searches, not reads", () => {
