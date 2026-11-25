@@ -801,7 +801,7 @@ fn screenshots(read: &mut Read, home: &str) {
                     match item.as_str().filter(|text| is_folder(text)) {
                         Some(text) => match text.strip_prefix('~') {
                             Some(rest) if text.starts_with("~/") => {
-                                kept.push(format!("{home}{rest}"))
+                                kept.push(format!("{home}{rest}"));
                             }
                             _ => kept.push(text.to_owned()),
                         },
