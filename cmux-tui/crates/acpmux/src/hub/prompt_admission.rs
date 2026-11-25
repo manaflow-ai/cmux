@@ -275,6 +275,7 @@ impl Hub {
             admitted: d.admitted,
             after_turn: false,
             steer_on_start: false,
+            answer_due: None,
         };
         if let Some(refused) = self.takes_no_prompt(session, &slot) {
             return Err(refused);
