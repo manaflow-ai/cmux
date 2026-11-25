@@ -323,6 +323,11 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -622,11 +627,23 @@ jobs:
       # Same toolchain as reload-build.yml: the webviews `vp build` runs on node,
       # and check-webviews-bun-version.sh refuses a bun older than the
       # webviews/package.json devEngines pin, which stopped run 41798237731.
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        if: env.CMUX_PROOF_BUILD != 'published'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
       - name: Setup Node
         if: env.CMUX_PROOF_BUILD != 'published'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: env.CMUX_PROOF_BUILD != 'published'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
         if: env.CMUX_PROOF_BUILD != 'published'
