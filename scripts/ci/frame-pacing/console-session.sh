@@ -88,7 +88,11 @@ PLIST
 
 [ "$mode" = own ] && run_own "$@"
 
-console_user="$(stat -f %Su /dev/console 2>/dev/null || true)"
+# The console user is the account of IOConsoleUsers' session on the console, the one rule of the fleet worker gate
+# and bench_launch.py. Not the console device's owner: another account's Screen Sharing session off the console (the
+# fleet's hidden CI accounts, 2026-11-18) is not where the bench's windows draw.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+console_user="$(/usr/bin/python3 -I "$here/../../cmux-next/bench_launch.py" console-user 2>/dev/null || true)"
 manager="$(launchctl managername 2>/dev/null || true)"
 # A runner already in Aqua needs no hop, and a hop needs launchctl itself under sudo: a Mac whose sudoers
 # grants other commands (purge, fs_usage) but not launchctl runs the command where it is.
@@ -97,9 +101,10 @@ if [ "$manager" != Aqua ] && [ -n "$console_user" ] && [ "$console_user" != root
   # Try the whole hop before taking it: sudo may grant launchctl yet refuse the second hop to the console user
   # (air-blue, 2026-11-21: "sudo: a password is required" and a bare exit 1). A refused hop says why and runs in
   # this user's own GUI login when there is one.
-  if ! sudo -n launchctl asuser "$console_uid" sudo -n -u "$console_user" /usr/bin/true >/dev/null 2>"${TMPDIR:-/tmp}/console-session-hop.$$"; then
-    echo "CONSOLE-SESSION-FAIL reason=hop into console user '$console_user' refused: $(tr '\n' ' ' <"${TMPDIR:-/tmp}/console-session-hop.$$")" >&2
-    rm -f "${TMPDIR:-/tmp}/console-session-hop.$$"
+  hop_err="$(mktemp "${TMPDIR:-/tmp}/console-session-hop.XXXXXX")"
+  if ! sudo -n launchctl asuser "$console_uid" sudo -n -u "$console_user" /usr/bin/true >/dev/null 2>"$hop_err"; then
+    echo "CONSOLE-SESSION-FAIL reason=hop into console user '$console_user' refused: $(tr '\n' ' ' <"$hop_err")" >&2
+    rm -f "$hop_err"
     if launchctl print "gui/$(id -u)" >/dev/null 2>&1; then
       echo "console-session: falling back to CONSOLE_SESSION=own" >&2
       run_own "$@"
@@ -107,7 +112,7 @@ if [ "$manager" != Aqua ] && [ -n "$console_user" ] && [ "$console_user" != root
     echo "::warning::no hop and no GUI login of $(id -un)'s own; running where it is, the bench's windows may not draw." >&2
     exec "$@"
   fi
-  rm -f "${TMPDIR:-/tmp}/console-session-hop.$$"
+  rm -f "$hop_err"
   console_home="$( (dscl . -read "/Users/$console_user" NFSHomeDirectory 2>/dev/null || true) | awk '{print $2}')"
   [ -n "$console_home" ] || console_home="$HOME"
   env_pairs=()

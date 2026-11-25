@@ -4,6 +4,7 @@ use crate::row::Kind;
 fn row(id: &str) -> Row {
     Row {
         tab_id: id.to_owned(),
+        tab_key: format!("key-{id}"),
         title: format!("Title {id}"),
         kind: Kind::Browser,
         favicon_hash: Some(BlobHash::of(b"fav")),
@@ -105,6 +106,28 @@ fn delta_patch_null_clears_and_absent_keeps() {
     back.apply(&mut r);
     assert_eq!(r.thumb_hash, None);
     assert!(r.favicon_hash.is_some());
+}
+
+#[test]
+fn tab_key_is_sent_as_tab_key_omitted_when_unknown_and_carried_by_a_diff() {
+    let json = serde_json::to_value(row("t1")).unwrap();
+    assert_eq!(json["tabKey"], "key-t1");
+    let keyless = Row { tab_key: String::new(), ..row("t1") };
+    let json = serde_json::to_value(&keyless).unwrap();
+    assert!(!json.as_object().unwrap().contains_key("tabKey"));
+    // A Mac without the field (an old build) still decodes, with no key.
+    let old: Row = serde_json::from_str(r#"{"tabId":"a","title":"T","kind":"browser"}"#).unwrap();
+    assert_eq!(old.tab_key, "");
+
+    let mut moved = row("t1");
+    moved.tab_key = "key-other".into();
+    let patch = RowPatch::diff(&row("t1"), &moved).expect("a new key is a change");
+    assert_eq!(patch.tab_key.as_deref(), Some("key-other"));
+    assert_eq!(patch.title, None);
+    let mut applied = row("t1");
+    patch.apply(&mut applied);
+    assert_eq!(applied.tab_key, "key-other");
+    assert!(RowPatch::diff(&row("t1"), &row("t1")).is_none());
 }
 
 #[test]
