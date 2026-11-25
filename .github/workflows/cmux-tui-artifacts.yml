@@ -203,6 +203,9 @@ jobs:
   # sets the window (default 60: about 48 pushes fit the marker search's 40 commits
   # and the probe fallback's 50 only up to an hour; about 24 builds a day).
   coalesce:
+    # actions: read: base-coalesce lists this workflow's runs to re-run a window whose run failed.
+    permissions:
+      actions: read
     uses: ./.github/workflows/base-coalesce.yml
     with:
       key: cmux-tui-artifacts
@@ -5001,7 +5004,12 @@ jobs:
       group: cmux-tui-point-feat-${{ github.ref }}
       cancel-in-progress: false
     needs: [tree-preflight, publish-tree-tested]
-    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' }}
+    # A dispatch on feat-cmux-next points too (Leo, 2026-11-25: "accelerate the shit out of efficiency improvements
+    # dev builds etc. they cannot be slow. do not catch-22 yourselves."): pushes coalesce into one build an hour, so a
+    # merged acpmux fix waited up to an hour (or a failed hour, two) before Linux hosts could install it. The script
+    # records GITHUB_SHA, the commit this run checked out, and moves only forward past the channel's commit, only
+    # to a daemon-tested tree, so a dispatch of an older or untested commit leaves the channel as it is.
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
