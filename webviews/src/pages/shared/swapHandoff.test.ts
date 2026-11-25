@@ -14,7 +14,8 @@ import {
 
 const URL = "cmux-page://settings/index.html#/settings/general";
 const page = (body: string) =>
-  new JSDOM(`<!doctype html><head></head><body>${body}</body>`, { url: URL, pretendToBeVisual: true }).window;
+  new JSDOM(`<!doctype html><head></head><body>${body}</body>`, { url: URL, pretendToBeVisual: true })
+    .window as unknown as Window;
 
 /** The reload: the new document gets the old one's sessionStorage, as a reload of the same tab does. */
 function reload(from: Window, body = ""): Window {
