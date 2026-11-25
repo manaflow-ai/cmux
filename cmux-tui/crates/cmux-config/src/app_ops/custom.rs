@@ -135,7 +135,11 @@ struct Read<'a> {
 
 /// Swift's `Double` description: `60.0`, `0.35`.
 fn double(number: f64) -> String {
-    if number.fract() == 0.0 && number.abs() < 1e16 { format!("{number:.1}") } else { format!("{number}") }
+    if number.fract() == 0.0 && number.abs() < 1e16 {
+        format!("{number:.1}")
+    } else {
+        format!("{number}")
+    }
 }
 
 /// A whole number as text (Swift `Int(x)`).
@@ -257,7 +261,8 @@ impl<'a> Read<'a> {
                 None => self.refuse(key, "expected a number"),
                 Some(number) => {
                     if !(range.min..=range.max).contains(&number) {
-                        let message = format!("clamped to {}...{}", double(range.min), double(range.max));
+                        let message =
+                            format!("clamped to {}...{}", double(range.min), double(range.max));
                         self.refuse(key, &message);
                     }
                     value = number_json(number.clamp(range.min, range.max));
@@ -276,7 +281,11 @@ impl<'a> Read<'a> {
                 Some(number) => value = number_json(number),
                 None => {
                     let message = message.unwrap_or_else(|| {
-                        format!("expected a number from {} to {}", whole(range.min), whole(range.max))
+                        format!(
+                            "expected a number from {} to {}",
+                            whole(range.min),
+                            whole(range.max)
+                        )
                     });
                     self.refuse(key, &message);
                 }
@@ -338,8 +347,12 @@ pub(crate) fn expectation(row: &Row) -> String {
         Kind::Number(range) => {
             format!("expected a number from {} to {}", whole(range.min), whole(range.max))
         }
-        Kind::Url if row.key == "browser.customSearchEngine.search" || row.key == "browser.customSearchEngine.suggest" => {
-            "expected a web address with %s or {searchTerms} where the typed text goes, or \"\"".to_owned()
+        Kind::Url
+            if row.key == "browser.customSearchEngine.search"
+                || row.key == "browser.customSearchEngine.suggest" =>
+        {
+            "expected a web address with %s or {searchTerms} where the typed text goes, or \"\""
+                .to_owned()
         }
         Kind::Url => "expected a web address or \"\"".to_owned(),
         Kind::ChoiceOrNumber(choices, range) => format!(
@@ -388,9 +401,9 @@ fn closed_history(read: &mut Read) {
         let mut value = read.default_of(key);
         if let Some(raw) = read.at(key) {
             // Swift `intValue`: a whole number below 1e15.
-            let whole_number = raw
-                .as_f64()
-                .filter(|x| x.fract() == 0.0 && x.abs() < 1e15 && (range.min..=range.max).contains(x));
+            let whole_number = raw.as_f64().filter(|x| {
+                x.fract() == 0.0 && x.abs() < 1e15 && (range.min..=range.max).contains(x)
+            });
             match whole_number {
                 Some(number) => value = json!(number as i64),
                 None => read.refuse(key, expected),
@@ -435,11 +448,14 @@ fn quit_behavior(read: &mut Read) {
 
 fn home_server(read: &mut Read) {
     let key = "home.server";
-    let message = "expected \"hosted\" or {\"selfHosted\": \"http://<name>.<tailnet>.ts.net:7320\"}";
+    let message =
+        "expected \"hosted\" or {\"selfHosted\": \"http://<name>.<tailnet>.ts.net:7320\"}";
     let mut value = json!({"mode": "hosted"});
     if let Some(raw) = read.at(key) {
         let choices = match &read.row(key).kind {
-            Kind::ChoiceOrUrl(choices, _) => choices.iter().map(|c| c.value.clone()).collect::<Vec<_>>(),
+            Kind::ChoiceOrUrl(choices, _) => {
+                choices.iter().map(|c| c.value.clone()).collect::<Vec<_>>()
+            }
             _ => Vec::new(),
         };
         let parsed = match raw {
@@ -496,13 +512,23 @@ fn hover_cards(read: &mut Read) {
         read.flag_of(raw.as_ref(), field_name, &format!("{top}.sections.{key}"));
     }
     let groups = read.object("sidebar.hoverCards.groups");
-    for (field_name, key) in [("groupsWorkspaceGroups", "workspaceGroups"), ("groupsTabGroups", "tabGroups")] {
+    for (field_name, key) in
+        [("groupsWorkspaceGroups", "workspaceGroups"), ("groupsTabGroups", "tabGroups")]
+    {
         let raw = field(groups, key);
         read.flag_of(raw.as_ref(), field_name, &format!("{top}.groups.{key}"));
     }
-    read.clamped_of(field(groups, "delay").as_ref(), "groupsDelayMilliseconds", &format!("{top}.groups.delay"));
+    read.clamped_of(
+        field(groups, "delay").as_ref(),
+        "groupsDelayMilliseconds",
+        &format!("{top}.groups.delay"),
+    );
     read.choice_of(field(groups, "order").as_ref(), "groupsOrder", &format!("{top}.groups.order"));
-    read.clamped_of(field(groups, "maxMembers").as_ref(), "groupsMaxMembers", &format!("{top}.groups.maxMembers"));
+    read.clamped_of(
+        field(groups, "maxMembers").as_ref(),
+        "groupsMaxMembers",
+        &format!("{top}.groups.maxMembers"),
+    );
     rounded(read, "groupsMaxMembers");
     let group_sections = read.object("sidebar.hoverCards.groups.sections");
     for (field_name, key) in [
@@ -566,7 +592,8 @@ fn menu_look(read: &mut Read) {
                 }
                 Some(number) => {
                     if !(range.min..=range.max).contains(&number) {
-                        let message = format!("clamped to {}...{}", double(range.min), double(range.max));
+                        let message =
+                            format!("clamped to {}...{}", double(range.min), double(range.max));
                         read.refuse(key, &message);
                     }
                     value = number_json(number.clamp(range.min, range.max));
@@ -600,7 +627,16 @@ fn menu_look(read: &mut Read) {
 }
 
 const MOTION_CATEGORIES: [&str; 10] = [
-    "sidebar", "tabs", "panes", "overlays", "hoverCards", "home", "cursor", "indicators", "feedback", "web",
+    "sidebar",
+    "tabs",
+    "panes",
+    "overlays",
+    "hoverCards",
+    "home",
+    "cursor",
+    "indicators",
+    "feedback",
+    "web",
 ];
 
 fn motion_categories(read: &mut Read) {
@@ -653,7 +689,8 @@ fn now_playing(read: &mut Read) {
 }
 
 fn palette_ranking(read: &mut Read) {
-    let mut aliases: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
+    let mut aliases: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
     if let Some(Value::Object(members)) = read.at("palette.aliases") {
         let mut sorted: Vec<_> = members.iter().collect();
         sorted.sort_by(|a, b| a.0.cmp(b.0));
@@ -763,7 +800,9 @@ fn screenshots(read: &mut Read, home: &str) {
                 for item in items {
                     match item.as_str().filter(|text| is_folder(text)) {
                         Some(text) => match text.strip_prefix('~') {
-                            Some(rest) if text.starts_with("~/") => kept.push(format!("{home}{rest}")),
+                            Some(rest) if text.starts_with("~/") => {
+                                kept.push(format!("{home}{rest}"))
+                            }
                             _ => kept.push(text.to_owned()),
                         },
                         None => read.refuse(key, "expected an absolute or ~/ path"),
@@ -845,10 +884,13 @@ fn surface_backgrounds(read: &mut Read) {
                                 ),
                             },
                             "opacity" => {
-                                let range = read.number_range("appearance.surfaces.sidebar.opacity");
-                                match value.as_f64().filter(|x| (range.min..=range.max).contains(x)) {
+                                let range =
+                                    read.number_range("appearance.surfaces.sidebar.opacity");
+                                match value.as_f64().filter(|x| (range.min..=range.max).contains(x))
+                                {
                                     Some(number) => {
-                                        background.insert("opacity".to_owned(), number_json(number));
+                                        background
+                                            .insert("opacity".to_owned(), number_json(number));
                                     }
                                     None => read.refuse(
                                         &format!("{path}.opacity"),
@@ -938,7 +980,8 @@ fn updates(read: &mut Read) {
     }
     // An older notify value reads as its replacement with no diagnostic.
     let notify = "updates.notify";
-    match read.at(notify).and_then(Value::as_str).and_then(|old| schema::choice_alias(notify, old)) {
+    match read.at(notify).and_then(Value::as_str).and_then(|old| schema::choice_alias(notify, old))
+    {
         Some(new) => read.set("notify", json!(new)),
         None => read.choice_of(field("notify").as_ref(), "notify", notify),
     }
@@ -950,7 +993,11 @@ fn workspace_hibernation(read: &mut Read) {
     let members = read.object("workspaces.hibernation");
     let field = |key: &str| members.and_then(|m| m.get(key)).cloned();
     read.flag_of(field("enabled").as_ref(), "enabled", "workspaces.hibernation.enabled");
-    read.clamped_of(field("idleMinutes").as_ref(), "idleMinutes", "workspaces.hibernation.idleMinutes");
+    read.clamped_of(
+        field("idleMinutes").as_ref(),
+        "idleMinutes",
+        "workspaces.hibernation.idleMinutes",
+    );
     read.clamped_of(
         field("hiddenSpaceMinutes").as_ref(),
         "hiddenSpaceMinutes",
@@ -959,7 +1006,11 @@ fn workspace_hibernation(read: &mut Read) {
     let freeing = read.object("workspaces.freeing");
     let field = |key: &str| freeing.and_then(|m| m.get(key)).cloned();
     read.flag_of(field("enabled").as_ref(), "freeingEnabled", "workspaces.freeing.enabled");
-    read.clamped_of(field("idleMinutes").as_ref(), "freeingIdleMinutes", "workspaces.freeing.idleMinutes");
+    read.clamped_of(
+        field("idleMinutes").as_ref(),
+        "freeingIdleMinutes",
+        "workspaces.freeing.idleMinutes",
+    );
     read.flag_of(field("agents").as_ref(), "freeingAgents", "workspaces.freeing.agents");
     read.choice_of(
         field("runningCommands").as_ref(),
@@ -1086,7 +1137,9 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .map(|d| (d["path"].as_str().unwrap().to_owned(), d["message"].as_str().unwrap().to_owned()))
+            .map(|d| {
+                (d["path"].as_str().unwrap().to_owned(), d["message"].as_str().unwrap().to_owned())
+            })
             .collect()
     }
 
@@ -1103,19 +1156,31 @@ mod tests {
 
     #[test]
     fn agent_mouse_messages() {
-        let answer = read("agent_mouse", json!({"browser": {"agentMouse": {"motion": "x", "maxMoveMs": 5}}}));
+        let answer = read(
+            "agent_mouse",
+            json!({"browser": {"agentMouse": {"motion": "x", "maxMoveMs": 5}}}),
+        );
         assert_eq!(
             messages(&answer),
             vec![
-                ("browser.agentMouse.motion".to_owned(), "expected \"human\" or \"instant\"".to_owned()),
-                ("browser.agentMouse.maxMoveMs".to_owned(), "expected a number from 60 to 1000".to_owned()),
+                (
+                    "browser.agentMouse.motion".to_owned(),
+                    "expected \"human\" or \"instant\"".to_owned()
+                ),
+                (
+                    "browser.agentMouse.maxMoveMs".to_owned(),
+                    "expected a number from 60 to 1000".to_owned()
+                ),
             ]
         );
     }
 
     #[test]
     fn closed_history_takes_whole_numbers_only() {
-        let answer = read("closed_history", json!({"history": {"closed": {"maxGroups": 1.5, "maxAgeDays": 30}}}));
+        let answer = read(
+            "closed_history",
+            json!({"history": {"closed": {"maxGroups": 1.5, "maxAgeDays": 30}}}),
+        );
         assert_eq!(answer["values"]["maxAgeDays"], 30);
         assert_eq!(messages(&answer).len(), 1);
     }
@@ -1130,7 +1195,10 @@ mod tests {
 
     #[test]
     fn home_server_forms() {
-        let own = read("home_server", json!({"home": {"server": {"selfHosted": "http://a.b.ts.net:7320"}}}));
+        let own = read(
+            "home_server",
+            json!({"home": {"server": {"selfHosted": "http://a.b.ts.net:7320"}}}),
+        );
         assert_eq!(own["values"]["server"]["mode"], "selfHosted");
         let bad = read("home_server", json!({"home": {"server": 3}}));
         assert_eq!(bad["values"]["server"]["mode"], "hosted");
@@ -1155,7 +1223,10 @@ mod tests {
             assert_eq!(answer["values"]["server"]["url"], origin, "{input}");
             assert!(messages(&answer).is_empty());
         }
-        assert_eq!(read("home_server", json!({"home": {"server": "hosted"}}))["values"]["server"]["mode"], "hosted");
+        assert_eq!(
+            read("home_server", json!({"home": {"server": "hosted"}}))["values"]["server"]["mode"],
+            "hosted"
+        );
     }
 
     #[test]
@@ -1183,7 +1254,10 @@ mod tests {
     fn agent_mouse_defaults_and_choices() {
         let absent = read("agent_mouse", json!({}));
         assert_eq!(absent["values"], json!({"motion": "human", "maxMoveMs": 350}));
-        let chosen = read("agent_mouse", json!({"browser": {"agentMouse": {"motion": "instant", "maxMoveMs": 200}}}));
+        let chosen = read(
+            "agent_mouse",
+            json!({"browser": {"agentMouse": {"motion": "instant", "maxMoveMs": 200}}}),
+        );
         assert_eq!(chosen["values"]["motion"], "instant");
         assert_eq!(chosen["values"]["maxMoveMs"], 200.0);
     }
@@ -1191,8 +1265,14 @@ mod tests {
     #[test]
     fn verification_autofill_accounts_are_trimmed_lowercased_and_deduped() {
         let root = json!({"browser": {"verificationAutofill": {"accounts": [" Lawrence@cmux.com ", "lawrence@cmux.com", "not an address"]}}});
-        assert_eq!(read("verification_autofill", root)["values"]["accounts"], json!(["lawrence@cmux.com"]));
-        let bad = read("verification_autofill", json!({"browser": {"verificationAutofill": {"enabled": "yes"}}}));
+        assert_eq!(
+            read("verification_autofill", root)["values"]["accounts"],
+            json!(["lawrence@cmux.com"])
+        );
+        let bad = read(
+            "verification_autofill",
+            json!({"browser": {"verificationAutofill": {"enabled": "yes"}}}),
+        );
         assert_eq!(bad["values"]["enabled"], false);
         assert_eq!(messages(&bad).len(), 1);
         assert_eq!(messages(&bad)[0].0, "browser.verificationAutofill.enabled");
@@ -1214,11 +1294,15 @@ mod tests {
 
     #[test]
     fn device_hub_reads_the_url() {
-        let answer = read("device_hub", json!({"deviceHub": {"url": "http://mini.tail.ts.net:8787"}}));
+        let answer =
+            read("device_hub", json!({"deviceHub": {"url": "http://mini.tail.ts.net:8787"}}));
         assert_eq!(answer["values"]["url"], "http://mini.tail.ts.net:8787");
         assert_eq!(read("device_hub", json!({}))["values"]["url"], "");
         let bad = read("device_hub", json!({"deviceHub": {"url": 3}}));
-        assert_eq!(messages(&bad), vec![("deviceHub.url".to_owned(), "expected a string".to_owned())]);
+        assert_eq!(
+            messages(&bad),
+            vec![("deviceHub.url".to_owned(), "expected a string".to_owned())]
+        );
     }
 
     #[test]
@@ -1233,16 +1317,23 @@ mod tests {
         assert_eq!(good["values"]["fill"], "#2b2b2b");
         assert_eq!(good["values"]["submenu"], "flush");
         assert_eq!(good["values"]["popoverHeader"], "strong");
-        let bad = read("menu_look", json!({"appearance": {"menu": {"shadow": "huge", "fill": "red", "rowHeight": 99}}}));
+        let bad = read(
+            "menu_look",
+            json!({"appearance": {"menu": {"shadow": "huge", "fill": "red", "rowHeight": 99}}}),
+        );
         let paths: Vec<_> = messages(&bad).into_iter().map(|m| m.0).collect();
-        for path in ["appearance.menu.shadow", "appearance.menu.fill", "appearance.menu.rowHeight"] {
+        for path in ["appearance.menu.shadow", "appearance.menu.fill", "appearance.menu.rowHeight"]
+        {
             assert!(paths.iter().any(|p| p == path), "{path}: {paths:?}");
         }
     }
 
     #[test]
     fn motion_categories_list_the_switched_off() {
-        let answer = read("motion_categories", json!({"ui": {"animations": {"enabled": false, "tabs": false, "web": "no"}}}));
+        let answer = read(
+            "motion_categories",
+            json!({"ui": {"animations": {"enabled": false, "tabs": false, "web": "no"}}}),
+        );
         assert_eq!(answer["values"]["enabled"], false);
         assert_eq!(answer["values"]["disabled"], json!(["tabs"]));
         assert_eq!(messages(&answer)[0].0, "ui.animations.web");
@@ -1282,9 +1373,16 @@ mod tests {
 
     #[test]
     fn reduced_backgrounds_notes_only_while_on() {
-        let on = call("custom.read", &json!({"name": "reduced_backgrounds_notes", "root": {}, "reduced": true})).unwrap().unwrap();
+        let on = call(
+            "custom.read",
+            &json!({"name": "reduced_backgrounds_notes", "root": {}, "reduced": true}),
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(on["diagnostics"][0]["kind"], "plainBackgrounds");
-        let off = call("custom.read", &json!({"name": "reduced_backgrounds_notes", "root": {}})).unwrap().unwrap();
+        let off = call("custom.read", &json!({"name": "reduced_backgrounds_notes", "root": {}}))
+            .unwrap()
+            .unwrap();
         assert!(messages(&off).is_empty());
     }
 
@@ -1302,10 +1400,16 @@ mod tests {
     #[test]
     fn screenshots_expand_home_and_trust_keeps_it() {
         let root = json!({"screenshots": {"folders": ["~/Shots", "/tmp/x", "rel"]}});
-        let answer = call("custom.read", &json!({"name": "screenshots", "root": root, "home": "/Users/me"})).unwrap().unwrap();
+        let answer =
+            call("custom.read", &json!({"name": "screenshots", "root": root, "home": "/Users/me"}))
+                .unwrap()
+                .unwrap();
         assert_eq!(answer["values"]["folders"], json!(["/Users/me/Shots", "/tmp/x"]));
         assert_eq!(messages(&answer)[0].1, "expected an absolute or ~/ path");
-        let trust = read("trust", json!({"agents": {"trust": {"projectRoots": ["~/code", "no"], "ownOrgs": ["acme", ""]}}}));
+        let trust = read(
+            "trust",
+            json!({"agents": {"trust": {"projectRoots": ["~/code", "no"], "ownOrgs": ["acme", ""]}}}),
+        );
         assert_eq!(trust["values"]["projectRoots"], json!(["~/code"]));
         assert_eq!(trust["values"]["ownOrgs"], json!(["acme"]));
         assert_eq!(messages(&trust).len(), 2);
@@ -1317,7 +1421,10 @@ mod tests {
             "surface_backgrounds",
             json!({"appearance": {"surfaces": {"sidebar": {"color": "#112233", "opacity": 0.5, "x": 1}, "nope": {}, "tabBar": {"opacity": 2}}}}),
         );
-        assert_eq!(answer["values"]["overrides"], json!({"sidebar": {"color": "#112233", "opacity": 0.5}}));
+        assert_eq!(
+            answer["values"]["overrides"],
+            json!({"sidebar": {"color": "#112233", "opacity": 0.5}})
+        );
         assert_eq!(messages(&answer).len(), 3);
     }
 
@@ -1336,9 +1443,13 @@ mod tests {
 
     #[test]
     fn recent_fonts_and_tips() {
-        let answer = call("recent_fonts.recorded", &json!({"family": "A", "list": ["B", "A", "C"]})).unwrap().unwrap();
+        let answer =
+            call("recent_fonts.recorded", &json!({"family": "A", "list": ["B", "A", "C"]}))
+                .unwrap()
+                .unwrap();
         assert_eq!(answer["list"], json!(["A", "B", "C"]));
-        let tip = call("feature_tips.is_open", &json!({"lastShownAt": 0, "at": 100})).unwrap().unwrap();
+        let tip =
+            call("feature_tips.is_open", &json!({"lastShownAt": 0, "at": 100})).unwrap().unwrap();
         assert_eq!(tip["open"], false);
     }
 }
