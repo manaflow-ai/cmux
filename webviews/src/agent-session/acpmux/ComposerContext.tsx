@@ -66,8 +66,6 @@ import { belowCheckout, folderRepo, isMainCheckout, worktreeName, type ProjectRe
 import { isAgentHome, projectLabel, SessionsBy } from "./sessionList";
 import { translate as t, useT } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
-import { CloudEnvironmentChip, useCloudEnvironmentControl, type CloudEnvironmentDropUp } from "./CloudEnvironmentChip";
-import type { CloudEnvironmentControl } from "./cloudEnvironmentChoice";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { focusAfterEscape } from "../../ui/escapeFocus";
 import type { RunModeRows } from "./sandboxRun";
@@ -202,8 +200,6 @@ export function ComposerContext({
   cloudWorksOn,
   cloudSignedIn: cloudSignedInSeam,
   extraFolders,
-  cloudEnvironment: cloudEnvironmentSeam,
-  cloudEnvironmentDropUp,
   unavailableGroup,
   unavailableExpanded,
   cloudStartOut = false,
@@ -336,12 +332,6 @@ export function ComposerContext({
   /// list is the machine's: another machine picked starts over. `onBrowse` is this Mac's folder
   /// chooser; another machine's folders are its listed ones or a typed path.
   extraFolders?: ExtraFolderControl;
-  /// Gallery and test seam: the Environment chip's control (CloudEnvironmentChip.tsx). Omitted, a new
-  /// chat's strip reads the account's environments itself while CLOUD_ENVIRONMENTS_ENABLED is on (the
-  /// default; composerSettings.ts `cloudEnvironments`); off, there is no chip.
-  cloudEnvironment?: CloudEnvironmentControl;
-  /// Gallery seam: how the Environment chip's drop-up draws its rows (`list` ships).
-  cloudEnvironmentDropUp?: CloudEnvironmentDropUp;
   /// Gallery seam: how the machine lists show the machines acpmux cannot reach (`collapsed` ships),
   /// and whether that group starts open.
   unavailableGroup?: UnavailableGroup;
@@ -455,7 +445,10 @@ export function ComposerContext({
     () =>
       computers.map((computer) => {
         const warning = environmentReady(computer) ? warningText(computer.resources) : undefined;
-        return warning ? { ...computer, loadWarning: warning } : computer;
+        const autoCloud = computer.kind === "ssh" ? computer.resources?.autoCloud : undefined;
+        return warning || autoCloud
+          ? { ...computer, ...(warning ? { loadWarning: warning } : {}), ...(autoCloud ? { autoCloud } : {}) }
+          : computer;
       }),
     [computers, warningText],
   );
@@ -633,17 +626,6 @@ export function ComposerContext({
     const listed = folders.map(({ id }) => ({ cwd: id, peer: selectedComputer }));
     return cloudSourceFolders([...sessions, ...listed], menuComputers, { ...peerKinds, [selectedComputer]: "cloud" });
   }, [cloudSide, folders, machineOnCloud, menuComputers, peerKinds, readOnly, selectedComputer, sessions]);
-  // The Environment chip's control (Leo, 2026-11-07, behind CLOUD_ENVIRONMENTS_ENABLED): a new chat's
-  // only, and only where the strip is the environment picker. It shows while Cloud is the pick.
-  const liveEnvironment = useCloudEnvironmentControl(
-    cloudEnvironmentSeam === undefined && composerSettings.cloudEnvironments && newChat && environments === true,
-    currentFolder,
-    currentFolder
-      ? (folders.find((folder) => folder.id === currentFolder)?.repo?.github ?? githubFolderRepo(currentFolder))
-      : undefined,
-    runMode?.environment,
-  );
-  const environmentControl = cloudEnvironmentSeam ?? liveEnvironment;
   // A started chat's picker lists only where it runs, with that machine's warning too.
   const currentPickerComputer =
     pickerComputers.find((computer) => computer.id === selectedComputer) ?? pickerComputers[0];
@@ -1283,23 +1265,6 @@ export function ComposerContext({
                     digits={false}
                     setupMenu={false}
                   />
-                )}
-                {environmentControl && (
-                  // Last in the group, so its column opening or closing moves nothing before it
-                  // (cloudEnvironmentChip.css). Mounted while Cloud is not the pick too, closed and
-                  // inert, so leaving Cloud closes it the way picking Cloud opened it.
-                  <span
-                    className="acpmux-cloud-env-slot"
-                    data-shown={String(cloudPicked)}
-                    aria-hidden={!cloudPicked}
-                    inert={!cloudPicked}
-                  >
-                    <CloudEnvironmentChip
-                      control={environmentControl}
-                      active={cloudPicked}
-                      {...(cloudEnvironmentDropUp ? { dropUp: cloudEnvironmentDropUp } : {})}
-                    />
-                  </span>
                 )}
               </>
             )
