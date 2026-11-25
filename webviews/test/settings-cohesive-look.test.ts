@@ -4,8 +4,9 @@
 // cohesive with same bg color"). In real engines, on the settings dev server with the mock:
 // - one background under the content: the content pane paints no fill of its own. The sidebar takes
 //   the window sidebar's fill (none by default: the app's sidebar is the window's color; Lucas
-//   2026-11-12, after Lawrence); the content is a panel beside it with rounded left corners and no line
-//   between them, only the two fills, as the window's main pane beside the app sidebar (Lucas 2026-11-12);
+//   2026-11-12, after Lawrence); the content is a panel beside it with rounded left corners, parted from
+//   it by the window sidebar's edge line (cmux#48617: with no fill and over a picture, the fills alone
+//   parted nothing), as the window's main pane beside the app sidebar;
 // - the sidebar has no title (Lawrence 2026-11-23: "remove settings header, align things better like
 //   the search input with the h1"): the search field opens it, its middle on the page title's middle,
 //   its box on the row pills' edge, its magnifier on the row icons' column, its text on the row names;
@@ -145,7 +146,8 @@ await requireBrowserLane("settings-cohesive-look.test.ts", async () => {
             expect({ section, contentFill: look.contentFill }).toEqual({ section, contentFill: 0 });
             // The window sidebar's fill: none on the dev server (no sidebar color, no separate shade).
             expect(look.sidebarFill).toBe(0);
-            expect(look.sidebarDivider).toBe(0);
+            // The window sidebar's resting line (1px: the dev server sends no --cmux-sidebar-border-width).
+            expect(look.sidebarDivider).toBe(1);
             expect(look.panelEdge).toBe(0);
             expect(look.panelCorner).toBeGreaterThan(0);
             expect(look.panelOnSidebarEdge).toBe(true);

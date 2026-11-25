@@ -63,8 +63,15 @@
    sidebar and the New Tab page's card under the tab bar (Lucas 2026-11-12). The panel's spread
    shadow is the sidebar's fill: the window sidebar's own (WebTheme --cmux-sidebar-surface; Lawrence
    did not like the lighter fill), none by default, the user's sidebar color or the separate chrome
-   shade when one is set. It also fills outside the panel's left corners. No line parts them: only
-   the two fills (Lucas 2026-11-12). */
+   shade when one is set. It also fills outside the panel's left corners.
+
+   The sidebar's edge is the window sidebar's resting line (cmux#48617): the chrome divider at the
+   width the native edge draws (WebTheme --cmux-sidebar-border-width: `sidebar.border` and
+   `sidebar.borderWidth`, 0 when off; 1px from an app that sends none). By default the sidebar has no
+   fill of its own and over a picture both columns are the picture, so without the line nothing parts
+   them (Lucas 2026-11-12 had only the two fills). Borders: None clears it with --polish-divider. Under
+   the tone's folder tab the shade parts them and the tab runs into the panel, so the line steps aside
+   there (below). */
 :root[data-settings-look="refined"] .settings {
   isolation: isolate;
 }
@@ -107,7 +114,24 @@
    - lifted: the content fill at the row's own size and corners, raised by the low elevation;
    - pill: the selection fill on the shade (the look before the tone joined it). */
 @media (min-width: 601px) {
+  /* The sidebar's edge line, beside the content only: a narrow pane stacks the sidebar as a strip
+     above it (refined.css draws its bottom line there). While the window's sidebar is hidden it fades
+     until the pointer is over the list, as styles.css's (nxdog41). */
+  :root[data-settings-look="refined"] .settings > .sidebar {
+    border-right: var(--cmux-sidebar-border-width, 1px) solid var(--polish-divider);
+  }
+
+  :root[data-settings-look="refined"][data-app-sidebar="hidden"] .settings > .sidebar:not(:hover) {
+    border-right-color: transparent;
+  }
+
   @container style(--cmux-chrome-tone: 1) {
+    /* No line, and no width either: the sidebar clips its shade and the folder tab at its padding
+       edge, so a clear border would leave a strip of page between the shade and the panel. */
+    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings > .sidebar {
+      border-right: 0;
+    }
+
     :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings::before {
       clip-path: inset(-100vmax -100vmax -100vmax 0);
     }
