@@ -221,6 +221,7 @@
         "schemas/transcript-look/**",
         "schemas/theme/slots.json",
         "schemas/sync-motion/**",
+        "schemas/keymap/**",
         "schemas/settings/settings-schema.json",
         "schemas/theme/slots.json",
         "Resources/ghostty/themes/**",
