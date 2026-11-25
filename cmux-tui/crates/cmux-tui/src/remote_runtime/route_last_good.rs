@@ -12,6 +12,18 @@
 //! A remembered route that is not among the candidates, or older than [`STALE_AFTER`], is
 //! ignored. One that fails is forgotten at once, so a stale memory costs at most one attempt.
 //! A connect with no pinned daemon key (an invitation, a carrier discovery) keeps none.
+//!
+//! Per network (Chromium keeps QUIC's winner per network the same way): an entry is filed
+//! under `"<daemon>@<network>"` ([`cmux_braid_path::NetworkId`], hashed), so the route that
+//! won at home is not assumed on a café's Wi-Fi, and back home it leads again. An entry
+//! written before this (plain `"<daemon>"`) is read on any network until a connect files one
+//! under the network. A route that fails is marked broken on this network for the process
+//! ([`cmux_braid_path::LastGood::failed`]: 5 min, doubling, cleared by a success or a network
+//! change); a broken route is raced after the others ([`LastGoodRoute::late`]), never skipped.
+//!
+//! The file also counts how each route kind fared in every pass (`"legs"`:
+//! `{"wss":{"won":12,"timeout":1}}`, [`cmux_braid_path::legs`]), so how often each leg wins is
+//! a number a reader of this file can take.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -48,27 +60,53 @@ struct File {
     version: u32,
     #[serde(default)]
     daemons: BTreeMap<String, Entry>,
+    /// Per route kind (the scheme), how many times each outcome happened.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    legs: BTreeMap<String, BTreeMap<String, u64>>,
 }
 
 /// One daemon's remembered route, loaded once per first connect and written on each change.
 #[derive(Debug)]
 pub(super) struct LastGoodRoute {
     path: Option<PathBuf>,
+    /// The entry's name in the file: `"<daemon>@<network>"` (the daemon alone off any network).
     daemon: String,
+    /// The plain `"<daemon>"` entry an older client wrote, dropped once this one writes.
+    legacy: Option<String>,
     remembered: Mutex<Option<Entry>>,
+    /// The routes broken on this network (keyed by route hash).
+    broken: cmux_braid_path::LastGood<(), String>,
 }
 
 impl LastGoodRoute {
     /// The memory of the daemon pinned to `daemon_key`, in `state_dir` (`None`: in memory
     /// only). No key: nothing names the daemon, so nothing is kept.
     pub(super) fn open(state_dir: Option<&Path>, daemon_key: Option<[u8; 32]>) -> Option<Self> {
-        let daemon = to_hex(&daemon_key?);
+        Self::open_on(state_dir, daemon_key, cmux_braid_path::NetworkId::current)
+    }
+
+    /// [`Self::open`] on the network `network` reads (tests: a network switched by hand).
+    pub(super) fn open_on(
+        state_dir: Option<&Path>,
+        daemon_key: Option<[u8; 32]>,
+        network: impl Fn() -> Option<cmux_braid_path::NetworkId> + Send + Sync + 'static,
+    ) -> Option<Self> {
+        let plain = to_hex(&daemon_key?);
+        let (daemon, legacy) = match network() {
+            Some(cmux_braid_path::NetworkId(id)) => (format!("{plain}@{id:016x}"), Some(plain)),
+            None => (plain, None),
+        };
         let path = state_dir.map(|dir| dir.join(FILE_NAME));
-        let remembered =
-            path.as_deref().and_then(read).and_then(|mut daemons| daemons.remove(&daemon)).filter(
-                |entry| now_ms().saturating_sub(entry.at) <= STALE_AFTER.as_millis() as u64,
-            );
-        Some(Self { path, daemon, remembered: Mutex::new(remembered) })
+        let fresh =
+            |entry: &Entry| now_ms().saturating_sub(entry.at) <= STALE_AFTER.as_millis() as u64;
+        let remembered = path.as_deref().and_then(read).and_then(|mut daemons| {
+            daemons
+                .remove(&daemon)
+                .filter(fresh)
+                .or_else(|| legacy.as_ref().and_then(|plain| daemons.remove(plain)).filter(fresh))
+        });
+        let broken = cmux_braid_path::LastGood::new(STALE_AFTER).on_network(network);
+        Some(Self { path, daemon, legacy, remembered: Mutex::new(remembered), broken })
     }
 
     /// The candidate to dial first: the remembered one, when it is still a candidate. `None`
@@ -83,6 +121,33 @@ impl LastGoodRoute {
             super::normalize_carrier_endpoint(candidate.endpoint.clone())
                 .is_ok_and(|endpoint| route_hash(&endpoint) == remembered.route)
         })
+    }
+
+    /// The routes broken on this network now, as a bit per index (index 64 and up never):
+    /// the pass dials them after every other route.
+    pub(super) fn late(&self, routes: &[ResolvedRouteCandidate]) -> u64 {
+        routes.iter().take(64).enumerate().fold(0, |late, (index, candidate)| {
+            let broken = super::normalize_carrier_endpoint(candidate.endpoint.clone())
+                .is_ok_and(|endpoint| self.broken.is_broken(&(), &route_hash(&endpoint)));
+            if broken { late | (1 << index) } else { late }
+        })
+    }
+
+    /// Counts how a dial of `endpoint` ended in the file's per-leg record (and the process's,
+    /// [`cmux_braid_path::legs`]).
+    pub(super) fn leg(&self, endpoint: &Url, outcome: cmux_braid_path::Outcome) {
+        let leg = endpoint.scheme();
+        cmux_braid_path::legs::record("remote.route", leg, outcome);
+        let Some(path) = &self.path else { return };
+        let mut file =
+            read_file(path).unwrap_or_else(|| File { version: VERSION, ..File::default() });
+        *file
+            .legs
+            .entry(leg.to_owned())
+            .or_default()
+            .entry(outcome.as_str().to_owned())
+            .or_default() += 1;
+        let _ = write_json(path, &file);
     }
 
     /// How long the remembered route's last connect took, when known.
@@ -103,6 +168,7 @@ impl LastGoodRoute {
     }
 
     fn remember(&self, endpoint: &Url, connect_ms: Option<u64>) {
+        self.broken.record((), route_hash(endpoint), Duration::ZERO);
         let entry = Entry { route: route_hash(endpoint), at: now_ms(), connect_ms };
         {
             let mut remembered = self.remembered.lock().unwrap_or_else(|e| e.into_inner());
@@ -124,6 +190,7 @@ impl LastGoodRoute {
 
     /// `endpoint` failed: forget it when it is the remembered one.
     pub(super) fn failed(&self, endpoint: &Url) {
+        self.broken.failed(&(), &route_hash(endpoint));
         {
             let mut remembered = self.remembered.lock().unwrap_or_else(|e| e.into_inner());
             if remembered.as_ref().is_none_or(|old| old.route != route_hash(endpoint)) {
@@ -137,13 +204,21 @@ impl LastGoodRoute {
     fn write(&self, entry: Option<Entry>) {
         let Some(path) = &self.path else { return };
         // Other daemons' entries are read again here, so two clients of two daemons keep both.
-        let mut daemons = read(path).unwrap_or_default();
+        let mut file =
+            read_file(path).unwrap_or_else(|| File { version: VERSION, ..File::default() });
+        if let Some(plain) = &self.legacy {
+            file.daemons.remove(plain);
+        }
         match entry {
-            Some(entry) => daemons.insert(self.daemon.clone(), entry),
-            None => daemons.remove(&self.daemon),
+            Some(entry) => file.daemons.insert(self.daemon.clone(), entry),
+            None => file.daemons.remove(&self.daemon),
         };
+        // Entries of networks not seen for the staleness bound go, so the file stays small.
+        let now = now_ms();
+        file.daemons
+            .retain(|_, entry| now.saturating_sub(entry.at) <= STALE_AFTER.as_millis() as u64);
         // A memory that cannot be saved only costs the next launch the candidates' own order.
-        let _ = write_json(path, &File { version: VERSION, daemons });
+        let _ = write_json(path, &file);
     }
 }
 
@@ -170,12 +245,16 @@ fn now_ms() -> u64 {
 }
 
 fn read(path: &Path) -> Option<BTreeMap<String, Entry>> {
+    read_file(path).map(|file| file.daemons)
+}
+
+fn read_file(path: &Path) -> Option<File> {
     let meta = std::fs::symlink_metadata(path).ok()?;
     if !meta.is_file() || meta.len() > MAX_BYTES {
         return None;
     }
     let file: File = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
-    (file.version == VERSION).then_some(file.daemons)
+    (file.version == VERSION).then_some(file)
 }
 
 /// Replace `path` with `value` as JSON, mode 0600, through a temp file and a rename.
