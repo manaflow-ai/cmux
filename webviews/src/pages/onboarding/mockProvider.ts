@@ -3,12 +3,14 @@
 // click through each step in a plain browser.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
 import { agentsState, computerUseState, importState, makeItYoursState } from "./fixtures";
-import { OPS, type ImportDataKind, type OnboardingState, type DensityChoice, type WorkStyle } from "./ops";
+import { OPS, type ImportDataKind, type MakeItYoursMaterial, type OnboardingState, type WorkStyle } from "./ops";
 import type { AccountRowWire, AccountRunParams } from "../shared/signIn/accountSignIn";
 import { MockAccountSignIn } from "../shared/signIn/mockSignIn";
 
 export class MockOnboardingProvider implements PageClient {
   private state: OnboardingState;
+  /** Make cmux Yours' choices before its first pick: what Skip puts back, as the host's revert() does. */
+  private openedChoices: OnboardingState["makeItYours"];
   private readonly listeners = new Set<(state: OnboardingState) => void>();
 
   /** The in-place sign-in (`cmux.onboarding.accounts.run`), the same mock Settings runs; tests and
@@ -45,7 +47,7 @@ export class MockOnboardingProvider implements PageClient {
       kind?: ImportDataKind;
       target?: string | null;
       pane?: string;
-      value?: string;
+      value?: string | number;
     };
     const state = this.state;
     switch (op) {
@@ -119,18 +121,28 @@ export class MockOnboardingProvider implements PageClient {
         return {} as R;
       }
       case OPS.skip:
+        // Skip on Make cmux Yours puts back what was set when it opened (MakeItYoursStepModel.revert).
+        if (state.step === "makeItYours" && state.makeItYours && this.openedChoices)
+          this.change({ ...state, makeItYours: this.openedChoices });
         return {} as R;
       case OPS.workStyle:
       case OPS.density:
-      case OPS.background: {
+      case OPS.background:
+      case OPS.opacity:
+      case OPS.material: {
         const choices = state.makeItYours;
         if (!choices) return {} as R;
+        this.openedChoices ??= choices;
         const next =
           op === OPS.workStyle
             ? { ...choices, workStyle: input.value as WorkStyle }
             : op === OPS.density
-              ? { ...choices, density: input.value as DensityChoice }
-              : { ...choices, background: input.id ?? null };
+              ? { ...choices, density: String(input.value) }
+              : op === OPS.opacity
+                ? { ...choices, opacity: Number(input.value), opacitySet: true }
+                : op === OPS.material
+                  ? { ...choices, material: input.value as MakeItYoursMaterial }
+                  : { ...choices, background: input.id ?? null };
         this.change({ ...state, makeItYours: next });
         return {} as R;
       }

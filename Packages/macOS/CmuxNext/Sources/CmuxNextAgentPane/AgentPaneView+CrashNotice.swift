@@ -13,6 +13,8 @@ extension AgentPaneView {
     /// injected end in tests): logged with its siblings (``AgentPageTerminations``), then a retry
     /// or the notice.
     func webContentProcessDidTerminate(_ termination: PageTermination = .unknown) {
+        // The old host has no page to tell it: its last frame stays until a new document paints.
+        documentWillChange(.contentEnded)
         contentEnded(termination.withPid(fallback: knownWebContentPid))
     }
 
@@ -47,6 +49,8 @@ extension AgentPaneView {
 
     private func showCrashNotice() {
         guard crashNotice == nil else { return }
+        // It kept ending: the notice says so, over the page, not over a picture of a chat that works.
+        endDocumentCover(painted: false, reason: "crash notice")
         let message = ChromeLabel(wrappingLabelWithString: Self.crashedMessage)
         message.alignment = .center
         let reload = ThemedBezelButton(title: Self.reloadTitle, target: self, action: #selector(reloadAfterCrashes))
@@ -110,5 +114,23 @@ extension AgentPaneView {
         crashRetry.cancel()
         crashRetry.budget.reset()
         if let page { page.reloadAfterCrashes() } else { source.load(into: webView) }
+    }
+}
+
+extension AgentPaneView {
+    /// The person's reload (Cmd-R, "Agent Chat: Reload", the tab's Reload): a crash notice's Reload when one
+    /// shows, else the page saves its draft and reloads under a picture of itself (``PageWebView/reloadForPerson(saveWait:)``),
+    /// so the chat never blanks. The old host (no page host) loads its document again.
+    /// A crash notice's Reload brings back every chat that ended with this one, as the notice's button does.
+    /// Repeated requests while the page saves are one reload, and the pane's close cancels it (``close()``).
+    public func reloadForPerson() {
+        if crashNotice != nil { return reloadAfterCrashes() }
+        guard let page else { return source.load(into: webView) }
+        guard personReload == nil else { return }
+        // task-owner: personReload; one save-then-reload, cancelled by close(), cleared when it ends
+        personReload = Task { [weak self, page] in
+            await page.reloadForPerson()
+            self?.personReload = nil
+        }
     }
 }

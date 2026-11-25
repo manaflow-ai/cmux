@@ -183,16 +183,20 @@ export const MAX_REVOKED_INSTALLS = 100
 
 /**
  * Drops the oldest revoked installs (by revoked_at, then id) past MAX_REVOKED_INSTALLS, each with its
- * grant. An install still named by a pending SSH revoke, a presence key or a push target stays. Every
- * lookup treats a missing install as unknown, so a dropped install's token stays refused.
- * withInstallAuthority drops its incarnation in the same commit.
+ * grant and its (revoked) presence key. An install still named by a live presence key or a push target
+ * stays. A pending SSH revoke does not hold it: the KRL notice carries only the install id, the user and
+ * the teams (as evictStaleInstalls relies on). A revoked presence key used to hold its install for good,
+ * and every revoke leaves one, so a probe account's head filled with 1406 revoked installs and every
+ * install.register answered owner.state_full. Every lookup treats a missing install or presence key as
+ * unknown, so a dropped install's token and key stay refused. withInstallAuthority drops its
+ * incarnation in the same commit.
  */
-export const pruneRevokedInstalls = (state: UserState, keep: number = MAX_REVOKED_INSTALLS): UserState => {
+export const pruneRevokedInstalls = (input: UserState, keep: number = MAX_REVOKED_INSTALLS): UserState => {
+  const state = dropOrphanPresenceKeys(input)
   const revoked = Object.values(state.installs).filter((i) => i.revoked_at !== null)
   if (revoked.length <= keep) return state
   const held = new Set([
-    ...Object.keys(state.ssh_revoke_pending ?? {}),
-    ...Object.keys(state.confirm?.presence_keys ?? {}),
+    ...Object.entries(state.confirm?.presence_keys ?? {}).filter(([, k]) => k.revoked_at === null).map(([install]) => install),
     ...Object.values(state.push_targets ?? {}).map((t) => t.install)
   ])
   const drop = revoked
@@ -202,11 +206,30 @@ export const pruneRevokedInstalls = (state: UserState, keep: number = MAX_REVOKE
   if (drop.length === 0) return state
   const installs = { ...state.installs }
   const grants = { ...state.grants }
+  const keys = state.confirm ? { ...state.confirm.presence_keys } : undefined
   for (const i of drop) {
     delete installs[i.id]
     if (grants[i.grant]?.grantee === i.id) delete grants[i.grant]
+    if (keys) delete keys[i.id]
   }
-  return { ...state, installs, grants }
+  return { ...state, installs, grants, ...(state.confirm && keys ? { confirm: { ...state.confirm, presence_keys: keys } } : {}) }
+}
+
+/**
+ * Drops revoked presence keys whose install is gone from the head. evictStaleInstalls used to revoke
+ * a victim's key and then delete the install, leaving the revoked key (a JWK and its audit fields)
+ * behind for good: the probe account's head refilled with them after cmux-platform#1843's eviction
+ * landed and sign-in answered owner.state_full again (11-25). Every lookup treats a missing install
+ * as unknown, so such a key could never be used again. A live key is never dropped here.
+ */
+export const dropOrphanPresenceKeys = (state: UserState): UserState => {
+  const keys = state.confirm?.presence_keys
+  if (!state.confirm || !keys) return state
+  const orphans = Object.entries(keys).filter(([install, k]) => k.revoked_at !== null && !state.installs[install]).map(([install]) => install)
+  if (orphans.length === 0) return state
+  const next = { ...keys }
+  for (const install of orphans) delete next[install]
+  return { ...state, confirm: { ...state.confirm, presence_keys: next } }
 }
 
 /**
@@ -249,7 +272,8 @@ export const evictStaleInstalls = (state: UserState, now: number, incoming = 1, 
     if (grants[cur.grant]?.grantee === cur.id) delete grants[cur.grant]
     next = { ...r.state, installs, grants }
   }
-  return { state: next, outbox, evicted: victims.map((i) => i.id) }
+  // Each victim's presence key goes with its install: a revoked key with no install is dead weight.
+  return { state: dropOrphanPresenceKeys(next), outbox, evicted: victims.map((i) => i.id) }
 }
 
 /**

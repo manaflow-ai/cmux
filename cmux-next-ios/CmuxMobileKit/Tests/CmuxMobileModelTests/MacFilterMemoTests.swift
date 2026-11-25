@@ -36,9 +36,11 @@ import Testing
     @Test func filterRowsMatchTheMenuTextOnlineFirst() {
         let entries = MacFilterMemo().entries(input())
         #expect(entries.map(\.id) == ["bbbb-2222", "cccc-3333", "aaaa-1111"])
-        #expect(entries[0] == .init(id: "bbbb-2222", title: "Aziz's MacBook Pro 2222", detail: "Connected"))
+        #expect(entries[0] == .init(id: "bbbb-2222", title: "Aziz's MacBook Pro 2222", detail: "Connected", isOnline: true))
         #expect(entries[1].detail == "Online · Not connected")
         #expect(entries[2] == .init(id: "aaaa-1111", title: "Aziz's MacBook Pro 1111", detail: "Last seen 4m ago"))
+        // The menu's dot: green online, red offline (Leo, 2026-11-24: "red dot green dot").
+        #expect(entries.map(\.isOnline) == [true, true, false])
     }
 
     @Test func filterRowsRecomputeOnlyWhenTheirInputsChange() {

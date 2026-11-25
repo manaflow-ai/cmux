@@ -182,6 +182,7 @@ pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
         // cards and `cmux harness login muse`.
         "muse" => "muse login",
         "opencode" => "opencode auth login",
+        "antigravity" => "agy acp --login",
         // The bundled CLI's own sign-in: a clean Mac has no `unii` (first-run finding 2).
         "unii" => crate::uniichat_endpoint::LOGIN,
         "hermes" => "hermes model",
@@ -695,9 +696,9 @@ fn rebind_cached_logins(rows: &mut [HarnessHealth], subjects: &[Subject]) {
 fn save(path: &Path, rows: &[HarnessHealth]) {
     let Ok(body) = serde_json::to_vec_pretty(rows) else { return };
     // Owner-only whatever the umask, through a new temporary file each time.
-    if let Err(e) = crate::config::write_atomic(path, &body) {
-        tracing::info!(error = %e, "harness health not saved");
-    }
+    // The disk writer (`disk_writer.rs`) writes it and logs a failure; the next check saves
+    // again.
+    crate::config::write_atomic_later(path, body);
 }
 
 /// The part of a check that runs here: where the program is, how it was

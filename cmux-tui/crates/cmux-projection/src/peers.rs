@@ -132,7 +132,7 @@ pub struct Http {
 impl Http {
     pub fn new() -> anyhow::Result<Self> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = reqwest::blocking::Client::builder()
+        let client = cmux_egress::blocking_client_builder("cmux_projection::peers")
             .connect_timeout(Duration::from_millis(500))
             .timeout(Duration::from_secs(20))
             .pool_max_idle_per_host(PARALLEL)
@@ -991,7 +991,9 @@ pub fn beat_repo(git_dir: &Path, repo: &str) -> BeatRepo {
 /// stops the seed.
 pub fn heartbeat(url: &str, token: Option<&str>, beat: &dyn Fn() -> Beat) {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let Ok(client) = reqwest::blocking::Client::builder().timeout(Duration::from_secs(10)).build()
+    let Ok(client) = cmux_egress::blocking_client_builder("cmux_projection::peers")
+        .timeout(Duration::from_secs(10))
+        .build()
     else {
         eprintln!("cmux-projection seed: no HTTP client; no heartbeat");
         return;

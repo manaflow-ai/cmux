@@ -1,7 +1,8 @@
 public import CmuxNextDaemon
 public import CmuxNextSidebar
 
-/// The hover card's miniature of a workspace's splits (``SidebarPaneShape``), read from its shown screen's tree.
+/// The hover card's miniature of a workspace's splits (``SidebarPaneShape``), read from its shown screen's tree:
+/// each pane's share, its front tab (whose picture the tile shows, #51768) and its focus.
 extension SidebarMapping {
     /// The shown screen's split layout; nil when it shows one pane (or is zoomed to one), so a one-pane card draws
     /// no miniature. Ratios are rounded to hundredths: a divider drag does not re-map the row each point.
@@ -13,7 +14,7 @@ extension SidebarMapping {
         func pane(_ handle: PaneID) -> SidebarPaneShape {
             let model = screen.pane(handle)
             let tab = model.flatMap { $0.tabs.indices.contains($0.defaultTabIndex) ? $0.tabs[$0.defaultTabIndex] : $0.tabs.first }
-            return .pane(.init(kind: tab.map(kind), focused: handle == focused))
+            return .pane(.init(kind: tab.map(kind), tab: tab.map { TabID($0.id) }, focused: handle == focused))
         }
         func shape(_ node: LayoutNode) -> SidebarPaneShape? {
             switch node {
