@@ -82,6 +82,7 @@ struct ScreensPage: View {
             CmuxSpinner(label: Text("Loading screens from \(source.macName)…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("screens.loading")
+                .placeholderBound("screens.loading", .milliseconds(2000))
         } else {
             ContentUnavailableView("No Screens Yet", systemImage: "rectangle.stack",
                                    description: Text("\(source.macName) hasn't listed this workspace's screens."))

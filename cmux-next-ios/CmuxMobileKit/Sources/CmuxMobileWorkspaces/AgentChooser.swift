@@ -62,6 +62,7 @@ struct AgentChooser: View {
             // placeholder-ok: this Mac has never supplied an agent catalog to this phone.
             CmuxSpinner(label: Text("Loading agents…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .placeholderBound("agents.loading", .milliseconds(2000))
         case .failed(let message):
             ContentUnavailableView {
                 Label("Couldn't load the agents", systemImage: "exclamationmark.circle")

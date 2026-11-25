@@ -23,8 +23,10 @@ members = [
     "crates/acpmux-core",
     "crates/acpmux-client",
     "crates/acpmux-list-types",
+    "crates/acpmux-team-space",
     "crates/cmux-agent-cli-render",
     "crates/cmux-tailnet",
+    "crates/cmux-tailnet-local",
     "crates/acpmux-build-id",
     "crates/acpmux-standalone",
     "crates/acpmux-book",
@@ -112,6 +114,7 @@ members = [
     "crates/cmux-relay",
     "crates/cmux-fault",
     "crates/cmux-composer-send",
+    "crates/cmux-mobile-last-place",
     "crates/cmux-duress",
     "crates/chatmux-relay",
     "crates/cmux-tui-machine-agent-protocol",
@@ -199,6 +202,7 @@ default-members = [
     "crates/acpmux-core",
     "crates/acpmux-client",
     "crates/acpmux-list-types",
+    "crates/acpmux-team-space",
     "crates/acpmux-build-id",
     "crates/acpmux-standalone",
     "crates/acpmux-book",
@@ -485,6 +489,7 @@ cmux-build-identity = { path = "crates/cmux-build-identity" }
 cmux-netwatch = { path = "crates/cmux-netwatch" }
 cmux-fault = { path = "crates/cmux-fault" }
 cmux-composer-send = { path = "crates/cmux-composer-send" }
+cmux-mobile-last-place = { path = "crates/cmux-mobile-last-place" }
 cmux-duress = { path = "crates/cmux-duress" }
 cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }
 cmux-wg = { path = "crates/cmux-wg" }
@@ -604,6 +609,9 @@ rusqlite = { version = "=0.39.0", default-features = false, features = ["bundled
 # the graph through url -> idna -> idna_adapter at this version; compiled
 # data only, no new transitive code.
 icu_normalizer = { version = "2.2", default-features = false, features = ["compiled_data"] }
+# Git blob ids of prefetched files (acpmux hub/prefetch.rs). Already in the
+# graph at this version (RustCrypto, beside sha2).
+sha1 = "0.10"
 sha2 = "0.10"
 tar = "0.4"
 # XML parser for the SVG icon sanitizer (cmux-tui-core). Already in the graph

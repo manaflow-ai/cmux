@@ -618,6 +618,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-mobile-last-place"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-mobile-link"
 version = "0.1.0"
 dependencies = [
@@ -667,6 +675,7 @@ dependencies = [
  "cmux-follow-cam",
  "cmux-mobile-core",
  "cmux-mobile-host",
+ "cmux-mobile-last-place",
  "cmux-mobile-link",
  "cmux-rd-core",
  "cmux-rd-engine",

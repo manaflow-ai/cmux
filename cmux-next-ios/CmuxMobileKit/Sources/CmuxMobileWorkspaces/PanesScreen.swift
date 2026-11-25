@@ -106,6 +106,7 @@ struct PanesScreen: View {
             CmuxSpinner(label: Text("Loading panes from \(source.macName)…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("panes.loading")
+                .placeholderBound("panes.loading", .milliseconds(2000))
         } else {
             ContentUnavailableView("No Panes Yet", systemImage: "rectangle.split.2x1",
                                    description: Text("\(source.macName) hasn't listed this workspace's panes."))

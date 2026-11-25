@@ -26,6 +26,8 @@ cmux-mobile-core.workspace = true
 # The terminal composer's keyed Send (src/composer_outbox.rs).
 cmux-composer-send.workspace = true
 cmux-follow-cam.workspace = true
+# The launch's last place (src/last_place.rs).
+cmux-mobile-last-place.workspace = true
 cmux-mobile-link.workspace = true
 cmux-rd-ffi.workspace = true
 cmux-rd-link.workspace = true
