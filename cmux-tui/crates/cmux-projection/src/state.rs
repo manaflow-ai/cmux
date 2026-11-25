@@ -143,13 +143,18 @@ pub fn mark(state: &Path) -> io::Result<String> {
 }
 
 fn walk(folder: &Path, relative: &str, hash: &mut Fnv) -> io::Result<()> {
-    let mut names: Vec<_> = fs::read_dir(folder)?
+    let context = |path: &Path, error: io::Error| {
+        io::Error::new(error.kind(), format!("mark {}: {error}", path.display()))
+    };
+    let mut names: Vec<_> = fs::read_dir(folder)
+        .map_err(|error| context(folder, error))?
         .map(|entry| entry.map(|entry| entry.file_name()))
-        .collect::<Result<_, _>>()?;
+        .collect::<Result<_, _>>()
+        .map_err(|error| context(folder, error))?;
     names.sort();
     for name in names {
         let path = folder.join(&name);
-        let meta = fs::symlink_metadata(&path)?;
+        let meta = fs::symlink_metadata(&path).map_err(|error| context(&path, error))?;
         let child = format!("{relative}/{}", name.to_string_lossy());
         hash.add(child.as_bytes());
         hash.add(&[0]);
