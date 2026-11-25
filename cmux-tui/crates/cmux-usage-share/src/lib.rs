@@ -145,6 +145,12 @@ impl Sharer {
         &self.dir
     }
 
+    /// Forgets the setting read last: the next [`Self::enabled`] reads the file (after the
+    /// settings file changed).
+    pub fn reread(&self) {
+        *self.gate.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
     /// Whether sharing is on now (the setting, reread at most every [`GATE_REREAD`]).
     pub fn enabled(&self) -> bool {
         let mut gate = self.gate.lock().unwrap_or_else(|e| e.into_inner());

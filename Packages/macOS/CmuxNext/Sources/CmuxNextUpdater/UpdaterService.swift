@@ -146,9 +146,6 @@ public final class UpdaterService {
     /// without a relaunch.
     @ObservationIgnored public var hidesForRelaunch: (() -> Void)?
     @ObservationIgnored public var installAbandoned: (() -> Void)?
-    /// The pictures of the windows that stay on screen across a relaunch (set by the App:
-    /// ``RelaunchAfterimage``); the quit waits for them before the process ends.
-    @ObservationIgnored public var afterimage: RelaunchAfterimage?
     /// The save of the pages' pictures a relaunch ran while its windows were still on screen
     /// (``UpdateWindowHandoff/savesBeforeLeaving``); the quit awaits it instead of saving from windows already gone.
     /// nil: no relaunch took the windows off screen, the quit saves for itself.
