@@ -225,7 +225,18 @@ struct TeamPage: View {
     let auth: CmuxMobileAuthModel
     let edit: () -> Void
     let invite: () -> Void
-    @State private var members: SettingsLoad<[TeamMember]> = .loading
+    private let cache: LastKnownList?
+    @State private var members: SettingsLoad<[TeamMember]>
+    @State private var memberRequest = 0
+
+    init(team: Team, auth: CmuxMobileAuthModel, cache: LastKnownList?, edit: @escaping () -> Void, invite: @escaping () -> Void) {
+        self.team = team
+        self.auth = auth
+        self.cache = cache
+        self.edit = edit
+        self.invite = invite
+        _members = State(initialValue: cache?.read([TeamMember].self).map(SettingsLoad.loaded) ?? .loading)
+    }
 
     var body: some View {
         List {
@@ -250,8 +261,10 @@ struct TeamPage: View {
                 switch members {
                 case .loading:
                     CmuxMobileGutterRow {
+                        // placeholder-ok: No member list has ever been received for this account and team.
                         CmuxSpinner()
                     } content: {
+                        // placeholder-ok: First load of this team's member list.
                         Text("Loading members").foregroundStyle(theme.colors.label2)
                     }
                 case .failed(let message):
@@ -290,11 +303,19 @@ struct TeamPage: View {
     }
 
     private func loadMembers() async {
+        memberRequest += 1
+        let request = memberRequest
         if case .loaded = members {} else { members = .loading }
+        let userID = auth.user?.id
         do {
-            members = .loaded(try await auth.teamMembers(teamID: team.id))
+            let list = try await auth.teamMembers(teamID: team.id)
+            guard !Task.isCancelled, request == memberRequest, userID == auth.user?.id else { return }
+            members = .loaded(list)
+            cache?.save(list)
         } catch is CancellationError {
         } catch {
+            guard !Task.isCancelled, request == memberRequest, userID == auth.user?.id else { return }
+            if case .loaded = members { return }
             members = .failed("Couldn't load the team's members.")
         }
     }
@@ -370,6 +391,14 @@ struct TerminalPage: View {
                 .accessibilityIdentifier("settings.terminalChatToggle")
             } footer: {
                 Text("Adds Show Chat and Show Terminal to a Claude Code or Codex tab's menu when both views can open.")
+            }
+            Section {
+                Toggle(isOn: $settings.terminalPlainScroll) {
+                    SettingsLabel("Plain Scroll in Full-Screen Apps", symbol: "scroll")
+                }
+                .accessibilityIdentifier("settings.terminalPlainScroll")
+            } footer: {
+                Text("Scrolling up in a full-screen app such as Claude Code moves through the rows this phone already has, like any page, instead of asking the app to scroll.")
             }
             Section {
                 Toggle(isOn: $settings.terminalZoomFullScreenApps) {

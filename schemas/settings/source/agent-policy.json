@@ -30,6 +30,13 @@
     {
       "agent": "settable",
       "keys": [
+        "customize.checklist.done",
+        "customize.checklist.enabled"
+      ]
+    },
+    {
+      "agent": "settable",
+      "keys": [
         "shortcuts.showModifierHoldHints"
       ]
     },
@@ -285,6 +292,7 @@
         "appearance.backgroundBlur",
         "appearance.inactiveWindowDim",
         "appearance.wallpaperTint",
+        "appearance.liveWallpaperFrameRate",
         "appearance.terminalCellBackgrounds",
         "appearance.background",
         "appearance.backgroundRotation",
@@ -428,6 +436,8 @@
         "sidebar.showSpaces",
         "sidebar.showProfileControl",
         "sidebar.showSearchButton",
+        "sidebar.showLiveToggle",
+        "presence.live",
         "sidebar.showNewWorkspaceChooser",
         "sidebar.workspacesAsTabs",
         "sidebar.chromeGroups",
@@ -527,14 +537,18 @@
         "experiments.hoverLook",
         "experiments.seeThroughDock",
         "experiments.attachmentTypeIcons",
+        "experiments.composerCustomizer",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
+        "experiments.terminalAgentMark",
         "experiments.menuStyleV2",
         "experiments.menuRowStates",
         "experiments.toastsV2",
         "experiments.terminalHistoryFind",
         "experiments.terminalHistory",
-        "experiments.quietConnect"
+        "experiments.quietConnect",
+        "experiments.threadMinimapRestReveal",
+        "experiments.forum"
       ]
     },
     {
@@ -1718,7 +1732,8 @@
       "keys": [
         "agents.autoRetry.enabled",
         "agents.autoRetry.intervalSeconds",
-        "agents.autoRetry.attempts"
+        "agents.autoRetry.attempts",
+        "agents.autoRetry.capacityFallbackAfter"
       ]
     },
     {
