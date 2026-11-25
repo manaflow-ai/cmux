@@ -36,18 +36,26 @@ use model::{Listing, Role, Sources, State, Via};
 use network::{Choice, TailscaleNetwork, WeftNetwork};
 
 const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
-       cmux device list [--json] [--network auto|tailscale|weft] [--platform URL] [--cloud-token-file PATH | --cloud-token-stdin]
-       cmux device add HOST --yes [--name NAME] [--json]
+       cmux device list [--json [--probe]] [--no-probe] [--network auto|tailscale|weft] [--platform URL] [--cloud-token-file PATH | --cloud-token-stdin]
+       cmux device add HOST --yes [--name NAME] [--hub] [--json]
        cmux device invite [--ttl 10m] [--label TEXT] [--channel feat-cmux-next] [--platform URL]
          [--cloud-token-file PATH | --cloud-token-stdin] [--json]   (signed-in app by default)
        cmux device remove ID|NAME|ADDRESS [--yes] [--json]
        cmux device audit [--limit N] [--json]
        cmux device network [--json]
-       cmux device SELECTOR show [--catalog]   (one device of the machine catalog, `cmux machine ls`)
+       cmux device traffic [--json]            (this Mac's bytes in and out per service through its
+                                               iPhone and machine link host, last 10 s and 60 s)
+       cmux device setup DEVICE|--all [--json] [--dry-run] [--allow-agents]   (install, keep running and start cmux NIGHTLY on a Mac of yours)
+       cmux device start DEVICE [--json]                       (start cmux NIGHTLY on a Mac of yours)
+       cmux device SELECTOR show [--json]      (one device of `cmux device list`, by id, name or
+                                               address; else the machine catalog, `cmux machine ls`)
+       cmux device SELECTOR show --catalog     (the machine catalog only)
        cmux device revoke|rotate ID|NAME       (a machine that joined with a pasted line)
        cmux device doctor [MACHINE] [--fix]    (check an SSH machine and fix what it can)
 
-  cmux device add HOST (no --yes) opens Add Device in the cmux app.
+  cmux device add HOST (no --yes) opens Add Device in the cmux app. With --yes it adds HOST as a
+  direct ssh peer, which copies this cmux. With --yes --hub, signed in to cmux, it joins HOST
+  through the hub over key-only ssh instead (macOS or Linux, any arch, from any computer).
   `cmux machine` is the old name of `cmux device`; `cmux machine add` still prints a join line.
   Cloud VMs (new, run, pause, resume, rm) are `cmux vm`: `cmux vm --help`.";
 
