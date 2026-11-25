@@ -212,8 +212,7 @@ export type DevicesJoinState = {
   known: boolean;
   /** The label of the action that turns every switch off while the record is unknown; null while it is known. */
   revoke_all: string | null;
-  /** Each switch; `keywords` are what Settings search also finds it by (the page's language and English). */
-  switches: Array<{ surface: JoinConsentSurface; title: string; help: string; keywords?: string[]; on: boolean }>;
+  switches: Array<{ surface: JoinConsentSurface; title: string; help: string; on: boolean }>;
 };
 
 /** The lists the host shows beside the schema rows; `rooms` is null when spaces are unsupported. */
@@ -778,11 +777,16 @@ export type ModelsState = {
   /** `attempt`: a Continue with ChatGPT sign-in waiting on the browser; `error`: the last one's
    * failure code (`access_denied`, `no_chatgpt_account`, ...). */
   chatgpt: { attempt: string | null; error: string | null };
+  /** `claude setup-token` run by the app with no terminal tab: `waiting` on the person's approval in
+   * the browser, `error` why the last run saved no token. Absent from an older app; null with the
+   * app's kill switch set (`cmuxNext.claudeSetupTokenCapture.off`), which leaves only the paste field. */
+  claudeSetup?: { waiting: boolean; error: string | null } | null;
 };
 
 /** One Settings > Models gesture. `addKey`, `addClaudeToken` and `orgKey` carry a pasted secret once:
  * the app moves it into the Keychain and passes acpmux or the team only a reference.
- * `claudeSetupToken` opens a cmux terminal tab running `claude setup-token`. */
+ * `claudeSetupToken` runs `claude setup-token` with no terminal tab and saves the token it prints
+ * (`claudeSetup` in the state while it waits); `cancelClaudeSetupToken` stops it. */
 export type ModelsRun =
   | { action: "order"; ids: string[] }
   | { action: "spread"; on: boolean }
@@ -791,7 +795,8 @@ export type ModelsRun =
   | { action: "connectChatGPT"; id?: string }
   | { action: "cancelChatGPT" }
   | { action: "connectClaude" }
-  | { action: "claudeSetupToken" }
+  | { action: "claudeSetupToken"; label?: string }
+  | { action: "cancelClaudeSetupToken" }
   | { action: "addClaudeToken"; token: string; label?: string }
   | { action: "addKey"; provider: ModelProvider; key: string; label?: string }
   | { action: "orgKey"; agent: "claude" | "codex"; key: string | null }
@@ -1141,30 +1146,6 @@ export type LibraryEntry = {
   added_ms: number | null;
   /** Keys and files a higher entry that is on sets too, so this one's value is not in use. */
   overridden: string[];
-  /** The unmerged pull request a `pr-N` entry is (`cmux customize use pr:N`; cmux-customize
-   * `library/code.rs` `CodeLayer`). Absent on every other entry. */
-  code?: LibraryCode;
-};
-
-/** A pull request's code as a library entry: its web part is served on this app while it is on and
- * the highest such entry; what it cannot carry needs a build. */
-export type LibraryCode = {
-  /** `owner/name`. */
-  repo: string;
-  pr: number;
-  title: string;
-  /** The PR head the layer was built from. */
-  head: string;
-  /** The commit CI merged the head onto. */
-  base: string;
-  /** The published web bundle key; absent when the PR changes no web bundle (nothing applies to a
-   * running app, so the CLI refuses to turn it on). */
-  web?: string;
-  abi?: number;
-  /** What the layer cannot carry, one line each: "needs a build: ...". */
-  needs_build?: string[];
-  /** The last refresh's word on it: `in your build`, `no longer applies: ...`, `newer head ...`. */
-  note?: string;
 };
 
 /** Two or more entries that are on set the same key or file; the highest one's value is in use. */
@@ -1952,11 +1933,6 @@ export type ConnectionEntry = {
   ownerLabel: string | null;
   toolCount: number | null;
   toolsLabel: string | null;
-  /** The provider only signs in back to this Mac (Vercel): the CLI listens on 127.0.0.1 for the
-   * return while Connect waits (cmux-tui cli/mcp_loopback.rs). */
-  loopback: boolean;
-  /** Slack or Google before its client is registered: listed only with labs.connectionsUpcoming on. */
-  upcoming: boolean;
 };
 
 /** `cmux mcp-servers catalog --json`, or the CLI's refusal. `available: false` is a deployment

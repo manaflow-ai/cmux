@@ -42,7 +42,6 @@ import Testing
     }
 
     @MainActor final class Opened { var urls: [URL] = [] }
-    @MainActor final class Typed { var lines: [String] = [] }
 
     /// `models.spreadUsage` as the settings writer holds it.
     @MainActor final class Setting {
@@ -72,7 +71,9 @@ import Testing
     """.utf8)
 
     private func make(daemon: Daemon, keys: Keys = Keys(), opened: Opened = Opened(), harnesses: SettingsHarnesses? = nil,
-                      spread: (read: @MainActor () -> Bool, write: @MainActor (Bool) async throws -> Void)? = nil) -> SettingsModels {
+                      spread: (read: @MainActor () -> Bool, write: @MainActor (Bool) async throws -> Void)? = nil,
+                      setupToken: (@Sendable () async throws -> String)? = nil,
+                      setupTokenCapture: Bool = true) -> SettingsModels {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cn-models-\(UUID().uuidString)")
         let environment = AcpmuxEnvironment(executable: directory.appending(path: "acpmux"), home: directory,
                                             socketPath: directory.appending(path: "a.sock").path, daemonArguments: [], childEnvironment: [:])
@@ -113,7 +114,9 @@ import Testing
             openURL: { opened.urls.append($0) },
             harnesses: harnesses,
             spreadSetting: spread?.read,
-            writeSpreadSetting: spread?.write)
+            writeSpreadSetting: spread?.write,
+            setupToken: setupToken,
+            setupTokenCapture: { setupTokenCapture })
     }
 
     private var click: PageCallContext {
@@ -306,17 +309,57 @@ import Testing
         #expect(keys.stored.withLock { $0 } == ["keychain:cmux-model-key/claude-token-test": token])
     }
 
-    @Test func claudeSetupTokenOpensATerminalTabRunningIt() async throws {
+    @Test func claudeSetupTokenSavesTheTokenItPrintsWithNothingPasted() async throws {
+        // Leo, 2026-11-25: "surely we can minimize the cruft all around here": no terminal tab, no copy-paste.
+        let token = "sk-ant-oat01-ABCdef_0123-456789xyz"
         let daemon = Daemon()
-        let typed = Typed()
-        let harnesses = SettingsHarnesses(environment: { nil }, openTerminal: { line in typed.lines.append(line); return true })
-        let models = make(daemon: daemon, harnesses: harnesses)
-        _ = try await models.run(["action": "claudeSetupToken"], context: click)
-        #expect(typed.lines == ["claude setup-token"])
+        let keys = Keys()
+        let models = make(daemon: daemon, keys: keys, setupToken: { token })
+        _ = await models.loadedState()
+        _ = try await models.run(["action": "claudeSetupToken", "label": "Work"], context: click)
+        await models.claudeSetupTask?.value
+        #expect(keys.stored.withLock { $0 } == ["keychain:cmux-model-key/claude-token-test": token])
+        #expect(daemon.calls.withLock { $0 }.contains { $0.method == "_acpmux/connections/claude_token.add" })
+        #expect(models.state["claudeSetup"] == ["waiting": false, "error": .null])
         // Only from the person's own gesture.
         let script = PageCallContext(page: "cmux.settings", origin: "page", confirmed: false, opid: "op", userGesture: false, gestureEvent: nil)
         await #expect(throws: PageError.self) { _ = try await models.run(["action": "claudeSetupToken"], context: script) }
-        #expect(typed.lines.count == 1)
+    }
+
+    @Test func theSetupTokenKillSwitchLeavesOnlyThePasteField() async throws {
+        let ran = OSAllocatedUnfairLock(initialState: false)
+        let models = make(daemon: Daemon(), setupToken: { ran.withLock { $0 = true }; return "sk-ant-oat01-x" }, setupTokenCapture: false)
+        #expect(models.state["claudeSetup"] == .null)
+        await #expect(throws: PageError.self) { _ = try await models.run(["action": "claudeSetupToken"], context: click) }
+        #expect(ran.withLock { $0 } == false)
+        // Unset, it is on.
+        #expect(ClaudeSetupTokenCapture.enabled(UserDefaults(suiteName: "cn-kill-\(UUID().uuidString)")!))
+    }
+
+    @Test func aSetupTokenRunThatPrintsNoTokenSaysSoAndSavesNothing() async throws {
+        let daemon = Daemon()
+        let keys = Keys()
+        let models = make(daemon: daemon, keys: keys, setupToken: { throw ClaudeSetupTokenCapture.Failure.noToken })
+        _ = try await models.run(["action": "claudeSetupToken"], context: click)
+        await models.claudeSetupTask?.value
+        #expect(keys.stored.withLock { $0 }.isEmpty)
+        #expect(models.state["claudeSetup"]?["waiting"] == false)
+        #expect(models.state["claudeSetup"]?["error"]?.stringValue?.contains("Paste it below") == true)
+    }
+
+    @Test func theSetupTokenIsReadFromInksOutputWithItsEscapesTakenOut() {
+        let token = "sk-ant-oat01-ABCdef_0123-456789xyz"
+        // A link (OSC 8), cursor moves for spaces, and a color change inside the token.
+        let output = "\u{1B}[2J\u{1B}]8;;https://claude.ai/oauth/authorize?code=true\u{07}Sign in\u{1B}]8;;\u{07}\r\n"
+            + "Your\u{1B}[1COAuth\u{1B}[1Ctoken:\r\n\u{1B}[32msk-ant-oat01-ABCdef_\u{1B}[39m0123-456789xyz\u{1B}[39m\r\n"
+        #expect(ClaudeSetupTokenCapture.token(in: Data(output.utf8)) == token)
+        #expect(ClaudeSetupTokenCapture.token(in: Data(output.utf8), ended: false) == token)
+        // Still being written: not yet taken.
+        #expect(ClaudeSetupTokenCapture.token(in: Data("token: sk-ant-oat01-ABCdef".utf8), ended: false) == nil)
+        #expect(ClaudeSetupTokenCapture.token(in: Data("Opening browser to sign in…\r\nPaste code here if prompted >".utf8)) == nil)
+        #expect(ClaudeSetupTokenCapture.plain("a\u{1B}[1Cb\u{1B}[0mc") == "a bc")
+        #expect(ClaudeSetupTokenCapture.installed(home: "/h", exists: { $0 == "/h/.local/bin/claude" }) == "/h/.local/bin/claude")
+        #expect(ClaudeSetupTokenCapture.installed(home: "/h", exists: { _ in false }) == nil)
     }
 
     @Test func orgKeyNeedsAnExplicitKeyOrNull() async throws {

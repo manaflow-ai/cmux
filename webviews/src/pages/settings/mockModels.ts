@@ -166,9 +166,18 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
       return connections.some((c) => c.kind === "claude-login")
         ? state
         : personal({ connections: [...connections, { ...claudeLogin, defaultFor: [] }] });
-    case "claudeSetupToken":
-      // The app opens a terminal tab running `claude setup-token`; the state does not change.
-      return state;
+    case "claudeSetupToken": {
+      // The app runs `claude setup-token` and saves the token it prints, as a paste would.
+      const id = nextId("claude-token", connections);
+      return {
+        ...personal({
+          connections: [...connections, { ...claudeToken, id, label: run.label?.trim() || "Claude Code token" }],
+        }),
+        claudeSetup: { waiting: false, error: null },
+      };
+    }
+    case "cancelClaudeSetupToken":
+      return { ...state, claudeSetup: { waiting: false, error: null } };
     case "addClaudeToken": {
       if (!isClaudeToken(run.token)) throw new Error("not a Claude setup token");
       const id = nextId("claude-token", connections);
