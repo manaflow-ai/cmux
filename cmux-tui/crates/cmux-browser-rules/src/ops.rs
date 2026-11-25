@@ -1,5 +1,6 @@
 //! The JSON ops the app calls through the app FFI's JSON channel (cmux-layout-reducer-ffi
-//! `cmux_layout_reducer_json`, ops `browser_rules_*`). Every op is pure. Requests and replies are
+//! `cmux_layout_reducer_json`, ops `browser_rules_*`). Every op is pure but
+//! `browser_rules_terminal_link`, which reads whether a path exists. Requests and replies are
 //! in the shape Swift's synthesized `Codable` gives the app's types ([`crate::links`]).
 //!
 //! | op | request | reply |
@@ -14,11 +15,16 @@
 //! | `browser_rules_cef_link_placement` | `{disposition, userGesture, click, now, mapping}` | [`LinkPlacement`] |
 //! | `browser_rules_window_placement` | `{request, links}` | [`LinkPlacement`] |
 //! | `browser_rules_window_decide` | `{request, candidates, links}` | [`WindowDecision`] |
+//! | `browser_rules_terminal_link` | `{text, cwd, allowsLocalFiles, localHostNames, home}` | [`TerminalLinkTarget`](crate::terminal_links::TerminalLinkTarget), or null |
+//! | `browser_rules_terminal_link_location` | `{text}` | [`Location`](crate::terminal_links::Location) `{line, column}`, or null |
+//! | `browser_rules_terminal_link_remote_candidates` | `{text, cwd}` | the paths, best first |
+//! | `browser_rules_terminal_link_trim` | `{text}` | the trimmed text |
 
 use crate::links::{
     self, CefDisposition, ClickMapping, ClickRecord, Gesture, LinkContext, LinkPlacement,
     Modifiers, WebKitLinkClick, WindowCandidate, WindowDecision, WindowRequest,
 };
+use crate::terminal_links::{self, TerminalLinkContext};
 use crate::{address, calculator};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -100,6 +106,20 @@ struct WindowOpRequest {
     links: LinkContext,
 }
 
+#[derive(Deserialize)]
+struct TerminalLinkRequest {
+    text: String,
+    #[serde(flatten)]
+    context: TerminalLinkContext,
+}
+
+#[derive(Deserialize)]
+struct RemoteCandidatesRequest {
+    text: String,
+    #[serde(default)]
+    cwd: Option<String>,
+}
+
 fn parse<T: DeserializeOwned>(request: Value) -> Result<T, OpError> {
     serde_json::from_value(request).map_err(|error| OpError::Invalid(error.to_string()))
 }
@@ -170,6 +190,22 @@ pub fn call(op: &str, request: Value) -> Result<Value, OpError> {
             let WindowOpRequest { request, candidates, links } = parse(request)?;
             let decision: WindowDecision = links::decide_window(&request, &candidates, &links);
             Ok(encode(&decision))
+        }
+        "browser_rules_terminal_link" => {
+            let TerminalLinkRequest { text, context } = parse(request)?;
+            Ok(encode(&terminal_links::resolve(&text, &context)))
+        }
+        "browser_rules_terminal_link_location" => {
+            let TextRequest { text } = parse(request)?;
+            Ok(encode(&terminal_links::location(&text)))
+        }
+        "browser_rules_terminal_link_remote_candidates" => {
+            let RemoteCandidatesRequest { text, cwd } = parse(request)?;
+            Ok(json!(terminal_links::remote_candidates(&text, cwd.as_deref())))
+        }
+        "browser_rules_terminal_link_trim" => {
+            let TextRequest { text } = parse(request)?;
+            Ok(json!(terminal_links::trim(&text)))
         }
         other => Err(OpError::UnknownOp(other.to_owned())),
     }
