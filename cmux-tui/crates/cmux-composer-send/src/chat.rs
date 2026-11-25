@@ -226,6 +226,29 @@ pub struct PromptDone {
     pub cancel_uploads: Vec<String>,
 }
 
+/// One prompt still on its way, as the chat draws it with what the person can do to it
+/// ([`PromptOutbox::pending`]). Every pending send has an exit: Stop ([`PromptOutbox::cancel`],
+/// its text back in the composer to edit and send again) and Delete ([`PromptOutbox::delete`])
+/// at any point, and Send now ([`PromptOutbox::retry_now`]) while it waits on a backoff.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingSend {
+    pub id: String,
+    pub text: String,
+    /// Its attachments' upload ids, in order.
+    pub attachments: Vec<String>,
+    pub look: PromptLook,
+    /// Until it goes again after a "not now" (its own retry or the Mac's), when it waits on one.
+    pub retry_in: Option<Duration>,
+    /// The chat shows its row: it has attachments (their upload takes a while), it waits
+    /// ([`PromptLook::Retrying`]), or it is being stopped. A text prompt that goes at once shows
+    /// no row (its bubble comes with the Mac's echo).
+    pub shown: bool,
+    /// Send now is offered: the link is up and it is unwritten and waiting (a backoff, a "not now").
+    pub can_send_now: bool,
+    /// It was stopped after it may have reached the Mac: the Mac's queue removal is awaited.
+    pub stopping: bool,
+}
+
 /// One attempt to make: write `session/prompt` with this `promptId` and `resend`, its
 /// attachments at their Mac paths.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -939,6 +962,30 @@ impl PromptOutbox {
             .filter(|at| *at > now)
             .min()
             .map(|at| at.saturating_duration_since(now))
+    }
+
+    /// Every prompt still on its way, in tap order, with the actions each has (Stop, Delete,
+    /// Send now): the chat's pending rows. Nothing here ever lacks an exit.
+    pub fn pending(&self, now: Instant) -> Vec<PendingSend> {
+        self.entries
+            .iter()
+            .map(|e| {
+                let look = self.look(&e.id, now);
+                let stopping = e.state == State::Cancelling;
+                PendingSend {
+                    id: e.id.clone(),
+                    text: e.text.clone(),
+                    attachments: e.slots.iter().map(|s| s.id.clone()).collect(),
+                    look,
+                    retry_in: self.retry_in(&e.id, now),
+                    shown: !e.slots.is_empty() || look == PromptLook::Retrying || stopping,
+                    can_send_now: self.link_up
+                        && e.state == State::Queued
+                        && look == PromptLook::Retrying,
+                    stopping,
+                }
+            })
+            .collect()
     }
 
     /// The unwritten prompts' ids (queued, uploading or backing off), in tap order.

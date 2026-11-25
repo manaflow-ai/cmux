@@ -160,9 +160,14 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/b
   && uv --version
 
 # Media layer for agent-browser and display capture: ffmpeg for x11grab,
-# Xvfb + xdpyinfo/xprop for a headless display, xdotool, fonts for Chrome.
+# Xvfb + xdpyinfo/xprop for a headless display, xdotool, fonts for Chrome;
+# imagemagick, poppler-utils and git-lfs for people's own media, PDFs and LFS
+# repos (Leo, 2026-11-25: a chat on a folder of MP4s had no ffprobe).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    imagemagick \
+    poppler-utils \
+    git-lfs \
     xvfb \
     xauth \
     x11-utils \
@@ -170,7 +175,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-dejavu-core \
     fonts-liberation \
   && rm -rf /var/lib/apt/lists/* \
-  && command -v Xvfb && command -v xdpyinfo && command -v xprop && command -v xdotool
+  && git lfs install --system --skip-repo \
+  && command -v Xvfb && command -v xdpyinfo && command -v xprop && command -v xdotool \
+  && ffprobe -hide_banner -version >/dev/null && convert -version >/dev/null && command -v pdftotext
 
 # Google Chrome stable from the official .deb (amd64 only; every provider
 # here runs amd64 sandboxes) with the managed policy (DuckDuckGo default
