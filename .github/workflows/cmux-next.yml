@@ -49,13 +49,12 @@ on:
       - backend/catalog/cloud-operations.json
       - backend/packages/home-core/conformance/**
       - mux/packages/brain/conformance/**
-      - skills/cmux-acpmux/SKILL.md
+      - skills/*/SKILL.md
       - skills/cmux-browser/**
       - skills/cmux-computer-use/**
       - skills/cmux-customization/**
       - skills/cmux-live/**
       - skills/cmux-ui-preview/**
-      - skills/cmux/SKILL.md
       - .xcode-version
       - schemas/**
       - plans/cmux-next/**
@@ -443,13 +442,12 @@ on:
       - backend/catalog/cloud-operations.json
       - backend/packages/home-core/conformance/**
       - mux/packages/brain/conformance/**
-      - skills/cmux-acpmux/SKILL.md
+      - skills/*/SKILL.md
       - skills/cmux-browser/**
       - skills/cmux-computer-use/**
       - skills/cmux-customization/**
       - skills/cmux-live/**
       - skills/cmux-ui-preview/**
-      - skills/cmux/SKILL.md
       - .xcode-version
       - schemas/**
       - plans/cmux-next/**
