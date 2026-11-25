@@ -103,7 +103,9 @@ const FAILURE_KEYS: &[&str] =
 /// when it carries none, says so and where to look, never a bare "the turn ended failed".
 pub(in crate::cli) fn failed_turn_message(ended: &Ended, chat: &str) -> String {
     let status = ended.status.as_str();
-    let field = |key: &str| ended.failure.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
+    let field = |key: &str| {
+        ended.failure.get(key).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty())
+    };
     let mut message = match field("error") {
         Some(error) => format!("the turn ended {status}: {error}"),
         None if field("detail") == Some("stalled")
