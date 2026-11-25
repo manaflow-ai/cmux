@@ -222,7 +222,8 @@ function tmpLeftovers(dirs: readonly string[]): string {
  * The last step before snapshot-ready: anything under /tmp or /var/tmp now was written after clean and tmp-empty
  * (image roll 42888042827: /tmp/opencode), and would ship in every clone. Fail, naming the writer: for each
  * leftover its owner and mtime, the processes that hold it open (fuser, /proc/<pid>/fd) or name it on their
- * command line, then every process of the daemon user. `dirs` is for tests.
+ * command line, then every process of the daemon user, and the leftovers' names again on the last line. psmisc's
+ * fuser takes no `--` (it printed its usage for every leftover in roll 45608292358). `dirs` is for tests.
  */
 export function tmpWritersCommand(dirs: readonly string[] = ["/tmp", "/var/tmp"]): string {
   const script = [
@@ -230,7 +231,7 @@ export function tmpWritersCommand(dirs: readonly string[] = ["/tmp", "/var/tmp"]
     'if [ -z "$left" ]; then echo tmp-no-writer; exit 0; fi',
     'printf \'%s\\n\' "$left" | while IFS= read -r p; do',
     '  echo "written after clean: $p $(stat -c \'owner=%U:%G mtime=%y\' -- "$p" 2>&1)"',
-    '  if command -v fuser >/dev/null 2>&1; then fuser -v -- "$p" 2>&1 | sed \'s/^/  fuser: /\'; fi',
+    '  if command -v fuser >/dev/null 2>&1; then fuser -v "$p" 2>&1 | sed \'s/^/  fuser: /\'; fi',
     '  for fd in /proc/[0-9]*/fd/*; do',
     '    t="$(readlink "$fd" 2>/dev/null)" || continue',
     '    case "$t" in "$p"|"$p"/*) pid="${fd#/proc/}"; pid="${pid%%/*}"; [ "$pid" = "$$" ] || echo "  open by pid $pid: $(tr \'\\0\' \' \' < "/proc/$pid/cmdline" 2>/dev/null)";; esac',
@@ -243,7 +244,8 @@ export function tmpWritersCommand(dirs: readonly string[] = ["/tmp", "/var/tmp"]
     "done",
     'echo "processes of $CMUX_TUI_USER:"',
     'ps -o pid,ppid,lstart,args -u "$CMUX_TUI_USER" 2>&1 | sed \'s/^/  /\'',
-    'echo "files under /tmp or /var/tmp were written after clean (see above)" >&2',
+    // Last, so the step log's 3000-character tail always keeps the names (image roll 45608292358 lost them).
+    'echo "files under /tmp or /var/tmp were written after clean: $(printf \'%s \' $left)(writers above)" >&2',
     "exit 1",
   ].join("\n");
   return `${cmuxTuiLayoutSelector()} && { ${script}\n} 2>&1`;
@@ -1036,7 +1038,7 @@ async function installAgentTools(ctx: Ctx): Promise<void> {
 async function installGraduated(ctx: Ctx): Promise<void> {
   const g = readGraduated();
   if (g.apt.length + g.npm.length === 0) return;
-  ctx.result.graduated = (await ctx.L.step(ctx.vm, "graduated", graduatedInstallCommand(g, APT_UPDATE_COMMAND), 290_000)).trim().split("\n").at(-1);
+  ctx.result.graduated = (await ctx.L.step(ctx.vm, "graduated", graduatedInstallCommand(g, APT_UPDATE_COMMAND), 540_000)).trim().split("\n").at(-1);
 }
 
 /** The npm cache a first `npm install` finds (dep-cache.ts); the image record's size is read after clean. */
