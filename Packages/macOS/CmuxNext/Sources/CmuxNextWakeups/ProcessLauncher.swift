@@ -1,5 +1,6 @@
-public import Foundation
+import CmuxNextCompat
 import Dispatch
+public import Foundation
 
 /// Starts and stops long-lived child processes (a stream, a helper) off the caller's thread, in call order.
 ///
@@ -32,6 +33,7 @@ public final class ProcessLauncher: Sendable {
     public func launch(_ process: Process, failed: @escaping @Sendable (any Error) -> Void = { _ in }) {
         prepare(process)
         queue.async {
+            OpenDescriptors.noteBudgetSoon()
             do { try process.run() } catch { failed(error) }
         }
     }
@@ -50,6 +52,7 @@ public final class ProcessLauncher: Sendable {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             queue.async {
                 do {
+                    OpenDescriptors.noteBudgetSoon()
                     try process.run()
                     continuation.resume()
                 } catch {
