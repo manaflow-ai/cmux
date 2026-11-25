@@ -3,6 +3,7 @@ import { runInDurableObject } from "cloudflare:test"
 import { exportJWK, generateKeyPair, importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it, vi } from "vitest"
 import { clearSignInRules, withSsoSession } from "../src/policy-gate.ts"
+import { platformSsoJoin, type SsoJoin } from "../src/team-sso-join.ts"
 import { beginPairing } from "./pairing-harness.ts"
 import { bindFile, cloudStub, DAEMON, vmKey, WG_KEY } from "./cloud-bind-support.ts"
 
@@ -42,7 +43,17 @@ const setup = async () => {
   const stub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)) as unknown as DurableObjectStub
   const idp = { nextIdToken: async (_code: string): Promise<string> => "", tokenRequests: [] as Array<URLSearchParams> }
   const stack = { users: new Map<string, string>(), unverified: new Set<string>(), created: 0, sessions: [] as Array<{ user: string; ttl?: number }> }
+  // cmux-platform's JIT join (team-sso-join.ts): records each call and whether the session was already this team's SSO session.
+  const platform = {
+    answer: async (): Promise<SsoJoin> => ({ ok: true, status: "joined", role: "member", source: "domain" }),
+    calls: [] as Array<{ team: string; user: string; recorded: boolean }>
+  }
   await inDO(stub, async (instance) => {
+    instance.ssoJoin = async (t: string, token: string) => {
+      const claims = JSON.parse(atob(token.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/"))) as { sub: string; refresh_token_id: string }
+      platform.calls.push({ team: t, user: claims.sub, recorded: await instance.ssoSession(t, claims.refresh_token_id, claims.sub) })
+      return platform.answer()
+    }
     instance.http = async (req: Request) => {
       const url = new URL(req.url)
       if (url.searchParams.get("type") === "TXT") return new Response(JSON.stringify({ Status: 0, Answer: [{ name: `${url.searchParams.get("name")}.`, type: 16, data: `"${claim.value.record_value}"` }] }))
@@ -80,7 +91,7 @@ const setup = async () => {
   expect((await op(admin, "sso.connection.activate", { connection: id })).ok).toBe(true)
   const signIdToken = (claims: Record<string, unknown>, opts: { issuer?: string; audience?: string; key?: CryptoKey } = {}) =>
     new SignJWT(claims).setProtectedHeader({ alg: "ES256", kid: "idp1" }).setIssuer(opts.issuer ?? ISSUER).setAudience(opts.audience ?? "cmux-login").setIssuedAt().setExpirationTime("5m").sign(opts.key ?? idpKey.privateKey)
-  return { team, stub, idp, stack, signIdToken, admin, connection: id }
+  return { team, stub, idp, stack, signIdToken, admin, connection: id, platform }
 }
 
 /** A fresh client IP per request, so the shared per-IP limiter never trips across tests. */
@@ -345,6 +356,80 @@ describe("OIDC sign-in (workerd)", { timeout: 30_000 }, () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe("SSO sign-in joins the team just in time (cmux-platform /v1/teams/{team}/sso/join)", { timeout: 30_000 }, () => {
+  const signIn = async (s: Awaited<ReturnType<typeof setup>>, local: string, sub: string) => {
+    const auth = authFrom(await start(`${local}@${DOMAIN}`))
+    s.idp.nextIdToken = async () => s.signIdToken({ sub, email: `${local}@${DOMAIN}`, nonce: auth.searchParams.get("nonce")! })
+    return callback(auth.searchParams.get("state")!, `code-${local}`)
+  }
+  const standing = (s: Awaited<ReturnType<typeof setup>>) => s.stub as unknown as { ssoSession(e: string, sid: string, user: string): Promise<boolean> }
+  const redeemFrom = (res: Response) => redeem(new URLSearchParams(new URL(res.headers.get("location")!).hash.slice(1)).get("sso_code")!)
+
+  it("joins the person after the session is recorded; a repeat sign-in of a member is fine", async () => {
+    const s = await setup()
+    const first = await signIn(s, "jit", "idp-jit")
+    expect(first.status).toBe(302)
+    expect(s.platform.calls).toEqual([{ team: s.team, user: "stack_1", recorded: true }])
+    expect((await redeemFrom(first)).status).toBe(200)
+    s.platform.answer = async () => ({ ok: true, status: "member", role: "member", source: "member" })
+    const again = await signIn(s, "jit", "idp-jit")
+    expect(again.status).toBe(302)
+    expect(s.platform.calls.map((c) => c.user)).toEqual(["stack_1", "stack_1"])
+    expect((await redeemFrom(again)).status).toBe(200)
+  })
+
+  it("refuses the sign-in of a person the team removed or deactivated, and drops the session record", async () => {
+    for (const code of ["team_sso.removed", "team_sso.deactivated"]) {
+      const s = await setup()
+      s.platform.answer = async () => ({ ok: false, refused: true, status: 403, code, message: "removed" })
+      const res = await signIn(s, "gone", "idp-gone")
+      expect(res.status).toBe(400)
+      expect(((await res.json()) as { code: string }).code).toBe("sso.removed")
+      expect(res.headers.get("location")).toBeNull()
+      expect(s.platform.calls).toHaveLength(1)
+      expect(await standing(s).ssoSession(s.team, "rtid-stack_1", "stack_1")).toBe(false)
+    }
+  })
+
+  it("still signs the person in when cmux-platform is down, unreachable or says not eligible", async () => {
+    const answers: Array<() => Promise<SsoJoin>> = [
+      async () => ({ ok: false, refused: false, status: 503, code: "team_import.unavailable", message: "down" }),
+      async () => { throw new Error("connection refused") },
+      async () => ({ ok: false, refused: false, status: 403, code: "team_sso.not_eligible", message: "no" })
+    ]
+    for (const answer of answers) {
+      const s = await setup()
+      s.platform.answer = answer
+      const res = await signIn(s, "out", "idp-out")
+      expect(res.status).toBe(302)
+      expect(await standing(s).ssoSession(s.team, "rtid-stack_1", "stack_1")).toBe(true)
+      expect((await redeemFrom(res)).status).toBe(200)
+    }
+  })
+})
+
+describe("platformSsoJoin (the HTTP call)", () => {
+  const fetcher = (respond: (req: Request) => Promise<Response>) => {
+    const seen: Array<Request> = []
+    return { seen, platform: { fetch: async (input: Request) => { seen.push(input); return respond(input) } } as unknown as Fetcher }
+  }
+  it("POSTs to /v1/teams/{team}/sso/join as the person's bearer and reads the answer", async () => {
+    const f = fetcher(async () => new Response(JSON.stringify({ team: "team_a", status: "joined", role: "admin", source: "import", job: "j1" })))
+    expect(await platformSsoJoin(f.platform, "https://api.test", "team_a", "tok")).toEqual({ ok: true, status: "joined", role: "admin", source: "import" })
+    expect(f.seen[0]!.method).toBe("POST")
+    expect(new URL(f.seen[0]!.url).pathname).toBe("/v1/teams/team_a/sso/join")
+    expect(f.seen[0]!.headers.get("authorization")).toBe("Bearer tok")
+  })
+  it("marks removed and deactivated as refusals, and nothing else", async () => {
+    const answer = (status: number, code: string) => fetcher(async () => new Response(JSON.stringify({ _tag: "MachineForbidden", code, message: "m" }), { status })).platform
+    for (const code of ["team_sso.removed", "team_sso.deactivated"]) expect(await platformSsoJoin(answer(403, code), "https://api.test", "t", "x")).toMatchObject({ ok: false, refused: true, code })
+    expect(await platformSsoJoin(answer(403, "team_sso.not_eligible"), "https://api.test", "t", "x")).toMatchObject({ ok: false, refused: false })
+    expect(await platformSsoJoin(answer(503, "team_sso.removed"), "https://api.test", "t", "x")).toMatchObject({ ok: false, refused: false })
+    expect(await platformSsoJoin(fetcher(async () => { throw new Error("down") }).platform, "https://api.test", "t", "x")).toMatchObject({ ok: false, refused: false, code: "team_sso.unavailable" })
+    expect(await platformSsoJoin(undefined, "https://api.test", "t", "x")).toMatchObject({ ok: false, refused: false })
   })
 })
 

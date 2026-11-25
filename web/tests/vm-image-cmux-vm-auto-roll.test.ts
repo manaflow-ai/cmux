@@ -879,12 +879,22 @@ describe("auto-roll scripts", () => {
     }
   });
 
-  test("the plan job checks out full history and fails on a pin it cannot fetch", () => {
+  // Rolls 45180251986 and 45200355313 (2026-11-23): plan's checkout with fetch-depth 0 fetched every branch and
+  // tag, which stalled under 1000 B/s three times ("bad pack header"), so no roll got past plan. Like promote,
+  // plan checks out the tip shallow and fetches only feat-cmux-next's history without blobs, with retries.
+  test("the plan job fetches feat-cmux-next's full history alone, with retries, and fails on a pin it cannot fetch", () => {
     const { YAML } = (globalThis as unknown as { Bun: { YAML: { parse(text: string): unknown } } }).Bun;
-    type Step = { id?: string; run?: string; with?: Record<string, unknown> };
+    type Step = { id?: string; name?: string; run?: string; with?: Record<string, unknown> };
     const roll = YAML.parse(readFileSync(new URL("../../.github/workflows/cloud-vm-image-roll.yml", import.meta.url), "utf8")) as { jobs: Record<string, { steps: Step[] }> };
     const steps = roll.jobs["plan"]!.steps as Array<Step & { uses?: string }>;
-    expect(steps.find((s) => s.uses?.startsWith("actions/checkout@"))!.with).toMatchObject({ "fetch-depth": 0, filter: "blob:none" });
+    const own = steps.findIndex((s) => s.uses?.startsWith("actions/checkout@"));
+    expect(steps[own]!.with?.["fetch-depth"]).toBeUndefined();
+    const fetch = steps.findIndex((s) => s.run?.includes("--filter=blob:none") && s.run.includes("+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next"));
+    expect(fetch).toBeGreaterThan(own);
+    expect(fetch).toBeLessThan(steps.findIndex((s) => s.id === "plan"));
+    expect(steps[fetch]!.run).toContain("--no-tags");
+    expect(steps[fetch]!.run).toContain("for try in 1 2 3");
+    expect(steps[fetch]!.run).not.toContain("refs/heads/*");
     const run = steps.find((s) => s.id === "plan")!.run!;
     expect(run).toContain('git fetch -q --filter=blob:none origin "$pinned"; fi');
     expect(run).not.toMatch(/--depth 1/);

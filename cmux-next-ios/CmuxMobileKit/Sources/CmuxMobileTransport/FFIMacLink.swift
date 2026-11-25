@@ -28,6 +28,10 @@ public struct FFIMacLinkDialer: MacLinkDialer {
 
     public func dial(_ endpoint: LinkEndpoint, transport: TransportKind, accessToken: String) async throws -> any MacLink {
         let observer = StateObserver()
+        // Macs nearby are browsed for once a dial has run (linked or not), never at launch: the Local
+        // Network prompt then never covers the first frame. The core races a nearby Mac's hub with
+        // the service from the next dial on, and a declined prompt costs nothing.
+        defer { LocalLinkBrowser.shared.start() }
         // Settings → Transport → Align Keepalives, read at each dial like Ultra mode.
         KeepaliveBeat.applySettingToCore()
         try applyBuildSpaceToCore()
@@ -40,6 +44,7 @@ public struct FFIMacLinkDialer: MacLinkDialer {
                 macDeviceId: endpoint.macDeviceID,
                 transport: transport.ffi,
                 options: ConnectOptions(relayOnly: endpoint.relayOnly, blockUdp: endpoint.blockUDP,
+                                        forceRelay: endpoint.forceRelay,
                                         noVideoLane: endpoint.browserVideoOnChannel,
                                         ultra: Self.ultra()),
                 observer: observer
@@ -92,6 +97,14 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
         }
     }
 
+    func openChannel(service: String, argsJSON: String) async throws -> any LinkChannel {
+        do {
+            return FFIChannel(handle: try await handle.openChannel(service: service, argsJson: argsJSON))
+        } catch let error as CmuxMobileError {
+            throw error.linkError
+        }
+    }
+
     func openInputChannel(service: String, args: [String: String]) async throws -> any LinkChannel {
         let json = String(decoding: try JSONSerialization.data(withJSONObject: args), as: UTF8.self)
         do {
@@ -104,6 +117,11 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
     var connectedPath: LinkPathKind? { handle.path().kind }
 
     var peerScope: String { handle.peerScope() }
+
+    var tunnelKeys: TunnelKeys? {
+        let keys = handle.tunnelKeys()
+        return keys.count == 2 ? TunnelKeys(dialer: keys[0], answerer: keys[1]) : nil
+    }
 
     var receivedAgo: Duration? { .milliseconds(handle.receivedAgoMs()) }
 
@@ -137,6 +155,8 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
 }
 
 extension FFIMacLink: ParkableMacLink {
+    var resumeHedge: Duration? { .milliseconds(handle.resumeHedgeMs()) }
+
     func park(hold: Duration, timeout: Duration) async -> Bool {
         (try? await handle.park(holdMs: Self.millis(hold), timeoutMs: Self.millis(timeout))) ?? false
     }
@@ -258,6 +278,7 @@ final class FFIChannel: LinkChannel, @unchecked Sendable {
     private let closeLock = NSLock()
     private var closeInfo: LinkError?
     var closedBy: LinkError? { closeLock.withLock { closeInfo } }
+    var sentBytes: UInt64? { handle.sentBytes() }
 
     init(handle: ChannelHandle) {
         self.handle = handle
@@ -339,6 +360,7 @@ extension LinkPath {
         case .direct: .direct
         case .turn: .turn
         case .turnTls: .turnTLS
+        case .httpsRelay: .httpsRelay
         case .noPath: .noPath
         }
     }
