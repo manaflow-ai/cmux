@@ -36,6 +36,7 @@ dependencies = [
  "cmux-coderouter",
  "cmux-codex-acp",
  "cmux-command-class",
+ "cmux-composer-send",
  "cmux-computer-use",
  "cmux-config",
  "cmux-deadline",
@@ -1837,6 +1838,7 @@ name = "cmux-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-app-host",
  "cmux-embed",
  "cmux-json",
  "cmux-layout-reducer",

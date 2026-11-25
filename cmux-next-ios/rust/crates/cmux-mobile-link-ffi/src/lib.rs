@@ -17,6 +17,7 @@ use tokio::runtime::Runtime;
 mod auth_coordinator;
 mod auto_chats;
 mod browser;
+mod chat_prompt_outbox;
 mod classic_leftovers;
 mod composer_outbox;
 mod follow_camera;
@@ -41,6 +42,10 @@ pub use auto_chats::{
     AutoChat, AutoChatError, AutoChats, AutoHttp, AutoHttpError, AutoHttpReply, AutoHttpRequest,
 };
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
+pub use chat_prompt_outbox::{
+    ChatAttachment, ChatCancelStep, ChatEditStep, ChatPromptDone, ChatPromptLook, ChatPromptOutbox,
+    ChatPromptOutcome, ChatPromptRequest, ChatPromptTaken, ChatUploadState, ChatUploadedAttachment,
+};
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
 pub use composer_outbox::{
     ComposerOutbox, ComposerSendAnswer, ComposerSendDone, ComposerSendOutcome, ComposerSendRequest,
