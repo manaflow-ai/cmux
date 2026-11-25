@@ -59,6 +59,7 @@ mod try_cmd;
 mod version;
 pub(super) mod wait;
 mod web_pieces;
+pub(super) use try_cmd::cu_upgrade;
 pub(crate) use try_cmd::spawn_daemon_updates;
 pub(super) use web_pieces::USAGE as WEB_PIECES_USAGE;
 

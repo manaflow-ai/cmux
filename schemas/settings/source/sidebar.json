@@ -1771,6 +1771,42 @@
           }
         },
         {
+          "key": "appearance.metrics.spaceButtonSpacing",
+          "title": {
+            "key": "settings.sidebar.spaceButtonSpacing",
+            "text": "Space Button Spacing"
+          },
+          "help": {
+            "key": "settings.sidebar.spaceButtonSpacing.help",
+            "text": "Distance between the centers of neighboring Space buttons. The density default fits them to the sidebar."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 18,
+            "max": 48,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 24
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "sidebar",
+            "spaces",
+            "dots",
+            "buttons",
+            "gap",
+            "spacing"
+          ]
+        },
+        {
           "key": "sidebar.spacesPosition",
           "title": {
             "key": "settings.sidebar.spacesPosition",

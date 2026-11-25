@@ -20,7 +20,8 @@
 // The registry is complete before any lazy chunk runs: the script finishes before the first `import()` it
 // started evaluates its target. Source maps (for frame-sites) are composed through the second pass.
 import { build } from "esbuild";
-import { readFile, rename, rm } from "node:fs/promises";
+import { realpathSync } from "node:fs";
+import { readFile, realpath, rename, rm } from "node:fs/promises";
 import path from "node:path";
 
 const REGISTRY = "__paneChunks";
@@ -46,8 +47,16 @@ function shimSource(chunkKey, exports) {
  * @param maps       also write source maps beside each script (for frame-sites)
  * @returns          the scripts written, relative to outdir
  */
-export async function classicScript({ outdir, outputs, staticOut, entryOut, maps }) {
-  const rel = (output) => path.relative(outdir, path.resolve(output)).split(path.sep).join("/");
+export async function classicScript({ outdir: given, outputs, staticOut, entryOut, maps }) {
+  // esbuild resolves imports against real paths, so the chunk keys are taken from real paths too: macOS's
+  // `mktemp -d` and /tmp sit under symlinks (/var -> /private/var), and a key from the linked path never
+  // matched the one an import resolved to, leaving lazy chunks importing deleted static chunks.
+  const outdir = await realpath(given);
+  const rel = (output) =>
+    path
+      .relative(outdir, realpathSync(path.resolve(output)))
+      .split(path.sep)
+      .join("/");
   const staticKeys = new Map(staticOut.map((output) => [rel(output), outputs[output].exports ?? []]));
   const entryKey = rel(entryOut);
   const lazy = Object.keys(outputs)

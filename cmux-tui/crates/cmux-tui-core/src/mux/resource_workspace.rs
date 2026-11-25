@@ -320,10 +320,6 @@ impl Mux {
             expected_generation,
             expected_revision,
             move |state, registry| {
-                anyhow::ensure!(
-                    state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
-                    "workspace limit reached ({WORKSPACE_REGISTRY_LIMIT})"
-                );
                 let key = generated_key.clone();
                 let name_source =
                     crate::resource_name::NameSource::for_requested_workspace_name(name.as_deref());
