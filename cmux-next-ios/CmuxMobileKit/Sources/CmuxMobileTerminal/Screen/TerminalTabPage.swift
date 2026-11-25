@@ -134,24 +134,20 @@ public struct TerminalTabPage: View {
             // corners (no side insets in portrait). The black fills them.
             .ignoresSafeArea(.all, edges: .vertical)
             .background(Color.black)
-            // Not attached: the page as last seen on this phone, as it was (a
-            // warm surface keeps its own rows, live and scrollable, under
-            // nothing). A skeleton only for a terminal never opened here. No
-            // status over the content or by the composer: the title pill's
-            // subtitle says it after 10 s (`TerminalModel.connectionLine`).
+            // Not attached: the page as last seen on this phone, live. A warm surface keeps its
+            // own rows; a rebuilt or restored one was fed its kept rows (`TerminalModel.seeded`):
+            // both scroll and take keys at full opacity under nothing (Leo, 2026-11-24: "the
+            // entire thing is somehow grayed out and I can't interact with anything at all").
+            // Only a page with no rows of its own yet shows the Mac's screen text or a
+            // skeleton, which take no touches. No status over the content or by the composer:
+            // the title pill's subtitle says it after 10 s (`TerminalModel.connectionLine`).
             .overlay {
                 Group {
-                    if model.connectionState.keepsWarmFrame {
-                        TerminalConnectingView(topInset: insets.top, lastFrame: model.coldFrame, showsPlaceholder: false)
-                            .ignoresSafeArea()
-                            .padding(.bottom, insets.bottom)
-                    } else if !model.connectionState.isAttached || model.coldFrame != nil {
-                        // One view from connecting to live (R2-5): a tab back from
-                        // the warm set or a cold restore shows its last frame at
-                        // once; once attached the frame stays until the live rows
-                        // are drawn, then goes in one frame: a cut, never a fade
-                        // over live rows at other positions (R3-4).
-                        TerminalConnectingView(topInset: insets.top, lastFrame: model.coldFrame)
+                    if Self.showsCover(attached: model.connectionState.isAttached, seeded: model.seeded,
+                                       drewLiveOutput: model.drewLiveOutput, heldFrame: model.coldFrame != nil) {
+                        // Once attached the cover stays until the live rows are drawn, then
+                        // goes in one frame: a cut, never a fade over live rows (R3-4).
+                        TerminalConnectingView(topInset: insets.top, screenText: model.cardScreenText)
                             .ignoresSafeArea()
                             .padding(.bottom, insets.bottom)
                             .transition(.identity)
@@ -167,6 +163,16 @@ public struct TerminalTabPage: View {
             .onChange(of: model.showArtifacts) { _, shown in
                 if shown { host.controller.presentArtifacts() } else { host.controller.dismissArtifacts() }
             }
+    }
+}
+
+extension TerminalTabPage {
+    /// Whether the page draws the connecting cover (the Mac's screen text or a skeleton) over
+    /// its surface: only while the surface has no rows of its own, neither fed from the kept
+    /// page nor drawn from the Mac, and never a still picture (it takes no scroll or tap).
+    static func showsCover(attached: Bool, seeded: Bool, drewLiveOutput: Bool, heldFrame: Bool) -> Bool {
+        guard !seeded, !drewLiveOutput else { return false }
+        return !attached || heldFrame
     }
 }
 
@@ -187,16 +193,20 @@ public struct TerminalTabCard: View {
         cardContent.accessibilityHidden(true)
     }
 
+    /// What the card draws: also read by the UI tests' face probe (`TabCardFaceRecord`).
+    public var content: TerminalCardContent {
+        let started = model.controller?.started == true
+        return TerminalCardContent.choose(sessionStarted: started,
+                                          connecting: model.connectionState.cardShowsConnecting(sessionStarted: started),
+                                          hasSnapshot: model.snapshot != nil, screenText: model.cardScreenText,
+                                          screenTextIsNewer: model.cardScreenTextIsNewer)
+    }
+
     private var cardContent: some View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
                 Color(uiColor: (model.hostTheme ?? CmuxMobileTerminalThemes.shared.theme(for: model.hostMacID))?.backgroundColor
                     ?? CmuxMobileGhosttyApp.background)
-                let started = model.controller?.started == true
-                let content = TerminalCardContent.choose(sessionStarted: started,
-                                                         connecting: model.connectionState.cardShowsConnecting(sessionStarted: started),
-                                                         hasSnapshot: model.snapshot != nil, screenText: model.cardScreenText,
-                                                         screenTextIsNewer: model.cardScreenTextIsNewer)
                 switch content {
                 case .connecting:
                     TerminalConnectingView(topInset: insets.top, lastFrame: model.snapshot)

@@ -107,7 +107,11 @@ public final class TerminalProjectingSession: TerminalSession {
         inner.start { [weak self] event in self?.innerEvent(event) }
     }
 
-    public func send(_ bytes: Data) { inner.send(bytes) }
+    public func send(_ bytes: Data) {
+        // A key shows the app's live screen first: what it answers draws there.
+        returnToLiveScreen()
+        inner.send(bytes)
+    }
     public func sendReply(_ bytes: Data) { inner.sendReply(bytes) }
     /// The composer's Send goes to the Mac's session as one request. Without
     /// this the protocol's default (false) sent every projected terminal's
@@ -116,6 +120,9 @@ public final class TerminalProjectingSession: TerminalSession {
     /// text goes through. But then the send doesn't go through").
     public func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool {
         inner.sendPasteAndSubmit(text, notSent: notSent, maybeSent: maybeSent)
+    }
+    public func sendTypedAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool {
+        inner.sendTypedAndSubmit(text, notSent: notSent, maybeSent: maybeSent)
     }
     public func stop() {
         claimHoldDeadline?.cancel()
@@ -181,9 +188,69 @@ public final class TerminalProjectingSession: TerminalSession {
     public func requestHistoryRows(_ rows: Int) { inner.requestHistoryRows(rows) }
     /// A pan's frame times go to the Mac the same way under a projection (`phone-frames`).
     public func reportScrollFrames(_ pan: TerminalPanFrames) { inner.reportScrollFrames(pan) }
+    public func discardHeldInput() { inner.discardHeldInput() }
 
     public func noteReaderRowsFromEnd(_ rows: Int) {
         projection.setReaderRowsFromEnd(rows: UInt32(clamping: max(0, rows)))
+    }
+
+    // MARK: Held rows (Leo, 2026-11-23: "if the data was sent through... why
+    // cant you simply scroll through the depiction that was already given?")
+
+    /// Rust decides: within the rows the app scrolled off, the phone paints
+    /// them (nothing is sent), also for an app that asked for the mouse;
+    /// past them, or with nothing held, the wheel goes to the Mac as before.
+    public func panHeldRows(_ rows: Double) -> Double {
+        #if DEBUG
+        guard holdsRows else { return rows }
+        let gestureMs = TerminalPaintReport.nowMs
+        #endif
+        let step = projection.altPan(rows: rows)
+        if !step.paint.isEmpty {
+            handler?(.output(step.paint))
+            #if DEBUG
+            heldPaints += 1
+            if stampsPans {
+                // Gesture to paint: the present that shows these bytes.
+                panSeq += 1
+                handler?(.paintMark(seq: -panSeq, receivedMs: gestureMs))
+            }
+            #endif
+        }
+        return step.forwardRows
+    }
+
+    public func returnToLiveScreen() {
+        let live = projection.altReturnLive()
+        if !live.isEmpty { handler?(.output(live)) }
+    }
+
+    /// Rows held for a pan over the alternate screen, and their bytes (tests, the bench).
+    public var heldRows: (rows: Int, bytes: Int) {
+        let held = projection.held()
+        return (Int(clamping: held.rows), Int(clamping: held.bytes))
+    }
+
+    /// How many held rows back the screen shows the app (0: live).
+    public var heldRowsBack: Int { Int(projection.altRowsBack()) }
+
+    #if DEBUG
+    /// DEBUG bench (`tuiheld`): false sends every pan to the app, as before held rows.
+    public var holdsRows = true
+    /// DEBUG bench: pans painted from held rows.
+    public private(set) var heldPaints = 0
+    /// DEBUG bench: stamps each held-row paint with its gesture's time
+    /// (`.paintMark`, negative seq), for gesture-to-paint.
+    public var stampsPans = false
+    private var panSeq = 0
+    /// DEBUG bench: what the screen reported painted.
+    public var onPaintReport: (@MainActor ([TerminalPaintTally.Sample]) -> Void)?
+    #endif
+
+    public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {
+        #if DEBUG
+        onPaintReport?(samples)
+        #endif
     }
 
     private var lastOlderLoad: CFAbsoluteTime?

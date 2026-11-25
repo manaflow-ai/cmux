@@ -40,15 +40,11 @@ on:
       - ".github/workflows/cmux-tui-sdks.yml"
       - ".github/workflows/cmux-tui-spec.yml"
       - ".github/workflows/relay-publish-npm.yml"
-      - ".github/workflows/sdk-bootstrap-crates.yml"
-      - ".github/workflows/sdk-bootstrap-npm.yml"
-      - ".github/workflows/sdk-bootstrap-pypi.yml"
       - ".github/workflows/sdk-publish-crates.yml"
       - ".github/workflows/sdk-publish-go.yml"
       - ".github/workflows/sdk-publish-java.yml"
       - ".github/workflows/sdk-publish-npm.yml"
       - ".github/workflows/sdk-publish-python.yml"
-      - ".github/workflows/sdk-release-cut.yml"
       - ".github/workflows/tui-publish-npm.yml"
       - ".github/workflows/tui-publish-pypi.yml"
       - "tests/test_tui_installers.py"
@@ -137,7 +133,9 @@ on:
       - "schemas/settings/retired-keys.json"
       - "schemas/settings/settings-schema.json"
       - "schemas/settings/source/agent-cache.json"
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/agent-retry.json"
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
@@ -222,15 +220,11 @@ on:
       - ".github/workflows/cmux-tui-sdks.yml"
       - ".github/workflows/cmux-tui-spec.yml"
       - ".github/workflows/relay-publish-npm.yml"
-      - ".github/workflows/sdk-bootstrap-crates.yml"
-      - ".github/workflows/sdk-bootstrap-npm.yml"
-      - ".github/workflows/sdk-bootstrap-pypi.yml"
       - ".github/workflows/sdk-publish-crates.yml"
       - ".github/workflows/sdk-publish-go.yml"
       - ".github/workflows/sdk-publish-java.yml"
       - ".github/workflows/sdk-publish-npm.yml"
       - ".github/workflows/sdk-publish-python.yml"
-      - ".github/workflows/sdk-release-cut.yml"
       - ".github/workflows/tui-publish-npm.yml"
       - ".github/workflows/tui-publish-pypi.yml"
       - "tests/test_tui_installers.py"
@@ -319,7 +313,9 @@ on:
       - "schemas/settings/retired-keys.json"
       - "schemas/settings/settings-schema.json"
       - "schemas/settings/source/agent-cache.json"
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/agent-retry.json"
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
@@ -505,9 +501,6 @@ jobs:
 
       - name: Test published artifact manifest verifier
         run: python3 -m unittest discover -s cmux-tui/scripts -p 'test_verify_published_manifest.py' -v
-
-      - name: Test folder sync bench harness
-        run: python3 -m unittest discover -s cmux-tui/scripts -p 'test_sync_bench.py' -v
 
       - name: Test SDK schema drift checker
         run: python3 cmux-tui/scripts/test_check_sdk_schema.py

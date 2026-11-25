@@ -568,6 +568,8 @@ export function Thinking({
   // liveTurnClock.experiment.ts `top`) while it could fall silent, so it can say "Waiting".
   const listening = !waiting && turnTotal && heardAt !== undefined && doing === undefined;
   const time = useTicking(timed || listening, now);
+  // The countdown to the harness's next try ticks each second while a deadline is announced.
+  const retryNow = useTicking(retry?.retryAt !== undefined, now);
   const statusVerbConfig = useStatusVerbConfig();
   const thinkingVerbs = useContext(ThinkingVerbsContext);
   const verbs = useMemo(
@@ -761,7 +763,7 @@ export function Thinking({
   // A model the harness cannot reach: said calmly in the line's own box, so nothing moves when it
   // starts or ends (Leo, 2026-11-03). What the chat waits on the person for still comes first.
   if (retry && !waiting) {
-    const parts = retryParts(t, retry);
+    const parts = retryParts(t, retry, retryNow);
     return (
       <div
         className={`cv-worked cv-worked--live${below ? " is-below" : ""}`}
@@ -780,6 +782,14 @@ export function Thinking({
           </span>
           {parts.count}
         </span>
+        {parts.countdown && (
+          <span className="cv-worked__count" data-retry-countdown="">
+            <span className="cv-worked__sep" aria-hidden="true">
+              ·
+            </span>
+            {parts.countdown}
+          </span>
+        )}
         {parts.error && (
           <span className="cv-worked__count cv-retrying__error">
             <span className="cv-worked__sep" aria-hidden="true">

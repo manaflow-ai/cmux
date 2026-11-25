@@ -587,3 +587,22 @@ test("Retry keeps an image recorded only in the legacy images shape beside inlin
     Promise.resolve(id === "legacy-image" ? undefined : { mimeType: "image/png", data: "aW1hZ2U=" });
   await expect(restoreInline(row, "", lost)).rejects.toThrow();
 });
+
+// Leo, 2026-11-07: "know beforehand the size we're going to go for rather than say, like, Oh wait,
+// well now we're going to expand". The pane's own row carries each image's size from its bytes, so
+// the row's estimate and its first frame are the image's sent shape, never a square slot.
+test("a sent image's own part carries its size from the send", async () => {
+  const { inlinePrompt } = await import("./inlinePrompt");
+  // A PNG's signature and IHDR chunk: 640 x 400.
+  const png = new Uint8Array(33);
+  png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+  new DataView(png.buffer).setUint32(16, 640);
+  new DataView(png.buffer).setUint32(20, 400);
+  const data = btoa(String.fromCharCode(...png));
+  const wide: ComposerAttachment = { ...image("wide"), data };
+  const built = inlinePrompt(`look${inlineToken("wide")}`, [wide])!;
+  expect(built.parts.find((part) => part.kind === "image")).toMatchObject({ width: 640, height: 400 });
+  // The strip view's row (its `images`) carries it too.
+  const { attachedImages } = await import("./direct/queue");
+  expect(attachedImages([wide])[0]).toMatchObject({ width: 640, height: 400 });
+});

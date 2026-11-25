@@ -873,6 +873,8 @@ while True:
             found.append("vertex")
         if env.get("CLAUDE_CODE_USE_BEDROCK") == "1":
             found.append("bedrock")
+        if env.get("CLAUDE_CODE_USE_FOUNDRY") == "1":
+            found.append("foundry")
         helper = settings.get("apiKeyHelper")
         if helper:
             run = subprocess.run(["/bin/sh", "-c", helper], capture_output=True, text=True)
@@ -892,6 +894,7 @@ while True:
                                "vertexRegions": sorted(k for k in os.environ if k.startswith("VERTEX_REGION_")),
                                "awsKeys": sorted(k for k in os.environ if k.startswith("AWS_")),
                                "googleKeys": sorted(k for k in os.environ if k.startswith("GOOGLE_")),
+                               "azureKeys": sorted(k for k in os.environ if k.startswith("AZURE_")),
                                "promptCache": {k: v for k, v in os.environ.items()
                                                if k.startswith(("DISABLE_PROMPT_CACHING", "ENABLE_PROMPT_CACHING_1H"))
                                                or k == "FORCE_PROMPT_CACHING_5M"},
@@ -1402,7 +1405,10 @@ while True:
             text = json.dumps({k: os.environ.get(k) for k in (
                 "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", "CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION",
                 "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH", "CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY",
-                "BASH_MAX_TIMEOUT_MS", "BASH_DEFAULT_TIMEOUT_MS")}, sort_keys=True)
+                "BASH_MAX_TIMEOUT_MS", "BASH_DEFAULT_TIMEOUT_MS", "CLAUDE_CODE_RETRY_WATCHDOG",
+                "CLAUDE_CODE_RETRY_WATCHDOG_SCOPE", "CLAUDE_CODE_RETRY_WATCHDOG_MAX_WAIT_MS", "CLAUDE_CODE_MAX_RETRIES",
+                "CLAUDE_CODE_RETRY_WATCHDOG_MAX_USAGE_LIMIT_WAIT_MS")},
+                sort_keys=True)
         # "bg-moved": a foreground shell moved to the background while it ran (a task_updated
         # patch), then ended; its notification names only the task.
         if said.strip() == "bg-moved":

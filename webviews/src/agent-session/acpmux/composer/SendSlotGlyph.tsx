@@ -6,9 +6,13 @@
 // Send and Stop are two buttons (Composer.tsx `key="send"` / `key="stop"`), so a change remounts
 // the slot. The composer keeps one `SlotMemory` of the glyph drawn last; the glyph that mounts reads
 // it and, on a real change, draws the old glyph as an inert copy that leaves while the new one comes
-// in, both in the button's one grid cell: the 28 px box never moves or resizes. Nothing animates on
-// the composer's first draw, within SETTLE_MS of a chat switch or a chat read, under Reduce Motion
-// or motion off, or on a hidden page. Every morph ends by its deadline and removes its copy.
+// in, both in the button's one grid cell: the 28 px box never moves or resizes. Which morph runs,
+// for every pair of glyphs and states, is the table in sendSlotTransitions.ts (Leo, 2026-11-22:
+// "idle to send to stop to whatever we need those to be like... known."; design/composer-send-slot.md).
+// A glyph change inside one button (Stop to its stopping ring) remounts the glyph, so it morphs as a
+// change of button does. Nothing animates on the composer's first draw, within SETTLE_MS of a chat
+// switch or a chat read, under Reduce Motion or motion off, or on a hidden page. Every morph ends
+// by its deadline and removes its copy.
 import type React from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
@@ -20,17 +24,18 @@ import { reducedMotion } from "../threadMinimap/scrollMotion";
 import { sendStopMorph, type SendStopMorphArm } from "./sendStopMorph.experiment";
 import { stopPresence } from "./stopPresence.experiment";
 import {
-  LEAVE_MS,
   MORPH_MS,
   morphFrom,
   noteScope,
   now,
-  PULSE_MS,
-  SETTLE_MS,
   type Morph,
   type SlotGlyph,
   type SlotMemory,
+  LEAVE_MS,
+  PULSE_MS,
+  SETTLE_MS,
 } from "./sendSlotGlyphModel";
+import { SLOT_TRANSITIONS, type SlotMorphSet, type SlotState } from "./sendSlotTransitions";
 
 function motionAllowed(): boolean {
   if (typeof document !== "undefined" && document.visibilityState === "hidden") return false;
@@ -40,40 +45,64 @@ function motionAllowed(): boolean {
 export function GlyphIcon({ glyph }: { glyph: SlotGlyph }) {
   if (glyph === "play") return <Icon name="media.play" size={14} selected />;
   if (glyph === "stopping") return <Spinner loading size={14} />;
+  if (glyph === "pending") return <Spinner loading look="track" size={14} />;
   if (glyph === "stop") return <StopIcon />;
   if (glyph === "return") return <ReturnIcon />;
   return <ArrowUpIcon />;
 }
 
-/// The slot's glyph. With `memory` it morphs from the glyph drawn before it; without (the Quick
-/// Composer, which can show Stop and Send at once) it draws at once.
-export function SendSlotGlyph({
+/// The slot's glyph. With `memory` it morphs from the glyph drawn before it, as `set` (the shipped
+/// SLOT_TRANSITIONS unless a gallery passes another) says for the two glyphs and, when the button
+/// names it, the two states; without (the Quick Composer, which can show Stop and Send at once) it
+/// draws at once.
+export function SendSlotGlyph(props: {
+  glyph: SlotGlyph;
+  memory?: SlotMemory | undefined;
+  scope?: string | undefined;
+  state?: SlotState | undefined;
+  set?: SlotMorphSet | undefined;
+}) {
+  // Keyed by its glyph: a change inside one button mounts the new glyph, which reads the memory.
+  return <SlotGlyphDrawn key={props.glyph} {...props} />;
+}
+
+function SlotGlyphDrawn({
   glyph,
   memory,
   scope,
+  state,
+  set = SLOT_TRANSITIONS,
 }: {
   glyph: SlotGlyph;
   memory?: SlotMemory | undefined;
   scope?: string | undefined;
+  state?: SlotState | undefined;
+  set?: SlotMorphSet | undefined;
 }) {
   const [morph, setMorph] = useState<Morph | undefined>(() => {
     if (!memory) return undefined;
-    const found = morphFrom(memory, scope, glyph);
+    const found = morphFrom(memory, scope, glyph, now(), state, set);
     if (!found || !motionAllowed()) return undefined;
-    return { ...found, arm: experimentArm(sendStopMorph) };
+    const kind = found.transition.morph;
+    const arm: SendStopMorphArm =
+      kind === "path" ? "path" : kind === "crossfade" ? experimentArm(sendStopMorph) : "scale";
+    return { ...found, arm };
   });
   useLayoutEffect(() => {
     if (!memory) return;
     noteScope(memory, scope);
     memory.glyph = glyph;
+    if (state) memory.state = state;
+    else delete memory.state;
     delete memory.left;
     delete memory.leftAt;
-  }, [memory, scope, glyph]);
+  }, [memory, scope, glyph, state]);
   useLayoutEffect(
     () => () => {
       if (!memory || memory.glyph !== glyph) return;
       delete memory.glyph;
       memory.left = glyph;
+      delete memory.state;
       memory.leftAt = now();
     },
     [memory, glyph],
@@ -86,7 +115,15 @@ export function SendSlotGlyph({
     return () => clearTimeout(timer);
   }, [morph]);
   if (!morph) return <GlyphIcon glyph={glyph} />;
-  return <MorphFrame arm={morph.arm} from={morph.from} to={glyph} onEnd={() => setMorph(undefined)} />;
+  return (
+    <MorphFrame
+      arm={morph.arm}
+      from={morph.from}
+      to={glyph}
+      unpop={morph.transition.morph === "unpop"}
+      onEnd={() => setMorph(undefined)}
+    />
+  );
 }
 
 /// One morph from `from` (absent: the slot was empty) to `to`, playing, or held at `progress`
@@ -96,12 +133,16 @@ export function MorphFrame({
   from,
   to,
   progress,
+  unpop,
   onEnd,
 }: {
   arm: SendStopMorphArm;
   from?: SlotGlyph | undefined;
   to: SlotGlyph;
   progress?: number;
+  /// The un-pop (a queued prompt pulled back): the scale layers, marked for the composer-unpop
+  /// lane's own keyframes (`[data-send-unpop]`) to take over.
+  unpop?: boolean;
   onEnd?: () => void;
 }) {
   // A path morph needs two drawn strokes; the spinner has none, so it crossfades instead.
@@ -121,6 +162,7 @@ export function MorphFrame({
           className="acpmux-send-layer"
           data-send-layer="out"
           data-send-morph={layerArm}
+          data-send-unpop={unpop ? "" : undefined}
           style={held("out")}
           aria-hidden="true"
         >
@@ -131,6 +173,7 @@ export function MorphFrame({
         className="acpmux-send-layer"
         data-send-layer="in"
         data-send-morph={layerArm}
+        data-send-unpop={unpop ? "" : undefined}
         {...(progress !== undefined ? { "data-send-held": "" } : {})}
         style={held("in")}
         onAnimationEnd={(event) => {
@@ -291,10 +334,25 @@ export function StopPulse({ pulses }: { pulses: number }) {
     return () => clearTimeout(timer);
   }, [playing]);
   const arm = experimentArm(stopPresence);
-  if (playing === undefined || arm === "fade") return null;
+  const shown = playing !== undefined && arm !== "fade";
+  // The button carries the playing pulse's look too, before the frame paints, so the bump that swells
+  // the glyph beside this span is a rule on the button's attribute: as `:has(> .acpmux-stop-pulse)`
+  // with `> :not(.acpmux-stop-pulse)` after it, Chromium restyled the whole page on every `:has()`
+  // change (test/css-invalidation-scope.test.ts).
+  const pulse = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const button = pulse.current?.parentElement;
+    if (!shown || !button) return undefined;
+    button.dataset.stopPulse = arm;
+    return () => {
+      delete button.dataset.stopPulse;
+    };
+  }, [shown, arm, playing]);
+  if (!shown) return null;
   return (
     <span
       key={playing}
+      ref={pulse}
       className="acpmux-stop-pulse"
       data-stop-pulse={arm}
       aria-hidden="true"

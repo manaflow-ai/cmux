@@ -316,6 +316,8 @@ jobs:
         continue-on-error: ${{ inputs.runner != 'owned' }}
         timeout-minutes: 3
         env:
+          # The overflow switch the granted default reads (ios_runner_pool.py granted_default()).
+          CI_OVERFLOW_MAC: ${{ vars.CI_OVERFLOW_MAC }}
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -477,9 +479,15 @@ jobs:
     # plain Mac label, which may have no iOS 26 runtime for the StoreKit slot.
     if: ${{ !cancelled() && (needs.billing.outputs.ios == 'true' || needs.billing.outputs.storekit_kind != '') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && vars.CI_BLACKSMITH_MACOS == 'on' && needs.billing.outputs.retry_runs_on || needs.billing.outputs.runs_on || '"blacksmith-6vcpu-macos-26"') }}
-    # A flake hunt's iterations take about 4 minutes each on a 6 vCPU runner
-    # (storekit_iterations is capped at 25 below).
-    timeout-minutes: ${{ inputs.storekit_iterations != '' && inputs.storekit_iterations != '1' && 130 || 30 }}
+    # The timeout also counts the time an owned mini's glaeda hook holds the job
+    # in "Set up runner" for capacity: nightly run 45336672494 waited about
+    # 26 min there and was cancelled at 30 during checkout. On a mini the job
+    # itself takes about 10 min (checkout, the package tests, the StoreKit
+    # build and simulator boot about 9, the suite about 1), so 60 leaves room
+    # for that wait. A flake hunt's iterations take about 4 minutes each on a
+    # 6 vCPU runner (storekit_iterations is capped at 25 below), plus about
+    # 30 min of hook wait.
+    timeout-minutes: ${{ inputs.storekit_iterations != '' && inputs.storekit_iterations != '1' && 160 || 60 }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       STOREKIT_ITERATIONS: ${{ inputs.storekit_iterations || '1' }}
@@ -545,6 +553,7 @@ jobs:
         if: ${{ !cancelled() && env.STOREKIT_KIND != '' && startsWith(env.STOREKIT_PATH, 'cmux-next-ios') }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
