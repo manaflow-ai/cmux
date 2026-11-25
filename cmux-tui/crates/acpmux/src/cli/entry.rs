@@ -415,10 +415,10 @@ async fn async_main(parsed: Parsed) -> Result<()> {
             match crate::log_sink::Sink::start(out) {
                 Ok(sink) => {
                     sink.install();
-                    logs.with_writer(sink).init();
+                    init_logs(logs.with_writer(sink).finish());
                 }
                 Err(e) => {
-                    logs.init();
+                    init_logs(logs.finish());
                     tracing::warn!(
                         "no log writer thread, lines are written where they are logged: {e}"
                     );
@@ -717,6 +717,17 @@ fn command_index(argv: &[OsString]) -> usize {
         .position(|a| a != "--json" && a != "--suppress-reads")
         .map(|i| i + 1)
         .unwrap_or(argv.len())
+}
+
+/// The daemon's subscriber, plus a Chrome trace (Perfetto) file when `CMUX_TRACE_FILE` is set
+/// (`perf_trace.rs`).
+fn init_logs<S>(logs: S)
+where
+    S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a> + Send + Sync,
+{
+    use tracing_subscriber::layer::SubscriberExt as _;
+    use tracing_subscriber::util::SubscriberInitExt as _;
+    logs.with(crate::perf_trace::from_env()).init();
 }
 
 #[cfg(test)]

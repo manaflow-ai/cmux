@@ -105,6 +105,15 @@
 //! when this Mac seeded the folder, [`super::seed_cli::hop_bulk`]), so the chat
 //! lands with every change the old machine made up to the freeze.
 //!
+//! `--login-stdin`: the owner's agent login, `{"env":{"NAME":"VALUE"}}` on stdin
+//! (cmux-cloud-start-core `moves::login`), goes to the target with the finish, so the moved
+//! chat's agent starts signed in before it resumes or runs the continuation turn (a chat moved to
+//! a new machine answered "Claude is not signed in here"). Read before the chat freezes; sent only
+//! with `--vm-kind owner` (else `agent_session.owner_only`) to a target that serves
+//! `agent-transfer-credentials-v1` (else `machine_outdated`, side `target`), and refused there off
+//! the owner's own Cloud VM. Unreadable stdin is `agent_session.login_unreadable`. The value never
+//! reaches argv, the move's record, a phase or an error text.
+//!
 //! `--interrupt` stops a running turn only on a source whose `identify` lists
 //! `agent-transfer-continues-v1` (its acpmux continues the turn where the
 //! chat lands); an older source refuses the move while the turn runs.
@@ -150,12 +159,14 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use serde_json::{Value, json};
 
+use cmux_cloud_start_core::moves::login::{self, FLAG as LOGIN_FLAG, Login};
 use daemon::{BEGIN_TIMEOUT, CALL_TIMEOUT, CallError, Daemon, FINISH_TIMEOUT, call_once};
 use record::{Record, Records};
 
 const USAGE: &str = "usage: cmux link agent move --from-socket LOCAL_DAEMON_SOCKET \
 --surface SURFACE_ID --to-socket REMOTE_CONNECT_SOCKET --cwd REMOTE_FOLDER [--interrupt] \
-[--ask-first] [--vm-kind KIND [--to-pid PID]] [--state-dir DIR] [--history-later TURNS] \
+[--ask-first] [--vm-kind KIND [--to-pid PID]] [--login-stdin] [--state-dir DIR] \
+[--history-later TURNS] \
 [--sync push|pull|seed --sync-socket LINK_SOCKET --sync-local LOCAL --sync-remote REMOTE]... \
 [--sync relay --sync-from-socket SOURCE_LINK --sync-socket TARGET_LINK --sync-local SOURCE_FOLDER --sync-remote TARGET_FOLDER [--sync-seed-local LOCAL]]
   --to-socket: the local_socket of `cmux-tui remote connect --headless --json` for the \
@@ -181,6 +192,8 @@ struct Args {
     state_dir: Option<PathBuf>,
     /// `--sync`: the folder's last changes, copied once the chat is frozen, in order.
     syncs: Vec<Sync>,
+    /// `--login-stdin`: the owner's agent login comes on stdin (module docs).
+    login_stdin: bool,
     /// `--history-later TURNS` ([`history_later`]); `ACPMUX_MOVE_HISTORY_LATER` when absent.
     history_later: Option<u64>,
 }
@@ -398,7 +411,7 @@ fn parse(args: &[String]) -> Option<Args> {
     let (mut vm_kind, mut to_pid) = (None, None);
     // Each `--sync` group's flags, in any order: a flag its group has already starts the next group.
     let mut groups: Vec<SyncFlags> = Vec::new();
-    let (mut interrupt, mut ask_first) = (false, false);
+    let (mut interrupt, mut ask_first, mut login_stdin) = (false, false, false);
     let mut history_later = None;
     let mut rest = rest.iter();
     while let Some(arg) = rest.next() {
@@ -413,6 +426,7 @@ fn parse(args: &[String]) -> Option<Args> {
             "--history-later" => history_later = Some(rest.next()?.parse::<u64>().ok()?),
             "--interrupt" => interrupt = true,
             "--ask-first" => ask_first = true,
+            LOGIN_FLAG => login_stdin = true,
             "--sync" => {
                 let way = match rest.next()?.as_str() {
                     "push" => Way::Push,
@@ -463,6 +477,7 @@ fn parse(args: &[String]) -> Option<Args> {
         to_pid,
         state_dir,
         syncs,
+        login_stdin,
         history_later,
     })
 }
@@ -575,6 +590,7 @@ fn fresh(
     clock: &mut Clock,
     token: Option<String>,
 ) -> Result<Moved, Failed> {
+    let login = read_login(args, &mut std::io::stdin().lock())?;
     // Before the chat freezes: a daemon too old for the move says so
     // (`machine_outdated`) instead of failing the receive or the begin.
     // `side` says which: the app names a machine only when it is the machine.
@@ -596,7 +612,8 @@ fn fresh(
             return Err(failed);
         }
     }
-    let vm_kind = target_vm_kind(args);
+    let vm_kind = target_vm_kind(args)
+        .and_then(|kind| login.as_ref().map_or(Ok(()), |_| login_gate(args)).map(|()| kind));
     clock.lap("gate");
     let vm_kind = vm_kind?;
     // A relay makes its bulk copy before the chat freezes, so the frozen pass below sends only
@@ -754,6 +771,10 @@ fn fresh(
     let mut finish = json!({"receive_id": receive_id});
     if let Some(kind) = &vm_kind {
         finish.set("vm_kind", json!(kind));
+    }
+    // Only the finish carries the login; the record and every phase never do.
+    if let Some(login) = &login {
+        finish.set("credentials", login.wire());
     }
     let finished = target.call("agent-transfer-finish", finish, FINISH_TIMEOUT);
     clock.lap("finish");
@@ -974,6 +995,33 @@ fn new_begin_token() -> Option<String> {
     Some(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
+/// `--login-stdin`'s login, read before the chat freezes; none without the flag.
+fn read_login(args: &Args, stdin: &mut dyn std::io::Read) -> Result<Option<Login>, Failed> {
+    use std::io::Read as _;
+    if !args.login_stdin {
+        return Ok(None);
+    }
+    let mut bytes = Vec::new();
+    let limit = u64::try_from(login::MAX_STDIN_BYTES).unwrap_or(u64::MAX).saturating_add(1);
+    let read = stdin.take(limit).read_to_end(&mut bytes);
+    let login = read.map_err(|_| login::Refusal::Unreadable).and_then(|_| login::read(&bytes));
+    login.map(Some).map_err(refused_login)
+}
+
+/// Whether the target takes the login (module docs): the Cloud API said `owner`, and its daemon
+/// serves `agent-transfer-credentials-v1`.
+fn login_gate(args: &Args) -> Result<(), Failed> {
+    let identity = super::machine_gate::reach(&args.to).ok();
+    let served = identity.as_ref().and_then(super::machine_gate::served);
+    login::gate(args.vm_kind.as_deref(), served.as_deref()).map_err(refused_login)
+}
+
+fn refused_login(refusal: login::Refusal) -> Failed {
+    let mut failed = Failed::new(refusal.code(), refusal.message());
+    failed.side = refusal.side();
+    failed
+}
+
 /// The `vm_kind` the target is sent (module docs): none without
 /// `--vm-kind` (the caller says it is not a Cloud machine); `--vm-kind` for a
 /// daemon with `agent-transfer-vm-kind-v1`; none for an older one, which
@@ -1145,7 +1193,7 @@ fn ask_landed(record: &Record) -> Option<bool> {
         match ask_landed_once(record) {
             Asked::Settled(landed) => return Some(landed),
             Asked::Finishing | Asked::Restarting if Instant::now() < deadline => {
-                std::thread::sleep(FINISHING_PAUSE)
+                std::thread::sleep(FINISHING_PAUSE);
             }
             Asked::Finishing | Asked::Restarting | Asked::NoAnswer => return None,
         }

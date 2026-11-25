@@ -267,7 +267,7 @@ keyed! {
     /// `_acpmux/peers`.
     PeersParams: [];
     /// `_acpmux/prewarm`.
-    PrewarmParams: ["harness", "cwd", "release", "model", "workspaceId", "credentials", "reserveHome", "wait"];
+    PrewarmParams: ["harness", "cwd", "release", "model", "workspaceId", "credentials", "reserveHome", "wait", "shapes"];
     /// `_acpmux/process/kill`.
     ProcessKillParams: ["sessionId", "processId", "signal"];
     /// `_acpmux/process/list`.

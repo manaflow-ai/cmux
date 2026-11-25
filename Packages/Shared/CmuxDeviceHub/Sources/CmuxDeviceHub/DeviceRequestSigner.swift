@@ -1,5 +1,12 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+@preconcurrency import Crypto // swift-crypto marks its key types Sendable only on Apple platforms
+#endif
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// Device-signed requests (PROTOCOL.md, Identity): `X-Device-Id`,
 /// `X-Device-Ts` and `X-Device-Sig`, the signature over
