@@ -165,6 +165,7 @@ logged "$work/app.log" python3 scripts/cmux-next/bench_memory.py --app "$app" --
 grep -E '^ +[0-9.]+ MB  RSS|^VMMAP ' "$work/app.log" | sed 's/^ */PERF-IDLE-PROC app /' || true
 grep '^PERF-IDLE-LEFTOVER ' "$work/app.log" | sed 's/^PERF-IDLE-LEFTOVER /PERF-IDLE-LEFTOVER app /' || true
 grep '^PERF-ATTR ' "$work/app.log" | sed 's/^PERF-ATTR /PERF-ATTR app /' || true
+grep '^PERF-IDLE-FILES ' "$work/app.log" | sed 's/^PERF-IDLE-FILES /PERF-IDLE-FILES app /' || true
 python3 - "$work/app.json" <<'PY' || status=$?
 import json, sys
 data = json.load(open(sys.argv[1]))
@@ -231,6 +232,8 @@ if [[ -n "$agents" ]]; then
     --settle 20 --measure "$measure" --top 8 --gpu ${purge[@]+"${purge[@]}"} ${release[@]+"${release[@]}"} \
     ${attribute[@]+"${attribute[@]}"} ${settings[@]+"${settings[@]}"} --out "$work/agents.json" || { status=$?; tail -n 60 "$work/agents.log"; }
   grep '^PERF-ATTR ' "$work/agents.log" | sed 's/^PERF-ATTR /PERF-ATTR app-agents /' || true
+  # What each idle window wrote, file by file (bench_memory.py's census; else it stays in agents.log).
+  grep '^PERF-IDLE-FILES ' "$work/agents.log" | sed 's/^PERF-IDLE-FILES /PERF-IDLE-FILES app-agents /' || true
   python3 - "$work/agents.json" <<'PY' || status=$?
 import json, sys
 data = json.load(open(sys.argv[1]))
