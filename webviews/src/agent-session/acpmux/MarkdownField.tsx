@@ -44,7 +44,7 @@ import { subscribeIconFamily } from "./icons/iconPack";
 import { cmuxLinkLook } from "./chips/cmuxLinkLook.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import type { SlashNames, SlashTrigger } from "./slashCommands";
-import { instrumentView } from "./typingSplit";
+import { instrumentView, splitTimed } from "./typingSplit";
 import {
   MINIMAL_SCROLLER_ATTRIBUTE,
   SETTLING_SCROLLER_ATTRIBUTE,
@@ -1450,7 +1450,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
             // Report every document and caret change; the composer's menu follows the caret.
             view: () => ({
               update: (next, previous) => {
-                tellSlash(next.state);
+                splitTimed("tellSlash", () => tellSlash(next.state));
                 const whole = wholeSelected(next.state);
                 if (whole !== wholeNow) {
                   wholeNow = whole;
@@ -1463,8 +1463,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 // Before the editor is made there is nothing to write the document with (it would read
                 // as an empty prompt and wipe the draft); the document made is `known` then.
                 if (!editor.current) return;
-                const markdown = promptMarkdown(editor.current, next, inlineOn.current);
-                showPlaceholder(markdown);
+                const markdown = splitTimed("serialize", () => promptMarkdown(editor.current!, next, inlineOn.current));
+                splitTimed("placeholder", () => showPlaceholder(markdown));
                 // A value applied from outside comes back unchanged: not the user's edit.
                 if (markdown === known.current) return;
                 known.current = markdown;
@@ -1472,7 +1472,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   touched.current = true;
                   latest.current.onFirstInput?.();
                 }
-                latest.current.onChange(markdown, caretOf(next));
+                splitTimed("onChange", () => latest.current.onChange(markdown, caretOf(next)));
               },
             }),
           }),

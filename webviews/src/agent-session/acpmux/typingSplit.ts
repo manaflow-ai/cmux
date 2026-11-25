@@ -96,7 +96,9 @@ function patchListeners() {
     if (!byType) wrappers.set(listener, (byType = new Map()));
     let wrapper = byType.get(key);
     if (!wrapper) {
-      const label = `${type}${capture ? "(c)" : ""} ${describeTarget(this)} ${callSite()}`;
+      const fn = typeof listener === "function" ? listener : listener.handleEvent;
+      const src = String(fn).replace(/\s+/g, " ").slice(0, 90);
+      const label = `${type}${capture ? "(c)" : ""} ${describeTarget(this)} ${fn?.name || "anon"} {${src}}`;
       wrapper = function (this: unknown, event: Event) {
         const split = cur;
         const begin = split ? now() : 0;
@@ -146,7 +148,12 @@ function patchMutationObservers() {
       try {
         return callback(records, observer);
       } finally {
-        if (cur === split) add(label, now() - begin);
+        if (cur === split) {
+          add(label, now() - begin);
+          queueMicrotask(() => {
+            if (cur === split) add(`${label}+m`, now() - begin);
+          });
+        }
       }
     });
   } as unknown as typeof MutationObserver;
@@ -154,6 +161,15 @@ function patchMutationObservers() {
   (window as unknown as { MutationObserver: typeof MutationObserver }).MutationObserver = Wrapped;
 }
 if (typeof window !== "undefined") patchMutationObservers();
+
+/** Times `run` into the key's split as `name` (a section of a listener or a view update). */
+export function splitTimed<T>(name: string, run: () => T): T {
+  return timed(name, run);
+}
+
+// The first keydown listener of the page (capture on window, added at module load): when JS first sees the key.
+let firstKeydown = 0;
+if (typeof window !== "undefined") rawAdd.call(window, "keydown", () => (firstKeydown = now()), { capture: true });
 
 let patched = false;
 function patchLayoutReads() {
@@ -210,6 +226,8 @@ export function splitKey(sample: Record<string, unknown>, start: number, target:
   sample.arm = "base";
   keyIndex++;
   split.arm = sample.arm as string;
+  split.kdFirst = firstKeydown - start;
+  split.kdSplitAt = now() - start;
   const win = typeof window === "undefined" ? undefined : window;
   if (!win) return;
   const once = (type: string, name: string, capture: boolean) =>
