@@ -968,7 +968,7 @@ function printProfile(): void {
     selfMs,
     30,
   );
-  top(`${what} profile, inclusive:`, totalMs, 45);
+  top(`${what} profile, inclusive:`, totalMs, Number(process.env.PROFILE_TOP ?? 45));
   top(`${what} profile, built-ins by caller:`, nativeByCaller, 20);
 }
 
@@ -1715,6 +1715,19 @@ try {
           .join(", ");
         console.log(`wire page marks (ms from the round's start): ${marks}`);
       }
+      if (process.env.RES_TRACE === "1")
+        console.log(
+          "RES " +
+            (await page.evaluate(() =>
+              [
+                ...(performance.getEntriesByType("resource") as PerformanceResourceTiming[]).map(
+                  (e) => `${e.name.split("/").pop()} ${e.startTime.toFixed(0)}-${e.responseEnd.toFixed(0)}`,
+                ),
+                ...performance.getEntriesByType("mark").map((e) => `mark:${e.name} ${e.startTime.toFixed(0)}`),
+                `dcl ${(performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming).domContentLoadedEventStart.toFixed(0)}`,
+              ].join("\n  "),
+            )),
+        );
       const got = await page.evaluate(() => {
         const w = window as unknown as BenchWindow;
         return {
