@@ -1,10 +1,11 @@
 //! `acpmux machine hypervisor serve | apply | ls`: the host agent (`crate::hypervisor`).
 //! No daemon: the host agent is its own process (a systemd unit on the host).
 
-use crate::cli::command_host::{HypervisorCmd, HypervisorOpts};
+use crate::cli::command_host::{HypervisorCmd, HypervisorDriverKind, HypervisorOpts};
 use crate::cli::output::print_json;
 use crate::hypervisor::HypervisorDriver;
 use crate::hypervisor::libvirt::{LibvirtConfig, LibvirtDriver, ProcessRunner};
+use crate::hypervisor::pods::PodsDriver;
 use crate::hypervisor::serve::{HostAgent, action_line};
 use crate::hypervisor::source::{Command, SpoolSource};
 use anyhow::{Context, Result};
@@ -28,6 +29,24 @@ fn libvirt(opts: &HypervisorOpts) -> LibvirtConfig {
     config
 }
 
+/// The slot driver `--driver` names; `config` is libvirt's, unused by pods.
+fn driver(opts: &HypervisorOpts, config: LibvirtConfig) -> Box<dyn HypervisorDriver> {
+    match opts.driver {
+        HypervisorDriverKind::Libvirt => Box::new(LibvirtDriver::new(config, ProcessRunner)),
+        HypervisorDriverKind::Pods => {
+            let dir = opts.pods_dir.clone().unwrap_or_else(|| state_dir(opts).join("pods"));
+            let mut pods = cmux_pool_pod::slots::PodSlots::new(
+                cmux_pool_pod::slots::ProcessRunner,
+                dir.to_string_lossy(),
+            );
+            if let Some(init) = &opts.pod_init {
+                pods = pods.with_init(init, opts.pod_init_args.clone(), Vec::new());
+            }
+            Box::new(PodsDriver::new(pods))
+        }
+    }
+}
+
 pub async fn run(cmd: HypervisorCmd, json_out: bool) -> Result<()> {
     tokio::task::spawn_blocking(move || run_blocking(cmd, json_out)).await?
 }
@@ -43,7 +62,7 @@ fn run_blocking(cmd: HypervisorCmd, json_out: bool) -> Result<()> {
                 config.template = std::fs::read_to_string(&path)
                     .with_context(|| format!("read template {}", path.display()))?;
             }
-            let driver = LibvirtDriver::new(config, ProcessRunner);
+            let driver = driver(&opts, config);
             let source = SpoolSource::new(dir.join("spool"));
             let mut agent = HostAgent::open(driver, source, dir)?;
             loop {
@@ -86,7 +105,7 @@ fn run_blocking(cmd: HypervisorCmd, json_out: bool) -> Result<()> {
         }
         HypervisorCmd::Ls { opts } => {
             let dir = state_dir(&opts);
-            let driver = LibvirtDriver::new(libvirt(&opts), ProcessRunner);
+            let driver = driver(&opts, libvirt(&opts));
             let book = crate::hypervisor::lease::LeaseBook::load(&dir.join("leases.json"))?;
             let slots = driver.list()?;
             let rows: Vec<serde_json::Value> = slots
