@@ -5,6 +5,8 @@
 # checkout's bench file (and its bench/ helpers when the commit lacks them) is copied in.
 #   cmux-ci test --setup webviews -- bash -c 'scripts/measure/bench-at-commits.sh bench/million-event-chat.bench.ts SHA1 SHA2 -- ARGS; echo rc=$?'
 # Prints "BENCH-AT <sha>" before each run's output; ENV=VAR=VALUE,... sets the bench's environment.
+# HELPERS=a.ts,b.ts copies those bench/ helpers from this checkout even where the commit has its own: harness code
+# the bench file needs at this checkout's version (a counter the commit's helper does not have yet).
 set -uo pipefail
 bench="${1:?usage: bench-at-commits.sh BENCH SHA... [-- ARGS]}"
 shift
@@ -29,7 +31,8 @@ for sha in ${shas[@]+"${shas[@]}"}; do
   tree="$scratch/${full:0:12}"
   git -C "$root" worktree add -q --detach "$tree" "$full" && trees+=("$tree") || { status=1; continue; }
   for helper in "$root"/webviews/bench/*.ts; do
-    [ -e "$tree/webviews/bench/$(basename "$helper")" ] || cp "$helper" "$tree/webviews/bench/"
+    name="$(basename "$helper")"
+    if [ ! -e "$tree/webviews/bench/$name" ] || [[ ",${HELPERS:-}," == *",$name,"* ]]; then cp "$helper" "$tree/webviews/bench/"; fi
   done
   cp "$root/webviews/$bench" "$tree/webviews/$bench"
   echo "BENCH-AT $full $(git -C "$root" log -1 --format=%s "$full" 2>/dev/null | cut -c1-80)"
