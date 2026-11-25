@@ -469,7 +469,7 @@ impl Tracker {
         now: u64,
         models: &Models,
     ) -> Option<u64> {
-        let Some(dir) = main.parent().map(|d| d.join(sid).join("subagents")) else { return None };
+        let dir = main.parent().map(|d| d.join(sid).join("subagents"))?;
         let entries = match std::fs::read_dir(&dir) {
             Ok(entries) => entries,
             // A chat that never started one.
