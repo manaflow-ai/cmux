@@ -16,6 +16,10 @@ export interface SummaryRow {
   area?: AreaKey;
   category?: WhatsNewCategory;
   phrases: string[];
+  /** Each phrase's change in full, in the same order and case: the card's change line shows this, so a
+      change is never cut at its first clause ("fix \"the glass on it", u51892: "we need to show everything").
+      The card wraps it onto as many lines as it needs. */
+  full: string[];
 }
 
 export interface UpdateSummary {
@@ -44,10 +48,22 @@ interface Change {
     clause is short enough. */
 function phrase(change: Change, english: boolean): string | undefined {
   const short = shortTitle(change.title, PHRASE_LIMIT);
-  if (!short) return undefined;
-  const lower = short.charAt(0).toLowerCase() + short.slice(1);
-  if (change.raw !== undefined) return change.raw.includes(lower) ? lower : short;
-  return english && /^[A-Z][a-z]*\s+[^A-Z\s]/.test(short) ? lower : short;
+  return short ? cased(short, change, english) : undefined;
+}
+
+/** `text` (the change's title or its first clause) lowercased where ``phrase`` lowercases its clause. */
+function cased(text: string, change: Change, english: boolean): string {
+  const lower = text.charAt(0).toLowerCase() + text.slice(1);
+  if (change.raw !== undefined) return change.raw.includes(lower) ? lower : text;
+  return english && /^[A-Z][a-z]*\s+[^A-Z\s]/.test(text) ? lower : text;
+}
+
+/** The change in full, cased as its phrase `short` (its first clause, or the whole title when it fits):
+    its whole title, without a closing period. */
+function fullPhrase(change: Change, short: string): string {
+  const whole = change.title.trim().replace(/[\s.]+$/u, "");
+  const lowered = short.charAt(0) !== whole.charAt(0) && short.charAt(0) === whole.charAt(0).toLowerCase();
+  return lowered ? whole.charAt(0).toLowerCase() + whole.slice(1) : whole;
 }
 
 function category(group: string): WhatsNewCategory {
@@ -70,7 +86,9 @@ function summarize(changes: Change[], language: string, unlisted = 0): UpdateSum
   plain.forEach((change, index) => {
     const key = change.area ?? `category:${change.category}`;
     const bucket = buckets.get(key) ?? {
-      row: change.area ? { area: change.area, phrases: [] } : { category: change.category, phrases: [] },
+      row: change.area
+        ? { area: change.area, phrases: [], full: [] }
+        : { category: change.category, phrases: [], full: [] },
       changes: [],
       first: index,
     };
@@ -84,9 +102,15 @@ function summarize(changes: Change[], language: string, unlisted = 0): UpdateSum
   let listed = 0;
   for (const bucket of ordered) {
     if (rows.length === ROWS) break;
-    const phrases = bucket.changes.flatMap((c) => phrase(c, english) ?? []).slice(0, PHRASES);
-    if (phrases.length === 0) continue;
-    rows.push({ ...bucket.row, phrases });
+    const picked = bucket.changes
+      .flatMap((c) => {
+        const short = phrase(c, english);
+        return short ? [{ short, full: fullPhrase(c, short) }] : [];
+      })
+      .slice(0, PHRASES);
+    if (picked.length === 0) continue;
+    const phrases = picked.map((p) => p.short);
+    rows.push({ ...bucket.row, phrases, full: picked.map((p) => p.full) });
     listed += phrases.length;
   }
   return { rows, more: changes.length + unlisted - listed };

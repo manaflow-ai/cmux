@@ -643,6 +643,9 @@ impl Peer {
         let _open = crate::gauges::Held::on(&crate::gauges::links().links_open);
         self.set_serving(Some(via));
         self.start_probes();
+        // The transport's reads, also after the link ends: how long it heard nothing.
+        #[cfg(feature = "hub-carrier")]
+        let link_heard = opened.heard.clone();
         let heard = Some(opened.heard);
         let end = match opened.ws {
             carriers::OpenedWs::Boxed(ws) => self.serve_heard(*ws, out_rx, heard).await,
@@ -668,8 +671,15 @@ impl Peer {
         match end {
             // The path died while another answers: the link moves there without an outage.
             Err(error) if !self.stop.load(Ordering::SeqCst) => {
+                // A hub link that went silent leaves no dead kept circuit for its redial to
+                // wait `ANSWER_SUSPECT` on (`HubCarrier::close_kept_silent_for`).
+                #[cfg(feature = "hub-carrier")]
+                if via == Via::Hub {
+                    self.hub_link_ended_silent(link_heard.silent()).await;
+                }
                 self.path_failed(via);
                 if self.another_path_alive(via) && self.link().is_ready() {
+                    self.went_down(Some(crate::protocol::peer_state::DialFail::PathChanged));
                     tracing::info!(peer = %self.name, via = via.as_str(), "the link's path failed ({error}); moving to another path");
                     return Ok(LinkEnd::Switching);
                 }
@@ -998,6 +1008,11 @@ impl Peer {
         );
         ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut last_frame = tokio::time::Instant::now();
+        // When the silence budget runs out if nothing comes before then, set by a ping tick that
+        // finds less than a ping interval of it left. Checked then, not on the next tick: a dead
+        // link is dropped at its budget, not up to `ping_every` after it (a 5G/LTE handoff took
+        // 7.5 s to notice of a 6 s budget, about 8 of its 8 s direct handoff).
+        let mut silence_due: Option<tokio::time::Instant> = None;
         // Time this daemon kept the loop from reading is not the peer's silence (`ReaderHeld`).
         let mut reader = crate::peer_link::ReaderHeld::default();
         let mut stale_settled = false;
@@ -1042,7 +1057,7 @@ impl Peer {
                     match tokio::time::timeout_at(deadline, sink.send(Frame::Ping(Vec::new().into()))).await {
                         Ok(Ok(())) => (wake_probe, probe_cause, request_probe) = (Some(deadline), None, false),
                         Ok(Err(e)) => break Err(e.to_string()),
-                        Err(_) => break Err(stopped_reading(WAKE_PROBE)),
+                        Err(_) => break Err(self.deadline_passed(stopped_reading(WAKE_PROBE))),
                     }
                 }
             };
@@ -1160,7 +1175,7 @@ impl Peer {
                         match write_within(sink.send(refusal), budget, None, wrote).await.ok_or(()) {
                             Ok(Ok(())) => {}
                             Ok(Err(e)) => break $link Err(e.to_string()),
-                            Err(_) => break $link Err(stopped_reading(budget)),
+                            Err(_) => break $link Err(self.deadline_passed(stopped_reading(budget))),
                         }
                     }
                 }
@@ -1204,10 +1219,10 @@ impl Peer {
                     if request_probe {
                         self.with_silence(SilenceBudget::probe_dropped);
                     }
-                    break Err(match probe_cause {
+                    break Err(self.deadline_passed(match probe_cause {
                         Some(why) => why,
                         None => format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs()),
-                    });
+                    }));
                 }
                 // This computer's network changed (`peer_network.rs`): the link may ride a route that
                 // is gone. A ping goes out at once and the link is dropped and redialed when nothing
@@ -1226,7 +1241,7 @@ impl Peer {
                                 ));
                             }
                             Ok(Err(e)) => break Err(e.to_string()),
-                            Err(_) => break Err(stopped_reading(network::NETWORK_PROBE)),
+                            Err(_) => break Err(self.deadline_passed(stopped_reading(network::NETWORK_PROBE))),
                         }
                     }
                 }
@@ -1270,7 +1285,19 @@ impl Peer {
                     }
                 }
                 _ = &mut handshake_deadline, if !self.link().is_ready() || !listed => {
-                    break Err(timed_out(handshake_started));
+                    break Err(self.deadline_passed(timed_out(handshake_started)));
+                }
+                // The silence budget ran out between two ping ticks (`silence_due`). The same rule
+                // as the tick's: a frame since then, or time this daemon did not read, keeps it.
+                _ = tokio::time::sleep_until(silence_due.unwrap_or_else(tokio::time::Instant::now)), if silence_due.is_some() => {
+                    let now = tokio::time::Instant::now();
+                    let late = now.saturating_duration_since(silence_due.take().unwrap_or(now));
+                    let silence = self.with_silence(|b| b.current());
+                    let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed())).min(reader.reading());
+                    if silent.saturating_sub(late) >= silence {
+                        self.with_silence(|b| b.dropped(now));
+                        break Err(self.deadline_passed(format!("peer stopped answering ({}s without a frame)", silent.as_secs())));
+                    }
                 }
                 due = ping.tick() => {
                     // The selector moved the session to a faster path: the link moves while no
@@ -1300,8 +1327,10 @@ impl Peer {
                     let late = now.saturating_duration_since(due);
                     if silent.saturating_sub(late) >= silence {
                         self.with_silence(|b| b.dropped(now));
-                        break Err(format!("peer stopped answering ({}s without a frame)", silent.as_secs()));
+                        break Err(self.deadline_passed(format!("peer stopped answering ({}s without a frame)", silent.as_secs())));
                     }
+                    let left = silence.saturating_sub(silent.saturating_sub(late));
+                    silence_due = (left < timings.ping_every).then(|| now + left);
                     if silent >= timings.ping_every {
                         self.with_link(Link::overdue);
                     }
@@ -1312,7 +1341,7 @@ impl Peer {
                             ping_out.get_or_insert_with(tokio::time::Instant::now);
                         }
                         Ok(Err(e)) => break Err(e.to_string()),
-                        Err(_) => break Err(write_late(budget, wake_probe)),
+                        Err(_) => break Err(self.deadline_passed(write_late(budget, wake_probe))),
                     }
                     let now = tokio::time::Instant::now();
                     if self.link().is_ready() && health::health_due(health_asked, now) {
@@ -1326,7 +1355,7 @@ impl Peer {
                     // `select!` is unbiased: a frame read as the deadline passes may not finish
                     // the handshake (or move the deadline on past its cap).
                     if (!self.link().is_ready() || !listed) && handshake_deadline.is_elapsed() {
-                        break Err(timed_out(handshake_started));
+                        break Err(self.deadline_passed(timed_out(handshake_started)));
                     }
                     frame_gap = frame_gap.max(last_frame.elapsed());
                     last_frame = tokio::time::Instant::now();
@@ -1543,7 +1572,7 @@ impl Peer {
                             match write_within(sink.send(refusal), budget, None, wrote).await.ok_or(()) {
                                 Ok(Ok(())) => {}
                                 Ok(Err(e)) => break Err(e.to_string()),
-                                Err(_) => break Err(stopped_reading(budget)),
+                                Err(_) => break Err(self.deadline_passed(stopped_reading(budget))),
                             }
                         }
                     }
@@ -1582,7 +1611,7 @@ impl Peer {
                             }
                         }
                         Ok(Err(e)) => break Err(e.to_string()),
-                        Err(_) => break Err(write_late(budget, wake_probe)),
+                        Err(_) => break Err(self.deadline_passed(write_late(budget, wake_probe))),
                     }
                     // A request on a link silent for a ping interval: a network gone without a
                     // reset takes the write into the kernel's buffer and answers nothing. A ping
@@ -1607,7 +1636,7 @@ impl Peer {
                             Ok(Err(e)) => break Err(e.to_string()),
                             Err(_) => {
                                 self.with_silence(SilenceBudget::probe_dropped);
-                                break Err(stopped_reading(wait));
+                                break Err(self.deadline_passed(stopped_reading(wait)));
                             }
                         }
                     }

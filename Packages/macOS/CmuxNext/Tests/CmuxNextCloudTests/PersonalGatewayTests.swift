@@ -66,6 +66,39 @@ struct PersonalGatewayTests {
         #expect(await wait.value == false)
     }
 
+    /// A chat its own connection or the organization's key serves never uses this Mac's gateway: its start waits for
+    /// none, even when the gateway cannot come up (the production probe's starts sat out the whole 10 s deadline).
+    @Test func aStartServedElsewhereWaitsForNoGateway() async {
+        let clock = ManualClock()
+        let children = Children([[]]) // never comes online
+        let gateway = make(children, clock: clock)
+        gateway.start()
+        let beside = gateway.onlineBeside(within: .seconds(10)) { true }
+        #expect(await beside.value) // no deadline advanced: answered at once
+        #expect(gateway.state == .starting)
+    }
+
+    /// A route that does use it: the start still waits for the gateway, up to its deadline.
+    @Test func aStartOnTheMacsGatewayStillWaitsForIt() async throws {
+        let clock = ManualClock()
+        let children = Children([[]])
+        let gateway = make(children, clock: clock)
+        gateway.start()
+        let beside = gateway.onlineBeside(within: .seconds(10)) { false }
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(10))
+        #expect(await beside.value == false)
+    }
+
+    /// Which routes reach this Mac's gateway: only the connection's credential and the organization's key do not.
+    @Test func onlyAConnectionOrTheOrganizationsKeyServeWithoutTheMacsGateway() {
+        #expect(CloudSetup.Choice.connection(id: "c", family: "claude").servedWithoutMacGateway)
+        #expect(CloudSetup.Choice.organization(family: "claude").servedWithoutMacGateway)
+        #expect(!CloudSetup.Choice.gateway(family: "claude").servedWithoutMacGateway)
+        #expect(!CloudSetup.Choice.fallback.servedWithoutMacGateway)
+        #expect(!CloudSetup.Choice.setup(family: "claude", model: nil).servedWithoutMacGateway)
+    }
+
     @Test func anotherGatewayTakingOverIsNotFoughtUntilAChatStartsHere() async {
         let children = Children([[#"{"event":"stopped","reason":"replaced"}"#, "EXIT"], [#"{"event":"online"}"#]])
         let gateway = make(children)
