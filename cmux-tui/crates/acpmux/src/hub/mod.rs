@@ -41,6 +41,9 @@ mod auto_background;
 pub(crate) mod auto_evacuate;
 // What Auto mode asks of a chat (`auto_session/`): its work, its record, its freeze.
 mod auto_hold;
+// A holder gives a chat the person moved: its turn stopped as a move by hand stops one.
+mod auto_give;
+pub(crate) use auto_give::TurnStop;
 pub(crate) mod auto_resume;
 mod away_recap;
 mod background_cause;
