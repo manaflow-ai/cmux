@@ -4,7 +4,11 @@
 # side by side.
 #
 #   cmux-ci run --class exclusive --measurement --script scripts/measure/phone-grid-live.sh \
-#     --ref SHA --artifact .build/phone-grid-live [--arg=grids=50x34,59x42] [--arg=claude=2.1.332]
+#     --ref SHA --artifact .build/phone-grid-live [--arg=grids=50x34,59x42] [--arg=claude=2.1.332] \
+#     [--arg=route=http://HOST:PORT]
+#
+# route= is a Claude route that signs requests itself (the team subrouter), as team-eval.sh takes it;
+# without it, Claude Code uses ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN from the environment.
 #
 # It builds cmux-tui and cmux-agent-cli-render's `phone_grid_proof` example from this checkout,
 # installs the asked Claude Code version into a scratch folder (the host's own stays as it is),
@@ -12,10 +16,10 @@
 # .build/phone-grid-live holds mac.txt, phone.txt and side-by-side.html, and a typed/ folder for
 # the same screen with an unsent draft.
 set -euo pipefail
-grids=50x34,59x42 claude=2.1.332 mac=110x32
+grids=50x34,59x42 claude=2.1.332 mac=110x32 route=""
 for kv in "$@"; do
   case "$kv" in
-    grids=*|claude=*|mac=*) eval "${kv%%=*}=\${kv#*=}";;
+    grids=*|claude=*|mac=*|route=*) eval "${kv%%=*}=\${kv#*=}";;
     *) echo "phone-grid-live: unknown argument $kv" >&2; exit 2;;
   esac
 done
@@ -39,8 +43,14 @@ mkdir -p "$CLAUDE_CONFIG_DIR"
 printf '{"hasCompletedOnboarding": true, "theme": "dark"}\n' > "$CLAUDE_CONFIG_DIR/.claude.json"
 # The pane's shell may not read the login environment: the model route goes in Claude's settings.
 python3 -c 'import json, os, sys
-env = {k: v for k, v in os.environ.items() if k in ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN")}
-json.dump({"env": env}, open(sys.argv[1], "w"))' "$CLAUDE_CONFIG_DIR/settings.json"
+route = sys.argv[2]
+if route:
+    settings = {"env": {"ANTHROPIC_BASE_URL": route},
+                "apiKeyHelper": "echo sk-ant-placeholder-the-route-signs"}
+else:
+    keep = ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN")
+    settings = {"env": {k: v for k, v in os.environ.items() if k in keep}}
+json.dump(settings, open(sys.argv[1], "w"))' "$CLAUDE_CONFIG_DIR/settings.json" "$route"
 chmod 600 "$CLAUDE_CONFIG_DIR/settings.json"
 echo "claude: $(claude --version)"
 cd "$repo/cmux-tui"
