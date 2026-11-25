@@ -22,6 +22,7 @@ import bisect
 import collections
 import os
 import re
+import shutil
 import subprocess
 import sys
 import urllib.request
@@ -52,7 +53,12 @@ def fetch(commit: str) -> Path:
         url = f"https://files.cmux.com/cmux-tui/{commit}/cmux-tui-aarch64-apple-darwin"
         print(f"fetching {url}", file=sys.stderr)
         part = dest.with_suffix(".part")
-        urllib.request.urlretrieve(url, part)
+        # The file host refuses urllib's default User-Agent with a 403 (2026-11-25: the wedge's
+        # sample could not be named until the binary was fetched by hand); a plain client name
+        # is served.
+        request = urllib.request.Request(url, headers={"User-Agent": "cmux-symbolicate-sample/1"})
+        with urllib.request.urlopen(request) as response, open(part, "wb") as out:
+            shutil.copyfileobj(response, out)
         part.rename(dest)
     return dest
 
