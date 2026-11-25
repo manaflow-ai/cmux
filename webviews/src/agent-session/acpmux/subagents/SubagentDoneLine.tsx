@@ -529,7 +529,7 @@ function LineControl({
 function FailedMark() {
   return (
     <span className="cv-subagent-done__failed-mark" aria-hidden="true">
-      <Icon name="status.error" size={10} />
+      <Icon name="status.error" size={12} />
     </span>
   );
 }
