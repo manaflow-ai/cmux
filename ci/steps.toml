@@ -1704,7 +1704,9 @@ rustup toolchain install "$channel" --profile minimal --component clippy,rustfmt
 # The build env cmux-tui-artifacts.yml's feat-cmux-next push job tests with, so its saved target is fresh here: no
 # incremental state (it only fills the disk), the ghostty-next gitlink's sources, Zig from PATH.
 export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_HTTP_MULTIPLEXING=false TMPDIR=/tmp CMUX_GHOSTTY_SRC=""
-export GHOSTTY_ZIG_SOURCE=ghostty-next CARGO_INCREMENTAL=0
+# Fork pull requests use a 4-vCPU Linux runner. Keep cold rustc fan-out within that
+# runner's memory budget after an unrestricted compile killed rustc with SIGKILL.
+export GHOSTTY_ZIG_SOURCE=ghostty-next CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2
 unset CMUX_ZIG ZIG
 # The last feat-cmux-next push's build (read only; a miss builds cold): unchanged crates are not compiled again.
 ../scripts/ci/cmux-tui-test-target.sh restore
