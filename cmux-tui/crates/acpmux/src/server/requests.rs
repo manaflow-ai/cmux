@@ -2317,6 +2317,22 @@ async fn dispatch_request_with_identity(
             let flag = |k| mux_meta(&params).and_then(|m| m.get(k)).and_then(Value::as_bool);
             let steer = flag("steer").or_else(|| params.get("steer").and_then(Value::as_bool));
             let steer = steer.unwrap_or(false);
+            // An outside producer's message that waits for the chat's cold batch (`acpmux send
+            // --gather`, `hub/cold_wake.rs`): refused when it could not wait.
+            if flag(crate::hub::cold_wake::GATHER_META) == Some(true) {
+                let fire = mux_meta(&params)
+                    .and_then(|m| m.pointer("/notice/severity"))
+                    .and_then(Value::as_str)
+                    == Some("fire");
+                let wakes_now = flag("interrupt") == Some(true)
+                    || flag("steerNow") == Some(true)
+                    || flag("wakeOrFail") == Some(true);
+                if let Some(refused) =
+                    crate::hub::cold_wake::gather_refusal(agent.is_some(), class, fire, wakes_now)
+                {
+                    return Err(refused);
+                }
+            }
             // A subagent's prompt that starts a turn of a lane of its own lead: that turn's answer
             // reaches the subagent (`hub/lane_report_subagents.rs`), so the receiver is told to end
             // its turn with it rather than send it to the lead (`hub/prompt_attribution.rs`). Not
@@ -3679,6 +3695,10 @@ async fn dispatch_request_with_identity(
         method::MUX_ATTACH => {
             let s = hub.resolve(session_key(&params)?)?;
             let hidden = params.get("visible") == Some(&Value::Bool(false));
+            // The app's pane draws nothing of a chat it does not show: no stream while hidden.
+            // Never a peer daemon's link, which attaches hidden for the people it carries.
+            let quiet_hidden = params.get("quietHidden") == Some(&Value::Bool(true))
+                && conn.origin != Origin::Peer;
             if params.get("hold") == Some(&Value::Bool(true)) {
                 let filter = hold_attach_filter(&params)?;
                 if attach_shows(conn, &params) {
@@ -3698,6 +3718,9 @@ async fn dispatch_request_with_identity(
                         idle: !hidden && params.get("attending") == Some(&Value::Bool(false)),
                         remote: false,
                         rows: None,
+                        quiet_hidden,
+                        left_out: 0,
+                        left_from: 0,
                     },
                 );
                 let detail = hub.session_detail(&s);
@@ -3754,6 +3777,9 @@ async fn dispatch_request_with_identity(
                     idle: !hidden && params.get("attending") == Some(&Value::Bool(false)),
                     remote: false,
                     rows: None,
+                    quiet_hidden,
+                    left_out: 0,
+                    left_from: 0,
                 },
             );
             let settled_key = match settled {
