@@ -126,6 +126,10 @@ pub struct LinkStat {
     pub end: Option<&'static str>,
     /// The link library's version.
     pub lib: &'static str,
+    /// `proxy` or `inspected` when this network's link connections leave
+    /// through a proxy (one that inspects TLS); absent when direct.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub egress: Option<&'static str>,
     /// The Mac offered a NAT-mapped endpoint (PROTOCOL.md "Mapped
     /// endpoints"): which protocol mapped it and whether the route uses it.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -300,6 +304,7 @@ impl Reporter {
                 .min(30 * 86_400),
             end: end.map(end_kind),
             lib: env!("CARGO_PKG_VERSION"),
+            egress: crate::egress::seen().map(crate::egress::PathKind::as_str),
             portmap: None,
             echo: None,
             ack: None,
