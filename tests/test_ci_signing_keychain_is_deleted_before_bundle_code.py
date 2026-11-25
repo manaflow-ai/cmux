@@ -1043,6 +1043,10 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
     # stable-next.yml's sign keeps an owned route for its keyless dry run; test_ci_signing_owned_mac.py exempts it
     # from the whole-mini claim because its signing secrets sit behind the condition that picks Blacksmith.
     failures.extend(secret_gate_failures(name, job) or [])
+    # Rule 7a: the whole-mini claim that #53754 kept ("the whole-mini signing claim stay[s]"); its call lived in the
+    # deleted rule-7 runs-on loop, so it is made here for every claim-gated job that holds a signing secret.
+    if signing_secret(job) and claim_gated(name, job):
+        failures.extend(owned_route_failures(name, job))
 
     text = json.dumps(job)
     pool_signer = release_pool_signer(job)

@@ -80,7 +80,7 @@ class Tree:
     def __init__(self, repo: Path, rev: str | None):
         self.repo, self.rev = repo, rev
         # path -> blob id, from files()' listing: read() asks cat-file by id. Asked `<rev>:<path>`, git resolves each
-        # path from the root tree again, about 4 ms a file on big-red's cmux mirror (2026-11-21: this check's two
+        # path from the root tree again, about 4 ms a file on a Linux workstation's cmux mirror (2026-11-21: this check's two
         # passes over every Packages Swift file took 118 s of a merge push's pre-push gate).
         self.ids: dict[str, str] = {}
 

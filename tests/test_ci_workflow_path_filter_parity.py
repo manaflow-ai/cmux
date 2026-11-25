@@ -90,10 +90,12 @@ PULL_REQUEST_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
     "cmux-next.yml": (
         "paths",
         frozenset({
-            "!plans/cmux-next/**/*.md", "plans/cmux-next/actions.md", "plans/cmux-next/browser-repl/README.md",
+            "!plans/cmux-next/**/*.md", "plans/cmux-next/actions.md", "plans/cmux-next/auto-mode/turncut/README.md",
+            "plans/cmux-next/browser-repl/README.md",
             "plans/cmux-next/feed/prototypes/webkit-duplicate/README.md", "plans/cmux-next/formal/README.md",
             "plans/cmux-next/helium-density/README.md", "plans/cmux-next/home-messaging-invites/REPORT.md",
-            "plans/cmux-next/markdown-omnibar-DESIGN.md", "plans/cmux-next/spec-proposals/visuals/README.md",
+            "plans/cmux-next/markdown-omnibar-DESIGN.md", "plans/cmux-next/sidebar-owner/README.md",
+            "plans/cmux-next/spec-proposals/visuals/README.md",
         }),
         "a pull request of plan docs no Swift target names starts no run (tests/test_ci_docs_only_prs.py)",
     ),

@@ -349,7 +349,7 @@ const OPS: Record<Exclude<OpName, "none">, (ctx: Ctx) => Promise<string>> = {
   },
   async deliverSecrets(ctx) {
     // The sealed delivery's file (cmux-remote secrets): `export NAME='value'` lines, 0600, the work user's.
-    await execOk(ctx, `set -eu; ${ROOT}; h=$(getent passwd cmux | cut -d: -f6); root install -d -o cmux -g cmux -m 700 "$h/.config/cmux"; printf "export HASSLE_SECRET='%s'\\n" ${ctx.tag} > /tmp/vm-hassle-sec-${ctx.tag}; root install -o cmux -g cmux -m 600 /tmp/vm-hassle-sec-${ctx.tag} "$h/.config/cmux/machine-secrets.env"; rm -f /tmp/vm-hassle-sec-${ctx.tag}`);
+    await execOk(ctx, `set -eu; ${ROOT}; h=$(getent passwd cmux | cut -d: -f6); root install -d -o cmux -g cmux -m 700 "$h/.config/cmux"; t=$(mktemp); printf "export HASSLE_SECRET='%s'\\n" ${ctx.tag} > "$t"; root install -o cmux -g cmux -m 600 "$t" "$h/.config/cmux/machine-secrets.env"; rm -f "$t"`);
     return "HASSLE_SECRET (emulated: the sealed delivery's file)";
   },
   async startSession(ctx) {

@@ -134,6 +134,9 @@
   "cmux_tui_core::apps::egress": {
    "todo": true
   },
+  "cmux_tui_core::apps::git_source": {
+   "none": "header-less GETs of a public repository's refs, archive and release (no token, cookie or credential; a private repository 404s), and the anonymous install ping {ref, commit} with no user id"
+  },
   "cmux_tui_core::blob_fetch": {
    "todo": true
   },

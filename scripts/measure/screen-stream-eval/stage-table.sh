@@ -8,13 +8,13 @@
 # The viewer half drives the host over the LAN (screen-share-vs.py --via peer): each command is one HTTP POST that
 # carries the run's token, to the host half's server on HOST_IP:4181, which takes the first private-address client
 # that holds the token and that one only, and ends at the viewer's /done or after 2 h. Apple's presented Total
-# (--apple-viewer) logs in with the fleet login the worker wrote for a vnc-login step (CMUX_CI_VNC_LOGIN_FILE), else
-# with the fleet password in the viewer's login keychain (manaflow-fleet-sudo, as fleet-sudo --login-keychain stores it).
+# (--apple-viewer) logs in with the fleet login the worker wrote for a vnc-login step (CMUX_CI_VNC_LOGIN_FILE); this
+# script never reads the fleet sudo password from a keychain (only the fleet's own sudo tool does).
 # cmux's Present and Total cells (Leo, 2026-11-16: "we should be able to like pin down at each step like what is
 # actually bottlenecking us") come from a DEV cmux NEXT app built at this commit on each Mac (reload.sh --tag, as
 # chat-open.sh builds one): the viewer's is --app-viewer, the host's (the sharing app that approves the hub session)
 # is --app-host-app. The host app is started as a child of this step, so it inherits the launcher's Screen Recording;
-# it publishes its path through the peer server under /tmp/cmux-stage-table-<token hash>.host-app. Both apps sign in
+# it publishes its path through the peer server under ~/.cache/cmux-stage-table/<token hash>.host-app. Both apps sign in
 # to the device hub with CMUX_STAGE_TABLE_AUTH_FILE (default: the Mac's ~/rd-hub-rig/private/creds.env, the Mac Screen
 # rig's agent test-account file). Without that file, or when an app build or launch fails, the run keeps Apple's leg
 # and the cmux rows end at decode, and a SCREEN-STREAM-EVAL-STAGE line says why.
@@ -43,11 +43,14 @@ auth_file() {
   fi
   [[ -f "$f" ]] && printf '%s\n' "$f"
 }
-# Where the host half tells the viewer half its app (the peer server runs `cat`): per run, by the token.
-host_app_file="/tmp/cmux-stage-table-$(shasum -a 256 "$token_file" | cut -c1-16).host-app"
+# Where the host half tells the viewer half its app (the peer server runs `cat`): per run, by the token, in the
+# host account's own cache folder (a guessed shared /tmp name could be another account's file or link).
+host_app_name="$(shasum -a 256 "$token_file" | cut -c1-16).host-app"
+host_app_file="$HOME/.cache/cmux-stage-table/$host_app_name"
 
 if [[ "$role" == host ]]; then
   echo "SCREEN-STREAM-EVAL-STAGE stage-table host serving $addr:$port"
+  mkdir -p "${host_app_file%/*}" && chmod 700 "${host_app_file%/*}"
   rm -f "$host_app_file"
   python3 -I "$vs" peer-serve --bind "$addr" --port "$port" --token-file "$token_file" --hold-s 7200 &
   serve=$!
@@ -92,17 +95,8 @@ fi
 [[ "$legs" =~ ^[a-z0-9=-]+(,[a-z0-9=-]+)*$ ]] || { echo "stage-table.sh: legs are LINK or LINK=PROFILE, comma-separated" >&2; exit 2; }
 login="${CMUX_CI_VNC_LOGIN_FILE:-}"
 if [[ -z "$login" || ! -f "$login" ]]; then
-  # No vnc-login step (the controller has no fleet login source): the fleet password this Mac's login keychain holds
-  # (`fleet-sudo --login-keychain HOST` stores it as manaflow-fleet-sudo; the fleet Macs share one), in a 0600 file
-  # under this step's output that is removed when the step ends. Never argv, environment or logs.
   login=""
-  if pw=$(security find-generic-password -s manaflow-fleet-sudo -w 2>/dev/null) && [[ -n "$pw" && "$pw" != *$'\n'* ]]; then
-    login=$(umask 077 && mktemp "$out/.vnc-login.XXXXXX") && printf '%s\n' "$pw" >"$login" || login=""
-    trap 'rm -f "$login"' EXIT
-    echo "SCREEN-STREAM-EVAL-STAGE stage-table: vnc login from this Mac's keychain (manaflow-fleet-sudo)"
-  fi
-  unset pw
-  [[ -n "$login" ]] || echo "SCREEN-STREAM-EVAL-STAGE stage-table: no vnc login file (CMUX_CI_VNC_LOGIN_FILE) and no manaflow-fleet-sudo in this Mac's keychain (fleet-sudo --login-keychain HOST): Apple's legs fail"
+  echo "SCREEN-STREAM-EVAL-STAGE stage-table: no vnc login file (CMUX_CI_VNC_LOGIN_FILE, a vnc-login step writes it): Apple's legs fail"
 fi
 
 # The tools at this commit, as screen-stream-eval.sh tools-only=1 builds them (screen-share-vs.py --tools).
@@ -142,11 +136,11 @@ done
 app_args=()
 host_app=""
 [[ -z "$app_why" ]] && for _ in $(seq 1 360); do
-  host_app=$(python3 -I - "$url" "$token_file" "$host_app_file" <<'PY' 2>/dev/null
+  host_app=$(python3 -I - "$url" "$token_file" "$host_app_name" <<'PY' 2>/dev/null
 import json, sys, urllib.request
 token = open(sys.argv[2]).read().strip()
 req = urllib.request.Request(sys.argv[1] + "/run", method="POST", headers={"X-Eval-Token": token},
-                             data=json.dumps({"cmd": "cat " + sys.argv[3], "timeout": 10}).encode())
+                             data=json.dumps({"cmd": 'cat "$HOME/.cache/cmux-stage-table/' + sys.argv[3] + '"', "timeout": 10}).encode())
 res = json.loads(urllib.request.urlopen(req, timeout=10).read())
 print(res["out"].strip() if res.get("rc") == 0 else "")
 PY

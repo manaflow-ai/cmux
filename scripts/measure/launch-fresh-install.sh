@@ -361,7 +361,7 @@ print(json.dumps(r, sort_keys=True))' "$name" "$rep" "$copied_by" "$cpu_before" 
       ps -p "$(echo $pids | tr ' ' ',')" >/dev/null 2>&1 || break
       sleep 0.1
     done
-    ps -p "$(echo $pids | tr ' ' ',')" >/dev/null 2>&1 && echo "LF-WARN processes of $tag still up 10 s after kill: $(echo $pids)" >&2
+    ps -p "$(echo $pids | tr ' ' ',')" >/dev/null 2>&1 && echo "LF-WARN processes of $tag still up 10 s after the signal: $(echo $pids)" >&2
   fi
   # The measured open is over: a prompt still up (a press that missed, one a copy's helper raised) is not needed.
   # Cancel it now, while its copy exists; with the copy deleted under it, it stays as '"(null)" is an app downloaded
