@@ -7356,6 +7356,7 @@ def quarantined_only(view: "FailedView | Unplaced", known: dict) -> bool:
 WS_CHECK = "ws-check"
 WS_CHECK_REPOS = {"teamleaderleo/leo-workspace": "manaflow-ai/cmuxterm-hq"}  # repo: the repo its runs are in
 WS_CHECK_COMMITS = 30  # base commits read for a verdict, newest first (most main commits get none)
+WS_CHECK_TESTED_TIPS = 20  # base commits whose squash tree a run may have tested (one local merge-tree each)
 # leo-workspace tools/ws-check describes a failure "N of M steps failed: STEP", cut to 139 characters. It may lead with
 # "base red (main SHA8 fails it too) " (main's own run fails those steps) and end the step with a hint ("STEP; lints
 # before the next push: ..."); ws_check_names_step reads the step text.
@@ -7661,22 +7662,45 @@ def ws_check_squash_tree(repo: str, head: str, tip: str, branches: Callable[[], 
     return cut
 
 
-def ws_check_tested_tree(repo: str, base: str, sha: str, snapshot: dict, tip: str, github=None) -> None:
-    """Refused unless the head SHA's snapshot run (SNAPSHOT: {"run", "tree"}, ws_check_verdict) tested the tree a pinned
-    squash of SHA onto BASE's tip TIP makes (ws_check_squash_tree), compared by tree id only. A run that tested an older
-    base, another head, or names no tree is no verdict on what lands."""
+def ws_check_tested_tree(repo: str, base: str, sha: str, snapshot: dict, tips, github=None) -> str:
+    """The BASE commit the head SHA's snapshot run (SNAPSHOT: {"run", "tree"}, ws_check_verdict) tested SHA against: the
+    newest of TIPS (BASE's commits newest first, or one sha) whose pinned squash with SHA (ws_check_squash_tree) makes
+    the tree the run tested, compared by tree id only. The tip is tried first, and a run that tested an older tip is
+    still a verdict on the tree that tip made: ws_check_red holds its red against that same commit and the ones before
+    it, never a newer one. Refused when the run names no tree, or no commit in TIPS makes its tree: that run tested
+    another head, or a base older than the window, and is no verdict on SHA.
+
+    A single tip is not enough: a base that moves faster than one run of its own checks can never be matched by its tip
+    (2026-11-24, leo-workspace main: 16.8 merges/hour, median gap 104 s, 99.7% of gaps under one 2000 s ws-check run),
+    so every head was refused "it tested another base or head" and the remedy that refusal names (merge the base in and
+    run again) could never finish either."""
     where = f"'{WS_CHECK}' on {sha}: run {snapshot.get('run')}"
     tested = snapshot.get("tree")
     if not (isinstance(tested, str) and HEX40.fullmatch(tested)):
         raise Refused(f"{where} names no tested tree in its receipt, so it cannot be held to {sha[:12]} merged with "
                       f"{base}")
-    if not HEX40.fullmatch(tip or ""):
+    if isinstance(tips, str):
+        tips = [tips]
+    window = [tip for tip in tips[:WS_CHECK_TESTED_TIPS] if isinstance(tip, str) and HEX40.fullmatch(tip)]
+    if not window:
         raise Refused(f"{where}: {base} has no tip to merge {sha[:12]} with")
     WS_CHECK_BRANCHES[(repo, sha)] = lambda: ws_check_branches(repo, base, sha, github)
-    want = ws_check_squash_tree(repo, sha, tip)
-    if tested != want:
-        raise Refused(f"{where} tested tree {tested[:12]}, not {sha[:12]} merged with {base}'s tip {tip[:12]} "
-                      f"({want[:12]}): it tested another base or head. Run ws-check again at this head")
+    made, unread = [], []
+    for tip in window:
+        try:
+            want = ws_check_squash_tree(repo, sha, tip)
+        except Refused as error:  # one commit git cannot merge is no verdict on the others
+            unread.append(f"{tip[:12]}: {error}")
+            continue
+        if tested == want:
+            return tip
+        made.append(f"{tip[:12]} ({want[:12]})")
+    if not made:
+        raise Refused(f"{where}: {sha[:12]} merges with none of {base}'s {len(window)} newest commits, so its tested "
+                      f"tree {tested[:12]} cannot be placed: {unread[0]}"[:400])
+    raise Refused(f"{where} tested tree {tested[:12]}, not {sha[:12]} merged with any of {base}'s {len(window)} newest "
+                  f"commits (tip {made[0]}, oldest tried {made[-1]}): it tested another base or head. Run ws-check "
+                  f"again at this head")
 
 
 def ws_check_status(repo: str, sha: str, github) -> dict | None:
@@ -7911,7 +7935,8 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
             # No step line: the run's own line says it, one fact with no tests (its path and first watcher vary).
             if not any(line.startswith(WS_CHECK_GIT_CONFIG_LINE) for line in lines[:at]):
                 raise Refused(f"{where}: run {link[1]} has no '{WS_CHECK_GIT_CONFIG_LINE}' line")
-            steps[step] = {"tests": frozenset(), "lines": frozenset({WS_CHECK_GIT_CONFIG_LINE}), "failures": {}}
+            steps[step] = {"tests": frozenset(), "lines": frozenset({WS_CHECK_GIT_CONFIG_LINE}), "failures": {},
+                           "suites": frozenset({""}), "line_suites": {}}
             continue
         # The step's red result lines, one per red unit ("STEP" alone from a runner before units, else "STEP [UNIT]"),
         # each read in its own group; the step's tests and lines are every red unit's together.
@@ -7919,7 +7944,7 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
         ends = [(n, m[1]) for n in range(at) if (m := result.match(lines[n]))]
         if not ends:
             raise Refused(f"{where}: run {link[1]} has no 'ws-check step FAILED: {step}' line")
-        tests, printed, failures = set(), set(), {}
+        tests, printed, failures, suites, line_suites = set(), set(), {}, set(), {}
         try:
             for end, unit in ends:
                 red = ws_check_step(lines, end, step + unit)
@@ -7929,12 +7954,18 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
                 suite = WS_CHECK_SHARD.sub("", unit.strip()[1:-1]) if unit else ""
                 tests |= {f"[{suite}] {test}" if suite else test for test in red["tests"]}
                 printed |= red["lines"]
+                suites.add(suite)
+                for line in red["lines"]:
+                    line_suites.setdefault(line, set()).add(suite)
                 for test, body in red["failures"].items():
                     failures.setdefault(f"[{suite}] {test}" if suite else test, set()).update(body)
         except Refused as error:
             raise Refused(f"{where}: run {link[1]}: {error}") from None
+        # "suites": the step's red units by suite ("" for a step not split into units), and "line_suites" which units
+        # printed each line: ws_check_red's per-suite base red (ws_check_suite_touched) reads them.
         steps[step] = {"tests": frozenset(tests), "lines": frozenset(printed),
-                       "failures": {test: frozenset(body) for test, body in failures.items()}}
+                       "failures": {test: frozenset(body) for test, body in failures.items()},
+                       "suites": frozenset(suites), "line_suites": {line: frozenset(s) for line, s in line_suites.items()}}
     return "fail", dict(found, steps=steps)
 
 
@@ -8030,6 +8061,41 @@ def ws_check_base_verdict(repo: str, commit: str, github) -> tuple[str, dict]:
         return "none", {"why": f"its verdict cannot be read ({str(error)[:300]})", "url": "", "unreadable": True}
 
 
+# 2026-11-24: 11 of 27 land-judge overrides in 9 h were leo-workspace heads whose ws-check was red only in suites the
+# PR did not touch, suites red on main too (lw#10075 at e1457204: "ws-check reds are unrelated base reds (git env,
+# guards, land_judge_engine); the changed suite test_pr_hour passed 34/34 in the same run"). Read per test, those reds
+# were "failing another way there" (a tmp path, a list's order, a subprocess timeout) or a test main's red suite did
+# not fail this time, so the head's red read as its own. Rulebook [base-red-not-yours]: "A red failing the same way
+# on base is not yours". A failing unit of a step split into suites ("STEP [test_x.py]") is now excused as a whole
+# when main's newest readable ws-check verdict (the window's tip, no unreadable verdict newer) fails the same step's
+# same suite and this PR changes none of that suite's files (ws_check_suite_touched), the way an Actions job red on the
+# base is the base's. A step not split into suites (a lint, a whole-step test) is still read per test and per line:
+# its new offender is the head's own. Unreadable main verdict or PR diff: no per-suite excuse (fail closed).
+WS_CHECK_UNREPORTED = "no WS_CHECK_RESULT line: the checks did not report"  # tools/ws-check's words for a cut run
+
+
+def ws_check_test_suite(test: str) -> str:
+    """The suite a ws_check_verdict test name carries ("[test_x.py] test_a (...)" -> "test_x.py"), "" when none."""
+    return test[1:test.index("] ")] if test.startswith("[") and "] " in test else ""
+
+
+def ws_check_suite_touched(suite: str, paths: "list[str] | None") -> bool:
+    """Whether a PR changing PATHS (None: unread) changes SUITE (a tools/test_x.py suite's file name): the suite
+    itself, or the module it is named for (x.py, x/, x-cli), anywhere. Unread paths count as touched."""
+    if paths is None:
+        return True
+    stem = Path(suite).stem
+    names = {stem, stem.removeprefix("test_"), stem.removeprefix("test_").replace("_", "-")} - {""}
+    return any(Path(path).stem in names or names & set(Path(path).parts[:-1]) for path in paths)
+
+
+def ws_check_names_paths(lines, paths: list[str]) -> bool:
+    """Whether any of LINES (normalised failure text) names one of PATHS, by path or file name, raw or normalised."""
+    names = {form for path in paths for name in (path, Path(path).name) for form in (name, normalise_error(name))
+             if len(name) > 3}
+    return any(name in line for line in lines for name in names)
+
+
 def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | None" = None) -> dict:
     """The one verdict on SHA's ws-check status against BASE: {"kind" (one of WS_CHECK_KINDS), "fix" (the fixing base
     commit, for "fixed_on_base", else ""), "message" (what a refusal says), "audit" (the lines an excuse prints)}.
@@ -8047,7 +8113,10 @@ def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | N
     merge_base = evidence.merge_base(sha)
     commits = evidence.status_commits(WS_CHECK_COMMITS)
     if head.get("snapshot"):
-        ws_check_tested_tree(repo, base, sha, head["snapshot"], commits[0] if commits else "", github)
+        # The run tested the head on one of the base's commits, not always its tip: compare with that commit and the
+        # ones before it. A newer base commit never tested this tree, and could only have fixed what the run found.
+        anchor = ws_check_tested_tree(repo, base, sha, head["snapshot"], commits, github)
+        commits = commits[commits.index(anchor):]
     unreadable: list[str] = []
 
     def readable(found: tuple) -> bool:
@@ -8062,6 +8131,9 @@ def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | N
                       "compare with" + (f" ({len(unreadable)} unreadable, first {unreadable[0]})" if unreadable else ""))
     tip, tip_kind, tip_verdict = newest
     tested = f"{base} {tip[:12]} ({tip_verdict['url'] or 'no run'})"
+    # The tip is main's latest finished verdict unless a newer one finished but went unread (fail closed); a run that
+    # never reported (timed out before its WS_CHECK_RESULT) never finished, so it hides nothing.
+    tip_fresh = all(WS_CHECK_UNREPORTED in why for why in unreadable)
 
     def has(verdict: dict, unit) -> bool:
         step, kind, item = unit
@@ -8133,6 +8205,38 @@ def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | N
     def mb_note() -> str:
         return f" or at the merge-base {merge_base[:12]}" if at_merge_base else ""
 
+    pr_paths: list = []  # [the PR's changed paths, or None when unread], read once on the first suite asked about
+    by_suite_seen: set[tuple[str, str]] = set()
+
+    def changed() -> "list[str] | None":
+        if not pr_paths:
+            try:
+                files = github.json(f"repos/{repo}/compare/{base}...{sha}").get("files")
+            except Refused:
+                files = None
+            ok = isinstance(files, list) and 0 < len(files) < COMPARE_FILES_CAP
+            pr_paths.append(sorted({path for found in files for path in (found.get("filename"),
+                                                                          found.get("previous_filename"))
+                                    if isinstance(path, str) and path}) if ok else None)
+        return pr_paths[0]
+
+    def by_suite(step: str, suites, new=()) -> bool:
+        """Whether every unit of STEP in SUITES is a per-suite base red: red on the tip too, untouched by the PR, and
+        none of the head's lines NEW that the tip does not print names a path the PR changes (a repo-wide lint test's
+        new offender, leo-workspace#5683: its suite red on main too, its new line naming the PR's own file)."""
+        ok = bool(suites) and tip_fresh and all(
+            suite and suite in tip_verdict["steps"].get(step, {}).get("suites", ()) for suite in suites)
+        if ok and (any(ws_check_suite_touched(suite, changed()) for suite in suites)
+                   or ws_check_names_paths(new, changed() or [])):
+            return False
+        if ok:
+            by_suite_seen.update((step, suite) for suite in suites)
+        return ok
+
+    def suite_said(step: str, suites) -> str:
+        return (f"its suite(s) {', '.join(sorted(suites))} red on {tested} too, and this PR changes none of their "
+                "files: a per-suite base red")
+
     passed_at = ""  # the base pass that ended the window, if one did
     while any(on(unit) is None for unit in units) and len(window) < BASE_WINDOW:
         before = next(verdicts, None)
@@ -8163,6 +8267,10 @@ def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | N
             if (found := on((step, "test", test))) is not None:
                 lines.append(f"excused '{WS_CHECK}' test '{step} :: {test}': {where(found)} "
                              f"({found[1]['url'] or 'no run'})")
+            elif by_suite(step, {ws_check_test_suite(test)},
+                          failure_text(head, step, test) - failure_text(tip_verdict, step, test)):
+                lines.append(f"excused '{WS_CHECK}' test '{step} :: {test}': "
+                             f"{suite_said(step, {ws_check_test_suite(test)})}")
             else:
                 # Red by name on a base verdict, but failing another way there: the failure lines none of those
                 # verdicts' failures of it print, a few (a lint's new offender is often not its first new line).
@@ -8180,25 +8288,33 @@ def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | N
                     missing.append(f"'{step} :: {test}'")
                     lines.append(f"not excused '{WS_CHECK}' test '{step} :: {test}': not red on {tested}{older()}"
                                  f"{mb_note()}; this head's own red")
-        unmatched = [line for line in sorted(red["lines"]) if on((step, "line", line)) is None]
+        unmatched = [line for line in sorted(red["lines"]) if on((step, "line", line)) is None
+                     and not by_suite(step, red.get("line_suites", {}).get(line, frozenset()), (line,))]
         label = f"step '{step}'" + (" (its ws-check lines)" if red["tests"] else " (no test names: its output)")
         if unmatched:
             missing.append(f"'{step}' line '{unmatched[0][:200]}'")
             lines.append(f"not excused '{WS_CHECK}' {label}: {len(unmatched)} of {len(red['lines'])} line(s) not on "
                          f"{tested}{older()}{mb_note()}, first '{unmatched[0][:200]}'; this head's own red")
         elif not red["tests"]:
-            found = {on((step, "line", line))[0] for line in red["lines"]}
-            lines.append(f"excused '{WS_CHECK}' {label}: its {len(red['lines'])} line(s) are red on {base} "
+            found = {hit[0] for line in red["lines"] if (hit := on((step, "line", line))) is not None}
+            suited = sorted({suite for line in red["lines"] if on((step, "line", line)) is None
+                             for suite in red.get("line_suites", {}).get(line, ())})
+            strict = sum(on((step, "line", line)) is not None for line in red["lines"])
+            lines.append(f"excused '{WS_CHECK}' {label}: its {strict} line(s) are red on {base} "
                          f"{', '.join(sorted(commit[:12] for commit in found)) or tip[:12]} too"
-                         + (" (the merge-base's included)" if at_merge_base and at_merge_base[0][0] in found else ""))
+                         + (" (the merge-base's included)" if at_merge_base and at_merge_base[0][0] in found else "")
+                         + (f"; the rest are {suite_said(step, suited)}" if suited else ""))
     if missing:
         return {"kind": "head_only", "fix": "", "audit": [],
                 "message": f"'{WS_CHECK}': {len(missing)} failure(s) not on {base}: {'; '.join(missing)[:600]}\n"
                            + "\n".join(lines)}
     via = (f"; at this PR's merge-base {merge_base[:12]} ({at_merge_base[0][1]['url'] or 'no run'}) for what the "
-           "window does not show" if at_merge_base and any(on(unit)[0] == merge_base for unit in units) else "")
+           "window does not show" if at_merge_base and any((on(unit) or ("",))[0] == merge_base for unit in units)
+           else "")
+    suited = (f"; per suite for {len(by_suite_seen)} suite(s) this PR does not touch: "
+              f"{', '.join(sorted(suite for _, suite in by_suite_seen))[:300]}" if by_suite_seen else "")
     audit = [f"excused '{WS_CHECK}': every failure on {sha[:12]} is red on {base} too (newest {base} verdict "
-             f"{tested}{via})"] + lines
+             f"{tested}{via}{suited})"] + lines
     return {"kind": "base_red", "fix": "", "message": audit[0], "audit": audit}
 
 
