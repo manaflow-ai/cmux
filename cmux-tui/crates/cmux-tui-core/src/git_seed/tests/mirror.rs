@@ -415,14 +415,21 @@ fn measure_add_repository_cold_and_warm() {
         let started = Instant::now();
         let jobs: Vec<String> =
             folders.iter().map(|f| start(&service, &params(f)).expect("git.seed.start")).collect();
-        let states: Vec<String> = jobs
+        let finished: Vec<Value> = jobs.iter().map(|job| finish(&service, job)).collect();
+        // Where the seconds went (the first add's steps), so a slow row reads apart.
+        println!("TIMINGS {}", finished[0]["timings"]);
+        let states: Vec<String> = finished
             .iter()
-            .map(|job| finish(&service, job)["mirror"].as_str().unwrap_or("-").to_owned())
+            .map(|status| status["mirror"].as_str().unwrap_or("-").to_owned())
             .collect();
         let seconds = started.elapsed().as_secs_f64();
         let rx = rx.zip(received()).map(|(a, b)| b.saturating_sub(a));
         let mirror_after = mirrors.as_ref().map(|root| tree_bytes(root)).unwrap_or(0);
-        let own: u64 = folders.iter().map(|f| tree_bytes(&f.join(".git/objects"))).sum();
+        // The folder's own objects and its submodules' (`.git/modules`).
+        let own: u64 = folders
+            .iter()
+            .map(|f| tree_bytes(&f.join(".git/objects")) + tree_bytes(&f.join(".git/modules")))
+            .sum();
         for folder in &folders {
             git(folder, &["fsck", "--no-progress", "--connectivity-only"]);
         }
