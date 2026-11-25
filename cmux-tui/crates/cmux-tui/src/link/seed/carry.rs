@@ -53,7 +53,7 @@ pub fn pack(folder: &Path, base: &str, out: &Path) -> Result<u64, String> {
     let staged = git::optional(git::at(folder).args(["ls-files", "--stage"]))
         .unwrap_or_default()
         .lines()
-        .filter_map(|line| line.split_once(' ').map(|(object, _)| object.to_owned()))
+        .filter_map(|line| line.split_whitespace().nth(1).map(str::to_owned))
         .filter(|object| {
             (object.len() == 40 || object.len() == 64)
                 && object.bytes().all(|byte| byte.is_ascii_hexdigit())
