@@ -16,7 +16,7 @@ the profiles lane goes here first, then into a PR.
 | --- | --- | --- |
 | A prop change animates (spring, timed curve, design-token springs) | Yes: `.animation(m)`, runtime 1.4.0, web and native renderers | Done here: one Rust contract `cmux.motion/1` (`cmux-app-host/src/motion.rs`, `cmux_extension_sdk::motion`) normalizes it on every batch, so both renderers read the same value |
 | Enter and exit transitions of a node | Yes: `.transition(opacity slide scale move pop)` | A transition takes no timing: it always uses the renderer's own spring. A `{kind, motion}` form would let a profile match another app's panel timing |
-| Looping effects (pulse, breathe, spin, ...) | Yes: `.loop({effect, period, amount})` | The native renderer clamps `amount` to [0, 10], so a counterclockwise `spin` (negative amount, as ABI.md says) turns clockwise on macOS. Fix it in `Motion+AppScene.swift` |
+| Looping effects (pulse, breathe, spin, ...) | Yes: `.loop({effect, period, amount})` | None: the native renderer clamps `amount` to [-10, 10] like `cmux.motion/1`, so a negative `spin` turns counterclockwise on macOS too |
 | Particles and choreographed glyphs | Yes: `Particles({preset})`, `cmux.particles/1` (validated in Rust) | None found |
 | Named motion presets shared by an app's nodes | Partly: a JS constant passed to `.animation()` | No manifest- or theme-level preset table, so a profile cannot retime its extensions in one place |
 | Chrome motion (tab reflow, sidebar, palette, hover card) | No: only `ui.animationSpeed`, `ui.animation`, `ui.paneAnimations` | The design-token springs and fades (`design-tokens.json` `motion`) are compiled in. A profile cannot set its own timings, so codex-app and t3-code cannot match their apps' feel |

@@ -109,13 +109,13 @@ public nonisolated struct SceneLoop: Hashable, Sendable {
     public var amount: Double
 
     /// Nil for an unknown effect. `period` in seconds (clamped to [the effect's minimum, 60]);
-    /// `amount` clamped to [0, 10].
+    /// `amount` clamped to [-10, 10], as `cmux.motion/1` clamps it (a negative `spin` turns counterclockwise).
     public init?(effect: String, period: Double? = nil, amount: Double? = nil) {
         guard let effect = Effect(rawValue: effect) else { return nil }
         self.effect = effect
         let seconds = period.flatMap { $0.isFinite ? $0 : nil } ?? effect.defaultPeriod
         self.period = min(max(seconds, effect.minimumPeriod), 60)
-        self.amount = min(max(amount.flatMap { $0.isFinite ? $0 : nil } ?? 1, 0), 10)
+        self.amount = min(max(amount.flatMap { $0.isFinite ? $0 : nil } ?? 1, -10), 10)
     }
 }
 
@@ -240,8 +240,9 @@ extension MotionGate {
         case .spin:
             // Matrix keyframes 10 degrees apart: a matrix cannot say a whole turn, and a turn about the
             // center moves the anchor along an arc, which close keyframes follow.
-            let turns = max(amount, 0)
-            let steps = max(Int((36 * turns).rounded(.up)), 1)
+            // A negative amount turns counterclockwise (ABI.md), as the web renderer's `--scene-loop-turn`.
+            let turns = amount
+            let steps = max(Int((36 * abs(turns)).rounded(.up)), 1)
             let spin = CAKeyframeAnimation(keyPath: "transform")
             spin.values = (0...steps).map { value(space.transform(degrees: 360 * turns * CGFloat($0) / CGFloat(steps))) }
             spin.calculationMode = .linear
