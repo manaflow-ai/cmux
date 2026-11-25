@@ -757,6 +757,18 @@ impl<H: Http> CloudClient<H> {
         super::apps_call::reply_for(&answer, &self.bound.machine)
     }
 
+    /// `cmux machine request` as this machine's `vm` install (`machine_request.rs`, checked
+    /// before it gets here): the op names this machine, never the caller's.
+    pub fn machine_request(
+        &mut self,
+        ask: &super::machine_request::MachineAsk,
+        now_wall_ms: u64,
+    ) -> Value {
+        let request = super::machine_request::request(ask, &self.bound.machine);
+        let answer = self.op(&request, now_wall_ms);
+        super::machine_request::reply_for(&answer)
+    }
+
     /// One MCP message to the platform's `/mcp` as this machine's `vm` install (`mcp_call.rs`,
     /// checked before it gets here). A 401 drops the cached bearer and retries once.
     pub fn mcp_call(&mut self, call: &super::mcp_call::McpCall, now_wall_ms: u64) -> Value {
