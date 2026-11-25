@@ -89,8 +89,9 @@
 //! - an idle chat: as ONE turn of its own, at once for messages the person's own turn held back
 //!   ([`Inbox::held_by_person`]; FYIs alone are not held so, they wait for the flush as they
 //!   would have in that turn), else [`WAKE_DEBOUNCE_MS`] after the oldest message that may
-//!   wake it came (a burst is one turn), or [`FLUSH_MS`] after the oldest of any, so none is
-//!   stranded. A message that may wake it: a blocker (a block or a question,
+//!   wake it came (a burst is one turn). What may not wake it waits for its next turn, never a
+//!   flush of its own (a cold prompt cache rewritten to carry FYIs), except a coordinator's held
+//!   status, which goes [`FLUSH_MS`] after it came (`inbox_page_rule.rs`). A message that may wake it: a blocker (a block or a question,
 //!   `prompt_class.rs`), a report of work it gave (a lane's report, a task's result), or an
 //!   action (a result, the default) from the session that started it
 //!   (its lineage parent) or the one that first gave it work (`SessionMeta::delegator`: the
@@ -1740,8 +1741,6 @@ impl Hub {
                 // `FLUSH_MS` old (module docs).
                 // A folded repeat (`inbox_page_rule.rs`) waits as an FYI does.
                 let fyi_only = new.iter().all(|i| ordinary_fyi(i) || folded(i));
-                // A folded repeat starts no flush of its own in an idle chat.
-                let clocked = new.iter().filter(|i| !folded(i)).map(|i| i.at).min();
                 // Read before a Stop's `due_now` below takes the inbox mutably.
                 let urgent = new.iter().any(|i| steers_at_once(&meta, i));
                 let coalesced = new
@@ -1824,7 +1823,21 @@ impl Hub {
                             // waited there too, so the hold lets go of them and they wait for the
                             // flush or the next notice.
                             let waking = new.iter().filter(|i| wakes(&meta, i)).map(|i| i.at).min();
-                            let flush = clocked.map_or(u64::MAX, |at| at.saturating_add(FLUSH_MS));
+                            // No flush of its own in an idle chat off the coordinator list: what
+                            // wakes nobody waits for the chat's next real turn. Each flush was a
+                            // turn of its own [`FLUSH_MS`] on, past a 5-minute prompt cache, so a
+                            // full cache write to carry FYIs and results nobody asked to wake for
+                            // (one lane VM, 24 h: 191 `[inbox]` notice turns, 91 of them
+                            // more than 5 minutes after the chat's last reply). Leo, 2026-11-25:
+                            // "let's continue while not doing bad cache writes!". A coordinator's
+                            // held status (`inbox_page_rule.rs`, judged) keeps its 20-minute
+                            // ceiling.
+                            let flush = new
+                                .iter()
+                                .filter(|i| !folded(i) && i.verdict.is_some())
+                                .map(|i| i.at)
+                                .min()
+                                .map_or(u64::MAX, |at| at.saturating_add(FLUSH_MS));
                             // A blocker or a fire notice wakes after the burst window; anything
                             // else that wakes a chat whose prompt cache lapsed waits for its cold
                             // batch (`cold_wake.rs`), and goes in with what else came meanwhile.
@@ -2549,13 +2562,13 @@ impl Hub {
         let (mut found, mut removed, mut noticed) = (false, false, false);
         let mut surge_thread = None;
         let mut answer: Option<super::queue::Answer> = None;
-        let kinds = ["inbox", "inbox_noticed", "inbox_answered", "inbox_removed"];
+        let kinds = INBOX_ANSWER_KINDS;
         // Only the records naming it are read whole: by `promptId`, or in a list of prompts
         // (`promptIds`, which the head holds: a coordinator's every resend read all its notices).
         let keep = &mut |h: &crate::store::KindHead<'_>| -> bool {
             h.unread || h.prompt_id == Some(prompt_id) || h.names(|p| p == prompt_id)
         };
-        let _ = self.scan_for_rebuild_keyed(session, &kinds, keep, &mut |e: EventRecord| {
+        let _ = self.scan_for_rebuild_keyed(session, kinds, keep, &mut |e: EventRecord| {
             let own = e.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id);
             match e.kind.as_str() {
                 "inbox" if own => {
@@ -2823,3 +2836,8 @@ mod team_page;
 #[cfg(test)]
 #[path = "inbox_tests.rs"]
 mod tests;
+
+/// The kinds a resent inbox message's answer is read from (`Hub::logged_inbox_answer`): each is in
+/// `store` `KEYED_KINDS`, so the read takes the chat's held heads (a test keeps them there).
+pub(crate) const INBOX_ANSWER_KINDS: &[&str] =
+    &["inbox", "inbox_noticed", "inbox_answered", "inbox_removed"];

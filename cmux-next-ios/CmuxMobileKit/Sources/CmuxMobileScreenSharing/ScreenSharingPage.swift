@@ -307,6 +307,7 @@ struct ScreenSharingViewerScreen: View {
         case .idle, .requesting, .approved:
             EmptyState(symbol: "desktopcomputer", title: "Opening \(viewer.hostName)'s screen…",
                        secondaryTitle: "Cancel", secondary: close)
+                .placeholderBound("screenSharing.connecting", .milliseconds(2000))
         case .waitingForApproval:
             EmptyState(symbol: "hand.raised", title: "Waiting for \(viewer.hostName)",
                        message: "Allow this iPhone on the Mac to start sharing.", secondaryTitle: "Cancel", secondary: close)

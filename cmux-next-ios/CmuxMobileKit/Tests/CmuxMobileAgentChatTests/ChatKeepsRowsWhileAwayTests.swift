@@ -37,7 +37,7 @@ import Testing
         try await Task.sleep(for: .milliseconds(300))
         #expect(store.connectionLine == nil, "no \"Connecting to m…\" past the threshold")
         store.apply(.status(.idle))
-        #expect(store.connectionLine == nil, "no \"Updating…\" while catching up")
+        #expect(store.connectionLine == nil, "catching up with the Mac says nothing: the kept rows show")
         store.apply(.historyLoading(false))
         #expect(store.connectionLine == nil)
         #expect(store.clientError == nil)
@@ -51,6 +51,19 @@ import Testing
         #expect(store.connectionLine == "Couldn't reach m. Try again in a moment.")
         store.apply(.status(.idle))
         #expect(store.connectionLine == nil)
+    }
+
+    @Test func aLongCatchUpOverKeptRowsNeverSaysUpdating() async throws {
+        // Leo, 2026-11-24: "they dont need to know that it's updating before they KNOW it's
+        // updating". The gate may pass its bound (it times the loading state of a chat with no
+        // rows), but a chat with kept rows on a live link draws no line, however long.
+        let store = makeStore(delay: .milliseconds(60))
+        store.apply(.historyLoading(true))
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(store.isLoadingHistory)
+        #expect(store.connectionLine == nil, "past the bound, a catch-up still says nothing")
+        store.apply(.historyLoading(false))
+        #expect(!store.quietStatus.isShown)
     }
 
     @Test func aBlipShorterThanTheThresholdNeverShowsALine() async throws {

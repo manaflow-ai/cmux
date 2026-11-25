@@ -360,7 +360,7 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
         let connected = timeline.connected(after: .zero)
         report("app_killed_and_relaunched", "small", ["connect_ms": (connected?.seconds ?? -1) * 1000])
         #expect(connected == dialTime)
-        #expect(timeline.statusLines(from: .zero, to: dialTime).isEmpty, "a link coming up says nothing")
+        #expect(timeline.statusLines(from: .zero, to: dialTime).isEmpty)
     }
 
     /// A memory warning while connected gives memory back without touching

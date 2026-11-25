@@ -54,7 +54,7 @@ import Testing
             return
         }
         #expect(text == "hello" && promptID == "p1")
-        #expect(reason.hasPrefix("Not sent: Studio was unreachable"))
+        #expect(reason == AgentChatStore.unreachableNotice)
         #expect(source.held.isEmpty)
     }
 

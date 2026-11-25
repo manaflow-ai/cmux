@@ -335,6 +335,59 @@ fn right_part_on_its_own_row(
 /// (the reader's first flick up); older rows come on demand.
 pub const TAIL_SCREENS: usize = 2;
 
+/// Where a host cell lands once the host's lines are re-wrapped at `cols`:
+/// the daemon's `terminal-find` gives a hit as rows from the bottom of the
+/// host's rows (1: the screen's last row) and a host column, and a phone
+/// re-wrapping the same lines needs its own row and column for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Located {
+    /// Rows from the bottom of the re-wrapped content (1: its last row).
+    pub from_bottom: usize,
+    /// The column on that row, in phone cells.
+    pub column: usize,
+}
+
+/// The re-wrapped place of host row `host_from_bottom` (1 is the screen's
+/// last row), host column `host_column`. None: the model holds fewer rows
+/// than that (the hit is older than what the phone has replayed) or the
+/// column is outside the host's grid.
+pub fn locate(
+    term: &Terminal,
+    cols: usize,
+    compact: bool,
+    host_from_bottom: usize,
+    host_column: usize,
+) -> Option<Located> {
+    let rows: Vec<&Row> = term.history.iter().chain(term.primary_rows().iter()).collect();
+    if host_from_bottom == 0 || host_from_bottom > rows.len() || host_column >= term.cols {
+        return None;
+    }
+    let at = rows.len() - host_from_bottom;
+    let mut first = at;
+    while first > 0 && rows.get(first - 1).is_some_and(|r| r.wrapped) {
+        first -= 1;
+    }
+    let mut last = at;
+    while last + 1 < rows.len() && rows.get(last).is_some_and(|r| r.wrapped) {
+        last += 1;
+    }
+    let line = rows.get(first..=last)?;
+    let wrapped = wrap_line(term, line, term.cols, cols, Some((at - first, host_column)), compact);
+    let (row, column) = wrapped.cursor?;
+    let mut from_bottom = wrapped.rows.len() - row;
+    let mut start = last + 1;
+    while start < rows.len() {
+        let mut end = start;
+        while end + 1 < rows.len() && rows.get(end).is_some_and(|r| r.wrapped) {
+            end += 1;
+        }
+        let below = rows.get(start..=end)?;
+        from_bottom += wrap_line(term, below, term.cols, cols, None, compact).rows.len();
+        start = end + 1;
+    }
+    Some(Located { from_bottom, column })
+}
+
 /// The start (an index in `term.history`) of the logical line holding
 /// history row `index` (`history.len()`: the screen's first line).
 pub fn line_start(term: &Terminal, index: usize) -> usize {
@@ -1083,7 +1136,12 @@ fn plain_keeping_link(out: &mut Vec<u8>, style: Style) -> Style {
     plain
 }
 
-fn write_style(term: &Terminal, out: &mut Vec<u8>, previous: Option<Style>, style: Style) {
+pub(crate) fn write_style(
+    term: &Terminal,
+    out: &mut Vec<u8>,
+    previous: Option<Style>,
+    style: Style,
+) {
     if previous.map(|p| p.link) != Some(style.link) {
         if style.link == 0 {
             out.extend_from_slice(b"\x1b]8;;\x1b\\");
@@ -1102,6 +1160,25 @@ fn write_style(term: &Terminal, out: &mut Vec<u8>, previous: Option<Style>, styl
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn locate_follows_a_host_cell_through_the_rewrap() {
+        let mut term = Terminal::new(10, 3, 100);
+        for &b in b"abcdefghijklmno\r\nxyz" {
+            term.advance(b);
+        }
+        // The host's screen: "abcdefghij" (wrapped), "klmno", "xyz".
+        // At 4 columns: abcd efgh ijkl mno xyz: 'j' (host row 3 from the
+        // bottom, column 9) is on the row 3 from the bottom, column 1.
+        let at = locate(&term, 4, false, 3, 9).unwrap();
+        assert_eq!(at, Located { from_bottom: 3, column: 1 });
+        // 'm' is on the host's row 2 from the bottom, column 2: phone row
+        // "mno", 2 from the bottom, column 0.
+        let at = locate(&term, 4, false, 2, 2).unwrap();
+        assert_eq!(at, Located { from_bottom: 2, column: 0 });
+        assert_eq!(locate(&term, 4, false, 99, 0), None);
+        assert_eq!(locate(&term, 4, false, 0, 0), None);
+    }
 
     #[test]
     fn a_line_rewraps_at_the_phone_width() {
