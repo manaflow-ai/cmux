@@ -4,7 +4,7 @@ import type { CachedIce } from "./ice.ts"
 import type { Env } from "./env.ts"
 import { MAILBOX_PENDING_LIMIT, MAILBOX_TTL_MS, MAILBOX_HOLD_BYTES, MAILBOX_HOLD_LIMIT, MAILBOX_PAGE } from "./push.ts";
 import { userTeams } from "./stack.ts"
-import { relayRoomName } from "./link-relay.ts"
+import { locationHintOf, relayPlacement, relayRoomName } from "./placement.ts"
 import { FIRST_GRANT, MIB, MibBucket, newTicket, RELAY_CLOSE, ticketsMatch, userMibPerMinute, type BudgetAnswer, type MibBucketState } from "./relay-access.ts"
 
 /** Per-socket identity, set by the Worker after auth and device checks (never by the client). */
@@ -223,6 +223,15 @@ export interface MacPresence {
  */
 export const FRESH_MS = 18_000
 
+/**
+ * A Mac's socket the hub has not heard for this long is gone (cmux#52200): its network was cut or it slept, and
+ * no close reached the hub (a silent drop leaves the socket half open forever). Six missed 15 s pings, and past
+ * the Mac's own 40 s give-up (`KEEPALIVE_TIMEOUT` in cmux-mobile-link `signaling.rs`), so a Mac that is alive but
+ * overloaded still reads "not responding" (`quietMs`) first. The hub closes the socket and phones hear the Mac
+ * offline, last seen when it was last heard.
+ */
+export const GONE_MS = 90_000
+
 /** A device registration as the Worker hands it to the hub (POST /v1/devices). */
 export interface HubDevice {
   deviceId: string
@@ -265,6 +274,9 @@ const MAX_TEXT_FRAME = 64 * 1024
  * names the frame's session: a sessionless error would fail every dial that client has in progress.
  */
 export const RELAY_ERROR_INTERVAL_MS = 5000
+
+/** At most this many prewarmed session ids are remembered per hub instance; past it the set starts over. */
+const PREWARMED_MAX = 1024
 
 /**
  * Token buckets per socket, in memory only: text (signaling), and binary (an older client's retired relay
@@ -340,6 +352,8 @@ export class TeamHub extends DurableObject<Env> {
   private readonly linkStats = new WeakMap<WebSocket, number>()
   /** The open socket of each device, so a signal needs no socket scan (rebuilt lazily after hibernation). */
   private readonly live = new Map<string, WebSocket>()
+  /** Sessions whose relay this instance prewarmed (`prewarmRelay`), in memory only. */
+  private readonly prewarmed = new Set<string>()
   private ownerKey: string | null | undefined
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -411,12 +425,61 @@ export class TeamHub extends DurableObject<Env> {
   }
 
   async alarm(): Promise<void> {
+    let iceUntil: number | undefined
     await this.ctx.storage.transaction(async (tx) => {
       const entry = await tx.get<CachedIce>("turn-credentials")
       if (!entry) return
-      if (Date.now() < entry.usableUntil) await tx.setAlarm(entry.usableUntil)
+      if (Date.now() < entry.usableUntil) iceUntil = entry.usableUntil
       else await tx.delete("turn-credentials")
     })
+    const reapAt = this.reapSilentMacs(Date.now())
+    const next = Math.min(iceUntil ?? Infinity, reapAt ?? Infinity)
+    if (Number.isFinite(next)) await this.ctx.storage.setAlarm(next)
+  }
+
+  /**
+   * Closes every Mac socket not heard for ``GONE_MS`` as gone (cmux#52200), and returns when the next open Mac
+   * socket would be (undefined: none open). Only a socket of a host that pings: one that predates application
+   * pings is never heard after its connect, and stays as before.
+   */
+  private reapSilentMacs(now: number): number | undefined {
+    let next: number | undefined
+    for (const ws of this.ctx.getWebSockets()) {
+      const att = this.attach(ws)
+      if (!att || att.kind !== "mac" || att.replaced || ws.readyState !== WebSocket.OPEN) continue
+      const pinged = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime()
+      const heard = Math.max(att.connectedAt ?? 0, pinged ?? 0)
+      if (!heard) continue
+      if (pinged === undefined && this.recordedPing(att.deviceId) === null) {
+        // No ping yet, none on record: a new host before its first ping (15 s), or one that predates them. Look again
+        // when it would be due, so an alarm that came first does not end the chain and leave it never reaped.
+        if (now - heard < GONE_MS) next = Math.min(next ?? Infinity, heard + GONE_MS)
+        continue
+      }
+      if (now - heard < GONE_MS) {
+        next = Math.min(next ?? Infinity, heard + GONE_MS)
+        continue
+      }
+      this.recordPing(ws, att.deviceId)
+      // Marked replaced first, so its close event (if one ever comes) does not announce it a second time.
+      this.setAttach(ws, { ...att, replaced: true })
+      try {
+        ws.close(4002, "silent")
+      } catch {}
+      if (this.live.get(att.deviceId) === ws) this.live.delete(att.deviceId)
+      if (this.open(att.deviceId)) continue
+      this.sql.exec(`UPDATE macs SET last_seen_at = ? WHERE device_id = ?`, heard, att.deviceId)
+      const mac = this.macRow(att.deviceId)
+      console.log(JSON.stringify({ event: "mac_silent_closed", deviceId: att.deviceId, quietMs: now - heard }))
+      if (mac) this.broadcast(mac.team_id, JSON.stringify({ type: "presence", mac: this.presenceOf(att.deviceId) }), ws)
+    }
+    return next
+  }
+
+  /** Makes sure an alarm comes by `at` (a Mac socket's reap deadline), keeping an earlier one. */
+  private async armReap(at: number) {
+    const current = await this.ctx.storage.getAlarm()
+    if (current === null || current > at) await this.ctx.storage.setAlarm(at)
   }
 
   /** Team membership through Stack, cached 60 s (15 s for a refusal) per team. Throws when Stack fails. */
@@ -959,6 +1022,7 @@ export class TeamHub extends DurableObject<Env> {
     this.ctx.acceptWebSocket(server, [att.deviceId])
     this.setAttach(server, { ...att, connectedAt: Date.now() })
     this.live.set(att.deviceId, server)
+    if (att.kind === "mac") await this.armReap(Date.now() + GONE_MS)
     if (att.kind === "mac") {
       this.sql.exec(
         `INSERT INTO macs (device_id, name, owner_user_id, owner_project_id, team_id, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)
@@ -1021,6 +1085,7 @@ export class TeamHub extends DurableObject<Env> {
       // also carries the recipient's own relay ticket (PROTOCOL.md "WebSocket relay"), never a client's.
       const relayTicket = f.payload.kind.startsWith("wg-") ? this.ticketFor(f.sessionId, f.to) : undefined
       target.send(JSON.stringify({ type: "signal", to: f.to, from: att.deviceId, fromUserId: att.userId, sessionId: f.sessionId, payload: f.payload, ...(relayTicket ? { relayTicket } : {}) }))
+      if (f.payload.kind === "wg-init") this.prewarmRelay(f.sessionId, att, target)
       if (f.payload.kind === "bye") this.endSession(f.sessionId)
       return
     }
@@ -1071,9 +1136,7 @@ export class TeamHub extends DurableObject<Env> {
     if (!owner || typeof owner.ownerKey !== "string" || !owner.ownerKey || typeof owner.space !== "string" || !this.isUserHubOf(owner.ownerKey, owner.space))
       throw new WrongHubError("not this user's hub")
     const { ownerKey, space } = owner
-    if (this.ownerKey === undefined)
-      this.ownerKey = this.sql.exec<{ value: string }>(`SELECT value FROM meta WHERE key = 'owner'`).toArray()[0]?.value ?? null
-    if (this.ownerKey === null) {
+    if (this.boundOwner() === null) {
       this.sql.exec(`INSERT INTO meta (key, value) VALUES ('owner', ?)`, ownerKey)
       if (space) this.sql.exec(`INSERT INTO meta (key, value) VALUES ('space', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, space)
       this.ownerKey = ownerKey
@@ -1156,6 +1219,41 @@ export class TeamHub extends DurableObject<Env> {
     return true
   }
 
+  /**
+   * Creates and places link session `sessionId`'s relay (RFD 0142 C4, PROTOCOL.md "Relay placement") while the
+   * session's `wg-init` is forwarded, so a fallback to the relay later finds the object made instead of paying
+   * for its creation, placement and cold start on the critical path. A Durable Object stays where it is first
+   * created, so this placement is the session's: from both ends' signal sockets (each one's ingress and
+   * netcheck), else the sender's own region. The same name as the Worker's relay route (`relayRoomName` of this
+   * hub's owner key, its build space and the lowercase session id). Once per session and instance (a retried
+   * `wg-init` does not fetch again; a wake forgets, and a second prewarm is harmless). Never awaited: the signal
+   * is already on its way, and a failed prewarm only leaves the first join to create the object, as before.
+   */
+  private prewarmRelay(sessionId: string, from: Attachment, target: WebSocket) {
+    if (this.env.LINK_RELAY_MODE === "off") return
+    const id = sessionId.toLowerCase()
+    if (this.prewarmed.has(id)) return
+    const owner = this.boundOwner()
+    if (!owner) return
+    if (this.prewarmed.size >= PREWARMED_MAX) this.prewarmed.clear()
+    this.prewarmed.add(id)
+    const placed = relayPlacement(from.ingress, this.attach(target)?.ingress, locationHintOf(from.ingress))
+    const room = this.env.LINK_RELAY.get(this.env.LINK_RELAY.idFromName(relayRoomName(owner, this.boundSpace(), id)), placed.hint ? { locationHint: placed.hint } : undefined)
+    this.ctx.waitUntil(
+      room.fetch("https://link-relay/prewarm", { method: "POST" }).then(
+        (r) => r.body?.cancel(),
+        () => {}
+      )
+    )
+  }
+
+  /** The owner key this hub was bound to (null before its first bind). */
+  private boundOwner(): string | null {
+    if (this.ownerKey === undefined)
+      this.ownerKey = this.sql.exec<{ value: string }>(`SELECT value FROM meta WHERE key = 'owner'`).toArray()[0]?.value ?? null
+    return this.ownerKey
+  }
+
   private session(id: string): SessionRow | undefined {
     const hit = this.sessions.get(id)
     if (hit) {
@@ -1219,7 +1317,7 @@ export class TeamHub extends DurableObject<Env> {
   private closeRelay(id: string, code: number, reason: string) {
     if (this.sql.exec(`SELECT 1 FROM relay_sessions WHERE session_id = ?`, id).toArray().length === 0) return
     this.sql.exec(`DELETE FROM relay_sessions WHERE session_id = ?`, id)
-    const owner = this.ownerKey ?? this.sql.exec<{ value: string }>(`SELECT value FROM meta WHERE key = 'owner'`).toArray()[0]?.value
+    const owner = this.boundOwner()
     if (!owner) return
     const room = this.env.LINK_RELAY.get(this.env.LINK_RELAY.idFromName(relayRoomName(owner, this.boundSpace(), id)))
     this.ctx.waitUntil(

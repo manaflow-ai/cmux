@@ -78,7 +78,8 @@ SAMPLE_WHY = "sampled shards"
 #            runs its shard-independent checks (Oxlint, Oxfmt, type check, budgets, PR-scoped rules) and no test file;
 #   sampled: shard 1 and the touched tests; when the change has an every-shard input outside FULL, also two shards
 #            sampled from the head commit (the base batch runs every shard and bisects a red to its PR);
-#   full:    a FULL path below, the full-ci label, a base push, the base batch, or a failed pick: every shard.
+#   full:    a FULL path below, the full-ci label, a base push, the base batch, or a failed pick: every shard. A FULL
+#            path on a pull request into feat-cmux-next is sampled instead (full_to_batch): its batch runs every shard.
 # The repository variable CI_WEBVIEWS_PUSH_CLASSES=0 runs the pick as it was before the classes.
 # FULL stays short: each is an input whose miss only a full run can show, because it decides what every shard runs.
 FULL = (
@@ -195,6 +196,21 @@ def with_shard1(repo: Path, count: int, selected: set[str] | None, direct: set[s
     return {**own, 1: sorted(f.removeprefix(wa.WEB) for f in mine)}
 
 
+# A pull request's touched tests outside shard 1 run in shard 1's own job when they are this many or fewer: a second
+# job paid its own runner start, checkout, install, bundle build and engines (about 10 of the 17 minutes a median
+# one-file second job took, 891 of them a day) to run a handful of files. More than this keep their own job, so shard 1
+# does not become the long pole. Leo, 2026-11-24: "de facto, im asking for 99% fewer minutes of ci time, period."
+FOLD_MAX = 40
+
+
+def fold_into_shard1(repo: Path, count: int, selected: set[str] | None, direct: set[str],
+                     own: dict[int, list[str]]) -> dict[int, list[str]]:
+    """Shard 1's touched tests plus every test OWN names, as one list for shard 1 alone."""
+    mine = with_shard1(repo, count, selected, direct, {})[1]
+    extra = [f for files in own.values() for f in files]
+    return {1: sorted({*mine, *extra})}
+
+
 def sampled_shards(head_sha: str, count: int) -> list[int]:
     """SAMPLE_COUNT shards from 2 to COUNT, the same for one head commit and different across commits."""
     rest = list(range(2, count + 1))
@@ -244,12 +260,31 @@ def pick(repo: Path, base: str, head: str, count: int) -> tuple[list[int], str, 
     # job pays its own checkout, install and engines before its first test. It takes the lowest picked number.
     first = min(hits)
     own = {first: sorted(f.removeprefix(wa.WEB) for hit in hits.values() for f in hit)}
+    if len(own[first]) <= FOLD_MAX:
+        return ([1], f"{len(direct)} touched tests, {len(own[first])} outside shard 1 folded into shard 1's job",
+                fold_into_shard1(repo, count, selected, direct, own))
     return ([1, first], f"{len(direct)} touched tests, {len(own[first])} outside shard 1 in one job",
             with_shard1(repo, count, selected, direct, own))
 
 
 def classes_on() -> bool:
     return os.environ.get("CI_WEBVIEWS_PUSH_CLASSES", "1") != "0"
+
+
+# The base whose post-merge batch runs every shard (cmux-next-post-merge.yml, suite `web`): a pull request into it
+# with a FULL path runs the sampled pick, and the full matrix runs once per batch, which bisects a red to its pull
+# request and opens the revert. Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period."
+# Over 11-24T01..11-25T01, 44 pull request runs ran all 8 shards: 21.2k runner-minutes, about 480 a run, against
+# 38k for the 1,639 runs of one or two shards. CI_WEBVIEWS_FULL_TO_BATCH=0 (a repository variable) runs every shard
+# for them again; another base, or the full-ci label, still runs every shard.
+BATCHED_BASE = "feat-cmux-next"
+BATCHED_WHY = "every shard runs in the feat-cmux-next post-merge batch"
+
+
+def full_to_batch() -> bool:
+    """A FULL path on this pull request runs the sampled pick: its base batches every shard after the merge."""
+    return (os.environ.get("CI_WEBVIEWS_PR_BASE", "") == BATCHED_BASE
+            and os.environ.get("CI_WEBVIEWS_FULL_TO_BATCH", "1") != "0")
 
 
 # webviews/package.json is on FULL for its pins: a new bun, React or test library version changes every test file. An
@@ -374,16 +409,17 @@ def classify(repo: Path, base: str, head: str, count: int) -> tuple[str, list[in
     except subprocess.CalledProcessError as err:
         return "full", everything, f"cannot diff {base}..{head} ({err.stderr.strip()})", {}
     why = full_rule(files, repo, base, head)
-    if why:
+    if why and not full_to_batch():
         return "full", everything, why, {}
     selector = wa.Selector(repo)
     fast = {f: fast_why(repo, selector, base, head, f) for f in files}
     rest = [f for f in files if not fast[f]]
-    if not rest:
+    if not rest and not why:
         shown = "; ".join(fast[f] for f in files[:3]) + (f"; and {len(files) - 3} more" if len(files) > 3 else "")
         return "fast", [1], f"{shown or 'no file changed'}: shard 1's checks, no test file", {}
     direct: set[str] = set()
-    wide: list[str] = []
+    # A FULL path into the batched base: sampled, as a wide input is, and the batch runs every shard.
+    wide: list[str] = [f"{why} ({BATCHED_WHY})"] if why else []
     for f in rest:
         found, reason = touched(selector, [f])
         if found is None:
@@ -412,6 +448,9 @@ def classify(repo: Path, base: str, head: str, count: int) -> tuple[str, list[in
                 with_shard1(repo, count, selected, direct, {}))
     first = min(hits)
     own = {first: sorted(f.removeprefix(wa.WEB) for hit in hits.values() for f in hit)}
+    if len(own[first]) <= FOLD_MAX:
+        return ("sampled", [1], f"{len(direct)} touched tests, {len(own[first])} outside shard 1 folded into shard 1's job",
+                fold_into_shard1(repo, count, selected, direct, own))
     return ("sampled", [1, first], f"{len(direct)} touched tests, {len(own[first])} outside shard 1 in one job",
             with_shard1(repo, count, selected, direct, own))
 

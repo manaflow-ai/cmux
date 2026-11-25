@@ -15,8 +15,6 @@ pub(super) struct RemoteApiRevision {
     commands: Mutex<HashMap<u64, String>>,
 }
 
-const PENDING_COMMAND_LIMIT: usize = 4096;
-
 impl RemoteApiRevision {
     /// Negotiate from the server's `identify` response. Older servers omit the
     /// fields and are handled by the legacy protocol path.
@@ -57,14 +55,9 @@ impl RemoteApiRevision {
         if self.negotiated.translator != Translator::Us {
             return Ok(rewritten);
         }
-        {
-            let mut commands = self.commands.lock().unwrap_or_else(PoisonError::into_inner);
-            anyhow::ensure!(
-                commands.len() < PENDING_COMMAND_LIMIT,
-                "too many pending API requests"
-            );
-            commands.insert(id, command.to_owned());
-        }
+        // One entry per request still waiting for its reply: the reply or the
+        // request's failure (`forget`) removes it, so no count cap is needed.
+        self.commands.lock().unwrap_or_else(PoisonError::into_inner).insert(id, command.to_owned());
         Ok(rewritten)
     }
 

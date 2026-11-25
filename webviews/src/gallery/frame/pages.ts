@@ -200,6 +200,7 @@ export function diffPatch(state: DiffPageVariant): string {
 
 export async function mountDiffPage(state: DiffPageVariant, context: StageContext): Promise<void> {
   await import("../../styles.css");
+  if (state.experiments) globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, ...state.experiments };
   const repo = state.repoRoot ?? "/Users/you/src/app";
   const token = "gallery";
   const patch = diffPatch(state);
