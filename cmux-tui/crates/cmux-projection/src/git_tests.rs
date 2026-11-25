@@ -206,6 +206,25 @@ fn registering_the_same_checkout_again_leaves_head_untouched() {
 }
 
 #[test]
+fn a_worktree_registered_on_a_branch_at_the_commit_keeps_its_branch() {
+    let (dir, git_dir, commit) = repo();
+    let work = dir.path().join("work");
+    run(&work, &["branch", "lane/x"]);
+    let at = dir.path().join("mnt");
+    // As `wt new` registers one: a branch, no files.
+    run(&work, &["worktree", "add", "-q", "--no-checkout", at.to_str().unwrap(), "lane/x"]);
+    let admin = git_dir.join("worktrees").join("mnt");
+    Worktree::write(&git_dir, "mnt", &at, &commit, b"index", &[]).unwrap();
+    assert_eq!(std::fs::read_to_string(admin.join("HEAD")).unwrap(), "ref: refs/heads/lane/x\n");
+    // A branch that moved on is not the commit mounted: HEAD is the commit, detached.
+    std::fs::write(work.join("README.md"), "moved\n").unwrap();
+    run(&work, &["commit", "-q", "-am", "moved"]);
+    run(&work, &["update-ref", "refs/heads/lane/x", "HEAD"]);
+    Worktree::write(&git_dir, "mnt", &at, &commit, b"index", &[]).unwrap();
+    assert_eq!(std::fs::read_to_string(admin.join("HEAD")).unwrap(), format!("{commit}\n"));
+}
+
+#[test]
 fn git_reads_the_written_index_as_the_commit() {
     let (_dir, git_dir, commit) = repo();
     let mut book = Book::default();
@@ -279,4 +298,248 @@ fn a_sparse_index_holds_the_left_out_paths_as_skip_worktree() {
     assert!(listed.contains("S crate/src/main.rs"), "{listed}");
     assert!(listed.contains("H README.md"), "{listed}");
     assert_eq!(git(&["diff-index", "--cached", "--name-only", &commit]), "", "nothing staged");
+}
+
+/// A blobless bare clone of `repo()`'s commit, as a machine with no copy of the repo makes one:
+/// trees only, blobs from its origin on demand. Origin answers `object-info` when `object_info`.
+fn blobless(object_info: bool) -> (tempfile::TempDir, PathBuf, String) {
+    let (dir, git_dir, commit) = repo();
+    let origin = dir.path().join("origin.git");
+    run(
+        dir.path(),
+        &["clone", "-q", "--bare", git_dir.to_str().unwrap(), origin.to_str().unwrap()],
+    );
+    run(&origin, &["config", "uploadpack.allowFilter", "true"]);
+    run(&origin, &["config", "uploadpack.allowAnySHA1InWant", "true"]);
+    if object_info {
+        run(&origin, &["config", "transfer.advertiseObjectInfo", "true"]);
+    }
+    let mirror = dir.path().join("mirror.git");
+    let url = format!("file://{}", origin.display());
+    run(
+        dir.path(),
+        &["clone", "-q", "--bare", "--filter=blob:none", &url, mirror.to_str().unwrap()],
+    );
+    (dir, mirror, commit)
+}
+
+fn missing_count(git_dir: &Path, commit: &str) -> usize {
+    missing(git_dir, commit).unwrap().len()
+}
+
+#[test]
+fn a_lazy_tree_is_sized_without_fetching_a_file_blob() {
+    let (dir, mirror, commit) = blobless(true);
+    let files = 6; // README.md, a-b, a/c, crate/Cargo.lock, crate/src/main.rs, run.sh
+    assert_eq!(missing_count(&mirror, &commit), files + 1, "the clone holds no blob");
+    let tree = lazy_tree(&mirror, &commit, &SizeSources::default()).unwrap();
+    assert_eq!(tree.links_fetched, 1, "only the link's text is fetched");
+    // git cat-file gained remote-object-info in Git 2.56. Older clients take the
+    // documented batched fallback even when upload-pack advertises object-info.
+    let version = run(&mirror, &["version"]);
+    let mut numbers = version.split_whitespace().nth(2).unwrap().split('.');
+    let major: u32 = numbers.next().unwrap().parse().unwrap();
+    let minor: u32 = numbers.next().unwrap().parse().unwrap();
+    if (major, minor) < (2, 56) {
+        assert_eq!((tree.sizes.remote, tree.sizes.fetched), (0, files));
+        assert_eq!(missing_count(&mirror, &commit), 0);
+        assert_eq!(tree.items, ls_tree(&dir.path().join("work/.git"), &commit).unwrap());
+        return;
+    }
+    assert_eq!(tree.sizes.remote, files);
+    assert_eq!(tree.missing.len(), files);
+    assert_eq!(missing_count(&mirror, &commit), files, "no file blob was fetched to size it");
+    let full = ls_tree(&dir.path().join("work/.git"), &commit).unwrap();
+    assert_eq!(tree.items, full, "same paths, modes, ids and sizes as ls-tree -l on a full store");
+}
+
+#[test]
+fn a_lazy_tree_takes_sizes_from_a_listing_when_origin_cannot_say() {
+    let (dir, mirror, commit) = blobless(false);
+    let work = dir.path().join("work");
+    let listing = Command::new("git")
+        .args(["ls-tree", "-r", "-l", "-z", "--full-tree", &commit])
+        .current_dir(&work)
+        .output()
+        .unwrap()
+        .stdout;
+    let sources = SizeSources { listings: vec![listing], ..SizeSources::default() };
+    let tree = lazy_tree(&mirror, &commit, &sources).unwrap();
+    assert_eq!(tree.items, ls_tree(&work.join(".git"), &commit).unwrap());
+    assert_eq!(tree.sizes.listed, 6);
+    assert_eq!((tree.sizes.remote, tree.sizes.fetched), (0, 0));
+    assert_eq!(missing_count(&mirror, &commit), 6, "no file blob was fetched");
+}
+
+#[test]
+fn with_no_source_and_no_object_info_a_lazy_tree_fetches_the_blobs_to_size_them() {
+    let (dir, mirror, commit) = blobless(false);
+    let tree = lazy_tree(&mirror, &commit, &SizeSources::default()).unwrap();
+    assert_eq!(tree.items, ls_tree(&dir.path().join("work/.git"), &commit).unwrap());
+    assert_eq!(tree.sizes.fetched, 6, "GitHub's case with nothing saved: the mount still works");
+    assert_eq!(tree.sizes.fetched_bytes, 6 + 5 + 6 + 7 + 13 + 10);
+    assert!(tree.missing.is_empty());
+    assert_eq!(missing_count(&mirror, &commit), 0);
+}
+
+/// A second commit on `repo()`'s origin that changes one file and adds one; returns it.
+fn second_commit(dir: &Path) -> String {
+    let work = dir.join("work");
+    std::fs::write(work.join("crate/src/main.rs"), "fn main() { two() }\n").unwrap();
+    std::fs::write(work.join("a/new"), "new file\n").unwrap();
+    run(&work, &["add", "-A"]);
+    run(&work, &["commit", "-q", "-m", "two"]);
+    let origin = dir.join("origin.git");
+    run(&work, &["push", "-q", origin.to_str().unwrap(), "HEAD:refs/heads/next"]);
+    run(
+        dir,
+        &["--git-dir", dir.join("mirror.git").to_str().unwrap(), "fetch", "-q", "origin", "next"],
+    );
+    run(&work, &["rev-parse", "HEAD"]).trim().to_owned()
+}
+
+#[test]
+fn a_listing_of_an_older_commit_leaves_only_the_new_blobs_to_fetch() {
+    let (dir, mirror, first) = blobless(false);
+    // Saved at the first commit, as an image saves it, in cat-file's format.
+    let work = dir.path().join("work");
+    let oids = run(&work, &["rev-list", "--objects", "--no-walk", &first]);
+    let mut check = Command::new("git")
+        .args(["cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"])
+        .current_dir(&work)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let ids: String =
+        oids.lines().filter_map(|l| l.split(' ').next()).map(|o| format!("{o}\n")).collect();
+    check.stdin.take().unwrap().write_all(ids.as_bytes()).unwrap();
+    let listing = check.wait_with_output().unwrap().stdout;
+    let second = second_commit(dir.path());
+    let sources = SizeSources { listings: vec![listing], ..SizeSources::default() };
+    let tree = lazy_tree(&mirror, &second, &sources).unwrap();
+    assert_eq!(tree.items, ls_tree(&work.join(".git"), &second).unwrap());
+    assert_eq!(tree.sizes.listed, 5, "the five blobs both commits share");
+    assert_eq!(tree.sizes.fetched, 2, "main.rs's new blob and a/new");
+    assert_eq!(missing_count(&mirror, &second), 5);
+}
+
+#[test]
+fn a_lazy_tree_sizes_blobs_from_another_store_on_the_machine() {
+    let (dir, mirror, first) = blobless(false);
+    // An image's full clone, at the first commit.
+    let image = dir.path().join("image.git");
+    let work = dir.path().join("work");
+    run(dir.path(), &["clone", "-q", "--bare", work.to_str().unwrap(), image.to_str().unwrap()]);
+    let second = second_commit(dir.path());
+    let sources = SizeSources { stores: vec![image], ..SizeSources::default() };
+    let tree = lazy_tree(&mirror, &second, &sources).unwrap();
+    assert_eq!(tree.items, ls_tree(&work.join(".git"), &second).unwrap());
+    assert_eq!((tree.sizes.stores, tree.sizes.fetched), (5, 2));
+    let _ = first;
+}
+
+#[test]
+fn listing_sizes_reads_both_formats_and_keeps_only_wanted_blobs() {
+    let a = "a".repeat(40);
+    let b = "b".repeat(40);
+    let c = "c".repeat(40);
+    let listing = format!(
+        "100644 blob {a}      12\tpath with spaces\0{b} blob 7\n{c} 9\n{a} tree 3\nnoise\n"
+    );
+    let wanted: BTreeSet<&str> = [a.as_str(), b.as_str()].into_iter().collect();
+    let sizes = listing_sizes(listing.as_bytes(), &wanted);
+    assert_eq!(sizes.len(), 2);
+    assert_eq!(sizes[&a], 12);
+    assert_eq!(sizes[&b], 7);
+}
+
+#[test]
+fn a_lazy_read_fetches_its_folder_in_one_request_and_nothing_else() {
+    let (dir, mirror, commit) = blobless(false);
+    let sizes = SizeSources { stores: vec![dir.path().join("work/.git")], ..Default::default() };
+    let tree = lazy_tree(&mirror, &commit, &sizes).unwrap();
+    let mut book = Book::default();
+    let links = link_texts(&mirror, &tree.items).unwrap();
+    let layout = Layout {
+        commit_ns: 1_000_000_000,
+        now_ns: 5_000_000_000,
+        gitfile: None,
+        real_root: Some(Path::new("/real")),
+        links: &links,
+    };
+    let projection = Projection::build(&commit, &tree.items, &mut book, &layout).unwrap();
+    let main = projection.manifest.resolve("crate/src/main.rs").unwrap();
+    let readme = projection.manifest.resolve("README.md").unwrap();
+    let blobs = GitBlobs::new(&mirror, projection.sources).lazy(&projection.manifest, tree.missing);
+    assert_eq!(blobs.read(main, 0, 64).unwrap(), b"fn main() {}\n");
+    assert_eq!(blobs.fetches(), 1);
+    assert_eq!(missing_count(&mirror, &commit), 5, "only crate/src's one file came");
+    assert_eq!(blobs.read(readme, 0, 64).unwrap(), b"hello\n");
+    assert_eq!(blobs.fetches(), 2);
+    // The top folder's other files (a-b, run.sh) came with README.md; a/c and Cargo.lock did not.
+    assert_eq!(missing_count(&mirror, &commit), 2);
+    assert_eq!(blobs.read(main, 0, 64).unwrap(), b"fn main() {}\n");
+    assert_eq!(blobs.fetches(), 2, "a second read is local");
+}
+
+#[test]
+fn a_lazy_mount_of_a_bare_blobless_mirror_is_a_clean_worktree_that_fetches_what_is_read() {
+    let fuse = Path::new("/dev/fuse").exists()
+        && Command::new("fusermount3")
+            .arg("--version")
+            .output()
+            .is_ok_and(|out| out.status.success());
+    if !fuse {
+        println!("skipping: no FUSE here (no /dev/fuse or no fusermount3)");
+        return;
+    }
+    let (dir, mirror, commit) = blobless(false);
+    // As the lane mirrors have it: bare, with per-worktree config.
+    run(&mirror, &["config", "extensions.worktreeConfig", "true"]);
+    let at = dir.path().join("mnt");
+    std::fs::create_dir_all(&at).unwrap();
+    let sizes = SizeSources { stores: vec![dir.path().join("work/.git")], ..Default::default() };
+    let tree = lazy_tree(&mirror, &commit, &sizes).unwrap();
+    let links = link_texts(&mirror, &tree.items).unwrap();
+    let admin = mirror.join("worktrees").join("projected");
+    let real_root = dir.path().join("real");
+    let layout = Layout {
+        commit_ns: 1_000_000_000,
+        now_ns: 5_000_000_000,
+        gitfile: Some(Worktree::gitfile(&admin)),
+        real_root: Some(&real_root),
+        links: &links,
+    };
+    let projection =
+        Projection::build(&commit, &tree.items, &mut Book::default(), &layout).unwrap();
+    for real in &projection.real_dirs {
+        std::fs::create_dir_all(real_root.join(real)).unwrap();
+    }
+    // SAFETY: getuid and getgid cannot fail.
+    let owner = unsafe { (libc::getuid(), libc::getgid()) };
+    let index = index_bytes(&projection.index, owner.0, owner.1).unwrap();
+    Worktree::write(&mirror, "projected", &at, &commit, &index, &projection.real_dirs).unwrap();
+    let blobs = Arc::new(
+        GitBlobs::new(&mirror, projection.sources).lazy(&projection.manifest, tree.missing),
+    );
+    let overlay = Arc::new(
+        crate::overlay::Overlay::open(
+            Arc::new(projection.manifest),
+            &dir.path().join("state"),
+            blobs.clone(),
+            owner,
+        )
+        .unwrap(),
+    );
+    let mounted = crate::mount::mount(overlay, &at).unwrap();
+    assert_eq!(run(&at, &["status", "--porcelain"]), "", "clean, by stat alone");
+    assert_eq!(blobs.fetches(), 0, "git status read no file");
+    assert_eq!(missing_count(&mirror, &commit), 6);
+    assert_eq!(std::fs::read_to_string(at.join("crate/src/main.rs")).unwrap(), "fn main() {}\n");
+    assert_eq!(blobs.fetches(), 1);
+    assert_eq!(missing_count(&mirror, &commit), 5);
+    std::fs::write(at.join("a/c"), "changed\n").unwrap();
+    assert_eq!(run(&at, &["status", "--porcelain"]), " M a/c\n");
+    mounted.unmount();
 }

@@ -235,7 +235,225 @@ fn object_sizes(git_dir: &Path, oids: &BTreeSet<&str>) -> anyhow::Result<HashMap
         .collect())
 }
 
-/// `git ls-tree -r -l -z` output as items: `MODE TYPE OID SIZE\tPATH\0`.
+/// Every path of `commit`'s tree with sizes 0, reading trees only. On a blobless mirror
+/// (`--filter=blob:none`) `git ls-tree -l` fetches each blob it sizes, one request per blob,
+/// which is the whole checkout's bytes; this reads none. [`fill_sizes`] then sets the sizes.
+pub fn ls_tree_names(git_dir: &Path, commit: &str) -> anyhow::Result<Vec<TreeItem>> {
+    let mut command = git(git_dir);
+    command.args(["ls-tree", "-r", "-z", "--full-tree", commit]);
+    parse_ls_tree(&output(command)?)
+}
+
+/// The sizes of the blobs in `oids` that the object store has, fetching none (`GIT_NO_LAZY_FETCH`).
+pub fn local_sizes(git_dir: &Path, oids: &[&str]) -> anyhow::Result<HashMap<String, u64>> {
+    let mut command = git(git_dir);
+    command
+        .env("GIT_NO_LAZY_FETCH", "1")
+        .args(["cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"]);
+    batch_sizes(command, oids.iter().map(|oid| (format!("{oid}\n"), 1)))
+}
+
+/// The sizes of those of `oids` the mirror's `origin` reports, with no blob fetched: protocol
+/// v2's `object-info` (`git cat-file --batch-command`'s `remote-object-info`), which the serving
+/// side answers when it sets `transfer.advertiseObjectInfo`. An origin that does not (GitHub's
+/// does not) reports none, and the map is empty.
+pub fn remote_sizes(git_dir: &Path, oids: &[&str]) -> anyhow::Result<HashMap<String, u64>> {
+    let mut command = git(git_dir);
+    command.args(["cat-file", "--batch-command=%(objectname) blob %(objectsize)"]);
+    // One request per line; a line names many objects.
+    let lines = oids
+        .chunks(512)
+        .map(|chunk| (format!("remote-object-info origin {}\n", chunk.join(" ")), chunk.len()));
+    batch_sizes(command, lines)
+}
+
+/// Runs `command` (a `git cat-file` batch) on `lines`, each answered by its count of output
+/// lines before the next is written (an unbuffered batch flushes each answer), so neither pipe
+/// fills. A line git did not answer (it ended) stops the read.
+fn batch_sizes(
+    mut command: Command,
+    lines: impl Iterator<Item = (String, usize)>,
+) -> anyhow::Result<HashMap<String, u64>> {
+    let mut sizes = HashMap::new();
+    let mut lines = lines.peekable();
+    if lines.peek().is_none() {
+        return Ok(sizes);
+    }
+    let mut child =
+        command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;
+    let mut stdin = child.stdin.take().ok_or_else(|| anyhow::anyhow!("no stdin"))?;
+    let mut stdout =
+        BufReader::new(child.stdout.take().ok_or_else(|| anyhow::anyhow!("no stdout"))?);
+    'lines: for (line, answers) in lines {
+        // git that ended (an origin with no object-info) closes its stdin: stop, as for no answer.
+        if stdin.write_all(line.as_bytes()).and_then(|()| stdin.flush()).is_err() {
+            break;
+        }
+        for _ in 0..answers {
+            let mut answer = String::new();
+            if stdout.read_line(&mut answer)? == 0 {
+                break 'lines;
+            }
+            let mut fields = answer.split_whitespace();
+            if let (Some(oid), Some("blob"), Some(size)) =
+                (fields.next(), fields.next(), fields.next())
+                && let Ok(size) = size.parse()
+            {
+                sizes.insert(oid.to_owned(), size);
+            }
+        }
+    }
+    drop(stdin);
+    let _ = child.wait()?;
+    Ok(sizes)
+}
+
+/// The blob sizes in a listing, by blob id. A listing is `git ls-tree -r -l -z` output (of any
+/// commit) or lines of `OID SIZE` or `OID blob SIZE` (`git cat-file --batch-all-objects
+/// --batch-check='%(objectname) %(objecttype) %(objectsize)'` of a store that has the blobs).
+/// Only ids in `wanted` are kept, so a listing of a whole store costs no more memory than the
+/// commit's missing blobs. Records of other kinds, or that do not parse, are skipped.
+pub fn listing_sizes(listing: &[u8], wanted: &BTreeSet<&str>) -> HashMap<String, u64> {
+    let mut sizes = HashMap::new();
+    for record in listing.split(|byte| *byte == 0 || *byte == b'\n') {
+        let Ok(record) = std::str::from_utf8(record) else { continue };
+        // ls-tree: `MODE TYPE OID SIZE\tPATH`; the path may hold spaces.
+        let head = record.split_once('\t').map_or(record, |(head, _)| head);
+        let fields: Vec<&str> = head.split_whitespace().collect();
+        let (oid, size) = match fields.as_slice() {
+            [_, "blob", oid, size] | [oid, "blob", size] | [oid, size] => (*oid, *size),
+            _ => continue,
+        };
+        if let (true, Ok(size)) = (wanted.contains(oid), size.parse()) {
+            sizes.insert(oid.to_owned(), size);
+        }
+    }
+    sizes
+}
+
+/// Where a lazy mount finds the sizes of the blobs its mirror lacks, tried in this order after
+/// the mirror's own store, cheapest first. Each is keyed by blob id, not by commit: a listing or
+/// store made at an older commit sizes every blob that commit shares with the one mounted, and
+/// only the blobs added since are left for origin.
+#[derive(Clone, Debug, Default)]
+pub struct SizeSources {
+    /// Listings ([`listing_sizes`]): one saved in a machine image, or served by a mirror host.
+    pub listings: Vec<Vec<u8>>,
+    /// Other object stores on this machine that hold blobs (an image's full clone), read with
+    /// nothing fetched.
+    pub stores: Vec<PathBuf>,
+}
+
+/// How many of a lazy tree's blobs each source sized. `fetched` blobs no source could size:
+/// origin sent their bytes (one request), and they are local from then on.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SizeCounts {
+    pub local: usize,
+    pub listed: usize,
+    pub stores: usize,
+    pub remote: usize,
+    pub fetched: usize,
+    pub fetched_bytes: u64,
+}
+
+/// A commit's tree, sized, on a mirror that may lack its blobs, and the blobs it still lacks.
+pub struct LazyTree {
+    pub items: Vec<TreeItem>,
+    /// Blobs to fetch on first read ([`GitBlobs::lazy`]).
+    pub missing: Vec<String>,
+    /// Link blobs fetched now: a link's text is metadata.
+    pub links_fetched: usize,
+    pub sizes: SizeCounts,
+}
+
+/// The tree of `commit` for a lazy mount, fetching only its links' blobs and the blobs nothing
+/// else can size. A missing blob's size comes from, in order: `sources`' listings, then its
+/// stores, then the mirror's origin ([`remote_sizes`]); a blob none of them sizes is fetched
+/// (with the rest of those, in one request) and sized locally. So a mount always works, and a
+/// listing or store from an older commit leaves only the blobs added since to fetch.
+pub fn lazy_tree(git_dir: &Path, commit: &str, sources: &SizeSources) -> anyhow::Result<LazyTree> {
+    let mut items = ls_tree_names(git_dir, commit)?;
+    let mut missing: BTreeSet<String> = missing(git_dir, commit)?.into_iter().collect();
+    let links: Vec<String> = items
+        .iter()
+        .filter(|item| item.mode == LINK && missing.contains(&item.oid))
+        .map(|item| item.oid.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    fetch_missing(git_dir, &links)?;
+    for link in &links {
+        missing.remove(link);
+    }
+    let blobs: BTreeSet<&str> =
+        items.iter().filter(|item| item.mode != GITLINK).map(|item| item.oid.as_str()).collect();
+    let (absent, present): (Vec<&str>, Vec<&str>) =
+        blobs.into_iter().partition(|oid| missing.contains(*oid));
+    let mut counts = SizeCounts::default();
+    let mut sizes = local_sizes(git_dir, &present)?;
+    counts.local = sizes.len();
+    let mut unknown: BTreeSet<&str> = absent.into_iter().collect();
+    let mut take = |found: HashMap<String, u64>, unknown: &mut BTreeSet<&str>| {
+        let mut taken = 0;
+        for (oid, size) in found {
+            if unknown.remove(oid.as_str()) {
+                sizes.insert(oid, size);
+                taken += 1;
+            }
+        }
+        taken
+    };
+    for listing in &sources.listings {
+        if unknown.is_empty() {
+            break;
+        }
+        let found = listing_sizes(listing, &unknown);
+        counts.listed += take(found, &mut unknown);
+    }
+    for store in &sources.stores {
+        if unknown.is_empty() {
+            break;
+        }
+        let wanted: Vec<&str> = unknown.iter().copied().collect();
+        let found = local_sizes(store, &wanted)?;
+        counts.stores += take(found, &mut unknown);
+    }
+    if !unknown.is_empty() {
+        let wanted: Vec<&str> = unknown.iter().copied().collect();
+        let found = remote_sizes(git_dir, &wanted)?;
+        counts.remote += take(found, &mut unknown);
+    }
+    if !unknown.is_empty() {
+        let wanted: Vec<String> = unknown.iter().map(|oid| (*oid).to_owned()).collect();
+        fetch_missing(git_dir, &wanted)?;
+        let refs: Vec<&str> = wanted.iter().map(String::as_str).collect();
+        let found = local_sizes(git_dir, &refs)?;
+        counts.fetched_bytes = found.values().sum();
+        counts.fetched += take(found, &mut unknown);
+        for oid in &wanted {
+            missing.remove(oid);
+        }
+    }
+    fill_sizes(&mut items, &sizes)?;
+    Ok(LazyTree {
+        items,
+        missing: missing.into_iter().collect(),
+        links_fetched: links.len(),
+        sizes: counts,
+    })
+}
+
+/// Sets each blob item's size from `sizes`; an item with none is an error naming its path.
+pub fn fill_sizes(items: &mut [TreeItem], sizes: &HashMap<String, u64>) -> anyhow::Result<()> {
+    for item in items.iter_mut().filter(|item| item.mode != GITLINK) {
+        item.size = *sizes
+            .get(&item.oid)
+            .ok_or_else(|| anyhow::anyhow!("no size for {} ({})", item.path, item.oid))?;
+    }
+    Ok(())
+}
+
+/// `git ls-tree -r [-l] -z` output as items: `MODE TYPE OID [SIZE]\tPATH\0` (no size reads as 0).
 pub fn parse_ls_tree(bytes: &[u8]) -> anyhow::Result<Vec<TreeItem>> {
     let mut items = Vec::new();
     for record in bytes.split(|byte| *byte == 0).filter(|record| !record.is_empty()) {
@@ -243,11 +461,12 @@ pub fn parse_ls_tree(bytes: &[u8]) -> anyhow::Result<Vec<TreeItem>> {
         let (head, path) =
             record.split_once('\t').ok_or_else(|| anyhow::anyhow!("bad ls-tree line"))?;
         let mut fields = head.split_whitespace();
-        let (Some(mode), Some(_kind), Some(oid), Some(size)) =
-            (fields.next(), fields.next(), fields.next(), fields.next())
+        // Without `-l` there is no size field: [`ls_tree_names`] reads no object.
+        let (Some(mode), Some(_kind), Some(oid)) = (fields.next(), fields.next(), fields.next())
         else {
             anyhow::bail!("bad ls-tree line {record:?}");
         };
+        let size = fields.next().unwrap_or("-");
         items.push(TreeItem {
             path: path.to_owned(),
             mode: u32::from_str_radix(mode, 8)?,
@@ -613,7 +832,11 @@ impl Worktree {
         write_if_changed(&admin.join("commondir"), b"../..\n")?;
         let gitdir = format!("{}\n", at.join(".git").display());
         write_if_changed(&admin.join("gitdir"), gitdir.as_bytes())?;
-        write_if_changed(&admin.join("HEAD"), format!("{commit}\n").as_bytes())?;
+        // A worktree registered on a branch at `commit` (`git worktree add -b`, as `wt new` does)
+        // keeps its branch; any other HEAD becomes `commit`, detached.
+        if !branch_at(git_dir, &admin.join("HEAD"), commit) {
+            write_if_changed(&admin.join("HEAD"), format!("{commit}\n").as_bytes())?;
+        }
         write_if_changed(&admin.join("locked"), b"a cmux-projection mount\n")?;
         let exclude = admin.join("projection-exclude");
         let mut text = String::new();
@@ -635,6 +858,15 @@ impl Worktree {
                 let mut command = Command::new("git");
                 command.arg("config").arg("--file").arg(&config);
                 command.arg("core.excludesFile").arg(&exclude);
+                output(command)?;
+            }
+            // With per-worktree config on, a bare mirror's `core.bare = true` reaches its
+            // worktrees too, and git refuses `status` in one ("must be run in a work tree").
+            let mut read = Command::new("git");
+            read.arg("config").arg("--file").arg(&config).args(["--get", "core.bare"]);
+            if output(read).unwrap_or_default() != b"false\n" {
+                let mut command = Command::new("git");
+                command.arg("config").arg("--file").arg(&config).args(["core.bare", "false"]);
                 output(command)?;
             }
         }
@@ -699,6 +931,15 @@ impl Worktree {
     pub fn gitfile(admin: &Path) -> String {
         format!("gitdir: {}\n", admin.display())
     }
+}
+
+/// Whether the `HEAD` file `head` names a branch whose tip is `commit`.
+fn branch_at(git_dir: &Path, head: &Path, commit: &str) -> bool {
+    let Ok(text) = std::fs::read_to_string(head) else { return false };
+    let Some(branch) = text.trim().strip_prefix("ref: ") else { return false };
+    let mut command = git(git_dir);
+    command.args(["rev-parse", "--verify", "--quiet"]).arg(format!("{branch}^{{commit}}"));
+    output(command).is_ok_and(|out| out.trim_ascii() == commit.as_bytes())
 }
 
 /// Writes `bytes` to `file` (through a temporary file) unless it already holds them, so its mtime
@@ -840,6 +1081,23 @@ pub struct GitBlobs {
     git_dir: PathBuf,
     sources: Vec<Source>,
     held: Arc<Held>,
+    lazy: Option<Lazy>,
+}
+
+/// The most blobs, and their bytes, one lazy fetch asks for.
+const FETCH_FILES: usize = 256;
+const FETCH_BYTES: u64 = 16 * 1024 * 1024;
+
+/// A blobless mirror's missing blobs, fetched from its promisor remote on first read, a folder's
+/// small missing files in the same request (the folder read ahead the overlay does for a source it
+/// caches; here the object store is the cache).
+struct Lazy {
+    missing: Mutex<std::collections::HashSet<String>>,
+    /// Each entry's folder, and each folder's file entries.
+    parents: Vec<u32>,
+    folders: HashMap<u32, Vec<u32>>,
+    sizes: Vec<u64>,
+    fetches: std::sync::atomic::AtomicU64,
 }
 
 impl GitBlobs {
@@ -859,13 +1117,81 @@ impl GitBlobs {
                 held.sweep(Instant::now(), IDLE);
             }
         });
-        Self { git_dir: git_dir.to_owned(), sources, held }
+        Self { git_dir: git_dir.to_owned(), sources, held, lazy: None }
     }
 
     /// How many `git cat-file` processes wait in the pool (tests).
     #[cfg(test)]
     fn pooled(&self) -> usize {
         self.held.pool.lock().unwrap_or_else(PoisonError::into_inner).len()
+    }
+
+    /// Fetches the blobs in `missing` on first read instead of before the mount. `manifest` is
+    /// the projection's (its entries are `sources`' indexes).
+    #[must_use]
+    pub fn lazy(mut self, manifest: &Manifest, missing: Vec<String>) -> Self {
+        let count = u32::try_from(manifest.len()).unwrap_or(u32::MAX);
+        let mut parents = Vec::with_capacity(manifest.len());
+        let mut sizes = Vec::with_capacity(manifest.len());
+        let mut folders: HashMap<u32, Vec<u32>> = HashMap::new();
+        for index in 0..count {
+            let entry = manifest.entry(index);
+            let parent = entry.map_or(u32::MAX, |entry| entry.parent);
+            parents.push(parent);
+            sizes.push(entry.map_or(0, |entry| entry.size));
+            if entry.is_some_and(|entry| entry.kind == Kind::File) {
+                folders.entry(parent).or_default().push(index);
+            }
+        }
+        self.lazy = Some(Lazy {
+            missing: Mutex::new(missing.into_iter().collect()),
+            parents,
+            folders,
+            sizes,
+            fetches: std::sync::atomic::AtomicU64::new(0),
+        });
+        self
+    }
+
+    /// How many fetches lazy reads have made.
+    #[must_use]
+    pub fn fetches(&self) -> u64 {
+        self.lazy.as_ref().map_or(0, |lazy| lazy.fetches.load(std::sync::atomic::Ordering::Relaxed))
+    }
+
+    /// Makes `entry`'s blob local if the mirror lacks it, with its folder's other missing files.
+    fn ensure(&self, entry: u32, oid: &str) -> Result<(), FetchError> {
+        let Some(lazy) = &self.lazy else { return Ok(()) };
+        // Held across the fetch, so two reads in one folder make one request.
+        let mut missing = lazy.missing.lock().unwrap_or_else(PoisonError::into_inner);
+        if !missing.contains(oid) {
+            return Ok(());
+        }
+        let mut wanted = vec![oid.to_owned()];
+        let mut bytes = lazy.sizes.get(entry as usize).copied().unwrap_or(0);
+        let parent = lazy.parents.get(entry as usize).copied().unwrap_or(u32::MAX);
+        for other in lazy.folders.get(&parent).into_iter().flatten() {
+            if wanted.len() >= FETCH_FILES {
+                break;
+            }
+            let size = lazy.sizes.get(*other as usize).copied().unwrap_or(0);
+            if let Some(Source::Blob(id)) = self.sources.get(*other as usize)
+                && id != oid
+                && bytes + size <= FETCH_BYTES
+                && missing.contains(id)
+                && !wanted.contains(id)
+            {
+                wanted.push(id.clone());
+                bytes += size;
+            }
+        }
+        lazy.fetches.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        // The mirror's remote did not answer: the read fails as "Host is down", as a Mac away does.
+        fetch_missing(&self.git_dir, &wanted).map_err(|_| FetchError::Away)?;
+        for id in &wanted {
+            missing.remove(id);
+        }
+        Ok(())
     }
 
     fn bytes(&self, entry: u32) -> Result<Arc<Vec<u8>>, FetchError> {
@@ -878,6 +1204,7 @@ impl GitBlobs {
         }
         let bytes = match self.sources.get(entry as usize) {
             Some(Source::Blob(oid)) => {
+                self.ensure(entry, oid)?;
                 let taken = self.held.pool.lock().unwrap_or_else(PoisonError::into_inner).pop();
                 let mut cat = match taken {
                     Some(pooled) => pooled.cat,
