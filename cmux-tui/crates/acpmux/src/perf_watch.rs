@@ -68,6 +68,27 @@ pub const BUDGETS: &[Budget] = &[
         source: "perf.ts agentLatency first_token_ms on a warm local Claude chat (warm-chat capture)",
     },
     Budget {
+        key: "chat.send_paint",
+        limit: 16.0,
+        unit: "ms",
+        what: "Enter to the frame that paints the sent message and the reserved assistant turn",
+        source: "Leo, 2026-11-25: \"when you press enter, the stuff should just start playing. we dont need to wait/get blocked by anything on rendering.\" One frame at 60 Hz (perfReporter.ts sendSpan)",
+    },
+    Budget {
+        key: "chat.send_first_token",
+        limit: 3_000.0,
+        unit: "ms",
+        what: "Enter to first token",
+        source: "the same as chat.first_token, per send (perfReporter.ts sendSpan detail.firstTokenMs)",
+    },
+    Budget {
+        key: "chat.switch_paint",
+        limit: 16.0,
+        unit: "ms",
+        what: "chat switch to the frame that paints its transcript",
+        source: "one frame at 60 Hz (perfReporter.ts chatSwitchSpan)",
+    },
+    Budget {
         key: "workspace.switch",
         limit: 100.0,
         unit: "ms",
@@ -445,6 +466,54 @@ impl Watch {
         self.meter_event(inner, now);
     }
 
+    /// A page's "send" span: a note (subject "send") when its first token came later than
+    /// `chat.send_first_token`, or the transcript shifted under the reader over it.
+    fn send_note(&self, page: &str, detail: &Value) {
+        let first = detail.get("firstTokenMs").and_then(Value::as_f64);
+        let shifts = detail.get("shifts").and_then(Value::as_u64).unwrap_or(0);
+        let limit = budget("chat.send_first_token");
+        let slow = first.filter(|ms| limit > 0.0 && *ms > limit);
+        if slow.is_none() && shifts == 0 {
+            return;
+        }
+        let transport = detail.get("transport").and_then(Value::as_str).unwrap_or("local");
+        let mut said = Vec::new();
+        if let Some(first) = slow {
+            said.push(format!(
+                "its first token came {} after Enter (under {})",
+                ms(first),
+                ms(limit)
+            ));
+        }
+        if shifts > 0 {
+            let what: Vec<&str> = detail
+                .get("shiftWhat")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .take(3)
+                .collect();
+            let on =
+                if what.is_empty() { String::new() } else { format!(" ({})", what.join(", ")) };
+            said.push(format!("the transcript shifted {shifts} time(s) under it{on}"));
+        }
+        let text = format!("A {transport} send: {}", said.join("; "));
+        let now = self.now();
+        let mut guard = self.inner.lock_or_recover();
+        let Some(inner) = guard.as_mut() else { return };
+        self.say(
+            inner,
+            now,
+            "send",
+            text,
+            json!({
+                "subject": "send", "page": page, "firstTokenMs": first, "budgetMs": limit,
+                "shifts": shifts, "transport": transport,
+            }),
+        );
+    }
+
     /// One daemon request, `method`, answered `elapsed` after it arrived.
     pub fn request(&self, method: &str, origin: &str, elapsed: Duration, cheap_read: bool) {
         let total = elapsed.as_secs_f64() * 1000.0;
@@ -565,8 +634,11 @@ impl Watch {
             let budget_key =
                 span.get("budget").and_then(Value::as_str).filter(|key| budget(key) > 0.0);
             let name: String = name.chars().take(80).collect();
-            let detail =
-                json!({"page": page, "detail": span.get("detail").cloned().unwrap_or(Value::Null)});
+            let inner_detail = span.get("detail").cloned().unwrap_or(Value::Null);
+            if name == "send" {
+                self.send_note(page, &inner_detail);
+            }
+            let detail = json!({"page": page, "detail": inner_detail});
             self.span(&name, budget_key, total, &parts, detail);
         }
         let window = report.get("windowMs").and_then(Value::as_f64).unwrap_or(200.0).max(1.0);

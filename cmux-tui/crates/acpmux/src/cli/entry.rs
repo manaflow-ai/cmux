@@ -602,6 +602,13 @@ async fn async_main(parsed: Parsed) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
+        Some(Command::Memory(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::memory::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::Trigger(cmd)) => {
             let json_out = cli.json;
             match crate::cli::trigger::run(cmd, json_out).await {
