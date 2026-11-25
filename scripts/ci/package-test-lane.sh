@@ -302,7 +302,6 @@ select_packages() {
     CmuxUpdater
     CmuxPhonePush
     CmuxDeviceHub
-    CmuxEgress
     CmuxHomeRender
     CmuxRemote
     CmuxScreenKit
