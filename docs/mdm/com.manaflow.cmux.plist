@@ -4572,6 +4572,24 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>off</string>
+			<key>pfm_description</key>
+			<string>Lets the selected tab flow into the content like a liquid, with springy motion when tabs are selected, opened, closed or dragged. Subtle keeps it gentle; Full stretches and wobbles more.</string>
+			<key>pfm_name</key>
+			<string>appearance.gooeyTabs</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>off</string>
+				<string>subtle</string>
+				<string>full</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Gooey Tabs</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>Splits, closes, moves, zooms and column scrolls slide into place.</string>
@@ -5957,6 +5975,18 @@
 			<string>agentPane.display.chatListStatusPills</string>
 			<key>pfm_title</key>
 			<string>Status Pills in All Chats</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>In a subagent's own pane, show which chat it belongs to beside its name in the header.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.subagentOf</string>
+			<key>pfm_title</key>
+			<string>Subagent Of in Header</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -7806,6 +7836,18 @@
 			<string>sidebar.settleFinished</string>
 			<key>pfm_title</key>
 			<string>Settle Finished Chats</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows.</string>
+			<key>pfm_name</key>
+			<string>sidebar.showAgentSessions</string>
+			<key>pfm_title</key>
+			<string>Show Sessions Started by Agents</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -11739,6 +11781,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>Buttons draw no background until you hover over them.</string>
+			<key>pfm_name</key>
+			<string>experiments.quietButtons</string>
+			<key>pfm_title</key>
+			<string>Quiet Buttons</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Agent tabs show a count of unread messages and approvals, and sidebar rows show a status pill: Running, Needs approval or Done.</string>
 			<key>pfm_name</key>
 			<string>experiments.agentBadges</string>
@@ -11845,7 +11899,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<false/>
+			<true/>
 			<key>pfm_description</key>
 			<string>Cmd-F in a terminal searches its whole history, with case, whole-word and regex options.</string>
 			<key>pfm_name</key>
@@ -11864,6 +11918,18 @@
 			<string>experiments.chatWidgets</string>
 			<key>pfm_title</key>
 			<string>Extension Chat Widgets</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Make cmux Yours becomes four short screens: a whole look, how you work, trust and notifications, then density and background.</string>
+			<key>pfm_name</key>
+			<string>experiments.introWalk</string>
+			<key>pfm_title</key>
+			<string>Intro Walk</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>

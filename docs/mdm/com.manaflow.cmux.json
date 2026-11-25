@@ -382,6 +382,12 @@
       "title" : "Working Status Verbs",
       "type" : "string"
     },
+    "agentPane.display.subagentOf" : {
+      "default" : false,
+      "description" : "In a subagent's own pane, show which chat it belongs to beside its name in the header.",
+      "title" : "Subagent Of in Header",
+      "type" : "boolean"
+    },
     "agentPane.display.thinking.glyph" : {
       "description" : "Dots a look plays while the agent works, as a cmux.particles/1 document.",
       "title" : "Thinking Glyph",
@@ -2198,6 +2204,17 @@
       "minimum" : 0,
       "title" : "Glass Transparency",
       "type" : "number"
+    },
+    "appearance.gooeyTabs" : {
+      "default" : "off",
+      "description" : "Lets the selected tab flow into the content like a liquid, with springy motion when tabs are selected, opened, closed or dragged. Subtle keeps it gentle; Full stretches and wobbles more.",
+      "enum" : [
+        "off",
+        "subtle",
+        "full"
+      ],
+      "title" : "Gooey Tabs",
+      "type" : "string"
     },
     "appearance.highlightColor" : {
       "description" : "The color of selected text everywhere. Unset uses the terminal theme's.",
@@ -4315,6 +4332,12 @@
       "title" : "Tooltip Refresh",
       "type" : "boolean"
     },
+    "experiments.introWalk" : {
+      "default" : false,
+      "description" : "Make cmux Yours becomes four short screens: a whole look, how you work, trust and notifications, then density and background.",
+      "title" : "Intro Walk",
+      "type" : "boolean"
+    },
     "experiments.menuRowStates" : {
       "default" : false,
       "description" : "Menu rows that are unavailable say why, and rows that start work show their progress.",
@@ -4345,6 +4368,12 @@
       "title" : "Command Palette v2",
       "type" : "string"
     },
+    "experiments.quietButtons" : {
+      "default" : false,
+      "description" : "Buttons draw no background until you hover over them.",
+      "title" : "Quiet Buttons",
+      "type" : "boolean"
+    },
     "experiments.quietConnect" : {
       "default" : false,
       "description" : "Hide Resuming… and connection waits that end within 10 seconds.",
@@ -4370,7 +4399,7 @@
       "type" : "boolean"
     },
     "experiments.terminalHistoryFind" : {
-      "default" : false,
+      "default" : true,
       "description" : "Cmd-F in a terminal searches its whole history, with case, whole-word and regex options.",
       "title" : "Terminal History Find",
       "type" : "boolean"
@@ -6394,6 +6423,12 @@
       "default" : false,
       "description" : "A chat whose answer you have read folds into Settled at the end of its list until its next turn.",
       "title" : "Settle Finished Chats",
+      "type" : "boolean"
+    },
+    "sidebar.showAgentSessions" : {
+      "default" : false,
+      "description" : "Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows.",
+      "title" : "Show Sessions Started by Agents",
       "type" : "boolean"
     },
     "sidebar.showAutomaticSessions" : {
