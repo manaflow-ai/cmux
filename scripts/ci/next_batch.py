@@ -258,6 +258,15 @@ def log(message: str) -> None:
     print(f"[next-batch {now().strftime('%H:%M:%S')}] {message}", flush=True)
 
 
+def rate_limit_wait(completed: subprocess.CompletedProcess) -> float | None:
+    """Seconds to wait before retrying a rate-limited gh call, or None when it was
+    not one: the gh quota wrapper exits 75 and names "retry after Ns"."""
+    if completed.returncode != 75:
+        return None
+    found = re.findall(r"retry after (\d+)s", completed.stderr or "")
+    return min(float(found[-1]) + 1 if found else 30.0, 120.0)
+
+
 class GitHub:
     """`gh` with the job's token. Every call is one request; nothing loops on its own."""
 
@@ -292,6 +301,14 @@ class GitHub:
                 r"HTTP 5\d\d|unexpected end of JSON input|TLS handshake timeout|connection reset|i/o timeout",
                 completed.stderr):
             time.sleep(10)  # sleep-ok: backoff before the one retry of a gateway or network timeout
+            completed = self.gh(*args, check=False)
+        for _ in range(3):
+            # The quota wrapper's exit 75 is a rate limit with a reset, not a refusal: a
+            # select over 3,808 open PRs ran 141 queries and lost the batch to one of them.
+            wait = rate_limit_wait(completed)
+            if wait is None:
+                break
+            time.sleep(wait)  # sleep-ok: waits out the reset the rate limit names, at most 3 times
             completed = self.gh(*args, check=False)
         if completed.returncode != 0:
             raise RuntimeError(f"gh api graphql failed: {completed.stderr.strip()[-500:]}")
