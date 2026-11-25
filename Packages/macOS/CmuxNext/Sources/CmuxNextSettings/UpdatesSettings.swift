@@ -28,7 +28,7 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     public var meteredNetwork = UpdatesSettings.meteredNetworkDefault
     /// Web UI updates between app updates (plans/cmux-next/web-ota.md); NIGHTLY builds only.
     public var web = UpdatesSettings.webDefault
-    /// Pages and agent panes load from the server or overlay `~/.config/cmux/web-dev.json` names
+    /// Pages and agent panes load from the server or overlay `~/.config/cmux-next/web-dev.json` names
     /// (the live web loop, docs/cmux-next/hot-reload.md); every build, on by default.
     public var liveWebReload = UpdatesSettings.liveWebReloadDefault
     /// The bottom-left "cmux Updated!" card after an update

@@ -24,6 +24,7 @@ mod composer_outbox;
 mod follow_camera;
 mod lan;
 mod last_place;
+mod link_progress;
 mod link_side;
 pub mod local_link;
 mod mac_screen;
@@ -57,6 +58,7 @@ pub use composer_outbox::{
 };
 pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};
 pub use last_place::{LastPlaceAnchor, LastPlaceRecord, LastPlaceScreen, LastPlaceStore};
+pub use link_progress::{HeldKeysExpiryReason, LinkProgressClock, held_keys_expiry};
 pub use link_side::{LinkOpenSide, link_open_side};
 pub use mac_screen::{MacScreenAnswer, MacScreenDisplay, MacScreenIceServer, MacScreenObserver, MacScreenRd};
 pub use read_store::{PhoneReadKey, PhoneReadStore, PhoneReadStoreError};
@@ -530,6 +532,13 @@ impl LinkHandle {
         let link = self.link.clone();
         let rtt = on_runtime(async move { link.ping().await }).await?;
         Ok(u32::try_from(rtt.as_millis()).unwrap_or(u32::MAX))
+    }
+
+    /// Wake the radio before a keystroke (the terminal's keyboard took focus
+    /// or a finger touched it): one datagram ping on a link quiet for a
+    /// second. Free when the link is busy, parked or closed. `true` when sent.
+    pub fn prewake(&self) -> bool {
+        self.link.prewake()
     }
 
     /// Whether the link is alive within `timeout_ms`: the round trip in
