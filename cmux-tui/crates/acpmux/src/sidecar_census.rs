@@ -116,8 +116,19 @@ pub(crate) async fn host_census(
 pub(crate) enum LaunchServers {
     /// The servers its configs named just before it started, its `PATH` and its folder.
     Known { servers: Vec<Sidecar>, path: String, cwd: PathBuf },
-    /// Its configs could not be read within [`CENSUS_BUDGET`].
-    Unknown,
+    /// Its configs could not be read within [`CENSUS_BUDGET`]: what the read needs, so the idle
+    /// pass reads them again (`retry`). A busy machine (a restart resuming every cut-off turn at
+    /// once) misses the budget; before, that one miss kept the harness up for good (cmux
+    /// NIGHTLY, 2026-11-25: 244 sessions logged "are not known", about 350 MB each).
+    Unknown(Box<LaunchRead>),
+}
+
+/// The inputs of one `LaunchServers::read`, kept by a read that missed its budget.
+#[derive(Debug, Clone)]
+pub(crate) struct LaunchRead {
+    launch: crate::agent::Launch,
+    family: String,
+    kind: crate::config::HarnessKind,
 }
 
 impl LaunchServers {
@@ -147,6 +158,7 @@ impl LaunchServers {
         family: String,
         kind: crate::config::HarnessKind,
     ) -> Self {
+        let retry = LaunchRead { launch: launch.clone(), family: family.clone(), kind };
         let family = config_family(family, kind);
         let path = launch.env.get("PATH").cloned().unwrap_or_default();
         let (at, cwd, launch) = (path.clone(), launch.cwd.clone(), launch.clone());
@@ -155,7 +167,20 @@ impl LaunchServers {
         });
         match tokio::time::timeout(CENSUS_BUDGET, read).await {
             Ok(Ok(servers)) => Self::Known { servers, path, cwd },
-            _ => Self::Unknown,
+            _ => Self::Unknown(Box::new(retry)),
+        }
+    }
+
+    /// For servers its start could not read in time (`Unknown`): the same read again, with the
+    /// configs as they are now, as `read_live` judges an adopted harness. A server since removed
+    /// from them keeps the harness up as unknown work does; one since added counts only when a
+    /// child of the harness runs exactly its argv. None when they are known already or the read
+    /// misses its budget again (the next idle pass tries again).
+    pub(crate) async fn retry(&self) -> Option<Self> {
+        let Self::Unknown(read) = self else { return None };
+        match Self::read(&read.launch, read.family.clone(), read.kind).await {
+            known @ Self::Known { .. } => Some(known),
+            Self::Unknown(_) => None,
         }
     }
 
@@ -181,7 +206,7 @@ impl LaunchServers {
         let launch = tokio::time::timeout(CENSUS_BUDGET, live).await.ok()?.ok()??;
         match Self::read(&launch, family, kind).await {
             known @ Self::Known { .. } => Some(known),
-            Self::Unknown => None,
+            Self::Unknown(_) => None,
         }
     }
 }
