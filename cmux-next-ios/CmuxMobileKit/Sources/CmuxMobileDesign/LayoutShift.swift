@@ -44,7 +44,12 @@ public final class LayoutShiftProbe {
     private final class Ticker: NSObject {
         weak var probe: LayoutShiftProbe?
         init(_ probe: LayoutShiftProbe) { self.probe = probe }
-        @objc func tick() { MainActor.assumeIsolated { probe?.tick() } }
+        /// Reads the weak reference here, so the main-actor closure captures the (Sendable,
+        /// main-actor) probe and not this non-Sendable target.
+        @objc func tick() {
+            let probe = probe
+            MainActor.assumeIsolated { probe?.tick() }
+        }
     }
 }
 
