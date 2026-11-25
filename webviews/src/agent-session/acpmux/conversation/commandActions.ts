@@ -330,15 +330,18 @@ export function inlineScript(command: string): { language: string; file?: string
   return { language, ...(file ? { file } : {}), more };
 }
 
-/// "Ran a Python script on als.json", "Running a Bash script": the script's words under the row's
-/// own verb, for a row, a running row and the live line.
+/// "Ran a Python script on als.json": the script's words under the row's own verb. A running row
+/// uses the noun alone, with its first letter capitalized (Leo, 2026-11-23: "running" doesn't need
+/// text).
 export function scriptSaid(t: Translate, command: string, running = false): string | undefined {
   const noun = scriptNoun(t, command);
   if (!noun) return undefined;
-  return t(running ? "tools.runningCommand" : "tools.ranCommand", { command: noun });
+  if (running) return noun.slice(0, 1).toLocaleUpperCase() + noun.slice(1);
+  return t("tools.ranCommand", { command: noun });
 }
 
-/// The live line's words for a script, without its verb (Thinking.tsx adds "Running"/"Ran").
+/// The live line's words for a script, without a running-state verb (Thinking.tsx adds "Ran" only
+/// after it finishes).
 export function scriptNoun(t: Translate, command: string): string | undefined {
   const script = inlineScript(command);
   if (!script) return undefined;
@@ -1225,8 +1228,8 @@ const failed = (tool: Tool) =>
 
 /// A command row's words when they are not its command line: the table's action, else the call's
 /// description, as the look orders them. Undefined when the row reads "Ran <line>". A running call
-/// reads as the line that is running ("Running <line>", and the live line its command alone, as
-/// #36940 set): it has done nothing yet, and what runs is what the person may want to stop.
+/// reads as its command line, with the shimmer carrying its live state (Leo, 2026-11-23: "running"
+/// doesn't need text).
 export function commandSaid(t: Translate, tool: Tool, look: CommandLabelLook = commandLook()): string | undefined {
   const command = tool.command?.trim();
   if (!command || look === "command" || look === "cleaned") return undefined;
