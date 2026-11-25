@@ -31,16 +31,6 @@
       "id": "chat.user.empty",
       "item": "item 1b (ios-optimistic-send)",
       "fix": "cmux#54993"
-    },
-    {
-      "id": "feed.connecting",
-      "item": "item 3 (conn-chip-ios-surfaces)",
-      "fix": "cmux#54994"
-    },
-    {
-      "id": "cloud.chat.connecting",
-      "item": "item 3 (conn-chip-ios-surfaces)",
-      "fix": "cmux#54994"
     }
   ],
   "patterns": [
@@ -155,14 +145,6 @@
       "root_fix": "1c"
     },
     {
-      "id": "cloud.chat.connecting",
-      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/CloudChatsScreen.swift",
-      "line": 171,
-      "bound_ms": 0,
-      "waits_for": "a Cloud chat connecting through a Mac (up to 40 s)",
-      "root_fix": "3"
-    },
-    {
       "id": "cloud.chats.loading",
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/CloudChatsScreen.swift",
       "line": 51,
@@ -185,14 +167,6 @@
       "bound_ms": 2000,
       "waits_for": "the task composer's drafts",
       "root_fix": "1c"
-    },
-    {
-      "id": "feed.connecting",
-      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileFeed/FeedScreen.swift",
-      "line": 350,
-      "bound_ms": 0,
-      "waits_for": "the feed before the Mac answers: \"Connecting to your Mac\"",
-      "root_fix": "3"
     },
     {
       "id": "home.conversations.loading",

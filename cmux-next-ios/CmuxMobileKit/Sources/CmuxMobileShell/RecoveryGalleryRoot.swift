@@ -154,15 +154,15 @@ public struct RecoveryGalleryRoot: View {
         }
     }
 
-    /// A (picked): spinner, what it waits on, and the bound, counted up past 5 s.
+    /// A (picked): nothing while it connects; the chats fill in (Leo, 2026-11-24, item 3: no
+    /// connecting indicators). Was: spinner, what it waits on, and the bound, counted up past 5 s.
     /// B: an empty state with the bound and no motion (reads as stopped).
     /// C: an inline row with a determinate bar (implies progress the link does not report).
     private var cloud: some View {
-        let since = Date.now.addingTimeInterval(-12)
-        return ScrollView {
+        ScrollView {
             VStack(spacing: 28) {
                 galleryLabel("A · picked")
-                CloudChatsConnecting(machine: "atlas-dev", mac: "Aziz's Mac Studio", since: since)
+                CloudChatsConnecting()
                 galleryLabel("B")
                 VStack(spacing: 6) {
                     Image(systemName: "cloud").font(.title2).foregroundStyle(.secondary)
