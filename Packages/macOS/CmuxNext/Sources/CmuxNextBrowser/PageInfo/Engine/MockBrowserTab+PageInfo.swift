@@ -14,6 +14,8 @@ public struct MockPageInfoData {
     /// Every change Page Info pushed to the engine, in order.
     public private(set) var appliedChanges: [(SitePermissionKind, SitePermissionSetting, String)] = []
     public private(set) var deletedDomains: [String] = []
+    /// What the next "Delete site data" throws (an engine whose cookie jar is unreadable); nil deletes.
+    public var deleteFailure: PageInfoSiteDataDeleteError?
     /// The page was loaded past a certificate warning the user turned off.
     public var certificateWarningsOff = false
     /// Pages the warning page's Proceed loaded, in order.
@@ -45,7 +47,10 @@ extension MockBrowserTab: PageInfoProviding {
                   pageHost: pageHost, thirdPartyPolicy: pageInfoFake.thirdPartyPolicy)
     }
 
-    public func pageInfoDeleteSiteData(domains: [String]) async { pageInfoFake.delete(domains) }
+    public func pageInfoDeleteSiteData(domains: [String]) async throws(PageInfoSiteDataDeleteError) {
+        if let failure = pageInfoFake.deleteFailure { throw failure }
+        pageInfoFake.delete(domains)
+    }
 
     public func pageInfoLivePermissions(origin: String) async -> [SitePermissionKind: SitePermissionSetting] { pageInfoFake.live }
 

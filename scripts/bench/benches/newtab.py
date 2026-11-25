@@ -169,7 +169,8 @@ class NewTab(Bench):
             self._press_rows(ctx, sel, labels)
             openings = [r.get("opening") for r in sel if "opening" in r]
             if openings:
-                ctx.row("spare_missed", sum(not (o or {}).get("spare") for o in openings), "count", labels=labels)
+                # Missed: no page was ready for the open (not the page made ahead, `spare`, and no idle page, `idle`).
+                ctx.row("spare_missed", sum(not ((o or {}).get("spare") or (o or {}).get("idle")) for o in openings), "count", labels=labels)
 
     def _arm_lines(self, ctx: Context, arms: list[re.Match]) -> None:
         """The log's ARM lines: per arm and metric, p50, p95 and n (no samples in a log)."""
@@ -193,6 +194,13 @@ class NewTab(Bench):
                 continue  # the filmed take runs slower by design
             if row.get("invalid"):
                 ctx.notes.append(f"held {row.get('round')} {row.get('scenario')}: {'; '.join(row['invalid'])[:200]}")
+                continue
+            hidden = row.get("not_for_a_person")
+            if hidden is not None:
+                # The tool keeps each number of such a row below this key (the sample take's row; a row with no proof
+                # of its keys' order): a count of 0 for it would be a number that no take measured.
+                why = str((hidden.get("why") if isinstance(hidden, dict) else None) or "the row says no cause")[:200]
+                ctx.notes.append(f"held {row.get('round')} {row.get('scenario')}: no number of this row is for a person: {why}")
                 continue
             by.setdefault(row.get("scenario") or "?", []).append(row)
         for scenario, rows in sorted(by.items()):

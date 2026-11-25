@@ -5,6 +5,8 @@
 //   pointer-probe path X0 Y0 X1 Y1 N   post N mouse moves along a line, about 120 Hz, as a mouse does
 //   pointer-probe drag X0 Y0 X1 Y1 N   press at the start, N left-drag events along a line, release at the end
 //   pointer-probe owner X Y    print the app and title of the frontmost on-screen window at a screen point (top left)
+//   pointer-probe front X Y    print the pid and app of the frontmost normal (layer 0) window at a screen point, or none
+//   pointer-probe windows PID  print each on-screen normal window of PID, front first: id x y width height
 //   pointer-probe where        print the pointer (screen points from the top left)
 //   pointer-probe click X Y    post a left press and release there
 //   pointer-probe cursor       print the cursor on screen now: iBeam, arrow, or other:<hot spot> <size>
@@ -68,6 +70,26 @@ case "owner":
     }
     print(hit.map { "\($0[kCGWindowOwnerName as String] ?? "?") layer \($0[kCGWindowLayer as String] ?? "?") "
         + "title \($0[kCGWindowName as String] ?? "") bounds \($0[kCGWindowBounds as String] ?? "")" } ?? "none")
+case "front":
+    // Layer 0 only: the menu bar, Dock and Notification Center hold full-screen windows above it that take no hover.
+    let location = point()
+    let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+    let hit = windows.first { info in
+        guard (info[kCGWindowLayer as String] as? Int) == 0, (info[kCGWindowAlpha as String] as? Double ?? 1) > 0,
+              let bounds = info[kCGWindowBounds as String] as? [String: Double] else { return false }
+        return CGRect(x: bounds["X"] ?? 0, y: bounds["Y"] ?? 0, width: bounds["Width"] ?? 0, height: bounds["Height"] ?? 0).contains(location)
+    }
+    print(hit.map { "\($0[kCGWindowOwnerPID as String] ?? 0) \($0[kCGWindowOwnerName as String] ?? "?")" } ?? "none")
+case "windows":
+    guard args.count >= 3, let pid = Int(args[2]) else {
+        FileHandle.standardError.write("usage: pointer-probe windows PID\n".data(using: .utf8)!)
+        exit(2)
+    }
+    let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+    for info in windows where (info[kCGWindowOwnerPID as String] as? Int) == pid && (info[kCGWindowLayer as String] as? Int) == 0 {
+        let b = info[kCGWindowBounds as String] as? [String: Double] ?? [:]
+        print("\(info[kCGWindowNumber as String] ?? 0) \(b["X"] ?? 0) \(b["Y"] ?? 0) \(b["Width"] ?? 0) \(b["Height"] ?? 0)")
+    }
 case "where":
     let location = CGEvent(source: nil)?.location ?? .zero
     print("\(location.x) \(location.y)")

@@ -5,8 +5,12 @@
 //! the user folder and cmux.json. Linux: inotify for changes only
 //! (`quiet_dirs`), since notify asks for every open. Others: notify's watcher
 //! (inotify). macOS: kqueue vnode events (`record_watch::DirWatch`) on the
-//! folders and on each file in them, made again when the files change, and
-//! a change counts only when what the sources hold changed (`sources_print`).
+//! folders and on each file in them, made again when the files change.
+//! On every platform a burst reloads only when what the sources hold changed
+//! since the last reload (`sources_print`): a folder made on the way to a
+//! missing source folder (a new folder in the home or `~/.config`) moves the
+//! watch, but reloads nothing, since each reload drops the warming pooled
+//! sessions (`reload_catalog`).
 //! Not FSEvents: it goes through fseventsd, which falls behind a burst of
 //! writes anywhere on the volume (a build, a full test run) by many seconds
 //! or drops the events (cx-ckdxf), so a new profile was missed or its event
@@ -43,6 +47,22 @@ use crate::config::ProfileSources;
 pub(super) const QUIET: Duration = Duration::from_millis(200);
 /// ...or after this long.
 pub(super) const MAX_BURST: Duration = Duration::from_secs(2);
+
+/// A watch task's wake-up (this one's, `git_watch.rs`'s, `settings_watch.rs`'s): a coalescing
+/// slot of one, never a queue (RFD 0124 R4). The task reads everything again on each wake, so a
+/// wake already waiting stands for any number more; an unbounded channel kept one entry per
+/// signal while the task was busy, and a folder that churns under load (a build, a checkout)
+/// grew it with no bound.
+pub(super) type WakeTx = tokio::sync::mpsc::Sender<()>;
+
+pub(super) fn wake_slot() -> (WakeTx, tokio::sync::mpsc::Receiver<()>) {
+    tokio::sync::mpsc::channel(1)
+}
+
+/// Signals a watch task: a full slot already holds this wake. False once the task is gone.
+pub(super) fn wake(signal: &WakeTx) -> bool {
+    !matches!(signal.try_send(()), Err(tokio::sync::mpsc::error::TrySendError::Closed(())))
+}
 
 /// The hub's profile hot-reload state: the live watcher and the change feed
 /// that `_acpmux/watch` connections forward.
@@ -118,6 +138,9 @@ impl Hub {
         if sources == ProfileSources::none() {
             return;
         }
+        // Before the watch is armed: a change made after this has an event, and the event's
+        // burst sees that the sources differ from what the loaded catalog read.
+        let loaded = sources_print(&sources);
         let (tx, rx) = std::sync::mpsc::channel();
         #[cfg(target_os = "linux")]
         let watcher = match crate::quiet_dirs::QuietDirs::follow(
@@ -157,7 +180,7 @@ impl Hub {
         // signals that come during a reload make one more. It ends when the
         // thread ends (the channel closes), the hub is gone, or the runtime
         // stops; the hub's watch state aborts it when the hub drops.
-        let (signal, mut wake) = tokio::sync::mpsc::unbounded_channel::<()>();
+        let (signal, mut wake) = wake_slot();
         let hub = Arc::downgrade(self);
         let reloader = handle.spawn(async move {
             while wake.recv().await.is_some() {
@@ -172,7 +195,7 @@ impl Hub {
         let watch = Arc::downgrade(&watch);
         let thread = std::thread::Builder::new()
             .name("acpmux-harness-watch".into())
-            .spawn(move || run(&rx, &watch, &sources, &signal));
+            .spawn(move || run(&rx, &watch, &sources, loaded, &signal));
         if let Err(e) = thread {
             tracing::warn!("harness watch thread cannot start: {e}");
         }
@@ -187,6 +210,12 @@ impl Hub {
     /// The last peer state note of each name, and their feed to watchers (`peer_states.rs`).
     pub fn peer_states(&self) -> &Arc<crate::peer_states::PeerStates> {
         self.harness_watch.peer_states.get_or_init(Default::default)
+    }
+
+    /// Sends a `_acpmux/connections.changed` note (`server/connections.rs` marks it) to the
+    /// watchers, through the harness feed every watching connection hears.
+    pub(crate) fn send_watch_note(&self, payload: Value) {
+        let _ = self.harness_watch.changes.send(payload);
     }
 
     /// Sends one `_acpmux/harnesses_changed` payload to the watchers.
@@ -313,7 +342,8 @@ impl HarnessWatcher {
 fn followed_targets(sources: &ProfileSources) -> Vec<crate::quiet_dirs::Target> {
     use crate::quiet_dirs::Target;
     let mut targets: Vec<Target> = sources.managed.iter().cloned().map(Target::Dir).collect();
-    targets.extend(sources.user_dir.iter().cloned().map(Target::Dir));
+    let user = sources.user_dir.iter().chain(sources.person_dir.iter());
+    targets.extend(user.cloned().map(Target::Dir));
     targets.extend(sources.cmux_json.iter().cloned().map(Target::File));
     targets
 }
@@ -338,6 +368,7 @@ fn source_folders(sources: &ProfileSources) -> Vec<PathBuf> {
         folders.push(user.clone());
         folders.extend(user.parent().map(Path::to_path_buf));
     }
+    folders.extend(sources.person_dir.iter().cloned());
     folders.extend(sources.cmux_json.as_deref().and_then(Path::parent).map(Path::to_path_buf));
     folders
 }
@@ -363,7 +394,7 @@ fn nearest_folders(sources: &ProfileSources) -> Vec<PathBuf> {
 #[cfg(target_os = "macos")]
 fn source_files(sources: &ProfileSources) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = Vec::new();
-    for dir in sources.managed.iter().chain(sources.user_dir.iter()) {
+    for dir in sources.folders() {
         let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
             .map(|read| read.filter_map(|entry| entry.ok().map(|entry| entry.path())).collect())
             .unwrap_or_default();
@@ -376,16 +407,15 @@ fn source_files(sources: &ProfileSources) -> Vec<PathBuf> {
 }
 
 /// A path's size and modification time.
-#[cfg(target_os = "macos")]
 type Stamp = (u64, Option<std::time::SystemTime>);
 
 /// What the profile sources hold: each source folder's entries with their
 /// size and modification time (None for a missing folder), and cmux.json's.
-#[cfg(target_os = "macos")]
+/// A folder on the way to a missing source folder is not in it.
 fn sources_print(sources: &ProfileSources) -> Vec<(PathBuf, Option<Stamp>)> {
     let stamp = |path: &Path| std::fs::metadata(path).ok().map(|m| (m.len(), m.modified().ok()));
     let mut print = Vec::new();
-    for dir in sources.managed.iter().chain(sources.user_dir.iter()) {
+    for dir in sources.folders() {
         print.push((dir.clone(), stamp(dir)));
         let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)
             .map(|read| read.filter_map(|entry| entry.ok().map(|entry| entry.path())).collect())
@@ -406,7 +436,7 @@ fn sources_print(sources: &ProfileSources) -> Vec<(PathBuf, Option<Stamp>)> {
 /// folder itself, or cmux.json; or a folder on the way to one (made or removed
 /// while the folder past it is missing, `nearest_folders`).
 fn relevant(path: &Path, sources: &ProfileSources) -> bool {
-    let folders = sources.managed.iter().chain(sources.user_dir.iter());
+    let folders = sources.folders();
     let in_source = |dir: &PathBuf| path == dir || path.parent() == Some(dir.as_path());
     let on_the_way = |source: &PathBuf| source.as_path() != path && source.starts_with(path);
     sources.cmux_json.as_deref() == Some(path)
@@ -435,6 +465,7 @@ fn real_sources(sources: &ProfileSources) -> ProfileSources {
     ProfileSources {
         managed: sources.managed.iter().map(|p| real(p)).collect(),
         user_dir: sources.user_dir.as_deref().map(real),
+        person_dir: sources.person_dir.as_deref().map(real),
         cmux_json: sources.cmux_json.as_deref().map(real),
     }
 }
@@ -447,6 +478,7 @@ fn followed(path: &Path, sources: &ProfileSources) -> bool {
     let now = ProfileSources {
         managed: sources.managed.iter().map(|p| resolve(p).0).collect(),
         user_dir: sources.user_dir.as_deref().map(|p| resolve(p).0),
+        person_dir: sources.person_dir.as_deref().map(|p| resolve(p).0),
         cmux_json: sources.cmux_json.as_deref().map(|p| resolve(p).0),
     };
     relevant(path, &now)
@@ -458,12 +490,14 @@ fn followed(_path: &Path, _sources: &ProfileSources) -> bool {
 }
 
 /// Ends when the watcher is dropped (the channel closes), or when the reload
-/// task is gone (the runtime stopped or the hub dropped).
+/// task is gone (the runtime stopped or the hub dropped). `loaded` is what the
+/// sources held before the watch was armed (`sources_print`).
 fn run(
     rx: &std::sync::mpsc::Receiver<notify::Result<notify::Event>>,
     watch: &std::sync::Weak<HarnessWatcher>,
     sources: &ProfileSources,
-    signal: &tokio::sync::mpsc::UnboundedSender<()>,
+    mut loaded: Vec<(PathBuf, Option<Stamp>)>,
+    signal: &WakeTx,
 ) {
     // FSEvents reports real paths: a symlinked ~/.config must still match.
     let real = real_sources(sources);
@@ -503,13 +537,38 @@ fn run(
             let Some(watch) = watch.upgrade() else { return };
             watch.refresh(sources);
             drop(watch);
-            // Only a signal: the reload runs on the runtime, never here.
-            if signal.send(()).is_err() {
-                return;
+            // The watch follows a folder made on the way, but the catalog reloads only when
+            // the sources hold something else: a reload drops the warming pooled sessions.
+            // Read after the refresh, so a change the refresh's look found counts too.
+            let now = sources_print(sources);
+            if now != loaded {
+                loaded = now;
+                // Only a signal: the reload runs on the runtime, never here.
+                if !wake(signal) {
+                    return;
+                }
             }
         }
         if closed {
             return;
         }
+    }
+}
+
+#[cfg(test)]
+mod wake_slot_tests {
+    /// A task that is busy while its folder churns holds one wake however many signals come, and
+    /// its next wait ends once; a gone task is told (RFD 0124 R4).
+    #[test]
+    fn signals_to_a_busy_watch_task_hold_one_wake() {
+        let (signal, mut wakes) = super::wake_slot();
+        for _ in 0..10_000 {
+            assert!(super::wake(&signal), "the task is there");
+        }
+        assert_eq!(signal.capacity(), 0, "one wake waits");
+        assert!(wakes.try_recv().is_ok());
+        assert!(wakes.try_recv().is_err(), "and only one");
+        drop(wakes);
+        assert!(!super::wake(&signal), "a gone task is told");
     }
 }

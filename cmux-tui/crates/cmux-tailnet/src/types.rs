@@ -19,6 +19,8 @@ pub struct Status {
     pub current_tailnet: Option<TailnetInfo>,
     /// Keyed by the decimal user id.
     pub user: Option<HashMap<String, UserProfile>>,
+    /// The other nodes this one sees, keyed by node public key. Absent on an older status reply.
+    pub peer: Option<HashMap<String, PeerStatus>>,
 }
 
 impl Status {
@@ -55,6 +57,19 @@ pub struct PeerStatus {
     #[serde(rename = "UserID")]
     pub user_id: i64,
     pub tags: Option<Vec<String>>,
+    /// The control server says the node is connected.
+    pub online: bool,
+    /// The direct UDP endpoint in use ("ip:port"); empty while the path rides DERP.
+    pub cur_addr: String,
+    /// The DERP region code the path falls back to (or rides, when `cur_addr` is empty).
+    pub relay: String,
+}
+
+impl PeerStatus {
+    /// The path to this peer is a direct WireGuard endpoint, not DERP or a peer relay.
+    pub fn is_direct(&self) -> bool {
+        !self.cur_addr.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]

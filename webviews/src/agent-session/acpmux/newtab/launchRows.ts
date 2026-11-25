@@ -1,31 +1,14 @@
 // The omnibar's agent rows (Lawrence 2026-11-13: "omnibar needs to be able to create new agent
 // chats, search through all existing workspaces/terminals/panes/etc, search through history, and
-// also launch claude code/codex/opencode in certain directories"): the chats that match the typed
-// text, and "Start <agent> in <folder>" with the folder completed from the folders the page knows
+// also launch claude code/codex/opencode in certain directories"): "Start <agent> in <folder>",
+// with the folder completed from the folders the page knows
 // and, for a typed path, from the disk (`folder.complete`, answered later: ``FolderListing``).
 // Pure and synchronous: a keystroke reads only the lists it is given, never the disk.
 import { foldedScore, foldedTexts } from "../omnibar";
-import { type AcpmuxSessionEntry, homePath, isAgentHome, withoutChildren } from "../sessionList";
-import type { AllChatsRow } from "./allChatsListModel";
-import type { DeviceChat } from "./deviceChats";
+import { type AcpmuxSessionEntry, homePath, isAgentHome } from "../sessionList";
 
 /// An agent the page can start: its catalog id (`claude`, `codex`, `opencode`) and name.
 export type LaunchAgent = { id: string; name: string };
-
-/// One chat the field can open: a live acpmux session (`id`) or a device chat (`key`, the harness
-/// chat index's `harness:sessionId`, opened through `chats.open`).
-export type OmnibarChat = {
-  id: string;
-  key?: string;
-  title: string;
-  harness?: string;
-  cwd?: string;
-  /// The harness chat it is (`harness:agentSessionId`): a live session and the device chat of the
-  /// same harness chat are one row.
-  same?: string;
-  /// When the person or the agent last did something in it (Unix ms): newer first within a tier.
-  at?: number;
-};
 
 /// The disk's subfolders of `parent` (absolute, no trailing slash but `/` itself), as the host's
 /// `folder.complete` answered them: names only, folders only.
@@ -46,13 +29,10 @@ export type LaunchIntent = {
 };
 
 export const MAX_LAUNCH_ROWS = 4;
-export const MAX_CHAT_ROWS = 3;
 /// The shortest agent word that names an agent ("cod" is Codex; "co" and "c" are nothing).
 const MIN_AGENT_WORD = 3;
 /// The shortest folder name a word alone finds ("cm" asks, "cmux" finds ~/fun/cmux).
 const MIN_FOLDER_WORD = 3;
-/// The shortest text that finds a chat inside a title ("ab" only at a word's start).
-const MIN_SUBSTRING = 3;
 
 /// The agents the first word names: a prefix of the id or of the name's first word ("open" is
 /// OpenCode, "cla" is Claude Code; "code" is Codex, never Claude Code's second word). `exact` when
@@ -276,62 +256,26 @@ export function launchRows(
   return { rows: rows.slice(0, MAX_LAUNCH_ROWS), named: intent.named && whole };
 }
 
-/// One chat row.
-export type ChatRow = { type: "chat"; id: string; key?: string; title: string; harness?: string; detail?: string };
-
-/// The chats whose title (or folder name) the text finds: a prefix or a word's start, or for 3+
-/// characters anywhere in the title; the newest first within a tier. A live session and a device
-/// chat for the same harness chat are one row (the live one).
-export function chatRows(query: string, chats: readonly OmnibarChat[], limit = MAX_CHAT_ROWS): ChatRow[] {
-  const needle = query.trim().toLowerCase();
-  if (!needle || !chats.length) return [];
-  // Each title and folder name lowercased once per list, not on every key (foldedTexts).
-  const folded = foldedTexts(chats, "chats", (list) =>
-    list.map((chat) => ({ title: chat.title.toLowerCase(), folder: chat.cwd?.split("/").pop()?.toLowerCase() })),
-  );
-  const scored: { chat: OmnibarChat; score: number; index: number }[] = [];
-  chats.forEach((chat, index) => {
-    const texts = folded[index]!;
-    const title = foldedScore(needle, texts.title);
-    const folder = foldedScore(needle, texts.folder);
-    const score = Math.max(title, folder >= 2 ? folder - 0.5 : 0);
-    if (score >= 2 || (score > 0 && needle.length >= MIN_SUBSTRING)) scored.push({ chat, score, index });
-  });
-  const seen = new Set<string>();
-  return scored
-    .sort((a, b) => b.score - a.score || (b.chat.at ?? 0) - (a.chat.at ?? 0) || a.index - b.index)
-    .filter(({ chat }) => {
-      const key = chat.same ?? chat.key ?? chat.id;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .slice(0, limit)
-    .map(({ chat }) => ({
-      type: "chat",
-      id: chat.id,
-      ...(chat.key ? { key: chat.key } : {}),
-      title: chat.title,
-      ...(chat.harness ? { harness: chat.harness } : {}),
-      ...(chat.cwd ? { detail: homePath(chat.cwd) } : {}),
-    }));
-}
-
 /// The most folders the field searches: the projects, then the newest chats' folders.
 export const MAX_KNOWN_FOLDERS = 200;
-/// The most chats the field searches on each key (the device index's own search finds the rest).
-export const MAX_KNOWN_CHATS = 500;
 
 /// `/`, `/Users`, a home folder, a private agent-home folder: never a folder to start in.
 function startable(cwd: string | undefined): cwd is string {
   return !!cwd && cwd.startsWith("/") && !/^\/(?:(?:Users|home)(?:\/[^/]+)?)?\/?$/.test(cwd) && !isAgentHome(cwd);
 }
 
+/// The folder the field completes from for a chat: its own folder when it works on this Mac and may start one.
+export function omnibarFolder(session: AcpmuxSessionEntry): string | undefined {
+  if (session.peer || session.hostKind === "cloud" || !startable(session.cwd)) return undefined;
+  return session.cwd.replace(/(.)\/+$/, "$1");
+}
+
 /// The folders the field completes from: this Mac's projects in the host's order, then the
-/// folders of the newest chats here, once each.
+/// folders of the newest chats here (`recent`, newest first: sessionList.ts `recentFolders` of
+/// `omnibarFolder`), once each.
 export function omnibarFolders(
   projects: readonly { cwd: string; peer?: string }[] | undefined,
-  sessions: readonly AcpmuxSessionEntry[],
+  recent: readonly string[],
 ): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -343,55 +287,9 @@ export function omnibarFolders(
     out.push(key);
   };
   for (const project of projects ?? []) if (!project.peer) add(project.cwd);
-  const local = sessions.filter((session) => !session.peer && session.hostKind !== "cloud");
-  const newest = [...local].sort((a, b) => (b.activityAt ?? b.updatedAt ?? 0) - (a.activityAt ?? a.updatedAt ?? 0));
-  for (const session of newest) add(session.cwd);
+  for (const folder of recent) {
+    if (out.length >= MAX_KNOWN_FOLDERS) break;
+    add(folder);
+  }
   return out;
-}
-
-/// The chats the field searches: the live sessions (a sub-agent's folds under its chat), then the
-/// device index's chats its search found for the text, then the ones it pushed, newest first.
-export function omnibarChats(
-  sessions: readonly AcpmuxSessionEntry[],
-  searched: readonly AllChatsRow[],
-  pushed: readonly DeviceChat[],
-): OmnibarChat[] {
-  const out: OmnibarChat[] = [];
-  for (const session of withoutChildren([...sessions])) {
-    const title = session.displayTitle ?? session.title ?? session.name;
-    if (!title) continue;
-    const at = session.activityAt ?? session.updatedAt;
-    out.push({
-      id: session.sessionId,
-      title,
-      ...(session.harness ? { harness: session.harness } : {}),
-      ...(session.cwd && !isAgentHome(session.cwd) ? { cwd: session.cwd } : {}),
-      ...(session.harness && session.agentSessionId ? { same: `${session.harness}:${session.agentSessionId}` } : {}),
-      ...(at ? { at } : {}),
-    });
-  }
-  for (const chat of searched) {
-    if (!chat.title) continue;
-    out.push({
-      id: chat.key,
-      key: chat.key,
-      same: chat.key,
-      title: chat.title,
-      harness: chat.harness,
-      ...(chat.cwd ? { cwd: chat.cwd } : {}),
-      at: chat.updatedAt,
-    });
-  }
-  for (const chat of pushed) {
-    if (!chat.title || chat.parent) continue;
-    out.push({
-      id: chat.key,
-      key: chat.key,
-      same: chat.key,
-      title: chat.title,
-      harness: chat.harness,
-      at: chat.updatedAt,
-    });
-  }
-  return out.slice(0, MAX_KNOWN_CHATS);
 }

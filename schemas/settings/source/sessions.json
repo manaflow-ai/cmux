@@ -19,7 +19,7 @@
           },
           "help": {
             "key": "settings.sessions.keepAwake.help",
-            "text": "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep."
+            "text": "Stops idle sleep while an agent works. Closing the lid still sleeps the Mac."
           },
           "kind": "choice",
           "swift_enum": {
@@ -67,6 +67,30 @@
           ]
         },
         {
+          "key": "sessions.keepAwakeWhenLocked",
+          "name": "keepAwakeWhenLocked",
+          "note": "Off by default. On: while this Mac's screen is locked and an agent turn runs, acpmux holds idle sleep off too, also on battery, so the turn keeps running (hub/lock_bridge.rs, design/lock-bridge.md). At most 2 hours per locked stretch, and 10 minutes after the last running turn while one waits for the person. Keep Mac Awake set to Off turns it off. A closed lid on battery and low battery still sleep the Mac. Computer use and permission prompts wait while the screen is locked, on or off.",
+          "title": {
+            "key": "settings.sessions.keepAwakeWhenLocked",
+            "text": "Keep Agents Running While Locked"
+          },
+          "help": {
+            "key": "settings.sessions.keepAwakeWhenLocked.help",
+            "text": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "lock",
+            "locked",
+            "sleep",
+            "awake",
+            "battery",
+            "agents",
+            "acpmux"
+          ]
+        },
+        {
           "key": "sessions.keepAwakeForCommands",
           "name": "keepAwakeForCommands",
           "note": "On: a terminal command on this Mac that has run a minute and printed in the last ten minutes also keeps the Mac awake, under the same Off, While Plugged In or Always choice as sessions.keepAwake (KeepAwakeService; the rule is Rust keep_awake_plan). Off by default: Leo has not said whether it should be on.",
@@ -76,7 +100,7 @@
           },
           "help": {
             "key": "settings.sessions.keepAwakeForCommands.help",
-            "text": "A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work."
+            "text": "A build or test running over a minute keeps the Mac awake."
           },
           "kind": "toggle",
           "default": false,
@@ -152,7 +176,7 @@
           },
           "help": {
             "key": "settings.sessions.promptSuggestions.help",
-            "text": "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it."
+            "text": "Agents suggest next tasks you can start as child chats."
           },
           "kind": "toggle",
           "default": true,
@@ -175,7 +199,7 @@
           },
           "help": {
             "key": "settings.agents.promptSuggestions.help",
-            "text": "After a turn, Claude or Codex suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change."
+            "text": "Suggests your next prompt in grey; Tab takes it. Each one is an extra model call."
           },
           "kind": "toggle",
           "default": true,
@@ -211,7 +235,7 @@
           },
           "help": {
             "key": "settings.phone.keepAwake.help",
-            "text": "A sleeping Mac can't be reached from your phone until it wakes. Closing the lid still puts the Mac to sleep."
+            "text": "Closing the lid still puts the Mac to sleep."
           },
           "kind": "choice",
           "swift_enum": {
@@ -263,7 +287,7 @@
           },
           "help": {
             "key": "settings.phone.cloudReplica.help",
-            "text": "cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy."
+            "text": "Stores workspace names, colors and unread counts. No paths, titles or output."
           },
           "kind": "toggle",
           "default": false,
@@ -288,7 +312,7 @@
           },
           "help": {
             "key": "settings.phone.cloudDesktop.help",
-            "text": "Your phone's Chief page shows your running Cloud machine's screen, view only. This Mac streams it while the page is open."
+            "text": "View only, streamed by this Mac while the page is open."
           },
           "kind": "toggle",
           "default": false,

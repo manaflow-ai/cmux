@@ -1,6 +1,16 @@
 use super::*;
 use serde_json::json;
 
+impl Hub {
+    /// Tells chat `id`'s row changed, as a change no record carries does: the order's next read
+    /// patches it. Panics when no chat has that id: a renamed fixture row would otherwise take
+    /// the patch out of a gate's timed samples unseen.
+    pub(crate) fn tell_row_for_test(&self, id: &str) {
+        let session = self.session_by_id(id).unwrap_or_else(|| panic!("no chat {id} to tell"));
+        self.events.row_changed(&session);
+    }
+}
+
 fn meta(id: &str, updated: u64) -> crate::store::SessionMeta {
     serde_json::from_value(json!({
         "schema": crate::store::META_SCHEMA, "id": id, "name": id, "harness": "claude",
@@ -96,7 +106,7 @@ async fn a_first_page_reads_its_window_not_every_chat() {
     let (own, all) = hub.own_rows_from(None, 20 + super::super::page_first::WINDOW_ROOM);
     assert!(!all, "a window of the order, not all of it");
     assert_eq!(own.len(), 20 + super::super::page_first::WINDOW_ROOM);
-    assert_eq!(own.first().map(|(s, _)| s.id.as_str()), Some("c007"));
+    assert_eq!(own.first().map(|(s, _)| s.id()), Some("c007"));
     let (rows, next) = hub.session_page_rows(&json!({"limit": 20}), false).unwrap();
     assert_eq!(rows.len(), 20);
     assert!(next.is_some_and(|next| next.is_string()));

@@ -6,6 +6,7 @@ import CmuxNextCloudUI
 import CmuxNextDaemonService
 import CmuxNextDaemon
 import CmuxNextPalette
+import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextSidebar
 
@@ -31,7 +32,7 @@ enum PaletteSourcesBridge {
             let assigned = services?.settings?.snapshot.paletteScopePrefixes.assigned ?? [:]
             return Dictionary(uniqueKeysWithValues: assigned.map { (PaletteScopeID($0.key), $0.value) })
         }
-        // cmux.json `palette.aliases` and `palette.pins`, read on every open.
+        // cmux.json `palette.aliases`, `palette.pins` and the palette's `experiments.*`, read on every open.
         sources.rankSettings = { [weak services] in
             guard let services else { return PaletteRankSettings() }
             let setting = PaletteRankingSetting(services.settings?.fileRoot ?? .object([:]))
@@ -41,7 +42,7 @@ enum PaletteSourcesBridge {
             for (id, words) in setting.aliases { aliases[canonical(id), default: []] += words }
             var seen = Set<String>()
             return PaletteRankSettings(aliases: aliases, pins: setting.pins.map(canonical).filter { seen.insert($0).inserted },
-                                       remembersSearches: setting.remembersSearches)
+                                       remembersSearches: setting.remembersSearches, experiments: PaletteExperiments(look: PaletteV2Look(setting: setting.paletteV2), preview: setting.palettePreview))
         }
         // Theme rows draw the theme's swatch strip (R98), from the catalog's
         // cache (read off the main thread at launch).
@@ -55,6 +56,7 @@ enum PaletteSourcesBridge {
     private static func makeBase(services: AppServices) -> PaletteSources {
         PaletteSources(workspaces: WorkspaceSource(services: services), tabs: TabSource(services: services),
                        navigation: AppPaletteNavigationSource(services: services),
+                       openIn: EditorOpenInSource(catalog: services.editorCatalog, focus: { [weak services] in services?.windows.active?.focusedPane.map { pane in EditorOpenInSource.Focus(folder: pane.daemon.isLocal ? NewTerminalStart.folder(of: pane.selectedTab, services: pane.services) : nil, chat: pane.currentTabKey.flatMap { pane.services.agentTabs.existingView($0) } != nil) } }, perform: { [weak services] id, arguments in _ = services?.registry.perform(id, invocation: ActionInvocation(arguments: arguments, origin: .user)) }),
                        targets: targetSource(services),
                        context: { [weak services] in services.map(capturedTargets) ?? [] },
                        // Theme pickers preview the highlighted theme live.
@@ -104,8 +106,12 @@ enum PaletteSourcesBridge {
             guard rows.isEmpty, let title = services.registry.title(for: "machine.add") else { return rows }
             return [PaletteTargetOption(id: "add-machine", title: title, symbol: "plus", recovery: PaletteTargetRecovery(action: "machine.add", title: title))]
         }
+        // Switch Host…: every row of the Hosts section (`MachineSectionRow.rows`), SSH, Cloud, joined and this Mac, connected or not.
+        let hosts = RefreshingPaletteTargetSource(kind: .machine, actions: Set(descriptors.filter { $0.paletteTargetSource == "hosts" }.map(\.id)), next: ssh) { [weak services] in
+            (services?.hostsSidebar.rows() ?? []).map { PaletteTargetOption(id: $0.id, title: $0.name, symbol: $0.symbol ?? "server.rack") }
+        }
         let cloud = CloudPaletteTargetSource(
-            actions: Set(descriptors.filter { $0.paletteTargetSource == "cloud" }.map(\.id)), next: ssh,
+            actions: Set(descriptors.filter { $0.paletteTargetSource == "cloud" }.map(\.id)), next: hosts,
             machines: { [weak services] in services?.machines.cloud.map(\.machine) ?? [] },
             refresh: { [weak services] in _ = await services?.cloud.refresh() },
             ask: { CloudHandlerRules().ask("cloud_handler_palette_targets", $0) })
@@ -167,7 +173,7 @@ enum PaletteSourcesBridge {
                                         groupName: groupNames[workspace.id], machineName: services.otherMachineName(daemon),
                                         agentID: agentID,
                                         keywords: (lone ?? repeating).map { PaletteWorkspace.loneTabWords(title: resolver.title($0), url: $0.url, session: $0.agentSession?.session) } ?? [],
-                                        sidebarRank: ranks[workspace.id], lastUsed: tabs.compactMap { lastActive[$0.id] }.max()) // latest tab focus
+                                        sidebarRank: ranks[workspace.id], lastUsed: tabs.compactMap { lastActive[$0.id] }.max(), tabCount: live.count) // latest tab focus
             }
         }
 
@@ -183,7 +189,7 @@ enum PaletteSourcesBridge {
             // Keep a workspace already listed in this window on the same selection path as a sidebar
             // click and the numbered navigation shortcuts, so its row highlight moves in the same turn.
             // A workspace owned by another window keeps the palette's global show behavior.
-            if services.windows.registry.value.owner(of: id) == window.state.id {
+            if services.windows.registry.value.lists(id, in: window.state.id) {
                 SidebarNavigation.activate(.workspace(WorkspaceID(id)), in: window, services)
             } else {
                 services.windows.show(workspaceID: id, in: window.state)

@@ -17,17 +17,23 @@
 // #41170 F1: no row may go up past the top while it narrows).
 //   bun bench/transcript-resize-frame.bench.ts [turns=100,1500] [rounds=3]
 /// <reference types="bun" />
-import path from "node:path";
 import { chromium } from "./browsers";
-import { createServer } from "vite";
-import { warmViteServer } from "../test/support/warmDevServer";
+import {
+  benchPositionals,
+  buildLabel,
+  devRequested,
+  gotoBenchPage,
+  requireProductionReact,
+  serveBenchPage,
+} from "./support/benchPage";
 import { perfRow, TARGET_MS } from "./perfRow";
 
-const TURNS = (process.argv[2] ?? "100,1500").split(",").map(Number);
-const ROUNDS = Number(process.argv[3] ?? 3);
+const args = benchPositionals();
+const TURNS = (args[0] ?? "100,1500").split(",").map(Number);
+const ROUNDS = Number(args[1] ?? 3);
+const FIXTURE = args[2];
 if (TURNS.some((turns) => !Number.isInteger(turns) || turns < 3) || !Number.isInteger(ROUNDS) || ROUNDS < 1)
-  throw new Error("usage: transcript-resize-frame.bench.ts [turns>=3,...] [rounds>=1]");
-const webviews = path.resolve(import.meta.dir, "..");
+  throw new Error("usage: transcript-resize-frame.bench.ts [turns>=3,...] [rounds>=1] [fixture]");
 /// The drag: from WIDE to NARROW and back, STEPS frames each way.
 const WIDE = 900;
 const NARROW = 520;
@@ -43,15 +49,11 @@ const CASES: readonly Case[] = [
   { name: "scrolled", wide: WIDE, view: "middle" },
 ];
 
-const vite = await createServer({
-  root: webviews,
-  configFile: path.join(webviews, "vite.config.ts"),
-  server: { port: 0, host: "127.0.0.1", strictPort: false },
-  logLevel: "error",
-});
-await vite.listen();
 const pagePath = "/test/browser/transcript-fling.html";
-await warmViteServer(vite, pagePath);
+/// A build by default; `--dev` takes a dev server and labels every number `dev`
+/// (bench/support/benchPage.ts): React's development bundle was about a third of a frame here.
+const DEV = devRequested();
+const served = await serveBenchPage(pagePath, { dev: DEV });
 const browser = await chromium.launch({ headless: true });
 type Drag = {
   work: number[];
@@ -73,6 +75,8 @@ type Drag = {
   clip: number;
   /// The view held the whole chat before the drag.
   fits: boolean;
+  /// The longest open Worked-for control list mounted for this drag.
+  workedControls: number;
 };
 const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!;
 const pct = (values: number[], p: number) => {
@@ -80,7 +84,7 @@ const pct = (values: number[], p: number) => {
   return Math.round((sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] ?? 0) * 100) / 100;
 };
 try {
-  const { port } = vite.httpServer!.address() as { port: number };
+  console.log(`transcript-resize-frame build=${buildLabel({ dev: DEV })}`);
   const runs: { turns: number; cases: readonly Case[] }[] = [
     ...TURNS.map((turns) => ({ turns, cases: CASES })),
     {
@@ -92,9 +96,16 @@ try {
     const page = await browser.newPage({
       viewport: { width: WIDE + 100, height: 900 },
     });
-    await page.goto(`http://127.0.0.1:${port}${pagePath}`);
+    await gotoBenchPage(page, served);
+    await requireProductionReact(page, { dev: DEV });
     await page.waitForFunction(() => "__debug" in window);
-    const seeded = await page.evaluate(`window.__debug.seedRows(${turns})`);
+    const seeded = await page.evaluate(`window.__debug.seedRows(${turns}, ${JSON.stringify(FIXTURE)})`);
+    if (FIXTURE === "worked-resize") {
+      await page.evaluate(() =>
+        (window as unknown as { __expandWorked: (open: boolean) => void }).__expandWorked(true),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     console.log(`transcript-resize-frame turns=${turns} fixture=${JSON.stringify(seeded)}`);
     for (const shape of cases) {
       const drag = async (): Promise<Drag> =>
@@ -102,7 +113,11 @@ try {
           async ({ wide, narrow, steps, view }) => {
             const perfUrl = "/src/agent-session/acpmux/perf.ts";
             type PerfModule = typeof import("../src/agent-session/acpmux/perf");
-            const { acpmuxPerf } = (await import(/* @vite-ignore */ perfUrl)) as PerfModule;
+            // The page hands over the pane's own measuring module (__acpmuxPerf); perfUrl is the dev
+            // server's route for it, which a build does not serve (the module is inside a chunk).
+            const { acpmuxPerf } =
+              (window as unknown as { __acpmuxPerf?: PerfModule }).__acpmuxPerf ??
+              ((await import(/* @vite-ignore */ perfUrl)) as PerfModule);
             const root = document.getElementById("root")!;
             root.style.width = `${wide}px`;
             const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -111,6 +126,12 @@ try {
               view === "latest" ? scroller.scrollHeight : (scroller.scrollHeight - scroller.clientHeight) / 2;
             for (let frame = 0; frame < 30; frame += 1) await new Promise(requestAnimationFrame);
             const fits = scroller.scrollHeight <= scroller.clientHeight + 1;
+            const workedControls = Math.max(
+              0,
+              ...[...document.querySelectorAll<HTMLElement>(".cv-worked[aria-controls]")].map(
+                (row) => row.getAttribute("aria-controls")?.split(" ").length ?? 0,
+              ),
+            );
             acpmuxPerf.enable();
             acpmuxPerf.resetFrames();
             const widths = [
@@ -210,6 +231,7 @@ try {
               heldDrift: Math.round(heldDrift * 10) / 10,
               heldSettleJump: Math.round(heldSettleJump * 10) / 10,
               clip: Math.round(clip * 10) / 10,
+              workedControls,
               fits,
             };
           },
@@ -261,7 +283,7 @@ try {
             `over_budget=${over} dropped=${dropped} interval_p95=${pct(run.intervals, 0.95)} react_p95=${run.reactMs} layout_p95=${run.layoutMs} ` +
             `overlap_frames=${run.overlaps} latest_drift_px=${run.drift} settle_jump_px=${run.settleJump} ` +
             `held_drift_px=${run.heldDrift} held_settle_jump_px=${run.heldSettleJump} top_clip_px=${run.clip} ` +
-            `spans_p95=${JSON.stringify(run.spans)}`,
+            `worked_controls=${run.workedControls} spans_p95=${JSON.stringify(run.spans)}`,
         );
       });
       perfRow({
@@ -275,5 +297,5 @@ try {
   }
 } finally {
   await browser.close();
-  await vite.close();
+  await served.close();
 }

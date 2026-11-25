@@ -52,6 +52,49 @@ def inputs_text(revision: str) -> str:
     return INPUTS.read_text(encoding="utf-8")
 
 
+def tree_objects(revision: str) -> dict[str, tuple[str, str, str]] | None:
+    """Resolve all regular input paths with one tree walk.
+
+    The key input list is read for every tree-key lookup, and callers invoke
+    this script repeatedly while routing a build. Resolving each path with a
+    separate ``git rev-parse`` made that cost grow linearly with the list. A
+    recursive tree listing gives the same object ids in one process. The
+    root listing retains top-level gitlinks, which ``ls-tree -r`` omits.
+    ``None`` keeps the per-path fallback for partial checkouts whose tree
+    cannot be listed in one pass.
+    """
+    try:
+        listings = [
+            subprocess.check_output(
+                ["git", "-C", str(ROOT), "ls-tree", "-z", "--full-tree", revision],
+                env=GIT_ENV,
+                timeout=GIT_TIMEOUT_SECONDS,
+            ),
+            subprocess.check_output(
+                ["git", "-C", str(ROOT), "ls-tree", "-z", "-r", "--full-tree", revision],
+                env=GIT_ENV,
+                timeout=GIT_TIMEOUT_SECONDS,
+            ),
+            subprocess.check_output(
+                ["git", "-C", str(ROOT), "ls-tree", "-z", "-d", "-r", "--full-tree", revision],
+                env=GIT_ENV,
+                timeout=GIT_TIMEOUT_SECONDS,
+            ),
+        ]
+    except subprocess.SubprocessError:
+        return None
+
+    resolved: dict[str, tuple[str, str, str]] = {}
+    for listing in listings:
+        for record in listing.split(b"\0"):
+            if not record:
+                continue
+            header, path = record.split(b"\t", 1)
+            mode, object_type, object_id = header.decode("ascii").split()
+            resolved[path.decode("utf-8")] = (mode, object_type, object_id)
+    return resolved
+
+
 def tree_key(revision: str, version: str = "v2") -> str:
     if version not in KEY_VERSIONS:
         raise RuntimeError(f"unknown cmux-tui tree key version {version!r}")
@@ -60,6 +103,7 @@ def tree_key(revision: str, version: str = "v2") -> str:
     except subprocess.CalledProcessError:
         raise RuntimeError(f"{revision} is not a commit in this checkout; fetch it first") from None
     entries: dict[tuple[str, ...], tuple[str, str, str]] = {}
+    resolved_objects = tree_objects(revision)
     for raw in inputs_text(revision).splitlines():
         raw = raw.strip()
         if not raw or raw.startswith("#"):
@@ -68,14 +112,18 @@ def tree_key(revision: str, version: str = "v2") -> str:
         if version != "v1" and (kind, path) in V1_ONLY_INPUTS:
             continue
         parts = tuple(path.split("/"))
-        try:
-            object_id = git("rev-parse", f"{revision}:{path}")
-        except subprocess.CalledProcessError:
-            # Embedded-file blobs (cx-t3e5) and ghostty-next may be absent at a
-            # revision; an absent input is left out of that revision's key.
-            if (kind == "gitlink" and path == "ghostty-next") or (kind == "blob" and path != "scripts/cmux-next/build-layout-reducer-ffi.sh"):
-                continue
-            raise RuntimeError(f"{revision} has no {kind} input {path}") from None
+        resolved = resolved_objects.get(path) if resolved_objects is not None else None
+        if resolved is not None:
+            object_id = resolved[2]
+        else:
+            try:
+                object_id = git("rev-parse", f"{revision}:{path}")
+            except subprocess.CalledProcessError:
+                # Embedded-file blobs (cx-t3e5) and ghostty-next may be absent at a
+                # revision; an absent input is left out of that revision's key.
+                if (kind == "gitlink" and path == "ghostty-next") or (kind == "blob" and path != "scripts/cmux-next/build-layout-reducer-ffi.sh"):
+                    continue
+                raise RuntimeError(f"{revision} has no {kind} input {path}") from None
         expected_mode = {"tree": "040000", "gitlink": "160000", "blob": "100755"}.get(kind)
         if expected_mode is None:
             raise RuntimeError(f"unknown cmux-tui tree input type {kind!r} for {path}")
@@ -97,37 +145,62 @@ def tree_key(revision: str, version: str = "v2") -> str:
             continue
         entries[parts] = (expected_mode, {"tree": "tree", "gitlink": "commit", "blob": "blob"}[kind], object_id)
 
-    def make_tree(prefix: tuple[str, ...]) -> str:
-        children: dict[str, tuple[str, str, str] | None] = {}
-        for path, value in entries.items():
-            if path[: len(prefix)] != prefix or len(path) <= len(prefix):
-                continue
-            name = path[len(prefix)]
-            remainder = path[len(prefix) + 1 :]
-            if remainder:
-                children[name] = None
-            else:
-                children[name] = value
-        lines: list[str] = []
-        for name in sorted(children):
-            value = children[name]
-            if value is None:
-                object_id = make_tree(prefix + (name,))
-                mode = "040000"
-                object_type = "tree"
-            else:
-                mode, object_type, object_id = value
-            lines.append(f"{mode} {object_type} {object_id}\t{name}")
-        if not lines:
-            raise RuntimeError(f"empty cmux-tui tree input directory {prefix!r}")
-        return subprocess.check_output(
-            ["git", "-C", str(ROOT), "mktree", "--missing"],
-            input=("\n".join(lines) + "\n").encode(),
-            env=GIT_ENV,
-            timeout=GIT_TIMEOUT_SECONDS,
-        ).decode().strip()
+    # One `git mktree --batch` writes every directory of the key, children first: a
+    # `git mktree` process per directory was about 90 spawns and 1 s per key, and the
+    # nightly's fallback search keys each of up to 300 commits three ways (run
+    # 45243747211 spent 296 s there, on the path to the signer).
+    mktree = subprocess.Popen(
+        ["git", "-C", str(ROOT), "mktree", "--batch", "--missing"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=GIT_ENV,
+    )
+    try:
+        return _make_tree((), entries, mktree)
+    finally:
+        if mktree.stdin is not None:
+            mktree.stdin.close()
+        try:
+            mktree.wait(timeout=GIT_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            mktree.kill()
+            mktree.wait()
 
-    return make_tree(())
+
+def _write_tree(mktree: subprocess.Popen[bytes], lines: list[str]) -> str:
+    assert mktree.stdin is not None and mktree.stdout is not None
+    mktree.stdin.write(("\n".join(lines) + "\n\n").encode())
+    mktree.stdin.flush()
+    object_id = mktree.stdout.readline().decode().strip()
+    if len(object_id) != 40 or mktree.poll() is not None:
+        raise RuntimeError(f"git mktree --batch wrote no tree (exit {mktree.poll()})")
+    return object_id
+
+
+def _make_tree(
+    prefix: tuple[str, ...], entries: dict[tuple[str, ...], tuple[str, str, str]], mktree: subprocess.Popen[bytes]
+) -> str:
+    children: dict[str, tuple[str, str, str] | None] = {}
+    for path, value in entries.items():
+        if path[: len(prefix)] != prefix or len(path) <= len(prefix):
+            continue
+        name = path[len(prefix)]
+        remainder = path[len(prefix) + 1 :]
+        if remainder:
+            children[name] = None
+        else:
+            children[name] = value
+    lines: list[str] = []
+    for name in sorted(children):
+        value = children[name]
+        if value is None:
+            object_id = _make_tree(prefix + (name,), entries, mktree)
+            mode = "040000"
+            object_type = "tree"
+        else:
+            mode, object_type, object_id = value
+        lines.append(f"{mode} {object_type} {object_id}\t{name}")
+    if not lines:
+        raise RuntimeError(f"empty cmux-tui tree input directory {prefix!r}")
+    return _write_tree(mktree, lines)
 
 
 def main() -> int:

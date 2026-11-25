@@ -31,6 +31,9 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--only", default="", help="comma-separated case names (default: all)")
 opts = parser.parse_args()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import require_no_person_mac  # noqa: E402
+require_no_person_mac("home-image-drop-proof")  # it posts real input (CGEventPost): never on a person's Mac
 os.makedirs(opts.out, exist_ok=True)
 
 APP = opts.app
@@ -206,17 +209,19 @@ def key(code, flags=0):
 
 
 def click(x, y):
-    mouse(5, x, y); time.sleep(0.1)
-    mouse(1, x, y); time.sleep(0.08)
-    mouse(2, x, y); time.sleep(0.2)  # human-like press interval for the window server
+    # sleep-ok: synthesized input timing: a human-like move/press/release interval is the event stream itself
+    mouse(5, x, y); time.sleep(0.1)  # sleep-ok: pointer rests before the press, as a person's click does
+    mouse(1, x, y); time.sleep(0.08)  # sleep-ok: press duration of a real click
+    mouse(2, x, y); time.sleep(0.2)  # sleep-ok: gap after the release so the next input is not a double click
 
 
 def drag(src, dst, during=None, steps=40):
     """A real drag: down on src, small moves (the source starts its drag session after a few points), a hold
     over dst (`during` runs there: the snapshot of the drop highlight), up."""
     (sx, sy), (dx, dy) = src, dst
-    mouse(5, sx, sy); time.sleep(0.15)
-    mouse(1, sx, sy); time.sleep(0.35)  # press and hold: Finder and the thumbnail start a drag after a short hold
+    mouse(5, sx, sy); time.sleep(0.15)  # sleep-ok: pointer rests on the source before the press (real input timing)
+    # sleep-ok: press and hold: Finder and the thumbnail start a drag only after a hold of this length
+    mouse(1, sx, sy); time.sleep(0.35)  # sleep-ok: the hold duration is the gesture
     for i in range(1, 6):
         mouse(6, sx + i * 2, sy + i * 2); time.sleep(0.03)
     for i in range(1, steps + 1):
@@ -225,7 +230,7 @@ def drag(src, dst, during=None, steps=40):
     for i in range(6):
         mouse(6, dx + (i % 2), dy); time.sleep(0.08)  # small moves over Home: draggingUpdated
     held = during() if during else None
-    mouse(6, dx, dy); time.sleep(0.1)
+    mouse(6, dx, dy); time.sleep(0.1)  # sleep-ok: a last hover over Home before the release (real drag timing)
     mouse(2, dx, dy)
     return held
 

@@ -171,7 +171,7 @@ impl Schema {
                     .and_then(Value::as_object)
                     .map(|colors| colors.keys().cloned().collect())
                     .unwrap_or_default(),
-                tokens: tokens(cmux_theme_tokens::DESIGN_TOKENS),
+                tokens: tokens(&cmux_theme_tokens::DESIGN_TOKENS.inflate()),
             },
             views: documents.iter().filter_map(|(name, file)| view_slot(name, file)).collect(),
             extension_points: documents

@@ -6,8 +6,8 @@
 // file default on a busy worker:
 // cmux-web-test-timeout: 360
 import { afterAll, afterEach, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import path from "node:path";
+import { readCatalog } from "../../../scripts/pages/catalog.mjs";
 import { LOCALES } from "../../../scripts/pages/gen-strings.mjs";
 import { categories } from "./categories";
 import type { ComputerUsePhase } from "./ops";
@@ -23,7 +23,7 @@ const LIMIT = 60;
 const here = import.meta.dir;
 const catalogFile = path.resolve(
   here,
-  "../../../../Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
+  "../../../../Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d",
 );
 
 /** Characters as a reader counts them (Thai and Khmer marks join the letter they sit on). */
@@ -76,8 +76,8 @@ const views: View[] = [
 ];
 
 test("Material says what Clear Glass does in one short line, with no tooltip repeating it", async () => {
-  // Personalization is the one page that draws the background rows.
-  page = await renderPage({ path: "/settings/personalization" });
+  // Appearance draws the background rows in its picker.
+  page = await renderPage({ path: "/settings/appearance" });
   const line = rowElement(page.container, "appearance.backgroundBlur").querySelector<HTMLElement>(".row-help");
   expect(line?.textContent).toBe("Clear Glass shows the desktop through the wallpaper");
   expect(line?.title).toBe("");
@@ -115,7 +115,7 @@ test("no description line on any Settings page is over 60 characters, in any lan
 }, 300_000);
 
 test("every schema summary fits 60 characters in every language", () => {
-  const catalog = JSON.parse(readFileSync(catalogFile, "utf8")) as {
+  const catalog = readCatalog(catalogFile) as {
     strings: Record<string, { localizations?: Record<string, { stringUnit?: { value?: string } }> }>;
   };
   const keys = schema.rows.flatMap((row) => (row.summary?.key ? [row.summary.key] : []));

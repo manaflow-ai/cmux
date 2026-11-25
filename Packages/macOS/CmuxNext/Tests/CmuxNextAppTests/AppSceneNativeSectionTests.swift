@@ -79,6 +79,26 @@ import Testing
         #expect(abs(textX - (2 * tokens.horizontalInset + iconColumn + LayoutGrid.gap)) < 2.5)
     }
 
+    @Test func aReorderableDropsAtTheRowMidpointExcludingTheDraggedRow() throws {
+        let model = AppSceneModel()
+        model.apply([
+            .create(id: "pins", type: "Reorderable", props: ["onMove": true]),
+            .create(id: "a", type: "Row", props: ["title": "A", "reorderKey": "first"]),
+            .create(id: "b", type: "Row", props: ["title": "B", "reorderKey": "second"]),
+            .create(id: "c", type: "Row", props: ["title": "C", "reorderKey": "third"]),
+            .children(id: "pins", children: ["a", "b", "c"]), .root(id: "pins"),
+        ])
+        let (window, root) = Self.host(model)
+        defer { window.contentView = nil; window.close() }
+        let list = try #require(Self.all(in: root).compactMap { $0 as? AppSceneReorderableNSView }.first)
+        let first = try #require(list.childViews.first), last = try #require(list.childViews.last)
+        #expect(list.placement(of: first, at: CGPoint(x: 5, y: last.frame.midY - 1))?.index == 1)
+        #expect(list.placement(of: first, at: CGPoint(x: 5, y: last.frame.midY + 1))?.index == 2)
+        #expect(list.placement(of: last, at: CGPoint(x: 5, y: first.frame.midY - 1))?.index == 0)
+        #expect(list.placement(of: first, at: CGPoint(x: 5, y: first.frame.midY)) == nil)
+        #expect(list.placement(of: first, at: CGPoint(x: -1, y: last.frame.midY)) == nil)
+    }
+
     @Test func tappingARowSendsTapToTheScript() throws {
         let model = Self.prList()
         let recorder = Recorder()

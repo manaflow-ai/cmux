@@ -31,6 +31,8 @@ import type { StartedSession } from "../started/startedSessions";
 import { headerStatus, visibleChanges } from "./changesSectionModel";
 import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { type AccessGrant } from "./EnvironmentSection";
+import type { SessionInfoCloudControl } from "../hybrid/SessionInfoCloud";
+
 import { SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
 import { SUBAGENT_HEADER } from "./subagentScopeHeaderModel";
 import {
@@ -58,7 +60,7 @@ import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import { useUnderSessionInfo } from "./underSessionInfo";
 import { useNativeSessionInfoHost } from "./native/host";
 import { useSameValue } from "./sameValue";
-import { NativeSessionInfo } from "./native/NativeSessionInfo";
+import { LazyNativeSessionInfo } from "./native/LazyNativeSessionInfo";
 import {
   FLOAT_MARGIN,
   pushes,
@@ -89,10 +91,12 @@ import { useCountedRender } from "../perfRender";
 import { useStableProps } from "../stableProps";
 import { COMPUTER_USE_PREVIEW_RESERVE, useComputerUsePreview } from "../computerUse/computerUsePreview";
 import { useChangeCounts, type ReadChanges } from "./changeCounts";
+import type { ReadCarried, ResolveCarried } from "./carriedSectionModel";
 import { useStepAside } from "./stepAside";
 import { usageEntries } from "./usageEntries";
 import { chatPlace } from "../chatMachine";
 import { useAlsoHere } from "./alsoHereSectionModel";
+import { agentSideRowsOf } from "./agentSide";
 
 /// How long after an output click a narrowing counts as that diff's split.
 const SPLIT_SETTLE_MS = 2000;
@@ -249,7 +253,10 @@ export function useSessionInfo({
   beside,
   wide = false,
   onReconnectMcp,
+  readCarried,
+  onResolveCarried,
   remoteControl,
+  cloud,
   onCompact,
   onViewPrompt,
   onOpenChat,
@@ -332,8 +339,14 @@ export function useSessionInfo({
   split?: boolean;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
+  /// Carried memory (CarriedSection.tsx): reads `_acpmux/agent_home`, and sends
+  /// `_acpmux/agent_home_resolve` on the click. The chat's own panel only (not Quick Chat).
+  readCarried?: ReadCarried;
+  onResolveCarried?: ResolveCarried;
   /// Environment's Remote Control switch (App.tsx, remoteControl.ts): absent, no row.
   remoteControl?: { on: boolean; set: (on: boolean) => void };
+  /// Environment's cloud controls (hybrid/HybridMounts.tsx), in Remote Control's place.
+  cloud?: SessionInfoCloudControl;
   /// Sends the chat's agent its `/compact` (Context's and Usage's Compact); unset where it cannot reach.
   onCompact?: () => void;
   /// Context's View Prompt: opens the Context screen (context/ContextScreen.tsx); unset for a chat
@@ -610,7 +623,10 @@ export function useSessionInfo({
         onOpenChanges={subagent ? undefined : stableOnOpenChanges}
         onSaveEnvironment={stableOnSaveEnvironment}
         onReconnectMcp={stableOnReconnectMcp}
+        readCarried={subagent ? undefined : readCarried}
+        onResolveCarried={subagent ? undefined : onResolveCarried}
         remoteControl={remoteControl}
+        cloud={cloud}
         onCompact={stableOnCompact}
         onViewPrompt={stableOnViewPrompt}
         onOpenChat={stableOnOpenChat}
@@ -893,7 +909,10 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onOpenChanges,
   onSaveEnvironment,
   onReconnectMcp,
+  readCarried,
+  onResolveCarried,
   remoteControl,
+  cloud,
   onCompact,
   onViewPrompt,
   onOpenChat,
@@ -965,7 +984,12 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onOpenChanges?: () => void;
   onSaveEnvironment?: () => Promise<unknown>;
   onReconnectMcp?: (server: string) => Promise<unknown>;
+  /// Carried memory (CarriedSection.tsx): `_acpmux/agent_home` and `_acpmux/agent_home_resolve`.
+  readCarried?: ReadCarried;
+  onResolveCarried?: ResolveCarried;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
+  /// Environment's cloud controls (hybrid/HybridMounts.tsx), in Remote Control's place.
+  cloud?: SessionInfoCloudControl;
   onCompact?: () => void;
   onViewPrompt?: () => void;
   onOpenChat?: (sessionId: string) => void;
@@ -1252,6 +1276,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   const place = useSameValue(chatPlace(snapshot));
   const startedList = useSameValue(scope ? undefined : sessions?.list);
   const workflowList = useSameValue(scope ? undefined : workflows?.list);
+  // What waits on the agent's side (agentSide.ts): the chat's, never a subagent scope's.
+  const agentSide = scope ? undefined : agentSideRowsOf(t, snapshot.surge, snapshot.queue);
   // A subagent, a started chat or a workflow's agent opens beside the chat (its own pane): Session Info
   // steps aside for it as for the folder and Changes, and is back once that pane closes (Lucas,
   // 2026-11-06: "clicking on a subagent will close the session info summary menu, like how it does for
@@ -1359,7 +1385,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
             }}
           />
         )}
-        <NativeSessionInfo
+        <LazyNativeSessionInfo
           key={scope ? `${snapshot.sessionId}:subagent:${scope.agent.id}` : snapshot.sessionId}
           shown={drawn && !gallery}
           width={panelWidth}
@@ -1392,6 +1418,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           processes={processes ?? []}
           listed={registry?.listed ?? false}
           transcriptTasks={transcriptTasks ?? []}
+          agentSide={agentSide}
           sessions={scope ? [] : (sessions?.list ?? [])}
           workflows={scope ? [] : (workflows?.list ?? [])}
           agent={scope?.agent}
@@ -1412,6 +1439,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           onOpenArtifacts={rowCount > 0 ? () => setGallery(true) : undefined}
           onReconnectMcp={onReconnectMcp}
           remoteControl={scope ? undefined : remoteControl}
+          cloud={scope ? undefined : cloud}
           onCompact={scope ? undefined : onCompact}
           onViewPrompt={scope ? undefined : onViewPrompt}
           onOpenFolder={openFolder}
@@ -1478,6 +1506,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         processes={processes}
         listed={registry?.listed}
         transcriptTasks={transcriptTasks}
+        agentSide={agentSide}
         // The chats the chat's agent started are the chat's.
         sessions={startedList}
         workflows={workflowList}
@@ -1506,7 +1535,11 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         // Save keeps the chat's machine and folder, not a subagent's.
         onSaveEnvironment={scope ? undefined : onSaveEnvironment}
         onReconnectMcp={onReconnectMcp}
+        // Carried memory is the chat's own, never a subagent's.
+        readCarried={scope ? undefined : readCarried}
+        onResolveCarried={scope ? undefined : onResolveCarried}
         remoteControl={scope ? undefined : remoteControl}
+        cloud={scope ? undefined : cloud}
         // Compact ends the chat's context, not a subagent's.
         onCompact={scope ? undefined : onCompact}
         onViewPrompt={scope ? undefined : onViewPrompt}

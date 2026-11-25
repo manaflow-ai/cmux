@@ -1,8 +1,9 @@
+import { envForObject } from "./build-space.ts"
 import type { Principal } from "@cmux/ownership"
 import { UsageRecord, type Meter, type UsageSummary } from "@cmux/protocol"
 import { Schema } from "effect"
 import { BILLABLE_METERS, BILLABLE_METERS_SQL, billedMetersSql, ceilingUsd, MONEY_METERS, recordMicros, METERS, summarize, usageDomain, utcMonth, type MeterCounter, type UsageState } from "./domains/usage.ts"
-import type { Env } from "./env.ts"
+import type { Env, RawEnv } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { addUserSpend, BILLABLE_GRACE_MS, ensureUserTables, expireUserReservations, nextMonthStart, nextUserWake, recordCostMicros, reserveUser, settleCall, userSpentMicros, type UserReserve } from "./usage-user.ts"
 import { billedLevelMicros, teamCapUnpaidMaxPools, type IncludedMode, type UsagePriceSet } from "./billing-catalog.ts"
@@ -58,7 +59,8 @@ const decodeRecord = Schema.decodeUnknownOption(UsageRecord)
  * `usage.cap.set` goes through the owner engine like every other op.
  */
 export class UsageMeterDO extends OwnerDO<UsageState> {
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    const env = envForObject(ctx, raw)
     super(ctx, env, usageDomain, "usage")
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS usage_ledger (
       key TEXT PRIMARY KEY, meter TEXT NOT NULL, quantity REAL NOT NULL, month TEXT NOT NULL, source TEXT NOT NULL,

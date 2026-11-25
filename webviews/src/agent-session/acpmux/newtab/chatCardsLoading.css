@@ -3,7 +3,7 @@
 }
 
 .nt-card-placeholder {
-  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  background: var(--ds-surface-inset);
   border-radius: var(--ds-radius-control);
 }
 

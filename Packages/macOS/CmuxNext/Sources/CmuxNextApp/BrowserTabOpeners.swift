@@ -34,7 +34,7 @@ final class BrowserTabOpeners {
     /// as `tab.created`, so an agent driving the opener sees its popup.
     var onChildPlaced: ((SurfaceID, SurfaceID) -> Void)?
     /// Runs first for each placed child (child, opener, in the foreground): the App marks the
-    /// child agent-driven when its opener is, and reports the link's tab to the close-selection rule (`BrowserPageRequests`).
+    /// child agent-driven when its opener is, and a foreground one ends its pane's close relations (`BrowserPageRequests`).
     var inheritsFromOpener: ((SurfaceID, SurfaceID, Bool) -> Void)?
 
     /// A page's new tab in `pane`: `create(nil)` (the end) without an

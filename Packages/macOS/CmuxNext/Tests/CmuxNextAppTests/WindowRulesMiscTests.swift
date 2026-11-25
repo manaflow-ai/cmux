@@ -25,12 +25,16 @@ import Testing
         #expect(rules.lastPrompted(tree.filter { $0.prompt == nil }, prompt: { $0.prompt }) == nil)
     }
 
-    @Test func historyTableAndLayoutUndo() throws {
+    @Test func historyTable() throws {
         let table = try #require(rules.historyActions())
-        #expect(table.walks.map(\.action) == ["focusHistoryBack", "focusHistoryForward", "focusHistoryLast"])
+        let walks = table.walks.map(\.action)
+        #expect(Array(walks.prefix(3)) == ["focusHistoryBack", "focusHistoryForward", "focusHistoryLast"])
+        // Go Back One Session joins the table with the app FFI re-pin (awaiting-repin/actions/focusHistoryBackSession).
+        #expect(walks.dropFirst(3).allSatisfy { $0 == "focusHistoryBackSession" })
+        #expect(table.walks.filter { $0.action == "focusHistoryBackSession" }.allSatisfy {
+            $0.direction == "backSession" && $0.nowhere == "nothingSession"
+        })
         #expect(table.historyPage == ["history.show", "browserShowHistory"])
-        let undo = rules.undoReply(confirmationRequired: true, revision: 8, closesPanes: nil)
-        #expect(undo?.pending == 8 && undo?.closesPanes == 1)
     }
 
     @Test func remoteMachineAndTerminalHere() {

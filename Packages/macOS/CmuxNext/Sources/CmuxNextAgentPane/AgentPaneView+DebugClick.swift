@@ -104,6 +104,16 @@ extension AgentPaneView {
     /// Whether the document has painted, independently of the loading cover's give-up deadline.
     public var debugPageHasPainted: Bool { model.hasPainted && (page?.hasPainted ?? true) }
 
+    /// Whether the page's own pixels are on screen: it painted, it is in a window, no view over it keeps it hidden or
+    /// clear (the loading state, a move cover), and a Chromium page lies in its window's content (not held away until
+    /// it drew there). A Chromium page's own alpha does not hide its window (``PageWebView/setChromiumVisibility(_:)``).
+    public var debugPageOnScreen: Bool {
+        guard debugPageHasPainted, let content = window?.contentView, !pageContent.isHiddenOrHasHiddenAncestor,
+              !sequence(first: pageContent, next: \.superview).dropFirst(pageDrawsOverCovers ? 1 : 0).contains(where: { $0.alphaValue < 0.01 })
+        else { return false }
+        return !pageDrawsOverCovers || debugShowsChromium && pageContent.convert(pageContent.bounds, to: nil).intersects(content.convert(content.bounds, to: nil))
+    }
+
     /// Whether the chat's Chromium page is one a window snapshot draws: in this window, not parked,
     /// hidden or under a clear (alpha 0) ancestor, and with a size.
     public var debugChromiumPageShown: Bool {
@@ -135,6 +145,12 @@ extension AgentPaneView {
     /// otherwise (``PageWebView/debugPress(x:y:)``).
     public func debugPress(x: Double, y: Double, beforeRelease: (() -> Void)? = nil) async -> Bool {
         await page?.debugPress(x: x, y: y, beforeRelease: beforeRelease) ?? false
+    }
+
+    /// Trusted DevTools key events into the chat shown in Chromium (``PageWebView/debugDevToolsKeys(_:)``); false otherwise.
+    /// - Parameter events: Each `Input.dispatchKeyEvent` call's parameters, in order.
+    public func debugDevToolsKeys(_ events: [[String: any Sendable]]) async -> Bool {
+        await page?.debugDevToolsKeys(events) ?? false
     }
 
     /// The chat's file input `selector` takes the files at `paths`, as a pick in Chromium's open panel
