@@ -13,11 +13,14 @@
 //! - [`links`]: what a link click does (the gesture of a click, the person's
 //!   `browser.links.*` mapping), where Chromium's link requests go (`CEFLinkClicks`) and the one
 //!   decision for every window Chromium wants to open (`CEFWindowPolicy`).
+//! - [`tab_state`]: the tab state machine, the reducer from an engine's navigation events to
+//!   the state the chrome renders (`BrowserTabStateMachine`).
 
 pub mod address;
 pub mod calculator;
 pub mod links;
 pub mod ops;
+pub mod tab_state;
 
 #[cfg(test)]
 mod address_tests;
@@ -25,3 +28,5 @@ mod address_tests;
 mod calculator_tests;
 #[cfg(test)]
 mod links_tests;
+#[cfg(test)]
+mod tab_state_tests;
