@@ -50,6 +50,7 @@ swapped and every terminal survived.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import fcntl
 import hashlib
 import json
@@ -664,6 +665,23 @@ class Swapper:
             shutil.copy2(source, dest)
 
     @staticmethod
+    def swap_in(staged: Path, target: Path) -> None:
+        """`staged` takes `target`'s name in one step. Linux: an exchange (renameat2 RENAME_EXCHANGE), then
+        the old file's name goes: ext4 renaming a file over another (auto_da_alloc) first writes out every
+        page of the new build still in memory, 0.33 s p50 of a 0.52 s handoff for a 1 GB debug cmux-tui
+        (fleet, 8 vCPU, load 4); an exchange does not. Elsewhere, or where the volume has no exchange: a rename."""
+        if sys.platform.startswith("linux"):
+            try:
+                libc = ctypes.CDLL(None, use_errno=True)
+                at_fdcwd, rename_exchange = -100, 2
+                if libc.renameat2(at_fdcwd, os.fsencode(staged), at_fdcwd, os.fsencode(target), rename_exchange) == 0:
+                    staged.unlink()  # now the old build's name; `before` and the build folder keep the file
+                    return
+            except (AttributeError, OSError):
+                pass  # a libc without renameat2 (before glibc 2.28)
+        os.replace(staged, target)
+
+    @staticmethod
     def app_file(exe: Path) -> Path | None:
         """The file a cmux app runs its daemon from, when `exe` is in an app's bin folder (the real
         file: `cmux-tui` there is a link to `cmux`, and both must stay one build)."""
@@ -690,7 +708,7 @@ class Swapper:
         self.place(new, staged)
         self.marks["staged_placed"] = time.monotonic()
         staged.chmod(0o755)
-        os.replace(staged, target)  # the running owner keeps the file it mapped
+        self.swap_in(staged, target)  # the running owner keeps the file it mapped
         self.marks["linked"] = time.monotonic()
         self.terminate_owner(new, pid)
         self.marks["sigterm"] = time.monotonic()
