@@ -179,6 +179,8 @@ const TRANSCRIPT_16 =
   "transcript batch drawn on a 16 grid at stroke 1.25 and scaled 1.5 (stroke 1.875); redraw on the 24 grid";
 const UNFILLED_SLASH =
   "the Solid's slash is a line with no fill='none', so it inherits SVG's black fill; a line encloses nothing, so nothing draws";
+const WIDGET_175 =
+  "widget SF Symbol solid (weather, time, calendar) drawn at stroke 1.75 for the scene renderer; redraw at 1.5 or 2";
 const ALTERNATE = "an alternate the gallery compares, not the shipped drawing";
 const EXCEPTIONS: Record<string, { breaks: string[]; reason: string }> = {
   ...Object.fromEntries(
@@ -221,6 +223,27 @@ const EXCEPTIONS: Record<string, { breaks: string[]; reason: string }> = {
       "site.permission.sound.blocked",
     ].map((name) => [`${name} solid`, { breaks: ["fill"], reason: UNFILLED_SLASH }]),
   ),
+  ...Object.fromEntries(
+    [
+      "alarm",
+      "calendar",
+      "calendar.clock",
+      "weather.cloud.bolt",
+      "weather.cloud.bolt.rain",
+      "weather.cloud.drizzle",
+      "weather.cloud.fog",
+      "weather.cloud.heavyrain",
+      "weather.cloud.rain",
+      "weather.cloud.sleet",
+      "weather.cloud.sun",
+      "weather.sunrise",
+      "weather.sunset",
+    ].map((name) => [`${name} solid`, { breaks: ["w1.75"], reason: WIDGET_175 }]),
+  ),
+  "prompt.save solid": {
+    breaks: ["w1.5"],
+    reason: "open Solid (lines and a plus) kept at the Line's 1.5, not the spec's 2; redraw at 2",
+  },
   "security.insecure alt0.solid": { breaks: ["fill"], reason: `${UNFILLED_SLASH}; ${ALTERNATE}` },
   "status.progress line": { breaks: ["w3.5"], reason: "the progress arc is a thick band over the 1.5 ring" },
   "status.progress solid": { breaks: ["w4"], reason: "the progress arc is a thick band over the 2 ring" },
