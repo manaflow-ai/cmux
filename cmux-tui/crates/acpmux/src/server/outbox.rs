@@ -808,6 +808,16 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                         None => Err((error, Next::Unsent)),
                     }
                 }
+                // `HOST/ID` on a machine only the hub reaches, as a followed hub move names it
+                // (`follow_move`): this daemon's lookup reaches nothing there, so the hub carries
+                // it, never a "no session HOST/ID on" this machine.
+                Err((error, Next::NoSession)) if hub.mesh_only_host(&delivery.target) => {
+                    relayed = true;
+                    match relay_attempt(hub, &delivery).await {
+                        Some(outcome) => outcome,
+                        None => Err((error, Next::NoSession)),
+                    }
+                }
                 outcome => outcome,
             }
         };
@@ -1364,6 +1374,14 @@ impl<'a> Caller<'a> {
     }
 }
 
+/// Whether acceptance `p`, a duplicate with no turn, is a receipt: the chat's inbox, its surge or
+/// a hold took the message, which no turn of its own ever runs (`hub/turns.rs` `first_acceptance`).
+pub(crate) fn taken_without_turn(p: &Value) -> bool {
+    ["inbox", "surgeHeld", "sessionHeld", "held"]
+        .iter()
+        .any(|k| p.get(*k) == Some(&Value::Bool(true)))
+}
+
 /// One attempt: the target's acceptance, or the error and whether to try again. It runs on a
 /// connection of `origin`: the unix socket's for a send here, a peer's for a message the mesh
 /// relay delivers (`mesh_relay.rs`), so each is held to its origin's rules.
@@ -1444,13 +1462,16 @@ pub(super) async fn attempt_once(
             return Err(("this daemon's connection closed".into(), Next::Retry));
         };
         match Message::parse(&line) {
-            // A duplicate with no turn is a run of this id still in flight, which may yet be
-            // held or refused: its answer says.
+            // A duplicate with no turn and no receipt is a run of this id still in flight, which
+            // may yet be held or refused: its answer says. One the chat's inbox (or a hold)
+            // took has no turn of its own and is taken: before, each redelivery of it waited
+            // for the message's answer and timed out, every 120 s, forever (2026-11-25).
             Ok(Message::Notification { method: m, params: Some(p) })
                 if m == method::MUX_PROMPT_ACCEPTED
                     && p.get("promptId").and_then(Value::as_str) == Some(prompt_id.as_str())
                     && !(p.get("duplicate") == Some(&Value::Bool(true))
-                        && p.get("turnId").is_none_or(Value::is_null)) =>
+                        && p.get("turnId").is_none_or(Value::is_null)
+                        && !taken_without_turn(&p)) =>
             {
                 return Ok(p);
             }

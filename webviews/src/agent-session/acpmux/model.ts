@@ -233,6 +233,7 @@ export type AcpmuxBackgroundTurn = {
 /// that ran it when the chat did not (a subagent's or workflow agent's shell).
 export type AcpmuxBackgroundSource = {
   command?: string;
+  description?: string;
   ownerId?: string;
   ownerTitle?: string;
 };
@@ -2434,9 +2435,38 @@ export const transcriptRowWidth = (paneWidth: number, column?: ChatColumn, endRe
 };
 
 /// A message's markdown blocks. Blank lines between blocks are only spacing, never blocks of their own.
+/// A setext underline (`===` or `---` alone on its line, up to 3 spaces in) on one of `src`'s lines after
+/// its first and before its first blank line: the only text marked's `lheading` rule can match (its
+/// body never crosses a blank line). False means the rule cannot match `src`; true, that it may.
+const SETEXT_UNDERLINE = /^ {0,3}(?:=+|-+) *$/;
+export function maySetextHeading(src: string): boolean {
+  let start = src.indexOf("\n") + 1;
+  while (start > 0) {
+    const end = src.indexOf("\n", start);
+    const line = end < 0 ? src.slice(start) : src.slice(start, end);
+    if (SETEXT_UNDERLINE.test(line)) return true;
+    if (line.trim() === "") return false;
+    start = end + 1;
+  }
+  return false;
+}
+
+/// marked's tokenizer, its `lheading` rule asked only of text that may hold a setext heading. Under
+/// JavaScriptCore (WKWebView) that rule's regex costs time quadratic in a paragraph's length when it
+/// fails, which is nearly always: the streaming reply's open paragraph, lexed again on every token
+/// (`lexIncrementally`), spent most of its estimate there (bench/markdown-estimate-lex.bench.ts).
+/// The tokens are the same: the rule is skipped only where it cannot match.
+class EstimateTokenizer extends Tokenizer {
+  override lheading(src: string) {
+    return maySetextHeading(src) ? super.lheading(src) : undefined;
+  }
+}
+
 export function markdownBlocks(source: string): Token[] {
   try {
-    return lexer(source, { gfm: true, breaks: true }).filter((token) => token.type !== "space");
+    return lexer(source, { gfm: true, breaks: true, tokenizer: new EstimateTokenizer() }).filter(
+      (token) => token.type !== "space",
+    );
   } catch {
     return [{ type: "text", raw: source, text: source } as Token];
   }
@@ -2457,12 +2487,13 @@ export function visibleRowRange(
 /// The room under the edited-files card (styles.css `.acpmux-edited` margin-bottom).
 const EDITED_CARD_BELOW = 6;
 /// The edited-files card's height for `files` changed files with diffs and `plain` edits listed
-/// without one (styles.css `.acpmux-edited`): its 64px head, and, while `open`, a 36px row for each
-/// of the first `maxRows` and for "Show N more". A lone file with a diff is named in the head.
-export function editedCardHeight(files: number, plain = 0, open = true, maxRows = 3): number {
-  const entries = files + plain;
-  if ((entries <= 1 && plain === 0) || !open) return 64;
-  return 64 + 36 * Math.min(entries, maxRows) + (entries > maxRows ? 36 : 0);
+/// without one (styles.css `.acpmux-edited`): its one 64px row, and, once the reader opened it, the
+/// stacked diffs under it (EditedFilesCard.css `.acpmux-edited-stack`): a file's 32px name and about
+/// six lines, a plain edit's 36px line, the box at most 60% of `viewport` tall. The drawn height
+/// replaces it once measured.
+export function editedCardHeight(files: number, plain = 0, open = false, viewport = 800): number {
+  if (!open || files + plain === 0) return 64;
+  return 64 + Math.min(files * (32 + 6 * 18) + plain * 36, Math.round(viewport * 0.6));
 }
 
 /// What edits without a diff list as in the edited-files card: each path they name, once
@@ -2816,11 +2847,11 @@ function fallbackRowHeight(
         ),
       );
       const plain = plainEditLabels(edits).filter((entry) => !entry.path || !files.has(entry.canonical ?? entry.path));
-      // Its file rows show unless agentPane.editedFiles.show is collapsed and the reader has not
-      // opened it (EditedFilesCard.tsx `open`, turnChanges/openStore.ts), at most maxRows of them.
-      const settings = editedFilesSettings();
-      const open = settings.show !== "collapsed" || cardOpen(row.id);
-      return finish(EDITED_CARD_BELOW + editedCardHeight(files.size, plain.length, open, settings.maxRows));
+      // One row until the reader opens it (EditedFilesCard.tsx, turnChanges/openStore.ts); opened, its
+      // stacked diffs in a box at most 60% of the view tall.
+      const open = cardOpen(row.id);
+      const viewport = typeof window === "undefined" ? undefined : window.innerHeight || undefined;
+      return finish(EDITED_CARD_BELOW + editedCardHeight(files.size, plain.length, open, viewport));
     }
     // A folded run (the Codex-style runs) that keeps an entry in sight (a message to another agent)
     // draws its stretches; one with nothing kept in sight draws one summary line, or its one call.
@@ -4590,7 +4621,7 @@ import {
   type PreparedText,
   type PreparedTextWithSegments,
 } from "@chenglou/pretext";
-import { lexer, type Token, type Tokens } from "marked";
+import { lexer, Tokenizer, type Token, type Tokens } from "marked";
 import { runStretches, staysInSight, stretchStart, toolGroups, type ToolGroup } from "./conversation/toolGroups";
 import {
   callDisclosureKey,
@@ -4602,7 +4633,6 @@ import { groupDisclosureKey, runDisclosureKey, runLinks, thoughtIds } from "./co
 import { thoughtChoices } from "./conversation/thoughtChoices";
 import { PREVIEW_LINES } from "./conversation/blockPartsModel";
 import { cardOpen } from "./turnChanges/openStore";
-import { editedFilesSettings } from "./turnChanges/settings";
 import { runScroll } from "./conversation/runScroll.experiment";
 import { acpmuxSendCalls } from "./conversation/acpmuxSends";
 import { isFoldedRun } from "./conversation/toolRunSummary";
