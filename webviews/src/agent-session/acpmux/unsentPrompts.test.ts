@@ -405,7 +405,7 @@ async function lostThenReconnected(host: ReturnType<typeof hostStore>, text: str
     });
   return { next, mine, notice, promptId: sentBefore[0]!, sentAfter };
 }
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)); // fixed-wait: real time passing past the quiet window is the behavior under test
 
 // Leo, 2026-11-25: "Not sent ... (native.timed_out) Failed: 11017 ms after sending", and
 // 2026-11-24: "10s timeout for messages being sendsble is a shame. if it's making good progress,
@@ -420,13 +420,13 @@ test("a resend acpmux keeps saying not now to stays on its way past many quiet w
         // The restore's wait is armed now with the 30 ms window; the outbox works on it.
         lost.notice("sent");
         for (let attempt = 0; attempt < 6; attempt += 1) {
-          await wait(20);
+          await wait(20); // fixed-wait: real time past the quiet window is the behavior
           lost.notice("retrying", { attempt, retryInMs: 10, code: "acpmux.not_ready", reason: "starting" });
         }
-        await wait(20);
+        await wait(20); // fixed-wait: real time past the quiet window is the behavior
         lost.notice("sent", { attempt: 6 });
         // Long past any one window, with no answer yet: still on its way.
-        await wait(90);
+        await wait(90); // fixed-wait: real time past the quiet window is the behavior
         expect(lost.mine()).toHaveLength(1);
         expect(lost.mine()[0]!.failed).not.toBe(true);
         expect(lost.mine()[0]!.delivery?.state).toBe("sending");
@@ -479,7 +479,7 @@ test("breaker: a send lost to restarts and long not-nows is never lost, never do
         lost.notice("sent");
         const steps = 2 + Math.floor(random() * 6);
         for (let step = 0; step < steps; step += 1) {
-          await wait(5 + Math.floor(random() * 25));
+          await wait(5 + Math.floor(random() * 25)); // fixed-wait: random silences past the window are the breaker
           lost.notice("retrying", { attempt: step, retryInMs: 10, code: "native.timed_out", reason: "timed_out" });
           expect(lost.mine()).toHaveLength(1);
           expect(lost.mine()[0]!.failed).not.toBe(true);
@@ -507,7 +507,7 @@ test("breaker: a send lost to restarts and long not-nows is never lost, never do
           lost = { ...lost, next: third, mine, notice, sentAfter };
           lost.notice("sent");
         }
-        await wait(Math.floor(random() * 60));
+        await wait(Math.floor(random() * 60)); // fixed-wait: random silences past the window are the breaker
         expect(lost.mine()[0]!.delivery?.state).toBe("sending");
         lost.notice("accepted");
         await until(() => lost.mine()[0]!.delivery?.state === "delivered");
