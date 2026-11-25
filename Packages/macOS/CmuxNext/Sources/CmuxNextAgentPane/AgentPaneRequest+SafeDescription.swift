@@ -38,6 +38,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .editNewTab: "setNewTabTemplate"
         case .touched: "touched"
         case .newTabContext: "newTabContext"
+        case .newTabCloudPick: "newTabCloudPick"
         case .newTabInputReady: "newTabInputReady"
         case .newTabWarm: "newTabWarm"
         case .jump: "jump"
