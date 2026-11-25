@@ -516,7 +516,7 @@ fn the_bg_hook_reads_a_gateway_server_at_an_earlier_port_as_its_stdio_launch() {
         env: vec![("CMUX_SESSION".into(), "chat-i".into())],
         cwd: None,
     };
-    let kept = Kept { launch, initialize: None };
+    let kept = Kept { launch, initialize: None, answers: None };
     crate::agent_tools::write_private(
         &launch_path(home.path(), "chat-i"),
         &serde_json::to_vec(&kept).unwrap(),
@@ -538,6 +538,81 @@ async fn a_closed_chats_server_ends_with_it() {
     let chat = g.chats.lock().unwrap().remove("chat-g").unwrap();
     chat.stop().await;
     until("the closed chat's server ends", async || gone(pid)).await;
+}
+
+fn init(id: u64) -> Value {
+    json!({"jsonrpc": "2.0", "id": id, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "harness"}}})
+}
+
+fn list(id: u64) -> Value {
+    json!({"jsonrpc": "2.0", "id": id, "method": "tools/list", "params": {}})
+}
+
+/// A harness start (a new chat, each wake) asks `initialize` and `tools/list`, which started the
+/// chat's server and kept it for the idle window although the chat may never call a tool. After
+/// one start answered them, the next start of the same launch is answered with no process, the
+/// same list (so the harness's prompt prefix stays the same), and a call still starts the server
+/// initialized as the harness was.
+#[tokio::test]
+async fn a_wake_is_answered_its_start_with_no_process_and_a_call_starts_one() {
+    let home = tempfile::tempdir().unwrap();
+    let g = gateway(home.path(), IDLE_STOP).await;
+    g.keep("chat-w", launch(home.path())).unwrap();
+    let first_init = rpc(&g, "chat-w", init(1)).await;
+    let first_list = rpc(&g, "chat-w", list(2)).await;
+    let first = g.server_pid("chat-w").await.expect("the first start runs the server");
+    assert_eq!(first_list.pointer("/result/tools/0/name"), Some(&json!("who")));
+    // The harness hibernates: its server goes now, not after the idle window.
+    hibernated_on(&g, "chat-w");
+    until("the hibernated chat's server stops", async || {
+        g.server_pid("chat-w").await.is_none() && gone(first)
+    })
+    .await;
+    // Its wake: the same start, answered with no process.
+    let again_init = rpc(&g, "chat-w", init(3)).await;
+    let again_list = rpc(&g, "chat-w", list(4)).await;
+    let ping = rpc(&g, "chat-w", json!({"jsonrpc": "2.0", "id": 5, "method": "ping"})).await;
+    assert_eq!(g.server_pid("chat-w").await, None, "a wake's start holds no process");
+    assert_eq!(again_init["result"], first_init["result"]);
+    assert_eq!(again_init["id"], json!(3));
+    assert_eq!(again_list["result"], first_list["result"], "the same list, the same prompt");
+    assert_eq!(again_list["id"], json!(4));
+    assert_eq!(ping["result"], json!({}));
+    // A call starts it, initialized as the harness was.
+    let answer = rpc(&g, "chat-w", call(6)).await;
+    let second = g.server_pid("chat-w").await.expect("a call runs the server");
+    assert!(text(&answer).starts_with(&format!("{second} harness ")), "{answer}");
+    // The next daemon has the answers too (the launch file keeps them).
+    let next = gateway(home.path(), IDLE_STOP).await;
+    assert!(next.chat("chat-w").unwrap().kept_answer("tools/list", &json!({})).is_some());
+}
+
+/// Another launch (the person's settings changed it) or another `initialize` (another harness)
+/// is answered by the server, never from what an earlier one was told.
+#[tokio::test]
+async fn another_launch_or_another_initialize_is_answered_by_the_server() {
+    let home = tempfile::tempdir().unwrap();
+    let g = gateway(home.path(), IDLE_STOP).await;
+    g.keep("chat-x", launch(home.path())).unwrap();
+    rpc(&g, "chat-x", init(1)).await;
+    rpc(&g, "chat-x", list(2)).await;
+    let chat = g.chat("chat-x").unwrap();
+    assert!(chat.kept_answer("tools/list", &json!({})).is_some());
+    let other = json!({"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "codex"}});
+    assert_eq!(chat.kept_answer("initialize", &other), None, "another harness asks afresh");
+    let mut changed = launch(home.path());
+    changed.env.push(("ANOTHER".into(), "1".into()));
+    g.keep("chat-x", changed).unwrap();
+    assert_eq!(g.chat("chat-x").unwrap().kept_answer("tools/list", &json!({})), None);
+    // Another binary at the same path: answered afresh.
+    let chat = g.chat("chat-x").unwrap();
+    chat.keep_answer("tools/list", json!({}), json!({"tools": []}));
+    chat.kept.lock().unwrap().answers.as_mut().unwrap().stamp = "an older build".into();
+    assert_eq!(chat.kept_answer("tools/list", &json!({})), None);
+}
+
+fn hibernated_on(g: &Gateway, session: &str) {
+    g.stop_chat(session);
 }
 
 /// The specs acpmux gives a chat's `cmux` server for its own five servers (`agent_tools.rs`
@@ -739,7 +814,7 @@ async fn a_tool_call_acts_as_the_session_in_its_url_and_another_chats_token_is_r
 #[test]
 fn the_bg_hook_reads_a_gateway_server_as_its_stdio_launch() {
     let home = tempfile::tempdir().unwrap();
-    let kept = Kept { launch: launch(home.path()), initialize: None };
+    let kept = Kept { launch: launch(home.path()), initialize: None, answers: None };
     crate::agent_tools::write_private(
         &launch_path(home.path(), "chat-h"),
         &serde_json::to_vec(&kept).unwrap(),
