@@ -39,7 +39,8 @@ final class TerminalComposerTapBleedUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         if let composer { app.launchEnvironment["CMUX_MOBILE_DEMO_COMPOSER"] = composer }
-        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", demo]
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmuxMobileComposerTapProbe",
+                               "-cmux-mobile-demo", demo]
         app.launch()
         defer { app.terminate() }
 
@@ -160,7 +161,8 @@ final class TerminalComposerTapBleedUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchEnvironment["CMUX_MOBILE_DEMO_COMPOSER"] = "short"
-        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "ws-terminal-composer"]
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmuxMobileComposerTapProbe",
+                               "-cmux-mobile-demo", "ws-terminal-composer"]
         app.launch()
         defer { app.terminate() }
 
