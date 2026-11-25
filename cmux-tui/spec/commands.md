@@ -1087,6 +1087,8 @@ Params:
 | `device_kind` | `string` | default unchanged | `mac`, `iphone`, `ipad`, `tui`, `browser`, `linux`, `windows`; anything else is `unknown`; defaults to `kind` |
 | `device_name` | `string` | default unchanged | Shared sizing identity |
 | `device_id` | `string` | default unchanged | Stable per-install device id; tells two devices of one user apart and extends the priority key |
+| `api_revision` | `uint32` | default none | The API revision the client reads and writes; absent: revision 12 |
+| `api_version` | `string` | default none | A dated API version, `YYYY-MM-DD`; see [api-versioning.md](api-versioning.md) |
 
 `set-client-info` labels a connection; it never sets the `client-hello` role
 or the request origin. Identity fields are clamped like `name`. A connection that sends
@@ -1103,9 +1105,12 @@ receives `linux`, `windows` and any later kind as they are in every size state
 SDKs built before them reject an unknown `device_kind`. `priority_key` keeps
 the real kind for every connection.
 
-Result: `object{}`.
+Result: `object{}`; with `api_version`, `object{api_version:string,api_revision:uint32}`: the dated
+version that serves the connection and its revision. The promise behind it (no breaking change
+without a new dated version, 12 months of overlap): [api-versioning.md](api-versioning.md).
 
-Errors: `bad request: ...` for wrong JSON types.
+Errors: `bad request: ...` for wrong JSON types; a malformed `api_version`, one older than the
+oldest version served, or one that disagrees with `api_revision`.
 
 CLI mapping:
 
@@ -1242,7 +1247,7 @@ Example:
 | since | protocol 12 additive extension; capability `vm-activity-v1` |
 | profile | local-admin (trusted Unix socket connections only) |
 
-Opens a stream of the daemon's activity facts for the cmux Cloud VM agent, which forwards them in `cloud.vm.status.report` so the idle pause acts on real activity (plans/cmux-next/cloud-automation.md 27). The reply carries the current snapshot; then `activity-changed` events follow each change, at most one per second (leading edge plus one trailing event), never on a timer. Times and counts only: no content and no surface ids. `attached_clients` counts attached connections whose `set-client-info` kind is `tui`, `web`, `mac` or `frontend`; `live_agents` counts agents that are working or blocked; `last_user_input_at_ms` is the newest keyboard, paste or mouse input from an attached client (a one-shot `send` from an unattached connection does not count); `last_agent_action_at_ms` is the newest agent hook commit or agent state report. At most 16 subscribers; closing the connection ends the subscription. Servers advertise `vm-activity-v1` in `identify.capabilities`.
+Opens a stream of the daemon's activity facts for the cmux Cloud VM agent, which forwards them in `cloud.vm.status.report` so the idle pause acts on real activity (plans/cmux-next/cloud-automation.md 27). The reply carries the current snapshot; then `activity-changed` events follow each change, at most one per second (leading edge plus one trailing event), never on a timer. Times and counts only: no content and no surface ids. `attached_clients` counts attached connections whose `set-client-info` kind is `tui`, `web`, `mac` or `frontend`; `live_agents` counts agents that are working or blocked; `last_user_input_at_ms` is the newest keyboard, paste or mouse input from an attached client (a one-shot `send` from an unattached connection does not count); `last_agent_action_at_ms` is the newest agent hook commit or agent state report. Servers that also advertise `vm-activity-echo-v1` add three optional fields, so the Cloud agent times a wake to its first echo (hq#21300): `last_person_attach_at_ms` is when a person's client (`tui`, `web`, `mac` or `frontend`) last attached; `echo_input_at_ms` and `echo_at_ms` pair that client's first input after the attach with the first output of the same terminal after it (null until measured; the next person attach resets them). Older servers omit them, and a consumer that reads only the fields above reads as before. At most 16 subscribers; closing the connection ends the subscription. Servers advertise `vm-activity-v1` in `identify.capabilities`. Echo-timing servers also advertise `vm-activity-echo-v1`.
 
 Params: none.
 
@@ -1254,7 +1259,10 @@ object{
     attached_clients:uint32,
     live_agents:uint32,
     last_user_input_at_ms:uint64|null,
-    last_agent_action_at_ms:uint64|null
+    last_agent_action_at_ms:uint64|null,
+    last_person_attach_at_ms?:uint64|null,
+    echo_input_at_ms?:uint64|null,
+    echo_at_ms?:uint64|null
   }
 }
 ```
@@ -1595,6 +1603,28 @@ workspaces it may see, and once a workspace of the daemon was incognito, its
 `tree_revision` is a digest of the rows it is answered, so a change to an
 incognito workspace never moves it.
 
+With `workspace-list-delta-v1`, a client that holds a tree sends `since:
+{epoch, seq}`, the cursor of the last reply it applied (`{epoch: "", seq: 0}`
+when it holds none). The daemon keeps a digest of each workspace entry of the
+last tree it read for `since`, and a bounded ring (256 ids) of the ids whose
+entry changed or went away, keyed by a `seq` that moves once per read that
+found a change. When the cursor's `epoch` is this daemon run's and its `seq` is
+one the ring still covers, the result is `{delta: true, epoch, seq, changed,
+removed, workspaces: [], registry_id, generation, workspace_revision,
+pane_revision, terminal_revision}`: `changed` holds every workspace entry
+(keyed by its `id`) that changed past the cursor, exactly as the whole tree
+renders it, `removed` the ids no longer in the tree, `order` every id in the
+tree's order when the order changed, and `groups` the whole groups list when
+it changed; the client replaces or adds each changed entry by `id`, drops the
+removed ones, and keeps the new `epoch` and `seq`. Anything the tree shows
+(a title, an unread marker, a branch) moves exactly the entry that shows it,
+since the digests are of the rendered entries. Otherwise (another daemon run,
+a cursor older than the ring, or one never given out) the result is the whole
+tree with `epoch` and `seq` added. `since` takes precedence over `known`,
+`limit` and `after`. A remote device that must not see some workspaces gets
+its whole pruned tree with no `epoch` or `seq`. A request without `since` (or
+with `since: null`) gets the result above, byte for byte.
+
 Params:
 
 | Name | Type | Required | Notes |
@@ -1602,6 +1632,7 @@ Params:
 | `known` | object | no | `list-workspaces-known-v1`: the identity and revisions of the tree the client holds |
 | `limit` | integer | no | `list-workspaces-limit-v1`: the number of workspaces to return, first in sidebar order |
 | `after` | integer | no | `list-workspaces-page-v1`: with `limit`, the position in sidebar order the page starts at (a page's `next`) |
+| `since` | object | no | `workspace-list-delta-v1`: `{epoch, seq}` of the last reply applied; only the changed entries keyed by id |
 
 Result:
 
@@ -1802,6 +1833,14 @@ too), the request fails with `agent not waiting: ...` and writes nothing. `submi
 a Return that fails after the text was written says `submit failed after the text was written`. The phone's Feed reply uses
 both, with `expect_foreground` and `paste:true`, so a reply typed where the screen is not in view
 never answers an approval or question, a running turn or a new agent session.
+
+With `send-typed-submit-v1`, a `submit` after typed text (`paste:false`, a non-empty `text` or `bytes`)
+writes Return 250 ms after the text, still in the same request; after a paste the PTY writer's paste
+pacing holds Return until the program read it, and a bare `submit` writes Return at once. The gap is
+past an agent TUI's paste-burst window (Codex joins unbracketed characters arriving within about
+120 ms into one paste, and took a Return right behind typed text for a newline). The phone sends a
+one-line draft for a full-screen program this way, as one keyed request, instead of the text and a
+separate Return. A server without the capability writes Return right after the text.
 
 With `send-key-v1`, `key` names this input (the phone uses a UUID per batch). The daemon remembers
 the keys it applied, daemon-wide, for 10 minutes (at most the last 1024); a `send` with a key it
@@ -5255,6 +5294,29 @@ Example:
 {"id":20,"ok":true,"data":{"workspace":4,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","workspace_revision":2}}
 ```
 
+### release-workspace-names
+
+| Field | Value |
+| --- | --- |
+| name | `release-workspace-names` |
+| status | implemented |
+| since | protocol 12 |
+
+Hands every user-owned workspace name back to the automatic namer: each name keeps its text, becomes automatic and advances its name revision. A name already automatic is skipped, so a second call releases nothing. A row renamed between the read and its release stays pinned.
+
+Params: none.
+
+Result: `object{released:uint64,still_pinned:uint64}`.
+
+This control-only command has no public CLI mapping.
+
+Example:
+
+```json
+{"id":22,"cmd":"release-workspace-names"}
+{"id":22,"ok":true,"data":{"released":3,"still_pinned":0}}
+```
+
 ### rename-provider-managed-workspace
 
 Requires the `provider-managed-workspace-authority-v2` capability. Clients must not send this command to a server that omits the capability.
@@ -6706,13 +6768,24 @@ Result: `object{}` or `object{refused:"unknown_run"}`.
 
 Returns the retained notification ledger (at most 256), newest first.
 
-Params: `limit` (usize, default 256).
+Params: `limit` (usize, default 256); `stats` (bool, default false).
 
 Result:
 
 ```text
-object{notifications:[object{id:string, title:string, subtitle:string|null, body:string, level:"info"|"warning"|"error", terminal_id:string|null, surface:Id|null, created_at_ms:uint64, acknowledged:bool}]}
+object{notifications:[object{id:string, title:string, subtitle:string|null, body:string, level:"info"|"warning"|"error", terminal_id:string|null, surface:Id|null, created_at_ms:uint64, acknowledged:bool}], agent_notice_stats?:object}
 ```
+
+With `stats: true` the reply also carries `agent_notice_stats`: how often agent
+notices (source `agent`) were read, and how fast, per kind (`finished`,
+`failed`, `needs_input`, `other`) and over `all`. Each kind has `posted`,
+`read_within_60s`, `read_within_10m`, `read_later`, `never_read` (unread
+10 min after its post), `unread_recent` (unread, younger than 10 min),
+`acted_rate` (read within 10 min over posted minus unread_recent; null when
+none) and `read_ms_p50`/`read_ms_p95` (null when none was read). A read is the
+first console ack or client read the store records. The window is the retained
+ledger (`window.since_ms`, the oldest agent notice in it), so a restart keeps
+the numbers and the cost stays constant.
 
 ### set-tab-pinned
 
@@ -8356,8 +8429,8 @@ are at most 32 KiB each, `tool.input` at most 16 KiB as JSON; a link is http,
 https or a cmux scheme (at most 2048 bytes); an attachment is an `attachment`
 part's fields without `type`, checked like a message part's
 (`conversation_rejected` `unknown_attachment`, `attachment_mismatch`) and
-kept usable while the step names it. A run keeps at most 2000 steps
-(`run_full`), and a conversation its newest 200 runs: a new run drops the
+kept usable while the step names it. A run keeps every step (no count
+cap; each is one row, paged by `rev`), and a conversation its newest 200 runs: a new run drops the
 oldest finished ones with their steps and attachment references. Any other bad field is `run_rejected` `invalid_run` or a bad
 request. Values are absolute, so a retried append writes the same rows.
 
@@ -9556,7 +9629,7 @@ Protocol v7 adds `mode`. `mode:"bytes"`, including the default when the field is
 
 Servers advertising the `attach-initial-size` capability accept paired `cols` and `rows`. The pair records the attaching client's initial viewer-size claim before initial state is generated. Supplying only one dimension is an error. Clients must not send either field to a server that omits the capability, including an older protocol-v7 server.
 
-Servers advertising `terminal-resume-v1` keep a bounded (4 MiB) per-terminal output ring keyed by a monotonic byte offset, plus an opaque `generation` string that changes whenever the stream is not a pure byte continuation (terminal recreated, resize, color change). A client that sets `terminal-resume-v1` in `set-client-info`, or sends `resume_offset`, receives `offset` (the stream position after the frame) and `generation` on `vt-state`, `output`, `resized`, and `colors-changed` frames. To resume after a drop the client re-attaches with `resume_offset` and `resume_generation` (both or neither; otherwise an error). If the generation matches and the range is still held, the response carries `resume:"exact"` and `through`, no `vt-state` is sent and no reset is needed: the first event is an `output` frame with `resume:"exact"` holding exactly the bytes after `resume_offset` (possibly empty). Otherwise the reply is the normal attach (`vt-state` with full replay) plus `resume:"gap"`, and the client replaces its mirror as today. Servers without the capability ignore nothing: clients must not send the fields to them.
+Servers advertising `terminal-resume-v1` keep a bounded (4 MiB) per-terminal output ring keyed by a monotonic byte offset, plus an opaque `generation` string that changes whenever the stream is not a pure byte continuation (terminal recreated, resize, color change). A client that sets `terminal-resume-v1` in `set-client-info`, or sends `resume_offset`, receives `offset` (the stream position after the frame) and `generation` on `vt-state`, `output`, `resized`, and `colors-changed` frames. To resume after a drop the client re-attaches with `resume_offset` and `resume_generation` (both or neither; otherwise an error). If the generation matches and the range is still held, the response carries `resume:"exact"` and `through`, no `vt-state` is sent and no reset is needed: the first event is an `output` frame with `resume:"exact"` holding exactly the bytes after `resume_offset` (possibly empty). Otherwise the reply is the normal attach (`vt-state` with full replay) plus `resume:"gap"`, and the client replaces its mirror as today. Servers without the capability ignore nothing: clients must not send the fields to them. Servers advertising `terminal-resume-bounded-v1` also take `resume_max_bytes` with `resume_offset`: when more bytes than that are missing the reply is the `"gap"` attach (one screen replay) instead of an `"exact"` one, so a client back from a long time away is not sent megabytes of output it will never show. A client sets it to the size of its last replay, so it always gets the cheaper of the two.
 
 Servers advertising `attach-identity-v1` accept paired `expected_generation`
 and `expected_terminal_id`. Both must match before any stream or lease is
@@ -9756,6 +9829,15 @@ as `output` bytes: the ones the screen has set right after the first frame,
 then each set and reset as it is written, so the viewer's keys and pastes
 encode the way the program expects. A terminal that is full-screen when it attaches starts with `vt-state`,
 and a `resized` while full-screen (or leaving it) passes as `resized`.
+A connection that declared all three and `terminal-full-screen-frames-v1`
+gets a full-screen program as `agent-cli-lean` frames too, as an agent CLI on
+the alternate screen goes: the alternate screen and the input modes (mouse
+tracking 1000, 1002, 1003 among them) as `output` bytes, a switch of screens
+followed by a keyframe of the screen switched to, frames at most one per
+16.7 ms (one display frame) instead of one per 100 ms, and no `vt-state` or
+PTY bytes, also for a terminal that is full-screen when it attaches. A program
+that repaints its whole screen for each change then sends the cells that
+changed. Agent CLI terminals keep their 100 ms pace.
 
 Browser attach requires `browser-pointer-frame-guard-v1` in both the server's `identify` response and the client's earlier `set-client-info` request. This prevents an older client from rendering browser frames that it cannot address with an authoritative sequence. PTY attach does not require this capability.
 
@@ -9771,6 +9853,7 @@ Params:
 | `rows` | `uint16` | default null | `attach-initial-size` capability; paired with `cols`, clamped to at least 1 |
 | `resume_offset` | `uint64` | default null | `terminal-resume-v1`; paired with `resume_generation`; PTY bytes mode only |
 | `resume_generation` | `string` | default null | `terminal-resume-v1`; the `generation` the client last saw on an output frame |
+| `resume_max_bytes` | `uint64` | default null | `terminal-resume-bounded-v1`; with `resume_offset`: an exact resume only when at most this many bytes are missing, else the replay with `resume:"gap"` |
 | `snapshot_local_history` | `bool` | default false | `terminal-snapshot-local-history-v1`; only with `snapshot` |
 | `snapshot_images` | `bool` | default false | Ignored: the former `terminal-snapshot-images-v1`; GHOSTSNP carries the images |
 | `replay_history_rows` | `uint32` | default null (whole history) | `attach-replay-history-rows-v1`; bytes mode without `snapshot` |
@@ -9944,7 +10027,7 @@ Example:
 
 Blocks until a regular expression matches the current plain-text screen for a PTY surface. The server polls the same text source as `read-screen` and returns as soon as a match is found or the timeout expires. This is the primary automation synchronization primitive.
 
-A wait with a nonzero `timeout_ms` does not hold the connection: it starts after the requests sent before it, and later requests on the same connection are answered while it waits (they may run during its first check), so its reply can arrive after theirs (match replies by `id`). Each such pending `wait-for` takes one terminal-wait worker, from the budget `terminal.wait` uses (8 per connection, 64 per daemon); a `wait-for` over that budget fails at once and is not run. A one-shot check (`timeout_ms` 0) runs in request order and takes no worker. When the connection closes, its pending waits end at once; when the client only half-closes (shuts down its write side), they still run to their end and reply.
+A wait with a nonzero `timeout_ms` does not hold the connection: it starts after the requests sent before it, and later requests on the same connection are answered while it waits (they may run during its first check), so its reply can arrive after theirs (match replies by `id`). Each such pending `wait-for` takes one terminal-wait worker (a thread with a 256 KiB stack), as `terminal.wait` does, with no count cap; a `wait-for` whose worker cannot start fails at once and is not run. A one-shot check (`timeout_ms` 0) runs in request order and takes no worker. When the connection closes, its pending waits end at once; when the client only half-closes (shuts down its write side), they still run to their end and reply.
 
 Params:
 
@@ -10597,7 +10680,7 @@ tries `127.0.0.1`, then `::1`. `window` is the client's receive window
 `{stream, address, window}`, where `window` is the daemon's receive window
 (256 KiB). Errors carry `error_code`: `loopback.not-enabled`,
 `loopback.disabled`, `loopback.denied-host`, `loopback.denied-port`,
-`loopback.limit` (128 streams per connection, 512 per daemon),
+`loopback.limit` (the daemon could not start the stream's threads; no count cap),
 `loopback.refused`, `loopback.timeout` (3 s), `loopback.duplicate-stream`,
 `loopback.bad-request`.
 
@@ -10714,8 +10797,8 @@ comes from the store record: no command takes a session id, a cwd, a command,
 an agent or an MCP server, and every unknown param is
 `agent_session.bad_request`. Other error codes: `agent_session.not_trusted`,
 `agent_session.unavailable` (no acpmux), `agent_session.not_attached`,
-`agent_session.limit` (8 attachments per connection, 64 per daemon, 8 calls in
-flight per attachment), `agent_session.timeout` (5 s; 30 s for a prompt's
+`agent_session.limit` (8 calls in flight per attachment; attachments have no
+count cap), `agent_session.timeout` (5 s; 30 s for a prompt's
 acceptance, which a chat started a moment before can take longer than 5 s to
 give), `agent_session.refused`
 (acpmux refused), `agent_session.bad_list` (acpmux's session list could not be
@@ -11601,7 +11684,7 @@ acpmux, or `transfer.incomplete`) also forgets the receive.
 
 ### agent-transfer-begin
 
-`{id, cmd:"agent-transfer-begin", surface, interrupt?, ask_first?}` freezes the chat of
+`{id, cmd:"agent-transfer-begin", surface, interrupt?, ask_first?, begin_token?}` freezes the chat of
 an agent tab of this store (the session comes from the tab's store record,
 as `agent-session-attach`; any other surface is `agent_transfer.unknown_tab`)
 and answers `{transfer_id, source_session, manifest}` (`source_session` as
@@ -11631,6 +11714,16 @@ A begin of a chat that is already in a move is `agent_transfer.refused`
 (acpmux's `transfer.moving`) with `error_details: {transfer_id}`, the id of
 that move, so a pump that lost its begin answer can commit or abort the move
 it began. Only that refusal carries details.
+
+`begin_token` (`agent-transfer-begin-token-v1`; 1 to 128 of `[A-Za-z0-9_-]`,
+else `agent_transfer.bad_request`) is the client's own mark for this begin.
+acpmux keeps it beside the move's bundle, which a restart keeps while the
+move runs, and the `transfer.moving` refusal of a later begin hands it back
+as `error_details: {transfer_id, begin_token}`. A pump that lost its begin
+answer and recorded the token first can tell the frozen move is its own (it
+learned no transfer id, so it asked no target to receive it) and abort it at
+once instead of waiting out the source's lease (`cmux link agent move`). A
+move begun without a token, or by an older acpmux, hands back none.
 
 ### agent-transfer-source
 

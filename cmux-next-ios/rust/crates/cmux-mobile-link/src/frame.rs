@@ -21,10 +21,24 @@ pub enum FrameType {
     Ping = 3,
     Pong = 4,
     DeflatedData = 5,
+    /// A chunk of a numbered message on a channel whose messages also travel
+    /// as datagrams (`crate::classes`): sent only to a peer that listed
+    /// [`crate::classes::CLASSES_LANE`].
+    Sequenced = 6,
+    /// A sequenced channel frame (reliable links only, both sides offered
+    /// `reliable`): `u64 seq | u8 inner type | inner payload`.
+    Seq = 7,
+    /// Channel 0, reliable links only: `u32 count | (u32 channel, u64 seq)*`.
+    Ack = 8,
+    /// Channel 0, reliable links only: a carrier's opening (new or resume).
+    Hello = 9,
+    /// Channel 0, reliable links only: the link ends on purpose (a carrier
+    /// that just drops is resumed instead).
+    Bye = 10,
 }
 
 impl FrameType {
-    fn from_u8(value: u8) -> Option<Self> {
+    pub(crate) fn from_u8(value: u8) -> Option<Self> {
         Some(match value {
             0 => Self::Open,
             1 => Self::Data,
@@ -32,6 +46,11 @@ impl FrameType {
             3 => Self::Ping,
             4 => Self::Pong,
             5 => Self::DeflatedData,
+            6 => Self::Sequenced,
+            7 => Self::Seq,
+            8 => Self::Ack,
+            9 => Self::Hello,
+            10 => Self::Bye,
             _ => return None,
         })
     }
@@ -262,9 +281,32 @@ mod tests {
     #[test]
     fn rejects_unknown_type_and_oversize() {
         let mut codec = FrameCodec;
-        let mut bad = BytesMut::from(&[0u8, 0, 0, 5, 0, 0, 0, 1, 9][..]);
-        assert!(matches!(codec.decode(&mut bad), Err(FrameError::UnknownType(9))));
+        let mut bad = BytesMut::from(&[0u8, 0, 0, 5, 0, 0, 0, 1, 11][..]);
+        assert!(matches!(codec.decode(&mut bad), Err(FrameError::UnknownType(11))));
         let mut huge = BytesMut::from(&[0xffu8, 0xff, 0xff, 0xff][..]);
         assert!(matches!(codec.decode(&mut huge), Err(FrameError::TooLarge(_))));
+    }
+
+    /// Base shipped wire type 5 as the parked link's deflated data and 6 as
+    /// classes' sequenced chunk, so the reliable link's frames sit above them.
+    #[test]
+    fn types_5_and_6_are_base_frames_and_the_reliable_frames_are_7_to_10() {
+        let wire = [
+            (5u8, FrameType::DeflatedData),
+            (6, FrameType::Sequenced),
+            (7, FrameType::Seq),
+            (8, FrameType::Ack),
+            (9, FrameType::Hello),
+            (10, FrameType::Bye),
+        ];
+        for (byte, kind) in wire {
+            assert_eq!(FrameType::from_u8(byte), Some(kind), "type {byte}");
+            assert_eq!(kind as u8, byte, "{kind:?}");
+            let mut buffer = BytesMut::from(&[0u8, 0, 0, 5, 0, 0, 0, 1, byte][..]);
+            let frame = FrameCodec.decode(&mut buffer).unwrap().expect("a whole frame");
+            assert_eq!(frame.kind, kind, "type {byte} decodes as {kind:?}");
+        }
+        assert_ne!(FrameType::from_u8(5), Some(FrameType::Seq));
+        assert_ne!(FrameType::from_u8(6), Some(FrameType::Seq));
     }
 }
