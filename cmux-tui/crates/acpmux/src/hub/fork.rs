@@ -653,13 +653,28 @@ impl Hub {
             // What the agent sends for the new session while it answers (OpenCode replays the
             // whole conversation under its id) is the fork's, not this chat's (`fork_replay.rs`).
             let replay_wait = session.fork_replay.asking();
-            let asked = child
-                .request_with_hook(method::SESSION_FORK, fork_params, None, || {
+            // Bounded (`forward_wait.rs`): an agent alive that never answers its fork ends this
+            // request, and the `harness_use` read it holds, at its start budget instead of never.
+            // A chat that works then forks from the transcript, as any failed mid-turn fork does.
+            let bound = self.config.read().await.agent_start_timeout();
+            let mut wait = cmux_bounded::Driver::<
+                super::forward_wait::ForwardWait,
+                tokio::time::Instant,
+            >::new(super::forward_wait::ForwardWait::asked(bound));
+            let asked = tokio::select! {
+                asked = child.request_with_hook(method::SESSION_FORK, fork_params, None, || {
                     *seen.lock().unwrap_or_else(|e| e.into_inner()) =
                         Some((session.read_meta(rules_of), take_cut()));
                     drop(handoff);
-                })
-                .await;
+                }) => {
+                    wait.feed(super::forward_wait::Event::Answered);
+                    asked
+                }
+                () = wait.expired() => {
+                    wait.expire_due();
+                    Err(super::forward_wait::no_answer(method::SESSION_FORK, bound))
+                }
+            };
             if let Some((rules, cut)) = seen.into_inner().unwrap_or_else(|e| e.into_inner()) {
                 rules_at_copy = Some(rules);
                 cut_at_request = Some(cut);
@@ -764,6 +779,7 @@ impl Hub {
             preset: parent_meta.preset.clone(),
             model_request: parent_meta.model_request.clone(),
             effort_request: parent_meta.effort_request.clone(),
+            capacity_fallback: None,
             cwd,
             // A fork sees what its parent saw, but never its own folder twice.
             additional_directories: fork_dirs,
@@ -860,7 +876,6 @@ impl Hub {
             unread_turns: 0,
             last_return: None,
             away_recap: None,
-            rolling_summary: None,
             approved_plan: None,
             read_through: Default::default(),
             claude_unstored: false,
@@ -941,6 +956,8 @@ impl Hub {
             turn_cap_noticed: None,
             delegator: None,
             cold: None,
+            // A fork is a new chat: it takes the setting's default, not its source's Auto.
+            auto_session: None,
             fork_of_subagent: sub_copy.as_ref().map(|c| crate::store::SubagentForkOf {
                 session_id: session.id.clone(),
                 subagent_id: c.subagent_id.clone(),
