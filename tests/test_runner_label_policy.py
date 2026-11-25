@@ -194,7 +194,10 @@ HEALTH_REPORT_WORKFLOW = ROOT / ".github" / "workflows" / "ci-health-report.yml"
 # RUNNER_POOLS is a JSON map of pool -> label, read as fromJSON(vars.RUNNER_POOLS).<pool>; its labels are
 # checked by runner_pools.py --check on main, which writes it (as main's copy of this test says).
 # CI_RUNNER_STATE is an encoded observation, never a runs-on label.
-NON_LABEL_RUNNER_VARIABLES = {"CI_SEED_KEEP_LOCAL_RUNNERS", "RUNNER_POOLS", "CI_RUNNER_STATE"}
+NON_LABEL_RUNNER_VARIABLES = {"CI_SEED_KEEP_LOCAL_RUNNERS", "RUNNER_POOLS", "CI_RUNNER_STATE",
+                             # Runs-on readers the scheduled report (main's copy, the prepush gate's Main-Twin rule) does not list yet:
+                             # move each to CMUX_CI_RUNNER_VARIABLES in ci-health-report.yml with a main PR.
+                             "CI_DEV_COMPILE_NIGHTLY_RUNNER", "CI_REACT_SHARD_RUNNER", "CMUX_IOS_SIM_LINUX_BUILD_RUNNER"}
 # Read only by fork pull requests' operand of the one Linux label (scripts/ci/one_linux_label.py), unset means
 # GitHub-hosted Ubuntu, so it can never route a same-repo job. The report and the variable check are scheduled and
 # run main's copy (the prepush gate's Main-Twin rule), so this branch's copy cannot add it there.
