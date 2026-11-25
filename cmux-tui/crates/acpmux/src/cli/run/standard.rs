@@ -118,7 +118,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             };
             orchestrate::wait(
                 client,
-                orchestrate::WaitOpts { sessions, until, all, timeout, print, notify, matcher },
+                orchestrate::WaitOpts {
+                    sessions,
+                    until,
+                    all,
+                    timeout: Some(timeout),
+                    print,
+                    notify,
+                    matcher,
+                },
                 json_out,
             )
             .await
