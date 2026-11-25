@@ -12,6 +12,13 @@ name: pr pipeline
 # Adding a check: add a step to ci/steps.toml. No new workflow, no router edit.
 on:
   workflow_call:
+    inputs:
+      # The table's jobs the change routes, a JSON list (pr-router.yml's `table` output). Empty: every job runs
+      # its routed steps (a job with none routed prints so and passes).
+      jobs:
+        required: false
+        type: string
+        default: ""
 
 permissions: {}
 
@@ -22,9 +29,10 @@ env:
 jobs:
   linux:
     name: linux
+    if: ${{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'linux') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # Above setup (10 min), the tool downloads (3 min), the waves of the slowest step (6 min; steps two at
-    # once on 2 CPUs) and the `alone` steps (coderouter 6 min, the cmux_next_ daemon tests 65 min), with room for
+    # once on 2 CPUs) and the `alone` steps (ci-artifact-worker and coderouter 6 min each, the cmux_next_ daemon tests 65 min), with room for
     # the checkout, so a slow step is reported by the runner, not cut here.
     timeout-minutes: 170
     permissions:
@@ -60,3 +68,197 @@ jobs:
           path: ${{ runner.temp }}/fixit-compile
           if-no-files-found: ignore
           retention-days: 3
+
+  # The `web-browser` job: the browser suites (Playwright and real Chrome), on their own warm Linux VM so a
+  # webview change never waits behind the linux job's guards, and a change that routes no browser step starts no
+  # runner here. Each step installs the browser engines it launches (`playwright install --with-deps`, apt through
+  # sudo, which the pool's runners grant as they did for ci-web.yml's jobs).
+  web-browser:
+    name: web-browser
+    if: ${{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'web-browser') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    # Setup (10 min), the tool downloads (3 min), the web-browser steps two at once, each wave as long as its slowest
+    # step, then each `alone` step (tests/test_ci_step_table.py holds this).
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout the merge commit and the base tip
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: List the changed paths
+        run: |
+          if git rev-parse -q --verify 'HEAD^2' >/dev/null; then
+            git diff --name-only --no-renames -z 'HEAD^1' HEAD > "$RUNNER_TEMP/changed-paths.txt"
+            echo "PATHS_FILE=$RUNNER_TEMP/changed-paths.txt" >> "$GITHUB_ENV"
+            tr -cd '\0' < "$RUNNER_TEMP/changed-paths.txt" | wc -c
+          else
+            echo "::notice::No merge commit to diff: every web-browser step runs."
+          fi
+      - name: Run the routed web-browser steps (ci/steps.toml)
+        run: ci/run run --job web-browser ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
+      # The real-daemon pane checks' measurements (the agent-pane-real-acpmux step writes $RUNNER_TEMP/agent-pane-real-acpmux).
+      - name: Upload the agent pane measurements
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-pane-real-acpmux-attempt${{ github.run_attempt }}
+          path: ${{ runner.temp }}/agent-pane-real-acpmux
+          if-no-files-found: ignore
+          retention-days: 3
+
+  # The `mac` job: the Mac tiers of a feat-cmux-next pull request, the Swift canary and the fast tier's Swift
+  # suites, which were cmux-next.yml's swift-canary and fast-tier jobs (and their build-fleet variants) on a pull
+  # request. pr-router.yml starts it only when the change routes a `mac` step and the head is in the full tier (a
+  # draft runs no Mac, scripts/ci/pr_router.py FULL_TIER_JOBS). Each step asks scripts/ci/mac_tiers.py whether its
+  # tier is routed (cmux_next_route.py, the router cmux-next.yml's path_route runs), and so does the step below
+  # that gates this job's Mac setup, so a path the steps' globs over-route costs a checkout and a few seconds.
+  # A fork's pull request runs on Blacksmith; nightlies never run here.
+  mac:
+    name: mac
+    if: ${{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'mac') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
+    # The Mac setup below (Xcode, the owned build root, two cache restores of up to 8 min each), then ci/run: its
+    # setup (10 min), the tool downloads (3 min), the canary, then the `alone` fast tier (tests/test_ci_step_table.py
+    # holds this).
+    timeout-minutes: 165
+    permissions:
+      contents: read
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    steps:
+      - name: Checkout the merge commit and the base tip
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          submodules: false
+          # An owned Mac reuses its workspace: keep the ignored SwiftPM builds a clean would delete.
+          clean: false
+      - name: List the changed paths
+        run: |
+          if git rev-parse -q --verify 'HEAD^2' >/dev/null; then
+            git diff --name-only --no-renames -z 'HEAD^1' HEAD > "$RUNNER_TEMP/changed-paths.txt"
+            echo "PATHS_FILE=$RUNNER_TEMP/changed-paths.txt" >> "$GITHUB_ENV"
+            tr -cd '\0' < "$RUNNER_TEMP/changed-paths.txt" | wc -c
+          else
+            echo "::notice::No merge commit to diff: every mac step runs."
+          fi
+      - name: Route the Mac tiers
+        id: tiers
+        env:
+          CI_PATHS_FILE: ${{ env.PATHS_FILE }}
+          CI_DRAFT_CHEAP_TIER: ${{ vars.CI_DRAFT_CHEAP_TIER || '1' }}
+          CI_IDLE_BASE_MERGE_SKIP: ${{ vars.CI_IDLE_BASE_MERGE_SKIP || '1' }}
+        run: python3 -I scripts/ci/mac_tiers.py route --github-output "$GITHUB_OUTPUT"
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        if: steps.tiers.outputs.fast_tier == 'true' || steps.tiers.outputs.swift_canary == 'true'
+        run: |
+          scripts/ci/reset-stale-submodules.sh
+          git clean -ffd
+      # The fast tier's tests can start acpmux daemons: they get a home of this job's own.
+      - name: Give this job its own acpmux home
+        if: steps.tiers.outputs.fast_tier == 'true'
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          rm -rf "$home" && mkdir -m 700 "$home"
+          echo "ACPMUX_HOME=$home" >> "$GITHUB_ENV"
+          # An inherited socket would still name another home's daemon; empty is unset.
+          echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"
+      # owned_pool_rescue.py reads this step by name.
+      - name: Select Xcode
+        if: steps.tiers.outputs.fast_tier == 'true' || steps.tiers.outputs.swift_canary == 'true'
+        run: ./scripts/select-ci-xcode.sh
+      # On an owned Mac the Swift steps build in a leased root every runner slot shares (owned_spm_scratch.py
+      # lease); its holder process keeps the lease until the job ends, so this stays a workflow step.
+      - name: Keep Swift package builds on this owned Mac
+        id: spm-root
+        if: (steps.tiers.outputs.fast_tier == 'true' || steps.tiers.outputs.swift_canary == 'true') && contains(runner.name, '-glaeda')
+        continue-on-error: true
+        env:
+          CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}
+        run: |
+          python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
+          python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
+      - name: Name the build root
+        if: steps.tiers.outputs.fast_tier == 'true' || steps.tiers.outputs.swift_canary == 'true'
+        env:
+          ROOT: ${{ steps.spm-root.outputs.root || github.workspace }}
+        run: echo "CMUX_MAC_ROOT=$ROOT" >> "$GITHUB_ENV"
+      # The fast tier's warm start: the newest base seed cmux-next-fast-tier-seed.yml saved (a pull request only
+      # restores), as cmux-next.yml's fast-tier job restores it.
+      - name: Compute fast-tier cache keys
+        id: fast-cache-key
+        if: steps.tiers.outputs.fast_tier == 'true' && (!contains(runner.name, '-glaeda') || steps.spm-root.outputs.seed == '1')
+        env:
+          CMUX_FAST_CACHE_WORKSPACE: ${{ steps.spm-root.outputs.root || github.workspace }}
+        run: scripts/cmux-next/fast-tier-cache-key.sh "$CMUX_FAST_CACHE_WORKSPACE" >> "$GITHUB_OUTPUT"
+      - name: Restore the CmuxNext build
+        id: fast-cache-restore
+        if: steps.fast-cache-key.outputs.swift-key != ''
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          CMUX_LAN_CACHE_TIMEOUT: "480"
+        with:
+          backend: r2
+          path: ${{ format('{0}/Packages/macOS/CmuxNext/.build', steps.spm-root.outputs.root || github.workspace) }}
+          key: ${{ steps.fast-cache-key.outputs.swift-key }}
+          restore-keys: ${{ steps.fast-cache-key.outputs.swift-prefix }}
+      - name: Name the restored seed
+        id: fast-cache-seed
+        if: steps.fast-cache-restore.outputs.cache-matched-key != ''
+        env:
+          MATCHED: ${{ steps.fast-cache-restore.outputs.cache-matched-key }}
+          PREFIX: ${{ steps.fast-cache-key.outputs.swift-prefix }}
+          SEED_ROOT: ${{ steps.spm-root.outputs.seed }}
+        run: |
+          echo "commit=${MATCHED#"$PREFIX"}" >> "$GITHUB_OUTPUT"
+          if [[ "$SEED_ROOT" == 1 ]]; then python3 scripts/ci/owned_spm_scratch.py seeded; fi
+      - name: Restore the CmuxHomeRender build of that seed
+        if: steps.fast-cache-seed.outputs.commit != ''
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          CMUX_LAN_CACHE_TIMEOUT: "480"
+        with:
+          backend: r2
+          path: ${{ format('{0}/Packages/Shared/CmuxHomeRender/.build', steps.spm-root.outputs.root || github.workspace) }}
+          key: ${{ steps.fast-cache-key.outputs.home-prefix }}${{ steps.fast-cache-seed.outputs.commit }}
+      - name: Replay the seed's input times
+        if: steps.fast-cache-seed.outputs.commit != ''
+        continue-on-error: true
+        env:
+          ROOT: ${{ steps.spm-root.outputs.root || github.workspace }}
+        run: python3 -I scripts/ci/e2e_warm_derived_data.py replay "$ROOT" "$ROOT/Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json"
+      - name: Run the routed mac steps (ci/steps.toml)
+        env:
+          CMUX_FAST_SWIFT_CACHE_KEY: ${{ steps.fast-cache-key.outputs.swift-key }}
+          CMUX_FAST_SWIFT_CACHE_HIT: ${{ steps.fast-cache-restore.outputs.cache-hit }}
+          CMUX_FAST_CACHE_MATCHED_KEY: ${{ steps.fast-cache-restore.outputs.cache-matched-key }}
+        run: ci/run run --job mac ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
+      - name: Stop this job's acpmux daemons and remove its home
+        if: ${{ always() && steps.tiers.outputs.fast_tier == 'true' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          [[ -d "$home" ]] || exit 0
+          acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"
+          [[ -z "$acpmux" ]] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
+          rm -rf "$home"
+      # The fast tier's timing receipt (the mac-fast-tier step writes it), named as cmux-next.yml's fast-tier job
+      # names it, so its readers find a pull request's receipt here.
+      - name: Upload fast-tier timing receipt
+        if: ${{ always() && steps.tiers.outputs.fast_tier == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-fast-tier-receipt-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-next-fast-tier.json
+          if-no-files-found: warn
+          retention-days: 7

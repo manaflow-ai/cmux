@@ -156,6 +156,11 @@ def _git(repo: Path, *args: str) -> tuple[int, str]:
     # A hook runs with git's GIT_INDEX_FILE / GIT_WORK_TREE for the pushing checkout: never let them reach a
     # read of another tree.
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
+    # Every read here is of refs and commits. In a worktree of a blobless mirror, a ref whose commit the mirror lacks
+    # made git lazy-fetch that commit's whole history (noop negotiation, GBs), and the push sat in the hook for
+    # 526 to 1436 s (hq handbook blobless-mirror-hangs-in-a-lazy-fetch-of-history, 2026-11-18). With lazy fetch
+    # off such a ref reads as absent, which every caller already handles. A full clone ignores the variable.
+    env["GIT_NO_LAZY_FETCH"] = "1"
     result = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, env=env)
     return result.returncode, result.stdout.strip()
 
