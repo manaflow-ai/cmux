@@ -176,6 +176,15 @@ public struct CloudConfiguration: Sendable, Equatable {
         runtimeSelection?.platformOrigin ?? apiBaseURL
     }
 
+    /// The origin of cmux-platform's workspace routes (`/v1/workspaces/{workspace}/…`: fork runs, a
+    /// Cloud chat's turn checkpoints): the platform origin. The API Worker (``ownerAPIBaseURL(environment:)``)
+    /// forwards only its listed machine paths to the platform and answers 404 for these, so a call
+    /// sent there fails before it reaches the platform (cmux#56531: every Cloud chat's Try another
+    /// approach said "Couldn't fork this chat").
+    public func workspaceAPIBaseURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+        relayAPIBaseURL(environment: environment)
+    }
+
     /// The selected backend's share API origin. The daemon may name the room's
     /// origin directly; native code never infers it from build kind.
     public func shareAPIBaseURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {

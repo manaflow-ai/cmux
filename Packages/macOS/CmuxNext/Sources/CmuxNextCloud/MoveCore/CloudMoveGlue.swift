@@ -132,18 +132,55 @@ public struct CloudTryAnotherApproach: Sendable {
     public typealias ForkMachine = @MainActor @Sendable (_ plan: Plan) async throws -> CloudOwnerAPIClient.ForkRunChild
     public typealias ForkTranscript = @MainActor @Sendable (_ plan: Plan, _ childMachine: String) async throws -> String
     public typealias OpenChild = @MainActor @Sendable (_ plan: Plan, _ childMachine: String, _ session: String) async throws -> String
+    /// Drops what the copy left behind once the child chat is open (``copyMachine``'s snapshot); best effort, never fails the fork.
+    public typealias DropCopy = @MainActor @Sendable (_ plan: Plan, _ child: CloudOwnerAPIClient.ForkRunChild) async -> Void
 
     private let prepare: Prepare
     private let forkMachine: ForkMachine
     private let forkTranscript: ForkTranscript
     private let openChild: OpenChild
+    private let dropCopy: DropCopy?
 
     public init(prepare: @escaping Prepare, forkMachine: @escaping ForkMachine,
-                forkTranscript: @escaping ForkTranscript, openChild: @escaping OpenChild) {
+                forkTranscript: @escaping ForkTranscript, openChild: @escaping OpenChild, dropCopy: DropCopy? = nil) {
         self.prepare = prepare
         self.forkMachine = forkMachine
         self.forkTranscript = forkTranscript
         self.openChild = openChild
+        self.dropCopy = dropCopy
+    }
+
+    /// One Cloud op (`op` with the single argument `arg` = `value`) answering the id of its record `answers`, sent with
+    /// idempotency key `key`.
+    public typealias MachineChange = @MainActor (_ op: String, _ arg: String, _ value: String, _ answers: String, _ key: String) async throws -> String?
+
+    /// The copy of a Cloud chat's machine, as `cmux vm fork` makes it: `cloud.snapshot.create` of the source, then
+    /// `cloud.snapshot.restore` of that snapshot, both the person's own CloudDO ops. RED before (cmux#56531): the copy was
+    /// a platform fork run, which finds its source among the team's TeamMachines records; a Cloud chat's machine is a
+    /// CloudDO `vm_` row with no such record, so every run failed "fork run service unavailable" and every Cloud chat's
+    /// Try another approach said "Couldn't fork this chat".
+    ///
+    /// Each op's key is the plan's `clientKey` and the op, so a retry of the same fork (the same chat, session and turn: a
+    /// failed child wait, a second click) answers the snapshot and machine the first attempt made, never another billed copy.
+    @MainActor
+    public static func copyMachine(_ plan: Plan, change: MachineChange) async throws -> CloudOwnerAPIClient.ForkRunChild {
+        let key = { (op: String) in "\(plan.clientKey):\(op)" }
+        guard let snapshot = try await change("cloud.snapshot.create", "machine", plan.sourceMachine, "snapshot", key("snapshot")),
+              !snapshot.isEmpty else {
+            return .init(id: "", harness: plan.harness, state: "failed", machineId: nil, error: "the snapshot answered no id")
+        }
+        let machine = try await change("cloud.snapshot.restore", "snapshot", snapshot, "machine", key("restore")).flatMap { $0.isEmpty ? nil : $0 }
+        return .init(id: snapshot, harness: plan.harness, state: machine == nil ? "failed" : "ready", machineId: machine,
+                     error: machine == nil ? "the restore answered no machine" : nil)
+    }
+
+    /// Deletes ``copyMachine``'s snapshot (the child's `id`) once the child is up: every saved snapshot counts against
+    /// the plan's `max_saved`, so a kept one per click would make Try another approach fail `cloud.quota.exceeded` after
+    /// a few turns. Keyed like the copy, so a retry is the same delete; an error (already gone, still busy) is ignored.
+    @MainActor
+    public static func dropSnapshot(_ plan: Plan, _ child: CloudOwnerAPIClient.ForkRunChild, change: MachineChange) async {
+        guard !child.id.isEmpty else { return }
+        _ = try? await change("cloud.snapshot.delete", "snapshot", child.id, "", "\(plan.clientKey):drop")
     }
 
     @MainActor
@@ -151,11 +188,14 @@ public struct CloudTryAnotherApproach: Sendable {
         let plan = try prepare(chat, throughSeq)
         let child = try await forkMachine(plan)
         guard let childMachine = child.machineId else {
+            // A failed child says why (the platform's `error`), not only that no machine came back.
             throw NSError(domain: "cloud.tryAnotherApproach", code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: "Cloud did not return a child machine"])
+                          userInfo: [NSLocalizedDescriptionKey: child.error.map { "Cloud could not make the copy: \($0)" }
+                              ?? "Cloud did not return a child machine"])
         }
         let childSession = try await forkTranscript(plan, childMachine)
         let childTab = try await openChild(plan, childMachine, childSession)
+        await dropCopy?(plan, child)
         return Result(childMachine: childMachine, childSession: childSession, childTab: childTab,
                       parentLabel: plan.parentLabel, throughSeq: throughSeq)
     }

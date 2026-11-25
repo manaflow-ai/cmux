@@ -98,18 +98,18 @@ extension CloudService {
 
     /// A money or destructive Cloud op a person started in this app (`cloud.environment.build`,
     /// `.delete`) through the same approval loop as a create; `confirm` is its native confirmation.
-    func appServerApprovedCall(_ op: String, args: JSONValue, confirm: @MainActor () async -> Bool) async throws -> JSONValue {
+    func appServerApprovedCall(_ op: String, args: JSONValue, key: String? = nil, confirm: @MainActor () async -> Bool) async throws -> JSONValue {
         // The team the approval bills: the install token's team claim, captured now.
         let team = MacInstallIdentity.team(ofToken: try await installIdentity.installToken()) ?? ""
-        return try await appServerFlow(team: team, run: appOps).approvedCall(op, args: args, confirm: confirm)
+        return try await appServerFlow(team: team, run: appOps).approvedCall(op, args: args, key: key, confirm: confirm)
     }
 
     /// A machine's resize and snapshot ops (`cloud.machine.resize`, `cloud.snapshot.*`) to cmux-platform's op of the same name
     /// (never `/api/vm`), as the person's own: the approval loop (one key, same-key retries), once `allow` says yes. The id of the answer's `record`.
     @discardableResult
-    func machineChange(_ op: String, _ args: [String: JSONValue], answers record: String? = nil, allow: @MainActor () async -> Bool) async throws -> String? {
+    func machineChange(_ op: String, _ args: [String: JSONValue], answers record: String? = nil, key: String? = nil, allow: @MainActor () async -> Bool) async throws -> String? {
         guard await allow() else { throw CloudMachineCreateFlow.Failure.declined }
-        return try await appServerApprovedCall(op, args: .object(args), confirm: { true }).recordID(record, op: op)
+        return try await appServerApprovedCall(op, args: .object(args), key: key, confirm: { true }).recordID(record, op: op)
     }
 
     /// The team's Cloud environments (`/v1/cloud-environments`); throws when the list fails (`cloud new-machine --environment NAME` refuses it).

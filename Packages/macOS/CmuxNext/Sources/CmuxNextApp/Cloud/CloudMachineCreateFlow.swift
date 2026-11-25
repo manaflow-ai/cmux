@@ -139,8 +139,8 @@ struct CloudMachineCreateFlow {
     /// Any other Cloud money or destructive op (`cloud.environment.build`, `.delete`) a person started
     /// in this app: sent once with one key; when the backend holds it for approval, `confirm` asks the
     /// person (a no sends nothing more), then the approval is answered and the same key retried.
-    func approvedCall(_ op: String, args: JSONValue, confirm: @MainActor () async -> Bool) async throws -> JSONValue {
-        try await approvalLoop(op, args: args, key: newKey(), confirmed: false) { _ in await confirm() }
+    func approvedCall(_ op: String, args: JSONValue, key: String? = nil, confirm: @MainActor () async -> Bool) async throws -> JSONValue { // `key`: a caller's own, so its retry is this call
+        try await approvalLoop(op, args: args, key: key ?? newKey(), confirmed: false) { _ in await confirm() }
     }
 
     /// The first call, then same-key calls for `patience` after the approval (the approved op takes the server a minute
