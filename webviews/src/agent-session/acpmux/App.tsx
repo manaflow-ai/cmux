@@ -103,6 +103,9 @@ import { shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapsho
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { ApprovedPlanBand } from "./ApprovedPlanBand";
 import { approvedPlanPlace } from "./approvedPlan.experiment";
+import { CustomizeBar, customizeBarShows } from "./customizeBar/CustomizeBar";
+import { customizeBarPlace } from "./customizeBar/customizeBar.experiment";
+import { useCustomizeBar } from "./customizeBar/useCustomizeBar";
 import { hatPlanOf } from "./chatTaskList";
 import { goalHatPlace } from "./goalHat.experiment";
 import { jumpLatestPlace } from "./jumpPlace.experiment";
@@ -547,6 +550,7 @@ import {
   RunElsewhereStore,
 } from "./conversation/runElsewhereModel";
 import { NewestSteerContext, SteerChatContext } from "./conversation/pendingSteerModel";
+import { CapacityWaitContext } from "./capacityWait";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
 import { useTranscriptView, type TranscriptView } from "./conversation/transcriptView";
 import { isWorkedFold, NO_FOLD_TOGGLES, viewFolds, type Folds } from "./conversation/viewFolds";
@@ -2275,6 +2279,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const trayPlacement = useSubagentTrayPlacement();
   const [goalHatPlaceArm] = useState(() => experimentArm(goalHatPlace));
   const [approvedPlanArm] = useState(() => experimentArm(approvedPlanPlace));
+  // A live customization's Apply / Discard / Undo / Save as profile (customizeBar/), off by default.
+  const [customizeBarArm] = useState(() => experimentArm(customizeBarPlace));
+  const customizeBar = useCustomizeBar(customizeBarArm !== "off", snapshot.isWorking);
   const doneLines = useRef<DoneLineCache>(new Map());
   const childDoneLines = useRef<DoneLineCache>(new Map());
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
@@ -6092,8 +6099,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     recheck: recheckCloudChat,
   });
   const cloudUnavailable =
-    cloudRecoveryShows && (cloudRecovery.state === "paused" || cloudRecovery.state === "deleted")
-      ? cloudChatUnavailable(snapshot.unavailable ?? { reason: "offline" }, cloudRecovery.state, machineName)
+    cloudRecoveryShows &&
+    (cloudRecovery.state === "paused" ||
+      cloudRecovery.state === "deleted" ||
+      (cloudRecovery.resuming && cloudRecovery.state === "live"))
+      ? cloudChatUnavailable(
+          snapshot.unavailable ?? { reason: "offline" },
+          cloudRecovery.state,
+          machineName,
+          cloudRecovery.resuming,
+        )
       : snapshot.unavailable;
   /// The chat a send now wakes its Cloud machine for (cloudWake.ts), or undefined.
   const cloudWakeState: CloudWakeState = {
@@ -9451,7 +9466,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const transcript = (
     <PresentationContext.Provider value={chatPresentation}>
       <ThinkingVerbsContext.Provider value={thinkingVerbs}>
-        <SteerChatContext.Provider value={snapshot.sessionId ?? ""}>{transcriptContent}</SteerChatContext.Provider>
+        <SteerChatContext.Provider value={snapshot.sessionId ?? ""}>
+          <CapacityWaitContext.Provider value={snapshot.capacityWait}>{transcriptContent}</CapacityWaitContext.Provider>
+        </SteerChatContext.Provider>
       </ThinkingVerbsContext.Provider>
     </PresentationContext.Provider>
   );
@@ -9843,6 +9860,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         initiallyOpen={approvedPlanArm === "open"}
       />
     ) : null;
+  // Leo, 2026-11-25: "the customization live... in the gui chat". The bar's buttons run the CLI's
+  // customize verbs on this Mac (cmux.customize.run), not an agent turn.
+  const customizeBarNode =
+    !showNewTab && customizeBarArm !== "off" && customizeBarShows(customizeBar.state, customizeBar.outcome) ? (
+      <CustomizeBar
+        look={customizeBarArm}
+        state={customizeBar.state}
+        outcome={customizeBar.outcome}
+        run={(verb, arg) => void customizeBar.run(verb, arg)}
+      />
+    ) : null;
   // The dock draws the composer (a draft a refusal put back stays in reach even once the tab's run
   // shows), and with it the composer card's quiet row: the dock's `data-foot` (bottomStack.css).
   const dockFoot = (!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && (readOnlySubagent || !reviewing);
@@ -9932,6 +9960,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     goalNode,
     approvedPlanNode,
     approvedPlanAtFoot: approvedPlanArm === "foot",
+    customizeBarNode,
     hatQuestionList,
     NO_HAT_QUESTIONS,
     hatQuestionActions,

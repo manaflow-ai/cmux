@@ -33,7 +33,7 @@ let loaded = false;
 /// The newest list this page received and has not written yet, and the window's timer: it is
 /// armed only while a write went out in the last `PUBLISH_MS`, and ends when a window passes
 /// with nothing to write. A page that hides or goes away writes what it holds first.
-let pending: { sessions: Sessions; at: number } | undefined;
+let pending: { sessions: Sessions; at: number; windowed: boolean } | undefined;
 let windowTimer: ReturnType<typeof setTimeout> | undefined;
 /// The last list this page published (the direct client keeps an unchanged session's entry).
 let lastPublished: Sessions | undefined;
@@ -114,6 +114,10 @@ function load(): void {
 /// Whether `session` waits on the user: it lists first whatever its age, so it stays whole.
 const urgent = (session: AcpmuxSessionEntry) => (session.pendingPermissions ?? 0) > 0 || !!session.indicator;
 
+/// The store's order: newest first, a tie on the chat's id.
+const newestFirst = (a: AcpmuxSessionEntry, b: AcpmuxSessionEntry) =>
+  (b.updatedAt ?? 0) - (a.updatedAt ?? 0) || a.sessionId.localeCompare(b.sessionId);
+
 /// What the store keeps of one listed chat at its place in the newest-first order: the whole entry,
 /// or (past the newest `FULL`, not waiting on the user) the ids that keep its transcript out of the
 /// device chats and its folder in the project picker.
@@ -155,9 +159,7 @@ function encodedEntry(session: AcpmuxSessionEntry, index: number): [AcpmuxSessio
 /// The daemon's chats, newest first (a tie on its id): every page talks to this Mac's daemon, whose
 /// list names other machines' chats too (`peer`).
 function ordered(sessions: Sessions): AcpmuxSessionEntry[] {
-  return (sessions as AcpmuxSessionEntry[])
-    .filter(Boolean)
-    .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0) || a.sessionId.localeCompare(b.sessionId));
+  return (sessions as AcpmuxSessionEntry[]).filter(Boolean).sort(newestFirst);
 }
 
 /// What the store keeps of `sessions` (``keptEntry`` at each place), and the list's JSON text.
@@ -181,6 +183,38 @@ function encode(sessions: Sessions, at: number): string {
   return storedText(keptList(sessions).listed, at);
 }
 
+const rowKey = (session: AcpmuxSessionEntry) => `${session.sessionId}\u0000${session.peer ?? ""}`;
+
+/// A page whose client holds only the newest window of the daemon's list (`sessionsWindowed`: the
+/// first `SESSION_PAGE` rows; the rest are read only once something asks for every chat) and a page
+/// that holds the whole list both publish here. Replacing the store with each, the New Tab's folder
+/// list flipped between a window's few folders and the whole list's many twice a second. A window
+/// says nothing about the chats older than its oldest row: those the store holds stay, after the
+/// window's rows; everything in the window's range is the window's, so a chat gone from it goes.
+/// `held` is in the store's order (`newestFirst`), so the rows past the window are its tail: one
+/// pass, no row scans.
+function overWindow(listed: Sessions, held: readonly AcpmuxSessionEntry[] | undefined): Sessions {
+  if (!held || held.length === 0 || listed.length === 0) return listed;
+  let oldest: AcpmuxSessionEntry | undefined;
+  const inWindow = new Set<string>();
+  for (const session of listed) {
+    if (!session) continue;
+    inWindow.add(rowKey(session));
+    // A row with no time (sorted last) places the window nowhere: it would cover every held row.
+    if (session.updatedAt === undefined) continue;
+    if (!oldest || newestFirst(session, oldest) > 0) oldest = session;
+  }
+  if (!oldest) return listed;
+  let start = held.length;
+  while (start > 0 && newestFirst(held[start - 1], oldest) > 0) start -= 1;
+  if (start === held.length) return listed;
+  const merged = listed.slice();
+  for (let index = start; index < held.length; index += 1) {
+    if (!inWindow.has(rowKey(held[index]))) merged.push(held[index]);
+  }
+  return merged;
+}
+
 function sameEntries(a: Sessions, b: Sessions | undefined): boolean {
   if (a === b) return true;
   if (!b || a.length !== b.length) return false;
@@ -202,7 +236,7 @@ function publishable(snapshot: Pick<AcpmuxSnapshot, "connection" | "origin" | "l
 /// Takes a page's daemon snapshot into the store, when it is publishable and its list changed.
 /// `connection` is why the client emitted ("connected", "session changed", an event's kind).
 export function publishSessions(
-  snapshot: Pick<AcpmuxSnapshot, "connection" | "origin" | "listedSessions" | "sessions">,
+  snapshot: Pick<AcpmuxSnapshot, "connection" | "origin" | "listedSessions" | "sessionsWindowed" | "sessions">,
   at = Date.now(),
 ): void {
   if (!publishable(snapshot)) return;
@@ -211,7 +245,7 @@ export function publishSessions(
   // entries (the direct client keeps an unchanged session's entry): compare entries, not the list.
   if (sameEntries(snapshot.sessions, lastPublished)) return;
   lastPublished = snapshot.sessions;
-  pending = { sessions: snapshot.sessions, at };
+  pending = { sessions: snapshot.sessions, at, windowed: snapshot.sessionsWindowed === true };
   // A write went out less than `PUBLISH_MS` ago: this list goes when the window ends.
   if (windowTimer !== undefined) return;
   writePending();
@@ -236,12 +270,15 @@ function writePending(): void {
   pending = undefined;
   if (windowTimer !== undefined) clearTimeout(windowTimer);
   windowTimer = setTimeout(endWindow, PUBLISH_MS);
-  write(next.sessions, next.at);
+  write(next.sessions, next.at, next.windowed);
 }
 
-function write(sessions: Sessions, at: number): void {
+/// A window is laid over the store's rows (`overWindow`), read when it is written: a write that
+/// waited out its window merges with what the store holds then. Merged to the text the store holds
+/// already, it writes nothing, as an unchanged whole list does.
+function write(sessions: Sessions, at: number, windowed: boolean): void {
   // The kept entries are this page's own (unchanged ones reused), not a parse of the text it stores.
-  const { sessions: kept, listed } = keptList(sessions);
+  const { sessions: kept, listed } = keptList(windowed ? overWindow(sessions, current?.sessions) : sessions);
   // The list the store already holds (this page's or another's): no write, no event elsewhere.
   if (listed === lastText && current) return;
   try {
@@ -327,6 +364,9 @@ export function reloadChatStoreForTests(): void {
 export const CHAT_STORE_KEY_FOR_TESTS = KEY;
 
 /// What a page writes to the store for `sessions` received at `at` (tests stand in for another page).
-export function encodeChatStoreForTests(sessions: Sessions, at: number): string {
-  return encode(sessions, at);
+/// `windowed`: the list is only the newest window (`sessionsWindowed`), laid over the rows this
+/// page's store holds now, as the other page would lay it over the same store.
+export function encodeChatStoreForTests(sessions: Sessions, at: number, windowed = false): string {
+  load();
+  return encode(windowed ? overWindow(sessions, current?.sessions) : sessions, at);
 }

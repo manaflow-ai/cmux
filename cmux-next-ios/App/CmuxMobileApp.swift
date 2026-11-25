@@ -31,6 +31,8 @@ struct CmuxMobileApp: App {
         ClassicLeftovers.cleanUpIfDue()
         // Settings and account saved under the pre-rename (cnx) names move first.
         LegacyStorage.migrate()
+        // Agent Chats restores the last page from the phone's read-first store before refreshing.
+        PhoneReadFirst.installAgentChats()
         #if !CMUX_MOBILE_PRODUCTION
         // Messages' own + menu and tapback art (ConversationSystemArt). Every shipping
         // build (Production, TestFlight/cmux INTERNAL, AppStore) carries no
