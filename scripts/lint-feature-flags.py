@@ -133,14 +133,37 @@ def collect_flags() -> tuple[list[dict], list[str]]:
     return flags, [WEB_REGISTRY_REL, *swift_registries]
 
 
+GREP_PATHS = ["web", "Packages", "ios", ":!*node_modules*"]
+
+
 def grep_key_files(key: str) -> set[str]:
+    return key_files([key]).get(key, set())
+
+
+def key_files(keys) -> dict[str, set[str]]:
+    """The files mentioning each key, from one `git grep` for all of them (#53771): a search per key made the
+    lint's cost grow with the number of flags. The search lists the files naming any key; each is then read once
+    and checked for every key, the same substring match `git grep --fixed-strings` makes."""
+    keys = sorted(set(keys))
+    if not keys:
+        return {}
+    patterns = [arg for key in keys for arg in ("-e", key)]
     out = subprocess.run(
-        ["git", "grep", "-l", "--untracked", "--fixed-strings", key, "--",
-         "web", "Packages", "ios",
-         ":!*node_modules*"],
+        ["git", "grep", "-l", "--untracked", "--fixed-strings", *patterns, "--", *GREP_PATHS],
         cwd=REPO, capture_output=True, text=True,
     )
-    return {line.strip() for line in out.stdout.splitlines() if line.strip()}
+    found: dict[str, set[str]] = {key: set() for key in keys}
+    for name in (line.strip() for line in out.stdout.splitlines()):
+        if not name:
+            continue
+        try:
+            text = (Path(REPO) / name).read_text(errors="ignore")
+        except OSError:
+            continue
+        for key in keys:
+            if key in text:
+                found[key].add(name)
+    return found
 
 
 def git_ok(*args: str) -> str | None:
@@ -272,6 +295,9 @@ def main(argv: list[str] | None = None) -> int:
             if line.strip() and not line.startswith("#")
         }
 
+    # One search for every declared and retired key, not one per key (#53771).
+    uses = key_files([flag["key"] for flag in flags if flag.get("key")] + list(retired))
+
     for flag in flags:
         key = flag.get("key")
         where = flag["source"]
@@ -317,7 +343,7 @@ def main(argv: list[str] | None = None) -> int:
         if key in retired:
             fail(f"{where}: '{key}' is retired (scripts/retired-feature-flags.txt); never reuse keys")
 
-        usage = grep_key_files(key) - registries
+        usage = uses.get(key, set()) - registries
         # One evaluation site per surface keeps flags removable.
         web_uses = [f for f in usage if f.startswith("web/")]
         swift_uses = [f for f in usage if not f.startswith("web/")]
@@ -327,7 +353,7 @@ def main(argv: list[str] | None = None) -> int:
             fail(f"'{key}' evaluated in multiple app files: {sorted(swift_uses)}")
 
     for key in retired:
-        for f in grep_key_files(key):
+        for f in sorted(uses.get(key, set())):
             fail(f"retired flag key '{key}' still referenced in {f}")
 
     for warning in warnings:

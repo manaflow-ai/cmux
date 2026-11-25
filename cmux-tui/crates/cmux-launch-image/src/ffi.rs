@@ -7,6 +7,8 @@
 //! - `cmux_launch_image_remove_window`, `cmux_launch_image_prune`: a closed window's images; every
 //!   image but the live windows'.
 //! - `cmux_launch_image_schedule_*`: one capture schedule per window (`crate::schedule`).
+//! - `cmux_launch_image_page_region`: whether a page's cached image may fill its region of a
+//!   capture, else the region is plain (`crate::region`).
 //!
 //! The store functions take the folder each call and use the default caps (8 MiB per image, 16
 //! windows, 2 images per window). They do file I/O: call them off the main thread. A schedule is
@@ -17,19 +19,41 @@
 //! (failed) when nothing was published. Calls for one folder may run concurrently: a publish never
 //! reuses a path, and a prune leaves files younger than 60 s alone.
 
+use crate::region::{PageRegion, page_region};
 use crate::schedule::{Event, Schedule};
 use crate::{Caps, Image, Store};
 use std::ffi::{CStr, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Bumped on any change to a type or a function.
-pub const CMUX_LAUNCH_IMAGE_ABI_VERSION: u32 = 1;
+pub const CMUX_LAUNCH_IMAGE_ABI_VERSION: u32 = 2;
 /// The size of [`CmuxLaunchImage::path`], NUL included (the launch record's image path limit).
 pub const CMUX_LAUNCH_IMAGE_PATH_CAPACITY: usize = 1025;
 /// The age a file must reach before `cmux_launch_image_prune` removes it (60 s).
 pub const CMUX_LAUNCH_IMAGE_PRUNE_GRACE_MS: u64 = 60_000;
 /// `cmux_launch_image_schedule_note`'s reply when no capture is due.
 pub const CMUX_LAUNCH_IMAGE_NOT_DUE: i64 = -1;
+/// The most a page image may lag the composite it is painted into (`crate::region`).
+pub const CMUX_LAUNCH_IMAGE_MAX_PAGE_IMAGE_LAG_MS: u64 = 120_000;
+/// `cmux_launch_image_page_region`: paint the page's cached image. Every other reply paints the
+/// region plain: 1 no image, 2 the page's version moved, 3 the page changed after the image, 4 the
+/// image is too old, 5 the image is newer than the composite.
+pub const CMUX_LAUNCH_IMAGE_REGION_IMAGE: u8 = 0;
+
+/// One page region of a window at capture time (`crate::region::PageRegion`): times in one monotonic
+/// clock's milliseconds, versions the page's picture version. A `has_*` false means the value is
+/// unknown.
+#[repr(C)]
+pub struct CmuxLaunchImagePageRegion {
+    pub has_image: bool,
+    pub image_taken_ms: u64,
+    pub has_image_version: bool,
+    pub image_version: u64,
+    pub page_version: u64,
+    pub has_page_changed: bool,
+    pub page_changed_ms: u64,
+    pub composite_ms: u64,
+}
 
 /// A window's published image. On false every field is zero and `path` is empty.
 #[repr(C)]
@@ -305,4 +329,26 @@ pub unsafe extern "C" fn cmux_launch_image_schedule_is_current(
 ) -> bool {
     // SAFETY: caller contract.
     unsafe { schedule.as_ref() }.is_some_and(|s| s.inner.is_current(epoch))
+}
+
+/// Whether a page's cached image may fill its region of a capture: `CMUX_LAUNCH_IMAGE_REGION_IMAGE`
+/// paints it; any other reply (see that constant) paints the region plain. Null gives 1 (no image).
+///
+/// # Safety
+/// `region` is null or valid for reads of one `CmuxLaunchImagePageRegion`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_launch_image_page_region(
+    region: *const CmuxLaunchImagePageRegion,
+) -> u8 {
+    // SAFETY: caller contract.
+    let Some(r) = (unsafe { region.as_ref() }) else {
+        return crate::region::RegionReason::NoImage as u8;
+    };
+    page_region(&PageRegion {
+        image_taken_ms: r.has_image.then_some(r.image_taken_ms),
+        image_version: r.has_image_version.then_some(r.image_version),
+        page_version: r.page_version,
+        page_changed_ms: r.has_page_changed.then_some(r.page_changed_ms),
+        composite_ms: r.composite_ms,
+    }) as u8
 }

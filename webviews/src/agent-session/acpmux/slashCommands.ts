@@ -25,6 +25,8 @@ export type SlashCommand = {
   extension?: string;
   /** A row's icon (the cmux pack's name): cmux's built-in tools (toolMentions.ts). */
   icon?: string;
+  /** A full-color picture drawn in place of `icon` (toolMentions.ts `image`). */
+  image?: string;
   /** The row's name in place of `/name` and its source: cmux's built-in tools ("Computer Use"). */
   label?: string;
 };

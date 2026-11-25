@@ -13,7 +13,7 @@ use super::live::{self, Daemon, Phases, Store};
 use super::resolve::{self, Spec, Unresolved};
 use super::{
     ChannelApply, Command, Live, Plan, Scope, app_build, apply_channel, choose, finish, nearest,
-    parse, plan_human, plan_json, try_live, undo_live,
+    parse, plan_human, plan_json, try_live, try_live_checked, undo_live,
 };
 
 const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -1698,8 +1698,8 @@ fn app_try_live_set_covers_every_helper_app_the_app_bundles() {
     );
     for (script, bundle) in &helpers {
         // `$name` is the app's name ("cmux NIGHTLY"): the live set's helper is every
-        // `<app name> Helper.app`.
-        let covered = bundle.strip_prefix("$name").is_some_and(|tail| tail == helper::SUFFIX);
+        // `<app name> Helper.app` (or the older `<app name> Screen Sharing.app`).
+        let covered = bundle.strip_prefix("$name").is_some_and(|tail| helper::is_helper_name(tail));
         assert!(covered, "{script} bundles {bundle}, which `cmux app try` does not carry live");
     }
 }
@@ -1801,6 +1801,107 @@ fn app_try_sha_from_a_file_before_daemon_from_says_so() {
         panic!("expected daemon-only live, got {plan:?}")
     };
     assert!(left.iter().any(|reason| reason.contains("predates daemon_from")), "{left:?}");
+}
+
+#[path = "cu_upgrade_tests.rs"]
+mod cu_upgrade_tests;
+
+const TREE: &str = "cccccccccccccccccccccccccccccccccccccccc";
+const SIGNED_CMUX: &[u8] = b"new cmux, Team-signed, longer still";
+const SIGNED_HOST: &[u8] = b"new app host, Team-signed";
+
+/// The tree's Team-signed set beside the fixture's files (cmux_tui_team_sign.py's layout), each
+/// file named by the sha256 of the ad-hoc build it signs.
+fn team_set(fixture: &Fixture) -> Value {
+    let root = fixture.base.strip_prefix("file://").unwrap();
+    let mut files = serde_json::Map::new();
+    for (file, unsigned, signed) in
+        [("cmux", NEW_CMUX, SIGNED_CMUX), ("cmux-app-host", NEW_HOST, SIGNED_HOST)]
+    {
+        let dir = Path::new(root).join(format!("tree/{TREE}/team-signed/{}", sha(signed)));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(file), signed).unwrap();
+        files.insert(
+            file.to_owned(),
+            json!({"sha256": sha(signed), "size": signed.len(), "unsigned_sha256": sha(unsigned)}),
+        );
+    }
+    json!({"schema": 1, "key": TREE, "target": "aarch64-apple-darwin", "team": "7WLXT3NR37", "files": files})
+}
+
+#[test]
+fn a_team_signed_app_takes_the_trees_team_signed_set_bound_by_the_unsigned_sha256() {
+    let fixture = fixture();
+    let completion = team_set(&fixture);
+    let files = live_files(&fixture, &found(good_targets()));
+    let signed = live::team_signed(files.clone(), TREE, &completion, &fixture.base).unwrap();
+    let cmux = signed.iter().find(|wanted| wanted.file == "cmux").unwrap();
+    let binary = cmux.binary.as_ref().unwrap();
+    assert_eq!(binary.sha256, sha(SIGNED_CMUX));
+    assert_eq!(
+        binary.url,
+        format!(
+            "https://files.cmux.com/cmux-tui/tree/{TREE}/team-signed/{}/cmux",
+            sha(SIGNED_CMUX)
+        )
+    );
+    // A file the build lacks stays absent (the app's goes, as before).
+    assert!(signed.iter().any(|wanted| wanted.file == "cmux-holder" && wanted.binary.is_none()));
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+    let checked = Cell::new(0);
+    let applied = try_live_checked(
+        &fixture.app,
+        &signed,
+        None,
+        &fixture.store,
+        &daemon,
+        &NoSigning,
+        &mut Phases::default(),
+        &|_| {
+            checked.set(checked.get() + 1);
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert!(applied.changed);
+    assert_eq!(checked.get(), 2, "every fetched file passes the Team ID check");
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(SIGNED_CMUX));
+    assert_eq!(read(&fixture.app, "cmux-app-host").as_deref(), Some(SIGNED_HOST));
+
+    // A set signed from other bytes, of another tree, or missing a file refuses the whole set.
+    let mut other = completion.clone();
+    other["files"]["cmux-app-host"]["unsigned_sha256"] = json!(sha(b"other build"));
+    assert!(live::team_signed(files.clone(), TREE, &other, &fixture.base).is_err());
+    assert!(live::team_signed(files.clone(), &"d".repeat(40), &completion, &fixture.base).is_err());
+    let mut missing = completion.clone();
+    missing["files"].as_object_mut().unwrap().remove("cmux");
+    assert!(live::team_signed(files.clone(), TREE, &missing, &fixture.base).is_err());
+    let mut null = completion;
+    null["files"]["cmux"] = Value::Null;
+    assert!(live::team_signed(files, TREE, &null, &fixture.base).is_err());
+}
+
+#[test]
+fn a_file_failing_the_team_check_changes_nothing() {
+    let fixture = fixture();
+    let completion = team_set(&fixture);
+    let files = live_files(&fixture, &found(good_targets()));
+    let signed = live::team_signed(files, TREE, &completion, &fixture.base).unwrap();
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+    let error = try_live_checked(
+        &fixture.app,
+        &signed,
+        None,
+        &fixture.store,
+        &daemon,
+        &NoSigning,
+        &mut Phases::default(),
+        &|path| Err(format!("{}: not signed by this app's team", path.display())),
+    )
+    .unwrap_err();
+    assert!(error.contains("not signed by this app's team"), "{error}");
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
+    assert_eq!(daemon.terminated.get(), 0, "the daemon is never touched");
 }
 
 // ------------------------------------------------------------------ the app-build path (app_build.rs)

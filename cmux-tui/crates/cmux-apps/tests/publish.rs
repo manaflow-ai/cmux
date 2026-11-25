@@ -453,3 +453,77 @@ fn a_rollback_restart_gets_its_apps_secrets_and_a_refusal_keeps_live() {
     assert!(spawned[2].env.contains(&("STRIPE_KEY".to_owned(), SECRET.to_owned())));
     assert!(!world.stored_anywhere(SECRET));
 }
+
+#[test]
+fn a_publish_uploads_the_first_frame_of_the_promoted_version_after_the_promote() {
+    let world = World::new();
+    let done = world.with(|host| publish(host, &request())).unwrap();
+    assert!(done.warnings.is_empty(), "{:?}", done.warnings);
+    // Rendered from the version's own loopback port, not the edge.
+    assert_eq!(*world.capture.ports.borrow(), [done.version.port]);
+    let frames = world.frames();
+    assert_eq!(frames.len(), 1);
+    assert_eq!(frames[0].method, "PUT");
+    assert_eq!(frames[0].path, "/v1/cloud/apps/web/versions/1/frame");
+    assert_eq!(frames[0].key, None);
+    let png = common::decode_frame(&frames[0]);
+    assert_eq!(png, common::tiny_png());
+    // The upload comes after the promote.
+    let sent = world.agent.sent.borrow();
+    let promote = sent.iter().position(|s| s.path.ends_with("/versions")).unwrap();
+    let frame = sent.iter().position(|s| s.path.ends_with("/frame")).unwrap();
+    assert!(promote < frame);
+}
+
+#[test]
+fn the_frame_names_the_platforms_version_number_not_the_local_one() {
+    let world = World::new();
+    world.agent.promoted.set(6);
+    let done = world.with(|host| publish(host, &request())).unwrap();
+    assert_eq!((done.version.n, done.version.platform_n), (1, Some(7)));
+    assert_eq!(world.frames()[0].path, "/v1/cloud/apps/web/versions/7/frame");
+}
+
+#[test]
+fn a_failed_capture_publishes_anyway_with_no_frame_and_a_warning() {
+    let world = World::new();
+    *world.capture.failure.borrow_mut() = Some("no headless browser on this machine".into());
+    let done = world.with(|host| publish(host, &request())).unwrap();
+    assert_eq!(done.version.state, VersionState::Live);
+    assert!(world.frames().is_empty(), "a frame was sent without a capture");
+    assert_eq!(done.warnings.len(), 1);
+    assert!(done.warnings[0].contains("no first frame"), "{:?}", done.warnings);
+    assert!(done.warnings[0].contains("no headless browser"), "{:?}", done.warnings);
+}
+
+#[test]
+fn a_capture_that_is_not_a_png_is_never_sent() {
+    let world = World::new();
+    *world.capture.png.borrow_mut() = Some(b"<html>sign in</html>".to_vec());
+    let done = world.with(|host| publish(host, &request())).unwrap();
+    assert!(world.frames().is_empty());
+    assert!(done.warnings[0].contains("not a PNG"), "{:?}", done.warnings);
+}
+
+#[test]
+fn a_refused_upload_publishes_anyway_with_a_warning() {
+    let world = World::new();
+    *world.agent.frame_answer.borrow_mut() = Some((
+        409,
+        json!({"error": {"code": "cloud.app.frame_not_kept", "message": "only live and previous keep a frame"}}),
+    ));
+    let done = world.with(|host| publish(host, &request())).unwrap();
+    assert_eq!(done.version.state, VersionState::Live);
+    assert_eq!(world.frames().len(), 1);
+    assert!(done.warnings[0].contains("cloud.app.frame_not_kept"), "{:?}", done.warnings);
+}
+
+#[test]
+fn a_failed_or_pending_promote_renders_no_frame() {
+    let world = World::new();
+    world.agent.lose_answers.set(cmux_apps::platform::PROMOTE_TRIES);
+    let failure = world.with(|host| publish(host, &request())).unwrap_err();
+    assert_eq!(failure.code, "app.promote_pending");
+    assert!(world.capture.ports.borrow().is_empty());
+    assert!(world.frames().is_empty());
+}
