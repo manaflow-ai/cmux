@@ -2542,6 +2542,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-pool-pod"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "cmux-process",
+ "cmux-tui-machine-protocol",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-process"
 version = "0.1.0"
 dependencies = [
