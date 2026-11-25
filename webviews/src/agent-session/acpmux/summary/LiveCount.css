@@ -1,0 +1,21 @@
+/* The live count (LiveCount.tsx): the subagents' mark and the number, on the line's baseline, in the
+   line's own color, no word beside it. */
+.acpmux-live-count {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--grid-half-step);
+  vertical-align: bottom;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.acpmux-live-count > svg {
+  flex: none;
+}
+/* A quiet state's word (StateMark.tsx): kept for screen readers, not drawn. */
+.acpmux-state-mark--quiet {
+  position: absolute;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  pointer-events: none;
+}

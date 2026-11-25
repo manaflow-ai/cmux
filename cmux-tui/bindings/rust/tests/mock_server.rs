@@ -894,7 +894,7 @@ fn exact_mutation_key_is_exposed_on_transport_disconnect() {
 
 #[test]
 fn stream_open_requires_an_exact_success_ack_and_closes_ambiguous_transports() {
-    for case in ["non-object", "missing-id", "mismatched-id", "unknown-field", "bad-cursor"] {
+    for case in ["non-object", "missing-id", "mismatched-id", "bad-cursor"] {
         let path = socket_path();
         let listener = UnixListener::bind(&path).unwrap();
         let server = thread::spawn(move || {
@@ -909,7 +909,6 @@ fn stream_open_requires_an_exact_success_ack_and_closes_ambiguous_transports() {
                 "mismatched-id" => {
                     json!({"stream_id":"stream_ffffffffffffffffffffffffffffffff"})
                 }
-                "unknown-field" => json!({"stream_id":stream_id,"extra":true}),
                 "bad-cursor" => json!({
                     "stream_id":stream_id,
                     "cursor":{"generation":"g","revision":1},
@@ -1480,20 +1479,16 @@ fn explicit_cancel_is_deadline_bounded_and_closes_after_uncertain_cleanup() {
 fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
     for case in [
         "wrong-id",
-        "non-empty-result",
+        "non-object-result",
         "duplicate-response",
         "duplicate-end",
         "wrong-end-id",
         "wrong-end-reason",
-        "unknown-response-field",
         "success-with-error",
         "failure-with-result",
-        "unknown-response-error-field",
         "malformed-known-pre-end-item",
         "valid-known-post-end-item",
         "malformed-known-stale-item",
-        "unknown-end-field",
-        "unknown-error-field",
     ] {
         let path = socket_path();
         let listener = UnixListener::bind(&path).unwrap();
@@ -1510,8 +1505,8 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                 "wrong-id" => {
                     success(&mut stream, &json!({"id":"wrong-cancel-response"}), json!({}));
                 }
-                "non-empty-result" => {
-                    success(&mut stream, &cancel, json!({"unexpected":true}));
+                "non-object-result" => {
+                    success(&mut stream, &cancel, json!(true));
                 }
                 "duplicate-response" => {
                     success(&mut stream, &cancel, json!({}));
@@ -1560,21 +1555,6 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                     )
                     .unwrap();
                 }
-                "unknown-response-field" => {
-                    writeln!(
-                        stream,
-                        "{}",
-                        json!({
-                            "protocol":"cmux.protocol/2",
-                            "type":"response",
-                            "id":cancel["id"],
-                            "ok":true,
-                            "result":{},
-                            "future":true,
-                        })
-                    )
-                    .unwrap();
-                }
                 "success-with-error" => {
                     writeln!(
                         stream,
@@ -1615,26 +1595,6 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                     )
                     .unwrap();
                 }
-                "unknown-response-error-field" => {
-                    writeln!(
-                        stream,
-                        "{}",
-                        json!({
-                            "protocol":"cmux.protocol/2",
-                            "type":"response",
-                            "id":cancel["id"],
-                            "ok":false,
-                            "error":{
-                                "code":"operation.failed",
-                                "message":"fixture",
-                                "details":{},
-                                "retryable":false,
-                                "future":true,
-                            },
-                        })
-                    )
-                    .unwrap();
-                }
                 "malformed-known-pre-end-item" => {
                     writeln!(
                         stream,
@@ -1648,8 +1608,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                             "item":{
                                 "kind":"snapshot",
                                 "cursor":{"generation":"g","revision":"1"},
-                                "snapshot":resource_snapshot(),
-                                "future":true,
+                                "snapshot":7,
                             },
                         })
                     )
@@ -1719,42 +1678,6 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                     .unwrap();
                     // The stale malformed item must close the peer before any
                     // remaining cancellation frames are accepted.
-                }
-                "unknown-end-field" => {
-                    success(&mut stream, &cancel, json!({}));
-                    writeln!(
-                        stream,
-                        "{}",
-                        json!({
-                            "protocol":"cmux.protocol/2",
-                            "type":"stream_end",
-                            "stream_id":stream_id,
-                            "reason":"canceled",
-                            "future":true,
-                        })
-                    )
-                    .unwrap();
-                }
-                "unknown-error-field" => {
-                    success(&mut stream, &cancel, json!({}));
-                    writeln!(
-                        stream,
-                        "{}",
-                        json!({
-                            "protocol":"cmux.protocol/2",
-                            "type":"stream_end",
-                            "stream_id":stream_id,
-                            "reason":"error",
-                            "error":{
-                                "code":"operation.failed",
-                                "message":"fixture",
-                                "details":{},
-                                "retryable":false,
-                                "future":true,
-                            },
-                        })
-                    )
-                    .unwrap();
                 }
                 _ => unreachable!(),
             }
@@ -1895,6 +1818,60 @@ fn cancel_discards_unread_items_and_waits_for_response_and_end() {
     events.cancel().unwrap();
     assert_eq!(events.end().unwrap().reason, StreamEndReason::Canceled);
     assert!(events.recv().unwrap().is_none());
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn stream_frames_ignore_fields_a_newer_daemon_adds() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (_control, _) = listener.accept().unwrap();
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let open = request(&mut reader);
+        let stream_id = open["params"]["stream_id"].as_str().unwrap().to_string();
+        success(&mut stream, &open, json!({"stream_id": stream_id, "future": true}));
+
+        let cancel = request(&mut reader);
+        assert_eq!(cancel["operation"], "stream.cancel");
+        writeln!(
+            stream,
+            "{}",
+            json!({
+                "protocol": "cmux.protocol/2",
+                "type": "stream_end",
+                "stream_id": stream_id,
+                "reason": "canceled",
+                "future": true
+            })
+        )
+        .unwrap();
+        writeln!(
+            stream,
+            "{}",
+            json!({
+                "protocol": "cmux.protocol/2",
+                "type": "response",
+                "id": cancel["id"],
+                "ok": true,
+                "result": {"future": true},
+                "future": true
+            })
+        )
+        .unwrap();
+        read_timeout_or_ended(&mut reader, Duration::from_millis(200));
+    });
+
+    let client = connect(&path);
+    let mut events = client
+        .session(SessionId::parse(SESSION).unwrap())
+        .events(EventStreamOptions::default())
+        .expect("an unknown stream open ack field is ignored");
+    events.cancel().expect("unknown cancel response and stream end fields are ignored");
+    assert_eq!(events.end().unwrap().reason, StreamEndReason::Canceled);
     client.close().unwrap();
     server.join().unwrap();
     std::fs::remove_file(path).unwrap();
@@ -2680,7 +2657,7 @@ fn malformed_wait_cleanup_preserves_timeout_and_reconnects() {
         assert_eq!(wait["operation"], "terminal.wait");
         let cancel = request(&mut first_reader);
         assert_eq!(cancel["operation"], "request.cancel");
-        success(&mut first, &cancel, json!({"canceled": true, "future": true}));
+        success(&mut first, &cancel, json!({"canceled": "yes"}));
         assert_connection_closed_without_request(
             &mut first_reader,
             "malformed request.cancel cleanup",
