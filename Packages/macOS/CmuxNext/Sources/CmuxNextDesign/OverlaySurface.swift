@@ -111,6 +111,14 @@ public final class OverlaySurfaceView: NSView {
     /// Whether the surface draws no material now (``standsOnWindow`` on a non-opaque material).
     public var drawsNoMaterial: Bool { standsOnWindow && material != .opaque }
 
+    /// Whether the surface is real Liquid Glass (`NSGlassEffectView`), which casts its own soft shadow and
+    /// edge: a host that drew the popup shadow too laid a second, black one around it, a dark ring on a dark
+    /// theme (Leo 2026-11-22, the tab hover card: "has a black border... no cohesiveness"; "doubled up
+    /// glass/wack looking glass all over the place").
+    public var castsSystemGlassShadow: Bool {
+        !drawsNoMaterial && (materialView as? GlassPanelView)?.isLiquidGlass == true
+    }
+
     /// `material` pins one material (tests, previews); nil follows
     /// `reduceTransparency` on this Mac.
     /// `tone` picks the theme tint (default) or the shared neutral glass with a rim.
@@ -237,6 +245,8 @@ public final class OverlaySurfaceView: NSView {
         addSubview(view, positioned: .below, relativeTo: nil)
         materialView = view
         installRim()
+        // A host that draws the popup shadow skips it on Liquid Glass (``castsSystemGlassShadow``).
+        superview?.needsLayout = true
         if let focused, let window = focused.window { FocusRoute(.system, "an overlay rebuilt: keep its focused view").moveKeyboard(in: window, to: focused) }
         applyShape()
         applyTheme()

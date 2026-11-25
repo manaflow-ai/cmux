@@ -85,7 +85,7 @@ fn a_profile_with_a_section_list_the_sidebar_drops_writes_nothing() {
                     assert!(
                         why.contains(key) && why.contains("not one that setting accepts"),
                         "{why}"
-                    )
+                    );
                 }
                 other => panic!("{key} = {value}: {other:?}"),
             }

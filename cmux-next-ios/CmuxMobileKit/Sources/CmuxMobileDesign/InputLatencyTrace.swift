@@ -36,6 +36,9 @@ public final class InputLatencyTrace {
         ProcessInfo.processInfo.environment["CMUX_MOBILE_INPUT_LATENCY"] == "1"
             || CommandLine.arguments.contains("-cmux-mobile-input-latency")
 
+    /// Separate attribution run. The ordinary settle run keeps its 4 ms hitch sampler.
+    public nonisolated static let samplesTouches = CommandLine.arguments.contains("-cmux-mobile-input-touch-stacks")
+
     public static let shared: InputLatencyTrace? = isEnabled ? InputLatencyTrace() : nil
 
     static let signposter = OSSignposter(subsystem: "dev.cmux.mobile", category: "input")
@@ -48,7 +51,14 @@ public final class InputLatencyTrace {
     static let windowTail = 0.3
 
     private let watch: MainThreadWatch
-    private let writer = DispatchQueue(label: "dev.cmux.mobile.input-latency", qos: .utility)
+    /// Appends lines to the file, and does nothing else, so a line is written as soon as it is
+    /// made. Slow work (symbolizing a hitch's stacks, a touch's 0.45 s stack sampling) runs on
+    /// `symbolizer` and hands its finished line here: when the two shared one serial utility
+    /// queue, a burst of hitches under duress=heavy queued every key sample behind seconds of
+    /// dladdr, and a run's trace came out with none (or part) of its keys.
+    nonisolated private let writer = DispatchQueue(label: "dev.cmux.mobile.input-latency", qos: .userInitiated)
+    private let symbolizer = DispatchQueue(label: "dev.cmux.mobile.input-latency.symbols",
+                                           qos: InputLatencyTrace.samplesTouches ? .userInitiated : .utility)
     nonisolated private let handle: FileHandle?
     private var observer: CFRunLoopObserver?
     private var observers: [NSObjectProtocol] = []
@@ -61,12 +71,28 @@ public final class InputLatencyTrace {
     private var hitches8 = 0
     private var iterations4 = 0
     private var maxIterationMs = 0.0
+    /// Keystroke-to-glyph intervals open per kind (`beginKey`), closed by that kind's `sample`.
+    private var keyIntervals: [String: OSSignpostIntervalState] = [:]
+    /// The typing window: from a key typed in a composer until `typingTail`
+    /// after the last one. Its own hitch counts are what typing feels
+    /// (`ComposerLinkUITests`), apart from the scrolls and loads around it.
+    static let typingTail = 0.5
+    private var typingStart: CFTimeInterval?
+    private var typingUntil: CFTimeInterval = 0
+    private var typingHitches8 = 0
+    private var typingIterations4 = 0
+    private var typingMaxMs = 0.0
+    private var typingKeys = 0
+    /// Work counted while typing (`note`): draft files written on the main
+    /// thread, transcript scans, composer re-renders.
+    private var typingNotes: [String: Int] = [:]
 
     private init() {
         let url = Self.fileURL
         FileManager.default.createFile(atPath: url.path, contents: nil)
         handle = try? FileHandle(forWritingTo: url)
         watch = MainThreadWatch()
+        if Self.samplesTouches { return }
         installRunLoopObserver()
         installKeyboardObservers()
         watch.start()
@@ -76,10 +102,57 @@ public final class InputLatencyTrace {
     /// Starts the trace when it is switched on (call once, early, on main).
     public static func startIfRequested() { _ = shared }
 
+    /// The pin trace calls this at finger-down. Capture through release and the
+    /// first frame, including short run-loop iterations. Store the actual sample
+    /// times and the time spent reading main so offline attribution can account
+    /// for cadence and sampler overhead. Symbolication happens after the burst.
+    public func sampleTouch() {
+        let began = CACurrentMediaTime()
+        let watch = watch
+        symbolizer.async { [weak self] in
+            var observations: [(start: Double, end: Double, frames: [UInt])] = []
+            while CACurrentMediaTime() < began + 0.45 {
+                let start = CACurrentMediaTime()
+                let frames = watch.sample()
+                observations.append((start, CACurrentMediaTime(), frames))
+                usleep(150)
+            }
+            var frameIDs: [UInt: Int] = [:]
+            var symbols: [String] = []
+            let samples: [[Int]] = observations.map { observation in
+                let startUS = Int(((observation.start - began) * 1e6).rounded())
+                let endUS = Int(((observation.end - began) * 1e6).rounded())
+                return [startUS, endUS] + observation.frames.map { address in
+                    if let id = frameIDs[address] { return id }
+                    let id = symbols.count
+                    frameIDs[address] = id
+                    symbols.append(Self.symbol(for: address))
+                    return id
+                }
+            }
+            let record: [String: Any] = ["type": "touch-stacks", "start": began,
+                                         "symbols": symbols, "samples": samples]
+            if let data = try? JSONSerialization.data(withJSONObject: record) {
+                let line = String(decoding: data, as: UTF8.self)
+                self?.writer.async { [weak self] in self?.writeNow(line) }
+            }
+        }
+    }
+
     // MARK: Samples the app reports
+
+    /// A keystroke left: opens a `key_to_glyph` signpost interval for `kind`, closed when
+    /// `kind`'s sample comes (the glyph drawn), so Instruments shows each keystroke to its glyph.
+    public func beginKey(_ kind: String) {
+        if let open = keyIntervals.removeValue(forKey: kind) { Self.signposter.endInterval("key_to_glyph", open, "superseded") }
+        keyIntervals[kind] = Self.signposter.beginInterval("key_to_glyph", id: Self.signposter.makeSignpostID(), "\(kind, privacy: .public)")
+    }
 
     /// A latency sample of `kind` (ms), e.g. `terminal_key_echo`, `chat_send_visible`.
     public func sample(_ kind: String, ms: Double) {
+        if let open = keyIntervals.removeValue(forKey: kind) {
+            Self.signposter.endInterval("key_to_glyph", open, "\(ms, format: .fixed(precision: 1))ms")
+        }
         var list = samples[kind, default: []]
         list.append(ms)
         if list.count > 512 { list.removeFirst(list.count - 512) }
@@ -98,6 +171,46 @@ public final class InputLatencyTrace {
     /// draws what was just laid out).
     public func sampleAtNextFrame(_ kind: String, since start: CFTimeInterval) {
         NextFrame.after { [weak self] in self?.sample(kind, since: start) }
+    }
+
+    /// A sample from `start` to the end of this run-loop pass's Core Animation
+    /// commit: the keystroke's work done and its frame handed to the render
+    /// server (`<field>_key_commit`). Unlike `sampleAtNextFrame` it does not
+    /// include the wait for the next vsync (up to a frame at 60 Hz, Low Power
+    /// Mode's rate), so it says what the app itself spent on the key.
+    public func sampleAfterCommit(_ kind: String, since start: CFTimeInterval) {
+        // Core Animation commits at order 2_000_000 before the run loop waits.
+        let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue,
+                                                          false, 2_000_001) { _, _ in
+            MainActor.assumeIsolated { InputLatencyTrace.shared?.sample(kind, since: start) }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
+
+    /// Runs `action` at the next frame (a count read after the frame's layout).
+    public func atNextFrame(_ action: @escaping @MainActor () -> Void) {
+        NextFrame.after(action)
+    }
+
+    /// Runs `action` once, after this run-loop pass's Core Animation commit.
+    public func afterCommit(_ action: @escaping @MainActor () -> Void) {
+        let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue,
+                                                          false, 2_000_001) { _, _ in
+            MainActor.assumeIsolated { action() }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
+
+    /// Counts of events (a view body built, a size asked), read per key as deltas
+    /// (`<field>_key_<name>`); counting writes nothing.
+    public private(set) var counters: [String: Int] = [:]
+
+    public func count(_ name: String) { counters[name, default: 0] += 1 }
+
+    /// The calling thread's CPU time (ms): the main thread's work per key, which a busy host
+    /// stretches far less than wall time.
+    public nonisolated static func threadCPUms() -> Double {
+        Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)) / 1_000_000
     }
 
     // MARK: Run loop
@@ -124,6 +237,11 @@ public final class InputLatencyTrace {
         iterations4 += 1
         if ms >= 8 { hitches8 += 1 }
         maxIterationMs = max(maxIterationMs, ms)
+        if let typingStart, iteration.end >= typingStart, iteration.start <= typingUntil {
+            typingIterations4 += 1
+            if ms >= 8 { typingHitches8 += 1 }
+            typingMaxMs = max(typingMaxMs, ms)
+        }
         let labels = windows.filter { $0.contains(iteration.start) || $0.contains(iteration.end) }
         for index in windows.indices where windows[index].contains(iteration.start) || windows[index].contains(iteration.end) {
             windows[index].add(iteration)
@@ -132,14 +250,39 @@ public final class InputLatencyTrace {
         let start = iteration.start
         let stacks = iteration.stacks
         Self.signposter.emitEvent("hitch", "\(ms, format: .fixed(precision: 1))ms \(label, privacy: .public)")
-        writer.async { [weak self] in
+        symbolizer.async { [weak self] in
             let symbols = stacks.map { $0.map(Self.symbol(for:)) }
             let body = symbols.map { "[" + $0.map(Self.quoted).joined(separator: ",") + "]" }.joined(separator: ",")
             let line = #"{"type":"hitch","ms":\#(Self.f(ms)),"t":\#(Self.f(start * 1000)),"window":"\#(label)","samples":\#(stacks.count),"stacks":[\#(body)]}"#
-            self?.writeNow(line)
+            self?.writer.async { [weak self] in self?.writeNow(line) }
         }
         InputLatencyBoard.shared?.update(summary)
     }
+
+    // MARK: Typing window
+
+    /// A key typed in a composer: opens the typing window or extends it.
+    public func typed() {
+        let now = CACurrentMediaTime()
+        if typingStart == nil { typingStart = watch.currentStart ?? now }
+        typingUntil = now + Self.typingTail
+        typingKeys += 1
+    }
+
+    /// One piece of `kind` work on the main thread; counted while typing.
+    public func note(_ kind: String) {
+        guard typingStart != nil, CACurrentMediaTime() <= typingUntil else { return }
+        typingNotes[kind, default: 0] += 1
+        // Never from inside a view update (a body notes its own render): on the next turn.
+        guard !boardPending else { return }
+        boardPending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.boardPending = false
+            InputLatencyBoard.shared?.update(self.summary)
+        }
+    }
+    private var boardPending = false
 
     // MARK: Keyboard windows
 
@@ -180,11 +323,16 @@ public final class InputLatencyTrace {
 
     /// The counts and per-kind p50/p95/max so far, as one JSON object.
     public var summary: String {
-        var parts = [#""hitches_8ms":\#(hitches8)"#, #""iterations_4ms":\#(iterations4)"#, #""max_iteration_ms":\#(Self.f(maxIterationMs))"#]
+        var parts = [#""hitches_8ms":\#(hitches8)"#, #""iterations_4ms":\#(iterations4)"#, #""max_iteration_ms":\#(Self.f(maxIterationMs))"#,
+                     #""typing_keys":\#(typingKeys)"#, #""typing_hitches_8ms":\#(typingHitches8)"#,
+                     #""typing_iterations_4ms":\#(typingIterations4)"#, #""typing_max_iteration_ms":\#(Self.f(typingMaxMs))"#]
+        for (kind, count) in typingNotes.sorted(by: { $0.key < $1.key }) {
+            parts.append(#""typing_\#(kind)":\#(count)"#)
+        }
         for (kind, values) in samples.sorted(by: { $0.key < $1.key }) {
             let sorted = values.sorted()
             func p(_ q: Double) -> Double { sorted[min(sorted.count - 1, max(0, Int((q * Double(sorted.count)).rounded(.up)) - 1))] }
-            parts.append(#""\#(kind)":{"n":\#(sorted.count),"p50":\#(Self.f(p(0.5))),"p95":\#(Self.f(p(0.95))),"max":\#(Self.f(sorted.last ?? 0))}"#)
+            parts.append(#""\#(kind)":{"n":\#(sorted.count),"p50":\#(Self.f(p(0.5))),"p95":\#(Self.f(p(0.95))),"p99":\#(Self.f(p(0.99))),"max":\#(Self.f(sorted.last ?? 0))}"#)
         }
         return "{" + parts.joined(separator: ",") + "}"
     }
@@ -261,8 +409,10 @@ final class MainThreadWatch: @unchecked Sendable {
 
     /// Sample every this long while an iteration runs (s).
     static let interval = 0.004
-    static let maxStacks = 16
-    static let maxFrames = 64
+    /// `CMUX_MOBILE_INPUT_LATENCY_MAX_STACKS` / `_MAX_FRAMES` raise these for a
+    /// bench that needs a long iteration sampled to its end and whole stacks.
+    static let maxStacks = ProcessInfo.processInfo.environment["CMUX_MOBILE_INPUT_LATENCY_MAX_STACKS"].flatMap(Int.init) ?? 16
+    static let maxFrames = ProcessInfo.processInfo.environment["CMUX_MOBILE_INPUT_LATENCY_MAX_FRAMES"].flatMap(Int.init) ?? 64
 
     private let lock: UnsafeMutablePointer<os_unfair_lock>
     /// Written only while main is suspended: no allocation may happen then
@@ -341,7 +491,7 @@ final class MainThreadWatch: @unchecked Sendable {
     }
 
     /// The main thread's return addresses, innermost first.
-    private func sample() -> [UInt] {
+    fileprivate func sample() -> [UInt] {
         #if arch(arm64)
         guard thread_suspend(mainThread) == KERN_SUCCESS else { return [] }
         var count = 0
