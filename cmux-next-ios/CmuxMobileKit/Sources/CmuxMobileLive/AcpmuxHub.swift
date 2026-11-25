@@ -1080,12 +1080,21 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// write taken) before it comes back to the composer: a stall bound, not a send deadline. The
     /// terminal's key hold (`DaemonTerminalSession.inputHoldLimit`), so a blip is ridden out
     /// the same way in both (Leo, 2026-11-12, on LTE: "thjs chatters too often with connectivity").
-    var heldPromptWindow: Duration = .milliseconds(Int64(clamping: chatPromptDefaultHoldMs())) {
+    var heldPromptWindow: Duration = AcpmuxSessionSource.defaultHeldPromptWindow {
         didSet {
             #if canImport(CmuxMobileLinkFFI)
             promptOutbox.setHoldMs(holdMs: ChatPromptClock.milliseconds(heldPromptWindow))
             #endif
         }
+    }
+    /// ``heldPromptWindow``'s default: Rust's (`chat_prompt_default_hold_ms`). The macOS test
+    /// build has no Rust outbox, so it takes the terminal's key hold, the same 10 s.
+    nonisolated private static var defaultHeldPromptWindow: Duration {
+        #if canImport(CmuxMobileLinkFFI)
+        .milliseconds(Int64(clamping: chatPromptDefaultHoldMs()))
+        #else
+        .seconds(DaemonTerminalSession.inputHoldLimit)
+        #endif
     }
     /// The clock prompts are aged on (tests inject one).
     var now: () -> ContinuousClock.Instant = { ContinuousClock.now }
