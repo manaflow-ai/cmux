@@ -2,7 +2,8 @@
 // Guards that a transcript look never shifts the chat it does not mean to (conversation/transcriptLook.ts;
 // Leo, 2026-11-18: "make sure stuff is faithful + doesn't shift"). The row estimator (model.ts
 // layoutConversation) lays one fixture out at the cmux look and at each change:
-//   - a paint-only token (fill, radius, border, timestamps, toolCards, align, card and code radius)
+//   - a paint-only token (fill, radius, border, timestamps, toolCards, align, card and code radius,
+//     and the tool rows' and outputs' type)
 //     leaves every row's top and height identical, at cmux and on top of each named look;
 //   - a layout token moves rows only by its formula: rowSpacing/density scale every gap and move no
 //     height; bubble padding moves only prompt rows, by its delta; maxWidth only prompt rows;
@@ -82,6 +83,17 @@ const PAINT_ONLY: Record<string, unknown>[] = [
   { timestamps: "off" },
   { toolCards: "card" },
   { toolCards: "minimal" },
+  // Tool row type: a row's words sit on its fixed line at any size the token allows; the output's
+  // type moves only an opened call's body, measured once drawn, never a row the estimator places.
+  { "toolRow.textSize": 0.75 },
+  { "toolRow.textSize": 1 },
+  { "toolRow.weight": 300 },
+  { "toolRow.weight": 700 },
+  { "toolRow.font": "mono" },
+  { "toolRow.commandFont": "mono" },
+  { "toolOutput.textSize": 0.7 },
+  { "toolOutput.textSize": 1 },
+  { "toolOutput.font": "text" },
 ];
 
 describe("transcript looks never shift what they only paint", () => {

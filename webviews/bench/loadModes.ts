@@ -24,6 +24,8 @@ export type WebLoad = {
   cpuSaturation: boolean;
 };
 export type NativeLoad = {
+  /** Rows seeded into the focused agent chat's transcript before it streams (0: none). */
+  rows: number;
   chats: number;
   busyTerminals: number;
   cpuSaturation: boolean;

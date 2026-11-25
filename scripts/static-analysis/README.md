@@ -45,9 +45,11 @@ failures back into warnings.
   the pull request's head, cache-poisoning, artipacked at High confidence, insecure-commands,
   hardcoded-container-credentials, bot-conditions), at severity High, in the repository's own `.github/`.
   A reviewed false positive: `# zizmor: ignore[<audit>]` on its line, with the reason.
-- `ratchet.py gitleaks`: this change's commits only (`-m --first-parent base..head`), values redacted. Every
-  finding is a secret the change commits, so every one fails. A known non-secret goes in
-  `gitleaks/gitleaks.toml`'s allowlist; a real one is rotated.
+- `ratchet.py gitleaks`: this change's commits only (`-m --first-parent base..head`), values redacted. A
+  finding fails the change unless it is the shape-only rule (`generic-api-key`) in a test file, which is a
+  warning: in the first 10 hours of failing, 11 of 17 failed jobs read were that rule on made-up keys in tests.
+  A provider's own token pattern fails anywhere. A known non-secret takes a `gitleaks:allow` comment on its line
+  or goes in `gitleaks/gitleaks.toml`'s allowlist; a real one is rotated.
 - `--base SHA --head REV` judges any pair of commits (how the 100-PR backtest in cmux#50013 ran).
 
 Widening `ZIZMOR_HOLES` is a separate decision; `tests/test_static_analysis_ratchet.py` pins the set.

@@ -9,9 +9,18 @@
 //! half the scale; the host resets the count to 0 when the scale it draws at
 //! changes. At [`MIN_SCALE`] the answer is `Hold(TooHeavy)`, for as long as
 //! the host keeps the count.
+//!
+//! A motion scene (plans/cmux-next/motion-scenes.md) with no keyframes whose
+//! physics sleeps is at rest (`Player::at_rest`): the host passes that as
+//! [`ScheduleInput::at_rest`] and the answer is `Hold(AtRest)`, after every
+//! unseen and power reason and the GPU budget, and before `Idle`. Input still
+//! wakes it: the host asks again after a pointer move or a press, the frame it
+//! draws for that input wakes the scene's physics, and the next ask runs.
 
 /// Nothing for this long (no pointer motion over the window, no key press in
-/// it, no size or theme change) and the wallpaper holds on its frame.
+/// it, no size or theme change, and for a wallpaper with `agents` no agent
+/// event) and the wallpaper holds on its frame. A manifest's `idle_after`
+/// shortens it ([`ScheduleInput::idle_after_s`]).
 pub const IDLE_AFTER_S: f64 = 20.0;
 /// The Settings cap when the host passes none.
 pub const DEFAULT_FPS_CAP: u32 = 30;
@@ -47,8 +56,11 @@ pub enum HoldReason {
     AnimationsOff = 10,
     /// The GPU budget failed at the lowest scale.
     TooHeavy = 11,
-    /// Nothing happened for [`IDLE_AFTER_S`].
+    /// Nothing happened for the idle time ([`ScheduleInput::idle_after_s`]).
     Idle = 12,
+    /// A motion scene with nothing moving: no keyframes, and its physics, if
+    /// any, asleep. Its frame does not change until input wakes it.
+    AtRest = 13,
 }
 
 impl HoldReason {
@@ -67,6 +79,7 @@ impl HoldReason {
             Self::AnimationsOff => "animations_off",
             Self::TooHeavy => "too_heavy",
             Self::Idle => "idle",
+            Self::AtRest => "at_rest",
         }
     }
 
@@ -105,8 +118,16 @@ pub struct ScheduleInput {
     pub seconds_since_activity: f64,
     /// Seconds since the pointer last moved over the window (counts only when `interactive`).
     pub seconds_since_pointer: f64,
+    /// Seconds since an agent in the window last wrote output or changed state
+    /// (counts only when `agents`).
+    pub seconds_since_agent_event: f64,
     /// The manifest's `interactive`.
     pub interactive: bool,
+    /// The manifest's `agents`.
+    pub agents: bool,
+    /// The manifest's `idle_after` in seconds; 0 (or anything not above 0)
+    /// means [`IDLE_AFTER_S`], and a longer time is cut to it.
+    pub idle_after_s: f64,
     /// `appearance.liveWallpaperFrameRate`; 0 means the default (30).
     pub settings_fps_cap: u32,
     /// The manifest's `fps`.
@@ -117,6 +138,8 @@ pub struct ScheduleInput {
     pub scale: f32,
     /// The view has drawn at least one frame.
     pub has_frame: bool,
+    /// A motion scene at rest (`Player::at_rest`); false for a program wallpaper.
+    pub at_rest: bool,
 }
 
 impl Default for ScheduleInput {
@@ -134,12 +157,16 @@ impl Default for ScheduleInput {
             animations_off: false,
             seconds_since_activity: 0.0,
             seconds_since_pointer: f64::INFINITY,
+            seconds_since_agent_event: f64::INFINITY,
             interactive: true,
+            agents: false,
+            idle_after_s: 0.0,
             settings_fps_cap: DEFAULT_FPS_CAP,
             manifest_fps: DEFAULT_FPS_CAP,
             gpu_strikes: 0,
             scale: MAX_SCALE,
             has_frame: true,
+            at_rest: false,
         }
     }
 }
@@ -172,6 +199,11 @@ pub fn gpu_strikes(strikes: u32, gpu_ms: f32) -> u32 {
     } else {
         0
     }
+}
+
+/// The idle time for `idle_after_s` ([`ScheduleInput::idle_after_s`]).
+pub fn idle_after(idle_after_s: f64) -> f64 {
+    if idle_after_s > 0.0 { idle_after_s.min(IDLE_AFTER_S) } else { IDLE_AFTER_S }
 }
 
 /// Decides whether the wallpaper draws now, and how.
@@ -207,9 +239,17 @@ pub fn schedule(input: &ScheduleInput) -> Decision {
         scale = (scale / 2.0).max(MIN_SCALE);
     }
 
-    let quiet = |s: f64| s.is_nan() || s >= IDLE_AFTER_S;
+    // Nothing on screen would change: holding costs nothing, and `draw_one`
+    // still gives a view with no frame its picture.
+    if input.at_rest {
+        return hold(HoldReason::AtRest, scale);
+    }
+
+    let idle = idle_after(input.idle_after_s);
+    let quiet = |s: f64| s.is_nan() || s >= idle;
     let pointer_quiet = !input.interactive || quiet(input.seconds_since_pointer);
-    if quiet(input.seconds_since_activity) && pointer_quiet {
+    let agents_quiet = !input.agents || quiet(input.seconds_since_agent_event);
+    if quiet(input.seconds_since_activity) && pointer_quiet && agents_quiet {
         return hold(HoldReason::Idle, scale);
     }
 
@@ -284,6 +324,7 @@ mod tests {
             seconds_since_activity: 100.0,
             gpu_strikes: 9,
             scale: 0.25,
+            at_rest: true,
             ..Default::default()
         };
         assert_eq!(held(&all).0, HoldReason::Occluded);
@@ -306,6 +347,8 @@ mod tests {
         };
         assert_eq!(held(&i).0, HoldReason::TooHeavy);
         let i = ScheduleInput { gpu_strikes: 0, ..i };
+        assert_eq!(held(&i).0, HoldReason::AtRest);
+        let i = ScheduleInput { at_rest: false, ..i };
         assert_eq!(held(&i).0, HoldReason::Idle);
     }
 
@@ -327,6 +370,96 @@ mod tests {
         // A NaN clock is no activity.
         i.seconds_since_activity = f64::NAN;
         assert_eq!(held(&i).0, HoldReason::Idle);
+    }
+
+    #[test]
+    fn a_manifest_idle_after_holds_sooner() {
+        // The dot field: idle_after 2, so it holds 2 s after the last move.
+        let mut i = ScheduleInput {
+            seconds_since_activity: 60.0,
+            seconds_since_pointer: 1.9,
+            idle_after_s: 2.0,
+            ..Default::default()
+        };
+        run(&i);
+        i.seconds_since_pointer = 2.0;
+        assert_eq!(held(&i).0, HoldReason::Idle);
+        // A key press wakes it for the same 2 s.
+        i.seconds_since_activity = 1.0;
+        run(&i);
+        i.seconds_since_activity = 2.5;
+        assert_eq!(held(&i).0, HoldReason::Idle);
+        // 0, a negative or NaN time is the default 20 s; a longer one is cut to 20 s.
+        for (idle, quiet, want_held) in [
+            (0.0, 19.0, false),
+            (-3.0, 19.0, false),
+            (f64::NAN, 19.0, false),
+            (0.0, 20.0, true),
+            (60.0, 20.0, true),
+            (f64::INFINITY, 20.0, true),
+        ] {
+            let i = ScheduleInput {
+                seconds_since_activity: quiet,
+                idle_after_s: idle,
+                ..Default::default()
+            };
+            assert_eq!(matches!(schedule(&i), Decision::Hold { .. }), want_held, "{idle} {quiet}");
+        }
+        assert_eq!(idle_after(2.0), 2.0);
+        assert_eq!(idle_after(0.0), IDLE_AFTER_S);
+    }
+
+    #[test]
+    fn agent_output_wakes_only_a_wallpaper_that_reads_it() {
+        let mut i = ScheduleInput {
+            seconds_since_activity: 60.0,
+            seconds_since_agent_event: 1.0,
+            ..Default::default()
+        };
+        // A wallpaper without `agents` stays idle while agents write.
+        assert_eq!(held(&i).0, HoldReason::Idle);
+        i.agents = true;
+        run(&i);
+        i.seconds_since_agent_event = 20.0;
+        assert_eq!(held(&i).0, HoldReason::Idle);
+        // Agent output never overrides a hold such as occlusion.
+        i.seconds_since_agent_event = 0.0;
+        i.visible = false;
+        assert_eq!(held(&i).0, HoldReason::Occluded);
+    }
+
+    #[test]
+    fn a_scene_at_rest_holds_until_it_moves_again() {
+        let mut i =
+            ScheduleInput { at_rest: true, seconds_since_pointer: 0.0, ..Default::default() };
+        // At rest holds even while the pointer moves: the host asks again
+        // after the frame in which that input wakes the physics.
+        assert_eq!(held(&i), (HoldReason::AtRest, false));
+        assert!(!HoldReason::AtRest.unseen());
+        // With no frame yet, it draws its one picture first.
+        i.has_frame = false;
+        assert_eq!(held(&i), (HoldReason::AtRest, true));
+        // Woken (a press, a drag), it runs.
+        i.at_rest = false;
+        run(&i);
+        // At rest comes before idle.
+        let i =
+            ScheduleInput { at_rest: true, seconds_since_activity: 100.0, ..Default::default() };
+        assert_eq!(held(&i).0, HoldReason::AtRest);
+        // Every unseen and power reason comes before it.
+        let i = ScheduleInput { at_rest: true, visible: false, ..Default::default() };
+        assert_eq!(held(&i).0, HoldReason::Occluded);
+        let i = ScheduleInput { at_rest: true, animations_off: true, ..Default::default() };
+        assert_eq!(held(&i).0, HoldReason::AnimationsOff);
+        // Too heavy too: the picker marks it.
+        let i = ScheduleInput { at_rest: true, gpu_strikes: 3, scale: 0.25, ..Default::default() };
+        assert_eq!(held(&i).0, HoldReason::TooHeavy);
+        // A halved scale is kept while at rest.
+        let i = ScheduleInput { at_rest: true, gpu_strikes: 3, scale: 1.0, ..Default::default() };
+        assert!(matches!(
+            schedule(&i),
+            Decision::Hold { reason: HoldReason::AtRest, scale: 0.5, .. }
+        ));
     }
 
     #[test]
@@ -428,6 +561,7 @@ mod tests {
             HoldReason::AnimationsOff,
             HoldReason::TooHeavy,
             HoldReason::Idle,
+            HoldReason::AtRest,
         ];
         let names: std::collections::HashSet<_> = all.iter().map(|r| r.name()).collect();
         assert_eq!(names.len(), all.len());

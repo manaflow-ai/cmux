@@ -54,6 +54,20 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "focusHistoryBackSession",
+        group: GROUP,
+        title: t("HistoryActions", "action.history.backSession", "Go Back One Session"),
+        keywords: &["history", "previous", "session", "chat", "agent", "back", "last", "toggle"],
+        category: "window",
+        symbol: "bubble.left.and.text.bubble.right",
+        surfaces: PALETTE | KEYBOARD | MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("focusMove")), context_menu_exemption: Some("focusMove"), ..SurfacePlan::DEFAULT },
+        cli_name: "history back-session",
+        main_menu: Some("window"),
+        focuses: true,
+        ..Action::DEFAULT
+    },
+    Action {
         id: "recentlyFocused",
         group: GROUP,
         title: t("HistoryActions", "action.history.locations", "Location History…"),

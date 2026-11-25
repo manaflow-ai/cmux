@@ -263,7 +263,7 @@ final class TabCell {
             updateSpinner()
         }
         if previous?.status != item.status || previous?.blockedKind != item.blockedKind { updateStatusGlyph() }
-        if previous?.machineBadge != item.machineBadge || previous?.machineBadgeIcon != item.machineBadgeIcon { updateMachineBadge() }
+        if previous?.machineBadge != item.machineBadge || previous?.machineBadgeIcon != item.machineBadgeIcon || previous?.machineName != item.machineName { updateMachineBadge() } // its color follows the machine's pick
         if previous?.themeBadge != item.themeBadge { updateThemeBadge() }
         if previous?.profileBadge != item.profileBadge { updateProfileBadge() }
         if previous?.presence != item.presence { updatePresenceDot() }
@@ -492,7 +492,8 @@ final class TabCell {
         backgroundLayer.frame = bounds
         layoutNeedsYouGlow(pill: bounds, onPath: onPath)
         layoutSeparator(slot: slot, pill: bounds)
-        backgroundLayer.cornerRadius = m.cornerRadius
+        // At most half the pill's height: a capsule (`appearance.tabShape` rounded) on a pill shorter than the tab.
+        backgroundLayer.cornerRadius = min(m.cornerRadius, bounds.height / 2)
         // A folder tab takes the circular curve of its shade cut-out and fillets (``folderPath()``, ``feetPath``), so a
         // squircle `tabs.cornerCurve` leaves no halo of shade at its top corners.
         backgroundLayer.cornerCurve = runsIntoCard ? .circular : Metrics.tabCornerCurve
@@ -534,7 +535,7 @@ final class TabCell {
         // Agent identity can be a custom image or symbol as well as a brand mark. Working keeps
         // that artwork under a small spinner badge; browser loading still replaces its favicon.
         let spinnerOnIcon = marksOnIcon && spinnerLayer != nil
-        let spinnerBadgesMark = spinnerOnIcon && (item.indicator.isWorking || { if case .agentMark = item.icon { true } else { false } }())
+        let spinnerBadgesMark = spinnerOnIcon && (item.indicator.isWorking || { switch item.icon { case .agentMark, .terminalAgentMark: true; default: false } }())
         let showsIconArt = visibility.showsIcon && (!spinnerOnIcon || spinnerBadgesMark)
         // Bounds and position, not frame: a hibernated tab's icon is scaled (TabCell+HibernationRing).
         iconLayer.bounds = CGRect(origin: .zero, size: iconFrame.size)

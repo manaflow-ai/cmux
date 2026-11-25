@@ -1,3 +1,4 @@
+import CmuxEgress
 import CmuxUpdater
 public import Foundation
 import Observation
@@ -136,7 +137,7 @@ public final class PulledBuildWatch {
     nonisolated static func download(_ url: URL) async -> Data? {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 15)
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
+        guard let (data, response) = try? await CmuxEgress.shared(site: "CmuxNextUpdater.PulledBuildWatch").data(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         return data
     }

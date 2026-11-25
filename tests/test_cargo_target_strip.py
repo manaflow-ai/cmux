@@ -43,6 +43,22 @@ class StripTest(unittest.TestCase):
                              "deps/cmux_tui_core-aa11bb", "incremental", "cmux-tui", ".cargo-lock"):
                     self.assertFalse((profile / gone).exists(), gone)
 
+    def test_strips_the_cargo_groups_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)
+            profile = target / "groups" / "2" / "aarch64-apple-darwin" / "release"
+            touch(profile / ".fingerprint" / "serde_json-0a1b2c" / "lib-serde_json")
+            touch(profile / ".fingerprint" / "cmux-app-host-3d4e5f" / "lib-cmux_app_host")
+            touch(profile / "deps" / "libserde_json-0a1b2c.rlib")
+            touch(profile / "deps" / "cmux_app_host-3d4e5f.d")
+            touch(profile / "cmux-app-host")
+            strip.main([str(target), "--workspace-crates", "cmux-app-host"])
+            self.assertTrue((profile / ".fingerprint" / "serde_json-0a1b2c").is_dir())
+            self.assertTrue((profile / "deps" / "libserde_json-0a1b2c.rlib").is_file())
+            self.assertFalse((profile / ".fingerprint" / "cmux-app-host-3d4e5f").exists())
+            self.assertFalse((profile / "deps" / "cmux_app_host-3d4e5f.d").exists())
+            self.assertFalse((profile / "cmux-app-host").exists())
+
     def test_missing_target_is_no_error(self) -> None:
         self.assertEqual(strip.main(["/nonexistent/target", "--workspace-crates", "x"]), 0)
 

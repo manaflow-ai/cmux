@@ -23,6 +23,10 @@ extension PaletteModel {
         }
     }
 
+    private func captureActivationInput() {
+        if let current, case .list(let page) = current.kind { page.onActivationInput?() }
+    }
+
     private func handleKey(_ command: PaletteKeyCommand) -> Bool {
         switch command {
         case .moveUp: send(.move(-1))
@@ -32,6 +36,7 @@ extension PaletteModel {
         case .moveToFirst: selectRow(at: 0, scroll: true)
         case .moveToLast: selectRow(at: selectableRows.count - 1, scroll: true)
         case .submit, .submitAlternate:
+            captureActivationInput()
             // Rows of an older query wait for the current query's first
             // batch in the reducer, then run.
             runCommand = command
@@ -39,20 +44,24 @@ extension PaletteModel {
         case .toggleActions:
             // The footer's Actions button (or a user key): on an action it edits
             // its shortcut; Tab keeps the Actions menu (which lists Edit
-            // Keyboard Shortcut… too).
-            if let id = selectedItem?.actionID, onEditShortcut?(id) == true { return true }
+            // Keyboard Shortcut… too). The preview look's Cmd-K and its pill's Actions
+            // always open the Actions menu, which keeps Edit Keyboard Shortcut… reachable.
+            if !experiments.preview, let id = selectedItem?.actionID, onEditShortcut?(id) == true { return true }
             _ = openActionsMenu()
         case .openActions:
             // Tab: a tree page enters the selected row; a keyword, a scope
             // row or a drill enters a scope; otherwise the Actions menu opens.
             if enterSelectedRow() { return true }
-            send(.tab)
+            if usesScopeShortcuts { send(.tab) } else { _ = openActionsMenu() }
         case .closeActions:
             send(.shiftTab)
         case .escape where currentPageIsHierarchical && !query.isEmpty:
             // A tree page clears its query as typing would, so a typed path
             // returns to the folder it started from.
             query = ""
+        case .escape where !usesScopeShortcuts && nav.depth == 1:
+            send(.close)
+            onDismiss?()
         case .escape:
             // A text step's text is the answer, not a search: Escape on a
             // prompt that a shortcut or menu opened cancels it at once
@@ -156,6 +165,7 @@ extension PaletteModel {
             menu.selectedIndex = max(0, count - 1)
             actionsMenu = menu
         case .submit, .submitAlternate:
+            captureActivationInput()
             let visible = menu.visibleCommands
             guard visible.indices.contains(menu.selectedIndex),
                   let item = rows.first(where: { $0.id == menu.itemID })?.item
@@ -233,6 +243,7 @@ extension PaletteModel {
     /// Click: select the row and run its primary command (or enter its
     /// scope).
     public func activate(rowID: String) {
+        captureActivationInput()
         actionsMenu = nil
         runCommand = .submit
         send(.activate(rowID))

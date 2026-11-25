@@ -13,7 +13,7 @@
       "owner": "cloud:CloudDO",
       "class": "mutation",
       "risk": "money",
-      "digest": "333c4534d71a65c0"
+      "digest": "a5fe0856a56f4a54"
     },
     "cloud.browser.open": {
       "source": "app",
@@ -27,7 +27,7 @@
       "owner": "cloud:CloudDO",
       "class": "mutation",
       "risk": "money",
-      "digest": "0934bc33ac93eb7e"
+      "digest": "edab1ff0270d3657"
     },
     "cloud.environment.build": {
       "source": "cloud",
@@ -132,12 +132,17 @@
       "owner": "cloud:CloudDO",
       "class": "mutation",
       "risk": "destructive",
-      "digest": "4f9265a08454ce61"
+      "digest": "b2916cf80742a092"
     },
     "cloud.machine.chat_access": {
       "source": "local",
       "class": "read",
       "digest": "26233692f33bc45e"
+    },
+    "cloud.machine.chief_resize": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "ad13ba04bdd03341"
     },
     "cloud.machine.chief_start": {
       "source": "local",
@@ -163,7 +168,7 @@
       "owner": "cloud:CloudDO",
       "class": "mutation",
       "risk": "money",
-      "digest": "0086f0d4fe5e1500"
+      "digest": "0e5c01ef5e37ba4e"
     },
     "cloud.machine.delete": {
       "source": "cloud",
@@ -179,19 +184,24 @@
       "risk": "mutate-shared",
       "digest": "386f1c6f21f27cb0"
     },
+    "cloud.machine.fork": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "2c91c140d5cebeff"
+    },
     "cloud.machine.get": {
       "source": "cloud",
       "owner": "cloud:CloudDO",
       "class": "read",
       "risk": "read",
-      "digest": "3d9fa16de6d859e1"
+      "digest": "a19a5ae152ae04a8"
     },
     "cloud.machine.idle_policy.set": {
       "source": "cloud",
       "owner": "cloud:CloudDO",
       "class": "mutation",
       "risk": "mutate-shared",
-      "digest": "746c7d912e2f685a"
+      "digest": "a5933f0275dd5518"
     },
     "cloud.machine.io": {
       "source": "local",
@@ -203,7 +213,7 @@
       "owner": "cloud:CloudDO",
       "class": "mutation",
       "risk": "mutate-shared",
-      "digest": "5c3ff9bb49f2f484"
+      "digest": "01883795c2a2e822"
     },
     "cloud.machine.link_token": {
       "source": "cloud",
@@ -217,14 +227,14 @@
       "owner": "cloud:CloudDO",
       "class": "read",
       "risk": "read",
-      "digest": "ed3ca9069e72d53b"
+      "digest": "f7590ffcbcfa78ae"
     },
     "cloud.machine.pause": {
       "source": "cloud",
       "owner": "cloud:CloudDO",
       "class": "mutation",
       "risk": "mutate-shared",
-      "digest": "1c0772d379dd67dd"
+      "digest": "66d0f11463009d18"
     },
     "cloud.machine.pause_all": {
       "source": "app",
@@ -238,14 +248,14 @@
       "owner": "cloud:CloudDO",
       "class": "mutation",
       "risk": "mutate-shared",
-      "digest": "d69bdb9e294b1748"
+      "digest": "01ded3e3dd22e5bc"
     },
     "cloud.machine.resize": {
       "source": "cloud",
       "owner": "cloud:CloudDO",
       "class": "mutation",
       "risk": "money",
-      "digest": "9323ea3bb346efaf"
+      "digest": "ede6fe44ffcb2a4a"
     },
     "cloud.machine.share_chat": {
       "source": "local",
@@ -257,14 +267,14 @@
       "owner": "cloud:CloudDO",
       "class": "mutation",
       "risk": "mutate-shared",
-      "digest": "7cbf14808c2d1994"
+      "digest": "47ae1376e33493cc"
     },
     "cloud.machine.upgrade": {
       "source": "cloud",
       "owner": "cloud:CloudDO",
       "class": "mutation",
       "risk": "execute",
-      "digest": "28f3a12330dfd40e"
+      "digest": "476a6f7bda285f57"
     },
     "cloud.machine.watch": {
       "source": "app",
@@ -472,21 +482,28 @@
       "owner": "cloud:CloudDO",
       "class": "mutation",
       "risk": "money",
-      "digest": "fa479b852e2aa4f5"
+      "digest": "1c035496909af896"
     },
     "cloud.surge.create": {
       "source": "cloud",
       "owner": "cloud:CloudDO",
       "class": "mutation",
       "risk": "money",
-      "digest": "058889354ac6e9f5"
+      "digest": "a94d9fec6dffd635"
     },
     "cloud.surge.preview": {
       "source": "cloud",
       "owner": "cloud:CloudDO",
       "class": "read",
       "risk": "read",
-      "digest": "622cd71d3f1ca70d"
+      "digest": "498711a0b2046067"
+    },
+    "cloud.usage.current": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "34636fdecb9b6e88"
     },
     "cloud.vm.attention.emit": {
       "source": "cloud",
@@ -576,7 +593,7 @@
       "owner": "cloud:CloudDO",
       "class": "read",
       "risk": "read",
-      "digest": "e794f36da44b32b0"
+      "digest": "77d0b1bee6b66976"
     },
     "cloud.vm.status.report": {
       "source": "cloud",

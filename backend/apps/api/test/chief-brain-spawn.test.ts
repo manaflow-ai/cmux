@@ -2,6 +2,8 @@ import { env, exports } from "cloudflare:workers"
 import { runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { conversation } from "@cmux/home-core"
+import { clipBytes, PREVIEW_BYTES_SHOWN } from "../src/chief-brain/brain-spawn.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
 /**
@@ -157,5 +159,18 @@ describe("a Cloud Chief spawns subagents with no hand", { timeout: 180_000 }, ()
     for (const n of [1, 2]) expect((await t.run(`sub_${n}`)).json.value.run.status).toBe("failed")
     expect(upstream).toHaveLength(0)
     expect((await sql<{ n: number }>(t.child(1), `SELECT COUNT(*) AS n FROM cb_usage`))[0]!.n).toBe(0)
+  })
+})
+
+describe("a report's work card", () => {
+  it("shows the result itself to the person: a report of a few KB whole, a longer one cut at home-core's cap", () => {
+    // Leo, 2026-11-24: "I want and arguably need to see ... often exhaustive results that spill out".
+    const result = "Ada: " + "failing test: palette_nil_index expected 3 got 0\n".repeat(60)
+    expect(new TextEncoder().encode(result).length).toBeGreaterThan(600)
+    expect(clipBytes(result, PREVIEW_BYTES_SHOWN)).toBe(result)
+    const huge = "é".repeat(10_000)
+    const cut = clipBytes(huge, PREVIEW_BYTES_SHOWN)
+    expect(new TextEncoder().encode(cut).length).toBeLessThanOrEqual(conversation.MAX_PREVIEW_BYTES)
+    expect(cut.endsWith(" …")).toBe(true)
   })
 })

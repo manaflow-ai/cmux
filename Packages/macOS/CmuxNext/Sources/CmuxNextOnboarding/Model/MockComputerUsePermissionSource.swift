@@ -40,6 +40,10 @@ public final class MockComputerUsePermissionSource: ComputerUsePermissionSource 
 
     public func recheck() { recheckCount += 1 }
 
+    /// How many times a drop asked for a read that may restart the helper.
+    public private(set) var recheckAfterGrantCount = 0
+    public func recheckAfterGrant() { recheckAfterGrantCount += 1 }
+
     /// Turns the mock on: the grants stop reporting off.
     public func enable() {
         enabledCount += 1

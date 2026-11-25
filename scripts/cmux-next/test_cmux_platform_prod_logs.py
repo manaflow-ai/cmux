@@ -363,10 +363,81 @@ class ProjectionTests(unittest.TestCase):
                                               "mode": kept, "lacks": True, "shared": False})
                 self.assertNotIn(TEAM, json.dumps(row))
 
+    def test_a_cut_off_submit_answer_keeps_its_op_and_wait(self):
+        # cmux-platform retro r2b92b756: a start that ran out its 25 s answer wait was retried silently, so only this
+        # line counts how often an op outlives its request.
+        row = logs.line(event({"msg": "cloud.submit.cut_off", "machine": "vm_cutoff", "op": "start", "ms": 25001}))
+        self.assertEqual(row["log"], {"msg": "cloud.submit.cut_off", "machine": logs.base.tag("vm_cutoff"),
+                                      "op": "start", "ms": 25001})
+        self.assertNotIn("vm_cutoff", json.dumps(row))
+
     def test_the_msg_allowlist_is_exact_constant_ids(self):
         self.assertIn(LISTED, logs.PLATFORM_MSGS)
         self.assertIn("machines.spare.claim", logs.PLATFORM_MSGS)
         self.assertTrue(all(isinstance(m, str) and "${" not in m and m == m.strip() for m in logs.PLATFORM_MSGS))
+
+
+class IdleKeptTests(unittest.TestCase):
+    """cmux#54889: how many overdue machines stayed up only for the disabled cmux-chief-update.timer, from a window
+    read, with no machine, team or guest-written name in a row."""
+
+    def kept(self, **fields):
+        return {"msg": "cloud.idle.kept", "team": TEAM, "machine": VM, "running_s": 7300, "daemon": "0.42.1", **fields}
+
+    def test_a_timer_only_workload_line_says_so_and_nothing_else_of_the_guest(self):
+        timer = self.kept(why="workload", workload={"busy": 0, "listening": 0, "timers": 1, "process_names": [],
+                                                     "ports": [], "timer_names": ["systemd:cmux-chief-update.timer"]})
+        row = logs.line(event(timer))
+        self.assertEqual(row["log"], {"msg": "cloud.idle.kept", "why": "workload", "team": logs.base.tag(TEAM),
+                                      "machine": logs.base.tag(VM), "timer_only": True, "daemon": "0.42.1",
+                                      "running": "1h-6h"})
+
+    def test_any_other_workload_is_not_timer_only_and_its_names_never_print(self):
+        for workload in ({"busy": 1, "timer_names": ["systemd:cmux-chief-update.timer"], "process_names": ["hunter2"]},
+                         {"busy": 0, "listening": 1, "ports": [8443], "timer_names": ["systemd:cmux-chief-update.timer"]},
+                         {"timer_names": ["systemd:cmux-chief-update.timer", "systemd:hunter2-backup.timer"]},
+                         {"timer_names": []}, {"timer_names": "systemd:cmux-chief-update.timer"}):
+            with self.subTest(workload=workload):
+                row = logs.line(event(self.kept(why="workload", workload=workload)))
+                self.assertIs(row["log"]["timer_only"], False)
+                self.assertNotIn("hunter2", json.dumps(row))
+                self.assertNotIn("8443", json.dumps(row))
+
+    def test_reasons_are_a_fixed_set_and_bands_and_versions_are_coarse(self):
+        cases = ((dict(why="recent", running_s=59), {"why": "recent", "running": "lt1h"}),
+                 (dict(why="no report today", running_s=90000), {"why": "other", "running": "ge24h"}),
+                 (dict(why="sessions", daemon=None), {"why": "sessions", "daemon": "null"}),
+                 (dict(why="held", daemon="has spaces 1"), {"why": "held"}))
+        for fields, want in cases:
+            with self.subTest(fields=fields):
+                log = logs.line(event(self.kept(**fields)))["log"]
+                for k, v in want.items():
+                    self.assertEqual(log.get(k), v)
+                self.assertNotIn("timer_only", log)
+                self.assertNotIn("spaces", json.dumps(log))
+                self.assertNotIn("running_s", log)
+
+    def test_a_window_counts_timer_only_lines_with_no_id(self):
+        timer = event(self.kept(why="workload", workload={"timer_names": ["systemd:cmux-chief-update.timer"]}))
+        path = event_file({"service": PROD, "id": "window", "needles": "cloud.idle.kept"})
+        try:
+            code, out, query, upload = run_main(["--from", "2026-11-23T06:00:00Z", "--minutes", "60",
+                                                 "--from-event", path],
+                                                response={"result": {"events": {"events": [timer, timer]}}})
+        finally:
+            os.unlink(path)
+        self.assertEqual(code, 0)
+        self.assertEqual(query.call_args.kwargs.get("needle"), "cloud.idle.kept")
+        _, _, rows = upload.call_args.args
+        self.assertEqual([(r["log"]["timer_only"], r["n"]) for r in rows], [(True, 2)])
+        text = json.dumps(rows) + out
+        for leak in (TEAM, VM, logs.base.tag(TEAM), logs.base.tag(VM)):
+            self.assertNotIn(leak, text)
+
+    def test_only_a_lone_allowlisted_msg_reaches_the_query(self):
+        self.assertEqual(logs.window_needle(["cloud.idle.kept"]), "cloud.idle.kept")
+        self.assertIsNone(logs.window_needle(["cloud.idle.kept", "workload"]))
+        self.assertIsNone(logs.window_needle(["hunter2 secret"]))
 
 
 class QueryTests(unittest.TestCase):
