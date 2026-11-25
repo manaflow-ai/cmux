@@ -92489,15 +92489,7 @@
         "cmux-next"
       ],
       "default" : {
-        "amazon.com/gp/video" : "webkit",
-        "disneyplus.com" : "webkit",
-        "hulu.com" : "webkit",
-        "max.com" : "webkit",
-        "music.apple.com" : "webkit",
-        "netflix.com" : "webkit",
-        "primevideo.com" : "webkit",
-        "spotify.com" : "webkit",
-        "tv.apple.com" : "webkit"
+
       },
       "default_label" : null,
       "group" : {
