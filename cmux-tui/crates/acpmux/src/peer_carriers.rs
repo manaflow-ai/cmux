@@ -21,7 +21,7 @@ use futures_util::stream::FuturesUnordered;
 use futures_util::{SinkExt, StreamExt};
 use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -64,6 +64,8 @@ pub(super) struct Opened {
     pub presented: Option<String>,
     /// ssh's stderr, read for why an ssh link ended.
     pub ssh_errors: Option<ssh_errors::Capture>,
+    /// The id of the `initialize` that left with the upgrade request (`Peer::early_initialize`).
+    pub early_id: Option<i64>,
 }
 
 /// Which direct path this machine has for a peer: acpmux's own WireGuard transport runs only
@@ -319,6 +321,9 @@ impl Peer {
                 .into_iter()
                 .collect();
         vias.push(if self.ssh_parts().is_some() { Via::Ssh } else { Via::Url });
+        if self.tailnet_route().is_some() {
+            vias.push(Via::Tailnet);
+        }
         #[cfg(feature = "hub-carrier")]
         if self.has_hub_path() {
             vias.push(Via::Hub);
@@ -370,7 +375,7 @@ impl Peer {
 
     /// The selector moved the session to `to`: the live link moves there at its next quiet
     /// moment (`switch_due`).
-    fn after_switch(&self, switch: Option<Option<Via>>) {
+    pub(super) fn after_switch(&self, switch: Option<Option<Via>>) {
         let Some(Some(to)) = switch else { return };
         let serving = self.serving();
         if serving.is_some_and(|via| via != to) && self.link().is_ready() {
@@ -434,6 +439,8 @@ impl Peer {
     /// tokens, never before the race: a dial with its tokens configured or kept starts at once.
     pub(super) async fn open_first(self: &Arc<Self>) -> Result<(Via, Opened), String> {
         use futures_util::FutureExt;
+        // Opt-in tailnet path: read from the cached snapshot (a first read waits briefly).
+        self.refresh_tailnet(None).await;
         let started = crate::store::now_ms();
         let (order, together) = self.with_paths(|paths| {
             let now = crate::store::now_ms();
@@ -487,9 +494,11 @@ impl Peer {
         let configured = self.token.is_some() && self.peer_token.is_some();
         match via {
             Via::Url => None,
-            Via::Wireguard | Via::Link | Via::Hub if configured => None,
+            Via::Wireguard | Via::Link | Via::Tailnet | Via::Hub if configured => None,
             // What the read would answer at once (`connect_tokens`), without waiting on it.
-            Via::Wireguard | Via::Link | Via::Hub if self.read_tokens.get().is_some() => {
+            Via::Wireguard | Via::Link | Via::Tailnet | Via::Hub
+                if self.read_tokens.get().is_some() =>
+            {
                 self.read_tokens.get().map(|kept| (kept, true))
             }
             _ => read.await,
@@ -502,7 +511,9 @@ impl Peer {
     /// need no read, so a direct path never waits on ssh for them; and a read that fails
     /// (ssh down) leaves the direct path its kept tokens, never stops it.
     async fn direct_tokens(&self, order: &[Via]) -> Option<(tokens::Tokens, bool)> {
-        let direct = order.iter().any(|via| matches!(via, Via::Wireguard | Via::Link | Via::Hub));
+        let direct = order
+            .iter()
+            .any(|via| matches!(via, Via::Wireguard | Via::Link | Via::Tailnet | Via::Hub));
         let configured = self.token.is_some() && self.peer_token.is_some();
         if !direct || configured || self.ssh_parts().is_none() {
             return None;
@@ -542,6 +553,7 @@ impl Peer {
                 let stream = dial_link(&socket, host).await?;
                 Ok((Box::new(stream), "ws://localhost/".to_owned()))
             }
+            Via::Tailnet => self.tailnet_stream().await,
             #[cfg(feature = "hub-carrier")]
             Via::Hub => Ok((Box::new(self.hub_stream().await?), "ws://localhost/".to_owned())),
             other => Err(format!("{} is not a direct stream path", other.as_str())),
@@ -557,34 +569,57 @@ impl Peer {
         let (token, peer_token) = self
             .direct_credentials(ssh_tokens)
             .ok_or_else(|| "no token for the peer yet".to_owned())?;
-        let heard = Heard::default();
-        let opening = async {
-            let (stream, url) = self.direct_stream(via).await?;
-            let req = self.ws_request(&url, Some(&token), peer_token.as_deref())?;
-            tokio_tungstenite::client_async_with_config(
-                req,
-                heard.wrap(stream),
-                Some(crate::server::ws_config()),
-            )
-            .await
-            .map_err(|e| e.to_string())
-        };
         let deadline = if self.linked_once.load(Ordering::SeqCst)
-            && matches!(via, Via::Wireguard | Via::Link)
+            && matches!(via, Via::Wireguard | Via::Link | Via::Tailnet)
         {
             self.timings.connect.min(DIRECT_REDIAL_CONNECT)
         } else {
             self.timings.connect
         };
-        let (ws, _) = tokio::time::timeout(deadline, opening)
-            .await
-            .map_err(|_| connect_timed_out(deadline))??;
-        Ok(Opened {
-            ws: OpenedWs::Boxed(Box::new(ws)),
-            heard,
-            presented: peer_token,
-            ssh_errors: None,
-        })
+        // The first request goes out with the upgrade (`Peer::early_initialize`); a peer whose
+        // listener predates that refuses the upgrade ("junk after client request"), which is
+        // remembered (`early_refused`) and dialed again without it.
+        let mut use_early = !self.early_refused.load(Ordering::SeqCst);
+        loop {
+            let heard = Heard::default();
+            let early = use_early.then(|| self.early_initialize()).flatten();
+            let early_id = early.as_ref().map(|(id, _)| *id);
+            let opening = async {
+                let (stream, url) = self.direct_stream(via).await.map_err(|e| (false, e))?;
+                let req = self
+                    .ws_request(&url, Some(&token), peer_token.as_deref())
+                    .map_err(|e| (false, e))?;
+                tokio_tungstenite::client_async_with_config(
+                    req,
+                    match early {
+                        Some((_, frame)) => heard.wrap_early(stream, frame),
+                        None => heard.wrap(stream),
+                    },
+                    Some(crate::server::ws_config()),
+                )
+                .await
+                // Only an answer that is not the token's refusal may be the early frame's.
+                .map_err(|e| (!tokens::refused(&e), e.to_string()))
+            };
+            match tokio::time::timeout(deadline, opening).await {
+                Ok(Ok((ws, _))) => {
+                    return Ok(Opened {
+                        ws: OpenedWs::Boxed(Box::new(ws)),
+                        heard,
+                        presented: peer_token,
+                        ssh_errors: None,
+                        early_id,
+                    });
+                }
+                Ok(Err((maybe_early, _))) if maybe_early && early_id.is_some() => {
+                    self.early_refused.store(true, Ordering::SeqCst);
+                    tracing::debug!(peer = %self.name, "the peer refused an upgrade with a first request behind it; dialing without");
+                    use_early = false;
+                }
+                Ok(Err((_, error))) => return Err(error),
+                Err(_) => return Err(connect_timed_out(deadline)),
+            }
+        }
     }
 
     /// Open the peer's WebSocket on the configured `ws://`/`wss://` URL.
@@ -601,6 +636,12 @@ impl Peer {
         };
         let req = self.ws_request(&self.url, self.token.as_deref(), peer_token)?;
         let heard = Heard::default();
+        // Over TLS the upgrade is written inside the stream this would wrap: no early frame.
+        let early = (self.url.starts_with("ws://") && !self.early_refused.load(Ordering::SeqCst))
+            .then(|| self.early_initialize())
+            .flatten();
+        let early_id = early.as_ref().map(|(id, _)| *id);
+        let token_said_no = AtomicBool::new(false);
         // `connect_async`'s steps, with the TCP stream's reads counted (`Heard`).
         let connect = async {
             let host = req.uri().host().ok_or_else(|| "the peer URL has no host".to_owned())?;
@@ -612,22 +653,39 @@ impl Peer {
             // A peer forwards the pane's prompts and their images: the listener's limits.
             tokio_tungstenite::client_async_tls_with_config(
                 req,
-                heard.wrap(tcp),
+                match early {
+                    Some((_, frame)) => heard.wrap_early(tcp, frame),
+                    None => heard.wrap(tcp),
+                },
                 Some(crate::server::ws_config()),
                 None,
             )
             .await
             .map_err(|e| {
                 if tokens::refused(&e) {
+                    token_said_no.store(true, Ordering::SeqCst);
                     self.token_refused();
                 }
                 e.to_string()
             })
         };
-        let (ws, _) = tokio::time::timeout(self.timings.connect, connect)
-            .await
-            .map_err(|_| connect_timed_out(self.timings.connect))??;
-        Ok(Opened { ws: OpenedWs::Url(Box::new(ws)), heard, presented: None, ssh_errors: None })
+        let (ws, _) = match tokio::time::timeout(self.timings.connect, connect).await {
+            Ok(Ok(opened)) => opened,
+            // A listener that predates the early request refuses the upgrade: dial without.
+            Ok(Err(_)) if early_id.is_some() && !token_said_no.load(Ordering::SeqCst) => {
+                self.early_refused.store(true, Ordering::SeqCst);
+                return Box::pin(self.open_url()).await;
+            }
+            Ok(Err(error)) => return Err(error),
+            Err(_) => return Err(connect_timed_out(self.timings.connect)),
+        };
+        Ok(Opened {
+            ws: OpenedWs::Url(Box::new(ws)),
+            heard,
+            presented: None,
+            ssh_errors: None,
+            early_id,
+        })
     }
 
     /// Open the peer's WebSocket over `ssh -W`, reading its tokens over ssh as needed.
@@ -715,6 +773,7 @@ impl Peer {
                         heard,
                         presented: peer_token,
                         ssh_errors: Some(errors),
+                        early_id: None,
                     });
                 }
                 Err(error) => error,
@@ -753,7 +812,9 @@ impl Peer {
         let opened = match via {
             Via::Ssh => self.open_ssh(ssh_tokens).await,
             Via::Url => self.open_url().await,
-            Via::Wireguard | Via::Link => self.open_direct(via, ssh_tokens.as_ref()).await,
+            Via::Wireguard | Via::Link | Via::Tailnet => {
+                self.open_direct(via, ssh_tokens.as_ref()).await
+            }
             Via::Hub if via.streams() => self.open_direct(via, ssh_tokens.as_ref()).await,
             Via::Hub => Err("the hub relay carries no live link yet".to_owned()),
         }?;
@@ -802,6 +863,9 @@ impl Peer {
         loop {
             if *stopped.borrow() {
                 return;
+            }
+            if !self.with_paths(|paths| paths.has(via)) {
+                return; // taken out of the live set (a tailnet path no longer offered)
             }
             let now = crate::store::now_ms();
             let serving = self.serving() == Some(via);
@@ -953,7 +1017,7 @@ impl Peer {
     /// reads tokens over ssh: the link's connect did), and its ssh process for an ssh path.
     async fn open_probe(&self, via: Via) -> Result<(OpenedWs, Option<ProbeTunnel>), String> {
         match via {
-            Via::Wireguard | Via::Link => {
+            Via::Wireguard | Via::Link | Via::Tailnet => {
                 let opened = self.open_direct(via, None).await?;
                 self.note_token_path(via, false);
                 Ok((opened.ws, None))

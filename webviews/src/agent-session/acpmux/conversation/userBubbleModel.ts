@@ -32,7 +32,8 @@ export function linkedImagePath(file: {
 }): string | undefined {
   if (file.kind !== undefined && file.kind !== "file") return undefined;
   if (file.companionOf !== undefined || file.text) return undefined;
-  if (file.mimeType && !file.mimeType.startsWith("image/")) return undefined;
+  if (file.mimeType && file.mimeType !== "application/octet-stream" && !file.mimeType.startsWith("image/"))
+    return undefined;
   const path = file.path ?? attachmentPath(file.uri);
   return path && LINKED_IMAGE.test(path) ? path : undefined;
 }
