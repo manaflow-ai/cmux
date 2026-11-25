@@ -3,7 +3,7 @@ import Foundation
 
 /// The `OSAllocatedUnfairLock` surface used by CmuxEgress on platforms without the `os` module.
 // lint:allow lock - stands in for os.OSAllocatedUnfairLock where it is unavailable.
-final class OSAllocatedUnfairLock<State>: @unchecked Sendable {
+final class OSAllocatedUnfairLock<State>: @unchecked Sendable { // crash-allow: state is accessed only while mutex is held
     private let mutex = NSLock()
     private var state: State
 
