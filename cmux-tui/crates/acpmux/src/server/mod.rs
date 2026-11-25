@@ -56,6 +56,26 @@ pub struct SubOpts {
     /// Follows the chat's transcript rows (`_acpmux/rows` `follow`): each live record's row
     /// changes go out as `_acpmux/rows_patch` (`rows/serve.rs`).
     pub rows: Option<Arc<crate::rows::Following>>,
+    /// Attached with `omitTimeBreakdown: true` (the phone, which draws no breakdown): the chat's
+    /// `_acpmux/session_changed` rows to this connection leave `timeBreakdown` out too, as the
+    /// attach reply does (`requests/time_breakdown_gate.rs`). A full row of a long chat is mostly
+    /// that field (32 KiB of 36 KiB at 3,000 records, the time-away bench).
+    pub omit_time_breakdown: bool,
+    /// The client draws nothing of the chat while it is `hidden` (`_acpmux/attach`
+    /// `quietHidden`, the app's pane): its agent's `session/update` stream is left out until a
+    /// view shows it, which then says how much in one `_acpmux/lagged` (`view.rs`).
+    pub quiet_hidden: bool,
+    /// Stream records left out since the chat was last shown here (`quiet_hidden`).
+    pub left_out: u64,
+    /// The cursor before the first of them (its seq less one): the show's `_acpmux/lagged` names it
+    /// as `afterSeq`, since the turn ends and status records that still went out moved the client's
+    /// own cursor past the chunks it never got (`view.rs`).
+    pub left_from: u64,
+}
+
+/// Whether `conn` attached `session_id` asking for no `timeBreakdown` (`SubOpts`).
+fn omits_time_breakdown(conn: &Conn, session_id: &str) -> bool {
+    conn.subs.lock_or_recover().get(session_id).is_some_and(|o| o.omit_time_breakdown)
 }
 
 /// Which of one chat's `_acpmux/message` records a connection has heard, so each reaches it once.
@@ -230,6 +250,10 @@ pub struct Conn {
     /// row changes after the first as `_acpmux/session_patch`; `sent_rows` keeps what it holds.
     session_delta: AtomicBool,
     sent_rows: StdMutex<session_patch::SentRows>,
+    /// The client draws no time breakdown and asked, in its `initialize`
+    /// (`_meta.acpmux.omitTimeBreakdown`), for none in any row: its attaches and the
+    /// `session_changed` of the chats it attached (`requests/time_breakdown_gate.rs`).
+    omit_time_breakdown: AtomicBool,
     watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
@@ -912,6 +936,25 @@ impl Conn {
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock_or_recover().get(session_id).cloned()
     }
+
+    /// Whether a live stream record of `session_id` is left out here: its attachment draws nothing
+    /// while hidden (`SubOpts::quiet_hidden`) and is hidden now. Counted under the lock
+    /// `_acpmux/view` shows it under, so the `_acpmux/lagged` of that show covers every record
+    /// left out, and every record after it goes out (`view.rs` `view`).
+    // perf-hot: 1us acpmux-token-fanout (every streamed token, per hidden quiet attachment)
+    fn leaves_out_hidden(&self, session_id: &str, seq: u64) -> bool {
+        let mut subs = self.subs.lock_or_recover();
+        match subs.get_mut(session_id) {
+            Some(sub) if sub.quiet_hidden && sub.hidden && !sub.remote => {
+                if sub.left_out == 0 {
+                    sub.left_from = seq.saturating_sub(1);
+                }
+                sub.left_out += 1;
+                true
+            }
+            _ => false,
+        }
+    }
     /// This daemon's own chats this connection is attached to.
     fn local_attached_ids(&self) -> Vec<String> {
         let subs = self.subs.lock_or_recover();
@@ -1340,6 +1383,21 @@ pub async fn serve_ws_until(
     auth: WsAuth,
     shutdown: WsShutdown,
 ) -> Result<()> {
+    serve_ws_gated(hub, listener, token, auth, shutdown, None).await
+}
+
+/// [`serve_ws_until`] with an admission gate: the tailnet listener (`tailnet_carrier.rs`) reads
+/// no byte of a connection whose source `whois` does not name a node of this person, and treats
+/// one it admits as it does the end of an `ssh -W` tunnel (a loopback source: the peer token is
+/// proven over it). Without a gate every connection is as before.
+pub async fn serve_ws_gated(
+    hub: Arc<Hub>,
+    listener: TcpListener,
+    token: String,
+    auth: WsAuth,
+    shutdown: WsShutdown,
+    gate: Option<Arc<crate::tailnet_carrier::Gate>>,
+) -> Result<()> {
     let (shutdown, _draining) = shutdown.listener();
     anyhow::ensure!(!token.is_empty(), "the acpmux web listener needs a token");
     if shutdown.is_requested() {
@@ -1394,9 +1452,20 @@ pub async fn serve_ws_until(
         let local_app = auth.local_app.clone();
         let peer_auth = auth.peer.clone();
         let shutdown = shutdown.clone();
+        let gate = gate.clone();
         connections.spawn(async move {
             let _handshake_slot = handshake_slot;
             let mut stream = stream;
+            let peer = match &gate {
+                Some(gate) if gate.admits(peer).await => {
+                    std::net::SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), peer.port())
+                }
+                Some(_) => {
+                    tracing::debug!(peer = %peer, "tailnet connection refused: not this person's node");
+                    return;
+                }
+                None => peer,
+            };
             // The whole head routes the request (`ws_peek.rs`). Each path checks it: serve_http
             // as it reads, tungstenite as it parses it again for the callback.
             let mut probed = false;
@@ -2047,6 +2116,7 @@ async fn serve_connection_from(
         chunk_deltas: Default::default(),
         session_delta: AtomicBool::new(false),
         sent_rows: StdMutex::default(),
+        omit_time_breakdown: AtomicBool::new(false),
         watch_inventory: StdMutex::new(false),
         peer,
         socket_peer,
@@ -2065,13 +2135,7 @@ async fn serve_connection_from(
         ephemeral: StdMutex::new(Some(Vec::new())),
         ended: tokio::sync::watch::Sender::new(false),
         preparation_cancels: StdMutex::new(HashMap::new()),
-        // A peer daemon's link carries all its clients' reads, which it caps one by one
-        // (`media_forward.rs`).
-        media: if auth.peer_daemon() {
-            crate::hub::media_handles::Handles::for_peer_link()
-        } else {
-            crate::hub::media_handles::Handles::default()
-        },
+        media: crate::hub::media_handles::Handles::default(),
         remote_media: media_forward::RemoteMedia::default(),
         client_requests: Default::default(),
         in_flight: in_flight::InFlight::counted(hub.requests_in_flight.clone()),
@@ -2111,6 +2175,9 @@ async fn serve_connection_from(
     };
     let notification_worker =
         spawn_notification_worker(notification_rx, notification_handler.clone());
+    // A channel's frames, one at a time in the order they came (`channels.rs`): the worker above
+    // runs notifications side by side, which would reorder a byte stream.
+    let (channel_tx, channel_worker) = channels::spawn_worker(hub.clone(), conn.clone());
     let cancel_worker = spawn_notification_worker(cancel_rx, notification_handler);
 
     let notification_waiters = Arc::new(Semaphore::new(NOTIFICATION_WAIT_LIMIT));
@@ -2415,6 +2482,13 @@ async fn serve_connection_from(
                     requests::cancel_on_connection(&hub, &conn, params.as_ref());
                 }
             }
+            // A full channel queue holds this reader: backpressure on the sender, never a
+            // dropped or reordered frame.
+            Message::Notification { method: m, params } if channels::takes(&m) => {
+                if channel_tx.send((m, params.unwrap_or(Value::Null))).await.is_err() {
+                    break;
+                }
+            }
             Message::Notification { method: m, params } => {
                 let params = params.unwrap_or(Value::Null);
                 if m == method::SESSION_CANCEL {
@@ -2458,6 +2532,8 @@ async fn serve_connection_from(
         }
     }
     conn.ended.send_replace(true);
+    // Its listeners go and its channels close on their other side (`channels.rs`).
+    channels::conn_ended(&hub, &conn).await;
     // The link's v2 connection ends with it.
     drop(link_v2);
     let preparations: Vec<_> =
@@ -2476,6 +2552,8 @@ async fn serve_connection_from(
     }
     drop(cancel_tx);
     let _ = cancel_worker.await;
+    drop(channel_tx);
+    let _ = channel_worker.await;
 
     let deadline = tokio::time::Instant::now() + WORK_BACKPRESSURE_WAIT;
     let mut waiters = notification_waits.into_iter();
@@ -2588,7 +2666,13 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             && let Ok(s) = hub.resolve(&ev.session_id)
         {
             let full = attached || conn.watch_tools.load(Ordering::SeqCst);
-            let session = if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) };
+            let mut session =
+                if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) };
+            if conn.omit_time_breakdown.load(Ordering::SeqCst)
+                || (attached && omits_time_breakdown(conn, &ev.session_id))
+            {
+                requests::without_time_breakdown(&mut session);
+            }
             let notice = json!({"sessionId": ev.session_id, "kind": ev.record.kind, "recordKind": ev.record.kind, "seq": s.meta().last_seq, "listSeq": ev.list_seq});
             // A patch names the row it builds on, so it is never replaced in the queue.
             if session_patch::send_row(conn, &ev.session_id, full, &session, notice) {
@@ -2650,8 +2734,17 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         // Whether this record went out (or a replay sent it): a peer daemon's link hears of one
         // that did not by its seq alone (`MUX_UNSENT`).
         let mut sent = repeat || sub.event_stream;
-        if repeat {
-            // Sent by the replay.
+        // The agent's stream to a client that draws nothing of the chat while hidden: left out,
+        // and read again from its cursor once shown (`SubOpts::quiet_hidden`). Every other record
+        // (status, turn ends, asks, the queue) still goes, so its row and its asks stay current.
+        let quiet = sub.quiet_hidden
+            && sub.hidden
+            && rec.dir == "in"
+            && rec.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
+            && (!sub.event_stream || sub.filter.matches_live(rec))
+            && conn.leaves_out_hidden(&ev.session_id, rec.seq);
+        if repeat || quiet {
+            // Sent by the replay, or left out while hidden.
         } else if sub.event_stream {
             if sub.filter.matches_live(rec) {
                 let params = routed(event_value(&ev.session_id, rec));
@@ -2724,10 +2817,11 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         if rec.dir == "mux" && is_permission_ask(&rec.kind) {
             conn.send(&Message::notification(
                 method::MUX_PERMISSION_PENDING,
-                routed(permission_pending(&ev.session_id, rec, "attach")),
+                routed(permission_pending(&ev.session_id, rec, "attach", ev.remote.is_none())),
             ));
         }
         if let Some(following) = &sub.rows
+            && !quiet
             && ev.remote.is_none()
             && let Some((notice, params)) = crate::rows::live(hub, &ev.session_id, rec, following)
         {
@@ -2764,8 +2858,11 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 let sid = remote.summary.session_id().unwrap_or(&ev.session_id);
                 // The packed row, parsed for this line only (`RemoteRef::summary`).
                 let tools = attached || conn.watch_tools.load(Ordering::SeqCst);
-                let session: Value = serde_json::from_str(&remote.summary.changed_text(tools))
+                let mut session: Value = serde_json::from_str(&remote.summary.changed_text(tools))
                     .unwrap_or(Value::Null);
+                if conn.omit_time_breakdown.load(Ordering::SeqCst) {
+                    requests::without_time_breakdown(&mut session);
+                }
                 let qualified = remote.qualified_id(&ev.session_id);
                 if rec.kind == "purged" {
                     session_patch::forget(conn, &qualified);
@@ -2810,11 +2907,30 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         // Built once per record, by the first watcher that sends it, and shared by the others
         // (`HubEvent::row`): with many watchers, each built the whole row again.
         let full = attached || conn.watch_tools.load(Ordering::SeqCst);
-        let [list_row, full_row] = &ev.row.cells;
-        let row = if full { full_row } else { list_row };
+        // A full row is mostly its time breakdown (93 of 96 KB on a 2,000-turn chat), sent again
+        // on every record of a running turn; a client that draws none shares a row without it.
+        let lean = full
+            && (conn.omit_time_breakdown.load(Ordering::SeqCst)
+                || (attached && omits_time_breakdown(conn, &ev.session_id)));
+        let [list_row, full_row, lean_row] = &ev.row.cells;
+        let row = if lean {
+            lean_row
+        } else if full {
+            full_row
+        } else {
+            list_row
+        };
         let summary = row.get_or_build(|| {
             let s = hub.resolve(&ev.session_id).ok()?;
-            Some(if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) })
+            Some(if full {
+                let mut summary = hub.session_summary(&s);
+                if lean {
+                    requests::without_time_breakdown(&mut summary);
+                }
+                summary
+            } else {
+                hub.session_list_summary(&s)
+            })
         });
         if let Some(summary) = summary {
             let notice = json!({"sessionId": ev.session_id, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq});
@@ -2836,7 +2952,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             conn.send_row(
                 &Message::notification(
                     method::MUX_PERMISSION_PENDING,
-                    permission_pending(&ev.session_id, rec, "watch"),
+                    permission_pending(&ev.session_id, rec, "watch", ev.remote.is_none()),
                 ),
                 outbound::Row::After(row_key()),
             );
@@ -2862,12 +2978,15 @@ fn mux_meta(params: &Value) -> Option<&Value> {
 mod agent_login;
 mod agent_messages;
 mod app_reply;
+mod auto_gate;
 #[cfg(test)]
 #[path = "cancel_classes_tests.rs"]
 mod cancel_classes_tests;
 #[cfg(test)]
 #[path = "cancel_prompt_tests.rs"]
 mod cancel_prompt_tests;
+/// Agent byte channels (design A1, RFD 0164 B9).
+pub(crate) mod channels;
 #[cfg(test)]
 #[path = "chatgpt_import_tests.rs"]
 mod chatgpt_import_tests;
@@ -2965,7 +3084,8 @@ pub(crate) mod queue_gauge;
 mod review_queue;
 mod run_elsewhere;
 mod sign_in_follow;
-mod ssh_carry;
+pub(crate) mod ssh_carry;
+mod surgery;
 mod task_list;
 pub use pairing::serve_connection_device;
 mod chat_place;
@@ -3023,6 +3143,10 @@ use requests::handle_notification;
 #[cfg(test)]
 #[path = "mirror_relay_tests.rs"]
 mod mirror_relay_tests;
+
+#[cfg(test)]
+#[path = "session_patch_peer_tests.rs"]
+mod session_patch_peer_tests;
 
 #[cfg(test)]
 mod request_admission_tests;
@@ -3084,6 +3208,10 @@ mod outbound_queue_tests;
 #[cfg(all(unix, feature = "tailnet"))]
 pub mod tailnet_ingress;
 
+/// The stable tailnet node's front on the embedded node (`tailnet.stableNode.enabled`).
+#[cfg(all(unix, feature = "tailnet"))]
+pub(crate) mod tailnet_front;
+
 /// The embedded tailnet listener's lifecycle, a server module (it serves the hub through
 /// `tailnet_ingress`; it was `tailnet::embedded_service`). Its file stays where it was: the
 /// spawn-owner ratchet (`check-spawn-owner.py`) keeps its row by path and does not follow a move.
@@ -3111,3 +3239,6 @@ mod chat_window_activity_tests;
 #[cfg(test)]
 #[path = "fanout_interest_tests.rs"]
 mod fanout_interest_tests;
+#[cfg(test)]
+#[path = "omit_time_breakdown_rows_tests.rs"]
+mod omit_time_breakdown_rows_tests;
