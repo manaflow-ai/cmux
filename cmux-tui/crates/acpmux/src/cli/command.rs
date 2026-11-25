@@ -282,9 +282,10 @@ pub enum Command {
     Wait {
         /// Session names or ids. Every running session on every host when omitted.
         sessions: Vec<String>,
-        /// Give up after this many seconds.
-        #[arg(long)]
-        timeout: Option<u64>,
+        /// Give up after this many seconds (exit 3). Default an hour, as `pr-wait`'s: no wait an
+        /// agent arms sleeps forever, so a hung turn or a lost event wakes it to look again.
+        #[arg(long, default_value_t = crate::cli::orchestrate::WAIT_BOUND_S)]
+        timeout: u64,
         /// Wait for every named session, not just the first to resolve.
         #[arg(long)]
         all: bool,
