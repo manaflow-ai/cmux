@@ -369,6 +369,18 @@ type Answer = { status: number; body: any; headers?: Headers };
  * socket connection was closed unexpectedly", or ConnectionClosed; Node: UND_ERR_SOCKET, EPIPE). A timeout is not one:
  * the server may still be working on it.
  */
+/**
+ * The client gave up waiting (AbortSignal.timeout): the server may still finish the op. Under an idempotency key
+ * asking again is safe and returns that op's answer; staging's create under its VM cap ran past 60 s and failed
+ * cloud-fork-placement and runnable-link at parent create (runs 45573771511, 45570177493, 45571955695).
+ */
+export function requestTimedOut(error: unknown): boolean {
+  for (let e: any = error, depth = 0; e && depth < 3; e = e.cause, depth++) {
+    if (e.name === "TimeoutError" || /the operation timed out/i.test(String(e.message ?? ""))) return true;
+  }
+  return false;
+}
+
 export function socketDropped(error: unknown): boolean {
   for (let e: any = error, depth = 0; e && depth < 3; e = e.cause, depth++) {
     if (["ECONNRESET", "ConnectionClosed", "UND_ERR_SOCKET", "EPIPE", "ECONNABORTED"].includes(String(e.code ?? ""))) return true;
@@ -505,7 +517,14 @@ export class Api {
   async op(op: string, params: unknown, key?: string, extra: Record<string, string> = {}, timeoutMs = op === "cloud.machine.create" ? CREATE_OP_TIMEOUT_MS : 60_000): Promise<any> {
     let ownerRetried = false;
     for (let attempt = 1; ; attempt++) {
-      const r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, { ...this.headers(), ...extra }, timeoutMs, !!key);
+      let r: Answer;
+      try {
+        r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, { ...this.headers(), ...extra }, timeoutMs, !!key);
+      } catch (error) {
+        // A keyed op the client stopped waiting on: ask again under the same key, which cannot apply it twice.
+        if (key && attempt < OP_ATTEMPTS && requestTimedOut(error)) { await sleep(2000 * attempt); continue; }
+        throw error;
+      }
       // A provider call cut off mid-way is safe to repeat under the same key; without it a cleanup delete leaks the VM.
       if (key && attempt < OP_ATTEMPTS && opRetryable(r.body)) { await sleep(2000 * attempt); continue; }
       // An owner reset: once more, under the same key so the op cannot apply twice.

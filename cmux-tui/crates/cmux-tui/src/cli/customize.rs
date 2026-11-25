@@ -17,7 +17,7 @@ mod dir;
 mod doctor;
 mod expire;
 mod library;
-mod pr;
+pub(super) mod pr;
 mod rebuild;
 mod render;
 mod source;
