@@ -38,7 +38,7 @@ jobs:
         with:
           # Always read the reviewed rescue implementation from the trusted default branch.
           # An explicit ref prevents a workflow-dispatch branch from supplying Actions-write code.
-          ref: main
+          ref: refs/heads/main
           persist-credentials: false
 
       # The repository GITHUB_TOKEN pool's remaining calls, as one notice NOW (cmuxterm-hq now_repo_token.py)

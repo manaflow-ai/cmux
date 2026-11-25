@@ -53,10 +53,15 @@ jobs:
       # The tip of feat-cmux-next (the branch filter makes base.ref that branch), not base.sha: base.sha
       # is the base as of the pull request's last push, so a label or description event on an older pull
       # request would grade it with an older classifier, or find none from before #21718.
+      # refs/heads/ in front: actions/checkout fetches a bare branch name as the wildcard
+      # `+refs/heads/feat-cmux-next*`, every one of the ~1,750 feat-cmux-next-* branches at depth 1 with
+      # their trees, and the sparse checkout's blob fetch then took ~50 s on top of the ~10 s fetch: the
+      # step was 68 s median of an ~88 s job (2026-11-25). A full ref fetches the one branch.
+      # tests/test_ci_checkout_branch_ref_exact.py keeps every checkout on main this way.
       - name: Checkout the classifier at the tip of the pull request's base branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.base.ref }}
+          ref: refs/heads/${{ github.event.pull_request.base.ref }}
           persist-credentials: false
           # receipt_grammar.py: risk_tier.py imports it for the review receipt grammar (feat-cmux-next
           # #36941). A base before that has no such file; the pattern then matches nothing.

@@ -60,7 +60,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # The reviewed implementation on the default branch, never a dispatching branch's.
-          ref: main
+          ref: refs/heads/main
           persist-credentials: false
 
       # The declared light workflows the minute pass owns (feat-cmux-next's runners.json), so the two passes never
@@ -70,7 +70,7 @@ jobs:
         timeout-minutes: 2
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
           path: .rescue-workflows
           sparse-checkout: .github
           persist-credentials: false

@@ -175,7 +175,7 @@ jobs:
         if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         with:
           persist-credentials: false
-          ref: ${{ inputs.journey_ref || 'feat-cmux-next' }}
+          ref: ${{ inputs.journey_ref || 'refs/heads/feat-cmux-next' }}
           submodules: recursive
       # A dispatch's journey_ref runs with the production account, so it must already be on feat-cmux-next.
       - name: The journey commit is on feat-cmux-next
@@ -356,7 +356,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
           submodules: recursive
       - name: Install Linux cmux-tui build dependencies
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev pkg-config
