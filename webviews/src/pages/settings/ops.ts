@@ -1222,6 +1222,34 @@ export type LibraryAnswer = {
   message?: string;
 };
 
+/** A connection the page reports to the checklist (`cmux customize checklist --has NAME`): the
+ * steps Rust cannot read from a file. */
+export type ChecklistFact = "models" | "mcp" | "github" | "phone";
+
+/** One step of the Customize cmux checklist (cmux-customize `checklist.rs` `StepState`). `route`
+ * is a Settings route (`/settings/CATEGORY?focus=card.ID`) where the step is done. */
+export type ChecklistStep = {
+  id: string;
+  title: { key: string; text: string };
+  detail: { key: string; text: string };
+  route: string;
+  done: boolean;
+  /** `setting`: a setting, binding or library entry says so; `connected`: a fact the page reported;
+   * `checked`: checked off by hand. Null while not done. */
+  done_by: "setting" | "connected" | "checked" | null;
+};
+
+/** The Customize cmux checklist and the person's progress (`cmux --json customize checklist`). */
+export type Checklist = {
+  /** `customize.checklist.enabled`; false once dismissed. */
+  enabled: boolean;
+  done: number;
+  total: number;
+  /** The first step not done; null when every one is. */
+  next: string | null;
+  steps: ChecklistStep[];
+};
+
 /** A customization being tried on (`cmux customize try`; cmux-customize `try_on.rs`): applied now,
  * back to generation `revert_to` by itself at `expires_ms` unless the person keeps it. */
 export type CustomizeTryOn = {
@@ -2368,6 +2396,12 @@ export type SettingsOps = {
   /** Native: one `cmux customize library` verb through the bundled CLI (Appearance >
    * Customization Library). A change runs only on the person's click or key in the page. */
   "cmux.settings.customize.library": [LibraryRun, LibraryAnswer];
+  /** Native: the Customize cmux checklist through the bundled CLI (`cmux --json customize checklist
+   * --has NAME...`), read-only (Settings > General). */
+  "cmux.settings.customize.checklist": [
+    { has: ChecklistFact[] },
+    { checklist?: Checklist; code?: string; message?: string },
+  ];
   /** Native: Settings > Keys: this Mac's keys (`cmux keys ls`, never a value) and the waiting requests. */
   "cmux.settings.keys.list": [Record<string, never>, KeysState];
   /** Native, the person's click: the value goes to `cmux keys put` on stdin only, and the agent's
