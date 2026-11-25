@@ -182,8 +182,17 @@ def job_admitted(jobs, name, results, outputs, inputs, *, cancelled=False):
     success = all(results.get(ancestor) == "success" for ancestor in ancestors(name))
     expression = jobs[name].get("if", "${{ success() }}").strip()
     expression = expression.removeprefix("${{").removesuffix("}}").strip()
-    # The draft-tier term (scripts/ci/head_tier.py) is true off pull_request events.
+    # The land-tier term (scripts/ci/head_tier.py, #54886) is true off pull_request events and on a pull request
+    # handed to land; the label guard after it is true on every event but a label change. These tests model the
+    # job's own admission, so both terms read as true. The older draft-only term is kept for workflows still on it.
+    expression = re.sub(
+        r"\(github\.event_name != 'pull_request' \|\| contains\(github\.event\.pull_request\.labels\.\*\.name, "
+        r"'full-ci'\) \|\| .*?\(vars\.CI_LAND_TIER \|\| '1'\) == '0'\)\)\)", "True", expression)
     expression = re.sub(r"\(github\.event_name != 'pull_request' \|\| .*?CI_DRAFT_CHEAP_TIER \|\| '1'\) == '0'\)", "True", expression)
+    expression = re.sub(
+        r"!\(github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.ref == 'feat-cmux-next' && "
+        r"\(github\.event\.action == 'labeled' \|\| github\.event\.action == 'unlabeled'\) && "
+        r"!contains\(fromJSON\('\[\"full-ci\",\"ready-to-land\"\]'\), github\.event\.label\.name\)\)", "True", expression)
     has_status_function = re.search(r"\b(?:success|failure|cancelled|always)\s*\(", expression)
     if not has_status_function and (cancelled or not success):
         return False
