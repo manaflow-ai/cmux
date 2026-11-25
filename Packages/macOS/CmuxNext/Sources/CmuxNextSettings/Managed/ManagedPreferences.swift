@@ -84,3 +84,13 @@ public nonisolated struct ManagedPreferences: Sendable, Equatable {
 public protocol ManagedPreferenceReader: Sendable {
     func read() -> ManagedPreferences
 }
+
+public extension ManagedSource {
+    /// The managed source as the Settings page reads it (`managed` of a row or of its snapshot).
+    nonisolated var pageInfo: JSONValue {
+        switch self {
+        case .device: ["source": "device", "reason": "device", "team": .null]
+        case .team(let name): ["source": "team", "reason": "team", "team": name.isEmpty ? .null : .string(name)]
+        }
+    }
+}

@@ -10,6 +10,7 @@ import {
   useState,
   type CSSProperties,
   type ReactNode,
+  type KeyboardEventHandler,
 } from "react";
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { cx } from "./cx";
@@ -29,6 +30,10 @@ export interface VirtualListProps {
   renderRow(index: number, style: CSSProperties, measure?: (element: Element | null) => void): ReactNode;
   /** Rows size to their content: each is measured once rendered, and `estimateSize` is only the first guess. */
   measureRows?: boolean;
+  /** The row's own identity (a task id). Measured heights are kept by it, so a row keeps its height when rows
+   * before it leave or move. Without it they are kept by index, and the rows after a change are placed with
+   * their old neighbors' heights until measured again (TanStack Virtual `getItemKey`). */
+  itemKey?(index: number): string | number;
   className?: string;
   id?: string;
   /** The list's ARIA role and name (listbox, grid, ...); rows set theirs in renderRow. */
@@ -39,6 +44,9 @@ export interface VirtualListProps {
   scrollParent?: string;
   /** Fade overflowing rows on this list's own viewport. */
   fade?: boolean;
+  /** A list that takes the keyboard itself (DrillList under a key style): -1, and its keys. */
+  tabIndex?: number;
+  onKeyDown?: KeyboardEventHandler<HTMLDivElement>;
 }
 
 /** Scrolls to the active row when its index or `key` changes: never on the user's own scrolling. The
@@ -70,6 +78,9 @@ export function VirtualList({
   scrollParent,
   fade = false,
   measureRows = false,
+  tabIndex,
+  onKeyDown,
+  itemKey,
 }: VirtualListProps) {
   const scroller = useRef<HTMLDivElement | null>(null);
   const scrollEdges = useScrollEdges();
@@ -114,6 +125,7 @@ export function VirtualList({
     getScrollElement: parent,
     scrollMargin,
     estimateSize,
+    ...(itemKey ? { getItemKey: itemKey } : {}),
     overscan,
     rangeExtractor: (range: Range) => {
       const indexes = defaultRangeExtractor(range);
@@ -160,6 +172,7 @@ export function VirtualList({
   return (
     // The layout the absolute rows need is inline, not only in ui.css: a page that does not load
     // ui.css (the agent pane) otherwise places the rows against the page and draws them over it.
+    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- `role` is the caller's (a listbox)
     <div
       ref={mounted}
       id={id}
@@ -167,6 +180,8 @@ export function VirtualList({
       style={{ overflow: scrollParent ? "visible" : "auto" }}
       role={role}
       aria-label={label}
+      tabIndex={tabIndex}
+      onKeyDown={onKeyDown}
     >
       <div
         ref={space}

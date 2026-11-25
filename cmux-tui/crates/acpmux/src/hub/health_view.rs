@@ -31,12 +31,12 @@ impl Hub {
         let flag = |key: &str| params.get(key).and_then(Value::as_bool).unwrap_or(false);
         let check_latest = flag("checkLatest");
         // `rescan`: look for harnesses again (profiles and PATH) first, after an
-        // install from the Harnesses page. A daemon without a config file
-        // refuses the reload; the check still runs.
-        if flag("rescan")
-            && let Err(e) = self.reload_catalog().await
-        {
-            tracing::debug!("harness health rescan: {}", e.message);
+        // install from the Harnesses page, and tell the watchers
+        // (`_acpmux/harnesses_changed`): the page reads its list again only then, so a
+        // reload alone left a fresh install's row on "can't find" until a restart. A
+        // daemon without a config file refuses the reload; the check still runs.
+        if flag("rescan") {
+            self.reload_and_announce().await;
         }
         let mut update = flag("refresh") || check_latest;
         if let Some(choice) = params.get("autoUpdate") {

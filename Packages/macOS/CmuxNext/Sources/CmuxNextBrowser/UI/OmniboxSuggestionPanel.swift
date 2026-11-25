@@ -21,10 +21,6 @@ final class OmniboxSuggestionPanel {
     private let content = SuggestionCardView()
     private var rows: [SuggestionRowView] = []
     private(set) var overlay: OverlayHandle?
-    /// The card fading out after `dismiss()` (`MotionFade.omniboxPopup`); a show before it ends takes it back.
-    private var closing: OverlayHandle?
-    /// The overlay's anchor as last placed (window coordinates), so a closing card can stop taking clicks in place.
-    private var placedOrigin: NSRect?
     /// The bar's window rect the card was last placed at, and on which side,
     /// so a later layout can tell whether the card must move (`follow`).
     private var placedAnchor: NSRect?
@@ -53,11 +49,13 @@ final class OmniboxSuggestionPanel {
             rows[suggestions.count...].forEach { $0.removeFromSuperview() }
             rows.removeLast(count - suggestions.count)
         }
+        let details = SuggestionRowView.shownDetails(suggestions)
         for (index, suggestion) in suggestions.enumerated() {
             if index < rows.count {
-                rows[index].show(suggestion)
+                rows[index].show(suggestion, detail: details[index])
             } else {
                 let row = SuggestionRowView(suggestion: suggestion, faviconSource: faviconSource)
+                row.show(suggestion, detail: details[index])
                 rowViewsMade += 1
                 row.onClick = { [weak self] flags in self?.onPick?(index, flags) }
                 row.onPointer = { [weak self] inside, pointer in
@@ -125,21 +123,12 @@ final class OmniboxSuggestionPanel {
         if ring { clip.size.height = max(clip.height, origin.maxY - clip.minY) }
         // Only the rows take the pointer: the ring and its cut-out leave clicks to the bar and the tabs.
         let mouseRect = content.cardFrame
-        placedOrigin = origin
-        if overlay == nil, let closing, !closing.isDismissed, content.window?.parent === window {
-            // Shown again while it fades out: the same card fades back in.
-            overlay = closing
-            self.closing = nil
-            Motion.overlays.animate(.omniboxPopup, in: content) { content.animator().alphaValue = 1 }
-        }
         if let overlay, !overlay.isDismissed, content.window?.parent === window {
             overlay.update(paneClip: clip)
             overlay.update(anchor: origin, modalRegion: nil, mouseRect: mouseRect)
             return
         }
         overlay?.dismiss()
-        closing?.dismiss()
-        closing = nil
         var options = OverlayOptions(kind: .attached, anchor: origin, layer: .pane(clip: clip))
         options.mouseRect = mouseRect
         // Helium fades its popup in over 82 ms (`MotionFade.omniboxPopup`).
@@ -175,23 +164,14 @@ final class OmniboxSuggestionPanel {
     /// Rows on screen (tests).
     var rowViews: [SuggestionRowView] { rows }
 
+    /// Takes the card off the window at once, as Chromium closes its popup: a card that faded out kept the old rows on
+    /// screen under a field that no longer matched them (Lawrence 2026-11-23: Option-Backspace emptied the field and the
+    /// old row stayed for four frames). Only opening fades (`MotionFade.omniboxPopup`). The rows stay for the next show.
     func dismiss() {
-        // The rows stay (the card fades out with them; the next show reuses them).
         let presented = overlay
         overlay = nil
         placedAnchor = nil
-        guard let presented, !presented.isDismissed else { return }
-        closing = presented
-        // A fading card takes no clicks: they reach the page and the bar under it at once.
-        if let origin = placedOrigin { presented.update(anchor: origin, modalRegion: nil, mouseRect: .zero) }
-        placedOrigin = nil
-        Motion.overlays.animate(.omniboxPopup, in: content, { content.animator().alphaValue = 0 }, completion: { [weak self] in
-            // A panel gone with its bar (a closed tab) still takes its card off the window.
-            guard let self else { presented.dismiss(); return }
-            guard self.closing === presented else { return }
-            self.closing = nil
-            presented.dismiss()
-        })
+        presented?.dismiss()
     }
 }
 

@@ -12,7 +12,7 @@
     "background": "#0b0714",
     "foreground": "#f4ecff",
     "cursor": "#00e5ff",
-    "selection": "#3a1050",
+    "selection": "#ff85e6",
     "accent": "#ff4fd8",
     "0": "#160d26",
     "1": "#ff3b6b",
@@ -56,5 +56,15 @@
   "appearance.statusIndicator.color": "#00e5ff",
 
   "appearance.chromeStyle": "card-outlined",
-  "appearance.density": "cozy"
+  "appearance.density": "cozy",
+
+  // Neon tubes: capsule tabs and sidebar rows, a roomier sidebar, detailed status marks.
+  "density": {
+    "tokens": {
+      "tabCornerRadius": 14, "verticalTabCornerRadius": 12, "sidebarCornerRadius": 12, "itemCornerRadius": 10,
+      "tabGap": 4, "sidebarRowGap": 2, "sidebarWidth": 280
+    }
+  },
+  "sidebar.detailedStatusIcons": true,
+  "focus.inactiveTabStyle": "quiet"
 }

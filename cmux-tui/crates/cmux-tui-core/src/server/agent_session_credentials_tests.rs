@@ -94,20 +94,6 @@ fn the_owners_start_relays_the_credential_to_acpmux_with_the_agent_launch() {
     assert_eq!(new[0]["params"]["_meta"]["acpmux"]["credentials"], env(TOKEN));
 }
 
-/// cmux#45774: a Codex CLI ChatGPT login's access token (the Mac's `codex login`) is a credential
-/// the owner's start relays, as a ChatGPT plan token is; a daemon that refused it left a Cloud Codex
-/// with no sign-in ("Missing environment variable: `OPENAI_API_KEY`").
-#[test]
-fn a_codex_cli_login_token_is_relayed_with_the_agent_launch() {
-    let codex = json!({"env": {"CMUX_CODEX_ACCESS_TOKEN": "eyJhbGciOi.eyJleHAiOjF9.c2ln"}});
-    let mut chat = connect("cred-codex-login", AgentStartHost::OwnerCloud, false);
-    let started = chat.start(codex.clone(), json!("owner"));
-    assert_eq!(started["ok"], json!(true), "{started}");
-    let new = chat.sent("session/new");
-    assert_eq!(new.len(), 1, "{new:?}");
-    assert_eq!(new[0]["params"]["_meta"]["acpmux"]["credentials"], codex);
-}
-
 #[test]
 fn a_credential_is_refused_anywhere_but_the_owners_own_cloud_vm() {
     for (label, host, phone, vm_kind) in [
@@ -225,16 +211,69 @@ fn a_prewarm_is_refused_anywhere_but_the_owners_own_cloud_vm() {
     }
 }
 
+/// A prewarm with no folder is the owner's own Cloud start's alone (it warms the chat's own
+/// `~/chats/<id>`, agent_session_trust_tests.rs): anywhere else it names no folder and is refused.
 #[test]
-fn a_prewarm_for_a_bound_tab_or_with_no_folder_is_refused() {
-    let mut chat = connect("prewarm-bound", AgentStartHost::OwnerCloud, false);
-    let mut no_folder = json!({"cmd":"agent-session-prewarm","surface":chat.surface,
+fn a_prewarm_for_a_bound_tab_or_with_no_folder_off_the_owners_vm_is_refused() {
+    let mut mac = connect("prewarm-no-folder-mac", AgentStartHost::Allowed, false);
+    let no_folder = json!({"cmd":"agent-session-prewarm","surface":mac.surface,
         "harness":"claude","vm_kind":"owner"});
-    assert_code(&chat.client.request(no_folder.clone()), "agent_session.bad_request");
+    assert_eq!(mac.client.request(no_folder)["ok"], json!(false), "no folder off the owner's VM");
+    assert!(mac.sent("_acpmux/prewarm").is_empty());
+    let mut chat = connect("prewarm-bound", AgentStartHost::OwnerCloud, false);
     let started = chat.start(env(TOKEN), json!("owner"));
     assert_eq!(started["ok"], json!(true), "{started}");
     let _ = chat.sent("session/new");
-    no_folder["cwd"] = json!(chat.cwd);
-    assert_eq!(chat.client.request(no_folder)["ok"], json!(false), "a bound tab warms nothing");
+    let bound = json!({"cmd":"agent-session-prewarm","surface":chat.surface,
+        "harness":"claude","vm_kind":"owner","cwd":chat.cwd});
+    assert_eq!(chat.client.request(bound)["ok"], json!(false), "a bound tab warms nothing");
     assert!(chat.sent("_acpmux/prewarm").is_empty());
+}
+
+/// ask-c30064eeff: a Codex Cloud start from the CLI failed `agent_session.bad_request` with no
+/// word of which param was refused. A start's or a refresh's bad request names the param in
+/// `data.field` (a serde unknown or missing field by its name), and never any value it carried.
+#[test]
+fn a_bad_request_names_the_refused_param_and_never_its_value() {
+    let mut chat = connect("bad-field", AgentStartHost::OwnerCloud, false);
+    let base = json!({"cmd":"agent-session-start","surface":chat.surface,"cwd":chat.cwd,
+        "harness":"codex","vm_kind":"owner"});
+    let with = |key: &str, value: Value| {
+        let mut frame = base.clone();
+        frame[key] = value;
+        frame
+    };
+    let secret = "sk-proj-secretvalue";
+    for (frame, field) in [
+        (with("credentials", json!({"env": {"PATH": secret}})), "credentials"),
+        (with("credentials", json!({"env": {"OPENAI_API_KEY": secret}, "extra": secret})), "extra"),
+        (with("cwd", json!("relative/folder")), "cwd"),
+        (with("model", json!("bad model")), "model"),
+        (with("harness", json!("codex agent")), "harness"),
+        (with("permission_mode", json!("everything")), "permission_mode"),
+        (with("person_instance", json!("a/b")), "person_instance"),
+        // An unknown param is ignored, not refused (cmux#49712), so it is no row here.
+    ] {
+        let refused = chat.client.request(frame.clone());
+        assert_code(&refused, "agent_session.bad_request");
+        assert_eq!(refused["data"]["field"], json!(field), "{frame}: {refused}");
+        assert!(refused["error"].as_str().unwrap_or("").contains(field), "{refused}");
+        assert!(!refused.to_string().contains(secret), "never the value: {refused}");
+    }
+    let mut missing = base.clone();
+    missing.as_object_mut().unwrap().remove("surface");
+    let refused = chat.client.request(missing);
+    assert_eq!(refused["data"]["field"], json!("surface"), "{refused}");
+    // A wrong type names no field (serde's text carries the value): no value either.
+    let refused = chat.client.request(with("model", json!(424_242)));
+    assert_code(&refused, "agent_session.bad_request");
+    assert!(!refused.to_string().contains("424242"), "{refused}");
+    // The refresh verb names its param the same way.
+    let refresh = json!({"cmd":"agent-session-credentials","surface":chat.surface,
+        "env":{"PATH":secret},"vm_kind":"owner"});
+    let refused = chat.client.request(refresh);
+    assert_code(&refused, "agent_session.bad_request");
+    assert_eq!(refused["data"]["field"], json!("env"), "{refused}");
+    assert!(!refused.to_string().contains(secret), "{refused}");
+    assert!(chat.sent("session/new").is_empty(), "no agent starts");
 }

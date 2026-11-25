@@ -38,6 +38,65 @@ await requireBrowserLane("visible-lists-diff-pickers.browser.test.ts", async () 
     { name: "jump-to-file", changeOne: true },
   ];
 
+  /** Each mounted option's aria-posinset and aria-setsize, and the item number in its text. */
+  const optionSets = (open: VisibleListOpen) =>
+    open.page.evaluate(() => {
+      const controls = (window as unknown as { __visibleListControls: { scroller(): HTMLElement } })
+        .__visibleListControls;
+      return [...controls.scroller().querySelectorAll<HTMLElement>('[role="option"]')].map((option) => ({
+        item: Number(/item 0123 (\d{5})/.exec(option.textContent ?? "")?.[1]),
+        posinset: Number(option.getAttribute("aria-posinset")),
+        setsize: Number(option.getAttribute("aria-setsize")),
+      }));
+    });
+  const twoFrames = (open: VisibleListOpen) =>
+    open.page.evaluate(
+      () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
+    );
+
+  // Both pickers draw only a capped number of matches (BranchBasePicker's EMPTY_FILTER_GROUP_CAP
+  // and FILTERED_TOTAL_CAP, the palette's JUMP_ROW_CAP), with a "N more" note for the rest. A
+  // screen reader hears the size of the whole set of matches, not of the capped rows, and each
+  // option's place in it.
+  const sets = [
+    // Five groups of N/5 refs, ref k in group k % 5 at place k / 5; every ref matches the query.
+    { name: "branch-base-picker", place: (item: number, n: number) => (item % 5) * (n / 5) + Math.floor(item / 5) + 1 },
+    // Files sort by name, which is the item number.
+    { name: "jump-to-file", place: (item: number) => item + 1 },
+  ];
+  for (const { name, place } of sets) {
+    test(`${name}: aria-setsize is every match, past the cap, and aria-posinset each option's place`, async () => {
+      const n = 1000;
+      const open = await server.open(name, n);
+      try {
+        const check = async (when: string) => {
+          const options = await optionSets(open);
+          const sizes = [...new Set(options.map((option) => option.setsize))].join(",");
+          console.log(`${name} N=${n} ${when}: ${options.length} options, aria-setsize ${sizes}`);
+          expect(options.length).toBeGreaterThan(0);
+          for (const option of options) {
+            expect(option.setsize).toBe(n);
+            expect(option.posinset).toBe(place(option.item, n));
+          }
+        };
+        await check("empty filter");
+        await open.page.evaluate(() => {
+          const scroller = (
+            window as unknown as { __visibleListControls: { scroller(): HTMLElement } }
+          ).__visibleListControls.scroller();
+          scroller.scrollTop = scroller.scrollHeight;
+        });
+        await twoFrames(open);
+        await check("empty filter, scrolled to the end");
+        await open.page.locator('[role="dialog"] input').fill("item 0123");
+        await twoFrames(open);
+        await check('filter "item 0123"');
+      } finally {
+        await open.close();
+      }
+    });
+  }
+
   for (const { name, changeOne } of cases) {
     test(`${name}: mounted rows hold at 1,000 and 10,000 items and stay within the viewport and overscan`, async () => {
       const rows: number[] = [];

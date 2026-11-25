@@ -1,0 +1,12 @@
+{
+  "family": "github",
+  "ops": {
+    "github.issue.comment": {
+      "source": "cloud",
+      "owner": "cloud:ConnectionDO",
+      "class": "mutation",
+      "risk": "send-external",
+      "digest": "6c441a078f1d2dbb"
+    }
+  }
+}
