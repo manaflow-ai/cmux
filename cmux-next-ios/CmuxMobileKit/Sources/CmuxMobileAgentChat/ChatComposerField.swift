@@ -102,6 +102,9 @@ struct ChatComposerField: UIViewRepresentable {
     private func markReadyIfShown() {
         guard !faceHidden else { return }
         LaunchMarks.shared.markNextFrame("chat_composer_ready")
+        #if DEBUG
+        OpenMarks.shared?.noteNextFrame("chat_composer_ready")
+        #endif
     }
 
     /// A field torn down while focused (the permission bar replaced it) leaves no focus behind.
