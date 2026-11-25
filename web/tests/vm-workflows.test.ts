@@ -1911,6 +1911,31 @@ describe("VM Effect workflows", () => {
     expect(result.stderr).toContain("may still be running");
   });
 
+  // The route accepts up to 15 minutes but the provider runs a command for at
+  // most 5 and drops its request 15 s after that (production 2026-11: a
+  // TimeoutError at ~315 s on 900 s execs answered a retryable 502).
+  test("exec reads a provider request timeout after the capped command timeout as that timeout", async () => {
+    const requestTimeout = new VmProviderOperationError({
+      provider: "freestyle",
+      operation: "exec",
+      cause: new DOMException("The operation timed out.", "TimeoutError"),
+    });
+    const { vm, layer } = execDeadlineFixture(
+      () => Effect.sleep("315 seconds").pipe(Effect.andThen(Effect.fail(requestTimeout))),
+      "94",
+    );
+    const { result, elapsedMs } = await execOnTestClock(layer, {
+      userId: vm.userId,
+      providerVmId: vm.providerVmId!,
+      command: "sleep 999",
+      timeoutMs: 900_000,
+      answerWithinMs: 903_000,
+    });
+    expect(elapsedMs).toBe(315_000);
+    expect(result.exitCode).toBe(124);
+    expect(result.stderr).toContain("did not finish within 300s");
+  });
+
   test("the exec answer budget is the timeout plus the margin, less the route's own time", () => {
     expect(execAnswerBudgetMs(60_000, 0)).toBe(60_000 + EXEC_ANSWER_MARGIN_MS);
     expect(execAnswerBudgetMs(60_000, 1_200)).toBe(60_000 + EXEC_ANSWER_MARGIN_MS - 1_200);
