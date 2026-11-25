@@ -115,6 +115,7 @@ members = [
     "crates/cmux-braid-session",
     "crates/cmux-build-identity",
     "crates/cmux-netwatch",
+    "crates/cmux-path-doctor",
     "crates/cmux-remote",
     "crates/cmux-terminal-client",
     "crates/cmux-relay",
@@ -279,6 +280,7 @@ default-members = [
     "crates/cmux-braid-session",
     "crates/cmux-build-identity",
     "crates/cmux-netwatch",
+    "crates/cmux-path-doctor",
     "crates/cmux-remote",
     "crates/cmux-relay",
     "crates/cmux-fault",
@@ -505,6 +507,7 @@ cmux-tui-remote-access = { path = "crates/cmux-tui-remote-access" }
 cmux-link = { path = "crates/cmux-link" }
 cmux-build-identity = { path = "crates/cmux-build-identity" }
 cmux-netwatch = { path = "crates/cmux-netwatch" }
+cmux-path-doctor = { path = "crates/cmux-path-doctor" }
 cmux-fault = { path = "crates/cmux-fault" }
 cmux-composer-send = { path = "crates/cmux-composer-send" }
 cmux-mobile-last-place = { path = "crates/cmux-mobile-last-place" }

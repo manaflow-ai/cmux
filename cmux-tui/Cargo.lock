@@ -2475,6 +2475,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-path-doctor"
+version = "0.1.0"
+dependencies = [
+ "cmux-process",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-process"
 version = "0.1.0"
 dependencies = [
