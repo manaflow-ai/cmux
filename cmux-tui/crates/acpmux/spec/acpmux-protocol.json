@@ -4243,6 +4243,13 @@
             "null"
           ]
         },
+        "inOrder": {
+          "description": "True: answered in order, after every line already queued to this connection, as an attach\nis. A pane's stall check sets it: it compares the newest record with what the stream has\ndelivered, so an answer ahead of the records queued before it reads a healthy stream as\nstalled (`server/outbound.rs` `reply_lane`). Default false: a tool call's read goes ahead.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "kinds": {
           "anyOf": [
             {

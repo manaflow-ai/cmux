@@ -4376,7 +4376,8 @@ export class AcpmuxDirectClient {
     const asked = Date.now();
     void this.typed(
       "_acpmux/events",
-      { sessionId, afterSeq: paneSeq, limit: 1, kinds: ["transcript"] },
+      // In order: answered after the records acpmux queued before it, so one still on its way is not read as missed.
+      { sessionId, afterSeq: paneSeq, limit: 1, kinds: ["transcript"], inOrder: true },
       STALL_CHECK_MS,
     ).then(
       (result) => {

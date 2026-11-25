@@ -124,10 +124,20 @@ pub(super) fn reads_ahead(method: &str) -> bool {
     is_cheap_read(method) || is_tool_read(method)
 }
 
-/// The lane of `msg`, the answer to a request whose method is `reply_to` when it is one.
-pub(super) fn reply_lane(msg: &Message, reply_to: Option<&str>) -> Lane {
+/// Whether a request asks its answer in order (`inOrder: true` on `_acpmux/events`): a pane's stall
+/// check compares the newest record with what its stream delivered, so its answer may not pass the
+/// records queued before it. In the read lane it did, and on a loaded Mac, where the page drains the
+/// bulk lane slowly, a stream that was only queued read as stalled and the pane reconnected.
+pub(super) fn asks_in_order(method: &str, params: Option<&serde_json::Value>) -> bool {
+    method == crate::rpc::method::MUX_EVENTS
+        && params.and_then(|p| p.get("inOrder")).and_then(serde_json::Value::as_bool) == Some(true)
+}
+
+/// The lane of `msg`, the answer to a request whose method is `reply_to` when it is one; `in_order`
+/// keeps it behind the lines queued before it ([`asks_in_order`]).
+pub(super) fn reply_lane(msg: &Message, reply_to: Option<&str>, in_order: bool) -> Lane {
     match (msg, reply_to) {
-        (Message::Response { .. }, Some(m)) if reads_ahead(m) => Lane::Read,
+        (Message::Response { .. }, Some(m)) if !in_order && reads_ahead(m) => Lane::Read,
         _ => Lane::Bulk,
     }
 }
