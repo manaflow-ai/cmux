@@ -921,7 +921,7 @@ mod tests {
 
     /// `sr2 claude` is the case that starved (module docs, item 2).
     #[test]
-    fn a_claude_launcher_defaults_to_normal_and_claude_itself_to_background() {
+    fn a_claude_launcher_defaults_to_normal_and_claude_itself_to_dynamic() {
         let default = |kind, program: &str| default_for(kind, &[program.to_owned()]);
         for launcher in ["/Users/me/.local/bin/claude-sr2", "/Users/me/bin/sr", "sr2", "python3"] {
             assert_eq!(default(HarnessKind::ClaudeStdio, launcher), CpuClass::Normal, "{launcher}");

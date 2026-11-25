@@ -37,12 +37,18 @@ impl Hub {
         let weak = Arc::downgrade(self);
         self.scope.spawn_until_cancelled("cpu-pressure", async move {
             loop {
-                tokio::select! {
-                    _ = tokio::time::sleep(TICK) => {}
-                    _ = WAKE.notified() => {}
-                }
+                let woke = tokio::select! {
+                    _ = tokio::time::sleep(TICK) => false,
+                    _ = WAKE.notified() => true,
+                };
                 let Some(hub) = weak.upgrade() else { break };
-                hub.cpu_pressure_tick(Sampler::read()).await;
+                if woke {
+                    // A wake only reapplies the current controller decision. Sampling here
+                    // would count the same host reading twice when prompts arrive in a burst.
+                    hub.cpu_pressure_reapply().await;
+                } else {
+                    hub.cpu_pressure_tick(Sampler::read()).await;
+                }
             }
         });
     }
@@ -69,6 +75,18 @@ impl Hub {
                 }
             );
         }
+        self.cpu_pressure_reapply_at(now, demoting).await;
+        demoting
+    }
+
+    /// Re-applies the controller's current decision after a waited-on turn starts, without
+    /// observing another host sample.
+    async fn cpu_pressure_reapply(&self) {
+        let demoting = self.cpu_pressure.lock().unwrap_or_else(|e| e.into_inner()).demoting();
+        self.cpu_pressure_reapply_at(mono_ms(), demoting).await;
+    }
+
+    async fn cpu_pressure_reapply_at(&self, now: u64, demoting: bool) {
         for session in self.live_session_handles() {
             // Never wait on a start or a stop that holds the slot: the next tick reads it.
             let child = match session.child.try_lock() {
@@ -92,7 +110,6 @@ impl Hub {
                 );
             }
         }
-        demoting
     }
 
     /// The person waits on this chat's turn: their own prompt started it, a person shows the chat
