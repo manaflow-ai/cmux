@@ -15,6 +15,10 @@ moved or changed.
       [--replace]                   a key that exists takes the new record where it stands (else it is refused)
   remove CATALOG KEY [KEY ...]                                        delete entries (a missing key is refused)
 
+A table kept as one file per key (`<Table>.xcstrings.d/`, scripts/cmux-next/string_catalogs.py) is edited by its
+files: CATALOG is the directory, or the old table path beside it. `add` writes each new key's file, `--replace`
+rewrites one, `remove` deletes them; --after and --before do not apply (a directory has no order).
+
 For translations of keys the code already uses, ./scripts/localize-changes prepares and imports them in place too.
 """
 from __future__ import annotations
@@ -28,6 +32,7 @@ import tempfile
 from pathlib import Path
 
 CHECKER_PATH = Path(__file__).resolve().parent / "cmux-next" / "check-xcstrings-diff.py"
+CATALOGS_PATH = Path(__file__).resolve().parent / "cmux-next" / "string_catalogs.py"
 
 
 def _load_checker():
@@ -39,6 +44,48 @@ def _load_checker():
 
 
 CHECK = _load_checker()
+
+
+def _string_catalogs():
+    spec = importlib.util.spec_from_file_location("string_catalogs", CATALOGS_PATH)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def table_directory(catalog: Path) -> Path | None:
+    """The one-file-per-key directory CATALOG names: itself, or `<CATALOG>.d` beside an old table path."""
+    if catalog.name.endswith(".xcstrings.d") and catalog.is_dir():
+        return catalog
+    beside = catalog.with_name(catalog.name + ".d")
+    return beside if not catalog.exists() and beside.is_dir() else None
+
+
+def edit_directory(directory: Path, args) -> int:
+    sc = _string_catalogs()
+    if args.command == "add":
+        if args.after or args.before:
+            raise EditError(f"{directory}: a one-file-per-key table has no order; drop --after/--before")
+        items = _items(args)
+        header = sc.load(directory)
+        header = {"sourceLanguage": header["sourceLanguage"], "version": header["version"]}
+        for key, value in items:
+            path = sc.entry_file(directory, key)
+            if path.exists() and not args.replace:
+                raise EditError(f"{key} exists ({path}); pass --replace to replace it")
+        for key, value in items:
+            sc.write_if_changed(sc.entry_file(directory, key), sc.entry_text(key, value, header))
+        touched = [key for key, _ in items]
+    else:
+        missing = [key for key in args.keys if not sc.entry_file(directory, key).exists()]
+        if missing:
+            raise EditError(f"no such key(s) in {directory}: {', '.join(missing)}")
+        for key in args.keys:
+            sc.entry_file(directory, key).unlink()
+        touched = list(args.keys)
+    print(f"xcstrings-edit: {args.command} {len(touched)} key(s) in {directory}")
+    return 0
 
 
 class EditError(Exception):
@@ -259,6 +306,13 @@ def main(argv: list[str] | None = None) -> int:
     remove.add_argument("catalog", type=Path)
     remove.add_argument("keys", nargs="+")
     args = parser.parse_args(argv)
+    directory = table_directory(args.catalog)
+    if directory is not None:
+        try:
+            return edit_directory(directory, args)
+        except (EditError, ValueError, OSError) as error:
+            print(f"xcstrings-edit: {error}", file=sys.stderr)
+            return 1
     try:
         old = args.catalog.read_bytes().decode("utf-8")  # not read_text: it would turn CRLF into LF
         if args.command == "add":

@@ -914,6 +914,7 @@ impl Hub {
             harness_roots: vec![],
             watching: None,
             composer_draft: None,
+            pinned: false,
             // It runs the parent's mode: a spawn from other preset contents leaves it too.
             preset_mode_approval: parent_meta.preset_mode_approval.clone(),
             // The chat's marks on the history the fork shows by reference, under their own seqs;

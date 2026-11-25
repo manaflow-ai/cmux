@@ -15,7 +15,12 @@ ENTRY_LOGS maps each frozen log to its entry directory. The old file stays as th
 can still be corrected in place, but a pull request that grows it (more lines added than removed) fails,
 and the message names the directory to add a file to instead.
 
-  entry_logs.py check --base SHA [--head REF]   fail when BASE..HEAD grows a frozen log
+ENTRY_DIRS maps each registry that was replaced outright by a directory of one file per entry (its readers
+read the directory; the old file is gone) to that directory: a pull request that adds the old file back fails
+the same way, naming the directory. That is what an older pull request that still edits the old file gets after
+it merges its base (git reports modify/delete; keeping the file adds it back).
+
+  entry_logs.py check --base SHA [--head REF]   fail when BASE..HEAD grows a frozen log or adds a removed registry
   entry_logs.py list                            print each frozen log and its directory
 
 The fast gates run `check` on every feat-cmux-next pull request (scripts/ci/cmux_next_fast_gates.py),
@@ -40,6 +45,21 @@ ENTRY_LOGS: dict[str, str] = {
     "docs/ci/nightly-workflow-notes.md": "docs/ci/nightly-workflow-notes/",
 }
 
+# removed registry -> the directory that replaced it (one file per entry; the directory's first file or
+# README.md says the shape). Measured with scripts/ci/conflict_hotspots.py over the same 14 days.
+ENTRY_DIRS: dict[str, str] = {
+    # One <key>.json per setting: 30 of its 118 PRs conflicted against the base they opened on; replayed as one
+    # file per key, 2 (both edited the same key's policy).
+    "schemas/settings/source/agent-policy.json": "schemas/settings/source/agent-policy/",
+}
+
+
+def readded(repo: Path, base: str, head: str) -> list[str]:
+    """Each removed registry BASE..HEAD adds back."""
+    out = subprocess.run(["git", "-C", str(repo), "diff", "--name-only", "--no-renames", "--diff-filter=A", base,
+                          head, "--", *ENTRY_DIRS], capture_output=True, text=True, check=True).stdout
+    return [path for path in out.splitlines() if path in ENTRY_DIRS]
+
 
 def growth(repo: Path, base: str, head: str) -> list[tuple[str, int, int]]:
     """(log, added, removed) for each frozen log BASE..HEAD adds more lines to than it removes."""
@@ -59,7 +79,10 @@ def findings(repo: Path, base: str, head: str) -> list[str]:
     return [f"{path}: +{added} -{removed} lines. This log is frozen so that two pull requests never add to the same "
             f"place: add your entry as its own file under {ENTRY_LOGS[path]} (see {ENTRY_LOGS[path]}README.md), "
             "and keep edits to old entries to changing lines, not adding them."
-            for path, added, removed in growth(repo, base, head)]
+            for path, added, removed in growth(repo, base, head)] + [
+            f"{path}: added back. It was replaced by one file per entry so that two pull requests never edit the same "
+            f"line: put each entry in its own file under {ENTRY_DIRS[path]} and delete {path}."
+            for path in readded(repo, base, head)]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -72,13 +95,13 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("list")
     args = ap.parse_args(argv)
     if args.cmd == "list":
-        for path, directory in ENTRY_LOGS.items():
+        for path, directory in {**ENTRY_LOGS, **ENTRY_DIRS}.items():
             print(f"{path} -> {directory}")
         return 0
     found = findings(Path(args.repo), args.base, args.head)
     for finding in found:
         print(f"::error title=Entry logs::{finding}")
-    print(f"entry logs: {len(found)} frozen log(s) grown by {args.base[:11]}..{args.head[:11]}", file=sys.stderr)
+    print(f"entry logs: {len(found)} frozen log(s) grown or removed registries added back by {args.base[:11]}..{args.head[:11]}", file=sys.stderr)
     return 1 if found else 0
 
 
