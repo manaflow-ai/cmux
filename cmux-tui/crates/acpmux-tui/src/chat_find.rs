@@ -146,16 +146,12 @@ pub fn search(rows: &[String], query: &str) -> Vec<Match> {
             }
             col += w;
         }
-        let mut from = 0;
-        while let Some(i) = folded[from..].find(&needle) {
-            let start = from + i;
-            let last = start + needle.len() - 1;
-            out.push(Match {
-                row,
-                start: col_at[start],
-                end: end_col[last].max(col_at[start] + 1),
-            });
-            from = start + needle.len();
+        for (start, _) in folded.match_indices(needle.as_str()) {
+            let last = start.saturating_add(needle.len()).saturating_sub(1);
+            let (Some(&s), Some(&e)) = (col_at.get(start), end_col.get(last)) else {
+                continue;
+            };
+            out.push(Match { row, start: s, end: e.max(s.saturating_add(1)) });
         }
     }
     out

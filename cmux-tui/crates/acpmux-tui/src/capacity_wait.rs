@@ -26,7 +26,7 @@ fn last_turn_error(t: &Transcript) -> Option<usize> {
         .iter()
         .rposition(|i| matches!(i, Item::User { queued: false, .. }))
         .map_or(0, |u| u + 1);
-    (from..t.items.len()).rev().find(|&i| matches!(t.items[i], Item::Error { .. }))
+    (from..t.items.len()).rev().find(|&i| matches!(t.items.get(i), Some(Item::Error { .. })))
 }
 
 /// The error item acpmux holds and goes on from: drawn calm, never red. None without a wait.
