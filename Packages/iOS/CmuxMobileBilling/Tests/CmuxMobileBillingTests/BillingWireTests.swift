@@ -196,6 +196,7 @@ import Testing
         let account = try await api.accountToken()
         #expect(account.appAccountToken == BillingFixtures.token)
         #expect(account.currentPlan == BillingCurrentPlan(planID: BillingPlanID(rawValue: "next_pro"), source: .apple))
+        #expect(account.catalogPlanIDs == [.nextPlus, .nextPro, .nextMax])
         #expect(account.products == [BillingProductReference(
             productID: "com.cmux.app.next_pro.monthly", planID: BillingPlanID(rawValue: "next_pro"), billingPeriod: .monthly
         )])
@@ -213,6 +214,20 @@ import Testing
         #expect(!account.eligible)
         #expect(account.reason == .purchasesUnavailable)
         #expect(account.currentPlan == BillingCurrentPlan(planID: .free, source: .none))
+        #expect(account.catalogPlanIDs == [.nextPlus, .nextPro, .nextMax])
+    }
+
+    @Test func platformFreeAccountKeepsNextCatalogWithoutProducts() async throws {
+        let api = StubURLProtocol.api(host: "platform-free.example", status: 200, body: #"""
+        {
+          "app_account_token": "6f9619ff-8b86-d011-b42d-00c04fc964ff",
+          "eligible": true, "reason": null,
+          "current": { "plan_id": null }, "products": []
+        }
+        """#, backend: .platform)
+        let account = try await api.accountToken()
+        #expect(account.eligible)
+        #expect(account.catalogPlanIDs == [.nextPlus, .nextPro, .nextMax])
     }
 
     @Test func platformReceiptConvertsEpochMillisecondsAndHonorsGrant() async throws {

@@ -83,7 +83,8 @@ public struct HTTPBillingAPI: BillingAPI {
                 ),
                 products: account.products.map {
                     BillingProductReference(productID: $0.productId, planID: $0.planId, billingPeriod: $0.billingPeriod)
-                }
+                },
+                catalogFamily: .next
             )
         }
     }
