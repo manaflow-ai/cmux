@@ -52,6 +52,12 @@ public final class OverlaySurfaceView: NSView {
         didSet { if cornerRadius != oldValue { applyShape() } }
     }
 
+    /// The edge the solid surface draws, in points: nil is the device-pixel hairline (a card's
+    /// one-point rim), 0 draws none. The hover surfaces pick it from their look (``HoverSurfaceLook``).
+    public var edgeWidth: CGFloat? {
+        didSet { if edgeWidth != oldValue { applyShape() } }
+    }
+
     /// The shadow the surface casts along its own shape, on every material (the tooltip's,
     /// ``Glass/makeTooltipGlass(cornerRadius:interactive:)``); nil casts none, as the overlays whose
     /// window or owner draws it.
@@ -313,7 +319,8 @@ public final class OverlaySurfaceView: NSView {
             layer.cornerCurve = .continuous
             layer.masksToBounds = true
             layer.borderWidth = drawsNoMaterial ? 0
-                : Metrics.lineWidth(isCard ? Self.cardRimWidth : 1 / max(window?.backingScaleFactor ?? 2, 1))
+                : edgeWidth.map { $0 == 0 ? 0 : Metrics.lineWidth($0) }
+                ?? Metrics.lineWidth(isCard ? Self.cardRimWidth : 1 / max(window?.backingScaleFactor ?? 2, 1))
         }
     }
 

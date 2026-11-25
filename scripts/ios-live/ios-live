@@ -57,7 +57,9 @@ else
 fi
 need_slot() { [[ -n "$host" && -n "$slot" ]] || die "you hold no slot: ios-live lease take (or IOS_LIVE_AT=HOST/SLOT to look at one; ios-live slots lists them)"; }
 quiet() { grep -v -e '^mux_client_request_session' -e '^ControlSocket .* already exists' >&2 || true; }
-on_host() { reach "$host" "$@" 2> >(quiet); }
+# REACH_AUTO_LEASE=0: a slot command needs no whole-host fleet lease (the slot lease in host.sh admits it; the lane-gh
+# broker relays the host_sh form on an ios pool host without one), so reach must never take the host to run it.
+on_host() { REACH_AUTO_LEASE=0 reach "$host" "$@" 2> >(quiet); }
 
 # host_sh [--patch FILE] ARGS...: one round trip. The host gets this checkout's host.sh (and the
 # patch) on stdin as a tar, then runs host.sh ARGS. reach does not always pass the remote exit
@@ -75,7 +77,16 @@ host_sh() {
   fi
   local env=""
   [[ "$slot_mode" == 0 ]] || env="IOS_LIVE_SLOTS_PER_HOST=$per_host ${slot:+IOS_LIVE_SLOT=$slot }"
-  out="$(COPYFILE_DISABLE=1 tar -C "$stage" -cf - . | on_host "mkdir -p $remote_root && tar -C $remote_root -xf - && ${env}bash $remote_root/bin/host.sh $(printf '%q ' "$@"); r=\$?; echo; echo __ios_live_rc=\$r")" || true
+  # The payload rides in the command itself when it is small (host.sh alone is about 10 KB gzipped and
+  # base64'd): the broker relay a lane VM reaches the Macs through carries no stdin. A big patch
+  # still goes on stdin.
+  local run="${env}bash $remote_root/bin/host.sh $(printf '%q ' "$@"); r=\$?; echo; echo __ios_live_rc=\$r" b64
+  b64="$(COPYFILE_DISABLE=1 tar -C "$stage" -czf - . | base64 | tr -d '\n')"
+  if (( ${#b64} <= 200000 )); then
+    out="$(on_host "mkdir -p $remote_root && printf %s $b64 | perl -MMIME::Base64 -0777 -ne 'print decode_base64(\$_)' | tar -C $remote_root -xzf - && $run" </dev/null)" || true
+  else
+    out="$(COPYFILE_DISABLE=1 tar -C "$stage" -cf - . | on_host "mkdir -p $remote_root && tar -C $remote_root -xf - && $run")" || true
+  fi
   rm -rf "$stage"
   rc="$(sed -n 's/^__ios_live_rc=\([0-9]*\)$/\1/p' <<<"$out" | tail -n 1)"
   grep -v '^__ios_live_rc=' <<<"$out" || true

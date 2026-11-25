@@ -11,7 +11,7 @@ x-apple.systempreferences:) and to a scheme no app opens, and clicks them with a
 gesture (Chromium: DevTools `Runtime.evaluate` with `userGesture`; WebKit: the page,
 which runs the app's scripts as a gesture). For each engine:
 
-  1. a mailto: link opens in its app at once, with no prompt;
+  1. Chromium asks before the first mailto: click. WebKit opens it immediately;
   2. the System Settings link asks first, in the page's prompt bar (not a dialog):
      Cancel opens nothing; Open (this time) opens it; asked again, Open with
      "Always allow" opens it, and the next click opens it with no prompt;
@@ -215,11 +215,20 @@ def run_engine(engine):
     check(page("!!document.getElementById('mail')") is True,
           f"{engine}: a sign-in return preserves the page instead of showing a scheme error")
 
-    # 1. mailto: opens at once.
+    # 1. First click on a known scheme, before this origin has a grant.
     before = len(opens())
     click(engine, "mail")
-    got = settled_opens(before)
-    check(got == [MAIL] and not asked(), f"{engine}: a mailto: link opens in its app with no prompt ({got}, prompts {prompts()})")
+    if engine == "chromium":
+        if wait_for(asked, f"{engine}: a first mailto: click asks before opening its app", 10):
+            check(opens()[before:] == [], f"{engine}: mailto: waits for consent")
+            prompts("allow")
+            check(settled_opens(before) == [MAIL], f"{engine}: Always allow opens this mailto: once")
+            before = len(opens())
+            click(engine, "mail")
+            check(settled_opens(before) == [MAIL] and not asked(), f"{engine}: the next mailto: uses the site's grant")
+    else:
+        got = settled_opens(before)
+        check(got == [MAIL] and not asked(), f"{engine}: a mailto: link opens in its app with no prompt ({got}, prompts {prompts()})")
 
     # 2. Another app's scheme asks first, in the prompt bar.
     before = len(opens())
