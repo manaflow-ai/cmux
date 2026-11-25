@@ -33,6 +33,22 @@ mod process_exit;
 #[cfg_attr(not(test), allow(dead_code))]
 mod seed;
 mod seed_cli;
+
+/// `cmux ssh --repo` (`remote_cli.rs`): seed `local` into `remote` over the link
+/// `socket` serves, as `cmux link seed push --since-last` and then a full push when
+/// there is no previous push. The answer is `link seed push`'s JSON line.
+pub(crate) fn seed_repo(socket: &Path, local: &Path, remote: &str) -> serde_json::Value {
+    let pushed = match seed_cli::push_since_last(socket, local, remote) {
+        Err(error) if seed_cli::failure_code(&error) == "seed.no_previous" => {
+            seed_cli::push(socket, local, remote, None)
+        }
+        other => other,
+    };
+    match pushed {
+        Ok(pushed) => pushed.json(),
+        Err(error) => seed_cli::failure(&error),
+    }
+}
 mod spans;
 mod start_chat_cli;
 mod state;
