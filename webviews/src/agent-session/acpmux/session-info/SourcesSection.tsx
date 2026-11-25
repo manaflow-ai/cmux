@@ -82,7 +82,13 @@ export function SourcesSection({
   );
 }
 
-function FolderRow({ folder, onRemove }: { folder: string; onRemove?: (folder: string) => Promise<unknown> | unknown }) {
+function FolderRow({
+  folder,
+  onRemove,
+}: {
+  folder: string;
+  onRemove?: (folder: string) => Promise<unknown> | unknown;
+}) {
   const t = useT();
   const [failure, setFailure] = useState<string>();
   const name = extraFolderName(folder);
