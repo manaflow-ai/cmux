@@ -10,19 +10,24 @@ public enum TabKeyboardClose: Hashable, Sendable {
     case ignore
 }
 
+// The strip's commands on its tabs are cmux-window-rules' (`tabs::strip`, ops `tab_strip_*` of the app FFI's JSON
+// channel): each sends the strip in display order (`orderedTabs`) with its collapsed groups and the tab it acts on.
+// `TabStripCommandVectorTests` checks them against the vectors the Swift rules wrote before they moved.
 extension TabStripModel {
     /// What Cmd-W does to `id`: it closes it, pinned or not, as Chrome's Cmd-W does (Lawrence
     /// 2026-11-08, cmux-ad i8: "make it consistent, match chrome's behavior"). Only a tab that
     /// cannot close (``TabItem/isClosable`` false: Home's tab, `pinned-dock-v1`) is kept: the next
     /// visible tab in strip order is selected (the previous one when it is last), else nothing.
     public func keyboardClose(_ id: TabID) -> TabKeyboardClose {
-        let ordered = orderedTabs
-        guard let index = ordered.firstIndex(where: { $0.id == id }), !ordered[index].isClosable else { return .close }
-        let collapsed = Set(groups.filter(\.isCollapsed).map(\.id))
-        func visible(_ tab: TabItem) -> Bool { tab.groupID.map { !collapsed.contains($0) } ?? true }
-        if let next = ordered[(index + 1)...].first(where: visible) { return .select(next.id) }
-        if let previous = ordered[..<index].last(where: visible) { return .select(previous.id) }
-        return .ignore
+        // Every closable tab closes; only a kept one asks where the selection goes.
+        guard tab(id)?.isClosable == false else { return .close }
+        nonisolated struct Reply: Decodable { var action: String, tab: String? }
+        guard let reply: Reply = TabRules.call("tab_strip_keyboard_close", stripRequest(id)) else { return .close }
+        switch (reply.action, reply.tab) {
+        case let ("select", tab?): return .select(TabID(tab))
+        case ("ignore", _): return .ignore
+        default: return .close
+        }
     }
 }
 
@@ -34,21 +39,17 @@ extension TabStripModel {
 
     /// The tabs Close Other Tabs closes for `keep`, in strip order: every other unpinned tab.
     public func closedByCloseOthers(keeping keep: TabID) -> [TabID] {
-        orderedTabs.filter { $0.id != keep && !$0.isPinned && $0.isClosable }.map(\.id)
+        closedBy(keep)?.others.map { TabID($0) } ?? []
     }
 
     /// The tabs Close Tabs to the Right closes for `id`, in strip order: the unpinned tabs after it.
     public func closedByCloseToRight(of id: TabID) -> [TabID] {
-        let ordered = orderedTabs
-        guard let index = ordered.firstIndex(where: { $0.id == id }) else { return [] }
-        return ordered[(index + 1)...].filter { !$0.isPinned && $0.isClosable }.map(\.id)
+        closedBy(id)?.right.map { TabID($0) } ?? []
     }
 
     /// The tabs Close Tabs to the Left closes for `id`, in strip order: the unpinned tabs before it.
     public func closedByCloseToLeft(of id: TabID) -> [TabID] {
-        let ordered = orderedTabs
-        guard let index = ordered.firstIndex(where: { $0.id == id }) else { return [] }
-        return ordered[..<index].filter { !$0.isPinned && $0.isClosable }.map(\.id)
+        closedBy(id)?.left.map { TabID($0) } ?? []
     }
 
     /// The tab Close Other Tabs, Close Tabs to the Left or Close Tabs to the Right started from
@@ -56,8 +57,19 @@ extension TabStripModel {
     /// selection does not change) when the selection is `actedOn` or one of `kept`, the tabs the
     /// gesture keeps on purpose (a menu opened on one of several selected tabs keeps them all).
     public func selectionKeeping(_ actedOn: TabID, kept: [TabID] = []) -> TabID? {
-        guard let selectedID, selectedID == actedOn || kept.contains(selectedID) else { return actedOn }
-        return nil
+        nonisolated struct Request: Encodable { var id: String, selected: String?, kept: [String] }
+        nonisolated struct Reply: Decodable { var tab: String? }
+        let request = Request(id: actedOn.rawValue, selected: selectedID?.rawValue, kept: kept.map(\.rawValue))
+        guard let reply: Reply = TabRules.call("tab_strip_selection_keeping", request) else { return actedOn }
+        return reply.tab.map { TabID($0) }
+    }
+
+    private nonisolated struct ClosedBy: Decodable {
+        var others, left, right: [String]
+    }
+
+    private func closedBy(_ id: TabID) -> ClosedBy? {
+        TabRules.call("tab_strip_closed_by", stripRequest(id))
     }
 }
 
@@ -68,23 +80,8 @@ extension TabStripModel {
     /// (`TabGroupOrdering.normalized`), so a tab outside a group steps past the whole group, and a
     /// member moves only among its group's members.
     public func moveIndex(of id: TabID, by offset: Int) -> Int? {
-        let ordered = orderedTabs
-        guard let index = ordered.firstIndex(where: { $0.id == id }), offset != 0 else { return nil }
-        let pinnedCount = ordered.count(where: \.isPinned)
-        var section = ordered[index].isPinned ? 0..<pinnedCount : pinnedCount..<ordered.count
-        let group = ordered[index].groupID
-        if let group, let first = ordered.firstIndex(where: { $0.groupID == group }),
-           let last = ordered.lastIndex(where: { $0.groupID == group }) {
-            section = first..<(last + 1)
-        }
-        var target = index + offset
-        guard section.contains(target) else { return nil }
-        // Beside another group: past all of it (one step inside would be undone by the ordering).
-        if group == nil, let neighbor = ordered[target].groupID {
-            target = offset < 0 ? ordered.firstIndex { $0.groupID == neighbor } ?? target
-                : ordered.lastIndex { $0.groupID == neighbor } ?? target
-        }
-        return target
+        nonisolated struct Reply: Decodable { var index: Int? }
+        return (TabRules.call("tab_strip_move_index", stripRequest(id, offset: offset)) as Reply?)?.index
     }
 }
 
@@ -99,17 +96,31 @@ extension TabStripModel {
     /// The visible tab `offset` steps from `id` in strip order, wrapping
     /// (Next / Previous Tab). From a hidden tab it counts from its place.
     public func adjacentVisibleTab(from id: TabID?, offset: Int) -> TabID? {
-        let ordered = orderedTabs
-        let visible = Set(visibleOrderedTabs.map(\.id))
-        guard !visible.isEmpty, offset != 0 else { return nil }
-        let count = ordered.count
-        var index = id.flatMap { id in ordered.firstIndex { $0.id == id } } ?? (offset > 0 ? count - 1 : 0)
-        var remaining = abs(offset)
-        let step = offset > 0 ? 1 : -1
-        while remaining > 0 {
-            index = (index + step + count) % count
-            if visible.contains(ordered[index].id) { remaining -= 1 }
-        }
-        return ordered[index].id
+        nonisolated struct Reply: Decodable { var tab: String? }
+        return (TabRules.call("tab_strip_adjacent", stripRequest(id, offset: offset)) as Reply?)?.tab.map { TabID($0) }
+    }
+}
+
+/// One tab of a `tab_strip_*` request, in display order.
+private nonisolated struct StripTab: Encodable {
+    var id: String
+    var pinned: Bool
+    var closable: Bool
+    var group: String?
+}
+
+private nonisolated struct StripRequest: Encodable {
+    var tabs: [StripTab]
+    var collapsed: [String]
+    var id: String?
+    var offset: Int
+}
+
+private extension TabStripModel {
+    /// The strip as the rules read it: `orderedTabs` (no group on a pinned tab or one whose group is unknown) and
+    /// the collapsed groups, with the tab a command acts on.
+    func stripRequest(_ id: TabID?, offset: Int = 0) -> StripRequest {
+        let tabs = orderedTabs.map { StripTab(id: $0.id.rawValue, pinned: $0.isPinned, closable: $0.isClosable, group: $0.groupID?.rawValue) }
+        return StripRequest(tabs: tabs, collapsed: groups.filter(\.isCollapsed).map(\.id.rawValue).sorted(), id: id?.rawValue, offset: offset)
     }
 }
