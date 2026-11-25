@@ -190,8 +190,8 @@ public final class WorkspaceSync {
         // that has not changed answers `unchanged` and the phone keeps what it shows (no whole
         // tree, no first window) (Leo, 2026-11-24: "deltas can be sipped and maintained").
         let held = sendsKnown ? macID.flatMap { id in heldKnown.withLock { $0[id] } } : nil
-        let listParams = held.map { listParams(known: $0, sendsKnown: true) }
-            ?? setupListParams(sendsKnown: sendsKnown, firstWindow: firstWindow)
+        let listParams = held.map { Self.listParams(known: $0, sendsKnown: true) }
+            ?? Self.setupListParams(sendsKnown: sendsKnown, firstWindow: firstWindow)
         let client = DaemonClient(channel: channel, orderedEvents: true)
         await client.start()
         let replies = Task.detached { () -> [Result<DaemonClient.ReceivedLine, any Error>] in
@@ -324,7 +324,7 @@ public final class WorkspaceSync {
                await heldProjection.known == sent, let current = tree {
                 // The Mac's tree is the one this phone holds: keep it, with this link's agents
                 // and arrangement, instead of reading it again.
-                projection = heldProjection
+                self.projection = heldProjection
                 let update = try await heldProjection.updateAgents(agents: agents, activity: activity)
                 let rearranged = await heldProjection.rearrange(arrangement)
                 next = rearranged ?? update?.tree ?? current

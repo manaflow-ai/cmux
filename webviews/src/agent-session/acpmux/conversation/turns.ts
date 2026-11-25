@@ -35,8 +35,7 @@ import { lastWrapUp, withoutWrapUp, execWrapUp, isWrapUp, wrapUpAsk } from "./wr
 import { lastWalkthrough } from "./walkthroughModel";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
-import { ROW_WIDTH, shortCommand } from "./shortCommand";
-import { scriptNoun } from "./commandActions";
+import { commandLine, commandSaid, scriptNoun } from "./commandActions";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups, countsFailed } from "./toolGroups";
 import { toolRunPhrases } from "./toolRunSummary";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
@@ -69,10 +68,10 @@ import {
   backgroundTurnRowId,
   foldBackgroundTurns,
   foldedBackgroundIds,
-  foldedWithoutWork,
   hiddenInBackground,
   openBackgroundTurns,
   endsDrawingRows,
+  foldedWithoutWork,
 } from "./backgroundTurns";
 import {
   foldMessageRuns,
@@ -93,6 +92,7 @@ import { MEMORY_OFFER } from "./memoryInbox";
 import { PROMPT_COACH } from "./promptCoach";
 import { PRESET_APPROVAL } from "./presetApproval";
 import { githubConnectNeed } from "./githubConnect";
+import { planStepTitle } from "./planStepText";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -3667,9 +3667,9 @@ function codexLiveTurn(
     // count (Leo, 2026-11-07: "stretch across the line"). One with no line yet reads its title ("Run make"). While
     // Claude still writes its input (a pending "Bash" with no command, often 20s for a long
     // script) it reads "Writing a command", never "Running" a command that has not started.
-    const shell =
-      call.kind === "execute" && !call.description && (Boolean(call.command) || isBareShellName(call, call.title));
-    line.doing = shell ? (call.command ? liveCommand(call.command) : "") : runningLabel(call, "");
+    const summary = liveShellLabel(call);
+    const shell = call.kind === "execute" && !summary && (Boolean(call.command) || isBareShellName(call, call.title));
+    line.doing = summary ?? (shell ? (call.command ? liveCommand(call.command) : "") : runningLabel(call, ""));
     line.doingShell = shell;
     if (call.kind) line.doingKind = call.kind;
     if (shell && !call.command && call.status === "pending") line.doingDraft = true;
@@ -3962,14 +3962,14 @@ export function liveWait(drawn: readonly AcpmuxRow[], last: AcpmuxRow): LiveWait
   const item = last.items?.at(-1);
   const tool = item?.tool;
   if (!item || !tool || isThought(item)) return { kind: "next" };
-  const shell =
-    tool.kind === "execute" && !tool.description && (Boolean(tool.command) || isBareShellName(tool, tool.title));
+  const summary = liveShellLabel(tool);
+  const shell = tool.kind === "execute" && !summary && (Boolean(tool.command) || isBareShellName(tool, tool.title));
   const t = translatorFor(currentLanguage());
   const step = shell
     ? tool.command
       ? t("tools.ranCommand", { command: liveCommand(tool.command) })
       : t("tools.ranUnnamed")
-    : runningLabel(tool, item.text ?? "");
+    : (summary ?? runningLabel(tool, item.text ?? ""));
   const words = step.trim();
   // The step as the step row says it ("Ran bun test", "Read App.tsx"); the label sets it after a
   // colon in every language, so its verb keeps the row's own capital.
@@ -4047,7 +4047,7 @@ function activityLine(
         .find((item) => item.tool?.status === "pending" || item.tool?.status === "in_progress");
   const label = running?.tool
     ? runningLabel(running.tool, running.text)
-    : (plan.plan?.find((entry) => entry.status === "in_progress")?.content ?? "");
+    : planStepTitle(plan.plan?.find((entry) => entry.status === "in_progress")?.content ?? "");
   // A started command offers ⌃B here, as on the turn's other live lines (ActivityLine.tsx).
   const command =
     running?.tool?.kind === "execute" && !isDraftCall(running.tool) && running.tool.background === undefined;
@@ -4071,6 +4071,7 @@ function activityLine(
 /// The message a call in flight sends, for the live line: "Sending message to tests", never the
 /// raw `acpmux send …` line (Leo 2026-10-24: "sending message or sent message to X or Y").
 function sendingTo(tool: NonNullable<AcpmuxActivity["tool"]>): Pick<AcpmuxRow, "doingSendTo" | "doingSendSession"> {
+  if (tool.description?.trim()) return {};
   const sends = acpmuxSendCalls(tool) ?? acpmuxMcpSends(tool);
   // Only a send still going: one that failed in the background is not "Sending" any more. A batch
   // names the first message still going out.
@@ -4088,16 +4089,22 @@ function sendingTo(tool: NonNullable<AcpmuxActivity["tool"]>): Pick<AcpmuxRow, "
   return to ? { doingSendTo: short(to) } : {};
 }
 
+function liveShellLabel(tool: NonNullable<AcpmuxActivity["tool"]>): string | undefined {
+  return tool.kind === "execute" ? commandSaid(translatorFor(currentLanguage()), tool) : undefined;
+}
+
 /// A command on the live line: its working step whole (the line's CSS ellipsis cuts it), or a
 /// script its interpreter reads from a heredoc as "a Python script on als.json", never its
 /// `<<'EOF'` marker (Leo, 2026-11-07: "it's just weird, um, that it just says EOF").
 function liveCommand(command: string): string {
-  return scriptNoun(translatorFor(currentLanguage()), command) ?? shortCommand(command, ROW_WIDTH);
+  return scriptNoun(translatorFor(currentLanguage()), command) ?? commandLine(command, "command", false);
 }
 
 /// A running call in one short line: a command as itself ("Ran …" would say it has finished), a
 /// file call by the file's name ("Edit ProductGrid.module.css").
 function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): string {
+  const description = tool.description?.trim();
+  if (description) return description;
   // A file write reads as its row does (WriteLabel.tsx): "Writing a file" before its input,
   // "Writing gen.py", then "Wrote gen.py", never the bare tool name "Write".
   const write = writeCall(tool);
@@ -4108,7 +4115,7 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
     if (!file) return t(done ? "tools.wrote.unnamed" : "tools.writing.unnamed");
     return t(done ? "tools.wrote.file" : "tools.writing.file", { file });
   }
-  const label = toolLabel(tool, text, (command) => command, undefined, undefined, false);
+  const label = toolLabel(tool, text, (command) => command);
   const path = editedPaths(tool)[0];
   if (!path || tool.kind === "execute") return label;
   if (isEditTool(tool) && tool.status === "completed" && editedPaths(tool).length === 1)
