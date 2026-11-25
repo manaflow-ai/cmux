@@ -62,9 +62,6 @@ final class FocusCoordinator {
     /// The person's own focus or selection moves here (mouse, keyboard, palette): a keyboard claim ends at the next one.
     private(set) var personIntents: (count: UInt64, input: TimeInterval?) = (0, nil)
 
-    /// Runs `send` and then `layout`, the layout change its focus goes with; a page it focuses takes the keys after `layout` (``FocusEffectApplying/holdingPageGrants(_:until:)``).
-    func holdingPageGrants(_ send: () -> Void, until layout: () -> Void) { if let applier { applier.holdingPageGrants(send, until: layout) } else { send(); layout() } }
-
     func send(_ event: FocusEvent) {
         // An action run that may not change this client's view (a CLI,
         // script, agent or remote run without `focus: true`) never moves

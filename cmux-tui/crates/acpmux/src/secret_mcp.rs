@@ -45,7 +45,7 @@ fn all_tools() -> Value {
     json!([
         {
             "name": "request_secret",
-            "description": "Ask the user for a secret (an API key, a token, a password) on a private card in cmux. The user types it there; you never see the value. The call waits until the user fills or declines the card (it closes after 15 minutes, or with your turn); inside a cmux_exec script it waits at most 10 minutes, so call it in a script of its own. Returns a one-use secretRef for this chat's folder, good for an hour: pass it to run_with_secret to run one command with the secret in an environment variable. Never ask for a secret in chat.",
+            "description": "Ask the user for a secret (an API key, a token, a password) on a private card in cmux. The user types it there; you never see the value. The call waits until the user fills or declines the card (it closes after 15 minutes, or with your turn); inside a cmux_exec script it waits at most 10 minutes, so call it in a script of its own. Returns a one-use secretRef for this chat's folder, good for an hour: pass it to run_with_secret to run one command with the secret in an environment variable. When the user also kept it as a key, keptAs names it: later commands get it with `cmux keys use NAME -- CMD`, without asking again. Never ask for a secret in chat.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -237,28 +237,5 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn initialize_answers_a_version_we_speak() {
-        let version = |v: Value| protocol_version(&json!({"protocolVersion": v}));
-        assert_eq!(version(json!("2024-11-05")), "2024-11-05");
-        assert_eq!(version(json!("2099-01-01")), PROTOCOL_VERSIONS[0]);
-        assert_eq!(version(json!(7)), PROTOCOL_VERSIONS[0]);
-        assert_eq!(protocol_version(&Value::Null), PROTOCOL_VERSIONS[0]);
-    }
-
-    /// An approved server is kept and served to the agents its scope names (`cmux mcp serve`'s
-    /// `mcp_servers`), so the connect card is on by default, with no preview switch.
-    #[test]
-    fn connect_mcp_server_is_listed_by_default() {
-        let names: Vec<String> = tools()
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(|t| t["name"].as_str().map(str::to_owned))
-            .collect();
-        assert!(names.iter().any(|n| n == "connect_mcp_server"), "{names:?}");
-    }
-}
+#[path = "secret_mcp_tests.rs"]
+mod tests;
