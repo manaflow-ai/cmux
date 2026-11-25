@@ -38,7 +38,7 @@ use tokio::time::Instant;
 use zeroize::Zeroizing;
 
 use super::relay::{RELAY_PEER, RelayCarrier};
-use super::turn::{TurnCarrier, TurnTransport};
+use super::turn::{Allocated, TurnCarrier, TurnTransport};
 use super::{
     DialError, DialFuture, DialOptions, Dialed, Dialer, LinkPath, SessionEvents, TransportKind, UltraSetting,
 };
@@ -162,6 +162,71 @@ async fn open_liveness(
 /// How long the input lane's second connection may take before input stays
 /// on the main stream.
 const LANE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// How long the Mac takes the next connection on a link's listener as that
+/// link's input lane: past the phone's own [`LANE_TIMEOUT`] by a slow round
+/// trip, so a lane the phone opened in time is never taken for a resumed
+/// link (which ends the live link it belongs to). The wait also ends as
+/// soon as the link is gone ([`accept_lane`]).
+const HOST_LANE_WAIT: std::time::Duration = std::time::Duration::from_secs(12);
+
+/// Mac: the next connection on `listener` is the input lane of the link that
+/// holds `lane`'s receiver, while that link still waits for it. Returns
+/// false when the listener closed. Pairing is by order (the phone opens the
+/// lane right after the main stream), so the wait ends when the link ends:
+/// what comes after it (the phone resuming the tunnel) is a resumed link,
+/// not a lane for a link that is gone (2026-11-25: a resume taken for a
+/// dead link's lane, and a late lane taken for a resume, lost the input of
+/// a phone racing a fresh dial against a dormant resume).
+pub(super) async fn accept_lane(
+    listener: &mut cmux_wg::WgListener,
+    mut lane: oneshot::Sender<Box<dyn super::LinkStream>>,
+    what: &str,
+) -> bool {
+    let accepted = tokio::select! {
+        accepted = tokio::time::timeout(HOST_LANE_WAIT, listener.accept()) => Some(accepted),
+        () = lane.closed() => None,
+    };
+    match accepted {
+        Some(Ok(Some(stream))) => {
+            let _ = lane.send(Box::new(stream) as Box<dyn super::LinkStream>);
+            true
+        }
+        Some(Ok(None)) => false,
+        Some(Err(_)) => {
+            tracing::info!(link = what, "input lane was not opened in time");
+            true
+        }
+        None => {
+            tracing::info!(link = what, "the link ended before its input lane opened");
+            true
+        }
+    }
+}
+
+/// Phone: open the input lane, unless the link it is for is gone first (its
+/// receiver dropped: the link closed, or a hedged dial it belonged to lost).
+/// A lane opened for a link that is gone reaches the Mac as a resumed link
+/// or as the lane of the next one.
+pub(super) fn open_lane(
+    net: Arc<WgNet>,
+    link_addr: SocketAddr,
+) -> oneshot::Receiver<Box<dyn super::LinkStream>> {
+    let (mut tx, rx) = oneshot::channel();
+    tokio::spawn(async move {
+        let connected = tokio::select! {
+            connected = tokio::time::timeout(LANE_TIMEOUT, net.connect(link_addr)) => connected,
+            () = tx.closed() => return,
+        };
+        match connected {
+            Ok(Ok(stream)) => {
+                let _ = tx.send(Box::new(stream) as Box<dyn super::LinkStream>);
+            }
+            Ok(Err(error)) => tracing::info!(%error, "input lane did not connect"),
+            Err(_) => tracing::info!("input lane did not connect in time"),
+        }
+    });
+    rx
+}
 /// Overlay addresses: each tunnel is its own userspace network, so fixed
 /// addresses never collide across sessions.
 const DIALER_OVERLAY: Ipv4Addr = Ipv4Addr::new(10, 77, 0, 2);
@@ -307,7 +372,7 @@ impl StunClock {
 /// TCP or TLS attempt too (relay first, as the dial wants a relayed path
 /// ready whatever UDP does), else only once UDP looks blocked. It tells the
 /// clock when it took a TCP or TLS carrier.
-async fn turn_beside(options: &DialOptions, eager: bool, side: TurnSide) -> Option<TurnCarrier> {
+async fn turn_beside(options: &DialOptions, eager: bool, side: TurnSide) -> Allocated {
     turn_beside_keeping(options, eager, side, None).await
 }
 
@@ -318,17 +383,27 @@ async fn turn_beside_keeping(
     eager: bool,
     side: TurnSide,
     late: Option<&super::turn::LateTurn>,
-) -> Option<TurnCarrier> {
+) -> Allocated {
     let TurnSide { mut udp_silent, stream_ready } = side;
     if !eager && udp_silent.wait_for(|silent| *silent).await.map(|_| ()).is_err() {
         // The STUN wait ended without UDP looking blocked.
-        return None;
+        return Allocated::default();
     }
     let turn = TurnCarrier::allocate_with(options, Some(udp_silent), eager, late).await;
-    if turn.as_ref().is_some_and(|turn| turn.transport.is_stream()) {
+    if turn.carrier.as_ref().is_some_and(|turn| turn.transport.is_stream()) {
         let _ = stream_ready.send(true);
     }
     turn
+}
+
+/// A dial with no TURN allocation and no plain UDP that can work (UDP off,
+/// or STUN never answered) because a proxy refused TURN over TLS: the
+/// proxy's reason, said now, instead of a timeout 25 s later.
+fn refused_by_proxy(udp_useless: bool, allocated: &Allocated) -> Option<DialError> {
+    if !udp_useless || allocated.carrier.is_some() {
+        return None;
+    }
+    allocated.refusal.as_ref().map(|refusal| DialError::Transport(refusal.to_string()))
 }
 
 /// A dial's TURN allocation, started before the dial: a redial
@@ -342,7 +417,7 @@ async fn turn_beside_keeping(
 /// (`TurnCarrier::allocate_on`), and one done is dropped, which deallocates
 /// (Refresh with LIFETIME 0).
 pub(crate) struct EarlyTurn {
-    task: Option<tokio::task::JoinHandle<Option<TurnCarrier>>>,
+    task: Option<tokio::task::JoinHandle<Allocated>>,
     stun: Option<StunSide>,
 }
 
@@ -355,7 +430,7 @@ impl EarlyTurn {
         let options = effective_options(options).into_owned();
         let task = tokio::spawn(async move {
             let turn = turn_beside(&options, true, turn_side).await;
-            if turn.is_some() {
+            if turn.carrier.is_some() {
                 options.timeline.mark("turn_early_allocated");
             }
             turn
@@ -365,10 +440,10 @@ impl EarlyTurn {
 
     /// The allocation, once done. Dropped while it waits, `self` still
     /// aborts it.
-    async fn carrier(&mut self) -> Option<TurnCarrier> {
+    async fn carrier(&mut self) -> Allocated {
         let turn = match self.task.as_mut() {
-            Some(task) => task.await.ok().flatten(),
-            None => None,
+            Some(task) => task.await.unwrap_or_default(),
+            None => Allocated::default(),
         };
         self.task = None;
         turn
@@ -482,7 +557,7 @@ fn diagnose_gather(options: &DialOptions, udp_blocked: bool, turn: Option<&TurnC
         diagnosis.turn("off", None);
     } else if super::turn::turn_servers(&options.ice_servers) == (None, None) {
         diagnosis.turn("none_offered", None);
-    } else if wanted_turn && turn.is_none() {
+    } else if wanted_turn && turn.is_none() && !diagnosis.turn_refused() {
         diagnosis.turn("no_allocation", turn_host(options));
     }
 }
@@ -496,7 +571,8 @@ fn relay_plan(
     peer: Option<&str>,
     ticket: Option<String>,
 ) -> Option<roam::RelayPlan> {
-    let endpoint = options.relay.clone()?;
+    let mut endpoint = options.relay.clone()?;
+    endpoint.egress = options.egress.clone();
     let Some(peer) = peer else {
         options.diagnosis.relay("peer_cannot", Some(endpoint.host()));
         return None;
@@ -517,10 +593,14 @@ fn only_the_relay(options: &DialOptions, udp_blocked: bool, turn: Option<&TurnCa
 /// [`STUN_SILENT`], beside the rest of the STUN wait, not after it.
 async fn gather_for_answer(socket: &UdpSocket, options: &DialOptions) -> (Gathered, Option<TurnCarrier>) {
     let (stun_side, turn_side) = stun_turn_link();
-    tokio::join!(
+    let (gathered, allocated) = tokio::join!(
         gather_endpoints(socket, options, Some(stun_side)),
         turn_beside(options, no_plain_udp(options), turn_side)
-    )
+    );
+    if let Some(refusal) = &allocated.refusal {
+        tracing::warn!(%refusal, "this Mac's proxy refused TURN over TLS; a phone may not reach it");
+    }
+    (gathered, allocated.carrier)
 }
 
 /// Asked for a TURN allocation (`wanted`) and got none in time, though a TURN
@@ -1378,6 +1458,7 @@ impl HybridUnderlay {
                 self.last_marker = None;
                 // What we sent toward its old network may be lost.
                 self.replay_recent(true);
+                self.resend_initiation_now();
             }
             Control::Reached { from, via_turn } => self.reached(from, via_turn),
             Control::Blackhole => {
@@ -1705,6 +1786,28 @@ impl HybridUnderlay {
         self.wake_receiver();
     }
 
+    /// Send the unanswered handshake initiation again now, the peer having
+    /// just named addresses it may not have reached before: a Mac behind NAT
+    /// answers `wg-init` with private addresses only and trickles its public
+    /// one after its STUN, so the first initiation through TURN had no target
+    /// and would wait out [`HANDSHAKE_REPEATS`]`[0]` (netlab: link ready 117
+    /// or 295 ms, by whether the trickle beat the first send). With a route
+    /// already chosen, the replay above has sent it.
+    fn resend_initiation_now(&mut self) {
+        if self.direct.is_some() {
+            return;
+        }
+        let Some(repeat) = &mut self.handshake_repeat else { return };
+        let (datagram, class) = (repeat.datagram.clone(), repeat.class);
+        repeat
+            .timer
+            .as_mut()
+            .reset(Instant::now() + HANDSHAKE_REPEATS[repeat.sent.min(HANDSHAKE_REPEATS.len() - 1)]);
+        tracing::debug!("WireGuard resends its handshake initiation to the peer's new addresses");
+        self.send_on_relays(&datagram, class);
+        self.wake_receiver();
+    }
+
     /// Send the pending handshake initiation again when its wait is over.
     fn poll_handshake_repeat(&mut self, cx: &mut Context<'_>) {
         loop {
@@ -1765,6 +1868,10 @@ impl HybridUnderlay {
             || self.dark
             || self.options.drop_udp_to.is_some_and(|drop| drop(&target))
         {
+            return true;
+        }
+        if self.options.drop_wireguard_udp && super::dpi::carries_wireguard(datagram) {
+            super::dpi::count_drop();
             return true;
         }
         if self.options.restrict_inbound_udp {
@@ -2138,6 +2245,11 @@ impl HybridUnderlay {
                         || (self.options.restrict_inbound_udp && !self.sent_to.contains(&source))
                         || self.stun_answer(&buffer[..len], source)
                     {
+                        continue;
+                    }
+                    // A firewall that drops WireGuard (debug): the datagram never arrived.
+                    if self.options.drop_wireguard_udp && super::dpi::carries_wireguard(&buffer[..len]) {
+                        super::dpi::count_drop();
                         continue;
                     }
                     self.note_arrival(source, &buffer[..len]);
@@ -2633,6 +2745,10 @@ fn start_tunnel(
         relay: spec.relay,
         relay_shared,
     });
+    session.escalate_when_silent(
+        path_rx.clone(),
+        if spec.dialer { roam::SILENT_TUNNEL_DIALER } else { roam::SILENT_TUNNEL_ANSWER },
+    );
     let weak = Arc::downgrade(&session);
     tokio::spawn(async move {
         while nudge_rx.recv().await.is_some() {
@@ -2667,7 +2783,7 @@ pub(super) fn dial_wireguard<'a>(
         let effective = effective_options(options);
         let options: &DialOptions = &effective;
         let socket = bind_udp().map_err(transport_error)?;
-        let (gathered, turn) = match early {
+        let (gathered, allocated) = match early {
             Some(mut early) => {
                 let stun_side = early.stun.take();
                 tokio::join!(gather_endpoints(&socket, options, stun_side), early.carrier())
@@ -2680,6 +2796,23 @@ pub(super) fn dial_wireguard<'a>(
                 )
             }
         };
+        // A proxy refused TURN over TLS (sign-in the link cannot do, a policy).
+        // With no UDP that works either (UDP off, STUN silent, or no STUN server
+        // even resolved: a network whose DNS names only what its proxy may
+        // reach) and no relay to try next, say the proxy's reason now instead
+        // of a timeout. With a relay, it is the next way out (#53163), and the
+        // diagnosis keeps the proxy's reason.
+        let unresolved = gathered.stun.is_empty() && !stun_servers(&options.ice_servers).is_empty();
+        let udp_useless = no_plain_udp(options) || gathered.udp_looks_blocked() || unresolved;
+        if let Some(refusal) = allocated.refusal.as_ref().filter(|_| allocated.carrier.is_none()) {
+            options.diagnosis.turn_refused_by_proxy(&refusal.to_string(), turn_host(options));
+        }
+        if options.relay.is_none()
+            && let Some(error) = refused_by_proxy(udp_useless, &allocated)
+        {
+            return Err(error);
+        }
+        let turn = allocated.carrier;
         if no_plain_udp(options) && turn.is_none() && options.relay.is_none() {
             return Err(DialError::Transport("no TURN allocation, and plain UDP is off".into()));
         }
@@ -2887,19 +3020,7 @@ pub(super) fn dial_wireguard<'a>(
         // after the main one so the Mac tells them apart by order. Its
         // own socket buffers keep keystrokes out of the main stream's
         // 256 KiB send buffer.
-        let lane = agreed.then(|| {
-            let (tx, rx) = oneshot::channel();
-            tokio::spawn(async move {
-                match tokio::time::timeout(LANE_TIMEOUT, net.connect(link_addr)).await {
-                    Ok(Ok(stream)) => {
-                        let _ = tx.send(Box::new(stream) as Box<dyn super::LinkStream>);
-                    }
-                    Ok(Err(error)) => tracing::info!(%error, "input lane did not connect"),
-                    Err(_) => tracing::info!("input lane did not connect in time"),
-                }
-            });
-            rx
-        });
+        let lane = agreed.then(|| open_lane(Arc::clone(&net), link_addr));
         // A media session needs the tunnel's lane as its floor.
         let webrtc_media = webrtc_media_agreed && media.is_some();
         dormant::superseded(true, mac);
@@ -3135,12 +3256,9 @@ impl Dialer for WireGuardDialer {
             let lane = if agreed {
                 let (tx, rx) = oneshot::channel();
                 tokio::spawn(async move {
-                    if let Ok(Some(stream)) = tokio::time::timeout(LANE_TIMEOUT, listener.accept()).await {
-                        let _ = tx.send(Box::new(stream) as Box<dyn super::LinkStream>);
-                    } else {
-                        tracing::info!("input lane was not opened in time");
-                    }
-                    if let Some(keeper) = resumes.upgrade() {
+                    if accept_lane(&mut listener, tx, "dialed").await
+                        && let Some(keeper) = resumes.upgrade()
+                    {
                         keeper.serve_resumes(listener);
                     }
                 });
@@ -3720,7 +3838,7 @@ mod tests {
             gather_endpoints(&socket, options, Some(stun_side)),
             turn_beside(options, eager, turn_side)
         );
-        (gathered, turn, started.elapsed())
+        (gathered, turn.carrier, started.elapsed())
     }
 
     /// A network that drops UDP (a hotel, a guest network): STUN never
