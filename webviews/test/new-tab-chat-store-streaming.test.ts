@@ -159,6 +159,105 @@ test("a held-back list never replaces a newer list another page wrote in its win
   expect(store.sharedSessions([])[0]?.sessionId).toBe("s-0005");
 });
 
+// The New Tab's folder menu flipped between a few folders and many while open (5 -> 13 -> 5
+// worktrees): a page whose client holds only the newest window of the list (`sessionsWindowed`, the
+// first page of 200) and a page that holds the whole list replaced each other's list in the store
+// twice a second. A window now says nothing about the chats older than its oldest row.
+const WHOLE = 1000;
+const WINDOW = 200;
+
+/// One chat per folder, newest first, so the store's folders are its chats.
+function folderChat(n: number, updatedAt = T0 - n * 60_000): AcpmuxSessionEntry {
+  return { ...chat(n, updatedAt), cwd: `/Users/you/src/f${String(n).padStart(4, "0")}` };
+}
+
+const wholeList = () => Array.from({ length: WHOLE }, (_, index) => folderChat(index));
+const windowed = (sessions: AcpmuxSessionEntry[]) => ({ ...connected(sessions), sessionsWindowed: true as const });
+
+async function hearOtherPage(text: string): Promise<void> {
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  window.localStorage.setItem(store.CHAT_STORE_KEY_FOR_TESTS, text);
+  window.dispatchEvent(new window.StorageEvent("storage", { key: store.CHAT_STORE_KEY_FOR_TESTS, newValue: text }));
+}
+
+async function storedFolders(): Promise<Set<string>> {
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  return new Set(store.sharedSessions([]).map((session) => session.cwd ?? ""));
+}
+
+test("a page that holds only the newest window never takes the older chats' folders out of the store", async () => {
+  jest.useFakeTimers();
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  let whole = wholeList();
+  let at = T0;
+  await hearOtherPage(store.encodeChatStoreForTests(whole, (at += 10)));
+  expect((await storedFolders()).size).toBe(WHOLE);
+  for (let round = 0; round < 6; round += 1) {
+    // This page's window: its newest 200 chats, one of them just moved.
+    const moved = round % WINDOW;
+    const window_ = whole
+      .slice(0, WINDOW)
+      .map((entry, index) => (index === moved ? folderChat(index, T0 + round + 1) : entry));
+    store.publishSessions(windowed(window_), (at += 10));
+    jest.advanceTimersByTime(1_000);
+    expect((await storedFolders()).size).toBe(WHOLE);
+    expect(JSON.parse(window.localStorage.getItem(store.CHAT_STORE_KEY_FOR_TESTS)!).sessions).toHaveLength(WHOLE);
+    // The page that holds every chat writes its whole list again.
+    whole = whole.map((entry, index) =>
+      index === WINDOW + round ? folderChat(index, T0 - index * 60_000 + 1) : entry,
+    );
+    await hearOtherPage(store.encodeChatStoreForTests(whole, (at += 10)));
+    expect((await storedFolders()).size).toBe(WHOLE);
+    // Another windowed page writes its window over the same store.
+    await hearOtherPage(store.encodeChatStoreForTests(whole.slice(0, WINDOW), (at += 10), true));
+    expect((await storedFolders()).size).toBe(WHOLE);
+  }
+});
+
+test("a window drops a chat gone from its range and keeps the chats older than it", async () => {
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  const whole = wholeList();
+  await hearOtherPage(store.encodeChatStoreForTests(whole, T0 + 10));
+  const window_ = whole.slice(0, WINDOW).filter((session) => session.sessionId !== "s-0050");
+  store.publishSessions(windowed(window_), T0 + 20);
+  const ids = new Set(store.sharedSessions([]).map((session) => session.sessionId));
+  expect(ids.has("s-0050")).toBe(false);
+  expect(ids.has("s-0049")).toBe(true);
+  expect(ids.has("s-0500")).toBe(true);
+  expect(ids.size).toBe(WHOLE - 1);
+});
+
+test("a whole list still replaces the store: a chat gone from it goes", async () => {
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  const whole = wholeList();
+  await hearOtherPage(store.encodeChatStoreForTests(whole, T0 + 10));
+  store.publishSessions(connected(whole.slice(0, 300)), T0 + 20);
+  const ids = store.sharedSessions([]).map((session) => session.sessionId);
+  expect(ids).toHaveLength(300);
+  expect(ids.includes("s-0500")).toBe(false);
+});
+
+test("a window that changes nothing in the store writes nothing and wakes nobody", async () => {
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  const whole = wholeList();
+  await hearOtherPage(store.encodeChatStoreForTests(whole, T0 + 10));
+  const before = store.sharedSessions([]);
+  const proto = window.Storage.prototype;
+  const setItem = proto.setItem;
+  let writes = 0;
+  proto.setItem = function (this: Storage, key: string, value: string) {
+    if (key === store.CHAT_STORE_KEY_FOR_TESTS) writes += 1;
+    setItem.call(this, key, value);
+  };
+  try {
+    store.publishSessions(windowed(whole.slice(0, WINDOW)), T0 + 20);
+  } finally {
+    proto.setItem = setItem;
+  }
+  expect(writes).toBe(0);
+  expect(store.sharedSessions([])).toBe(before);
+});
+
 // Leo 2026-11-22: "i feel likesometimes there's like... lags every few frames or something. like a regular
 // stutter". A V8 profile of his NIGHTLY's agent pages showed each 500 ms write re-encoding every chat and parsing
 // the text back, 20 to 47 ms on the page's main thread each time. A write now encodes only the entries that changed
