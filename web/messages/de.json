@@ -5776,5 +5776,13 @@
     "unavailableTitle": "Anmeldung konnte nicht bestätigt werden",
     "unavailableBody": "Unser Anmeldedienst ist ausgelastet. Warte ein paar Sekunden und öffne die Einladung erneut. Du musst dich nicht erneut anmelden.",
     "retry": "Erneut versuchen"
+  },
+  "analyticsConsent": {
+    "label": "Analyse",
+    "message": "Dürfen wir Analysen nutzen, um zu sehen, wie die Website verwendet wird? Ohne deine Zustimmung wird nichts erfasst und kein Analyse-Cookie gesetzt.",
+    "privacy": "Datenschutzerklärung",
+    "accept": "Erlauben",
+    "decline": "Nein danke",
+    "settings": "Analyse-Einstellungen"
   }
 }

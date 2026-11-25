@@ -42,6 +42,9 @@ PAID_MACOS = re.compile(r"blacksmith-\d+vcpu-macos-[a-z0-9]+|\bvars\.MACOS_RUNNE
 # The fork branches: `github.repository_owner != 'manaflow-ai' && '<hosted>'` (a fork's own
 # repository) and a fork pull request's `... head.repo.full_name != github.repository [&& !contains(...)]
 # && '<label>'`. Only these short-circuits are taken out; anything after them still counts.
+# The shared Mac pool a plain-Mac job names behind vars.CI_OVERFLOW_MAC (docs/design/ci-v2.md). Leo:
+# "unfuck the labels. idk why you guys named them such stupid things in the first place."
+CMUX_MAC = "'cmux-mac'"
 FORK_BRANCHES = (
     re.compile(r"github\.repository_owner != 'manaflow-ai' && '[^']+'"),
     re.compile(r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name "
@@ -151,7 +154,7 @@ def pinned_jobs(tree: sources.Tree) -> dict[tuple[str, str], str]:
             runs_on = str(job.get("runs-on") or "")
             if not PAID_MACOS.search(strip_fork_branches(runs_on)):
                 continue
-            if workflow.why(runs_on, key, set()):
+            if workflow.why(runs_on, key, set()) or CMUX_MAC in runs_on:
                 continue
             if read_inputs(workflow, key, runs_on) & passed.get(path, set()):
                 continue

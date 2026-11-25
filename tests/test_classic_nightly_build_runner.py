@@ -6,7 +6,10 @@ scripts/ci/classic_nightly_build_runner.py, and the runs-on in nightly.yml that 
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
+import gzip
+import json
 import os
 import re
 import sys
@@ -333,6 +336,8 @@ class EveryLabelDead(unittest.TestCase):
                 self.assertTrue(steps)
                 for env in steps:
                     self.assertIn("RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}", env)
+                    if "TRUSTED_RUNNER:" in env and name == "nightly.yml":
+                        self.assertIn("RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}", env)
 
 
 class Main(unittest.TestCase):
@@ -364,6 +369,66 @@ class Main(unittest.TestCase):
                          "TRUSTED_RUNNER": RUNNER, "ENABLED": "1", "GITHUB_OUTPUT": str(out)},
                         read_runners=boom, read_snapshot=boom, now=NOW)
             self.assertIn(f"cloud={picker.LARGE}", out.read_text())
+
+
+def census(rows=(), groups=None, *, at=NOW, schema="runner-state/v1", complete=True) -> str:
+    state = {"schema": schema, "generated_at": at.isoformat(), "complete": complete,
+             "repository_runners": rows if isinstance(rows, int) else list(rows), "runner_groups": groups or {}}
+    return base64.b64encode(gzip.compress(json.dumps(state).encode())).decode()
+
+
+class Census(unittest.TestCase):
+    """A refused runner list is judged from vars.CI_RUNNER_STATE, so a pinned pair nobody carries goes to the cloud."""
+
+    def refused(self, state, argv=()):
+        def boom(token, repo):
+            raise RuntimeError("HTTP Error 403: Forbidden")
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory) / "out"
+            clock = Clock()
+            picker.main({"GITHUB_REPOSITORY": "o/r", "ROUTE_TOKEN": "t", "TRUSTED_POOL": POOL, "TRUSTED_RUNNER": RUNNER,
+                         "ENABLED": "1", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_OUTPUT": str(out),
+                         **({"RUNNER_STATE": state} if state is not None else {})},
+                        argv=argv, read_runners=boom, read_snapshot=lambda token, repo: None,
+                        now=NOW, sleep=clock.sleep, clock=clock)
+            return dict(line.split("=", 1) for line in out.read_text().split())["trusted"], clock.at
+
+    def test_decodes_repository_and_group_rows_with_either_label_shape(self) -> None:
+        rows = picker.census_runners(census([{"status": "online", "busy": False, "labels": [POOL, RUNNER]}],
+                                            {"7": [runner(POOL, "glaeda-runner-other")]}), NOW)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(picker.runner_state(POOL, RUNNER, rows), "idle")
+
+    def test_a_stale_future_incomplete_foreign_or_broken_census_stays_unread(self) -> None:
+        cases = {"stale": census(at=NOW - dt.timedelta(minutes=31)),
+                 "future": census(at=NOW + dt.timedelta(minutes=1)),
+                 "incomplete": census(complete=False), "schema": census(schema="runner-state/v0"),
+                 "not base64": "%%%", "not gzip": base64.b64encode(b"{}").decode(), "empty": "",
+                 "oversize": "A" * (picker.CENSUS_MAX_ENCODED + 1)}
+        for name, raw in cases.items():
+            with self.subTest(name):
+                self.assertIsNone(picker.census_runners(raw, NOW))
+        self.assertIsNone(picker.census_runners(None, NOW))
+
+    def test_a_census_of_the_wrong_shape_never_fails_the_job(self) -> None:
+        for name, raw in {"int rows": census(5), "int group": census(groups={"7": 5})}.items():
+            with self.subTest(name):
+                self.assertIsNone(picker.census_runners(raw, NOW))
+        rows = picker.census_runners(census([{"status": "online", "labels": 5}, runner(POOL, RUNNER)]), NOW)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(self.refused(census([{"status": "online", "labels": 5}]))[0], "false")
+
+    def test_a_refused_list_with_no_carrier_in_the_census_takes_the_cloud_at_once(self) -> None:
+        nobody = census([runner(POOL, "glaeda-runner-cmux7s"), runner(POOL, RUNNER, status="offline")])
+        self.assertEqual(self.refused(nobody), ("false", 0))
+        self.assertEqual(self.refused(nobody, argv=["prepare"]), ("false", 0))
+
+    def test_a_refused_list_with_an_idle_carrier_in_the_census_keeps_the_mini(self) -> None:
+        self.assertEqual(self.refused(census([runner(POOL, RUNNER)])), ("true", 0))
+
+    def test_a_refused_list_without_a_census_keeps_the_pinned_pair(self) -> None:
+        self.assertEqual(self.refused(None)[0], "true")
+        self.assertEqual(self.refused(census(at=NOW - dt.timedelta(hours=2)))[0], "true")
 
 
 class Prepare(unittest.TestCase):

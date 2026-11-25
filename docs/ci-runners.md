@@ -1034,12 +1034,13 @@ nobody serves.
 | `macos_intel` | GitHub-hosted `macos-15-intel`: Blacksmith has no Intel Mac (the dispatch-only compatibility leg) |
 
 A pool may declare `min_vcpu`, the smallest size its jobs fit in (Blacksmith
-gives 4 GB per vCPU). When every member is dead the release valve offers only
-smaller sizes at or above it; with none live, the pool waits on its first
-member. `linux_16` and `linux_32` declare 8, and a pool led by 16 vCPU or more
+gives 4 GB per vCPU); no member may be below it. When every member is dead the
+pool waits on its first member: RUNNER_POOLS never names a label outside a
+pool's declared members (`runner_pools.allowed()`). `linux_16` and `linux_32` declare 8, and a pool led by 16 vCPU or more
 must declare one (`runner_pools.spec_problems()`). The tree build's raw
 variables `LINUX_BUILD_RUNNER` and `LINUX_RUNNER_DARWIN_CROSS` have the same
-floor (`RAW_LABEL_MIN_VCPU`). On 2026-11-18 the valve without a floor sent the
+floor (`RAW_LABEL_MIN_VCPU`) and move only to members of a pool that declares
+their label. On 2026-11-18 a release valve (since removed) sent the
 fat-LTO cmux-tui build to 4 and 2 vCPU, where rustc was killed out of memory,
 and no NEXT nightly could publish.
 
