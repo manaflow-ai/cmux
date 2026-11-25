@@ -69,7 +69,13 @@ pub(crate) fn key(destination: &str) -> String {
 
 /// The master options for `path`, with its directory made private (0700); None when the
 /// directory cannot be made.
-pub(crate) fn options(path: &Path) -> Option<[String; 6]> {
+///
+/// They carry the tunnel's keepalive (`tunnel_argv`): the master's connection takes the options
+/// of whichever ssh logged in, and a token read that runs before the tunnel (a redial after the
+/// remote restarted) becomes the master. Without them that master never probes its connection,
+/// so after a network change it stays up, dead, and every mux client of it hangs. A mux client
+/// ignores them: its channel rides the master's connection.
+pub(crate) fn options(path: &Path) -> Option<[String; 10]> {
     let dir = path.parent()?;
     private_dir(dir).ok()?;
     // ssh expands `%` and `~` in ControlPath: a literal `%` is written `%%`.
@@ -81,6 +87,10 @@ pub(crate) fn options(path: &Path) -> Option<[String; 6]> {
         format!("ControlPath={path}"),
         "-o".into(),
         format!("ControlPersist={CONTROL_PERSIST_SECS}"),
+        "-o".into(),
+        format!("ServerAliveInterval={}", crate::peer::SSH_ALIVE_INTERVAL_SECS),
+        "-o".into(),
+        format!("ServerAliveCountMax={}", crate::peer::SSH_ALIVE_COUNT_MAX),
     ])
 }
 

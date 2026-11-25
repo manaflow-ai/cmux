@@ -114,6 +114,11 @@ async fn every_ssh_to_a_host_names_its_one_master_under_the_home() {
             &format!("ControlPath={}", path.display()),
             "-o",
             &format!("ControlPersist={CONTROL_PERSIST_SECS}"),
+            // Whichever ssh becomes the master (the token read, on a redial) keeps it probed.
+            "-o",
+            &format!("ServerAliveInterval={}", crate::peer::SSH_ALIVE_INTERVAL_SECS),
+            "-o",
+            &format!("ServerAliveCountMax={}", crate::peer::SSH_ALIVE_COUNT_MAX),
         ]
     );
     assert_eq!(args(&again), args(&a), "two peers of one host share its master");
