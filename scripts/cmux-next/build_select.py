@@ -15,7 +15,7 @@ Reads `git diff BASE HEAD` (no GitHub API, no fleet) and prints one line per app
         build   a new Mac app: Swift outside a function body, a manifest, resource, entitlement, or a helper
                 the app bundles (cmux-mobile-host builds from cmux-next-ios/rust, so an iPhone link change is a
                 Mac change too)
-  ios   none    nothing the iPhone app builds changed (cmux-next-ios-kit.yml's pull_request path filter, the
+  ios   none    nothing the iPhone app builds changed (the ios-kit step's inputs in ci/steps.toml, the
                 same filter that starts the iPhone try build-ahead)
         build   the iPhone app changed
 
@@ -92,12 +92,14 @@ def path_filter(patterns: list[str]):
 
 
 def ios_filter(repo: Path):
-    import ios_app_package_paths as ios_paths
-    text = (repo / IOS_WORKFLOW).read_text(encoding="utf-8")
-    patterns = ios_paths.workflow_filters(text).get("pull_request") or []
-    if not patterns:
-        raise SystemExit(f"build_select: {IOS_WORKFLOW} has no pull_request paths filter")
-    return path_filter(patterns)
+    """What the iPhone app builds: the `ios-kit` step's inputs less its `ignore` (ci/steps.toml; a feat-cmux-next
+    pull request runs the kit there, CI v2 step 11, and cmux-next-ios-kit.yml no longer has a pull_request filter)."""
+    import ci_steps
+    step = ci_steps.load(repo / "ci/steps.toml").steps.get("ios-kit")
+    if step is None or not step.inputs:
+        raise SystemExit("build_select: ci/steps.toml has no ios-kit step with inputs")
+    included, dropped = path_filter(list(step.inputs)), path_filter(list(step.ignore))
+    return lambda path: included(path) and not dropped(path)
 
 
 def _under(path: str, roots: list[str]) -> bool:
