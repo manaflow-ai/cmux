@@ -568,6 +568,7 @@ struct TransportPage: View {
     #if DEBUG
     @AppStorage(DeveloperOptions.relayOnlyKey) private var relayOnly = false
     @AppStorage(DeveloperOptions.blockUDPKey) private var blockUDP = false
+    @AppStorage(DeveloperOptions.forceRelayKey) private var forceRelay = false
     @AppStorage(DeveloperOptions.browserVideoOnChannelKey) private var browserVideoOnChannel = false
     #endif
 
@@ -650,6 +651,11 @@ struct TransportPage: View {
                 }
                 .disabled(relayAvailable == false && !blockUDP)
                 .accessibilityIdentifier("settings.transport.blockUDP")
+                // The last resort on its own: cmux's WebSocket relay over HTTPS, at the next connection.
+                Toggle(isOn: $forceRelay) {
+                    Text("Relay via cmux (HTTPS) only")
+                }
+                .accessibilityIdentifier("settings.transport.forceRelay")
                 Toggle(isOn: $browserVideoOnChannel) {
                     Text("Browser video on channel")
                 }
@@ -788,6 +794,7 @@ struct Acknowledgement: Sendable {
             Acknowledgement("marked", "MIT", "Markdown in the Feed", "https://github.com/markedjs/marked"),
             Acknowledgement("Temml", "MIT", "Math", "https://github.com/ronkok/Temml"),
             Acknowledgement("highlight.js", "BSD 3-Clause", "Code highlighting", "https://github.com/highlightjs/highlight.js"),
+            Acknowledgement("Geist", "SIL OFL 1.1", "The welcome screen's wordmark and tagline", "https://github.com/vercel/geist-font"),
         ]),
     ]
 }

@@ -165,6 +165,8 @@ fn scrolling_up_after_a_rotation() {
 #[ignore = "bench"]
 fn layout_change_before_and_after() {
     use ghostty_vt::{Callbacks, Terminal as Vt};
+    type LayoutChange = (&'static str, (usize, usize), (usize, usize));
+
     let vt =
         |c: usize, r: usize| Vt::new(c as u16, r as u16, 256 << 20, Callbacks::default()).unwrap();
     let history_bytes = |rows: usize| {
@@ -175,9 +177,7 @@ fn layout_change_before_and_after() {
         bytes.extend_from_slice(b"$ ");
         bytes
     };
-    // (name, phone grid before, phone grid after), each grid (cols, rows).
-    type Change<'a> = (&'a str, (usize, usize), (usize, usize));
-    let changes: [Change; 2] =
+    let changes: [LayoutChange; 2] =
         [("keyboard toggle", (52, 38), (52, 20)), ("rotation", (52, 38), (112, 17))];
     let mut table = String::from(
         "| change | load | history rows | before: CPU per change | before: bytes sent | after: CPU per change | after: bytes sent |\n|---|---|---:|---:|---:|---:|---:|\n",
