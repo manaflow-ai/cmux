@@ -489,10 +489,16 @@ const sameIds = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
 /// visible assistant rows of `previous` from the first changed row on, read from those rows: no set
 /// of every reply id in the chat is copied per update (a god chat's thousands of replies made each
 /// streamed token cost more the longer the chat, CMUX-571).
+///
+/// A reply older than `heldFromAt` (the oldest record the chat holds) is not in a gap: the chat let go of it with its
+/// records (direct.ts `shedOlderHeld`), and it stays gone. Kept, a running turn that never ends put back every reply
+/// it ever streamed: each snapshot's source held the last one's kept replies, so the turn's drawn rows grew with
+/// every record (chat-100k-flat running_x1: 34,000 drawn rows over a chat holding 1,300, and every row's caches).
 const retainVisibleReplies = (
   rows: readonly AcpmuxRow[],
   previous: readonly AcpmuxRow[] | undefined,
   supersededReplyIds: ReadonlySet<string> | undefined,
+  heldFromAt = Number.NEGATIVE_INFINITY,
 ): readonly AcpmuxRow[] => {
   if (!previous) return rows;
   const changedAt = Math.max(0, keptPrefix(previous, rows) - 1);
@@ -502,7 +508,12 @@ const retainVisibleReplies = (
   const missingReplyIds = new Set<string>();
   for (let index = changedAt; index < previous.length; index += 1) {
     const row = previous[index]!;
-    if (row.kind === "assistant" && !supersededReplyIds?.has(row.id) && !isVisiblyEmptyMessage(row))
+    if (
+      row.kind === "assistant" &&
+      row.at >= heldFromAt &&
+      !supersededReplyIds?.has(row.id) &&
+      !isVisiblyEmptyMessage(row)
+    )
       missingReplyIds.add(row.id);
   }
   for (const row of changedRows)
@@ -598,6 +609,7 @@ export function turnViewFrom(
     messageBreaks = NO_MESSAGE_BREAKS,
     trayAgents = 0,
     supersededReplyIds,
+    heldFromAt,
   }: {
     now?: number;
     working?: boolean;
@@ -614,6 +626,8 @@ export function turnViewFrom(
     trayAgents?: number;
     /// Reply row ids explicitly removed by a message_superseded event; refresh retention must not resurrect them.
     supersededReplyIds?: ReadonlySet<string>;
+    /// The time of the oldest record the chat holds (snapshot `heldFromAt`): refresh retention keeps no reply older.
+    heldFromAt?: number;
   } = {},
   previous?: TurnView,
   /// At most this many of `previous`'s turns are reused (a Retry that moved onto or off one of them).
@@ -633,7 +647,7 @@ export function turnViewFrom(
     firstDateUnchanged(previous, now)
   )
     return previous;
-  const retainedRows = retainVisibleReplies(rows, previous?.source, supersededReplyIds);
+  const retainedRows = retainVisibleReplies(rows, previous?.source, supersededReplyIds, heldFromAt);
   if (retainedRows !== rows)
     return turnViewFrom(
       retainedRows,
@@ -648,6 +662,7 @@ export function turnViewFrom(
         messageBreaks,
         trayAgents,
         supersededReplyIds,
+        heldFromAt,
       },
       previous,
     );
@@ -1491,8 +1506,9 @@ function steadyRows(user: AcpmuxRow, shaped: AcpmuxRow[]): AcpmuxRow[] {
   // One map for the turn's life, written only where a row changed: a record into a turn of
   // thousands of rows looks up and compares only the rows it handed over as new objects (a row
   // drawn last time in the same place as the same object is passed by), never rebuilding the map.
-  // An id that left keeps its last row, which only ever stands in for an equal one.
-  const byId = before?.byId ?? new Map<string, AcpmuxRow>();
+  // An id that left keeps its last row, which only ever stands in for an equal one, until the ids
+  // that left outnumber the rows drawn (below).
+  let byId = before?.byId ?? new Map<string, AcpmuxRow>();
   const drawn = before?.drawn;
   let out: AcpmuxRow[] | undefined;
   for (let at = 0; at < shaped.length; at += 1) {
@@ -1505,9 +1521,19 @@ function steadyRows(user: AcpmuxRow, shaped: AcpmuxRow[]): AcpmuxRow[] {
     else byId.set(row.id, row);
   }
   const result = out ?? shaped;
+  // A turn that never ends (a coordinator's) lets go of its oldest records (direct.ts `shedOlderHeld`), and their
+  // rows leave the drawn ones for good. Kept here, every row the turn ever drew stayed alive, and with it each
+  // row's entries in the caches keyed by row or tool (messageRuns.ts, acpmuxMcpSends.ts, toolNames.ts ...): a
+  // running turn of 100k records held about 40 MB of renderer heap no row on screen used (chat-100k-flat
+  // running_x1). Once the map holds twice the rows drawn it is made again from them: O(rows drawn) once per as
+  // many rows that left, so O(1) a record, and the map stays within twice the turn's held rows.
+  if (byId.size > 2 * result.length + LIVE_ROWS_SLACK) byId = new Map(result.map((row) => [row.id, row]));
   drawnTurnRows.set(user, { byId, drawn: result });
   return result;
 }
+
+/// The ids that left the running turn's drawn rows its map keeps before it is made again (`steadyLiveRows`).
+const LIVE_ROWS_SLACK = 64;
 
 /// How deep `sameShape` compares: a row, its fields' objects and arrays (a group's rows, a tool
 /// call's content), and theirs. Deeper values must be the same object.
