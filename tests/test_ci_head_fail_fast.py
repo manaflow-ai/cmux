@@ -109,7 +109,7 @@ class HeadFailFastTest(unittest.TestCase):
         callers = {"cmux-next.yml": ["app-compile-fleet", "fast-tier", "fast-tier-cargo", "web-bundles",
                                      "generated-files"],
                    "cmux-next-fast-gates.yml": ["fast-gates"], "cmux-next-guards.yml": ["tooling-tests"],
-                   "pr-pipeline.yml": ["linux"]}
+                   "pr-router.yml": ["pipeline"]}
         for wf, jobs in callers.items():
             with open(os.path.join(WORKFLOWS, wf), encoding="utf-8") as fh:
                 text = fh.read()
