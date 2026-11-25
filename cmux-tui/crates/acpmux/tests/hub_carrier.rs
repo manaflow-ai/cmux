@@ -3613,3 +3613,143 @@ async fn send_as_a_move_lands(asking: bool) {
     }
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A chat moved around a ring of three of the person's machines over the hub (A to B, a turn on
+/// B, B to C, a turn on C, C back to A) comes back to A with every turn: the bench's ring lost
+/// each turn run away from A once the chat came home to A's older copy. Each machine it left
+/// keeps only a closed record that names where the chat went, never a live copy.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_chat_moved_around_a_ring_comes_home_with_every_turn() {
+    use acpmux::mesh::InMessage;
+    use acpmux::mesh_http::MeshControlFrom;
+    use acpmux::server::mesh_relay::{ControlHook as _, MeshControlHook};
+    use acpmux::transfer_service::{CarrierDial, ConfiguredTransferGate};
+
+    let _ = HERMETIC;
+    let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_address = relay_listener.local_addr().unwrap();
+    let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
+        allow_open: true,
+        ..cmux_relay::RelayConfig::default()
+    })
+    .unwrap();
+    let (relay_listener, router) = relay.server_parts(relay_listener);
+    tokio::spawn(async move {
+        let _ = axum::serve(relay_listener, router).await;
+    });
+    let route = format!("relay+ws://{relay_address}");
+    let fast = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        ..Timings::default()
+    };
+    let home = dirs::home_dir().expect("a home directory");
+    let root = home.join(format!("acpmux-hub-move-ring-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let root = std::fs::canonicalize(&root).unwrap();
+    let root_text = root.to_string_lossy().into_owned();
+    let keys = [random_key(), random_key(), random_key()];
+    let ids: Vec<String> = keys.iter().map(public).collect();
+    let names = ["machine-a", "machine-b", "machine-c"];
+    let mut hubs = Vec::new();
+    let mut serving = Vec::new();
+    for (i, key) in keys.iter().enumerate() {
+        let mut cfg = config();
+        for profile in cfg.harnesses.values_mut() {
+            profile.env.insert("FAKE_SESSION_PREFIX".into(), "fake-session-".into());
+        }
+        cfg.web_roots = vec![root_text.clone()];
+        let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let h = Hub::new(cfg, store);
+        let others: Vec<String> = (0..3).filter(|j| *j != i).map(|j| ids[j].clone()).collect();
+        let carrier = HubCarrier::new(
+            Arc::new(FixedTickets {
+                relay: route.clone(),
+                peers: others,
+                asked: AtomicU64::new(0),
+            }),
+            *key,
+            fast,
+        );
+        carrier.set_transfer_gate(Arc::new(ConfiguredTransferGate::new(&h)));
+        h.set_mesh_book_machines(
+            (0..3).filter(|j| *j != i).map(|j| (ids[j].clone(), names[j].to_owned())).collect(),
+        );
+        let nothing = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+        serving.push(carrier.serve(nothing));
+        h.hub_carrier.set(carrier);
+        h.set_transfer_dial(Arc::new(CarrierDial::new(&h)));
+        hubs.push(h);
+    }
+    let ledger = tempfile::tempdir().unwrap();
+    let hook = MeshControlHook::new(
+        vec![MeshControlFrom {
+            daemon_id: String::new(),
+            max_policy: None,
+            same_user: true,
+            ops: vec!["move".into()],
+        }],
+        Some(ledger.path().join("mesh-controls.json")),
+    )
+    .with_own_user(Arc::new(|| Some("user-1".to_owned())));
+
+    let mut ca = client(hubs[0].clone()).await;
+    let s = ca.call(method::SESSION_NEW, json!({"cwd": root_text, "mcpServers": []})).await;
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let turn = |text: &str| json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
+    ca.call(method::SESSION_PROMPT, turn("turn on machine A")).await;
+    drop(ca);
+
+    // (from, to, the turn run on `to` once the chat is there)
+    let hops = [(0, 1, Some("turn on machine B")), (1, 2, Some("turn on machine C")), (2, 0, None)];
+    for (n, (from, to, then)) in hops.into_iter().enumerate() {
+        let mut cs = client(hubs[from].clone()).await;
+        let begin = cs
+            .call(
+                "_acpmux/transfer_begin",
+                json!({"sessionId": id, "to": {"hub": ids[to], "host": names[to]}}),
+            )
+            .await;
+        let body = json!({"version": 1, "transferId": begin["transferId"], "sessionId": id,
+                          "manifest": begin, "folder": {"cwd": root_text}});
+        let message: InMessage = serde_json::from_value(json!({
+            "messageId": format!("m-ring-{n}"), "kind": "control", "op": "move", "mode": "now",
+            "to": {"daemonId": ids[to]},
+            "from": {"daemonId": ids[from], "user": "user-1", "host": names[from]},
+            "body": body.to_string(),
+        }))
+        .unwrap();
+        let ack = within("the pull over the relay", hook.control(&hubs[to], &message)).await;
+        let ack = serde_json::to_value(ack.expect("an answer within the hook's wait")).unwrap();
+        assert_eq!(ack["state"], "delivered", "hop {n}: {ack}");
+        let moved_to = json!({"host": names[to], "via": "hub", "sessionId": id, "cwd": root_text});
+        let committed = cs
+            .call(
+                "_acpmux/transfer_commit",
+                json!({"sessionId": id, "transferId": begin["transferId"], "to": moved_to,
+                       "epoch": begin["epoch"]}),
+            )
+            .await;
+        assert_eq!(committed["committed"], true, "hop {n}: {committed}");
+        if let Some(text) = then {
+            let mut ct = client(hubs[to].clone()).await;
+            ct.call(method::SESSION_PROMPT, turn(text)).await;
+        }
+    }
+
+    let mut ca = client(hubs[0].clone()).await;
+    let users = user_texts(&all_events(&mut ca, &id).await);
+    let want: Vec<String> = ["turn on machine A", "turn on machine B", "turn on machine C"]
+        .iter()
+        .map(|t| t.chars().take(16).collect())
+        .collect();
+    assert_eq!(users, want, "the chat came home to A without the turns run away from it");
+    let home_copy = hubs[0].resolve(&id).expect("the chat is on A");
+    assert!(home_copy.meta().moved_to.is_none(), "A's copy still names a move away");
+    for (i, h) in hubs.iter().enumerate().skip(1) {
+        let left = h.resolve(&id).expect("a closed record of the move");
+        assert!(left.meta().moved_to.is_some(), "{}: still holds the chat as its own", names[i]);
+    }
+    drop(serving);
+    let _ = std::fs::remove_dir_all(&root);
+}
