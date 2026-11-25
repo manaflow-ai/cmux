@@ -325,7 +325,11 @@ type BenchWindow = {
   __firstLoad: Recording;
   __benchHost: { tailAskedAt: number; tailCalls: number; readyAnsweredAt: number; asks: number[] };
   __cmuxChatSnapshotMiss?: string;
-  __cmuxChatSnapshotShown?: { at: number; swappedAt?: number };
+  __cmuxChatSnapshotShown?: {
+    at: number;
+    swappedAt?: number;
+    hold?: { by: string; at: number; differs?: string };
+  };
   captureSnapshot: (doc: Document, theme: string) => ChatSnapshot | undefined;
   captureMiss: () => string;
 };
@@ -655,6 +659,10 @@ type Round = {
   /// When the copy drew and when the live page took over (chatSnapshot/paint.ts, live.ts), ms from navigation.
   copyShownMs: number | null;
   swapMs: number | null;
+  /// How the copy's wait for the chat's draft ran out (draftSettleHold.ts): the composer showed the
+  /// copy's when the rows came in (`shown`) or later (`match`), the 2 s cap (`cap`, with what still
+  /// differed), or the draft read answered first (`read`); null with no copy.
+  hold: { by: string; atMs: number | null; differs: string | null } | null;
   /// Why no copy drew (boot.ts), or null when one did.
   copyMiss: string | null;
   tailAskedMs: number | null;
@@ -1252,6 +1260,7 @@ try {
           .map((shift) => ({ ...shift, at: shift.at - start.at })),
         copyShownMs: null,
         swapMs: null,
+        hold: null,
         copyMiss: "none: the spare draws the carried tail",
         tailAskedMs: null,
         readyAnsweredMs: null,
@@ -1347,6 +1356,13 @@ try {
         layoutShifts: got.layoutShifts,
         copyShownMs: got.shown?.at ?? null,
         swapMs: got.shown?.swappedAt ?? null,
+        hold: got.shown
+          ? {
+              by: got.shown.hold?.by ?? "read",
+              atMs: got.shown.hold?.at ?? null,
+              differs: got.shown.hold?.differs ?? null,
+            }
+          : null,
         copyMiss: got.miss,
         tailAskedMs: got.tailAskedAt || null,
         readyAnsweredMs: got.readyAnsweredAt || null,
@@ -1395,7 +1411,8 @@ try {
     layoutShift: (r: Round) => r.layoutShift,
     frames: (r: Round) => r.metrics.frames,
   } as const;
-  const json: Record<string, unknown> = { turns: TURNS, downMs: DOWN_MS, recordMs: RECORD_MS, rounds: ROUNDS };
+  // How long each round recorded is its mode's (`recordMs`: a refused mode records longer), so it goes with the mode.
+  const json: Record<string, unknown> = { turns: TURNS, downMs: DOWN_MS, rounds: ROUNDS };
   let failed = false;
   for (const [mode, rounds] of byMode) {
     console.log(
@@ -1530,6 +1547,16 @@ try {
     };
     console.log(`RESTART_SETTLED_JSON ${JSON.stringify(settledRow)}`);
     json[`${mode}.settled`] = settledRow;
+    // How each round's wait for the draft ran out: a composer that never matches the copy's holds the
+    // copy to the 2 s cap, the wait cmux#45669 removed (cmux#45994 review).
+    const holds: Record<string, number> = { shown: 0, match: 0, read: 0, cap: 0 };
+    for (const r of rounds) if (r.hold) holds[r.hold.by] = (holds[r.hold.by] ?? 0) + 1;
+    const differs = [...new Set(rounds.flatMap((r) => (r.hold?.differs ? [r.hold.differs] : [])))];
+    const counts = Object.entries(holds).map(([by, count]) => `${by} ${count}`);
+    console.log(
+      `draft wait [${mode}]: ${counts.join(", ")}${differs.length ? `; at the cap: ${differs.join(" | ")}` : ""}`,
+    );
+    json[`${mode}.hold`] = holds;
     for (const r of rounds) if (r.copyShownMs === null) console.log(`  warning: a round drew no copy (${r.copyMiss})`);
     // A round that never handed over to the live chat proves nothing: a copy held over the whole
     // recording paints no blank and no shift.
@@ -1608,6 +1635,7 @@ try {
       });
     }
     json[mode] = {
+      recordMs: recordMs(mode),
       rounds: rounds.map(({ frames: _frames, metrics: { blankAt: _blankAt, shiftAt, ...metrics }, ...rest }) => ({
         ...rest,
         ...metrics,

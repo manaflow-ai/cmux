@@ -108,6 +108,17 @@ pub const AGENT_TRANSFER_VM_KIND_CAPABILITY: &str = "agent-transfer-vm-kind-v1";
 /// here when the move does not happen. An older one stops it for good, so the pump asks for the
 /// Stop only from a source that lists this.
 pub const AGENT_TRANSFER_CONTINUES_CAPABILITY: &str = "agent-transfer-continues-v1";
+/// `begin_token` on `agent-transfer-begin`: acpmux keeps it with the move (also across a
+/// restart) and a `transfer.moving` refusal hands it back (`error_details.begin_token`), so a
+/// pump that lost its begin answer can prove the frozen move is its own and end it at once
+/// instead of waiting out the source's lease. An acpmux that keeps no token echoes none.
+pub const AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY: &str = "agent-transfer-begin-token-v1";
+/// The optional bundle files this daemon's acpmux takes on a receive, by acpmux's own ids
+/// (acpmux `capabilities::OPTIONAL_BUNDLE_FILES`): a pump leaves out of a move to a machine each
+/// one its `identify` does not list, so an older machine image takes the chat without it
+/// instead of refusing the whole move (`cmux link agent move`).
+pub const AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES: &[&str] =
+    &["transfer-composers-v1", "transfer-images-v1"];
 /// Tail first, history after (`agent_transfer/history_later.rs`): the prepare, stage and
 /// history verbs, `prepare_id` on a begin and `stage_id` on a receive.
 pub const AGENT_TRANSFER_HISTORY_LATER_CAPABILITY: &str = "agent-transfer-history-later-v1";
@@ -138,7 +149,7 @@ const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 /// Frame params refused on every verb (the guard is the daemon's own).
 const FORBIDDEN_PARAMS: &[&str] =
-    &["guard", "roots", "control", "env", "mcpServers", "sessionId", "session_id"];
+    &["guard", "roots", "control", "env", "mcpServers", "sessionId", "session_id", "preset"];
 
 /// What machine this daemon takes chats on, as the binary reads it at start
 /// (never from a request).
@@ -360,7 +371,6 @@ impl Mux {
 // MARK: Requests
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ReceiveParams {
     manifest: Map<String, Value>,
     cwd: String,
@@ -374,7 +384,6 @@ struct ReceiveParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct WriteParams {
     receive_id: String,
     path: String,
@@ -383,7 +392,6 @@ struct WriteParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct FinishParams {
     receive_id: String,
     #[serde(default)]
@@ -394,32 +402,31 @@ struct FinishParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ReceiveAbortParams {
     receive_id: String,
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct SourceParams {
     surface: SurfaceId,
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct BeginParams {
     surface: SurfaceId,
     #[serde(default)]
     interrupt: bool,
     #[serde(default)]
     ask_first: bool,
+    /// The pump's own mark for this begin ([`AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY`]).
+    #[serde(default)]
+    begin_token: Option<String>,
     /// The tail-first prepare the target staged (`agent-transfer-prepare`).
     #[serde(default)]
     prepare_id: Option<String>,
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ReadParams {
     transfer_id: String,
     path: String,
@@ -429,7 +436,6 @@ struct ReadParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct CommitParams {
     surface: SurfaceId,
     transfer_id: String,
@@ -437,7 +443,6 @@ struct CommitParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct AbortParams {
     surface: SurfaceId,
     transfer_id: String,
@@ -461,6 +466,11 @@ impl Verb {
         if params.keys().any(|key| {
             FORBIDDEN_PARAMS.contains(&key.as_str()) || COMMAND_PARAMS.contains(&key.as_str())
         }) {
+            return None;
+        }
+        // Other unknown fields are ignored, but a receive abort never names a move:
+        // the move is the receive's own.
+        if cmd == "agent-transfer-receive-abort" && params.contains_key("transfer_id") {
             return None;
         }
         let params = Value::Object(params);
@@ -572,8 +582,9 @@ enum Failure {
     Acpmux(String),
     /// A begin of a chat already in a move: acpmux's `transfer.moving`, with
     /// that move's id (`error_details.transfer_id`), so a pump that lost its
-    /// begin answer can resolve the move it began.
-    Moving(String, String),
+    /// begin answer can resolve the move it began, and the move's begin token when acpmux kept
+    /// one (`error_details.begin_token`).
+    Moving(String, String, Option<String>),
 }
 
 impl From<Refusal> for Failure {
@@ -595,7 +606,8 @@ impl From<LinkError> for Failure {
                 let moving = data.field("transferId").as_str().filter(|id| is_plain_id(id));
                 match moving {
                     Some(id) if message.starts_with("transfer.moving") => {
-                        Self::Moving(message, id.to_owned())
+                        let token = data.field("beginToken").as_str().filter(|t| is_plain_id(t));
+                        Self::Moving(message, id.to_owned(), token.map(str::to_owned))
                     }
                     _ => Self::Acpmux(message),
                 }
@@ -705,6 +717,7 @@ enum Prepared {
         session: String,
         interrupt: bool,
         ask_first: bool,
+        begin_token: Option<String>,
         /// The prepare it begins from, with its id.
         prefix: Option<(String, history_later::Prefix)>,
     },
@@ -801,7 +814,10 @@ fn prepare(mux: &Mux, client: u64, verb: Verb) -> Result<Prepared, Failure> {
                 }
             }
         }
-        Verb::Begin(BeginParams { surface, interrupt, ask_first, prepare_id }) => {
+        Verb::Begin(BeginParams { surface, interrupt, ask_first, begin_token, prepare_id }) => {
+            if begin_token.as_deref().is_some_and(|token| !is_plain_id(token)) {
+                return Err(Refusal::BadRequest.into());
+            }
             let session = tab_session(mux, surface).ok_or(Refusal::UnknownTab)?;
             let prefix = match prepare_id {
                 Some(id) => {
@@ -813,7 +829,7 @@ fn prepare(mux: &Mux, client: u64, verb: Verb) -> Result<Prepared, Failure> {
             if AgentTransfers::full(&mut lock(&transfers.moves), MAX_MOVES, |m| m.touched) {
                 return Err(Refusal::Limit.into());
             }
-            Prepared::Begin { session, interrupt, ask_first, prefix }
+            Prepared::Begin { session, interrupt, ask_first, begin_token, prefix }
         }
         Verb::Read(ReadParams { transfer_id, path, offset, limit }) => {
             let limit = limit.unwrap_or(DEFAULT_READ);
@@ -1011,12 +1027,15 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             }
             Ok(json!({"session": session}))
         }
-        Prepared::Begin { session, interrupt, ask_first, prefix } => {
+        Prepared::Begin { session, interrupt, ask_first, begin_token, prefix } => {
             if ask_first {
                 ask_first::narrow(&call, &session)?;
             }
             let source_session = session.clone();
             let mut params = json!({"sessionId": session, "interrupt": interrupt});
+            if let Some(token) = begin_token {
+                params.insert("beginToken", json!(token));
+            }
             if let Some((prepare_id, prefix)) = &prefix {
                 params.insert("prepareId", json!(prepare_id));
                 params.insert("afterSeq", json!(prefix.after_seq));
@@ -1124,8 +1143,12 @@ fn reply(writer: &MessageWriter, id: Option<Value>, result: Result<Value, Failur
             Some(format!("{}: {message}", Refusal::Refused.message())),
             Some(Refusal::Refused.code()),
         ),
-        Err(Failure::Moving(message, transfer_id)) => {
-            details = Some(json!({"transfer_id": transfer_id}));
+        Err(Failure::Moving(message, transfer_id, token)) => {
+            let mut moving = json!({"transfer_id": transfer_id});
+            if let Some(token) = token {
+                moving["begin_token"] = json!(token);
+            }
+            details = Some(moving);
             (
                 None,
                 Some(format!("{}: {message}", Refusal::Refused.message())),

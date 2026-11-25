@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileMarkdown
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -86,7 +87,7 @@ public struct AgentChatPreview: View {
             .allowsHitTesting(false)
             // Its rows draw their UIKit controls' stand-ins (`chatStill`): a tab card's picture
             // is an `ImageRenderer` still of this view.
-            .environment(\.chatStill, true)
+            .drawnAsStillPicture()
     }
 
     private var isEmpty: Bool { turns.map(\.isEmpty) ?? !store.hasTurns }
@@ -208,12 +209,8 @@ extension EnvironmentValues {
     /// a control UIKit draws (`Menu`, `ShareLink`, a text field) comes out as its yellow "can't
     /// render" placeholder (Leo, 2026-11-17: "Weird placeholder for retries esp in preview", the
     /// error card's Retry with another model). A row reads this and draws that control's label
-    /// as plain SwiftUI instead, at the same size, so the still looks like the live chat. The
-    /// transcript's text (`SelectableText`, a `UILabel` a hold selects in) reads the same flag.
-    var chatStill: Bool {
-        get { selectableTextIsStill }
-        set { selectableTextIsStill = newValue }
-    }
+    /// as plain SwiftUI instead, at the same size, so the still looks like the live chat.
+    @Entry var chatStill = false
 }
 
 /// The card's rows: the transcript's rows (memoized per turn, an answer parsed by its
@@ -262,6 +259,15 @@ final class AgentChatPreviewModel {
             if filled || count >= turns.count { return out.reversed() }
             count = min(turns.count, count * 2)
         }
+    }
+}
+extension View {
+    /// Marks this view as drawn once into a still picture (`ImageRenderer`): every row that
+    /// would use a UIKit-backed view draws in SwiftUI instead (`chatStill`, and `drawsStillPicture`
+    /// for markdown's math, `cmuxSpinnerDrawsStill` for a running tool's spinner), so the
+    /// picture never holds the system's yellow "cannot draw" mark.
+    public func drawnAsStillPicture() -> some View {
+        environment(\.chatStill, true).environment(\.drawsStillPicture, true).environment(\.cmuxSpinnerDrawsStill, true)
     }
 }
 #endif

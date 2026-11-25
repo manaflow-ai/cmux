@@ -17,9 +17,9 @@ extension TerminalModel {
     public func adoptComposer(from previous: TerminalModel) {
         if composerText.isEmpty {
             if !previous.composerText.isEmpty {
-                setComposerTextKeepingNotice(previous.composerText)
+                composerText = previous.composerText
             } else if let held = previous.heldComposerSend {
-                setComposerTextKeepingNotice(held.text)
+                composerText = held.text
                 composerNotice = TerminalConnectionState.inputNotSentNotice
             }
         }

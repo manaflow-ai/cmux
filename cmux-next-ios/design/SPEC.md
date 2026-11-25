@@ -1169,13 +1169,12 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CmuxMobileWorkspaces/Works
 (view) and `WorkspaceInbox.swift` (sections, status, search, folding; unit tested).
 
 - Toolbar: leading drawer, inline title "Workspaces" with a `navigationSubtitle`: the
-  filtered Mac and its presence; else "Updating…" when a refresh takes over 1.5 s; else
-  "N need you"; else with 2+ Macs "2 of 3 Macs online". Trailing glass capsule: the Mac
-  filter (only with 2+ Macs) and New Workspace.
+  filtered Mac's name; else "N need you"; else nothing. No presence, link or "2 of 3 Macs
+  online" words (Leo, 2026-11-24: "red dot green dot when you switch between your computers'
+  stuff"). Trailing glass capsule: the Mac filter (only with 2+ Macs) and New Workspace.
 - Mac filter: a toolbar `Menu` of `Toggle`s (a checkmark on the chosen one): All Macs, then
-  each Mac (online first, `desktopcomputer`; the model has no Mac kind) titled with its name
-  and subtitled with its presence ("Online" / "Last seen 2h ago", plus the link line in live
-  mode). Not an inline `Picker`: it drops the subtitles. Filtered fills the symbol
+  each Mac (online first) titled with its name and a green (online) or red (offline) dot; its
+  presence words are the VoiceOver value only. Not an inline `Picker`: it drops the dots. Filtered fills the symbol
   (`line.3.horizontal.decrease.circle.fill`). Remembered per team
   (`cmuxMobile.workspaces.macFilter.<team>`). In live mode, picking an online Mac the phone is not
   linked to links it.

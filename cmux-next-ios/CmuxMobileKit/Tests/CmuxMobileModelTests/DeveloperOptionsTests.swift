@@ -4,7 +4,11 @@ import Testing
 
 /// Production launches remove stored developer settings, and mock content
 /// needs the explicit developer switch.
-@Suite struct DeveloperOptionsTests {
+///
+/// Serialized: one test writes `UserDefaults.argumentDomain`, which is
+/// process-wide, so a test running beside it reads its `setupComplete=NO`
+/// over its own suite's stored value (flaked on cmux#51591, run 45367758224).
+@Suite(.serialized) struct DeveloperOptionsTests {
     #if canImport(Darwin)
     static let appleUserDefaults = true
     #else
@@ -68,7 +72,8 @@ import Testing
 
     @Test func storedKeysCoverTheDeveloperPage() {
         let keys = Set(DeveloperOptions.storedKeys)
-        #expect(keys.isSuperset(of: [DeveloperOptions.mockDataKey, DeveloperOptions.launchDemoKey, DeveloperOptions.relayOnlyKey]))
+        #expect(keys.isSuperset(of: [DeveloperOptions.mockDataKey, DeveloperOptions.launchDemoKey, DeveloperOptions.relayOnlyKey,
+                                     DeveloperOptions.blockUDPKey, DeveloperOptions.forceRelayKey]))
     }
 
     #if DEBUG
