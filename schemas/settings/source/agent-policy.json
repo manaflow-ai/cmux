@@ -567,6 +567,7 @@
         "experiments.terminalHistory",
         "experiments.quietConnect",
         "experiments.threadMinimapRestReveal",
+        "experiments.eventsAsToolCalls",
         "experiments.forum"
       ]
     },

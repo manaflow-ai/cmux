@@ -252965,6 +252965,60 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "Claude Code 與 Codex 終端機會多一個按鈕，可將先前的歷史記錄以唯讀聊天開啟。"}}
       }
     },
+    "settings.experiments.eventsAsToolCalls": {
+      "comment": "Settings > Experimental row title: the agent chat reads harness events (a forum rule cmux pushes, a subagent's Resume) by their origin, not their text.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "أحداث المنصة تُقرأ حسب مصدرها"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Događaji okruženja čitaju se po izvoru"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Hændelser læses efter oprindelse"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Harness-Ereignisse nach Herkunft lesen"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Harness Events Read by Origin"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Eventos del entorno leídos por su origen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Événements lus selon leur origine"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Eventi letti in base all’origine"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ハーネスのイベントを発生元で判別"}},
+        "km": {"stringUnit": {"state": "translated", "value": "អានព្រឹត្តិការណ៍តាមប្រភព"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "하니스 이벤트를 출처로 구분"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Hendelser leses etter opphav"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Zdarzenia rozpoznawane po źródle"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Eventos lidos pela origem"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "События распознаются по источнику"}},
+        "th": {"stringUnit": {"state": "translated", "value": "อ่านเหตุการณ์ตามแหล่งที่มา"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Olaylar Kaynağına Göre Okunur"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Події розпізнаються за джерелом"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Đọc sự kiện theo nguồn gốc"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "按来源识别运行环境事件"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "依來源識別執行環境事件"}}
+      }
+    },
+    "settings.experiments.eventsAsToolCalls.help": {
+      "comment": "Settings > Experimental > Harness Events Read by Origin help: what the switch changes in the agent chat.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "القاعدة التي يدفعها cmux إلى محادثة تظهر كسطر من cmux، وليست رسالتك أبدًا."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Pravilo koje cmux pošalje u chat prikazuje se kao cmuxov red, nikad kao vaša poruka."}},
+        "da": {"stringUnit": {"state": "translated", "value": "En regel, som cmux sender ind i en chat, vises som cmux’ linje, aldrig som din egen besked."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Eine Regel, die cmux in einen Chat schickt, erscheint als Zeile von cmux, nie als deine eigene Nachricht."}},
+        "en": {"stringUnit": {"state": "translated", "value": "A rule cmux pushes into a chat shows as cmux's line, never as your own message."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Una regla que cmux envía a un chat aparece como una línea de cmux, nunca como tu propio mensaje."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Une règle que cmux envoie dans une discussion s’affiche comme une ligne de cmux, jamais comme votre message."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Una regola che cmux invia in una chat appare come riga di cmux, mai come tuo messaggio."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "cmux がチャットに送るルールは、あなたのメッセージではなく cmux の行として表示されます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ច្បាប់ដែល cmux បញ្ជូនចូលការជជែក បង្ហាញជាបន្ទាត់របស់ cmux មិនមែនជាសាររបស់អ្នកទេ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "cmux가 채팅에 보내는 규칙은 내 메시지가 아니라 cmux의 줄로 표시됩니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "En regel cmux sender inn i en chat vises som cmux sin linje, aldri som din egen melding."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Reguła, którą cmux wysyła do czatu, pojawia się jako wiersz cmux, nigdy jako Twoja wiadomość."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Uma regra que o cmux envia a um chat aparece como linha do cmux, nunca como sua mensagem."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Правило, которое cmux отправляет в чат, показывается строкой cmux, а не вашим сообщением."}},
+        "th": {"stringUnit": {"state": "translated", "value": "กฎที่ cmux ส่งเข้าแชตจะแสดงเป็นบรรทัดของ cmux ไม่ใช่ข้อความของคุณ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "cmux’un sohbete gönderdiği bir kural, kendi mesajınız olarak değil cmux’un satırı olarak görünür."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Правило, яке cmux надсилає в чат, показується рядком cmux, а не вашим повідомленням."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Quy tắc cmux gửi vào cuộc trò chuyện hiển thị là dòng của cmux, không bao giờ là tin nhắn của bạn."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "cmux 推送到聊天中的规则显示为 cmux 的一行，而不是你自己的消息。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "cmux 推送到聊天中的規則會顯示為 cmux 的一行，而不是你自己的訊息。"}}
+      }
+    },
     "settings.experiments.threadMinimapRestReveal": {
       "comment": "Settings > Experimental row title: the agent chat prompt rail opens only for a resting pointer and never under a text selection drag.",
       "extractionState": "manual",
