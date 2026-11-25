@@ -513,6 +513,12 @@
    side: it may cover its own anchor, so it fits the window less the edge margins. */
 .ui-popup[data-popup-shift] { --available-height: calc(100vh - 16px); }
 
+/* A point-anchored menu can cross its pointer. Only a menu taller than the viewport scrolls. */
+.ui-popup[data-pointer-menu] {
+  box-sizing: border-box;
+  max-height: 100dvh;
+}
+
 /* Keep the popup's tint, rim and exterior shadow outside the row mask. A constrained
    flex child takes the same available content height; the shell keeps its existing padding. */
 .ui-popup.ui-glass.ui-popup-scroll-shell {
@@ -532,23 +538,36 @@
 
 /* Shared scroll-edge fade: rows soften only at edges with more content. The tracker
    disconnects its observers and passive scroll listener when the surface unmounts. */
+/* Each band eases (smoothstep sampled at 9 stops), not a straight ramp: a linear band meets full ink
+   at a slope break the eye reads as a hard line under the fade (Leo, 2026-11-22: "there's
+   simultaneously a fade AND a hard break ideally lessen the hard break"). A band of 0px is all
+   ink. */
 .ui-scroll-edge-fade:is([data-fade-top], [data-fade-bottom]) {
   --ui-scroll-fade-top: 0px;
   --ui-scroll-fade-bottom: 0px;
-  -webkit-mask-image: linear-gradient(
+  --ui-scroll-fade-mask: linear-gradient(
     to bottom,
-    transparent,
-    #000 var(--ui-scroll-fade-top),
-    #000 calc(100% - var(--ui-scroll-fade-bottom)),
-    transparent
+    rgb(0 0 0 / 0) calc(var(--ui-scroll-fade-top) * 0),
+    rgb(0 0 0 / 0.043) calc(var(--ui-scroll-fade-top) * 0.125),
+    rgb(0 0 0 / 0.156) calc(var(--ui-scroll-fade-top) * 0.25),
+    rgb(0 0 0 / 0.316) calc(var(--ui-scroll-fade-top) * 0.375),
+    rgb(0 0 0 / 0.5) calc(var(--ui-scroll-fade-top) * 0.5),
+    rgb(0 0 0 / 0.684) calc(var(--ui-scroll-fade-top) * 0.625),
+    rgb(0 0 0 / 0.844) calc(var(--ui-scroll-fade-top) * 0.75),
+    rgb(0 0 0 / 0.957) calc(var(--ui-scroll-fade-top) * 0.875),
+    rgb(0 0 0 / 1) calc(var(--ui-scroll-fade-top) * 1),
+    rgb(0 0 0 / 1) calc(100% - var(--ui-scroll-fade-bottom) * 1),
+    rgb(0 0 0 / 0.957) calc(100% - var(--ui-scroll-fade-bottom) * 0.875),
+    rgb(0 0 0 / 0.844) calc(100% - var(--ui-scroll-fade-bottom) * 0.75),
+    rgb(0 0 0 / 0.684) calc(100% - var(--ui-scroll-fade-bottom) * 0.625),
+    rgb(0 0 0 / 0.5) calc(100% - var(--ui-scroll-fade-bottom) * 0.5),
+    rgb(0 0 0 / 0.316) calc(100% - var(--ui-scroll-fade-bottom) * 0.375),
+    rgb(0 0 0 / 0.156) calc(100% - var(--ui-scroll-fade-bottom) * 0.25),
+    rgb(0 0 0 / 0.043) calc(100% - var(--ui-scroll-fade-bottom) * 0.125),
+    rgb(0 0 0 / 0) calc(100% - var(--ui-scroll-fade-bottom) * 0)
   );
-  mask-image: linear-gradient(
-    to bottom,
-    transparent,
-    #000 var(--ui-scroll-fade-top),
-    #000 calc(100% - var(--ui-scroll-fade-bottom)),
-    transparent
-  );
+  -webkit-mask-image: var(--ui-scroll-fade-mask);
+  mask-image: var(--ui-scroll-fade-mask);
 }
 .ui-scroll-edge-fade[data-fade-top] {
   --ui-scroll-fade-top: 14px;
@@ -622,7 +641,7 @@
   --ui-popup-radius: 12px;
   --cmux-menu-highlight-radius: 8px;
   --glass-tint: color-mix(in srgb, var(--glass-surface, Canvas) 62%, transparent);
-  --glass-backdrop: blur(24px) saturate(1.6);
+  --glass-backdrop: var(--ds-glass-chip-blur); /* the chip level: 24 px, 1.6 */
   --glass-elevation: 0 10px 30px color-mix(in srgb, black 18%, transparent), var(--elevation-1, 0 1px 3px color-mix(in srgb, black 10%, transparent));
 }
 .ui-popup[data-menu-style] .ui-menu-item .ui-menu-shortcut {
@@ -656,9 +675,15 @@
 .ui-popup[data-menu-states] .ui-menu-item:is([data-disabled], :disabled):has(.ui-menu-reason) {
   padding-block: var(--grid-half-step);
   opacity: 1;
+  --ui-menu-reason-row: 1;
 }
-.ui-popup[data-menu-states] .ui-menu-item:is([data-disabled], :disabled):has(.ui-menu-reason) > :not(.ui-menu-text) {
-  opacity: 0.45;
+/* The row's children ask for the row's custom property, not for its `:has()`: a `:has()` before a
+   subject that names nothing (`> :not(.ui-menu-text)`) made Chromium restyle every element of the
+   page on any `:has()` change (test/css-invalidation-scope.test.ts). */
+@container style(--ui-menu-reason-row: 1) {
+  .ui-popup[data-menu-states] .ui-menu-item:is([data-disabled], :disabled) > :not(.ui-menu-text) {
+    opacity: 0.45;
+  }
 }
 .ui-popup[data-menu-states] .ui-menu-async {
   display: inline-flex;

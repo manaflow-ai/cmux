@@ -105,7 +105,7 @@ impl HttpHub {
     /// nothing more ([`HttpHub::refused`]).
     pub fn with_credential(origin: String, credential: Zeroizing<String>) -> Result<Self, String> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = reqwest::Client::builder()
+        let http = crate::happy_dial::http_client()
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
             .build()
@@ -162,7 +162,7 @@ impl HttpHub {
     pub fn new(config: &MeshRelayConfig) -> Result<Self, String> {
         let origin = config.origin()?;
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = reqwest::Client::builder()
+        let http = crate::happy_dial::http_client()
             .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
@@ -390,6 +390,8 @@ const KNOWN_CODES: &[&str] = &[
     "mesh.forbidden",
     "mesh.bad_request",
     "mesh.unknown_recipient",
+    // A message to a machine the hub revoked: gone for good (`hub/transfer_pull.rs`).
+    "mesh.recipient_revoked",
     "mesh.ambiguous",
     "mesh.conflict",
     "mesh.idempotency_conflict",
@@ -757,7 +759,9 @@ mod tests {
     #[test]
     fn same_user_allows_only_the_hub_stamped_person_this_machine_recorded() {
         let entry: MeshControlFrom = serde_json::from_value(json!({"sameUser": true})).unwrap();
-        assert_eq!(entry, MeshControlFrom::same_user());
+        // What a join wrote before `maxPolicy`: the same grant, held to `ask`.
+        assert!(entry.is_unmarked_join_entry());
+        assert_eq!(entry, MeshControlFrom { max_policy: None, ..MeshControlFrom::same_user() });
         // Same person, any of its daemons: allowed for every lifecycle op.
         for op in ["start", "resume", "stop"] {
             assert!(entry.allows(&from(Some("d9"), Some("u1")), Some("u1"), op), "{op}");
@@ -787,8 +791,36 @@ mod tests {
         assert!(!off.allows(&from(Some("d9"), Some("u1")), Some("u1"), "start"));
         assert_eq!(
             serde_json::to_value(MeshControlFrom::same_user()).unwrap(),
-            json!({"sameUser": true, "ops": ["start", "resume", "stop"]})
+            json!({"sameUser": true, "ops": ["start", "resume", "stop"], "maxPolicy": "approve-all"})
         );
+    }
+
+    #[test]
+    fn a_controls_policy_cap_is_the_widest_its_granting_entries_name_and_ask_by_default() {
+        use crate::config::PermissionPolicy as P;
+        use crate::mesh_relay_config::control_cap;
+        let entry = |v: serde_json::Value| serde_json::from_value::<MeshControlFrom>(v).unwrap();
+        let by_daemon = entry(json!({"daemonId": "d9"}));
+        assert_eq!(by_daemon.policy_cap(), P::Ask, "omitted is ask");
+        let sender = from(Some("d9"), Some("u1"));
+        assert_eq!(
+            control_cap(std::slice::from_ref(&by_daemon), &sender, Some("u1"), "start"),
+            Some(P::Ask)
+        );
+        let edits = entry(json!({"daemonId": "d9", "maxPolicy": "approve-edits"}));
+        let entries = [by_daemon.clone(), edits, MeshControlFrom::same_user()];
+        assert_eq!(control_cap(&entries, &sender, Some("u1"), "start"), Some(P::ApproveAll));
+        // Only entries that grant the op to this sender count.
+        assert_eq!(control_cap(&entries, &sender, Some("u2"), "start"), Some(P::ApproveEdits));
+        assert_eq!(control_cap(&entries, &from(Some("d8"), Some("u2")), Some("u1"), "start"), None);
+        // A value this build does not know reads as ask.
+        assert_eq!(entry(json!({"daemonId": "d9", "maxPolicy": "rocket"})).policy_cap(), P::Ask);
+        // `yolo` is approve-all's alias, not an unknown value.
+        assert_eq!(
+            entry(json!({"daemonId": "d9", "maxPolicy": "yolo"})).policy_cap(),
+            P::ApproveAll
+        );
+        assert!(!MeshControlFrom::same_user().is_unmarked_join_entry());
     }
 
     #[test]
