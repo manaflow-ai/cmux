@@ -92,6 +92,32 @@ class VerdictTests(unittest.TestCase):
             self.assertEqual(why(run(**base, name=name)), "keep:protected-workflow", name)
 
 
+class RetiredRouteTests(unittest.TestCase):
+    NEXT = ".github/workflows/cmux-next.yml"
+
+    def test_tip_pr_run_of_a_retired_route_created_before_the_move_is_shed(self):
+        r = run(head_sha="tip", path=self.NEXT, name="cmux-next \u00b7 abc", created_at="2026-11-25T00:17:22Z")
+        self.assertEqual(why(r), "retired-route")
+        self.assertEqual([w for _, w in shed.plan([r], REPO, TIPS, 10)[0]], ["retired-route"])
+
+    def test_runs_after_the_move_other_workflows_events_and_retries_are_kept(self):
+        self.assertEqual(why(run(head_sha="tip", path=self.NEXT, created_at="2026-11-25T01:00:00Z")),
+                         "keep:current-pull_request")
+        self.assertEqual(why(run(head_sha="tip", created_at="2026-11-25T00:17:22Z")), "keep:current-pull_request")
+        self.assertEqual(why(run(head_sha="tip", path=self.NEXT, event="push", created_at="2026-11-25T00:17:22Z")),
+                         "keep:current-push")
+        self.assertEqual(why(run(head_branch="feat-cmux-next", head_sha="base", event="push", path=self.NEXT,
+                                 created_at="2026-11-25T00:17:22Z")), "keep:current-push")
+        self.assertEqual(why(run(head_sha="tip", path=self.NEXT, run_attempt=2, created_at="2026-11-25T00:17:22Z")),
+                         "keep:attempt")
+
+    def test_in_progress_retired_run_is_shed_only_when_unstarted(self):
+        r = run(status="in_progress", head_sha="tip", path=self.NEXT, created_at="2026-11-25T00:17:22Z")
+        self.assertEqual([x["id"] for x in shed.needs_jobs([r], REPO, TIPS, 5)], [r["id"]])
+        self.assertEqual(shed.verdict(r, REPO, TIPS, {r["id"]: [job(), job(status="completed")]}), "retired-route")
+        self.assertEqual(shed.verdict(r, REPO, TIPS, {r["id"]: [job(status="in_progress")]}), "keep:running")
+
+
 def job(status="queued", **over):
     return {"status": status, "runner_id": None, "runner_name": None, "steps": [], **over}
 
