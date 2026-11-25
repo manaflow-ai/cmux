@@ -1,6 +1,114 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.sidebar.showLiveToggle": {
+      "comment": "Settings > Appearance > Sidebar: title of the toggle that shows the footer Live button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Show Live Button"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إظهار زر المباشر"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Prikaži dugme Uživo"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Vis Live-knap"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Live-Taste anzeigen"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mostrar botón En vivo"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Afficher le bouton Direct"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Mostra pulsante Live"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ライブボタンを表示"}},
+        "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញប៊ូតុងផ្ទាល់"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "라이브 버튼 표시"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Vis Live-knapp"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Pokaż przycisk trybu na żywo"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Mostrar botão Ao vivo"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Показывать кнопку присутствия"}},
+        "th": {"stringUnit": {"state": "translated", "value": "แสดงปุ่มออนไลน์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Canlı Düğmesini Göster"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Показувати кнопку присутності"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Hiện nút trực tuyến"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "显示在线按钮"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "顯示線上按鈕"}}
+      }
+    },
+    "settings.sidebar.showLiveToggle.help": {
+      "comment": "Settings help line of the Show Live Button toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "A Live button after the profile button turns presence on or off. Off: use the palette."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يؤدي زر المباشر بعد زر الملف الشخصي إلى تشغيل الحضور أو إيقافه. عند الإيقاف: استخدم لوحة الأوامر."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Dugme Uživo iza dugmeta profila uključuje ili isključuje prisustvo. Isključeno: koristite paletu."}},
+        "da": {"stringUnit": {"state": "translated", "value": "En Live-knap efter profilknappen slår tilstedeværelse til eller fra. Fra: brug paletten."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Eine Live-Taste nach der Profiltaste schaltet die Präsenz ein oder aus. Aus: nutze die Palette."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Un botón En vivo tras el botón de perfil activa o desactiva la presencia. Desactivado: usa la paleta."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Un bouton Direct après le bouton de profil active ou désactive la présence. Désactivé : utilisez la palette."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Un pulsante Live dopo quello del profilo attiva o disattiva la presenza. Disattivato: usa la palette."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "プロフィールボタンの後ろのライブボタンで、プレゼンスのオンとオフを切り替えます。オフの場合はパレットを使います。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប៊ូតុងផ្ទាល់បន្ទាប់ពីប៊ូតុងប្រវត្តិរូប បើក ឬបិទវត្តមាន។ បិទ៖ ប្រើផាលែត។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "프로필 버튼 뒤의 라이브 버튼으로 접속 상태를 켜거나 끕니다. 끄면 팔레트를 사용하세요."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "En Live-knapp etter profilknappen slår tilstedeværelse på eller av. Av: bruk paletten."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Przycisk trybu na żywo po przycisku profilu włącza lub wyłącza obecność. Wyłączone: użyj palety."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Um botão Ao vivo depois do botão de perfil liga ou desliga a presença. Desligado: use a paleta."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Кнопка присутствия после кнопки профиля включает и выключает присутствие. Выключено: используйте палитру."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ปุ่มออนไลน์หลังปุ่มโปรไฟล์ใช้เปิดหรือปิดการแสดงสถานะ ปิด: ใช้พาเลต"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Profil düğmesinden sonraki Canlı düğmesi varlığı açar veya kapatır. Kapalı: paleti kullanın."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Кнопка присутності після кнопки профілю вмикає або вимикає присутність. Вимкнено: користуйтеся палітрою."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Nút trực tuyến sau nút hồ sơ bật hoặc tắt sự hiện diện. Tắt: dùng bảng lệnh."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "资料按钮后的在线按钮可开启或关闭在线状态。关闭时：使用命令面板。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "個人檔案按鈕後的線上按鈕可開啟或關閉線上狀態。關閉時：使用命令面板。"}}
+      }
+    },
+    "settings.presence.live": {
+      "comment": "Settings title of the Live Presence toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Live Presence"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الحضور المباشر"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Prisustvo uživo"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Live-tilstedeværelse"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Live-Präsenz"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Presencia en vivo"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Présence en direct"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Presenza live"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ライブプレゼンス"}},
+        "km": {"stringUnit": {"state": "translated", "value": "វត្តមានផ្ទាល់"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "라이브 접속 상태"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Live-tilstedeværelse"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Obecność na żywo"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Presença ao vivo"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Присутствие в сети"}},
+        "th": {"stringUnit": {"state": "translated", "value": "สถานะออนไลน์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Canlı Varlık"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Присутність у мережі"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Hiện diện trực tuyến"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在线状态"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "線上狀態"}}
+      }
+    },
+    "settings.presence.live.help": {
+      "comment": "Settings help line of the Live Presence toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Show teammates and agents who are live, and let them see you. Off: you appear offline."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أظهر زملاء الفريق والوكلاء المتصلين ودعهم يرونك. عند الإيقاف: تظهر غير متصل."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Prikaži saradnike i agente koji su uživo i dopusti im da vide vas. Isključeno: izgledate van mreže."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Vis teammedlemmer og agenter, der er live, og lad dem se dig. Fra: du ser ud til at være offline."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Zeige Teammitglieder und Agenten, die live sind, und lass sie dich sehen. Aus: du erscheinst offline."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Muestra a compañeros y agentes que están en vivo y deja que te vean. Desactivado: apareces desconectado."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Affiche les coéquipiers et agents en direct et leur permet de vous voir. Désactivé : vous apparaissez hors ligne."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Mostra colleghi e agenti live e consenti loro di vederti. Disattivato: risulti offline."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ライブ中のチームメイトとエージェントを表示し、自分も見えるようにします。オフの場合はオフラインに見えます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញមិត្តរួមក្រុម និងភ្នាក់ងារដែលកំពុងអនឡាញ ហើយអនុញ្ញាតឱ្យពួកគេឃើញអ្នក។ បិទ៖ អ្នកលេចជាក្រៅអនឡាញ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "라이브 중인 팀원과 에이전트를 표시하고 나도 보이게 합니다. 끄면 오프라인으로 보입니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Vis lagkamerater og agenter som er live, og la dem se deg. Av: du ser frakoblet ut."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Pokazuj współpracowników i agentów będących na żywo i pozwól im widzieć Ciebie. Wyłączone: wyglądasz na offline."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Mostra colegas e agentes que estão ao vivo e deixa que vejam você. Desligado: você aparece offline."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Показывать коллег и агентов в сети и позволить им видеть вас. Выключено: вы отображаетесь не в сети."}},
+        "th": {"stringUnit": {"state": "translated", "value": "แสดงเพื่อนร่วมทีมและเอเจนต์ที่ออนไลน์ และให้พวกเขาเห็นคุณ ปิด: คุณจะแสดงเป็นออฟไลน์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Canlı olan takım arkadaşlarını ve ajanları göster ve seni görmelerine izin ver. Kapalı: çevrimdışı görünürsün."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Показувати колег і агентів у мережі та дозволити їм бачити вас. Вимкнено: ви відображаєтеся поза мережею."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Hiện đồng đội và tác tử đang trực tuyến, và cho họ thấy bạn. Tắt: bạn hiện là ngoại tuyến."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "显示在线的队友和代理，并让他们看到你。关闭时：你显示为离线。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "顯示線上的隊友和代理，並讓他們看到你。關閉時：你會顯示為離線。"}}
+      }
+    },
     "settings.category.automations": {
       "comment": "Settings sidebar: the category for Cloud automations (when cmux Cloud starts an agent on its own: a GitHub event, a webhook or a schedule).",
       "extractionState": "manual",
@@ -6454,6 +6562,198 @@
             "value": "休眠"
           }
         }
+      }
+    },
+    "settings.transport.tailnetCarrier": {
+      "comment": "Settings > Transport: choice that lets direct route races try a peer's direct Tailscale address.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale Carrier"
+          }
+        },
+        "ar": {"stringUnit": {"state": "needs_review", "value": "ناقل Tailscale"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Tailscale prijenosnik"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Tailscale-bærer"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Tailscale-Träger"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Transporte de Tailscale"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Transporteur Tailscale"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Vettore Tailscale"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "Tailscale キャリア"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "អ្នកដឹកជញ្ជូន Tailscale"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Tailscale 캐리어"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Tailscale-bærer"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nośnik Tailscale"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Transporte Tailscale"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Транспорт Tailscale"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ตัวนำส่ง Tailscale"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Tailscale Taşıyıcı"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Транспорт Tailscale"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Kênh truyền Tailscale"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "Tailscale 传输"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "Tailscale 傳輸"}}
+      }
+    },
+    "settings.transport.tailnetCarrier.directOnly": {
+      "comment": "Tailscale Carrier choice: add only paths tailscaled reports as direct.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direct Only"
+          }
+        },
+        "ar": {"stringUnit": {"state": "needs_review", "value": "المباشر فقط"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Samo direktno"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Kun direkte"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Nur direkt"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Solo directo"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Direct uniquement"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Solo diretto"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "直接のみ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ផ្ទាល់តែប៉ុណ្ណោះ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "직접 연결만"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Bare direkte"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Tylko bezpośrednio"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Somente direto"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Только напрямую"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เฉพาะแบบตรง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Yalnızca doğrudan"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Лише напряму"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Chỉ trực tiếp"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "仅直连"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "僅直連"}}
+      }
+    },
+    "settings.transport.tailnetCarrier.help": {
+      "comment": "Help for the Tailscale Carrier setting.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Race a peer's direct Tailscale address with the other transports when tailscaled reports one."
+          }
+        },
+        "ar": {"stringUnit": {"state": "needs_review", "value": "سابِق عنوان Tailscale المباشر للنظير مع وسائل النقل الأخرى عندما يُبلغ tailscaled عن واحد."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Utrkuj direktnu Tailscale adresu peera s ostalim prijenosima kada je tailscaled prijavi."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Lad en peers direkte Tailscale-adresse konkurrere med de andre transporter, når tailscaled rapporterer en."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Die direkte Tailscale-Adresse eines Peers mit den anderen Transporten konkurrieren lassen, wenn tailscaled eine meldet."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Compite con la dirección directa de Tailscale de un par frente a los otros transportes cuando tailscaled informa una."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Met en concurrence l'adresse Tailscale directe d'un pair avec les autres transports lorsque tailscaled en signale une."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mette in gara l'indirizzo Tailscale diretto di un peer con gli altri trasporti quando tailscaled ne segnala uno."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "tailscaled が報告したとき、ピアの直接 Tailscale アドレスを他のトランスポートと競わせます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ប្រណាំងអាសយដ្ឋាន Tailscale ផ្ទាល់របស់ peer ជាមួយការដឹកជញ្ជូនផ្សេងទៀត នៅពេល tailscaled រាយការណ៍មួយ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "tailscaled가 보고하면 피어의 직접 Tailscale 주소를 다른 전송과 경쟁시킵니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "La en peers direkte Tailscale-adresse konkurrere med de andre transportene når tailscaled rapporterer en."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Ścigaj bezpośredni adres Tailscale peera z innymi transportami, gdy tailscaled go zgłosi."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Coloca o endereço Tailscale direto de um par para competir com os outros transportes quando o tailscaled informar um."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Состязать прямой адрес Tailscale узла с другими транспортами, когда tailscaled сообщает о нём."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แข่งที่อยู่ Tailscale แบบตรงของ peer กับการส่งอื่น ๆ เมื่อ tailscaled รายงาน"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "tailscaled bir tane bildirdiğinde, eşin doğrudan Tailscale adresini diğer taşıyıcılarla yarıştır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Змагати пряму адресу Tailscale вузла з іншими транспортами, коли tailscaled повідомляє про неї."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Cho địa chỉ Tailscale trực tiếp của máy ngang hàng chạy đua với các kênh truyền khác khi tailscaled báo có."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "当 tailscaled 报告对端的直连 Tailscale 地址时，让它与其他传输方式竞速。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "當 tailscaled 回報對端的直連 Tailscale 位址時，讓它與其他傳輸方式競速。"}}
+      }
+    },
+    "settings.transport.tailnetCarrier.off": {
+      "comment": "Tailscale Carrier choice: add no Tailscale candidates.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "ar": {"stringUnit": {"state": "needs_review", "value": "إيقاف"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Isključeno"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Fra"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Aus"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Desactivado"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Désactivé"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Disattivato"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "オフ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បិទ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "끔"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Av"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Wyłączone"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Desativado"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Выкл."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ปิด"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kapalı"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Вимк."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tắt"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "关闭"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "關閉"}}
+      }
+    },
+    "settings.transport.tailnetCarrier.on": {
+      "comment": "Tailscale Carrier choice: accept the carrier policy value; relayed paths stay excluded.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On"
+          }
+        },
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تشغيل"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Uključeno"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Til"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ein"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Activado"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Activé"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Attivato"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "オン"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បើក"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "켬"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "På"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Włączone"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Ativado"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Вкл."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เปิด"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Açık"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Увімк."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Bật"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "开启"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "開啟"}}
+      }
+    },
+    "settings.transport.tailnetCarrier.summary": {
+      "comment": "One-line summary of the Tailscale Carrier setting.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use direct Tailscale paths when available"
+          }
+        },
+        "ar": {"stringUnit": {"state": "needs_review", "value": "استخدام مسارات Tailscale المباشرة عند توفرها"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Koristi direktne Tailscale putanje kada su dostupne"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Brug direkte Tailscale-stier, når de er tilgængelige"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Direkte Tailscale-Pfade verwenden, wenn verfügbar"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Usar rutas directas de Tailscale cuando estén disponibles"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Utiliser les chemins Tailscale directs lorsqu'ils sont disponibles"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Usa i percorsi Tailscale diretti quando disponibili"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "利用可能なときは直接 Tailscale 経路を使う"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ប្រើផ្លូវ Tailscale ផ្ទាល់ នៅពេលមាន"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "가능하면 직접 Tailscale 경로 사용"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Bruk direkte Tailscale-stier når de er tilgjengelige"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Używaj bezpośrednich ścieżek Tailscale, gdy są dostępne"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Usar caminhos Tailscale diretos quando disponíveis"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Использовать прямые пути Tailscale, когда они доступны"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ใช้เส้นทาง Tailscale แบบตรงเมื่อมี"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Mümkün olduğunda doğrudan Tailscale yollarını kullan"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Використовувати прямі шляхи Tailscale, коли вони доступні"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Dùng đường Tailscale trực tiếp khi có"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "可用时使用直连 Tailscale 路径"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "可用時使用直連 Tailscale 路徑"}}
       }
     },
     "settings.workspaceHibernation.enabled": {
@@ -203511,6 +203811,270 @@
         }
       }
     },
+    "settings.agents.autoRetry.capacityFallbackAfter": {
+      "comment": "Settings > Agents > Retry After Errors: number of capacity errors before a model switch",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدد أخطاء السعة قبل التبديل إلى Sonnet"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Broj grešaka kapaciteta prije prelaska na Sonnet"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapacitetsfejl før skift til Sonnet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapazitätsfehler vor dem Wechsel zu Sonnet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capacity Failures Before Switching to Sonnet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Errores de capacidad antes de cambiar a Sonnet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erreurs de capacité avant le passage à Sonnet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Errori di capacità prima del passaggio a Sonnet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonnet に切り替えるまでの容量エラー回数"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចំនួនកំហុសសមត្ថភាពមុនពេលប្ដូរទៅ Sonnet"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonnet으로 전환하기 전 용량 오류 횟수"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapasitetsfeil før bytte til Sonnet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liczba błędów przeciążenia przed zmianą na Sonnet"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erros de capacidade antes de mudar para o Sonnet"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Число ошибок перегрузки до перехода на Sonnet"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จำนวนข้อผิดพลาดจากการรองรับโหลดก่อนเปลี่ยนไปใช้ Sonnet"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonnet’e geçmeden önceki kapasite hatası sayısı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кількість помилок перевантаження до переходу на Sonnet"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Số lỗi quá tải trước khi chuyển sang Sonnet"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换到 Sonnet 前的容量错误次数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換至 Sonnet 前的容量錯誤次數"
+          }
+        }
+      }
+    },
+    "settings.agents.autoRetry.capacityFallbackAfter.help": {
+      "comment": "Settings > Agents > Retry After Errors: when the chat switches models and how to turn switching off",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بعد هذا العدد من أخطاء السعة المتتالية، تنتقل المحادثة من Opus أو Fable إلى Sonnet حتى ينجح أحد الأدوار. اضبط القيمة على 0 للبقاء على النموذج الأصلي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nakon ovoliko uzastopnih grešaka kapaciteta, razgovor prelazi s modela Opus ili Fable na Sonnet dok se jedan potez uspješno ne završi. Postavite na 0 da zadržite izvorni model."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efter så mange kapacitetsfejl i træk skifter chatten fra Opus eller Fable til Sonnet, indtil en tur lykkes. Vælg 0 for at beholde den oprindelige model."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach so vielen Kapazitätsfehlern in Folge wechselt der Chat von Opus oder Fable zu Sonnet, bis eine Antwort gelingt. Bei 0 bleibt das ursprüngliche Modell aktiv."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After this many consecutive capacity errors, Opus or Fable switches to Sonnet until a turn succeeds. Set to 0 to stay on the original model."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tras este número de errores de capacidad consecutivos, el chat pasa de Opus o Fable a Sonnet hasta que se completa un turno con éxito. Elige 0 para conservar el modelo original."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Après ce nombre d’erreurs de capacité consécutives, la conversation passe d’Opus ou de Fable à Sonnet jusqu’à ce qu’un tour aboutisse. Choisissez 0 pour garder le modèle d’origine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopo questo numero di errori di capacità consecutivi, la chat passa da Opus o Fable a Sonnet finché un turno non va a buon fine. Imposta 0 per mantenere il modello originale."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "容量エラーが指定回数連続すると、Opus または Fable から Sonnet に切り替わります。ターンが成功すると元のモデルに戻ります。0 にすると切り替えません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលមានកំហុសដោយសារខ្វះសមត្ថភាពជាប់គ្នាដល់ចំនួននេះ ការជជែកនឹងប្ដូរពី Opus ឬ Fable ទៅ Sonnet រហូតដល់ការឆ្លើយតបមួយបានជោគជ័យ។ កំណត់ជា 0 ដើម្បីបន្តប្រើម៉ូដែលដើម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "용량 오류가 이 횟수만큼 연속으로 발생하면 Opus 또는 Fable에서 Sonnet으로 전환하고, 한 턴이 성공하면 원래 모델로 돌아갑니다. 0으로 설정하면 원래 모델을 계속 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etter så mange kapasitetsfeil på rad bytter samtalen fra Opus eller Fable til Sonnet til en runde lykkes. Velg 0 for å beholde den opprinnelige modellen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po tylu kolejnych błędach przeciążenia czat przechodzi z modelu Opus lub Fable na Sonnet, aż jedna tura zakończy się pomyślnie. Ustaw 0, aby zachować pierwotny model."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Após esse número de erros de capacidade consecutivos, a conversa passa do Opus ou do Fable para o Sonnet até que um turno seja concluído com sucesso. Defina como 0 para manter o modelo original."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "После указанного числа ошибок перегрузки подряд чат переходит с Opus или Fable на Sonnet до первого успешного ответа. Укажите 0, чтобы сохранить исходную модель."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเกิดข้อผิดพลาดจากการรองรับโหลดติดต่อกันครบจำนวนนี้ แชตจะเปลี่ยนจาก Opus หรือ Fable ไปใช้ Sonnet จนกว่าจะตอบสำเร็จหนึ่งรอบ ตั้งค่าเป็น 0 เพื่อใช้โมเดลเดิมต่อไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Art arda bu sayıda kapasite hatası oluşursa sohbet, bir tur başarıyla tamamlanana kadar Opus veya Fable yerine Sonnet kullanır. İlk modeli kullanmaya devam etmek için 0 seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Після вказаної кількості помилок перевантаження поспіль чат переходить з Opus або Fable на Sonnet до першої успішної відповіді. Укажіть 0, щоб зберегти початкову модель."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sau số lần lỗi quá tải liên tiếp này, cuộc trò chuyện chuyển từ Opus hoặc Fable sang Sonnet cho đến khi một lượt thành công. Đặt thành 0 để giữ nguyên mô hình ban đầu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连续发生指定次数的容量错误后，对话会从 Opus 或 Fable 切换到 Sonnet，直到一轮对话成功完成。设为 0 可继续使用原模型。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連續發生指定次數的容量錯誤後，對話會從 Opus 或 Fable 切換至 Sonnet，直到一輪對話成功完成。設為 0 可繼續使用原本的模型。"
+          }
+        }
+      }
+    },
     "settings.agents.autoRetry.enabled": {
       "comment": "Settings > Agents > Retry After Errors: toggle title",
       "extractionState": "manual",
@@ -246995,6 +247559,60 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "Claude Code 與 Codex 終端機會多一個按鈕，可將先前的歷史記錄以唯讀聊天開啟。"}}
       }
     },
+    "settings.experiments.threadMinimapRestReveal": {
+      "comment": "Settings > Experimental row title: the agent chat prompt rail opens only for a resting pointer and never under a text selection drag.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "شريط المطالبات ينتظر مؤشرًا ثابتًا"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Traka upita čeka miran pokazivač"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Promptlisten venter på en stillestående markør"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Prompt-Leiste wartet auf ruhenden Zeiger"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Prompt Rail Waits for a Resting Pointer"}},
+        "es": {"stringUnit": {"state": "translated", "value": "La barra de prompts espera a un puntero quieto"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Le rail des invites attend un pointeur immobile"}},
+        "it": {"stringUnit": {"state": "translated", "value": "La barra dei prompt attende un puntatore fermo"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "プロンプトレールはポインタの静止を待つ"}},
+        "km": {"stringUnit": {"state": "translated", "value": "របារសំណើរង់ចាំព្រួញនៅស្ងៀម"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "프롬프트 레일은 포인터가 멈출 때까지 대기"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Promptlisten venter på en markør i ro"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Pasek promptów czeka na nieruchomy wskaźnik"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "A barra de prompts espera o ponteiro parar"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Лента запросов ждёт остановки указателя"}},
+        "th": {"stringUnit": {"state": "translated", "value": "แถบพรอมต์รอให้ตัวชี้หยุดนิ่ง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "İstem Çubuğu Duran İmleci Bekler"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Стрічка запитів чекає зупинки вказівника"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Thanh lời nhắc chờ con trỏ dừng lại"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "提示栏等待指针停留"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "提示列等待指標停留"}}
+      }
+    },
+    "settings.experiments.threadMinimapRestReveal.help": {
+      "comment": "Settings > Experimental > Prompt Rail Waits for a Resting Pointer help: what the switch changes in narrow agent chats.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "في المحادثات الضيقة يفتح شريط المطالبات فقط عندما يستقر المؤشر على الحافة، وليس أثناء تحديد النص أبدًا."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "U uskim chatovima traka upita se otvara samo kada pokazivač miruje na rubu, nikad dok birate tekst."}},
+        "da": {"stringUnit": {"state": "translated", "value": "I smalle chats åbner promptlisten kun, når markøren hviler på kanten, aldrig mens du markerer tekst."}},
+        "de": {"stringUnit": {"state": "translated", "value": "In schmalen Chats öffnet sich die Prompt-Leiste nur, wenn der Zeiger am Rand ruht, nie beim Markieren von Text."}},
+        "en": {"stringUnit": {"state": "translated", "value": "In narrow chats the prompt rail opens only when the pointer rests on the edge, never while you select text."}},
+        "es": {"stringUnit": {"state": "translated", "value": "En chats estrechos, la barra de prompts solo se abre cuando el puntero se detiene en el borde, nunca mientras seleccionas texto."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Dans les discussions étroites, le rail des invites ne s’ouvre que lorsque le pointeur reste sur le bord, jamais pendant une sélection de texte."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Nelle chat strette la barra dei prompt si apre solo quando il puntatore resta fermo sul bordo, mai mentre selezioni il testo."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "幅の狭いチャットでは、ポインタが端で止まったときだけプロンプトレールが開き、テキスト選択中は開きません。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ក្នុងការជជែកតូចចង្អៀត របារសំណើបើកតែពេលព្រួញនៅស្ងៀមលើគែម មិនដែលបើកពេលអ្នកកំពុងជ្រើសអត្ថបទទេ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "좁은 채팅에서는 포인터가 가장자리에 머물 때만 프롬프트 레일이 열리며, 텍스트를 선택하는 동안에는 열리지 않습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "I smale chatter åpnes promptlisten bare når markøren hviler på kanten, aldri mens du merker tekst."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "W wąskich czatach pasek promptów otwiera się tylko, gdy wskaźnik zatrzyma się przy krawędzi, nigdy podczas zaznaczania tekstu."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Em chats estreitos, a barra de prompts só abre quando o ponteiro para na borda, nunca enquanto você seleciona texto."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "В узких чатах лента запросов открывается, только когда указатель остановится у края, и никогда во время выделения текста."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ในแชตที่แคบ แถบพรอมต์จะเปิดเมื่อตัวชี้หยุดนิ่งที่ขอบเท่านั้น และจะไม่เปิดขณะคุณเลือกข้อความ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Dar sohbetlerde istem çubuğu yalnızca imleç kenarda durduğunda açılır, metin seçerken asla açılmaz."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "У вузьких чатах стрічка запитів відкривається, лише коли вказівник зупиниться біля краю, і ніколи під час виділення тексту."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Trong cuộc trò chuyện hẹp, thanh lời nhắc chỉ mở khi con trỏ dừng ở mép, không bao giờ khi bạn đang chọn văn bản."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在窄聊天中，只有指针停在边缘时提示栏才会打开，选择文本时绝不会打开。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在窄聊天中，只有指標停在邊緣時提示列才會打開，選取文字時絕不會打開。"}}
+      }
+    },
     "settings.experiments.terminalHistoryFind": {
       "comment": "Settings > Experimental row title: Cmd-F in a terminal searches its whole history, not only the screen.",
       "extractionState": "manual",
@@ -267865,6 +268483,666 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Join new Cloud machines automatically"
+          }
+        }
+      }
+    },
+    "settings.group.customizeChecklist": {
+      "comment": "Settings > General group holding the Customize cmux checklist switch.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Customize cmux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تخصيص cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prilagodi cmux"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilpas cmux"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux anpassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personaliza cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personnaliser cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personalizza cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmuxをカスタマイズ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្ដូរ cmux តាមបំណង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 맞춤 설정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilpass cmux"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dostosuj cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personalize o cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Настройка cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปรับแต่ง cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'u özelleştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштування cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tùy chỉnh cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自定义 cmux"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自訂 cmux"
+          }
+        }
+      }
+    },
+    "settings.customizeChecklist.enabled": {
+      "comment": "Settings toggle that shows the Customize cmux checklist card.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the Customize cmux Checklist"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار قائمة تخصيص cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži listu za prilagodbu cmuxa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis tjeklisten til tilpasning af cmux"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Checkliste zum Anpassen von cmux anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar la lista para personalizar cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher la liste de personnalisation de cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra la checklist di personalizzazione di cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmuxカスタマイズのチェックリストを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញបញ្ជីត្រួតពិនិត្យការប្ដូរ cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 맞춤 설정 체크리스트 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis sjekklisten for tilpasning av cmux"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż listę kontrolną dostosowywania cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar a lista de personalização do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать список настройки cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงรายการตรวจสอบการปรับแต่ง cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux özelleştirme kontrol listesini göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати список налаштування cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện danh sách tùy chỉnh cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示 cmux 自定义清单"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示 cmux 自訂清單"
+          }
+        }
+      }
+    },
+    "settings.customizeChecklist.enabled.help": {
+      "comment": "Help under the Show the Customize cmux Checklist toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the steps for making cmux your own at the top of Settings, with how many are done."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعرض في أعلى الإعدادات خطوات جعل cmux خاصًا بك، مع عدد ما أُنجز منها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikazuje na vrhu postavki korake za prilagodbu cmuxa, s brojem završenih."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser øverst i indstillingerne trinnene til at gøre cmux til din egen, med hvor mange der er udført."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zeigt oben in den Einstellungen die Schritte, mit denen Sie cmux zu Ihrem eigenen machen, und wie viele erledigt sind."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muestra arriba en Ajustes los pasos para hacer tuyo cmux, con cuántos llevas hechos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affiche en haut des réglages les étapes pour personnaliser cmux, avec le nombre déjà faites."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra in cima alle impostazioni i passi per rendere cmux tuo, con quanti ne hai completati."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmuxを自分好みにするためのステップを設定の上部に表示し、完了数も示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញជំហានសម្រាប់ធ្វើឱ្យ cmux ជារបស់អ្នកនៅផ្នែកខាងលើនៃការកំណត់ ព្រមទាំងចំនួនដែលបានបញ្ចប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux를 나에게 맞게 만드는 단계를 설정 상단에 완료 개수와 함께 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser øverst i innstillingene stegene for å gjøre cmux til din egen, med hvor mange som er fullført."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyświetla na górze ustawień kroki dostosowywania cmux wraz z liczbą ukończonych."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra no topo dos Ajustes os passos para deixar o cmux do seu jeito, com quantos já foram concluídos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывает вверху настроек шаги, которые помогут сделать cmux своим, и сколько из них выполнено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงขั้นตอนการทำให้ cmux เป็นของคุณไว้ที่ด้านบนของการตั้งค่า พร้อมจำนวนที่ทำเสร็จแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ayarların üstünde cmux'u kendinize göre yapma adımlarını ve kaçının tamamlandığını gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показує вгорі налаштувань кроки, що допоможуть зробити cmux своїм, і скільки з них виконано."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện các bước để biến cmux thành của riêng bạn ở đầu Cài đặt, kèm số bước đã xong."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在设置顶部显示让 cmux 成为你专属工具的步骤，以及已完成的数量。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在設定頂部顯示讓 cmux 成為你專屬工具的步驟，以及已完成的數量。"
+          }
+        }
+      }
+    },
+    "settings.customizeChecklist.done": {
+      "comment": "Title of the (hidden) setting holding checklist steps checked off by hand.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checked Off Customize Steps"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خطوات التخصيص المحددة كمنجزة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ručno označeni koraci prilagodbe"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afkrydsede tilpasningstrin"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abgehakte Anpassungsschritte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pasos de personalización marcados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Étapes de personnalisation cochées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Passi di personalizzazione spuntati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チェック済みのカスタマイズステップ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជំហានប្ដូរតាមបំណងដែលបានគូសរួច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "체크한 맞춤 설정 단계"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avmerkede tilpasningssteg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odznaczone kroki dostosowywania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Passos de personalização marcados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отмеченные шаги настройки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขั้นตอนการปรับแต่งที่ทำเครื่องหมายแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İşaretlenen özelleştirme adımları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Позначені кроки налаштування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các bước tùy chỉnh đã đánh dấu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已勾选的自定义步骤"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已勾選的自訂步驟"
+          }
+        }
+      }
+    },
+    "settings.customizeChecklist.done.help": {
+      "comment": "Help of the setting holding checklist steps checked off by hand.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The checklist steps you marked done yourself."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خطوات القائمة التي حددتها بنفسك كمنجزة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koraci liste koje si sam označio kao završene."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "De trin på tjeklisten, du selv har markeret som udført."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Checklistenschritte, die Sie selbst als erledigt markiert haben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los pasos de la lista que marcaste tú mismo como hechos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les étapes de la liste que vous avez marquées vous-même comme faites."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I passi della checklist che hai segnato come completati tu stesso."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自分で完了にしたチェックリストのステップです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជំហាននៃបញ្ជីដែលអ្នកបានគូសថាបានបញ្ចប់ដោយខ្លួនឯង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "직접 완료로 표시한 체크리스트 단계입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sjekklistestegene du selv har markert som fullført."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kroki listy, które sam oznaczyłeś jako ukończone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os passos da lista que você mesmo marcou como concluídos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шаги списка, которые вы сами отметили как выполненные."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขั้นตอนในรายการที่คุณทำเครื่องหมายว่าเสร็จด้วยตัวเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kontrol listesinde kendinizin tamamlandı olarak işaretlediği adımlar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кроки списку, які ви самі позначили як виконані."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các bước trong danh sách mà bạn tự đánh dấu là đã xong."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你自己标记为已完成的清单步骤。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你自己標記為已完成的清單步驟。"
           }
         }
       }

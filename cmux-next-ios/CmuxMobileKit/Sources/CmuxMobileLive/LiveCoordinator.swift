@@ -655,7 +655,37 @@ public final class LiveCoordinator {
         registeredTeamID = nil
         store.teamDataState = .loading
         closeAllSessions()
+        restoreTeamCache(teamID)
         teamTask = Task { [weak self] in await self?.startTeam(teamID) }
+    }
+
+    /// A switch to a team this phone showed before (on this launch or an earlier one) draws its
+    /// last rows at once, as a launch does, and the team's Macs then correct them in place: the
+    /// list draws placeholder rows only for a team it never listed. Leo, 2026-11-24: "holy shit
+    /// this is a huge problem in ios... wer need to chase all these placeholders doen and prevent
+    /// them". A Mac whose rows the store still holds (shown earlier in this launch) keeps them.
+    private func restoreTeamCache(_ teamID: String) {
+        guard snapshot?.teamID != teamID, let cached = snapshots.loadFirstScreen(accountID: userID, teamID: teamID) else { return }
+        snapshot = cached
+        if let team = store.teams.first(where: { $0.id == teamID }), team.macs.isEmpty {
+            store.setMacs(cached.macs, teamID: teamID)
+        }
+        var restored = 0
+        for (macID, saved) in cached.workspaces
+        where (store.macData[macID]?.source ?? .none) == .none && !store.workspaces.contains(where: { $0.macID == macID }) {
+            store.replaceWorkspaces(macID: macID, with: saved.workspaces)
+            store.handleMacData(.restored(count: saved.total, savedAt: saved.savedAt), macID: macID)
+            restored += saved.workspaces.count
+        }
+        ConnectTimeline.shared.mark("team_snapshot_restored", detail: "\(restored) workspaces")
+        guard cached.workspaces.values.contains(where: { !$0.isComplete }) else { return }
+        let snapshots = snapshots
+        let userID = userID
+        restTask?.cancel()
+        restTask = Task { [weak self] in
+            let rest = await snapshots.loadRest(cached, accountID: userID)
+            self?.restoreRest(rest)
+        }
     }
 
     /// Registers both device ids, then loads the Macs and starts presence.
@@ -1270,6 +1300,11 @@ public final class LiveCoordinator {
         presence?.backgrounded = false
         presence?.kick()
         discovery.resume()
+        // Time away is not outage the person waited through: a link that dropped while the app
+        // was away counts its bounds from now, so its terminals stay reattaching (Send queued in
+        // the session's hold, no "Mac offline") instead of offline at once (LinkOutageClock).
+        let now = instants.now()
+        for session in sessions.values where session.linkDownSince != nil { outageRestarted(session, at: now) }
         // How long iOS kept the app away decides whether the links are kept (LinkMachine.shortSuspend).
         for session in sessions.values { session.link.send(away.map { .resumed(after: $0) } ?? .resume) }
         #if canImport(CmuxMobileLinkFFI)

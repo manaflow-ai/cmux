@@ -372,6 +372,14 @@ struct TerminalPage: View {
                 Text("Adds Show Chat and Show Terminal to a Claude Code or Codex tab's menu when both views can open.")
             }
             Section {
+                Toggle(isOn: $settings.terminalPlainScroll) {
+                    SettingsLabel("Plain Scroll in Full-Screen Apps", symbol: "scroll")
+                }
+                .accessibilityIdentifier("settings.terminalPlainScroll")
+            } footer: {
+                Text("Scrolling up in a full-screen app such as Claude Code moves through the rows this phone already has, like any page, instead of asking the app to scroll.")
+            }
+            Section {
                 Toggle(isOn: $settings.terminalZoomFullScreenApps) {
                     SettingsLabel("Zoom Full-Screen Apps", symbol: "plus.magnifyingglass")
                 }

@@ -232,6 +232,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     let tuiScroll = TerminalTUIScrollController()
     /// Leo, 2026-11-23: a full-screen app's row jumps while the finger scrolls it.
     let tuiSmoother = TerminalTUISmoother()
+    /// A plain scroll over the app's history the phone keeps (Leo, 2026-11-24).
+    let tuiReader = TerminalTUIReader()
     /// The alternate screen at the Mac's grid, zoomed and panned (`TerminalViewController+Zoom`).
     let tuiZoom = TerminalTUIZoom()
     /// Settings → Terminal → Zoom Full-Screen Apps (off by default), read when the page opens:
@@ -3521,7 +3523,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             scrollButtonVisibility = JumpToBottomVisibility()
             setScrollButton(visible: false)
         } else {
-            // The app's screen is gone: its selection and fling go with it.
+            // The app's screen is gone: its selection, fling and reader go with it.
+            tuiReader.close()
             tuiSelection.clear()
             tuiScroll.stopMomentum()
             tuiSmoother.reset()
@@ -3929,6 +3932,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     // MARK: Keyboard
 
     @objc private func tuiTapped(_ tap: UITapGestureRecognizer) {
+        // A tap on the reader stops its scroll, as on any scroll view; it
+        // never clicks the app, whose rows are not the ones under it.
+        // A tap that ends the reader's selection only ends it.
+        if tuiReader.isOpen {
+            _ = tuiReader.tapped()
+            return
+        }
         // A tap makes this phone the active device (Prefer the active device).
         model.session.noteInteraction()
         // A tap shows the app's live screen, never the held rows as live.
@@ -4463,7 +4473,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         tuiSelection.isEnabled = { [weak self] in
             guard let self else { return false }
-            return model.isTUI && cell.height > 0 && surface.superview === tuiHost
+            // The reader over the app's area selects its own rows.
+            return model.isTUI && cell.height > 0 && surface.superview === tuiHost && !tuiReader.isOpen
         }
         // The app redraws its screen: the selection follows its text (`followRows`).
         tuiSelection.followsRows = true
@@ -4495,9 +4506,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func installTUIScroll() {
         tuiScroll.isEnabled = { [weak self] in
             guard let self else { return false }
-            // A zoomed grid pans under one finger; nothing reaches the app.
-            return model.isTUI && surface.superview === tuiHost && !tuiZoomActive
+            // The reader scrolls itself while it is open; a zoomed grid pans under one finger.
+            return model.isTUI && surface.superview === tuiHost && !tuiReader.isOpen && !tuiZoomActive
         }
+        // Settings → Terminal → Plain Scroll in Full-Screen Apps (off by default).
+        tuiScroll.readerOpens = { [weak self] in
+            CmuxMobilePreferences.terminalPlainScroll() && self?.openTUIReader() == true
+        }
+        tuiScroll.readerMoved = { [weak self] y in self?.tuiReader.dragMoved(translationY: y) }
+        tuiScroll.readerEnded = { [weak self] velocity in self?.tuiReader.dragEnded(velocityY: velocity) }
         tuiScroll.selectionOwns = { [weak self] touch in
             guard let self else { return false }
             if tuiSelection.isPressing { return true }
@@ -4532,6 +4549,33 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             return (surface, cell.height, scale, max(tuiRows, feedHostRows ?? 0))
         }
         tuiScroll.install(in: tuiClip, surface: surface, tap: tuiTap)
+    }
+
+    /// Opens the reader of the app's history over its area, at the bottom
+    /// (it looks like the live screen), when the phone keeps rows above the
+    /// app's screen and the area shows the app's grid as it is.
+    private func openTUIReader() -> Bool {
+        guard model.isTUI, surface.superview === tuiHost, cell.height > 0, tuiRowShift == 0, tuiHeaderRows == 0,
+              !tuiReader.isOpen, model.session.tuiTranscriptRowsAbove > 0,
+              let transcript = model.session.tuiTranscript() else { return false }
+        let area = tuiHost.convert(tuiHost.bounds, to: tuiClip).intersection(tuiAreaClip.frame)
+        guard area.height >= cell.height else { return false }
+        tuiSelection.clear()
+        // The surface under the reader shows the live screen (not held rows
+        // a wheel pan painted), so closing the reader shows the app as it is.
+        model.session.returnToLiveScreen()
+        tuiReader.open(transcript, in: tuiClip, frame: area, surfaceX: surface.frame.minX,
+                       width: surface.bounds.width, cellHeight: cell.height,
+                       themeMacID: surface.themeMacID, background: terminalBackground)
+        tuiReader.dragBegan()
+        return true
+    }
+
+    /// DEBUG demo: opens the reader and flings it toward older rows, through
+    /// the same path as a finger's drag and release.
+    func tuiReaderFling(velocity: CGFloat) {
+        guard tuiReader.isOpen || openTUIReader() else { return }
+        tuiReader.demoFling(velocity: velocity)
     }
 
     /// While a long press selects, the page does not scroll under the finger.

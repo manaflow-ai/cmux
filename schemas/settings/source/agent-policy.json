@@ -30,6 +30,13 @@
     {
       "agent": "settable",
       "keys": [
+        "customize.checklist.done",
+        "customize.checklist.enabled"
+      ]
+    },
+    {
+      "agent": "settable",
+      "keys": [
         "shortcuts.showModifierHoldHints"
       ]
     },
@@ -428,6 +435,8 @@
         "sidebar.showSpaces",
         "sidebar.showProfileControl",
         "sidebar.showSearchButton",
+        "sidebar.showLiveToggle",
+        "presence.live",
         "sidebar.showNewWorkspaceChooser",
         "sidebar.workspacesAsTabs",
         "sidebar.chromeGroups",
@@ -535,6 +544,7 @@
         "experiments.terminalHistoryFind",
         "experiments.terminalHistory",
         "experiments.quietConnect",
+        "experiments.threadMinimapRestReveal",
         "experiments.forum"
       ]
     },
@@ -1719,7 +1729,8 @@
       "keys": [
         "agents.autoRetry.enabled",
         "agents.autoRetry.intervalSeconds",
-        "agents.autoRetry.attempts"
+        "agents.autoRetry.attempts",
+        "agents.autoRetry.capacityFallbackAfter"
       ]
     },
     {
