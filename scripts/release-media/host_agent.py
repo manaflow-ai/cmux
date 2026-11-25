@@ -404,7 +404,7 @@ def substitute(value, names):
 
 def run_step(step, cmux, settings, names):
     if "sleep" in step:
-        time.sleep(float(step["sleep"]))
+        time.sleep(float(step["sleep"]))  # sleep-ok: a scene's own scripted pause (the film holds that long)
     elif "settings" in step:
         settings.apply(step["settings"])
         cmux("reload-config")

@@ -4,7 +4,7 @@ Repository: `manaflow-ai/cmux`
 Date: 2026-11-21 UTC  
 Scope: `examples/looks/rex/tabs` only for this profile.
 
-- 19 bindings / 10 distinct actions / 3 window + 16 terminal-scoped bindings; zero settings, zero custom executable actions.
+- 20 bindings / 11 distinct actions / 3 window + 17 terminal-scoped bindings; zero settings, zero custom executable actions.
 - JSON parse, unique key/context pairs, action IDs checked against
   `cmux-tui/crates/cmux-action-catalog/src/catalog/*.rs`: PASS.
 - Embedded `profile.json` keybindings exactly equal sibling `keybindings.json`: PASS.

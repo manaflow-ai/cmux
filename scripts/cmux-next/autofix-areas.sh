@@ -15,7 +15,9 @@ changed=""
 
 bot='scripts/cmux-next/(base-autofix|autofix-areas|autofix-clippy|pr-autofix)|\.github/workflows/cmux-next-(base|pr)-autofix\.yml'
 area() { # key, path regex
-  local on=false gate="AUTOFIX_GATE_${1^^}"
+  # tr, not ${1^^}: macOS runners resolve `env bash` to bash 3.2, which has no case expansion ("bad substitution").
+  local on=false gate
+  gate="AUTOFIX_GATE_$(tr '[:lower:]' '[:upper:]' <<<"$1")"
   # A caller's AUTOFIX_GATE_<KEY>=false turns the repair off whatever changed: the pull request job sets
   # AUTOFIX_GATE_CLIPPY to the clippy check's own skip clause (affected-jobs.json pull_request_skip.follows).
   if [[ "${!gate:-}" == false ]]; then echo "$1=false"; return; fi
@@ -38,7 +40,7 @@ area actions 'Packages/macOS/CmuxNext/Package\.swift#CCmuxAppFFI|Packages/macOS/
 # The settings exports (regenerated on a Mac: regenerate-settings-exports.sh) read
 # CmuxNextSettings and the two export tests. Their source stamp is derived
 # (defaults_guard.py source-stamp), never committed.
-area settings 'Packages/macOS/CmuxNext/Sources/CmuxNextSettings/|Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/(SettingsSchemaExportTests|ManagedPreferencesManifestTests)\.swift|schemas/settings/settings-schema\.json|docs/mdm/|scripts/cmux-next/regenerate-settings-exports\.sh|scripts/ci/defaults_guard\.py'
+area settings 'schemas/settings/(source|generator)/|schemas/settings/retired-keys\.json|Packages/macOS/CmuxNext/Sources/CmuxNextSettings/|Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/(SettingsSchemaExportTests|ManagedPreferencesManifestTests)\.swift|schemas/settings/settings-schema\.json|docs/mdm/|scripts/cmux-next/regenerate-settings-exports\.sh|scripts/ci/defaults_guard\.py'
 # The docs shortcuts read the catalog export and the action string catalogs.
 area shortcuts 'plans/cmux-next/action-surfaces\.json|Packages/macOS/CmuxNext/Sources/CmuxNextActions/|web/scripts/export-docs-shortcuts\.ts|web/scripts/export-next-docs\.ts'
 # The app-host generated files read the operation catalogs, the action export and the apps' fragments;

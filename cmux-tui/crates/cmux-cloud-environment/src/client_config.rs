@@ -4,11 +4,16 @@
 use crate::{Configuration, Environment, Resolver, Selection, namespace};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::fs::{self, OpenOptions};
+use std::fs;
+#[cfg(feature = "fetch")]
+use std::fs::OpenOptions;
+#[cfg(feature = "fetch")]
 use std::io::Write;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "fetch"))]
 use std::os::unix::fs::OpenOptionsExt;
+#[cfg(feature = "fetch")]
 use std::path::Path;
+#[cfg(feature = "fetch")]
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -76,6 +81,7 @@ pub fn check_create_capabilities(selection: &Selection, params: &Value) -> Resul
 
 /// Whether a create's parameters name a field whose meaning needs a backend capability
 /// (check_create_capabilities). `null` is an omitted field.
+#[cfg(feature = "fetch")]
 pub(crate) fn create_needs_capabilities(params: &Value) -> Result<bool, String> {
     let object = params
         .as_object()
@@ -134,6 +140,7 @@ fn cache_path(resolver: &Resolver, origin: &str) -> Result<std::path::PathBuf, S
         .join(format!("{}.json", namespace(origin))))
 }
 
+#[cfg(feature = "fetch")]
 pub(crate) async fn resolve(
     resolver: &Resolver,
     mut selection: Selection,
@@ -145,7 +152,7 @@ pub(crate) async fn resolve(
     let _ = rustls::crypto::ring::default_provider().install_default();
     // Short bounded fetches keep launch responsive; cache or the known-origin
     // fallback covers backend outages without mixing sign-in credentials.
-    let client = reqwest::Client::builder()
+    let client = cmux_egress::client_builder("cmux_cloud_environment::client_config")
         .default_headers(cmux_build_space::headers().map_err(|error| error.to_string())?)
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(2))
@@ -188,6 +195,7 @@ pub(crate) async fn resolve(
     }
 }
 
+#[cfg(feature = "fetch")]
 fn cached_or_fallback(
     mut selection: Selection,
     path: &Path,
@@ -202,8 +210,14 @@ fn cached_or_fallback(
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             // Temporary compatibility only for known deployments. A custom
-            // local API must expose its actual configuration.
-            if matches!(Environment::parse(origin)?, Environment::LocalOrigin(_)) {
+            // local API must expose its actual configuration, and so must a tag
+            // stack: the development table would register the Mac with the shared
+            // mobile service and device hub while the tag's iPhone build, on the
+            // stack's, looks for it there (the launch then has no cloud, and says why).
+            if matches!(
+                Environment::parse(origin)?,
+                Environment::LocalOrigin(_) | Environment::Tailnet(_)
+            ) {
                 return Err(format!("client-config unavailable and no cache for {origin}"));
             }
             selection.config_source = ConfigSource::KnownOriginFallback;
@@ -394,6 +408,7 @@ fn validate(config: &ClientConfig, selected: &str) -> Result<(), String> {
 }
 
 /// When a fetch started, in ms since the epoch: what its cache write is fenced by.
+#[cfg(feature = "fetch")]
 fn fetch_stamp() -> u128 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_millis())
 }
@@ -403,6 +418,7 @@ fn fetch_stamp() -> u128 {
 /// launch's starts, a `cloud env get` beside them), and their answers land in any order: without
 /// this an older answer could replace a newer one. Each write keeps its fetch's start beside the
 /// cache (`.started`), checked and written under an exclusive lock on `.lock`.
+#[cfg(feature = "fetch")]
 fn fenced_cache(path: &Path, body: &[u8], started: u128) -> Result<bool, String> {
     let stamp = path.with_extension("json.started");
     let lock_path = path.with_extension("json.lock");
@@ -429,6 +445,7 @@ fn fenced_cache(path: &Path, body: &[u8], started: u128) -> Result<bool, String>
     Ok(true)
 }
 
+#[cfg(feature = "fetch")]
 fn atomic_cache(path: &Path, body: &[u8]) -> Result<(), String> {
     let parent = path.parent().ok_or("client-config cache has no parent")?;
     fs::create_dir_all(parent).map_err(|error| format!("create client-config cache: {error}"))?;
@@ -451,6 +468,7 @@ fn atomic_cache(path: &Path, body: &[u8]) -> Result<(), String> {
     result
 }
 
+#[cfg(feature = "fetch")]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -727,7 +745,7 @@ mod tests {
     }
 
     #[test]
-    fn a_tailnet_launch_fetches_the_stacks_own_services_once_and_an_outage_falls_back_to_dev() {
+    fn a_tailnet_launch_fetches_the_stacks_own_services_once_and_an_outage_never_uses_dev() {
         let stack = "https://cmux-dev-backend-1.tail137216.ts.net:3850";
         let home = Home::new();
         let resolver = Resolver::new("com.cmuxterm.app.debug.cnx-tag", &home.0).unwrap();
@@ -747,10 +765,27 @@ mod tests {
         assert_eq!(launch.config_source, ConfigSource::Cache);
         assert_eq!(launch.mobile_origin, served.configuration.mobile_origin);
         assert_eq!(launch.device_hub_origin, served.configuration.device_hub_origin);
-        // A stack that never answered and left no cache: the development services, as before.
+        // A stack that never answered and left no cache fails closed: the development table would
+        // put the Mac on the shared mobile Worker, where the tag's iPhone never finds it.
         fs::remove_file(&path).unwrap();
-        let fallback = cached_or_fallback(selected, &path, stack).unwrap();
-        assert_eq!(fallback.platform_origin, crate::DEVELOPMENT_PLATFORM);
+        let error = cached_or_fallback(selected.clone(), &path, stack).unwrap_err();
+        assert!(error.contains("no cache"), "{error}");
+        // Its public origin too.
+        let public = "https://api.s7.wdev.cmux.dev";
+        let selected = resolver.resolve(Some(public)).unwrap();
+        let path = cache_path(&resolver, public).unwrap();
+        assert!(cached_or_fallback(selected, &path, public).is_err());
+    }
+
+    /// The egress gate (enforced for a DEV app's Rust children) passes a tag stack's tailnet origin:
+    /// refused, the launch's client-config fetch failed and the Mac app ran on the development table.
+    #[test]
+    fn the_egress_gate_passes_a_tailnet_stack() {
+        for origin in
+            ["https://cmux-dev-backend-1.tail137216.ts.net:4693", "https://api.s7.wdev.cmux.dev"]
+        {
+            assert_ne!(cmux_egress::verdict(origin), cmux_egress::Verdict::Unlisted, "{origin}");
+        }
     }
 
     #[tokio::test]

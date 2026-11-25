@@ -35,7 +35,7 @@ pub(super) const CONFIG_STATUS: &str = "/home/cmux/.cmux/machine-config/status.j
 const CONFIG_LOG: &str = "/home/cmux/.cmux/machine-config/setup.log";
 /// How long `--wait` waits by default: a clone and a dependency install fit.
 pub(super) const DEFAULT_TIMEOUT: Duration = Duration::from_secs(20 * 60);
-const MAX_TIMEOUT: Duration = Duration::from_secs(3 * 60 * 60);
+pub(super) const MAX_TIMEOUT: Duration = Duration::from_secs(3 * 60 * 60);
 /// Between two reads of the machine or its status file.
 const POLL: Duration = Duration::from_secs(3);
 

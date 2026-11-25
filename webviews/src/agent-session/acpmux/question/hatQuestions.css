@@ -165,6 +165,25 @@
   display: block;
   -webkit-line-clamp: unset;
 }
+/* A short pane: the floating dock caps the stack, so the opened band gives up height instead of
+   cutting its answers and Show less off. It shrinks to what the dock keeps and scrolls inside it. */
+.acpmux-hat-questions[data-whole] {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+/* More opens the whole ask, not only the question: who asks and what about wrap in the head, and the
+   line under the question wraps under it, at word breaks. The answers stay under the text in their
+   order. */
+.acpmux-hat-questions__question[data-whole] :is(.acpmux-hat-questions__who, .acpmux-hat-questions__about),
+.acpmux-hat-questions__question[data-whole] > .acpmux-hat-questions__detail {
+  overflow: visible;
+  overflow-wrap: break-word;
+  text-overflow: clip;
+  white-space: normal;
+}
 .acpmux-hat-questions__more {
   padding: 0;
   border: 0;

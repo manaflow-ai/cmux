@@ -624,6 +624,8 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
           ) : null}
           <ol
             className="menu-preview ui-popup ui-menu ui-glass"
+            // A picture of the menu in the page, not a popup that opens (ui/popupSettle.ts).
+            data-popup-settle="own"
             data-menu-preview=""
             data-reordering={dragging?.active ? "" : undefined}
             ref={list}
@@ -633,6 +635,8 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
           {picker ? (
             <div
               className="menus-move-picker ui-popup ui-menu ui-glass"
+              // In the page's flow beside the preview, not a floating popup (ui/popupSettle.ts).
+              data-popup-settle="own"
               role="menu"
               aria-label={t("settingsWindow.menus.moveTo")}
               data-picker=""

@@ -20,6 +20,11 @@ old 100 MiB cap, with marked pages at its start, middle and end, is streamed by 
 `LinkUpload.upload(fileAt:)` over the paired link to the Mac's Chat Folder; it passes when the file
 lands in `<folder>/.cmux/attachments/phone-<session>/` with the same size and SHA-256 and the app's
 memory footprint grew by less than a fifth of the file (no whole-file Data).
+Once paired, the theme-file leg: the rig's cmux-next.json names a theme file (`<rig>/themes/pair-e2e.json`),
+the phone opens the Mac's terminal, and ten atomic saves alternating two terminal backgrounds are each
+timed from the save to the phone's `terminal theme of ... background #hex` log line (with the Mac's
+hand-off to hostd and hostd's publish as hops); then a refused value and a half-written file must leave
+the phone's background as it was while the Mac's notice names the file.
 With CMUX_IOS_CLOUD_PROOF_FILE, also opens a probe-owned real Cloud session on
 the paired phone, copies its history, sends a fresh challenge, reads the
 assistant reply, and taps an injected notification. That injection proves
@@ -52,7 +57,7 @@ phone from its DEBUG launch environment (CMUX_MOBILE_STACK_REFRESH_TOKEN, adopte
 session), the Mac from its own token store file, written before its launch. The refresh token is
 never printed, and is in no argv and no artifact.
 """
-import argparse, glob, hashlib, json, os, plistlib, pwd, re, secrets, shutil, socket, stat, subprocess, sys, threading, time
+import argparse, calendar, glob, hashlib, json, math, os, plistlib, pwd, re, secrets, shutil, socket, stat, statistics, subprocess, sys, threading, time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 sys.path.insert(0, os.path.join(ROOT, "scripts/cmux-next"))
@@ -63,6 +68,9 @@ from cmux_next_cloud_pair_proof import allowlist_public_cloud_artifact, read_pro
 PAGE = "cmux.mobile-pairing"
 RIG_MAC_NAME = "0 e2e rig Mac"
 PAIRED = re.compile(r"phone (\w+) paired from this Mac's pairing code")
+# The phone's two lines on a pairing code (LiveCoordinator+PairInvite.swift): it refused it, or took it.
+CODE_REFUSED = re.compile(r"pairing code for a space this account is not in")
+CODE_TAKEN = re.compile(r"pairing code for (?!a space this account is not in)")
 # The upload leg: past the old 100 MiB cap and not a multiple of LinkUpload's 192 KiB chunk.
 UPLOAD_BYTES = (150 << 20) + 12_345
 UPLOAD_NAME = "cmux-upload-probe.bin"
@@ -76,8 +84,10 @@ def redact(text):
 def shows_a_code():
     """Whether this ref's Mobile Pairing page sends a pairing code (`qr`): on a ref without it no
     code is the expected "before"; on one with it, no code is a failure."""
-    src = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingPageProvider.swift")
-    return os.path.exists(src) and 'reply["qr"]' in open(src).read()
+    sources = ("Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/MobilePairingPageProvider.swift",
+               "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingPageProvider.swift")  # before the move
+    paths = [os.path.join(ROOT, src) for src in sources]
+    return any(os.path.exists(path) and 'reply["qr"]' in open(path).read() for path in paths)
 
 
 def has_upload_probe():
@@ -278,10 +288,6 @@ def main():
     for flag in ("--mac-app", "--ios-app", "--sims", "--udid", "--bundle-id", "--work", "--out", "--summary"):
         ap.add_argument(flag, required=True)
     a = ap.parse_args()
-    # The theme leg runs on a tree that carries its Ghostty config (a demo branch adds it; the step
-    # takes no argument for it): the Mac runs that config, and once paired the phone opens that
-    # Mac's terminal; both screens are kept (screens/theme-*.png).
-    a.theme = THEME_CONFIG if os.path.isfile(THEME_CONFIG) else None
     proof_path = os.environ.get("CMUX_IOS_CLOUD_PROOF_FILE")
     proof = read_proof(proof_path, artifact_root=a.out) if proof_path else None
     cloud_ok = proof is None
@@ -323,8 +329,8 @@ def main():
                # (step 423a0bae's showed only other Macs) and name no host.
                CMUX_NEXT_MOBILE_DEVICE_NAME=RIG_MAC_NAME,
                CMUX_NEXT_SOCKET_MODE="automation")
-    if a.theme:
-        env["CMUX_NEXT_GHOSTTY_CONFIG"] = os.path.realpath(a.theme)
+    # The theme-file leg's folder: `themes/` beside the rig's cmux-next.json (ThemeFileSetting).
+    themes_dir = os.path.join(rig, "themes")
 
     def rpc(method, params=None, timeout=30):
         try:
@@ -390,19 +396,52 @@ def main():
         subprocess.run(simctl + ["io", a.udid, "screenshot", os.path.join(screens, f"{name}.png")], capture_output=True)
         return f"screens/{name}.png"
 
+    def phone_settled(timeout=20.0):
+        """Until the phone's screen holds still (3 screenshots in a row the same, 0.5 s apart): the Devices list
+        loads from the service after live data starts. Best effort: past TIMEOUT it notes it and goes on."""
+        probe = os.path.join(screens, ".settle-probe.png")
+        deadline, last, same = time.monotonic() + timeout, None, 0
+        try:
+            while time.monotonic() < deadline:
+                subprocess.run(simctl + ["io", a.udid, "screenshot", probe], capture_output=True)
+                try:
+                    digest = hashlib.sha256(open(probe, "rb").read()).hexdigest()
+                except OSError:
+                    digest = None
+                same = same + 1 if digest is not None and digest == last else 0
+                if same >= 2:
+                    return True
+                last = digest
+                time.sleep(0.5)
+            note(f"- phone: the screen never held still in {timeout:.0f} s; capturing it as it is")
+            return False
+        finally:
+            try:
+                os.remove(probe)
+            except OSError:
+                pass
+
     teardown = TagTeardown(a.mac_app)
     teardown.install()
-    streams, app, paired, url, uploaded = [], None, None, None, not probe
+    streams, app, paired, url, uploaded, theme_ok = [], None, None, None, not probe, True
     # The discovery leg: the phone's Allow request reaches the running Mac in seconds, and a Mac
     # restart with a second identity key beside its Keychain key heals with no action on the phone.
     # CMUX_PAIR_E2E_DISCOVERY=0 leaves it out (a ref before it).
     discovery = os.environ.get("CMUX_PAIR_E2E_DISCOVERY") != "0"
+    connect_runs = connect_timeline_runs()
+    if connect_runs:
+        note(f"- connect timeline: {connect_runs} runs per profile and launch; foreground after "
+             f"{connect_timeline_aways()} s away, {connect_timeline_away_runs(connect_runs)} runs each "
+             f"(the commit's Connect-Timeline-Runs / -Away / -Away-Runs)")
     ask_ok = restart_ok = not discovery
     keychain = RigKeychain(a.mac_app)
     try:
         note(f"- Keychain: {keychain.start()}")
         os.makedirs(rig, mode=0o700, exist_ok=True)
-        settings = {"mobile": {"allowIPhoneConnections": True}}
+        # The Mac's look comes from a theme file the theme-file leg saves over (theme A at launch).
+        settings = {"mobile": {"allowIPhoneConnections": True}, "appearance": {"themeFile": THEME_FILE_NAME}}
+        os.makedirs(themes_dir, mode=0o700, exist_ok=True)
+        write_theme_file(themes_dir, theme_file_text(THEME_FILE_LOOKS[0]))
         if probe:
             os.makedirs(upload_root, mode=0o700)
             settings["agents"] = {"chats": {"roots": [upload_root]}}
@@ -489,7 +528,7 @@ def main():
         live = phone_log.wait(re.compile(r"live data on"), 90)
         if discovery:
             ask_ok = discovery_ask(mac_log, phone_log, asked_from, status, rpc, note)
-        time.sleep(5)  # bounded: the Devices list loads from the service after live data starts
+        phone_settled()  # the Devices list loads from the service after live data starts
         note(f"- phone: {'signed in, live data' if live else 'NO live data in 90 s'}; Settings > Devices "
              f"{phone_shot('phone-devices')}")
 
@@ -528,24 +567,41 @@ def main():
                                                        "compact", "--predicate", pairing_logs],
                                                       capture_output=True, text=True).stdout)
             connected = wait_for(lambda: status().get("connectedPhones", 0) >= 1, 60, every=2)
-            took_code = phone_log.wait(re.compile(r"pairing code for"), 0)
+            # LiveCoordinator+PairInvite.swift logs "pairing code for <mac>" when it takes the code and
+            # "pairing code for a space this account is not in" when it refuses it (the phone lists no such
+            # Mac: another account, or another build space); only the first is taking it.
+            refused_code = phone_log.wait(CODE_REFUSED, 0)
+            took_code = phone_log.wait(CODE_TAKEN, 0)
+            code_verdict = ("refused the code: it lists no Mac of it (another account or build space)" if refused_code
+                            else "took the code" if took_code else "never logged taking the code")
             note(f"- pairing: {'PAIRED, phone ' + paired.group(1) if paired else 'NOT paired'} "
                  f"({took:.0f} s after the link opened, no Allow prompt, no seed; the phone "
-                 f"{'took' if took_code else 'never logged taking'} the code); Mac lists "
+                 f"{code_verdict}); Mac lists "
                  f"{last.get('connectedPhones', 0)} connected phone(s){'' if connected else ' (none in 60 s)'}; "
                  f"phone {phone_shot('phone-paired')}; Mac {mac_shot('mac-pairing-paired')}")
             phone_launch()
             phone_log.wait(re.compile(r"live data on"), 60)
-            time.sleep(5)  # bounded, as above
+            phone_settled()  # the Devices list loads from the service after live data starts
             note(f"- phone Settings > Devices after pairing: {phone_shot('phone-devices-paired')}")
-            if a.theme and paired:
-                note(f"- theme: {theme_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, phone_shot, rpc, screens)}")
-            if paired and probe:
+            if paired and connect_runs:
+                # A measurement run (the commit's Connect-Timeline-Runs trailer): only the connect
+                # leg; the theme, upload and restart legs are left to the ordinary pair-e2e runs.
+                theme_ok, uploaded, ask_ok, restart_ok = True, True, True, True
+                theme_ok = connect_timeline_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, connect_runs,
+                                                a.out, note)
+            elif paired:
+                try:
+                    theme_ok = theme_file_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, mac_log, phone_shot,
+                                              rpc, screens, themes_dir, support, a.out, note)
+                except Exception as error:  # noqa: BLE001  the leg fails; the legs after it still run
+                    theme_ok = False
+                    note(f"- theme-file repaint: FAIL ({type(error).__name__}: {redact(str(error))[:300]})")
+            if paired and probe and not connect_runs:
                 # The phone lists this Mac by the rig's device name (CMUX_NEXT_MOBILE_DEVICE_NAME), not the
                 # page's MacName: the probe waits for a link to that name (since 2026-10-29 it never matched).
                 uploaded, line = upload_leg(simctl, a.udid, a.bundle_id, phone_env, upload_root, RIG_MAC_NAME)
                 note(f"- upload: {line}")
-            if discovery and paired:  # last: it quits and restarts the Mac
+            if discovery and paired and not connect_runs:  # last: it quits and restarts the Mac
                 app, restart_ok = discovery_restart(app, exe, env, a.out, support, status, phone_log, streams,
                                                     phone_shot, note)
         note(f"- scanner sheet: {scanner(a.udid, phone_shot)}")
@@ -588,29 +644,349 @@ def main():
     if discovery:
         note(f"- discovery: Allow request {'PASS' if ask_ok else 'FAIL'}, restart with a split identity "
              f"{'PASS' if restart_ok else 'FAIL'}")
-    return 0 if paired and uploaded and cloud_ok and ask_ok and restart_ok else 1
+    return 0 if paired and uploaded and theme_ok and cloud_ok and ask_ok and restart_ok else 1
+
+
+# The connect-timeline leg (RFD 0049's connect rows): the paired phone's own ConnectTimeline marks
+# (`timing <attempt> <step> +<ms> (...)`, CmuxMobileModel/ConnectTimeline.swift), per launch and per
+# foreground after CONNECT_AWAY seconds in the background, on the direct path ("lan": phone and Mac on
+# this one Mac) and forced onto TURN ("relay": -cmuxMobile.dev.relayOnly YES, the Developer toggle).
+# A measurement run asks for it with a trailer on the commit under test, since the fleet passes
+# pair-e2e no arguments and no environment:  Connect-Timeline-Runs: 20  (1-30).
+CONNECT_STEPS = ("dial_start", "link_connected", "first_daemon_response", "workspaces_live")
+# Fresh after a foreground: the tree arrived again, or the kept link answered (its list is current).
+CONNECT_FRESH = ("workspaces_live", "link_alive", "link_standby_promoted", "link_adopted")
+CONNECT_AWAY = 60  # the default away time; `Connect-Timeline-Away: 60,300,600` (seconds, 1-1800) asks for more
+CONNECT_BOUND = 30  # seconds one attempt may take before it counts as a miss
+TIMING = re.compile(r"timing (\w+) (\w+) \+(\d+)ms(?: \(\d+ms\))? ?(.*)$")
+
+
+def commit_trailer(key):
+    """A trailer of the commit under test ('' when it has none)."""
+    try:
+        return subprocess.run(["git", "-C", ROOT, "log", "-1", f"--format=%(trailers:key={key},valueonly)"],
+                              capture_output=True, text=True, timeout=30).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def connect_timeline_runs():
+    """The commit's Connect-Timeline-Runs trailer (1-30), else 0: the leg is off."""
+    got = commit_trailer("Connect-Timeline-Runs")
+    return int(got) if got.isdigit() and 1 <= int(got) <= 30 else 0
+
+
+def connect_timeline_profiles():
+    """The commit's Connect-Timeline-Profiles trailer (lan, relay or both, comma-separated; default both),
+    so two fleet steps can take one profile each at once."""
+    got = [p.strip() for p in commit_trailer("Connect-Timeline-Profiles").split(",") if p.strip()]
+    return [p for p in got if p in ("lan", "relay")] or ["lan", "relay"]
+
+
+def connect_timeline_aways():
+    """The commit's Connect-Timeline-Away trailer: away times in seconds (comma-separated, 1-1800; default 60)."""
+    got = [p.strip() for p in commit_trailer("Connect-Timeline-Away").split(",") if p.strip()]
+    return [int(p) for p in got if p.isdigit() and 1 <= int(p) <= 1800] or [CONNECT_AWAY]
+
+
+def connect_timeline_away_runs(runs):
+    """The commit's Connect-Timeline-Away-Runs trailer (1-30): foreground runs per away time, else `runs`.
+    A 600 s away costs 10 minutes a run, so a long one is usually asked for with fewer runs."""
+    got = commit_trailer("Connect-Timeline-Away-Runs")
+    return int(got) if got.isdigit() and 1 <= int(got) <= 30 else runs
+
+
+def connect_attempt(phone_log, attempt, since, wanted):
+    """{step: ms since the attempt began} for one attempt, until one of `wanted` (or the bound)."""
+    marks, details = {}, {}
+    deadline = time.monotonic() + CONNECT_BOUND
+    with phone_log.cond:
+        while True:
+            for at, line in zip(phone_log.times, phone_log.lines):
+                if at < since:
+                    continue
+                m = TIMING.search(line.rstrip())
+                if m and m.group(1) == attempt and m.group(2) not in marks:
+                    marks[m.group(2)] = int(m.group(3))
+                    details[m.group(2)] = m.group(4).strip()
+            done = [w for w in wanted if w in marks]
+            left = deadline - time.monotonic()
+            if done or left <= 0:
+                return marks, details, (done[0] if done else None)
+            phone_log.cond.wait(left)
+
+
+def connect_timeline_leg(simctl, udid, bundle_id, phone_env, phone_log, runs, out, note):
+    """Launch and foreground-after-away connect times, per profile; True when every run ended."""
+    rows, ok = [], True
+    aways, away_runs = connect_timeline_aways(), connect_timeline_away_runs(runs)
+    path = os.path.join(out, "connect-timeline.jsonl")
+    profiles = [(p, a) for p, a in (("lan", []), ("relay", ["-" + "cmuxMobile.dev.relayOnly", "YES"]))
+                if p in connect_timeline_profiles()]
+    for profile, args in profiles:
+        launch = simctl + ["launch", udid, bundle_id] + args
+        # Launch: a new process each run; the marks count from the process start.
+        for run in range(1, runs + 1):
+            subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
+            time.sleep(1)
+            since = time.monotonic()
+            subprocess.run(launch, env=phone_env, capture_output=True)
+            marks, details, end = connect_attempt(phone_log, "launch", since, ("workspaces_live",))
+            rows.append({"profile": profile, "phase": "launch", "run": run, "end": end, "marks": marks,
+                         "transport": details.get("dial_start", ""), "rtt": details.get("link_alive", "")})
+        # Foreground after each away time: one process per away time, sent to the background by Settings and back.
+        for away in aways:
+            subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
+            since = time.monotonic()
+            subprocess.run(launch, env=phone_env, capture_output=True)
+            connect_attempt(phone_log, "launch", since, ("workspaces_live",))
+            for run in range(1, away_runs + 1):
+                subprocess.run(simctl + ["launch", udid, "com.apple.Preferences"], capture_output=True)
+                time.sleep(away)
+                since = time.monotonic()
+                subprocess.run(simctl + ["launch", udid, bundle_id], env=phone_env, capture_output=True)
+                marks, details, end = connect_attempt(phone_log, "foreground", since, CONNECT_FRESH)
+                rows.append({"profile": profile, "phase": "foreground", "away": away, "run": run, "end": end,
+                             "marks": marks, "transport": details.get("dial_start", ""),
+                             "rtt": details.get("link_alive", "")})
+        subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
+    with open(path, "w") as f:
+        for row in rows:
+            f.write(json.dumps(row) + "\n")
+            print("CONNECTTIMELINE " + json.dumps(row), flush=True)
+    note("")
+    note("### Connect timeline (ms, p50 / p95, n = runs that reached the end mark)")
+    note("")
+    note("| profile | phase | interval | p50 | p95 | n |")
+    note("| --- | --- | --- | --- | --- | --- |")
+    for profile, _ in profiles:
+        for phase, away in [("launch", None)] + [("foreground", w) for w in aways]:
+            got = [r for r in rows if r["profile"] == profile and r["phase"] == phase and r.get("away") == away]
+            label = phase if away is None else f"foreground after {away} s"
+            done = [r for r in got if r["end"]]
+            if len(done) < len(got):
+                ok = False
+            intervals = []
+            if phase == "launch":
+                prev = None
+                for step in CONNECT_STEPS:
+                    intervals.append((f"{prev or 'process start'} -> {step}",
+                                      [r["marks"][step] - (r["marks"][prev] if prev else 0) for r in done
+                                       if step in r["marks"] and (prev is None or prev in r["marks"])]))
+                    prev = step
+            else:
+                for step in CONNECT_STEPS:
+                    intervals.append((f"foreground -> {step}", [r["marks"][step] for r in done if step in r["marks"]]))
+                intervals.append(("foreground -> fresh (first of " + ", ".join(CONNECT_FRESH) + ")",
+                                  [r["marks"][r["end"]] for r in done]))
+            if phase == "launch":
+                intervals.append(("total: process start -> workspaces_live", [r["marks"]["workspaces_live"] for r in done]))
+            for name, values in intervals:
+                if values:
+                    note(f"| {profile} | {label} | {name} | {percentile(values, 0.5):.0f} | {percentile(values, 0.95):.0f} | {len(values)} |")
+                else:
+                    note(f"| {profile} | {label} | {name} | - | - | 0 |")
+            ends = {}
+            for r in got:
+                ends[r["end"] or "miss"] = ends.get(r["end"] or "miss", 0) + 1
+            transports = sorted({r["transport"] for r in got if r["transport"]})
+            note(f"| {profile} | {label} | end marks {ends}; transports {transports or ['none dialed']} | | | {len(got)} |")
+    note("")
+    return ok
 
 
 ASKS = re.compile(r"phone (\w+) asks to pair: (\w+)")
 LINK_REFUSED = re.compile(r"mac_identity_changed|bad_mac_proof")
 
 
-THEME_CONFIG = os.path.join(ROOT, "cmux-next-ios/verify/pair-e2e-theme.ghostty")
+# The theme-file leg: the rig's cmux-next.json names this theme file (`<rig>/themes/<name>.json`), and
+# the leg saves looks A and B over it in turn. Each names a built-in Ghostty theme and its own terminal
+# colors (`colors` edit that theme), foreground on background well over 4.5:1, so the contrast guard
+# keeps them as written.
+THEME_FILE_NAME = "pair-e2e"
+THEME_FILE_LOOKS = [
+    {"appearance.theme": "Nord", "colors": {"background": "#14233a", "foreground": "#e6edf5"}},
+    {"appearance.theme": "Nord", "colors": {"background": "#3a1430", "foreground": "#f5e6ef"}},
+]
+THEME_FILE_SAMPLES = 10
+THEME_FILE_WAIT = 30  # seconds for one save to reach the phone
+THEME_FILE_HOLD = 5  # seconds a bad save must leave the phone's terminal as it was
+PHONE_THEME = re.compile(r"terminal theme of .*background (#[0-9a-fA-F]{6})")
 
 
-def theme_leg(simctl, udid, bundle_id, phone_env, phone_log, phone_shot, rpc, screens):
-    """The phone opens the paired Mac's first terminal (DEBUG demo `live-terminal`, which prints the
-    palette in it); the phone and the Mac window are captured. Returns the summary line."""
+def theme_file_text(look):
+    return json.dumps(look, indent=2) + "\n"
+
+
+def write_theme_file(themes_dir, text):
+    """Saves the active theme file as an editor's atomic save does: a new file renamed over it."""
+    path = os.path.join(themes_dir, f"{THEME_FILE_NAME}.json")
+    temp = path + ".saving"
+    with open(temp, "w") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(temp, path)
+
+
+def percentile(values, fraction):
+    """The median, or the nearest-rank percentile."""
+    if fraction == 0.5:
+        return statistics.median(values)
+    ordered = sorted(values)
+    return ordered[max(0, min(len(ordered) - 1, math.ceil(fraction * len(ordered)) - 1))]
+
+
+def hostd_appearance_lines(support):
+    """hostd's `published a changed appearance` lines: (UTC epoch seconds, terminal background, line)."""
+    found = []
+    for path in glob.glob(os.path.join(support, "**/cmux-mobile-host.log"), recursive=True):
+        for line in open(path, errors="replace"):
+            if "published a changed appearance" not in line:
+                continue
+            m = re.match(r"\s*(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?Z", line)
+            bg = re.search(r"terminal_background=(\S+)", line)
+            if not m:
+                continue
+            seconds = calendar.timegm(time.strptime(m.group(1), "%Y-%m-%dT%H:%M:%S")) + float("0." + (m.group(2) or "0"))
+            found.append((seconds, (bg.group(1) if bg else "none").strip('"').lower(), line))
+    return sorted(found)
+
+
+def terminal_share(bmp_path, colors, tolerance=12):
+    """The share of a BMP screenshot's (sampled) pixels within `tolerance` of each `#rrggbb` color."""
+    data = open(bmp_path, "rb").read()
+    if data[:2] != b"BM":
+        return None
+    offset = int.from_bytes(data[10:14], "little")
+    width = int.from_bytes(data[18:22], "little", signed=True)
+    height = abs(int.from_bytes(data[22:26], "little", signed=True))
+    bpp = int.from_bytes(data[28:30], "little")
+    if bpp not in (24, 32) or width <= 0:
+        return None
+    step, row = bpp // 8, ((bpp * width + 31) // 32) * 4
+    targets = [tuple(int(c[i:i + 2], 16) for i in (1, 3, 5)) for c in colors]
+    hits, total = [0] * len(targets), 0
+    for y in range(0, height, 6):
+        base = offset + y * row
+        for x in range(0, width, 6):
+            p = base + x * step
+            b, g, r = data[p], data[p + 1], data[p + 2]
+            total += 1
+            for i, (tr, tg, tb) in enumerate(targets):
+                if abs(r - tr) <= tolerance and abs(g - tg) <= tolerance and abs(b - tb) <= tolerance:
+                    hits[i] += 1
+    return [h / total for h in hits] if total else None
+
+
+def theme_file_leg(simctl, udid, bundle_id, phone_env, phone_log, mac_log, phone_shot, rpc, screens, themes_dir,
+                   support, out, note):
+    """A theme file saved on the Mac repaints the paired iPhone's terminal (the `appearance` channel):
+    the phone opens the Mac's first terminal (DEBUG demo `live-terminal`), then the leg saves looks A
+    and B in turn, each timed from the save to the phone's `terminal theme of ... background #hex`
+    line, with the Mac's hand-off to hostd and hostd's publish as the hops between. Then a refused
+    value and a half-written file: the phone keeps the last good background, and the Mac's notice
+    names the file. Returns whether the leg passed."""
+    ok = True
     since = time.monotonic()
     subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
     subprocess.run(simctl + ["launch", udid, bundle_id, "-cmux-mobile-no-restore", "-cmux-mobile-demo", "live-terminal"],
                    env=phone_env, check=True, capture_output=True)
     shown = phone_log.wait_at(re.compile(r"demo step: live-terminal (shown|no \w+)"), 240, since=since)
     outcome = shown[1].group(1) if shown else "timed out"
-    phone = phone_shot("theme-phone-terminal")
-    mac = rpc("debug.window_snapshot", {"path": os.path.join(screens, "theme-mac-window.png")}, timeout=60)
-    mac_line = "screens/theme-mac-window.png" if isinstance(mac, dict) and not mac.get("error") else f"no Mac snapshot ({mac.get('error')})"
-    return f"live-terminal {outcome}; phone {phone}; Mac {mac_line}"
+    looks = THEME_FILE_LOOKS
+    hexes = [look["colors"]["background"] for look in looks]
+    first = phone_log.wait_at(re.compile(rf"terminal theme of .*background {hexes[0]}", re.I), THEME_FILE_WAIT, since=since)
+    mac = rpc("debug.window_snapshot", {"path": os.path.join(screens, "theme-file-mac-window.png")}, timeout=60)
+    mac_line = "screens/theme-file-mac-window.png" if isinstance(mac, dict) and not mac.get("error") else f"no Mac snapshot ({mac.get('error')})"
+    note(f"- theme-file: phone live-terminal {outcome}; theme A ({hexes[0]}) on the phone "
+         f"{'before the first save' if first else f'NOT seen in {THEME_FILE_WAIT} s'}; Mac {mac_line}")
+
+    samples = []  # (index, hex, write->phone ms, write->Mac sent ms, write->hostd ms)
+    current = 0
+    for i in range(THEME_FILE_SAMPLES):
+        current = (i + 1) % len(looks)
+        target = hexes[current]
+        mark = time.monotonic()
+        t_write = time.time()
+        write_theme_file(themes_dir, theme_file_text(looks[current]))
+        hit = phone_log.wait_at(re.compile(rf"terminal theme of .*background {target}", re.I), THEME_FILE_WAIT, since=mark)
+        if not hit:
+            ok = False
+            note(f"- theme-file sample {i + 1}: TIMEOUT, no phone terminal theme with background {target} in {THEME_FILE_WAIT} s")
+            break
+        t_phone = log_time(hit[1].string) or (time.time() - (time.monotonic() - hit[0]))
+        sent = mac_log.wait_at(re.compile(rf"appearance to hostd: .*terminal background {target}", re.I), 5, since=mark)
+        t_sent = log_time(sent[1].string) if sent else None
+        samples.append([i + 1, target, (t_phone - t_write) * 1000, (t_sent - t_write) * 1000 if t_sent else None,
+                        None, t_write])
+    if samples and ok:
+        shot = phone_shot("theme-file-phone")
+        bmp = os.path.join(out, "theme-file-phone.bmp")
+        subprocess.run(simctl + ["io", udid, "screenshot", "--type=bmp", bmp], capture_output=True)
+        share = terminal_share(bmp, [hexes[current], hexes[1 - current]]) if os.path.isfile(bmp) else None
+        if os.path.isfile(bmp):
+            os.unlink(bmp)
+        if share is None:
+            note(f"- theme-file last screen: {shot}; background pixels not checked (no BMP screenshot)")
+        else:
+            matches = share[0] >= 0.05 and share[0] > share[1]
+            ok = ok and matches
+            note(f"- theme-file last screen: {shot}; {share[0]:.0%} of sampled pixels are {hexes[current]}, "
+                 f"{share[1]:.0%} the other look's {hexes[1 - current]}: {'PASS' if matches else 'FAIL'}")
+
+    # hostd's publish of each change (its own log, UTC, read once the samples are in).
+    published = hostd_appearance_lines(support)
+    with open(os.path.join(out, "hostd-appearance.log"), "w") as f:
+        f.writelines(redact(line) for _, _, line in published)
+    for sample in samples:
+        hop = next((t for t, bg, _ in published if bg == sample[1].lower() and t >= sample[5] - 0.05), None)
+        sample[4] = (hop - sample[5]) * 1000 if hop else None
+    if samples:
+        phone_ms = [s[2] for s in samples]
+        note(f"- theme-file repaint: n={len(phone_ms)} min {min(phone_ms):.0f} ms, median "
+             f"{percentile(phone_ms, 0.5):.0f} ms, p95 {percentile(phone_ms, 0.95):.0f} ms"
+             f"{'' if ok and len(samples) == THEME_FILE_SAMPLES else ' (FAIL)'}")
+        for name, column in (("Mac sent to hostd", 3), ("hostd published", 4)):
+            values = [s[column] for s in samples if s[column] is not None]
+            note(f"- theme-file hop, save to {name}: " + (
+                f"n={len(values)} min {min(values):.0f} ms, median {percentile(values, 0.5):.0f} ms, p95 "
+                f"{percentile(values, 0.95):.0f} ms" if values else "no timestamps read"))
+        note("- theme-file samples (save to Mac sent / hostd published / phone, ms): " + "; ".join(
+            f"{s[0]} {s[1]} {'-' if s[3] is None else f'{s[3]:.0f}'}/{'-' if s[4] is None else f'{s[4]:.0f}'}/{s[2]:.0f}"
+            for s in samples))
+    if not ok:
+        return False
+
+    # A refused value, then a half-written file: the phone keeps the last good background, and the
+    # Mac's settings notice (its toast) names the theme file.
+    good = hexes[current]
+    other = re.compile(rf"terminal theme of .*background (?!{good})#[0-9a-fA-F]{{6}}", re.I)
+    file_label = f"themes/{THEME_FILE_NAME}.json"
+    bad = [("a refused appearance.accent \"purple\"", theme_file_text({**looks[current], "appearance.accent": "purple"})),
+           ("a half-written file", theme_file_text(looks[current])[:20])]
+    results, fallback_ok, seen = [], True, set()
+    for what, text in bad:
+        mark = time.monotonic()
+        write_theme_file(themes_dir, text)
+        toasts, deadline = set(), time.monotonic() + THEME_FILE_HOLD
+        while time.monotonic() < deadline:
+            reply = rpc("debug.toast", {}, timeout=5)
+            for window in (reply.get("windows") or []) if isinstance(reply, dict) else []:
+                for toast in window.get("toasts") or []:
+                    if file_label in str(toast.get("message", "")):
+                        toasts.add(str(toast.get("message")))
+            time.sleep(0.5)
+        moved = phone_log.wait_at(other, 0, since=mark)
+        kept = moved is None
+        named = sorted(toasts - seen)  # this save's own notice, not the one before still on screen
+        seen |= toasts
+        fallback_ok = fallback_ok and kept and bool(named)
+        results.append(f"{what}: phone {'kept ' + good if kept else 'MOVED to ' + moved[1].group(0)[-7:]} for "
+                       f"{THEME_FILE_HOLD} s; Mac notice {('names it: ' + repr(named[0][:160])) if named else 'NAMES NO FILE'}")
+    write_theme_file(themes_dir, theme_file_text(looks[current]))  # the last good look again
+    note(f"- theme-file fallback {'PASS' if fallback_ok else 'FAIL'}: " + "; ".join(results))
+    return ok and fallback_ok
 
 
 def log_time(line):
@@ -645,13 +1021,22 @@ def discovery_ask(mac_log, phone_log, since, status, rpc, note):
     return ok
 
 
+def host_state_directory(support):
+    """The Mac's MobileHostStateDirectory: under the bundle's support folder, or under its account
+    namespace's subfolder there (IPhoneHostService stateRoot/<storageNamespace>/cmux-mobile-host), as
+    collect() finds paired-devices.json. The one holding paired-devices.json wins; None when absent."""
+    found = [d for d in glob.glob(os.path.join(support, "**/cmux-mobile-host"), recursive=True) if os.path.isdir(d)]
+    found.sort(key=lambda d: (not os.path.exists(os.path.join(d, "paired-devices.json")), d.count(os.sep), d))
+    return found[0] if found else None
+
+
 def discovery_restart(app, exe, env, out, support, status, phone_log, streams, phone_shot, note):
     """The paired Mac quits; a second identity key is put in its fallback file (what a refused Keychain
     read used to mint) while the phone stays open; the Mac starts again. The phone reconnects by
     itself, the Mac keeps its Keychain key (no `mac_identity_changed`) and sets the file key aside."""
-    state = os.path.join(support, "cmux-mobile-host")  # MobileHostStateDirectory
-    if not os.path.isdir(state):
-        note(f"- discovery, restart: no state directory {state} -> FAIL")
+    state = host_state_directory(support)
+    if state is None:
+        note(f"- discovery, restart: no cmux-mobile-host state directory under {support} -> FAIL")
         return app, False
     app.terminate()  # the exact PID this script started
     try:
