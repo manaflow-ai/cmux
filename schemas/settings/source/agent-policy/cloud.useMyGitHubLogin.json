@@ -1,0 +1,4 @@
+{
+  "agent": "userOnly",
+  "why": "It decides whether the person's own GitHub login is sealed to their Cloud machines: only the person turns that on or off."
+}
