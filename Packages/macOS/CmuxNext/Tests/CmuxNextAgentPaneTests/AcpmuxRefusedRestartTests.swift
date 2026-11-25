@@ -10,8 +10,14 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct AcpmuxRefusedRestartTests {
+    private struct UnexpectedHandshakeError: Error, Sendable {}
+
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
+    private actor UnclassifiedHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw UnexpectedHandshakeError() }
     }
 
     /// A host whose every handshake is refused with `error`, and that records each restart it is asked for.
@@ -69,6 +75,15 @@ struct AcpmuxRefusedRestartTests {
             let details = error["details"] as? [String: Any]
             #expect((details?["reconnecting"] as? Bool == true) == recovering.contains(cause), "\(cause)")
         }
+    }
+
+    /// A bridge failure that is not an owned refusal is still recoverable during a relaunch.
+    @Test func anUnclassifiedHandshakeIsReconnecting() async throws {
+        let model = AgentPaneModel(host: UnclassifiedHost())
+        let reply = await model.respond(to: .reconnect)
+        let error = try #require(reply["error"] as? [String: Any])
+        let details = try #require(error["details"] as? [String: Any])
+        #expect(details["reconnecting"] as? Bool == true)
     }
 
     /// Without a refusal that offered it, or without the person's click, the page cannot stop a daemon.

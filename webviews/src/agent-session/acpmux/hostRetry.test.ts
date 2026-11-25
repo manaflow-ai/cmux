@@ -29,6 +29,8 @@ test("only a typed recovery or an unclassified lost transport is neutral", () =>
   expect(hostIsReconnecting({ code: "native.not_connected" })).toBe(true);
   expect(hostIsReconnecting({ code: "native.not_connected", retryable: false })).toBe(true);
   expect(hostIsReconnecting({ code: "native.timed_out" })).toBe(true);
+  expect(hostIsReconnecting({ code: "cmux.page.failed", retryable: false })).toBe(true);
+  expect(hostIsReconnecting({ code: "native.failed", retryable: false })).toBe(true);
   expect(hostIsReconnecting({ code: "known", retryable: true })).toBe(true);
   expect(hostIsReconnecting({ code: "known", retryable: false })).toBe(false);
   expect(hostIsReconnecting(new Error("socket closed"))).toBe(true);
