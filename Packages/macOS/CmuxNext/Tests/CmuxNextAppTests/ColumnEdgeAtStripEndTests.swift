@@ -113,7 +113,19 @@ struct ColumnEdgeAtStripEndTests {
         for (kind, view) in screen.dividerViews where !view.isHidden {
             let band = view.convert(view.cursorRectInBounds, to: nil)
             guard band.width > 0, band.height > 0 else { continue }
-            let points = Self.bandPoints(band, horizontal: view.axis == .horizontal)
+            let fractions: [CGFloat] = [0.1, 0.5, 0.9]
+            var points: [CGPoint] = []
+            for f in fractions {
+                if view.axis == .horizontal {
+                    let y: CGFloat = band.minY + band.height * f
+                    let xs: [CGFloat] = [band.minX + 0.5, band.midX, band.maxX - 0.5]
+                    for x in xs { points.append(CGPoint(x: x, y: y)) }
+                } else {
+                    let x: CGFloat = band.minX + band.width * f
+                    let ys: [CGFloat] = [band.minY + 0.5, band.midY, band.maxY - 0.5]
+                    for y in ys { points.append(CGPoint(x: x, y: y)) }
+                }
+            }
             for point in points {
                 let hit = frame.hitTest(frame.superview?.convert(point, from: nil) ?? point)
                 #expect(hit === view, "\(kind.mouseAreaID) at \(point): the press goes to \(hit.map { String(describing: type(of: $0)) } ?? "nothing")")
@@ -121,23 +133,6 @@ struct ColumnEdgeAtStripEndTests {
             }
         }
         #expect(checked >= 18, "too few divider bands to check: \(checked)")
-    }
-
-    /// Nine points over a divider's band: three across its thickness (both inner edges and the middle) at a tenth,
-    /// half and nine tenths of its length. Spelled out with types so the compiler checks it in reasonable time.
-    private static func bandPoints(_ band: CGRect, horizontal: Bool) -> [CGPoint] {
-        let fractions: [CGFloat] = [0.1, 0.5, 0.9]
-        var points: [CGPoint] = []
-        for f in fractions {
-            if horizontal {
-                let y: CGFloat = band.minY + band.height * f
-                for x: CGFloat in [band.minX + 0.5, band.midX, band.maxX - 0.5] { points.append(CGPoint(x: x, y: y)) }
-            } else {
-                let x: CGFloat = band.minX + band.width * f
-                for y: CGFloat in [band.minY + 0.5, band.midY, band.maxY - 0.5] { points.append(CGPoint(x: x, y: y)) }
-            }
-        }
-        return points
     }
 
     /// Narrowing the full-width column: the edge follows the pointer, and the release leaves it there.

@@ -249,6 +249,8 @@ struct CloudGitHubReposTests {
         #expect(completion.error == nil)
         // #55104: another redirect of the same state (the code-less update, a new installation) is its own completion,
         // never `idempotency.conflict`; the same redirect again is the same completion.
+        // One #require per line: a #require nested in another's argument is a recursive macro expansion,
+        // which fails the test build.
         let updateURL = try #require(URL(string: "\(link)?state=\(state)&installation_id=42&setup_action=update"))
         let update = try #require(CloudGitHubCompletion(url: updateURL, scheme: "cmux-dev-x"))
         let otherInstallURL = try #require(URL(string: "\(link)?state=\(state)&code=abc&installation_id=43&setup_action=install"))
