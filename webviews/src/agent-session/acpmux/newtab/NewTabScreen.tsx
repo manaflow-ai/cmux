@@ -9,14 +9,15 @@ import React, {
   useCallback,
   useEffect,
   useEffectEvent,
-  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
+  useInsertionEffect,
 } from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
+import { useKeyStyleSettings, useListKeys } from "../../../ui/useListKeys";
 import type { ConnectKind } from "../environments";
 import { githubFolder, githubFolderRepo } from "../githubRepos";
 import { useSendAfterCheckout } from "../sendAfterCheckout";
@@ -37,9 +38,9 @@ import {
   isAgentHome,
   projectLabel,
   sessionMark,
-  isTemporaryFolder,
   SessionsBy,
   FolderRecency,
+  isTemporaryFolder,
 } from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
@@ -95,7 +96,6 @@ import { useRecentlyClosed } from "./recentlyClosed";
 import { initialRecentProject } from "./recentProject";
 import { startedProjectChoices } from "./startedProject";
 import {
-  exactMatch,
   canonicalAddress,
   defaultSelection,
   isAddress,
@@ -110,6 +110,7 @@ import {
   type ScreenRow,
   pageChatCards,
   returnRow,
+  exactMatch,
 } from "./screenModel";
 import { SuggestionGlyph, rowGlyphName } from "./RowGlyph";
 import { Icon } from "../icons/Icon";
@@ -169,6 +170,7 @@ import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
 import { reportInputReadyWhenFocused } from "./inputReady";
 import { rememberNewChatPlace } from "../lastNewChatPlace";
+import type { EvacuateState } from "../place/placeModel";
 import type { ComputerUsePlace } from "../computerUse/computerUseState";
 import { KEYCAP_THEN, keycapLegend, keycapStrokes } from "../../../ui/keycapLegend";
 
@@ -232,6 +234,13 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// A chat card's Compress Chat or Decompress Chat: acpmux's cold archive (`_acpmux/cold_archive`) of
   /// that session. It rejects with acpmux's refusal (a chat under way), which the page shows.
   onColdArchive?(sessionId: string, archived: boolean): Promise<unknown>;
+  /// The chat cards' place and Evacuate menu rows (newtab/ChatCards.tsx); omitted where the page cannot ask the app.
+  onPlace?(sessionId: string, mode: "local" | "cloud" | "auto"): void;
+  onEvacuate?(sessions?: readonly string[]): void;
+  /// The running Evacuate and its Cancel (place/EvacuateControl.tsx).
+  evacuate?: EvacuateState;
+  onCancelEvacuate?(): void;
+  onBringBack?(sessions?: readonly string[]): void;
   onViewChat?(key: string): void;
   /// One page of All chats from the host (`chats.page`); without it the page shows no All chats list.
   loadChatsPage?: LoadChatsPage;
@@ -523,9 +532,16 @@ export function NewTabScreen(props: Props) {
   const [localGitHubPick, setLocalGitHubPick] = useState<{ name: string; cwd?: string }>();
   // A GitHub repository picked with This Mac picked is only the chip's choice until Return: its checkout here
   // (cloned first when there is none) starts then, never at the pick (cmux#53226). `deferredGitHub` keeps the
-  // folders here whose remote names it, and `sendAfterCheckout` sends the prompt once the checkout lands.
+  // folders here whose remote names it. `heldAsk` is the ask Return held for the checkout of choice `choice`
+  // (`projectChoice`), repeated as it was asked (its harness, model, words) in the folder `heldReady` names once
+  // that checkout lands; a newer choice drops it.
   const deferredGitHub = useRef<{ repo: string; candidates: string[] }>(undefined);
-  const [sendAfterCheckout, setSendAfterCheckout] = useState(false);
+  const heldAsk = useRef<{ choice: number; ask: (folder: string) => void }>(undefined);
+  // The latest askChat, so the held ask runs with the page as it is once the checkout landed.
+  const askChatRef = useRef<(agent: string, prompt: string, cwd?: string, model?: string) => boolean | void>(
+    () => undefined,
+  );
+  const [heldReady, setHeldReady] = useState<string>();
   /// A place was picked on this page (a machine, a folder, New project, a run mode): the last pick's
   /// machine (`startMachine`) no longer replaces it, even when acpmux lists that machine only later.
   const placePicked = useRef(false);
@@ -830,11 +846,14 @@ export function NewTabScreen(props: Props) {
       ? project
       : (props.startCwd ?? (props.startPending && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
   const cloudMode = props.runMode?.mode === "cloud";
-  const cloudFolder = cloudRepositoryPick(
-    localAskFolder,
-    (localGitHubPick?.cwd === localAskFolder ? localGitHubPick?.name : undefined) ??
-      props.projects?.find((candidate) => candidate.cwd === localAskFolder)?.repo?.github,
-  );
+  // A folder of this Mac the person picked here goes to Cloud as itself (copied, granted on the pick) when it is
+  // no clone of a GitHub repository; never the tab's inherited folder (cmux#53226).
+  const cloudFolder =
+    cloudRepositoryPick(
+      localAskFolder,
+      (localGitHubPick?.cwd === localAskFolder ? localGitHubPick?.name : undefined) ??
+        props.projects?.find((candidate) => candidate.cwd === localAskFolder)?.repo?.github,
+    ) ?? (picked && project !== undefined && localAskFolder === project ? project : undefined);
   const askFolder = cloudMode ? cloudFolder : githubFolderRepo(localAskFolder) ? undefined : localAskFolder;
   // A GitHub repository picked with This Mac picked, not checked out yet: the chip names it, Return checks it out.
   const pendingGitHubFolder = !cloudMode && githubFolderRepo(localAskFolder) ? localAskFolder : undefined;
@@ -846,7 +865,9 @@ export function NewTabScreen(props: Props) {
   const chatFolder = environment ? (environment.kind === "local" ? environment.folder : undefined) : askFolder;
   // Issue fixes must never treat the tab's home or private agent-home as a checkout pick. An
   // absent folder lets the host search only its approved local checkout roots.
-  const fixFolder = [project, askFolder].find((folder) => folder && !homeOrAbove(folder) && !isAgentHome(folder));
+  const fixFolder = [project, askFolder].find(
+    (folder) => folder && !homeOrAbove(folder) && !isAgentHome(folder) && !githubFolderRepo(folder),
+  );
   // The environment card checks the project the chat starts in: the chip's folder, else the tab's
   // own project (never the home ~ or a private agent-home folder it inherited).
   const envFolder = none
@@ -1008,14 +1029,15 @@ export function NewTabScreen(props: Props) {
     if (cloudFolderWaiting || (localGitHubPick && !localGitHubPick.cwd)) return false;
     // A GitHub repository on the chip with This Mac picked: Return checks it out here first, then sends.
     const checkoutRepo =
-      !cloudMode && props.runMode?.mode !== "sandboxed" && !machine && !environment
+      !cloudMode && props.runMode?.mode !== "sandboxed" && !machine && !environment && !newProject
         ? githubFolderRepo(localAskFolder)
         : undefined;
-    if (checkoutRepo && localAskFolder) {
+    if (checkoutRepo && localAskFolder && props.onNewWorktree) {
       const github =
         deferredGitHub.current?.repo === checkoutRepo ? deferredGitHub.current : { repo: checkoutRepo, candidates: [] };
-      setSendAfterCheckout(true);
-      newWorktreeHere(localAskFolder, github);
+      const choice = newWorktreeHere(localAskFolder, github);
+      if (choice !== undefined)
+        heldAsk.current = { choice, ask: (folder) => void askChatRef.current(agent, prompt, folder, model) };
       return false;
     }
     if (cloudMode && !machine && props.onCloud) {
@@ -1825,10 +1847,13 @@ export function NewTabScreen(props: Props) {
     if (command) props.onShell(command);
   };
   const sendRef = useRef(send);
-  // Return checked a GitHub repository out here first (askChat): the prompt goes once its folder is the pick.
-  useSendAfterCheckout(sendAfterCheckout && Boolean(localGitHubPick?.cwd), () => {
-    setSendAfterCheckout(false);
-    sendRef.current();
+  // Return checked a GitHub repository out here first (askChat): the held ask goes once its folder is the pick.
+  useSendAfterCheckout(heldReady !== undefined && localGitHubPick?.cwd === heldReady, () => {
+    const folder = heldReady;
+    const held = heldAsk.current;
+    setHeldReady(undefined);
+    heldAsk.current = undefined;
+    if (folder) held?.ask(folder);
   });
   /// A Cloud start is out (`cloudStarting`): dictation writes nothing then, as typing doesn't.
   const cloudStartingRef = useRef(false);
@@ -1898,6 +1923,52 @@ export function NewTabScreen(props: Props) {
   const placeholder = profilePick ? nt("profile.placeholder", { site: shortHost(profilePick.url) }) : nt("placeholder");
   // A dictation waiting for words says so in the empty field, in italic (dictation.css).
   const dictating = props.dictating === true;
+  // `app.keyStyle`. The prompt keeps its typing (Emacs' Ctrl-N/P are listStep's arrows already);
+  // Vim's Esc (Emacs' Ctrl-G) on open suggestions gives the keyboard to them, where j/k, gg/G and l
+  // or Return step and run them as the arrows and Return do, and / goes back to the prompt. A key
+  // the rows take never reaches the type-to-field listener (`typeAnywhere`: it is prevented, and
+  // the listbox owns its keys).
+  const rowsTakeKeys = useKeyStyleSettings().keyStyle !== "standard";
+  const fieldKeys = useListKeys({
+    onCommand: (command) => {
+      if (command !== "list.leave" || !rows.length || !list.current) return false;
+      focusRoute(list.current, "person", "key style list key", { preventScroll: true });
+    },
+  });
+  const rowKeys = useListKeys({
+    onCommand: (command) => {
+      if (!rows.length) return false;
+      switch (command) {
+        case "list.next":
+          pick(stepSelection(current, 1, rows.length));
+          return;
+        case "list.previous":
+          pick(stepSelection(current, -1, rows.length));
+          return;
+        case "list.first":
+          return pick(0);
+        case "list.last":
+          return pick(rows.length - 1);
+        case "list.open":
+          return void submit();
+        case "list.search":
+          return void focusRoute(field.current, "person", "key style list key");
+        case "list.leave":
+          // The field's first Escape: the suggestions close, the prompt has the keyboard again.
+          setDismissed(text);
+          return void focusRoute(field.current, "person", "key style list key");
+        default:
+          return false;
+      }
+    },
+  });
+  const rowsKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    rowKeys(event);
+    const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+    if (event.defaultPrevented || event.key !== "Enter" || !plain || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    submit();
+  };
   const keyDown = (event: KeyboardEvent) => {
     touch();
     if (composing.current || event.isComposing || event.keyCode === 229) return;
@@ -1905,6 +1976,11 @@ export function NewTabScreen(props: Props) {
     const input = field.current;
     const state = fieldText();
     if (!input) return;
+    // The profile search, the command list and shell mode keep their own Escape.
+    if (!profilePick && !commandsOpen && !shell) {
+      fieldKeys(event);
+      if (event.defaultPrevented) return;
+    }
     if (profilePick) {
       // The profile search keeps the rows' keys; Escape, or Backspace in its empty field, goes back.
       if (event.key === "Escape" || (event.key === "Backspace" && !state.value)) {
@@ -2108,7 +2184,8 @@ export function NewTabScreen(props: Props) {
     setPicked(true);
     setNone(cwd === undefined);
     setProject(cwd);
-    if (cwd && !cloudMode && !githubFolderRepo(cwd)) props.onProjectPicked?.(cwd);
+    // With Cloud picked too: the host grants it on this click, so the Cloud start can copy it (cmux#53226).
+    if (cwd && !githubFolderRepo(cwd)) props.onProjectPicked?.(cwd);
     if (!cwd) setCloudFolderWaiting(false);
     field.current?.focus();
     // The folder menu hands focus back to its button as it closes: the field takes it after that,
@@ -2230,35 +2307,39 @@ export function NewTabScreen(props: Props) {
       },
     );
   }
-  const newWorktreeHere = (cwd: string, github?: { repo: string; candidates: string[] }): void => {
+  /// Returns the checkout's choice number (`projectChoice`), which a held ask waits on.
+  const newWorktreeHere = (cwd: string, github?: { repo: string; candidates: string[] }): number | undefined => {
     const onNewWorktree = props.onNewWorktree;
-    if (!onNewWorktree) return;
+    if (!onNewWorktree) return undefined;
     setWorktreeError(undefined);
     const choice = ++projectChoice.current;
     if (github) setLocalGitHubPick({ name: github.repo });
     // A later choice replaced this checkout: its pick that still waits for a folder goes too, so Send never stays
     // held behind a checkout nobody wants (a saved environment chosen meanwhile).
-    const dropReplaced = () => {
-      setSendAfterCheckout(false);
+    const dropReplaced = () =>
       setLocalGitHubPick((pick) => (pick && !pick.cwd && pick.name === github?.repo ? undefined : pick));
-    };
+    // The ask Return held for this checkout, if it is still the one held.
+    const held = () => heldAsk.current?.choice === choice;
     void onNewWorktree(cwd, github).then(
       (folder) => {
         if (choice !== projectChoice.current) return dropReplaced();
-        if (folder) pickProject(folder, github?.repo);
-        else {
-          setSendAfterCheckout(false);
+        if (folder) {
+          pickProject(folder, github?.repo);
+          if (held()) setHeldReady(folder);
+        } else {
+          if (held()) heldAsk.current = undefined;
           setLocalGitHubPick(undefined);
         }
       },
       (error: unknown) => {
         console.warn("agent pane: New Worktree failed", error);
         if (choice !== projectChoice.current) return dropReplaced();
-        setSendAfterCheckout(false);
+        if (held()) heldAsk.current = undefined;
         setLocalGitHubPick(undefined);
-        setWorktreeError({ retry: () => newWorktreeHere(cwd, github) });
+        setWorktreeError({ retry: () => void newWorktreeHere(cwd, github) });
       },
     );
+    return choice;
   };
   const browseProject = (request?: BrowseRequest) => {
     if (!browseAlive.current) return Promise.resolve(undefined);
@@ -2550,6 +2631,11 @@ export function NewTabScreen(props: Props) {
           onOpen={openCard}
           {...(props.onOpenChatInTerminal ? { onOpenInTerminal: openCardInTerminal } : {})}
           {...(props.onColdArchive ? { onColdArchive: coldArchiveCard } : {})}
+          {...(props.onPlace ? { onPlace: props.onPlace } : {})}
+          {...(props.onEvacuate ? { onEvacuate: props.onEvacuate } : {})}
+          {...(props.evacuate ? { evacuate: props.evacuate } : {})}
+          {...(props.onBringBack ? { onBringBack: props.onBringBack } : {})}
+          {...(props.onCancelEvacuate ? { onCancelEvacuate: props.onCancelEvacuate } : {})}
           onShowAll={props.onShowAll}
         />
       )}
@@ -2987,6 +3073,8 @@ export function NewTabScreen(props: Props) {
             }${boxFocused ? " nt-popover-focused" : ""}`
           }
           hostGlass={false}
+          // The rows are the live answer to what is typed in the field (ui/popupSettle.ts).
+          popupSettle="results"
           initialFocus={false}
           finalFocus={false}
         >
@@ -2997,6 +3085,8 @@ export function NewTabScreen(props: Props) {
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="listbox"
             aria-label={nt("suggestions")}
+            tabIndex={rowsTakeKeys ? -1 : undefined}
+            onKeyDown={rowsKeyDown}
           >
             {rows.map((row, index) => (
               <div
@@ -3064,6 +3154,7 @@ export function NewTabScreen(props: Props) {
     onInputReady.current = props.onInputReady;
     textRef.current = text;
     sendRef.current = send;
+    askChatRef.current = askChat;
     cloudStartingRef.current = props.cloudStarting === true;
     inlinePlace.current = (chips, kind) => inline.place(chips, kind);
     // A draft cleared (emptied, sent, replaced by an empty one) has no picks: the next starts fresh.

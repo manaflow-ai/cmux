@@ -1,6 +1,7 @@
 #if canImport(CmuxMobileLinkFFI)
 import CmuxMobileLinkFFI
 #endif
+import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileTerminal
 import CmuxMobileTransport
@@ -299,8 +300,15 @@ public final class DaemonTerminalSession: TerminalSession {
     /// a lost reply does not stop input (later sends keep both directions
     /// moving, and the loss is repaired by duplicate ACKs).
     static let maxInputInFlight = 64
-    /// A missing input reply frees its slot and reports uncertain delivery.
+    /// A send that made no progress for this long (no bytes taken by the link, no answer to an
+    /// earlier send) frees its slot and reports uncertain delivery. A send that keeps moving
+    /// goes on, up to ``DaemonClient/progressCeiling`` (Leo, 2026-11-24: "a 10s timeout that
+    /// kills messages while they're making progress is a shame. make it progress-based, not a
+    /// wall clock").
     var inputRequestDeadline: Duration = .seconds(10)
+    /// Sends answered later than ``inputRequestDeadline`` after they went out: each one the old
+    /// fixed 10 s cut would have dropped while it was still moving.
+    private(set) var sendsPastFixedDeadline = 0
     /// How long a `send` may go unanswered before ``armTailProbe()`` writes
     /// `ping`s behind it: many round trips, well under the 1 s RTO.
     var tailProbeDelay: Duration = .milliseconds(150)
@@ -919,6 +927,52 @@ public final class DaemonTerminalSession: TerminalSession {
             historyAllowance = historyRowsOmitted <= Self.historyChunkRows ? nil : allowance + Self.historyChunkRows
         }
         log.notice("surface \(self.surface, privacy: .public): older history asked (\(self.historyRowsOmitted, privacy: .public) rows on the Mac, next \(self.historyRequestDescription, privacy: .public))")
+        replacing = client
+        Task { await attach() }
+        return true
+    }
+
+    /// The daemon refused `terminal-find` (an older Mac, or a lane that does not list it): the
+    /// screen searches its mirror for the rest of this session.
+    private var findUnsupported = false
+
+    /// `terminal-find {surface, query, ...}` on the attach channel: one page of matches in the
+    /// terminal's whole history. Nil when the daemon has no such command.
+    public func findPage(_ request: TerminalFindRequest) async throws -> TerminalFindPage? {
+        // Settings → Terminal → Find in Whole History, off by default: off, the mirror searches itself.
+        guard !findUnsupported, CmuxMobilePreferences.terminalHistoryFind() else { return nil }
+        guard attached, let client else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
+        var params = request.fields
+        params["surface"] = surface
+        let reply = try await client.request("terminal-find", params: params)
+        do {
+            return try TerminalFindPage.decode(reply)
+        } catch let error as TerminalFindError where error.isUnsupported {
+            log.notice("surface \(self.surface, privacy: .public): terminal-find not available: \(String(describing: error), privacy: .public)")
+            findUnsupported = true
+            return nil
+        }
+    }
+
+    public var findMirror: TerminalFindMirror? {
+        return TerminalFindMirror(omitted: historyRowsOmitted, skipped: historyRowsSkipped, windowRows: historyWindowRows)
+    }
+
+    /// Brings the history around `daemonRow` into the mirror: the newest rows down to it
+    /// when it is within reach of a tail, else a window centered on it
+    /// (`attach-replay-history-window-v1`).
+    @discardableResult
+    public func loadHistory(aroundDaemonRow daemonRow: Int, rowsFromBottom: Int) -> Bool {
+        guard attached, !attaching, replacing == nil, !awaitingReplay, tailReplay,
+              inputInFlight == 0, let client else { return false }
+        if windowReplay, rowsFromBottom + Self.historyChunkRows > Self.maxTailHistoryRows {
+            historyWindowStart = max(0, daemonRow - Self.historyWindowRows / 2)
+        } else {
+            historyWindowStart = nil
+            let wanted = rowsFromBottom + Self.historyChunkRows / 4
+            historyAllowance = wanted >= historyRowsOmitted + (historyAllowance ?? 0) ? nil : max(historyAllowance ?? 0, wanted)
+        }
+        log.notice("surface \(self.surface, privacy: .public): history for a find match asked (\(self.historyRequestDescription, privacy: .public))")
         replacing = client
         Task { await attach() }
         return true
@@ -1954,6 +2008,7 @@ public final class DaemonTerminalSession: TerminalSession {
         Task { [weak self] in
             guard let self else { return }
             var written = false
+            let started = ContinuousClock.now
             do {
                 let submit: @Sendable () async throws -> String = {
                     var params: [String: Any]
@@ -1969,11 +2024,13 @@ public final class DaemonTerminalSession: TerminalSession {
                     params["surface"] = surface
                     return try await target.submit("send", params: params, deadline: deadline)
                 }
-                // A lane request gets written and answered within seconds or
-                // the lane is given up.
+                // A lane request that stops making progress is given up (its `submit` and
+                // `reply` fail after `deadline` without progress); this cap is only past
+                // the client's own ceiling.
                 let id: String
+                let cap = DaemonClient.progressCeiling + .seconds(5)
                 if onLane {
-                    guard let submitted = try await Self.within(.seconds(10), submit) else {
+                    guard let submitted = try await Self.within(cap, submit) else {
                         abandonInputLane(target, number: number, batch: batch, typed: typedBytes, key: key, resent: resent, paste: paste, wasWriting: true)
                         return
                     }
@@ -1989,13 +2046,18 @@ public final class DaemonTerminalSession: TerminalSession {
                 drainInput()
                 let reply: Data
                 if onLane {
-                    guard let answer = try await Self.within(.seconds(10), { try await target.reply(to: id) }) else {
+                    guard let answer = try await Self.within(cap, { try await target.reply(to: id) }) else {
                         abandonInputLane(target, number: number, batch: batch, typed: typedBytes, key: key, resent: resent, paste: paste, wasWriting: false)
                         return
                     }
                     reply = answer
                 } else {
                     reply = try await target.reply(to: id)
+                }
+                let took = ContinuousClock.now - started
+                if took >= deadline {
+                    sendsPastFixedDeadline += 1
+                    log.notice("send \(number, privacy: .public) answered after \(took, privacy: .public) while it kept moving: a fixed \(deadline, privacy: .public) cut would have dropped it (\(self.sendsPastFixedDeadline, privacy: .public) so far)")
                 }
                 if timesEcho, Self.error(in: reply) == nil {
                     keyAnswered(number: number, typedAt: typedAt)
@@ -2021,6 +2083,11 @@ public final class DaemonTerminalSession: TerminalSession {
                     #endif
                 }
             } catch {
+                if onLane, Self.madeNoProgress(error) {
+                    // Stalled for `deadline`: the lane is given up, as when it was a wall clock.
+                    abandonInputLane(target, number: number, batch: batch, typed: typedBytes, key: key, resent: resent, paste: paste, wasWriting: !written)
+                    return
+                }
                 if !written { inputWriting = false }
                 lastError = Self.diagnostic(error)
                 inputRecovering = true
@@ -2055,6 +2122,12 @@ public final class DaemonTerminalSession: TerminalSession {
     /// Treat it like a lost reply: the Mac may have applied the keystrokes.
     static func inputDeliveryUncertain(_ error: any Error) -> Bool {
         error is CancellationError || (error as? LinkError)?.code == "write_timeout"
+    }
+
+    /// A send's client gave it up after ``inputRequestDeadline`` without progress.
+    static func madeNoProgress(_ error: any Error) -> Bool {
+        let code = (error as? LinkError)?.code
+        return code == DaemonClient.replyTimeout || code == "write_timeout"
     }
 
     /// The input lane gave no answer in time (`wasWriting`: the batch's

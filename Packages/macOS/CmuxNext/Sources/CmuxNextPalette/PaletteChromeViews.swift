@@ -79,6 +79,7 @@ final class PaletteFooterView: NSView {
         pageIcon.isHidden = pageSymbol.isEmpty
         pageLabel.stringValue = pageTitle
         primaryLabel.stringValue = primaryTitle ?? ""
+        primaryLabel.lineBreakMode = .byTruncatingMiddle
         primaryButton.isHidden = primaryTitle == nil
         divider.isHidden = primaryTitle == nil
         actionsButton.alphaValue = actionsEnabled ? 1 : 0.4
@@ -159,7 +160,8 @@ final class PaletteFooterView: NSView {
     /// (#48512). The button is the union of the two, so neither draws outside it.
     private func layoutButton(_ button: NSView, label: NSTextField, keys: PaletteKeycapsView, right: CGFloat) -> CGFloat {
         let midY = bounds.midY
-        let labelSize = NSSize(width: PaletteText.fittingWidth(label), height: PaletteText.height(label))
+        // A Return label naming a long row truncates rather than pushing the page title out.
+        let labelSize = NSSize(width: min(PaletteText.fittingWidth(label), bounds.width * 0.5), height: PaletteText.height(label))
         let keySize = keys.intrinsicContentSize
         let width = labelSize.width + Metrics.space3 + keySize.width
         let labelY = PaletteText.capCenteredY(label, height: labelSize.height, midY: midY)
