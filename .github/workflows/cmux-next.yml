@@ -803,6 +803,8 @@ jobs:
   # keep the existing behavior because base-coalesce only coalesces base pushes.
   # Publishing and per-landing jobs intentionally do not depend on this gate.
   pure-checks-coalesce:
+    # A foreign label event skips it (its dependents test `!= 'false'`, so a skip reads as run).
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     uses: ./.github/workflows/base-coalesce.yml
     with:
       key: cmux-next-pure-checks
@@ -3649,7 +3651,7 @@ jobs:
   # Why: docs/ci/cmux-next-workflow-notes.md#note-205
   fast-tier-cargo:
     needs: [push-head-preflight, path_route, pure-checks-coalesce]
-    if: ${{ !cancelled() && needs.pure-checks-coalesce.outputs.run != 'false' && (inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'))) && (github.event_name != 'pull_request' || needs.path_route.outputs.fast_tier_cargo != 'false') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) && !contains(fromJSON(needs.path_route.outputs.base_red_jobs || '[]'), 'cmux-next fast tier (cargo)') }}
+    if: ${{ !cancelled() && needs.pure-checks-coalesce.outputs.run != 'false' && (inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'))) && (github.event_name != 'pull_request' || needs.path_route.outputs.fast_tier_cargo != 'false') && !contains(fromJSON(needs.path_route.outputs.base_red_jobs || '[]'), 'cmux-next fast tier (cargo)') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     name: cmux-next fast tier (cargo)
     concurrency:
       group: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || github.event_name == 'push' && format('cmux-next-push-{0}-fast-tier-cargo', github.ref) || format('cmux-next-run-{0}-fast-tier-cargo', github.run_id) }}
@@ -7233,7 +7235,7 @@ jobs:
   # Why: docs/ci/cmux-next-workflow-notes.md#note-340
   pr-red-checks:
     needs: [checks]
-    if: ${{ (always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     permissions:
       actions: read
       checks: read

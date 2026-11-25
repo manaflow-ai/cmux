@@ -83,7 +83,13 @@ class BenchRunsAfterARedStep(unittest.TestCase):
         linux = jobs["connection-notices"]
         self.assertEqual(linux["runs-on"], jobs["runner"]["runs-on"])
         self.assertEqual(linux["needs"], "runner")
-        self.assertIn(linux["if"].removeprefix("${{ ").removesuffix(" }}"), jobs["kit-tests"]["if"])
+        # The same gate as kit-tests: the same-tree reuse, then the land tier and its label guard (tests/test_head_tier.py).
+        reuse = "!fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse"
+        self.assertTrue(linux["if"].startswith("${{ (" + reuse + ") && "), linux["if"])
+        rest = linux["if"].removeprefix("${{ (" + reuse + ") && ").removesuffix(" }}")
+        self.assertIn(reuse, jobs["kit-tests"]["if"])
+        for clause in rest.split(") && !(", 1)[0].removeprefix("("), "!(" + rest.split(") && !(", 1)[1]:
+            self.assertIn(clause, jobs["kit-tests"]["if"])
         check = next(step for step in linux["steps"] if step.get("name") == "Connection notices")
         self.assertTrue(check["continue-on-error"])
         self.assertEqual(linux["outputs"]["lint_result"], "${{ steps." + check["id"] + ".outcome }}")
