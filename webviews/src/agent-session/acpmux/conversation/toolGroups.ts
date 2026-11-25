@@ -11,13 +11,10 @@ import { acpmuxSendCalls, recordedMessageBodyChangesForTool, type AcpmuxSendCall
 import { agentMessage, type AgentMessage } from "./agentMessages";
 import { dispatchCall, type DispatchCall } from "./dispatchCalls";
 import { whoElseCall, type WhoElseCall } from "./whoElseCalls";
-import { forumCallShown, type ForumCall } from "./forumCalls";
-import type { ForumCardLook } from "./ForumCallCard";
-import { experimentArm } from "../../../experiments/experiment";
-import { forumCallLook, type ForumCallLook } from "./forumCall.experiment";
 import { isCmuxExec } from "./cmuxExec";
 import { mcpCall, mcpDescription, mcpIsObservational, mcpKey } from "./mcpCalls";
 import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
+import { forumCall, type ForumCall } from "./forumCalls";
 import { agentCall, type AgentCall } from "./agentCalls";
 import { isThought, mergeThoughts } from "./thoughts";
 import { finishedBackgroundPhrase, isFoldedRun } from "./toolRunSummary";
@@ -37,9 +34,6 @@ export type ToolGroup =
   /// "Who else is working on these files" (whoElseCalls.ts): its answer as one card, whether the
   /// agent asked through the acpmux MCP tool or `acpmux who-else --json` in a shell.
   | { type: "whoElse"; item: AcpmuxActivity; call: WhoElseCall }
-  /// A call to the agent forum (`agent-forum search|show|post|reply ...`, forumCalls.ts) as a forum
-  /// row in the `forum-call-card` experiment's look; off (the default), it stays a shell row.
-  | { type: "forum"; item: AcpmuxActivity; call: ForumCall; look: ForumCardLook }
   /// A message a shell `acpmux send` (acpmuxSends.ts) or the acpmux MCP send's batch, file or tag
   /// shape (acpmuxMcpSends.ts) sent: the sent-message row (SentMessageLine.tsx). A call that sent
   /// several (a batch) is one entry per message, all with the same `item`.
@@ -58,6 +52,8 @@ export type ToolGroup =
       items: AcpmuxActivity[];
       calls: Extract<SubsessionCall, { tool: "start" }>[];
     }
+  /// A cmux-forum post, reply or search (forumCalls.ts): the thread or the hits as one card.
+  | { type: "forum"; item: AcpmuxActivity; call: ForumCall }
   /// A Claude Task or Agent call no subagent record claimed (agentCalls.ts): its subagent's card.
   | { type: "agentCall"; item: AcpmuxActivity; call: AgentCall }
   /// Consecutive calls to one MCP server's tool (mcpCalls.ts), one or more.
@@ -108,12 +104,7 @@ export function toolGroupKind(tool: Tool): ToolGroupKind | undefined {
 /// App.tsx +12 -3". Calls to one MCP tool group from one call, so even a lone one reads as what it
 /// did. A lone call of any other kind keeps its own row and title. Consecutive thoughts are one
 /// thought (thoughts.ts `mergeThoughts`).
-/// `forumLook` is the `forum-call-card` arm (forumCall.experiment.ts): off, the default, keeps a forum
-/// call a shell row. ToolRows passes the arm it follows live, so a Settings switch regroups at once.
-export function toolGroups(
-  items: readonly AcpmuxActivity[],
-  forumLook: ForumCallLook = experimentArm(forumCallLook),
-): ToolGroup[] {
+export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
   const groups: ToolGroup[] = [];
   // One turn's bounded, transcript-recorded message files. A later Bash `acpmux send - <file>`
   // may use a body written by an earlier Bash call; no host filesystem read is allowed here.
@@ -179,7 +170,6 @@ export function toolGroups(
     const tool = item.tool;
     const whoElse = tool ? whoElseCall(item) : undefined;
     const dispatch = tool && !whoElse ? dispatchCall(item) : undefined;
-    const forum = tool && !whoElse && !dispatch && forumLook !== "off" ? forumCallShown(item, forumLook) : undefined;
     let send = tool && !dispatch ? acpmuxSendCalls(tool, messageFiles) : undefined;
     if (send && messageFiles.size) {
       const startsAt = tool?.startedAt;
@@ -195,8 +185,11 @@ export function toolGroups(
     const message = tool && !dispatch && !whoElse && !send ? agentMessage(tool) : undefined;
     const named = tool && !dispatch && !whoElse && !send && !message ? mcpCall(tool) : undefined;
     const subsession = named && subsessionCall(tool!, named);
-    const call = subsession ? undefined : named;
-    const agent = tool && !dispatch && !whoElse && !send && !message && !named ? agentCall(tool) : undefined;
+    // A forum post, reply or search draws as its card; the server's other tools keep their rows.
+    const forum =
+      tool && !dispatch && !whoElse && !send && !message && !subsession ? forumCall(tool, named) : undefined;
+    const call = subsession || forum ? undefined : named;
+    const agent = tool && !dispatch && !whoElse && !send && !message && !named && !forum ? agentCall(tool) : undefined;
     // A cmux script is its own row even beside another: each says what it did (cmuxExec.ts).
     // So is a described call, as Claude Code desktop draws each with its own words (mcpDescription).
     const key = call && (isCmuxExec(call) || mcpDescription(call) ? `${mcpKey(call)}\u0000${tool!.id}` : mcpKey(call));
@@ -314,7 +307,7 @@ export function toolGroups(
     }
     // A dispatch keeps its own card even when it ran as a shell (`acpmux dispatch` in a Shell call).
     const kind =
-      tool && !whoElse && !dispatch && !forum && !send && !message && !subsession && !call && !agent
+      tool && !whoElse && !dispatch && !send && !message && !subsession && !forum && !call && !agent
         ? toolGroupKind(tool)
         : undefined;
     if (kind && run?.kind === kind) {
@@ -332,11 +325,11 @@ export function toolGroups(
     }
     flushLead();
     if (whoElse) groups.push({ type: "whoElse", item, call: whoElse });
-    else if (forum && forumLook !== "off") groups.push({ type: "forum", item, call: forum, look: forumLook });
     else if (dispatch) groups.push({ type: "dispatch", item, call: dispatch });
     else if (send) for (const part of send) groups.push({ type: "send", item, send: part });
     else if (message) groups.push({ type: "message", item, message });
     else if (subsession) groups.push({ type: "subsession", item, call: subsession });
+    else if (forum) groups.push({ type: "forum", item, call: forum });
     else if (agent) groups.push({ type: "agentCall", item, call: agent });
     else if (key) mcp = { key, items: [item] };
     else if (kind) run = { kind, items: [item], lead: 0 };
@@ -442,9 +435,7 @@ export function isRunning(tool: Tool): boolean {
 export function outputShapesRows(item: AcpmuxActivity): boolean {
   const tool = item.tool;
   if (!tool) return false;
-  return Boolean(
-    whoElseCall(item) || dispatchCall(item) || forumCallShown(item) || acpmuxSendCalls(tool) || acpmuxMcpSends(tool),
-  );
+  return Boolean(whoElseCall(item) || dispatchCall(item) || acpmuxSendCalls(tool) || acpmuxMcpSends(tool));
 }
 
 /// A shell call in flight with nothing to show yet: Claude sends a call before its input, which

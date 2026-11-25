@@ -11,7 +11,7 @@ public import Foundation
 /// unchanged, so that the risk tier grades this trust decision on its own.
 ///
 /// The members of AcpmuxEnvironment.swift it uses are named `AcpmuxEnvironment.<member>`, so the
-/// defaults guard (scripts/ci/defaults_guard.py), which follows same-file names and `Type.member`
+/// defaults snapshot (scripts/ci/defaults_guard.py), which follows same-file names and `Type.member`
 /// references, still tracks them as dependencies of `resolve`.
 nonisolated extension AcpmuxEnvironment {
     /// Resolves the environment of `build` (nil: no build, the shared home),

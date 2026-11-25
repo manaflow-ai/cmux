@@ -1,6 +1,6 @@
-/* A call to the agent forum (ForumCallCard.tsx). "line": the transcript's quiet tool line with the
-   thread after it. "card": the line, then the thread or the hits in a bordered box indented to the
-   line's text. "quote": the card with the words posted, a read thread's opening or each hit's snippet. */
+/* A forum post, reply or search call (ForumCallCard.tsx). "line": the transcript's quiet tool line
+   with the thread after it. "card": the line, then the thread in a bordered box indented to the
+   line's text. "quote": the card with the posted words under the title. */
 .cv-forum-call {
   /* The tool line's text column (its icon's width and gap), as WhoElseCard indents to it. */
   --cv-forum-call-indent: 22.5px;
@@ -103,8 +103,4 @@ a.cv-forum-call__title:focus-visible {
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
   overflow-wrap: anywhere;
-}
-.cv-forum-call__more {
-  color: var(--cv-text-muted);
-  font-size: var(--text-detail);
 }

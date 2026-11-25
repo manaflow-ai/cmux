@@ -13,7 +13,6 @@ import { hoverActions } from "../ui/hoverActions.experiment";
 import { pastePlaceholderLook } from "../agent-session/acpmux/composer/pastePlaceholder.experiment";
 import { attachStripSize } from "../agent-session/acpmux/composer/attachStrip.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
-import { forumCallLook } from "../agent-session/acpmux/conversation/forumCall.experiment";
 import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableActions.experiment";
 import { expandRowLook } from "../agent-session/acpmux/conversation/expandRow.experiment";
 import { backgroundReactionLook } from "../agent-session/acpmux/conversation/backgroundReaction.experiment";
@@ -63,6 +62,7 @@ import { toolRowWords } from "../agent-session/acpmux/conversation/toolRowWords.
 import { workedForMessages } from "../agent-session/acpmux/conversation/workedForMessages.experiment";
 import { bareWorkedTurns } from "../agent-session/acpmux/conversation/bareWorkedTurns.experiment";
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
+import { capacityWaitLook } from "../agent-session/acpmux/conversation/capacityWait.experiment";
 import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.experiment";
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
 import { stoppedTurnLook } from "../agent-session/acpmux/conversation/stoppedTurn.experiment";
@@ -78,6 +78,7 @@ import { hatChevronLook, hatDoneCheckPlace, hatDoneLook } from "../agent-session
 import { hatTuckLook } from "../agent-session/acpmux/subagents/hatTuck.experiment";
 import { hatOpenLook } from "../agent-session/acpmux/subagents/hatOpen.experiment";
 import { goalHatPlace } from "../agent-session/acpmux/goalHat.experiment";
+import { customizeBarPlace } from "../agent-session/acpmux/customizeBar/customizeBar.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
 import { trayKindLineLook } from "../agent-session/acpmux/subagents/trayKindLine.experiment";
@@ -176,6 +177,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   chatMinimapPlaceholder,
   codeActionsLook,
   turnErrorCard,
+  capacityWaitLook,
   pausedMachineResume,
   codeRouterOffer,
   stoppedTurnLook,
@@ -185,7 +187,6 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hoverLook,
   questionPreviewLayout,
   toolErrorLook,
-  forumCallLook,
   tableActionsPlace,
   expandRowLook,
   backgroundReactionLook,
@@ -217,6 +218,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hatTuckLook,
   hatOpenLook,
   goalHatPlace,
+  customizeBarPlace,
   hatDoneLook,
   hatDoneCheckPlace,
   trayHeadLook,

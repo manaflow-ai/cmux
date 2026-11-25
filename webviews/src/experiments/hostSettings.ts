@@ -15,7 +15,6 @@ import { experimentSwitchOn, setExperimentSwitches } from "./switches";
 export const SETTING_ARMS: Readonly<Record<string, { experiment: string; arm: string }>> = {
   menuStyleV2: { experiment: "menu-style-v2", arm: "v2" },
   menuRowStates: { experiment: "menu-row-states", arm: "on" },
-  forumCallCard: { experiment: "forum-call-card", arm: "card" },
 };
 
 /** The page event the theme bootstrap dispatches when the switches change. */

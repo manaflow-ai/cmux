@@ -61,7 +61,8 @@ public actor DaemonConnection {
     private var pacer: RetryPacer
     private let wake: RetryWake
     private let healthy: DemandTimer
-    private nonisolated let heartbeat = ConnectionHeartbeat()
+    /// Internal for the sync barrier (``syncBarrierSequence()``), which ends at its not-answering verdict.
+    nonisolated let heartbeat = ConnectionHeartbeat()
 
     /// Identity of the current (or last) daemon.
     public private(set) var identity: DaemonIdentity?
@@ -206,7 +207,11 @@ public actor DaemonConnection {
     /// A terminal start the daemon makes exactly once under its client-chosen terminal id (`new-tab` with
     /// `terminal-placement-env-v1`): sent once, with the shell-integration arguments ``request(_:)`` adds, and answered
     /// by its reply or the connection's end (``LineTransport`` fails every pending request on close). No client deadline
-    /// decides it: the start's outcome is the daemon's (principled-audit R5, R-L5).
+    /// decides it: the start's outcome is the daemon's (principled-audit R5, R-L5). Nor does the heartbeat's
+    /// not-answering verdict (P0 2026-10-30: a create failed under swap while its daemon still made the terminal):
+    /// a silent daemon whose process lives is the Restart offer's (``DaemonRecovery``, and the unresponsive-owner
+    /// watch restarts a stuck owner), and that restart's close ends this wait; a dead or bridged daemon's
+    /// connection closes at the verdict itself (``ConnectionHeartbeat``).
     func requestAwaitingStart<R: TerminalSpawningRequest>(_ request: R) async throws -> R.Response {
         try await self.request(withShellIntegration(request), timeout: nil)
     }
