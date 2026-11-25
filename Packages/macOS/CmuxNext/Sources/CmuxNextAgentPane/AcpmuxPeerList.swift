@@ -73,7 +73,7 @@ public nonisolated struct AcpmuxPeerList: Sendable {
     }
 
     /// A machine's AutoCloud report, `health.autoCloud` v1 (RFD 0172): whether its owner enrolled it
-    /// ("Let AutoCloud Use This Mac", set only on that machine), whether it takes work now, and the
+    /// (`_acpmux/autocloud_enroll`, turned on only by its owner's client), whether it takes work now, and the
     /// owner's policy and the machine's capabilities. Read-only everywhere else.
     public struct AutoCloud: Hashable, Sendable {
         public var enrolled: Bool

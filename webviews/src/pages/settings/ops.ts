@@ -118,8 +118,8 @@ export type HostListRow = {
    */
   vm_host?: { on: boolean; busy: boolean; error: string | null };
   /**
-   * A Remote machine's AutoCloud enrollment: its `cloud.autoCloudEnroll`, as the machine's own acpmux
-   * reports it (`_acpmux/peers` health `autoCloud`). Read-only: only the machine itself enrolls.
+   * A Remote machine's AutoCloud enrollment (`_acpmux/autocloud_enroll` there), as the machine's own acpmux
+   * reports it (`_acpmux/peers` health `autoCloud`). Read-only: only the owner's own client enrolls it.
    * Absent until the machine answered, and on a machine too old to say.
    */
   autocloud?: MachineAutoCloud;
@@ -127,7 +127,7 @@ export type HostListRow = {
 
 /** A machine's AutoCloud enrollment as the host sends it (acpmux `autoCloud`, v1). */
 export type MachineAutoCloud = {
-  /** `cloud.autoCloudEnroll` is on there (enrolled). */
+  /** Enrolled there. */
   on: boolean;
   /** The machine's AutoCloud report could not be read. */
   error: string | null;

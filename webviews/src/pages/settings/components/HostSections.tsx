@@ -454,11 +454,10 @@ const AUTOCLOUD_CAPS: ReadonlyArray<readonly [string, string]> = [
 ];
 
 /**
- * A Remote machine's AutoCloud enrollment (acpmux `cloud.autoCloudEnroll` on that machine, its
+ * A Remote machine's AutoCloud enrollment (acpmux `_acpmux/autocloud_enroll` on that machine, its
  * `health.autoCloud`): on, AutoCloud may place work there after this Mac and before the cloud
- * pool, only while its owner is away; the owner's own use always wins. Only the machine itself
- * enrolls (its own Settings > Machines > Let AutoCloud Use This Mac; nothing here can turn it on),
- * so this row reads it: the policy, whether it takes work now, and what it can run.
+ * pool, only while its owner is away; the owner's own use always wins. Only the owner's own client
+ * turns it on, so this row reads it: the policy, whether it takes work now, and what it can run.
  */
 function MachineAutoCloud({ row }: { row: HostListRow }) {
   const ac = row.autocloud;

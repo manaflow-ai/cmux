@@ -8,7 +8,7 @@ export type MachineResources = {
   cores: number;
   busy: boolean;
   lowMemory: boolean;
-  /// AutoCloud (RFD 0172): present when its owner enrolled it ("Let AutoCloud Use This Mac" there);
+  /// AutoCloud (RFD 0172): present when its owner enrolled it (`_acpmux/autocloud_enroll` there);
   /// whether it takes work now and its capability words (`macos`, `xcode`, `ios-simulator`).
   autoCloud?: MachineAutoCloud;
 };

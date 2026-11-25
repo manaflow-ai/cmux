@@ -117,7 +117,7 @@ const host: Partial<HostLists> = {
       active: true,
       color: "#7F5FA8",
       color_key: "research build machine",
-      // A Remote machine's AutoCloud enrollment (cloud.autoCloudEnroll there), off: opt-in for customers.
+      // A Remote machine's AutoCloud enrollment (_acpmux/autocloud_enroll there), off: opt-in for customers.
       autocloud: { on: false, error: null },
     },
     // A Cloud machine cmux made: its Dedicated agent machine switch (acpmux vmHost), on by default.

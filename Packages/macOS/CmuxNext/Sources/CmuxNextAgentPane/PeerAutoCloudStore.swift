@@ -5,7 +5,7 @@ public import Observation
 /// Settings > Machines' AutoCloud line on each remote machine (RFD 0172): what each acpmux peer last
 /// reported as `health.autoCloud`, from this Mac's daemon (`_acpmux/peers`, answered from what it
 /// holds, so no machine is asked). Read when the Machines rows are drawn, at most once a minute (no
-/// timer). Read-only: only the machine itself enrolls ("Let AutoCloud Use This Mac" there).
+/// timer). Read-only: only the machine itself enrolls (`_acpmux/autocloud_enroll` there).
 @MainActor
 @Observable
 public final class PeerAutoCloudStore {
