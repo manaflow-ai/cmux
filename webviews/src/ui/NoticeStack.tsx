@@ -21,6 +21,8 @@
 import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Notice, type NoticeAction, type NoticeKind, type NoticeProps } from "./Notice";
+import { Slot } from "../slots/Slot";
+import { toastEnterSlot } from "../slots/toastEnter";
 import {
   ANCHORS,
   anchorColumn,
@@ -35,6 +37,8 @@ import { NoticeDeck, type DeckAlign, type DeckDrag, type DragFeel, type Flights 
 import { experimentArm } from "../experiments/experiment";
 import { useExperimentSwitch } from "../experiments/switches";
 import { toastsV2, type ToastLook } from "./toastsV2.experiment";
+import { toastGlass } from "./toastGlass.experiment";
+import { useExperimentArm } from "../experiments/useExperimentArm";
 
 /** The native toast's default (CmuxToast `duration`). */
 export const TOAST_MS = 6000;
@@ -244,6 +248,7 @@ export function NoticeStack({
   now = systemNow,
   arm = systemTimer,
   look: lookOverride,
+  hostGlass: hostGlassOverride,
 }: {
   queue: NoticeQueue;
   /** The ×'s accessible name ("Dismiss"). */
@@ -266,12 +271,17 @@ export function NoticeStack({
   arm?: ArmTimer;
   /** The toasts-v2 arm; default the experiment's (read once per mount, not per toast). */
   look?: ToastLook;
+  /** Each card on the App's toast glass (Notice `hostGlass`); false keeps the page's floating material.
+   *  Default the toast-glass experiment's arm (`experiments.toastGlass`, off by default: the page's). */
+  hostGlass?: boolean;
 }) {
   const [experimentLook] = useState(() => experimentArm(toastsV2));
   // Settings > Advanced > Experiments > Toasts v2 (`experiments.toastsV2`) turns on the recommended arm;
   // a gallery or debug arm other than `off` still wins.
   const switchedOn = useExperimentSwitch("toastsV2");
   const look = lookOverride ?? (experimentLook === "off" && switchedOn ? "mark" : experimentLook);
+  const glassArm = useExperimentArm(toastGlass);
+  const hostGlass = hostGlassOverride ?? glassArm === "host";
   const entries = useSyncExternalStore(queue.subscribe, queue.snapshot, queue.snapshot);
   const visible = usePageVisible();
   const [hovered, setHovered] = useState(false);
@@ -336,7 +346,7 @@ export function NoticeStack({
     return arm(() => queue.close(id, "timeout"), Math.max(0, due - t));
   }, [entries, held, queue, started, now, arm]);
 
-  const draw = ({ spec, count }: NoticeEntry) => (
+  const card = ({ spec, count }: NoticeEntry) => (
     <Notice
       {...spec}
       kind={spec.kind ?? "toast"}
@@ -344,6 +354,7 @@ export function NoticeStack({
       id={spec.id}
       count={count}
       look={look}
+      hostGlass={hostGlass}
       actions={spec.actions?.map((action) => ({
         ...action,
         onSelect: () => {
@@ -355,6 +366,11 @@ export function NoticeStack({
       onDismiss={() => queue.close(spec.id, "closed")}
       dismissLabel={dismissLabel}
     />
+  );
+  // Each card is drawn through the theme slot `toast.enter` (slots/toastEnter): its default draws the
+  // card alone, as before.
+  const draw = (entry: NoticeEntry) => (
+    <Slot slot={toastEnterSlot} props={{ kind: entry.spec.kind ?? "toast", children: card(entry) }} />
   );
 
   // The surface toasts rest in: from the top anchors' edge to the stack's own line, its width.

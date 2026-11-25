@@ -219,12 +219,18 @@ jobs:
             PyYAML==6.0.3 bashlex==0.18
           echo "$RUNNER_TEMP/car-guard-venv/bin" >> "$GITHUB_PATH"
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: ${{ needs.plan.outputs.web == 'true' }}
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         if: ${{ needs.plan.outputs.web == 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       - name: Install the webviews dependencies
         if: ${{ needs.plan.outputs.web == 'true' }}
@@ -295,7 +301,7 @@ jobs:
       status: ${{ steps.guards.outputs.status }}
     # Blacksmith 6 vCPU: the fast-tier seed's pool (cmux-next-fast-tier-seed.yml), so a car's
     # Swift build restores a warm seed and rebuilds only what the car changed.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26)) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
     timeout-minutes: 45
     steps:
       # This job's tests can start acpmux daemons: they get a home of the job's

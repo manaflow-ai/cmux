@@ -10,7 +10,7 @@
 //! 3. `workspace`: the first folder of the workspace's terminal tabs, in
 //!    screen, pane and tab order.
 //! 4. `agent_home`: the workspace's private agent-home folder,
-//!    `<data dir>/cmux/agent-home/<workspace id>` (the app makes it). A seed
+//!    `<data dir>/cmux/agent-home/<workspace id>` (`cmux-next` on macOS; the app makes it). A seed
 //!    that is itself an agent-home folder (Open Chat of a chat that ran in
 //!    another workspace's, cx-djoj7) is the agent-home folder instead: the
 //!    chat resumes where it ran, and acpmux adopts it only there. The
@@ -66,7 +66,8 @@ pub(crate) struct Inputs<'a> {
     pub workspace_id: &'a str,
 }
 
-/// `<data dir>/cmux/agent-home`: `~/Library/Application Support` on macOS,
+/// `<data dir>/cmux/agent-home` (`cmux-next`, not cmux Classic's `cmux`, on
+/// macOS, `cmux_config::NEXT_DIR`): `~/Library/Application Support` on macOS,
 /// `%APPDATA%` on Windows, `$XDG_DATA_HOME` (else `~/.local/share`)
 /// elsewhere, as `dirs::data_dir` (acpmux's `trust::agent_home_root`) and the
 /// app's `AgentHome.standard` name it.
@@ -80,7 +81,7 @@ pub(crate) fn agent_home_base(home: Option<&Path>) -> Option<PathBuf> {
         .map(PathBuf::from)
         .filter(|path| path.is_absolute())
         .or_else(|| home.map(|home| home.join(".local").join("share")));
-    data.map(|data| data.join("cmux").join("agent-home"))
+    data.map(|data| data.join(cmux_config::NEXT_DIR).join("agent-home"))
 }
 
 /// A workspace id that names a folder: 1 to 128 of `[A-Za-z0-9_-]`.

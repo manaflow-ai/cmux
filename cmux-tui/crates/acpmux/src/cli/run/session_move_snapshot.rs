@@ -272,7 +272,9 @@ async fn one(
     let bundle = bundle_from_snapshot(&snapshot, &new_id, args.cwd.as_deref(), now)?;
     let name = bundle.manifest["session"]["name"].as_str().unwrap_or(&new_id).to_owned();
     let group = PathBuf::from(bundle.manifest["session"]["cwd"].as_str().unwrap_or_default());
-    let target = targets.pick(local, &group, 0).await?;
+    // The snapshot's records are few and already here: no history link to time (`wire` 0).
+    let harness = bundle.manifest["session"]["harness"].as_str().unwrap_or_default();
+    let target = targets.pick(local, &group, 0, harness, 0).await?;
     let cwd = bundle.manifest["session"]["cwd"].clone();
     let mut row = json!({"sessionId": qualified, "name": name, "host": target.name, "cwd": cwd,
                          "records": bundle.records, "firstSeq": bundle.first_seq,

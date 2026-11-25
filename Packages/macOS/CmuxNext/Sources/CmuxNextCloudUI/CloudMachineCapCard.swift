@@ -5,8 +5,8 @@ public import Foundation
 
 /// The one card a Cloud create at the plan's cap shows when nothing can be paused for it (``CloudMachineCap``,
 /// leo-workspace design/cloud.md "At the machine cap"): a Pause button for each of the person's busy machines (the
-/// newest few, each with its last activity on a line), Upgrade, and Run on This Mac. A free plan: Upgrade and Run on
-/// This Mac. Its text is in Resources/Cloud.xcstrings with every app locale.
+/// newest few, each with its last activity on a line), Upgrade, and Run on This Mac. A free plan, or a team at its
+/// machine-count limit (paused machines count, so pausing frees nothing): Upgrade and Run on This Mac. Its text is in Resources/Cloud.xcstrings with every app locale.
 public nonisolated struct CloudMachineCapCard {
     public nonisolated init() {}
     public static let identifier = "cmux.dialog.cloud.atCap"
@@ -17,20 +17,38 @@ public nonisolated struct CloudMachineCapCard {
     /// The card for `cap`; `now` dates each machine's last activity. `freePlanDetail`: the app's upgrade card text
     /// (its plans and prices), which a free plan's card keeps.
     public static func spec(_ cap: CloudMachineCap, now: Date = Date(), freePlanDetail: String? = nil) -> CmuxDialogSpec {
-        let shown = cap.freePlan ? [] : Array(cap.busy.prefix(pauseButtons))
+        if let rate = cap.createRate { return rateSpec(rate) }
+        let shown = cap.freePlan || cap.machineLimit != nil ? [] : Array(cap.busy.prefix(pauseButtons))
         let relative = RelativeDateTimeFormatter()
         relative.unitsStyle = .short
         let lines = shown.map { busy in
             busy.lastActiveAt.map { Strings.busyLine(busy.name, active: relative.localizedString(for: $0, relativeTo: now)) } ?? busy.name
         }
-        let detail = cap.freePlan ? freePlanDetail ?? Strings.freePlanDetail : shown.isEmpty ? Strings.atCapNoneDetail : Strings.atCapDetail
+        let detail = cap.freePlan ? freePlanDetail ?? Strings.freePlanDetail
+            : cap.machineLimit.map(Strings.limitDetail) ?? (shown.isEmpty ? Strings.atCapNoneDetail : Strings.atCapDetail)
+        let title = cap.freePlan ? Strings.freePlanTitle : cap.machineLimit != nil ? Strings.limitTitle : Strings.atCapTitle
         let pauses = shown.map { CmuxDialogButton(id: pausePrefix + $0.machine, title: Strings.pause($0.name), role: .normal) }
         return CmuxDialogSpec(
-            title: cap.freePlan ? Strings.freePlanTitle : Strings.atCapTitle, lines: [detail] + lines,
+            title: title, lines: [detail] + lines,
             buttons: [.cancel(Strings.notNow)] + pauses + [
                 CmuxDialogButton(id: "runHere", title: Strings.runHere, role: .normal),
                 CmuxDialogButton(id: "upgrade", title: Strings.upgrade, role: .default),
             ],
+            identifier: identifier)
+    }
+
+    /// The hourly create limit's card: when the next create fits, Run on This Mac (the default) and Not Now. Neither
+    /// Pause nor Upgrade frees it, so it offers neither.
+    static func rateSpec(_ rate: CloudMachineCap.CreateRate) -> CmuxDialogSpec {
+        let detail = rate.retryAfterMs.map { ms in
+            let wait = DateComponentsFormatter()
+            wait.unitsStyle = .short
+            wait.allowedUnits = ms >= 3_600_000 ? [.hour, .minute] : ms >= 60_000 ? [.minute] : [.second]
+            return Strings.rateDetail(wait.string(from: max(1, Double(ms) / 1000).rounded(.up)) ?? "")
+        } ?? Strings.rateDetailSoon
+        return CmuxDialogSpec(
+            title: Strings.rateTitle, lines: [detail],
+            buttons: [.cancel(Strings.notNow), CmuxDialogButton(id: "runHere", title: Strings.runHere, role: .default)],
             identifier: identifier)
     }
 
@@ -67,6 +85,29 @@ public nonisolated struct CloudMachineCapCard {
         }
         static var atCapNoneDetail: String {
             String(localized: "cloud.atCap.detailNoneYours", defaultValue: "Your team's running machines are all in use. Upgrade for more, or run this on your Mac.",
+                   table: "Cloud", bundle: .localizedModule)
+        }
+        static var limitTitle: String {
+            String(localized: "cloud.atCap.limitTitle", defaultValue: "Cloud machine limit reached", table: "Cloud", bundle: .localizedModule)
+        }
+        /// The limit's detail: its count when the refusal names it (paused machines count, so pausing frees nothing).
+        static func limitDetail(_ limit: CloudMachineCap.MachineLimit) -> String {
+            guard let max = limit.limit else {
+                return String(localized: "cloud.atCap.limitDetail", defaultValue: "Paused machines count. Upgrade for more, delete one, or run this on your Mac.",
+                              table: "Cloud", bundle: .localizedModule)
+            }
+            return String(format: String(localized: "cloud.atCap.limitDetailCount", defaultValue: "Your team has %1$ld of %2$ld machines, paused ones included. Upgrade for more, delete one, or run this on your Mac.",
+                                         table: "Cloud", bundle: .localizedModule), limit.used ?? max, max)
+        }
+        static var rateTitle: String {
+            String(localized: "cloud.atCap.rateTitle", defaultValue: "Hourly machine limit reached", table: "Cloud", bundle: .localizedModule)
+        }
+        static func rateDetail(_ wait: String) -> String {
+            String(format: String(localized: "cloud.atCap.rateDetail", defaultValue: "Your team can start another Cloud machine in %@. Until then, run this on your Mac.",
+                                  table: "Cloud", bundle: .localizedModule), wait)
+        }
+        static var rateDetailSoon: String {
+            String(localized: "cloud.atCap.rateDetailSoon", defaultValue: "Your team can start another Cloud machine within the hour. Until then, run this on your Mac.",
                    table: "Cloud", bundle: .localizedModule)
         }
         static var freePlanTitle: String {

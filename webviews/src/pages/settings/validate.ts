@@ -2,6 +2,7 @@
 // these to behave like it, and the page uses them to refuse a bad field value before sending.
 import { isPlacementMap } from "./backgroundPlacement";
 import { parseThemeSpec } from "./themeSpec";
+import { UI_FONT_VALIDATION } from "./fontPickerModel";
 import type { Domains } from "./ops";
 import type { SchemaRow } from "./schema";
 
@@ -65,6 +66,12 @@ function inRange(row: SchemaRow, value: unknown): boolean {
     Number.isFinite(value) &&
     (range === undefined || (value >= range.min && value <= range.max))
   );
+}
+
+/** The installed families a font row takes: every family for the App Font (`domain:ui_font_family`),
+ * the fixed-pitch ones for the rest. */
+export function fontNames(validation: string | undefined, domains: Partial<Domains> | undefined): string[] | undefined {
+  return validation === UI_FONT_VALIDATION ? domains?.ui_font_families : domains?.font_families;
 }
 
 function inDomain(list: string[] | undefined, value: unknown): boolean {
@@ -131,6 +138,17 @@ export function isCommandLabel(value: unknown): boolean {
   if (rule.match !== undefined && !nonBlank(rule.match)) return false;
   if (["link", "icon"].some((key) => rule[key] !== undefined && typeof rule[key] !== "string")) return false;
   return rule.program !== undefined || rule.match !== undefined;
+}
+
+/** `sidebar.sections.hidden` / `order`: at most 256 distinct ids of 1 to 128 characters (`SidebarSectionIDsSetting`). */
+export function isSidebarSectionIds(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length > 256) return false;
+  const seen = new Set<string>();
+  return value.every((id) => {
+    if (typeof id !== "string" || id === "" || Array.from(id).length > 128 || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
 }
 
 /** An ssh endpoint of a host: `ssh://[user@]host[:port]`, or what ssh takes (`[user@]host`, an alias). */
@@ -283,6 +301,9 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
       ? null
       : "expected an app id, publisher/name in lowercase letters, digits and -";
   }
+  if (row.validation === "domain:sidebar_section_ids") {
+    return isSidebarSectionIds(value) ? null : "expected a list of at most 256 distinct section ids";
+  }
   if (row.validation === "domain:search_template") {
     return isSearchTemplate(value) ? null : "expected a web address with %s or {searchTerms}, or empty";
   }
@@ -341,7 +362,7 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
       if (row.default !== null && value === row.default) return null;
       return themeInDomain(domains?.themes, value) ? null : "unknown theme";
     case "font_family":
-      return inDomain(domains?.font_families, value) ? null : "unknown font family";
+      return inDomain(fontNames(row.validation, domains), value) ? null : "unknown font family";
     case "text":
       return typeof value === "string" ? null : "expected text";
     case "sound":
@@ -376,5 +397,12 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
       return Array.isArray(value) && value.every((item) => typeof item === "string" && item.length > 0)
         ? null
         : "expected a list of non-empty strings";
+    case "json":
+      // The top-level type only, as the app: the daemon checks the shape and the row's domain
+      // (the sidebar row reducer's bounds) and its refusal says where (`accepted.problems`).
+      if (row.shape?.type === "object") {
+        return typeof value === "object" && value !== null && !Array.isArray(value) ? null : "expected an object";
+      }
+      return Array.isArray(value) ? null : "expected a list";
   }
 }

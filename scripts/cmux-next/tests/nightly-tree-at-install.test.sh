@@ -38,9 +38,20 @@ cp "$ROOT/scripts/ci/nightly-steps/await-tree-marker.sh" "$ROOT/scripts/ci/night
 echo reducer > "$TMP/src/scripts/cmux-next/build-layout-reducer-ffi.sh"
 "$ROOT/scripts/cmux-next/tests/lib/tree-inputs-fixture.sh" "$TMP/src"
 echo one > "$TMP/src/cmux-tui/a"
+# The daemon source and the app's capability list nightly_fallback_covers.py reads: `own` adds
+# language-packs-v1 to both, the way #45928 did, so the client of `base` lacks it.
+caps_json() { printf '{"required": ["identify-v1"], "optional": [%s], "unservedByBundledDaemon": []}\n' "$1" \
+  > "$TMP/src/plans/cmux-next/daemon-capabilities.json"; }
+mkdir -p "$TMP/src/cmux-tui/crates/cmux-tui-core/src/server" "$TMP/src/plans/cmux-next"
+printf '[workspace]\nmembers = ["crates/cmux-tui-core"]\n' > "$TMP/src/cmux-tui/Cargo.toml"
+printf '[package]\nname = "cmux-tui-core"\n' > "$TMP/src/cmux-tui/crates/cmux-tui-core/Cargo.toml"
+printf 'pub const LIST: &[&str] = &["identify-v1", "history-v1"];\n' > "$TMP/src/cmux-tui/crates/cmux-tui-core/src/server/capabilities.rs"
+caps_json '"history-v1"'
 git_q -C "$TMP/src" add -A; git_q -C "$TMP/src" commit -m base
 base=$(git -C "$TMP/src" rev-parse HEAD)
 echo two > "$TMP/src/cmux-tui/a"
+printf 'pub(crate) const CAPABILITY: &str = "language-packs-v1";\n' > "$TMP/src/cmux-tui/crates/cmux-tui-core/src/language_packs.rs"
+caps_json '"history-v1", "language-packs-v1"'
 git_q -C "$TMP/src" add -A; git_q -C "$TMP/src" commit -m own
 own=$(git -C "$TMP/src" rev-parse HEAD)
 echo app > "$TMP/src/app.swift"
@@ -362,6 +373,15 @@ check '[[ $status == 0 ]] && grep -qx "fallback=$base $base_key" "$TMP/gh-output
   "a published tree past the first look's window is still the fallback"
 reset_cdn; publish_tree_as "$base_key" "$base"; pending CMUX_TUI_TREE_SEARCH_COMMITS=2 CMUX_TUI_TREE_FALLBACK_SEARCH_COMMITS=2
 check '[[ $status == 0 ]] && grep -qx "fallback=" "$TMP/gh-output"' "past the wider look's window there is no fallback"
+# The capability reader is not in this copy until here: could not tell keeps the fallback (above).
+# With it, base's client lacks language-packs-v1, which the tip's app lists: run 44975559258
+# (2026-11-22) failed 20 min in on exactly that. The fallback is dropped at resolve time instead.
+cp "$ROOT/scripts/ci/nightly_fallback_covers.py" "$TMP/src/scripts/ci/"
+cp "$ROOT/scripts/cmux-next/check-app-capability-references.py" "$ROOT/scripts/cmux-next/check-daemon-capabilities-fresh.py" \
+  "$TMP/src/scripts/cmux-next/"
+pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output" && grep -qx "fallback=" "$TMP/gh-output" && grep -q "lacks .language-packs-v1." "$TMP/summary"' \
+  "a fallback whose client lacks a capability the tip's app lists is dropped at resolve time"
 reset_cdn; publish_tree "$own"; publish_manifest "$own"; pending
 check '[[ $status == 0 ]] && grep -qx "tree_pending=false" "$TMP/gh-output"' "a published tip leaves it to the resolver"
 reset_cdn; mkdir -p "$TMP/cdn/tree/$key"; echo garbage > "$TMP/cdn/tree/$key/cmux-tui-aarch64-apple-darwin.sha256"; pending

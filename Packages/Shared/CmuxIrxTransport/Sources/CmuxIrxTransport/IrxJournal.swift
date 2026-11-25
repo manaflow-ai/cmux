@@ -1,5 +1,7 @@
 public import Foundation
+#if canImport(OSLog)
 import OSLog
+#endif
 
 /// One journaled transport event. Every state transition, dial attempt,
 /// admission, credential movement, keepalive exchange, and close is recorded
@@ -47,7 +49,9 @@ public final class IrxJournal: @unchecked Sendable {
 
     /// The append-only JSONL file this journal writes, when one was configured.
     public let fileURL: URL?
+    #if canImport(OSLog)
     private let logger: Logger
+    #endif
     private let lock = NSLock()
     private let startedAt = DispatchTime.now()
     private var fileHandle: FileHandle?
@@ -64,7 +68,9 @@ public final class IrxJournal: @unchecked Sendable {
     }
 
     public init(subsystem: String, category: String, journalFileURL: URL? = nil) {
+        #if canImport(OSLog)
         logger = Logger(subsystem: subsystem, category: category)
+        #endif
         fileURL = journalFileURL
         if let journalFileURL {
             let manager = FileManager.default
@@ -119,7 +125,9 @@ public final class IrxJournal: @unchecked Sendable {
             attributes: attributes
         ).redacted()
         let rendered = Self.render(entry)
+        #if canImport(OSLog)
         logger.notice("irx \(rendered, privacy: .public)")
+        #endif
         lock.lock()
         counters[event, default: 0] += 1
         ring.append(entry)

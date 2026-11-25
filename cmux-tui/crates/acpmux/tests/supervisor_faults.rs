@@ -11,6 +11,8 @@
 //! - `update-swap` (F9): an update moves the daemon's executable under `backup/` and puts a new
 //!   build at the installed path; within 2 s `_acpmux/status` answers from the installed path. A
 //!   new build that does not run is dropped and the old daemon serves on.
+//!   A swap that failed tries again by itself, and the app's stop of a replaced daemon with
+//!   `swapIfReplaced` swaps it instead of stopping it.
 #![cfg(target_os = "linux")]
 
 #[path = "support/daemon_env.rs"]
@@ -108,8 +110,19 @@ fn spawn_daemon(binary: &Path, dir: &Path, env: &[(&str, &str)]) -> Daemon {
         cmd.env(k, v);
     }
     // Its stdout carries the ready line and its log (`log_sink.rs`): both come through `lines`.
-    let mut child =
-        cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    // A binary another test of this file just copied can still be open for writing in a child
+    // forked meanwhile (until its exec closes it): ETXTBSY for a moment, not a fault of the daemon.
+    let mut busy = 0;
+    let mut child = loop {
+        match cmd.spawn() {
+            Err(e) if e.raw_os_error() == Some(libc::ETXTBSY) && busy < 100 => {
+                busy += 1;
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            spawned => break spawned.unwrap(),
+        }
+    };
     let stdout = child.stdout.take().unwrap();
     let (tx, lines) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -290,4 +303,117 @@ fn an_update_whose_new_build_does_not_run_keeps_the_old_daemon_serving() {
         .expect("the old daemon logs that it kept serving");
     let now = status(&dir).expect("the old daemon still answers");
     assert_eq!(now["pid"].as_u64(), Some(old_pid), "{now}");
+}
+
+/// One JSON-RPC request on a new connection to `socket`, as the app's `AcpmuxStatusClient` sends
+/// it: the answer to it (lines the daemon sends first are skipped), or `None` when nothing listens
+/// or nothing answered in 10 s.
+fn call(socket: &Path, method: &str, params: Value) -> Option<Value> {
+    use std::io::Write as _;
+    let mut s = std::os::unix::net::UnixStream::connect(socket).ok()?;
+    s.set_read_timeout(Some(Duration::from_secs(10))).ok()?;
+    let line = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
+    s.write_all(format!("{line}\n").as_bytes()).ok()?;
+    let mut reader = BufReader::new(&s);
+    loop {
+        let mut reply = String::new();
+        if reader.read_line(&mut reply).ok()? == 0 {
+            return None;
+        }
+        if let Ok(v) = serde_json::from_str::<Value>(&reply)
+            && v["id"] == 1
+        {
+            return Some(v);
+        }
+    }
+}
+
+/// The pid of the daemon answering on `socket`, if one does.
+fn serving_pid(socket: &Path) -> Option<u64> {
+    call(socket, "_acpmux/status", json!({}))?["result"]["pid"].as_u64()
+}
+
+/// A new build that answers `--version` but whose take-over start fails until `flag` exists: the
+/// update's own swap fails, as on Leo's NIGHTLY at 2026-11-22 23:44Z ("the take-over start never
+/// asked to take over"), and the replaced daemon serves on from the backup bundle.
+fn update_with_late_build(dir: &Path, flag: &Path) {
+    let real = daemon_env::bin().display().to_string();
+    let script = format!(
+        "#!/bin/sh\nif [ \"$1\" = --version ]; then exec '{real}' --version; fi\n\
+         if [ -e '{}' ]; then exec '{real}' \"$@\"; fi\nexit 3\n",
+        flag.display()
+    );
+    update(dir, |at| {
+        fs::write(at, script).unwrap();
+        fs::set_permissions(at, fs::Permissions::from_mode(0o755)).unwrap();
+    });
+}
+
+/// Waits up to `within` for a daemon other than `old_pid` to answer on `socket`: the one the swap
+/// started. Nothing in this test starts a daemon, so only the swap can.
+fn successor(socket: &Path, old_pid: u64, within: Duration) -> Option<(u64, Duration)> {
+    let from = Instant::now();
+    while from.elapsed() < within {
+        if let Some(pid) = serving_pid(socket)
+            && pid != old_pid
+        {
+            return Some((pid, from.elapsed()));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    None
+}
+
+/// The app's stop for a daemon whose bundle an update replaced (it cannot hand that daemon this
+/// launch's person key, `AcpmuxPersonKey.swift`), with `swapIfReplaced`: the daemon swaps to the
+/// installed build make-before-break instead of stopping, so a new daemon serves the home with
+/// nothing else starting one. Before, it
+/// stopped, and every chat was without a daemon until the app's next one started (4.6 s at
+/// 23:44Z).
+#[test]
+fn a_replaced_daemon_the_app_asks_to_stop_swaps_to_the_installed_build_instead() {
+    let dir = scratch("swapask");
+    let _shutdown = Shutdown(&dir);
+    let installed = install(&dir);
+    let old = spawn_daemon(&installed, &dir, &[]);
+    let old_pid = old.ready(Duration::from_secs(60))["pid"].as_u64().unwrap();
+    let socket = PathBuf::from(status(&dir).unwrap()["socket"].as_str().unwrap());
+    let flag = dir.join("the-new-build-runs");
+    update_with_late_build(&dir, &flag);
+    old.line(Duration::from_secs(20), |l| l.contains("the new build did not take over"))
+        .expect("the update's own swap fails");
+    fs::write(&flag, "").unwrap();
+    let answer = call(
+        &socket,
+        "_acpmux/shutdown",
+        json!({"reason": "app: person key: acpmux runs a bundle an update replaced, which cannot take this launch's person key",
+               "swapIfReplaced": true}),
+    )
+    .expect("the daemon answers the app's stop");
+    assert_eq!(answer["result"]["swapping"], true, "swapped, not stopped: {answer}");
+    let (pid, after) = successor(&socket, old_pid, Duration::from_secs(30))
+        .expect("the installed build serves the home");
+    eprintln!("swap-ask: the installed build (pid {pid}) served {after:?} after the app's ask");
+    let stops = fs::read_to_string(dir.join("daemon.stops.json")).unwrap_or_default();
+    assert!(!stops.contains("cannot take this launch's person key"), "no app stop: {stops}");
+}
+
+/// The update's own swap that failed tries again by itself (`RETRY_AFTER` in `exe_swap.rs`, 5 s
+/// first) instead of serving on from the replaced bundle until the next update or the app's stop.
+#[test]
+fn a_failed_update_swap_tries_again_without_a_new_change() {
+    let dir = scratch("swapretry");
+    let _shutdown = Shutdown(&dir);
+    let installed = install(&dir);
+    let old = spawn_daemon(&installed, &dir, &[]);
+    let old_pid = old.ready(Duration::from_secs(60))["pid"].as_u64().unwrap();
+    let socket = PathBuf::from(status(&dir).unwrap()["socket"].as_str().unwrap());
+    let flag = dir.join("the-new-build-runs");
+    update_with_late_build(&dir, &flag);
+    old.line(Duration::from_secs(20), |l| l.contains("the new build did not take over"))
+        .expect("the update's own swap fails");
+    fs::write(&flag, "").unwrap();
+    let (pid, after) = successor(&socket, old_pid, Duration::from_secs(30))
+        .expect("the swap tried again and the installed build serves the home");
+    eprintln!("swap-retry: the installed build (pid {pid}) served {after:?} after the build ran");
 }

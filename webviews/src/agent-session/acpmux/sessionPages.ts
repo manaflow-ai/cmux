@@ -222,7 +222,7 @@ export class SessionPager<S extends Summary> {
    * rows was 400 notices ahead of every reply on the connection. The cursor stays at most `after`
    * until a read holds them, so a follow from it reads them.
    */
-  private owed?: { after: number; through: number };
+  private owed?: { after: number; through: number; epoch?: string };
 
   /** `held`: the rows the client holds now, which a follow lays its changes over. `readOwed`: asks
    *  for a list read (`first`), called when peer batch rows are owed and no read is out for them. */
@@ -241,9 +241,12 @@ export class SessionPager<S extends Summary> {
       typeof listSeq === "number" &&
       Number.isSafeInteger(listSeq)
     ) {
-      this.owed = this.owed
-        ? { after: Math.min(this.owed.after, afterSeq), through: Math.max(this.owed.through, listSeq) }
-        : { after: afterSeq, through: listSeq };
+      // The positions are the daemon run's the pager reads now (`listEpoch`): the list being read, else the one held.
+      const epoch = this.reading?.epoch ?? this.cursor?.epoch;
+      this.owed =
+        this.owed && this.owed.epoch === epoch
+          ? { after: Math.min(this.owed.after, afterSeq), through: Math.max(this.owed.through, listSeq), epoch }
+          : { after: afterSeq, through: listSeq, epoch };
       this.keepBelowOwed();
     }
     if (!this.loading) this.readOwed();
@@ -258,12 +261,22 @@ export class SessionPager<S extends Summary> {
   }
 
   /** A reply current to `seq` of a read of the rows changed after `from` (0: a whole list) holds the
-   *  owed rows up to `seq` when it started at or below them; none are owed once that reaches the last. */
-  private readOwedTo(from: number, seq: number): void {
+   *  owed rows up to `seq` when it started at or below them; none are owed once that reaches the last.
+   *  A reply of another daemon run (`epoch`: the daemon restarted since the batch) owes none: that run's
+   *  rows and positions are gone, and the new run's list is read anew. Before, its positions (lower than
+   *  the batch's) never reached the batch's last row, so every list settled asked for one more read: the
+   *  agent page read the list again and again at idle (renderer 0.36-0.56 % of a core, the bundle's
+   *  acpmux 11-13 context switches a second, against 0.017 % and 0.2 before #46563). */
+  private readOwedTo(from: number, seq: number, epoch: string): void {
     const owed = this.owed;
-    if (!owed || from > owed.after) return;
+    if (!owed) return;
+    if (owed.epoch !== undefined && owed.epoch !== epoch) {
+      this.owed = undefined;
+      return;
+    }
+    if (from > owed.after) return;
     const after = Math.max(owed.after, seq);
-    this.owed = after < owed.through ? { after, through: owed.through } : undefined;
+    this.owed = after < owed.through ? { after, through: owed.through, epoch } : undefined;
   }
 
   /** Keeps this pager's list under `key`, the daemon connection it reads (`heldLists`): a pager of
@@ -275,6 +288,41 @@ export class SessionPager<S extends Summary> {
   /** Whether the rows held are the whole list: no later page waits to be read (`later`). */
   get holdsAll(): boolean {
     return this.more === undefined;
+  }
+
+  /** The watch is paused (`pause`) until the next `first` turns it on again. */
+  private pausedWatch = false;
+  /** The request that turned the watch off, while it is out: every `first` waits for it, so on one
+   *  connection acpmux turns the watch on after, never before, the pause. */
+  private pauseOut?: Promise<unknown>;
+
+  /** Whether the watch is paused: acpmux sends this page no other chat's change until the next `first`. */
+  get paused(): boolean {
+    return this.pausedWatch;
+  }
+
+  /**
+   * A hidden page stops hearing the list: `_acpmux/watch {enabled: false}` is acpmux's per-connection
+   * pause (server/interest.rs `set_watching`), so no other chat's change is sent, decoded, logged or
+   * dropped here while nobody sees the page. The chats this connection attached (its own) are still
+   * told. The rows held stay, and so does their cursor: the notices that still come (the attached
+   * chats', or every chat's from an acpmux that ignores the pause) neither move it nor invalidate it,
+   * so the next `first` (the page shown) follows from it, one read of the rows changed while hidden.
+   * Every pane hidden in the app's one renderer took each change of 3,761 listed chats before
+   * (sim-ladder `--churn-hidden`). Not while a list is being read (its notices lay over its pages).
+   * `limit: 1`: an acpmux that answers the pause with the list sends one row, not every page.
+   * True when this paused it.
+   */
+  pause(): boolean {
+    if (this.pausedWatch || this.loading || this.wholeReads > 0) return false;
+    this.pausedWatch = true;
+    const out: Promise<unknown> = this.request("_acpmux/watch", { enabled: false, limit: 1 })
+      .catch(() => undefined)
+      .then(() => {
+        if (this.pauseOut === out) this.pauseOut = undefined;
+      });
+    this.pauseOut = out;
+    return true;
   }
 
   /** A hidden page discarded a notice; its next read must reset, even if later notices arrive. */
@@ -291,6 +339,14 @@ export class SessionPager<S extends Summary> {
    *  one whole page; a cursor acpmux cannot follow is answered with the first page (`reset`). */
   async first(): Promise<SessionPage<S> | undefined> {
     const run = ++this.run;
+    // A pause still out goes first: this watch turns the list on again after it. The cursor stays
+    // where the pause left it until this read takes the notices over (`loading`).
+    const pauseOut = this.pauseOut;
+    if (pauseOut) {
+      await pauseOut;
+      if (run !== this.run) return undefined;
+    }
+    this.pausedWatch = false;
     this.purged.clear();
     this.changed.clear();
     this.changedAt.clear();
@@ -370,7 +426,7 @@ export class SessionPager<S extends Summary> {
     if (reply?.follow !== true) this.cursor = undefined;
     const at = cursorOf(reply);
     if (!at) return;
-    this.readOwedTo(reply?.follow === true ? asked : 0, at.seq);
+    this.readOwedTo(reply?.follow === true ? asked : 0, at.seq, at.epoch);
     this.listedAt = at.seq;
     let seq = at.seq;
     for (const [sessionId, changedAt] of this.changedAt) {
@@ -394,6 +450,9 @@ export class SessionPager<S extends Summary> {
   fresh(listSeq: unknown): boolean {
     if (typeof listSeq !== "number" || !Number.isSafeInteger(listSeq)) return true;
     if (listSeq < this.listedAt) return false;
+    // Paused, the cursor stays where the page stopped hearing the list: a notice that still comes
+    // (an attached chat's) is newer than rows this page did not hear.
+    if (this.pausedWatch) return true;
     if (this.cursor && !this.loading && listSeq > this.cursor.seq) this.cursor = { ...this.cursor, seq: listSeq };
     if (this.reading && listSeq > this.reading.seq) this.reading = { ...this.reading, seq: listSeq };
     this.keepBelowOwed();
