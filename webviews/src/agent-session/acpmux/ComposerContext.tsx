@@ -637,7 +637,10 @@ export function ComposerContext({
       : cloudSide && !readOnly && !machineOnCloud && !cloudStartOut
         ? // The person's pick (here, or New Tab's last pick, `pickedBefore`) is itself: a folder of this Mac goes
           // to Cloud as that folder, never as its GitHub origin's repository (cmux#53226).
-          localOnCloud && pickedFolder !== undefined && (pickedFolder === pickedHere || pickedFolder === pickedBefore)
+          localOnCloud &&
+            pickedFolder !== undefined &&
+            pickedRepo === undefined &&
+            (pickedFolder === pickedHere || pickedFolder === pickedBefore)
           ? pickedFolder
           : cloudRepositoryPick(
               pickedFolder,
@@ -1191,7 +1194,8 @@ export function ComposerContext({
               options={folders}
               selected={currentFolder}
               disabled={folderOpens.kind === "label"}
-              icon={<FolderIcon />}
+              // A GitHub repository keeps its logo while its Cloud start is out (cmux#53226).
+              icon={currentGitHub ? <GitHubGlyph /> : <FolderIcon />}
               middle={currentFolder !== undefined}
               allowPath
               {...(extra ? { extra } : {})}

@@ -873,11 +873,16 @@ export function NewTabScreen(props: Props) {
   useEffect(() => {
     if (cloudDefaultHere && canGrantDefault) grantDefault.current?.(cloudDefaultHere);
   }, [cloudDefaultHere, canGrantDefault]);
+  // This Mac's checkout of a GitHub repository the person picked (`localGitHubPick`) is that repository's pick:
+  // Cloud clones the repository, never copies the checkout (cmux#53226).
+  const checkedOutRepo = project !== undefined && localGitHubPick?.cwd === project;
+  const pickedHereFolder =
+    picked && project !== undefined && localAskFolder === project && !githubFolderRepo(project) && !checkedOutRepo
+      ? project
+      : undefined;
   const cloudFolder =
     cloudDefault ??
-    (picked && project !== undefined && localAskFolder === project && !githubFolderRepo(project)
-      ? project
-      : undefined) ??
+    pickedHereFolder ??
     cloudRepositoryPick(
       localAskFolder,
       (localGitHubPick?.cwd === localAskFolder ? localGitHubPick?.name : undefined) ??
@@ -2483,7 +2488,7 @@ export function NewTabScreen(props: Props) {
         {...(props.onCloudMachinePicked ? { onCloudMachinePicked: props.onCloudMachinePicked } : {})}
         {...(props.machineName ? { localName: props.machineName } : {})}
         projectChoices={props.projects ?? NO_PROJECTS}
-        pickedBefore={cloudDefault ?? (picked ? project : undefined)}
+        pickedBefore={cloudDefault ?? (picked && !checkedOutRepo ? project : undefined)}
         onProject={(cwd, peer) => (peer ? pickMachine({ peer, folder: cwd }) : pickProject(cwd))}
         onNoProject={() => pickProject(undefined)}
         onCloudFolderWaiting={setCloudFolderWaiting}
