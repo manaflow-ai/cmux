@@ -147,7 +147,22 @@ impl<K: Ord + Clone, V: Clone> Replica<K, V> {
     fn write(&mut self, key: K, value: Option<V>, wall_ms: u64) -> Delta<K, V> {
         let actor = self.actor().clone();
         let seq = self.vv.get(&actor) + 1;
-        let stamp = self.clock.now(wall_ms);
+        let mut stamp = self.clock.now(wall_ms);
+        // A far-future remote stamp is deliberately not allowed to poison the HLC. A local
+        // overwrite must still win that key, though, so advance only this key's stamp when the
+        // wall clock is behind its current winner.
+        if let Some(current) = self.entries.get(&key) {
+            if stamp <= current.stamp {
+                stamp = current.stamp.clone();
+                if stamp.n == u32::MAX {
+                    stamp.ms = stamp.ms.saturating_add(1);
+                    stamp.n = 0;
+                } else {
+                    stamp.n += 1;
+                }
+                stamp.actor = actor.clone();
+            }
+        }
         let dot = Dot { actor: actor.clone(), seq };
         self.vv.set(actor.clone(), seq);
         let entry = Entry { value, stamp, dot };
@@ -262,6 +277,7 @@ impl<K: Ord + Clone, V: Clone> Replica<K, V> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hlc::MAX_DRIFT_MS;
 
     type R = Replica<String, String>;
 
@@ -333,6 +349,21 @@ mod tests {
         assert_eq!(b.vv(), a.vv());
         assert_eq!(b.get(&k("x")), Some(&k("2")));
         drop(first);
+    }
+
+    #[test]
+    fn a_local_edit_after_a_far_remote_stamp_wins_the_round_trip() {
+        let (mut remote, mut local) = (r("remote"), r("local"));
+        let far = remote.set(k("x"), k("remote"), MAX_DRIFT_MS + 10_000);
+        local.apply(&far, 0);
+        let mine = local.set(k("x"), k("local"), 1);
+        assert!(mine.entries[0].1.stamp > far.entries[0].1.stamp);
+        remote.apply(&mine, 1);
+        let local_vv = local.vv().clone();
+        let back = remote.delta_since(&local_vv);
+        local.apply(&back, 1);
+        assert_eq!(remote.get(&k("x")), Some(&k("local")));
+        assert_eq!(local.get(&k("x")), Some(&k("local")));
     }
 
     #[test]
