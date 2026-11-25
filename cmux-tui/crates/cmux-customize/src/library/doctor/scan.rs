@@ -174,6 +174,8 @@ impl SettingNames {
                 .map(|row| row.key.as_str())
                 .chain(retired_entries().iter().map(|entry| entry.key.as_str()))
                 .chain([DESKTOP_BRIDGE_ENABLED, DESKTOP_BRIDGE_ENTRYPOINTS])
+                // Menu sections the doctor checks itself (`menus.rs`).
+                .chain(menus::SECTIONS.iter().copied())
             {
                 names.leaves.insert(key);
                 names.prefixes.extend(key.match_indices('.').map(|(at, _)| &key[..at]));

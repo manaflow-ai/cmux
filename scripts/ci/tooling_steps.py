@@ -52,12 +52,20 @@ from workflow_paths_cover_inputs import (  # noqa: E402
 # no test file): scripts/ci/tooling-step-inputs.json. A change to it runs every step, as a change to this router does.
 DECLARED = "scripts/ci/tooling-step-inputs.json"
 ROUTER_FILES = ("scripts/ci/tooling_steps.py", "scripts/ci/workflow_paths_cover_inputs.py",
-                "scripts/ci/gh_expressions.py", DECLARED)
+                "scripts/ci/gh_expressions.py", "scripts/ci/tooling_reuse.py", DECLARED)
 SETUP_ID = "setup-"
 # Imports no repository file can satisfy: what the job pip-installs (PyYAML, pytest) and Pillow. Any other import the
 # walker cannot resolve may be a repository module it missed, so the step runs.
 THIRD_PARTY = {"yaml", "pytest", "_pytest", "xdist", "PIL"}
 EXPR = "$__EXPR"
+# Product source code: no tooling test reads these, and a command the tests' scripts run from a variable (`bash "$t"`,
+# a wrapper's "$candidate") is one of the repository's own tools, never a file of these. A diff made only of them leaves
+# a step whose sole unresolved inputs are such variable commands to the checks below (CI cut 2026-11-24: tooling-tests
+# was 20,693 runner-min in 24 h, most of it steps a webviews, Rust or web source change cannot fail). Data, docs,
+# string catalogs, tests and Package.swift are not here, and a push still runs every step.
+PRODUCT_SOURCE = re.compile(
+    r"^(?:webviews/src|web/(?:app|components|lib)|cmux-tui/crates/[^/]+/src|backend/(?:apps|packages)/[^/]+/src"
+    r"|Packages/[^/]+/[^/]+/Sources)/.+\.(?:tsx?|jsx?|css|rs|swift)$")
 POSITIONAL = re.compile(r"\$(?:[@*0-9]|\{(?:[@*0-9]|[0-9]+|@:[0-9]+(?::[0-9]+)?)\})")
 # `git ls-files` with no pathspec, in a Python argument list (`["git", "-C", root, "ls-files", "-z"]`) or a shell
 # command (`git ls-files | grep`): the whole tracked tree is an input.
@@ -291,7 +299,10 @@ def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], work
         inputs.update(str(p) for p in walker.closure(root, cwd))
     code = sorted(p for p in inputs if is_code(repo, walker, p))
     reaches = {p: reach_of(repo, walker, p) for p in code}
-    unknown = [(p, r.unknown) for p, r in reaches.items() if r.unknown]
+    product_only = bool(changed) and all(PRODUCT_SOURCE.match(name) for name in changed)
+    unknown = [(p, [u for u in r.unknown if not (product_only and u.startswith("runs "))])
+               for p, r in reaches.items()]
+    unknown = [(p, u) for p, u in unknown if u]
     if unknown:
         what = "; ".join(f"{p}: {', '.join(u[:3])}" for p, u in unknown[:3])
         if not declared:
