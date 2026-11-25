@@ -531,30 +531,10 @@ extension OnboardingPageState {
     private static func computerUse(_ model: ComputerUseStepModel, _ images: OnboardingPageImages) -> ComputerUse {
         ComputerUse(helperIcon: images.helper(model.helperAppURL),
                     rows: ComputerUsePermissionPane.allCases.map { pane in
-                        GrantRow(pane: pane.rawValue, control: control(pane, model), icon: images.grant(pane))
+                        GrantRow(pane: pane.rawValue, control: model.control(pane), icon: images.grant(pane))
                     },
-                    allGranted: model.allGranted, note: note(model), showsRestart: model.permissions.helperFailed,
+                    allGranted: model.allGranted, note: model.note, showsRestart: model.permissions.helperFailed,
                     comebacks: model.comebacks, finished: model.finished, confirmsCapture: model.confirmsCapture)
-    }
-
-    /// The row's trailing control for the current grants.
-    @MainActor
-    static func control(_ pane: ComputerUsePermissionPane, _ model: ComputerUseStepModel) -> String {
-        let permissions = model.permissions
-        if permissions.helperFailed || permissions.helperVersionMismatch { return "hidden" }
-        if permissions.granted(pane) { return "done" }
-        return model.isPrimary(pane) ? "allowPrimary" : "allow"
-    }
-
-    /// The footer's one line on why Allow cannot help, if it cannot.
-    @MainActor
-    static func note(_ model: ComputerUseStepModel) -> String? {
-        let permissions = model.permissions
-        if permissions.helperFailed { return "helperFailed" }
-        if permissions.helperVersionMismatch { return "helperVersionMismatch" }
-        if model.unavailable { return "unavailable" }
-        if permissions.isOff { return "off" }
-        return nil
     }
 }
 

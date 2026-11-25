@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextWindowRules
 import UniformTypeIdentifiers
 
 /// What cmux does with a URL or file macOS hands it (it is the default
@@ -36,6 +37,10 @@ public nonisolated enum ExternalOpenRoute: Equatable, Sendable {
 
 /// Maps opened URLs and files to routes. Pure: no AppKit, no file writes;
 /// `isDirectory` and `isExecutable` are injected for tests.
+///
+/// The rules are Rust's (cmux-window-rules `external_open`, op `onboarding_steps_external_open`,
+/// with their cases): this reads the URL with Foundation (so the parts are the ones macOS read)
+/// and looks at the file, Rust answers the route, and this builds it from the URL.
 public nonisolated struct ExternalOpenRouter: Sendable {
     public var isDirectory: @Sendable (String) -> Bool
     public var isExecutable: @Sendable (String) -> Bool
@@ -47,40 +52,12 @@ public nonisolated struct ExternalOpenRouter: Sendable {
     /// the same host and path forms (``isSignInCallback(_:)``).
     public var isAuthCallback: @Sendable (URL) -> Bool
 
-    /// The sign-in callback's target, as host or path.
-    static let authCallbackTarget = "auth-callback"
-    /// The guest page's open-in-app link: `<scheme>://share?link=<page>#<secret>`.
-    static let shareLinkTarget = "share"
-
-    /// A path shaped like a chat share page (`/g/<id>` or `/i/<id>`); the daemon decides whether its host
-    /// is a share room's, so any other site's page of that shape still opens as a browser tab.
-    /// A run's screen link's web form (`https://cmux.com/deeplink/screen?device=&display=`, a
-    /// universal link): `link.open` opens that device's Screen Sharing tab.
-    static func isScreenLink(_ url: URL) -> Bool {
-        guard url.scheme?.lowercased() == "https", let host = url.host(percentEncoded: false)?.lowercased(),
-              host == "cmux.com" || host == "www.cmux.com" else { return false }
-        var path = url.path(percentEncoded: false)
-        while path.count > 1, path.hasSuffix("/") { path.removeLast() }
-        return path == "/deeplink/screen"
-    }
-
-    static func isSharePagePath(_ path: String) -> Bool {
-        var parts = path.split(separator: "/", omittingEmptySubsequences: false)
-        if parts.last == "", parts.count == 4 { parts.removeLast() }
-        guard parts.count == 3, parts[0].isEmpty, parts[1] == "g" || parts[1] == "i" else { return false }
-        let id = parts[2]
-        return (16...128).contains(id.count)
-            && id.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_") }
-    }
-
     /// The sign-in callback in any form auth accepts: `<scheme>://auth-callback`,
-    /// `<scheme>:auth-callback` and `<scheme>:///auth-callback`.
+    /// `<scheme>:auth-callback` and `<scheme>:///auth-callback` (Rust `is_sign_in_callback`).
     public static func isSignInCallback(_ url: URL) -> Bool {
-        let slashes = CharacterSet(charactersIn: "/")
-        if let host = url.host(percentEncoded: false)?.trimmingCharacters(in: slashes), !host.isEmpty {
-            return host.lowercased() == authCallbackTarget
-        }
-        return url.path.trimmingCharacters(in: slashes).lowercased() == authCallbackTarget
+        WindowRules().call("onboarding_steps_sign_in_callback",
+                           SignInCallback(host: url.host(percentEncoded: false), path: url.path),
+                           as: SignInCallback.Reply.self)?.callback ?? false
     }
 
     public init(
@@ -98,53 +75,23 @@ public nonisolated struct ExternalOpenRouter: Sendable {
         self.isExecutable = isExecutable
     }
 
-    /// Script extensions and the shell that runs a script without its execute bit.
-    /// The terminal script extensions (`.command`, `.tool`, `.sh`, `.zsh`,
-    /// `.csh`, `.pl`, `.bash`).
-    static let scriptShells = ["command": "sh", "tool": "sh", "sh": "sh", "zsh": "zsh", "bash": "bash", "csh": "csh", "pl": "perl"]
-    /// Files a browser opens as a page: web pages, SVG and saved pages.
-    static let pageExtensions: Set<String> = ["html", "htm", "xhtml", "xht", "shtml", "webarchive", "svg", "svgz", "mhtml", "mht"]
-
     public func route(_ url: URL) -> ExternalOpenRoute {
-        if let linkScheme, let scheme = url.scheme, scheme.caseInsensitiveCompare(linkScheme) == .orderedSame {
-            // The sign-in callback shares the scheme; it stays auth's, in
-            // every form auth accepts.
-            if isAuthCallback(url) { return .unsupported }
-            if url.host(percentEncoded: false)?.lowercased() == Self.shareLinkTarget { return .shareLink(url) }
-            return .deepLink(url)
-        }
-        switch url.scheme?.lowercased() {
-        case "https" where Self.isSharePagePath(url.path(percentEncoded: true)): return .shareLink(url)
-        case "https" where Self.isScreenLink(url): return .deepLink(url)
-        case "http", "https": return .browserTab(url)
-        case "file": return routeFile(url.path)
-        case "ssh": return ssh(url)
-        case "x-man-page": return manPage(url)
-        default: return .unsupported
-        }
+        ask(url, mode: "open")
     }
 
     /// A web link from inside cmux (a feed item): only `http(s)` and this
     /// build's links, never a file or a terminal command, whatever the item
     /// carries.
     public func routeWebLink(_ url: URL) -> ExternalOpenRoute {
-        switch route(url) {
-        case .browserTab(let page) where page.scheme?.lowercased() != "file": .browserTab(page)
-        case .deepLink(let link): .deepLink(link)
-        case .shareLink(let link): .shareLink(link)
-        default: .unsupported
-        }
+        ask(url, mode: "webLink")
     }
 
     /// A web page continued from another device (Handoff,
     /// `NSUserActivityTypeBrowsingWeb`): a browser tab for its `http(s)` URL,
     /// or a chat share page's own route. Any other activity or URL is refused.
     public func route(continuing activityType: String, webpageURL: URL?) -> ExternalOpenRoute {
-        guard activityType == NSUserActivityTypeBrowsingWeb, let url = webpageURL,
-              let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return .unsupported }
-        if scheme == "https", Self.isSharePagePath(url.path(percentEncoded: true)) { return .shareLink(url) }
-        if Self.isScreenLink(url) { return .deepLink(url) }
-        return .browserTab(url)
+        guard activityType == NSUserActivityTypeBrowsingWeb, let url = webpageURL else { return .unsupported }
+        return ask(url, mode: "continuing")
     }
 
     /// Finder service "New cmux Tab Here": a folder opens there; a file
@@ -153,87 +100,27 @@ public nonisolated struct ExternalOpenRouter: Sendable {
         .terminal(cwd: isDirectory(path) ? path : (path as NSString).deletingLastPathComponent, command: nil)
     }
 
-    func routeFile(_ path: String) -> ExternalOpenRoute {
-        if isDirectory(path) { return .terminal(cwd: path, command: nil) }
+    /// The route Rust answers for `url`, built from it; nil from an FFI pin without the op is
+    /// refused.
+    private func ask(_ url: URL, mode: String) -> ExternalOpenRoute {
+        let request = RouteRequest(link: Link(url, authCallback: isAuthCallback(url)),
+                                   file: url.scheme?.lowercased() == "file" ? file(url.path) : nil,
+                                   linkScheme: linkScheme, mode: mode)
+        guard let reply = WindowRules().call("onboarding_steps_external_open", request, as: RouteReply.self)
+        else { return .unsupported }
+        return reply.route(url)
+    }
+
+    /// What is at `path`: a folder, an executable, a picture.
+    private func file(_ path: String) -> File {
         let ext = (path as NSString).pathExtension.lowercased()
-        let folder = (path as NSString).deletingLastPathComponent
-        if Self.pageExtensions.contains(ext) { return .browserTab(URL(fileURLWithPath: path)) }
-        if let shell = Self.scriptShells[ext] {
-            let quoted = ShellQuote.quote(path)
-            return .terminal(cwd: folder, command: isExecutable(path) ? quoted : "\(shell) \(quoted)")
-        }
-        if ext.isEmpty, isExecutable(path) { return .terminal(cwd: folder, command: ShellQuote.quote(path)) }
-        // A picture (a screenshot, a photo) goes to a chat; SVG stays a page (``pageExtensions``).
-        if Self.isImage(ext) { return .attachImages([URL(fileURLWithPath: path)], from: nil) }
-        return .file(URL(fileURLWithPath: path))
+        return File(path: path, folder: (path as NSString).deletingLastPathComponent, ext: ext,
+                    isDirectory: isDirectory(path), isExecutable: isExecutable(path), isImage: Self.isImage(ext))
     }
 
     /// Whether a file of extension `ext` is a picture (PNG, JPEG, HEIC, TIFF, GIF and the rest).
     static func isImage(_ ext: String) -> Bool {
         !ext.isEmpty && UTType(filenameExtension: ext)?.conforms(to: .image) == true
-    }
-
-    /// `ssh://[user@]host[:port]`, as Terminal handles it. The host and
-    /// user are restricted to the characters a host name or login can hold,
-    /// and `--` ends ssh's options, so a crafted link cannot pass an option
-    /// (`-oProxyCommand=...`) to ssh.
-    func ssh(_ url: URL) -> ExternalOpenRoute {
-        // Only `[user@]host[:port]`: no password, path, query or fragment, nothing a page could
-        // hope cmux passes on, and every character as written ASCII (Foundation maps some
-        // letters, the Kelvin sign, to ASCII ones before `host` is read).
-        let text = url.absoluteString
-        guard text.unicodeScalars.allSatisfy(\.isASCII), url.password(percentEncoded: true) == nil,
-              url.query(percentEncoded: true) == nil, url.fragment(percentEncoded: true) == nil,
-              ["", "/"].contains(url.path(percentEncoded: true)), Self.portIsWellFormed(url) else { return .unsupported }
-        guard let host = url.host(percentEncoded: false), Self.isHostName(host) else { return .unsupported }
-        var user: String?
-        if let login = url.user(percentEncoded: false) {
-            guard Self.isLogin(login) else { return .unsupported }
-            user = login
-        }
-        if let port = url.port {
-            guard (1...65535).contains(port) else { return .unsupported }
-        }
-        return .ssh(SSHLinkTarget(user: user, host: host, port: url.port))
-    }
-
-    /// A `:` after the host names a port URL could read (`host:` or `host:abc` is refused, never
-    /// read as no port).
-    static func portIsWellFormed(_ url: URL) -> Bool {
-        guard url.port == nil, let rest = url.absoluteString.split(separator: "/", maxSplits: 3, omittingEmptySubsequences: false).dropFirst(2).first
-        else { return true }
-        var authority = Substring(rest)
-        if let at = authority.lastIndex(of: "@") { authority = authority[authority.index(after: at)...] }
-        if authority.hasPrefix("["), let close = authority.firstIndex(of: "]") { authority = authority[authority.index(after: close)...] }
-        return !authority.contains(":")
-    }
-
-    /// `x-man-page://ls`, `x-man-page://1/ls`, `x-man-page:///ls`.
-    func manPage(_ url: URL) -> ExternalOpenRoute {
-        var parts = ([url.host(percentEncoded: false)] + url.pathComponents).compactMap { $0 }.filter { !$0.isEmpty && $0 != "/" }
-        guard let topic = parts.popLast(), Self.isManToken(topic), parts.count <= 1 else { return .unsupported }
-        if let section = parts.first {
-            guard Self.isManToken(section) else { return .unsupported }
-            return .terminal(cwd: nil, command: "man \(ShellQuote.quote(section)) \(ShellQuote.quote(topic))")
-        }
-        return .terminal(cwd: nil, command: "man \(ShellQuote.quote(topic))")
-    }
-
-    /// ASCII only: a look-alike letter (Cyrillic `а`, the Kelvin sign) would name another host
-    /// than the one the confirmation seems to show.
-    static func isHostName(_ host: String) -> Bool {
-        !host.isEmpty && !host.hasPrefix("-") && host.count <= 253
-            && host.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || ".-_:%".unicodeScalars.contains($0)) }
-    }
-
-    static func isLogin(_ user: String) -> Bool {
-        !user.isEmpty && !user.hasPrefix("-") && user.count <= 64
-            && user.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || "._-".unicodeScalars.contains($0)) }
-    }
-
-    static func isManToken(_ token: String) -> Bool {
-        !token.hasPrefix("-") && token.count <= 128
-            && token.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) || "._+:-".unicodeScalars.contains($0) }
     }
 }
 
@@ -255,32 +142,24 @@ public nonisolated struct SSHLinkTarget: Equatable, Sendable {
     }
 
     /// `user@host:port` as parsed (an IPv6 host in brackets), what the confirmation names.
-    public var display: String {
-        let bracketed = host.contains(":") ? "[\(host)]" : host
-        return (user.map { "\($0)@" } ?? "") + bracketed + (port.map { ":\($0)" } ?? "")
-    }
+    public var display: String { strings?.display ?? "" }
 
     /// The host as trust is keyed (``trustKey(_:)``).
     public var trustKey: String { Self.trustKey(host) }
 
-    /// `host` without IPv6 brackets, lowercased: OpenSSH lowercases the host before it reads
-    /// its config, and DNS names compare without case. Nothing else is folded: `example.com.`
-    /// or another spelling of an address is another string to ssh's `Host` patterns, so it asks.
-    /// An IPv6 zone (`fe80::1%en0`) keeps its spelling: it names an interface, not a DNS label.
+    /// `host` without IPv6 brackets, lowercased (ASCII letters only), its IPv6 zone as spelled:
+    /// the key the settings' trusted hosts compare by (Rust `trust_key`). An FFI pin without the
+    /// op keys the host as written, so only the same spelling reads as trusted.
     public static func trustKey(_ host: String) -> String {
-        var key = host.trimmingCharacters(in: .whitespaces)
-        if key.hasPrefix("["), key.hasSuffix("]") { key = String(key.dropFirst().dropLast()) }
-        let zone = key.firstIndex(of: "%").map { String(key[$0...]) } ?? ""
-        let address = String(key.dropLast(zone.count))
-        // ASCII letters only: Unicode lowercasing folds the Kelvin sign into `k`.
-        return String(decoding: address.utf8.map { (65...90).contains($0) ? $0 + 32 : $0 }, as: UTF8.self) + zone
+        WindowRules().call("onboarding_steps_trust_key", host, as: String.self) ?? host
     }
 
     /// The command typed into the new terminal, as Terminal runs the link.
-    public var command: String {
-        let bracketed = host.contains(":") ? "[\(host)]" : host
-        let target = user.map { "\($0)@\(bracketed)" } ?? bracketed
-        return "ssh" + (port.map { " -p \($0)" } ?? "") + " -- \(ShellQuote.quote(target))"
+    public var command: String { strings?.command ?? "" }
+
+    /// The confirmation text, trust key and command, from Rust (`onboarding_steps_ssh_target`).
+    private var strings: Strings? {
+        WindowRules().call("onboarding_steps_ssh_target", Wire(self), as: Strings.self)
     }
 }
 
