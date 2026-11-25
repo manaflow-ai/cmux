@@ -226,7 +226,7 @@ struct PageFactory {
                     CloudPresenter.confirm(title, body, button: button, identifier: CloudPresenter.environmentConfirmIdentifier,
                                            in: services?.windows.active?.window) { continuation.resume(returning: $0) }
                 }
-            })
+            }, defaultImage: { [weak services] in services?.settings.map { CloudNewWorkspaceSetting().defaultImage(in: $0.snapshot.root) } }) // rebuilt when stale
         provider.environmentsState = { (try? JSONValue.parse(JSONEncoder().encode(environments.state))) ?? .null }
         provider.environmentsRun = { params in
             guard let run = try? JSONDecoder().decode(CloudEnvironmentsRun.self, from: JSONSerialization.data(withJSONObject: params.foundationObject)) else {
