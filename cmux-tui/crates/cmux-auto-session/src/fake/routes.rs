@@ -119,6 +119,7 @@ impl AutoCloud for FakeAutoCloud {
     }
 
     async fn inbox(&self, id: &str, after: u64) -> CloudResult<Vec<InboxMessage>> {
+        poll_fn(|cx| self.inbox_released(cx)).await;
         self.call("inbox", |store, caller| store.inbox(caller, id, after))
     }
 
