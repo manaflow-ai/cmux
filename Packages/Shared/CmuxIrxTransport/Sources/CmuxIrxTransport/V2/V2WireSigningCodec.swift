@@ -1,6 +1,12 @@
 public import Foundation
+#if canImport(Darwin)
 import CoreFoundation
+#endif
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 
 /// Produces the canonical bytes shared with the v2 Worker's signature verifier.
 public struct V2WireSigningCodec: Sendable {
@@ -94,7 +100,7 @@ public struct V2WireSigningCodec: Sendable {
         if value is NSNull { return "null" }
         if let value = value as? String { return try quoted(value) }
         if let value = value as? NSNumber {
-            if CFGetTypeID(value) == CFBooleanGetTypeID() { return value.boolValue ? "true" : "false" }
+            if Self.isBoolean(value) { return value.boolValue ? "true" : "false" }
             let number = value.doubleValue
             // Int64(exactly:) is nil for a fraction, NaN or infinity.
             guard abs(number) <= 9_007_199_254_740_991, let integer = Int64(exactly: number) else {
@@ -108,5 +114,14 @@ public struct V2WireSigningCodec: Sendable {
             return "{" + (try fields.map { try quoted($0.key) + ":" + canonical($0.value) }).joined(separator: ",") + "}"
         }
         throw V2ControlFailure.invalidWireData
+    }
+
+    private static func isBoolean(_ value: NSNumber) -> Bool {
+        #if canImport(Darwin)
+        CFGetTypeID(value) == CFBooleanGetTypeID()
+        #else
+        // swift-corelibs-foundation boxes JSON true/false as a Bool-typed NSNumber.
+        String(cString: value.objCType) == "c"
+        #endif
     }
 }

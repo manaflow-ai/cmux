@@ -18,5 +18,9 @@ path = "tests/test_dev_release_product_reuse.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_dev_tag_canonical.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_dev_worktree.py"
 lane = "macos-cli-no-socket"

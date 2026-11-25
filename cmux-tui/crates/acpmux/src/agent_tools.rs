@@ -20,9 +20,9 @@
 //!   Only the skill descriptions reach the prompt (progressive disclosure).
 //!   `cmux-computer-use` is model-invocable: its description claims tasks
 //!   in a desktop app; the person's Computer Use settings decide what runs.
-//!   Known limit: `skills/` is not a cmux-tui tree-key input
-//!   (scripts/cmux-next/cmux-tui-tree-inputs.txt), so a skills-only change
-//!   reaches a published cmux-tui build with the next cmux-tui change.
+//!   Each embedded skill file is a `blob` line in scripts/cmux-next/cmux-tui-tree-inputs.txt,
+//!   so a skills-only change builds a new tree (scripts/ci/check_cmux_tui_tree_inputs.py
+//!   fails when one is missing).
 //! - Computer Use (`computer_use/mcp.rs`): every session gets
 //!   `acpmux computer-use-mcp` (server `cmux-computer-use`), whatever
 //!   `computerUse.mode` says: tools are fixed when a chat spawns, and Computer
@@ -68,9 +68,10 @@
 //!   itself). It gets the session as [`AGENT_SESSION_ENV`], the provenance
 //!   of the notes it saves.
 //! - Hosted MCP (`cmux-hosted`, `hosted_mcp.rs`): cmux's hosted MCP server with the signed-in
-//!   person's GitHub connectors and their own remote MCP servers, only while the daemon's
-//!   `CMUX_HOSTED_MCP` is `1` (default off) and not on a cmux Cloud VM. Its env holds only the
-//!   `cmux` CLI's path; the person's token never enters a config, an env or argv.
+//!   person's GitHub connectors and their own remote MCP servers, on by default (the daemon's
+//!   `CMUX_HOSTED_MCP=0` or cmux.json `agents.hostedMcp.enabled: false` turns it off). On a Mac
+//!   its env holds only the `cmux` CLI's path; on a cmux Cloud machine it holds nothing and the
+//!   machine agent adds the bearer. No token ever enters a config, an env or argv.
 //! - Kept servers (`ACPMUX_AGENT_TOOL_SERVERS`, a profile or preset env):
 //!   only the named MCP servers; the Chief's turns keep `cmux` (cx-4a5w2).
 
@@ -410,6 +411,8 @@ const SKILL_FILES: &[(&str, &str)] = &[
         include_str!("../../../../skills/cmux-customization/references/viewer-types.md"),
     ),
     ("cmux-live/SKILL.md", include_str!("../../../../skills/cmux-live/SKILL.md")),
+    // UI work shown in the chat: live mode, the preview tab turn shots capture, how to try it (hq RFD 0150).
+    ("cmux-ui-preview/SKILL.md", include_str!("../../../../skills/cmux-ui-preview/SKILL.md")),
     // Diagrams, charts, math, decks, documents and opening pages beside the chat (hq
     // docs/design/next-rich-output.md). The deck template is a file the agent copies.
     ("cmux-rich-output/SKILL.md", include_str!("../skills/cmux-rich-output/SKILL.md")),
@@ -458,8 +461,9 @@ pub struct AgentTools {
     pub servers: Vec<McpServer>,
     /// The Claude Code plugin folder holding the skills.
     pub plugin_dir: Option<PathBuf>,
-    /// The person's own skills (`~/.config/cmux/skills`) as a second plugin, `cmux-user`
-    /// (`agent_guidance.rs`), while `agents.guidance.userSkills` is on and there are any.
+    /// The person's own skills (`~/.config/cmux/skills`, `cmux-next` on macOS) as a second
+    /// plugin, `cmux-user` (`agent_guidance.rs`), while `agents.guidance.userSkills` is on and
+    /// there are any.
     pub user_plugin_dir: Option<PathBuf>,
     /// The display allocation folder, only in per-workspace display mode
     /// (`agent_displays.rs`): [`AgentTools::scoped`] then leaves the
@@ -474,6 +478,10 @@ pub struct AgentTools {
     /// Servers the daemon serves for this chat over loopback HTTP ([`AgentTools::via_gateway`]),
     /// by name: the harness reaches them there instead of starting their stdio launch.
     pub http: BTreeMap<String, crate::mcp_gateway::Endpoint>,
+    /// `optchat-chief`, for a chat whose memory followed it here from another machine
+    /// ([`crate::memory_follow`]): [`AgentTools::scoped`] gives it the memory server even when
+    /// this machine's settings name no memory. `None` when this machine turned memory off.
+    pub memory_follow: Option<PathBuf>,
 }
 
 /// Where the tools come from; `current()` reads them from this process.
@@ -507,8 +515,12 @@ pub struct Inputs {
     /// per-workspace displays (`agent_displays.rs`), else `None`.
     pub displays: Option<PathBuf>,
     /// Sessions get cmux's hosted MCP server with the signed-in person's tools
-    /// (`hosted_mcp.rs`): [`crate::hosted_mcp::SWITCH_ENV`] is `1` (default off).
+    /// (`hosted_mcp.rs`): on unless [`crate::hosted_mcp::SWITCH_ENV`] is `0` or cmux.json's
+    /// [`crate::hosted_mcp::SETTING_ENABLED`] is `false`.
     pub hosted: bool,
+    /// This is a cmux Cloud machine: the hosted server goes through its agent socket and needs
+    /// no `cmux` CLI.
+    pub hosted_cloud: bool,
     /// Sessions get GitHub's own MCP server through the team's cmux GitHub connection
     /// (`github_mcp.rs`): on a cmux Cloud machine whose Cloud agent mints GitHub tokens, or a
     /// machine a Mac lends GitHub (`github_session_env.rs`).
@@ -562,6 +574,7 @@ impl Inputs {
             displays: crate::agent_displays::per_workspace()
                 .then(|| crate::agent_displays::dir(&crate::config::home())),
             hosted: crate::hosted_mcp::enabled(),
+            hosted_cloud: crate::hosted_mcp::cloud_socket().is_some(),
             github: crate::github_mcp::available() || crate::github_session_env::lent(),
             desktop_lease: var(DESKTOP_LEASE_ENV).map(PathBuf::from).filter(|p| is_executable(p)),
         }
@@ -1243,7 +1256,16 @@ fn resolve_servers(inputs: &Inputs) -> AgentTools {
             env: vec![],
         });
     }
-    if inputs.hosted
+    if let (true, true, Some(acpmux)) = (inputs.hosted, inputs.hosted_cloud, &inputs.acpmux) {
+        // cmux's hosted MCP on a cmux Cloud machine (`hosted_mcp.rs`): the machine agent adds
+        // its own bearer to each message, so nothing goes in the env.
+        servers.push(McpServer {
+            name: crate::hosted_mcp::SERVER_NAME.into(),
+            command: acpmux.exe.clone(),
+            args: acpmux.args_lossy(&["hosted-mcp"]),
+            env: vec![],
+        });
+    } else if inputs.hosted
         && let (Some(acpmux), Some(cmux)) = (&inputs.acpmux, executable("cmux"))
     {
         // cmux's hosted MCP (`hosted_mcp.rs`): only the `cmux` CLI's path goes in its env; the
@@ -1316,6 +1338,8 @@ fn resolve_servers(inputs: &Inputs) -> AgentTools {
         cmux_for_agents: agents_get_cmux(inputs.cmux_json.as_deref()),
         project_servers: Map::new(),
         http: BTreeMap::new(),
+        memory_follow: executable("optchat-chief")
+            .filter(|_| crate::memory_follow::enabled(inputs.cmux_json.as_deref()) != Some(false)),
     }
 }
 
@@ -1342,6 +1366,29 @@ impl AgentTools {
         };
         if !yes && !session_env.contains_key(MCP_TOOLS_ENV) {
             self.servers.retain(|s| s.name != CMUX_SERVER);
+        }
+        // A chat whose memory followed it here keeps it, reaching the owner it used
+        // (`memory_follow.rs`), before the server filter below narrows the list.
+        if let Some(followed) = crate::memory_follow::followed(session_env)
+            && let Some(chief) = self.memory_follow.clone()
+        {
+            if !self.servers.iter().any(|s| s.name == MEMORY_SERVER_NAME) {
+                self.servers.push(McpServer {
+                    name: MEMORY_SERVER_NAME.into(),
+                    command: chief,
+                    args: vec!["agent-memory".into(), "mcp".into()],
+                    env: vec![],
+                });
+            }
+            let env = crate::memory_follow::server_env(&followed);
+            for server in self.servers.iter_mut().filter(|s| s.name == MEMORY_SERVER_NAME) {
+                let followed_key = |k: &str| {
+                    k == crate::memory_follow::OWNER_ENV
+                        || k == crate::memory_follow::OWNER_ARGS_ENV
+                };
+                server.env.retain(|(k, _)| !followed_key(k));
+                server.env.extend(env.iter().cloned());
+            }
         }
         let keep = session_env.get(SERVERS_ENV).map(|v| v.trim()).filter(|v| !v.is_empty());
         if let Some(keep) = keep {

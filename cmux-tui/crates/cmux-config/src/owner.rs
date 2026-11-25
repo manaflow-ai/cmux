@@ -36,7 +36,8 @@ pub struct ConfigStore {
     /// first write then creates `config_path` from that text.
     seed_path: Option<PathBuf>,
     state_dir: Option<PathBuf>,
-    /// `<state_dir>/settings-history.jsonl`; `None` without a state directory.
+    /// The history of `config_path` in the state directory
+    /// ([`crate::history::history_file_name`]); `None` without one.
     history: Option<HistoryLog>,
     /// The file text the last time it parsed: what a change out of a file
     /// that did not parse is recorded against.
@@ -81,7 +82,7 @@ impl ConfigStore {
         {
             state = state.with_revision(revision + 1);
         }
-        let history = state_dir.as_deref().map(HistoryLog::new);
+        let history = state_dir.as_deref().map(|dir| HistoryLog::new(dir, &config_path));
         // Revisions continue past the history's too (a lost cache must not
         // reuse a revision an entry already names).
         if let Some(newest) = history.as_ref().and_then(HistoryLog::newest_revision)
@@ -89,15 +90,15 @@ impl ConfigStore {
         {
             state = state.with_revision(newest);
         }
-        let mut store = ConfigStore {
-            state,
-            config_path,
-            seed_path,
-            state_dir,
-            history,
-            last_good: None,
-            reader,
+        // Opened on a file that does not parse: the text it last parsed with
+        // is the saved one, so the change out of the broken text undoes alone.
+        let last_good = if state.file_problem().is_some() {
+            history.as_ref().and_then(HistoryLog::last_text)
+        } else {
+            None
         };
+        let mut store =
+            ConfigStore { state, config_path, seed_path, state_dir, history, last_good, reader };
         store.catch_up();
         store.migrate_once();
         store.note_good();
@@ -254,6 +255,24 @@ impl ConfigStore {
         self.note_good();
     }
 
+    /// A hand edit that changed the file's text but no setting (a comment,
+    /// formatting) still gets a history entry, under a revision of its own
+    /// with no keys: else an undo would skip it and take back the change
+    /// before it, losing the edit. Returns that change for the caller to emit
+    /// (clients then hold the new revision). Nothing without a history.
+    fn text_only_change(&mut self, before: &str, before_broken: bool) -> Option<Change> {
+        if self.history.is_none() || self.state.file_problem().is_some() {
+            return None;
+        }
+        let baseline = if before_broken { self.last_good.as_deref()? } else { before };
+        if baseline == self.state.source() {
+            return None;
+        }
+        let revision = self.state.revision().saturating_add(1);
+        self.state = self.state.clone().with_revision(revision);
+        Some(Change { revision, keys: Vec::new(), origin: crate::Origin::File })
+    }
+
     /// Runs `op`: refresh from disk (write ops), reduce, publish, adopt.
     /// Every published change of the file is recorded in the history.
     pub fn apply(&mut self, op: Op) -> ApplyResult {
@@ -279,6 +298,7 @@ impl ConfigStore {
             let broken = self.state.file_problem().is_some();
             let (refreshed, change) = self.state.reload(self.read_file(), self.reader.read());
             self.state = refreshed;
+            let change = change.or_else(|| self.text_only_change(&before, broken));
             if let Some(change) = &change {
                 self.record(change, &before, broken, None);
             }
@@ -337,6 +357,7 @@ impl ConfigStore {
                 Some(read_theme(&config_dir, name))
             });
         self.state = next;
+        let change = change.or_else(|| self.text_only_change(&before, broken));
         if let Some(change) = &change {
             self.record(change, &before, broken, None);
             self.write_cache();

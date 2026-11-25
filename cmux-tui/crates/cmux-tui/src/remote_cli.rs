@@ -67,6 +67,7 @@ mod remote_link_mux;
 mod self_install;
 mod spill;
 mod spill_cloud;
+mod ssh_bench;
 mod ssh_carrier;
 use daemon_lifecycle::*;
 use enroll::*;
@@ -79,7 +80,6 @@ const WIREGUARD_HUB_START_TIMEOUT: Duration = Duration::from_secs(10);
 const WIREGUARD_HUB_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const ENROLLMENT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const MAX_RPC_STDIN_LINE_BYTES: usize = 16 * 1024 * 1024;
-const MAX_CLIENT_RELAY_ROUTES: usize = 4;
 const DETACHED_TERM_GRACE: Duration = Duration::from_millis(500);
 const DETACHED_KILL_GRACE: Duration = Duration::from_secs(1);
 const FORWARD_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
@@ -884,9 +884,8 @@ fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRun
             relay_routes.entry(route).or_insert(options);
         }
     }
-    if relay_routes.len() > MAX_CLIENT_RELAY_ROUTES {
-        return Err(anyhow!(catalog().remote_client.relay_route_limit(MAX_CLIENT_RELAY_ROUTES)));
-    }
+    // Relay routes are not capped by count: each is one entry in the routed provider's
+    // map, dialed only when a connection asks for it.
     let ssh = SshProviderConfig {
         ssh_binary: flags.ssh_binary.clone(),
         remote_binary: flags.remote_binary.clone(),
@@ -1148,9 +1147,6 @@ fn client_relay_options(
     }
     if routes.len() != slots.len() {
         return Err(anyhow!(messages.route_scoped_relay_credential_pair_required));
-    }
-    if routes.len() > MAX_CLIENT_RELAY_ROUTES {
-        return Err(anyhow!(messages.relay_credential_limit(MAX_CLIENT_RELAY_ROUTES)));
     }
     let mut by_route = BTreeMap::new();
     for ((route, slot), credential) in routes.into_iter().zip(slots).zip(credentials) {
@@ -1534,6 +1530,13 @@ fn run_ssh(
     args: &[String],
     load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
 ) -> anyhow::Result<()> {
+    // RFD 0127's harness (`ssh_bench.rs`): `--bench` measures, `--bench-pipe` is its ProxyCommand.
+    if ssh_bench::wants_pipe(args) {
+        return ssh_bench::pipe(args);
+    }
+    if ssh_bench::wants(args) {
+        return ssh_bench::run(args);
+    }
     // The hub carrier first for one of this person's listed machines (`ssh_carrier.rs`).
     let (way, rest) = ssh_carrier::split_way(args)?;
     if way != ssh_carrier::Way::SshOnly
