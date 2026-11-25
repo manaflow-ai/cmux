@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.cloud.turnCheckpoints" : {
+      "comment" : "Settings > Machines: toggle that saves a whole-machine checkpoint between the turns of a Cloud chat, so a turn can be undone.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save a Checkpoint Before Each Cloud Chat Turn"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "حفظ نقطة استعادة قبل كل دور في دردشة السحابة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sačuvaj kontrolnu tačku prije svakog poteza Cloud chata"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gem et checkpoint før hver tur i en Cloud-chat"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vor jedem Zug eines Cloud-Chats einen Checkpoint speichern"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Guardar un punto de control antes de cada turno del chat en la nube"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enregistrer un point de contrôle avant chaque tour d’un chat Cloud"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Salva un checkpoint prima di ogni turno della chat Cloud"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud チャットの各ターンの前にチェックポイントを保存"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "រក្សាទុកចំណុចត្រួតពិនិត្យមុនវេននីមួយៗនៃការជជែក Cloud"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud 채팅의 각 턴 전에 체크포인트 저장"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lagre et sjekkpunkt før hver tur i en Cloud-chat"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zapisuj punkt kontrolny przed każdą turą czatu w chmurze"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Salvar um checkpoint antes de cada turno do chat na nuvem"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сохранять контрольную точку перед каждым ходом облачного чата"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "บันทึกจุดตรวจสอบก่อนแต่ละรอบของแชต Cloud"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Her Cloud sohbet turundan önce bir kontrol noktası kaydet"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Зберігати контрольну точку перед кожним ходом хмарного чату"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lưu điểm khôi phục trước mỗi lượt trò chuyện Cloud"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在每轮云端聊天之前保存检查点"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在每輪雲端聊天之前儲存檢查點"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

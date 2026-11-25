@@ -13,7 +13,7 @@ import PackageDescription
 //   CmuxNextBridge -> Daemon, Layout, Sidebar, Tabs (App-layer mapping, testable)
 //   CmuxNextBrowserCore -> Compat, Wakeups (the browser's engine-neutral values and protocols; Browser re-exports it)
 //   CmuxNextFavicons -> CmuxNextBrowser, CmuxNextCompat, CmuxNextTabs (public read-only favicon leaf)
-//   CmuxNextTabs, Sidebar, Layout, Browser -> CmuxNextDesign; Tabs, Home -> DesignTokens (the tab close rule); Tabs, Sidebar -> CmuxNextIcons; Palette -> Design, Actions
+//   CmuxNextTabs, Sidebar, Layout, Browser -> CmuxNextDesign; Tabs, Home -> DesignTokens (the tab close rule); Tabs, Sidebar -> CmuxNextIcons; Palette -> Design, Actions; Tabs -> CCmuxAppFFI (the gooey tabs' goo plans, cmux-motion)
 //   Feature UI modules never import CmuxNextDaemon; the App maps daemon state into their view models.
 //   CmuxNextTerminal -> CmuxNextTerminalGeometry, CmuxNextCopyMode (pure), CmuxGhosttyKit (binary), CCmuxAppFFI (predictive echo)
 //   CmuxNextCompat -> swift-atomics, system frameworks (back-ports of newer system APIs for the
@@ -83,7 +83,7 @@ import PackageDescription
 //     Agents step's sign-in source)
 //   CmuxNextAgentIntegrations -> Daemon, Pages, Settings (Settings > Agents > Agent integrations: relays the bundled
 //     CLI's `agent hook status|install|uninstall`; the App supplies the CLI's location)
-//   CmuxNextBookmarks -> Design, Icons (bookmark tree per browser profile, Netscape HTML, ranking, file store,
+//   CmuxNextBookmarks -> Design, Icons, WindowRules (bookmark tree per browser profile, Netscape HTML, ranking, file store,
 //     cmux://bookmarks page, bookmarks bar, edit bubble; no daemon; the App supplies the store)
 //   CmuxNextResources -> Wakeups, Design (hover-card CPU/memory: aggregation, on-demand sampler, lines;
 //     no daemon; the App supplies the samples). Tabs and Sidebar show it.
@@ -194,7 +194,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: c98e0723ea839dc2e287ef1768443564d345635a3355facd761081bd8a175f6e
+// app-ffi-pin-checksum: bc798c8b57aeab8b472a65639bcab88ee72f5bc9245c03a9dc0542b614a28460
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -316,6 +316,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextCloudPlace",
             // The chat place flow store and Auto's signals: Swift carries facts, Rust decides (cloud_move_place_*).
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
                 "CmuxNextCloud",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
@@ -706,6 +707,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWindowRules",
                 .product(name: "CmuxAppAttest", package: "CmuxAppAttest"),
                 .product(name: "CmuxEgress", package: "CmuxEgress"),
+                .product(name: "CmuxPagePushBound", package: "CmuxPagePushBound"),
             ],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
@@ -1278,6 +1280,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextIcons",
                 "CmuxNextPages",
                 "CmuxNextSettings",
+                "CmuxNextWindowRules",
             ],
             resources: [
                 .process("Resources"),
@@ -2531,6 +2534,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextTabs",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextDesignTokens",
@@ -2762,15 +2766,17 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesign",
                 "CmuxNextWakeups",
             ],
-            resources: [
-                .process("Localizable.xcstrings"),
-            ],
+            // Localizable.xcstrings.d is the Localizable table, one file per key: StringCatalogsPlugin builds the table.
+            exclude: ["Localizable.xcstrings.d"],
             swiftSettings: daemonSwiftSettings,
             // The generated Schema Swift files (Schema/<name>.generated.swift), from schemas/settings (RFD 0048).
-            plugins: [.plugin(name: "SettingsSchemaPlugin")]
+            plugins: [.plugin(name: "SettingsSchemaPlugin"), .plugin(name: "StringCatalogsPlugin")]
         ),
         // Runs scripts/cmux-next/gen-settings-sources.py --swift-out into its work directory.
         .plugin(name: "SettingsSchemaPlugin", capability: .buildTool()),
+        // Runs scripts/cmux-next/string_catalogs.py build-target: a target's <Table>.xcstrings.d directories (one file
+        // per key, so two PRs adding strings never conflict) into <Table>.xcstrings in its work directory.
+        .plugin(name: "StringCatalogsPlugin", capability: .buildTool()),
         .testTarget(
             name: "CmuxNextSettingsTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
@@ -2792,10 +2798,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
             ],
-            resources: [
-                .process("Localizable.xcstrings"),
-            ],
-            swiftSettings: uiSwiftSettings
+            // Localizable.xcstrings.d is the Localizable table, one file per key: StringCatalogsPlugin builds the table.
+            exclude: ["Localizable.xcstrings.d"],
+            swiftSettings: uiSwiftSettings,
+            plugins: [.plugin(name: "StringCatalogsPlugin")]
         ),
         .target(
             name: "CmuxNextControl",
@@ -3104,6 +3110,8 @@ let package = !targetsLinux ? Package(
         .package(path: "../../Shared/CmuxHomeRender"),
         // Agent questions: one harness-neutral model (plans/cmux-next/agent-questions.md).
         .package(path: "../../Shared/CmuxAgentQuestion"),
+        // What the host may feed a chat page that does not drain (hung-page backpressure).
+        .package(path: "../../Shared/CmuxPagePushBound"),
         // The Mac Home transcript: MessagesLabAppKitNative, vendored (home-mac.md).
         .package(path: "../../Shared/CmuxMessagesLab"),
         // RFB (VNC) client for compatibility hosts in the remote view pane (remote-desktop.md 12).
