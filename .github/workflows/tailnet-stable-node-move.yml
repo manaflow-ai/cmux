@@ -67,8 +67,13 @@ jobs:
         env:
           CARGO_NET_RETRY: "10"
           CARGO_HTTP_TIMEOUT: "120"
+          # Run 45615581795 filled the runner's disk (ENOSPC) mid-build: debug info and incremental state are
+          # most of a debug target dir, and this binary is only run, never debugged.
+          CARGO_PROFILE_DEV_DEBUG: "0"
+          CARGO_INCREMENTAL: "0"
         run: |
           set -euo pipefail
+          df -h "$GITHUB_WORKSPACE" "${CARGO_TARGET_DIR:-$GITHUB_WORKSPACE}" 2>/dev/null || true
           (cd cmux-tui && cargo build -p acpmux --features tailnet --locked --bin acpmux)
           bin="$(cd cmux-tui && echo "${CARGO_TARGET_DIR:-$PWD/target}")/debug/acpmux"
           test -x "$bin"
