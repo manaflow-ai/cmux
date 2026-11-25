@@ -138,7 +138,10 @@ await requireBrowserLane("transcript-turn-after-subagent.test.ts", async () => {
     const page = await browser.newPage({ viewport: { width: 1000, height: 1300 }, deviceScaleFactor: 2 });
     // The report that opens under its line is the retained disclosure look (the shipped compact line
     // has no chevron, #42247): pinned, so the opened report's place is still checked.
-    await pinArms(page, { "subagent-done-report": "disclosure" });
+    // The background command's end and the background subagent's end draw in the hat, not the
+    // transcript, under the hat's `line` head (the default): this suite measures them as rows, so it
+    // pins the earlier head.
+    await pinArms(page, { "subagent-done-report": "disclosure", "subagent-tray-fold-head": "groups" });
     const port = (vite!.httpServer!.address() as { port: number }).port;
     await page.goto(
       `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: "own-turn", width: 900, theme: "Catppuccin Mocha", reducedMotion: "true" })}`,
