@@ -357,7 +357,12 @@ fn fullscreen_box(chrome: &Chrome, running: bool, fresh: bool, width: usize) -> 
     let mut rule = Line::new();
     rule.push(&"─".repeat(width), Style::fg(RULE));
     out.push(rule.clone());
-    let draft = wrap(&chrome.draft, width.saturating_sub(4));
+    // `wrap("")` is one empty row: an empty prompt draws the placeholder instead.
+    let draft = if chrome.draft.is_empty() {
+        Vec::new()
+    } else {
+        wrap(&chrome.draft, width.saturating_sub(4))
+    };
     for (i, row) in draft.iter().enumerate() {
         let mut d = Line::new();
         d.push(if i == 0 { "❯\u{a0}" } else { "  " }, Style::PLAIN);
