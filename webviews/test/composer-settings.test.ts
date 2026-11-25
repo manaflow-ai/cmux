@@ -134,3 +134,10 @@ test("an empty chat's composer sits at the bottom by default; center only when t
   for (const bad of ["Center", "middle", true])
     expect(readComposerSettings({ emptyChatComposerPosition: bad }).emptyChatComposerPosition).toBe("bottom");
 });
+
+test("composer vim keys are opt-in and off by default", () => {
+  expect(DEFAULT_COMPOSER.composerVimKeys).toBe(false);
+  expect(readComposerSettings({}).composerVimKeys).toBe(false);
+  expect(readComposerSettings({ composerVimKeys: true }).composerVimKeys).toBe(true);
+  expect(readComposerSettings({ composerVimKeys: "true" }).composerVimKeys).toBe(false);
+});
