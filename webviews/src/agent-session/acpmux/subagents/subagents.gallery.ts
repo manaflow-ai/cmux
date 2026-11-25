@@ -214,10 +214,22 @@ export default agentPaneEntry({
       },
     },
     child: {
-      note: "A card row opened: the subagent's own view, its rows from the top as a chat's, a × in the top end corner.",
+      note: "A list line opened: the subagent's own view, its rows from the top as a chat's, a × in the top end corner.",
       height: 640,
       snapshot: NESTED_MIXED,
       play: openChild("Test coverage"),
+    },
+    "child-back": {
+      note: "The corner × goes back to the chat's transcript.",
+      height: 680,
+      snapshot: NESTED_MIXED,
+      play: async (ctx) => {
+        await openChild("Test coverage")(ctx);
+        await ctx.click({ selector: ".cv-subagent-corner__close" });
+        await ctx.waitFor(
+          () => !ctx.document.querySelector(".acpmux-view-corner") && ctx.document.querySelector(".acpmux-thread"),
+        );
+      },
     },
     "child-close-hover": {
       note: "The corner × closes the subagent's view; hovered, its highlight covers the × alone, over no row's room.",

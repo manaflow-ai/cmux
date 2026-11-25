@@ -246,8 +246,10 @@ def findings(output: str, root: str = "") -> list[tuple[str, str]]:
 
 def compare(merge_output: str, base_output: str, merge_root: str = "", base_root: str = "") -> tuple[list, list]:
     """(new, old): the merge's findings beyond the base's, and those the base has too, in the merge's order.
-    Counted, not a set: a second finding that reads like one the base already has is still new."""
-    left = Counter(found for found, _ in findings(base_output, base_root))
+    Counted, not a set: a second finding that reads like one the base already has is still new. The base's
+    webviews/node_modules is the merge's (a symlink), so a base frame there names the merge's root: that is <root>
+    too, or the base's vite stack would never match the merge's."""
+    left = Counter(unroot(found, merge_root) for found, _ in findings(base_output, base_root))
     new, old = [], []
     for found, shown in findings(merge_output, merge_root):
         if left[found] > 0:

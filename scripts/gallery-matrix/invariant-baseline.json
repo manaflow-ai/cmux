@@ -2380,6 +2380,12 @@
       "center-line:row subagents-11:agent-unit-tests",
       "icon-column:row subagents-11"
     ],
+    "agent-pane.subagents#child-back": [
+      "center-line:row subagents-2:agent-error-parsing",
+      "center-line:row subagents-2:agent-retry-policy",
+      "center-line:row subagents-2:agent-test-coverage",
+      "center-line:row subagents-2:agent-timeouts"
+    ],
     "agent-pane.subagents#codex-child": [],
     "agent-pane.subagents#codex-two-turns": [
       "icon-column:row subagents-13"

@@ -1594,6 +1594,7 @@
     "agent-pane.subagents#card-outside-click": 0,
     "agent-pane.subagents#card-waiting": 0,
     "agent-pane.subagents#child": 0,
+    "agent-pane.subagents#child-back": 0,
     "agent-pane.subagents#codex-child": 0,
     "agent-pane.subagents#codex-two-turns": 0,
     "agent-pane.subagents#own-pane": 0.01681,
