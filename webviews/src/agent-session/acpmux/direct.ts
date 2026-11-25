@@ -439,7 +439,11 @@ export { backgroundTask } from "./direct/sessionUpdates";
 /// The page's `initialize` params. The app's relay checks them against its params rule
 /// (AcpmuxPaneMethods+Params.swift `knownParams`), and `schemas/agent-pane/initialize-params.json`
 /// holds both sides to the same keys: a key the rule does not know refuses every connection.
-export function initializeParams() {
+///
+/// `compression`: the page's own socket to an acpmux across a network (`frameCompression`) also
+/// asks for zlib frames. The bridge never does: its relay's rule refuses the key, and the app's
+/// socket to its own acpmux is loopback, where compressing costs CPU and saves no link bytes.
+export function initializeParams(options: { compression?: boolean } = {}) {
   return {
     protocolVersion: 1,
     clientInfo: { name: "cmux-react-agent-pane", version: "1" },
@@ -449,9 +453,61 @@ export function initializeParams() {
     // `chunkDeltas`: a streamed chunk after the first as `_acpmux/chunk`; `sessionChangedDelta`: a
     // row change after the first as `_acpmux/session_patch`. `receive` reads both back into the
     // frames they stand for (chatDeltas.ts); an acpmux before them ignores the keys.
-    _meta: { acpmux: { peerRowBatches: true, chunkDeltas: true, sessionChangedDelta: true } },
+    // `compression`: acpmux then sends each message of 16 KiB or more as one Binary frame of its
+    // zlib stream (acpmux frame_compress.rs); an acpmux before it ignores the key and sends Text.
+    _meta: {
+      acpmux: {
+        peerRowBatches: true,
+        chunkDeltas: true,
+        sessionChangedDelta: true,
+        ...(options.compression ? { compression: [FRAME_CODEC] } : {}),
+      },
+    },
   };
 }
+
+/// The one frame codec acpmux offers (frame_compress.rs `ZLIB`): RFC 1950, which the browser's
+/// own `DecompressionStream` reads as `"deflate"`.
+export const FRAME_CODEC = "zlib";
+
+/// The most text one compressed frame may inflate to: above acpmux's largest message (31 MiB).
+const MAX_INFLATED_BYTES = 64 << 20;
+
+/// Whether this page's connection asks acpmux for compressed frames: only its own WebSocket
+/// (`acpmux-websocket`, the `/app/` browser shell) to a daemon that is not on this machine, and only
+/// where the browser has a native zlib decoder. A loopback socket gains no link bytes from it.
+export function frameCompression(host: Pick<AcpmuxHostConfig, "transport" | "endpoint">): boolean {
+  if (host.transport !== "acpmux-websocket" || !host.endpoint) return false;
+  if (typeof DecompressionStream !== "function") return false;
+  let hostname: string;
+  try {
+    hostname = new URL(host.endpoint).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return !(hostname === "localhost" || hostname === "[::1]" || hostname === "::1" || hostname.startsWith("127."));
+}
+
+/// The JSON text of one Binary frame acpmux compressed (`frameCompression`), through the browser's
+/// native zlib decoder.
+export async function inflateFrame(data: ArrayBuffer | ArrayBufferView | Blob): Promise<string> {
+  const blob = data instanceof Blob ? data : new Blob([data as BlobPart]);
+  const reader = blob.stream().pipeThrough(new DecompressionStream("deflate")).getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let bytes = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return text + decoder.decode();
+    bytes += value.byteLength;
+    if (bytes > MAX_INFLATED_BYTES) {
+      void reader.cancel();
+      throw new Error("compressed frame too large");
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+}
+
 type Session = Record<string, any> & { sessionId: string };
 type Reply = {
   id: number | string;
@@ -2619,6 +2675,8 @@ export class AcpmuxDirectClient {
       this.hostHidden = false;
       this.hiddenHole = undefined;
       let opened = false;
+      // The Binary frames still inflating, in arrival order (`onmessage` below).
+      let inflating: Promise<void> | undefined;
       socket.onopen = () => {
         opened = true;
         this.daemonLastFrameAt = Date.now();
@@ -2639,6 +2697,16 @@ export class AcpmuxDirectClient {
         reject(openError ?? new Error(translate("error.connectFailed")));
       };
       socket.onclose = (event?: CloseEvent) => {
+        // A frame that fully arrived before the close is the daemon's answer: it is read before the
+        // close rejects what is still pending, so a reply inflating when the link drops is applied,
+        // not shown as interrupted.
+        if (inflating) {
+          const onclose = socket.onclose;
+          const closeAfter = () => onclose?.call(socket, event as CloseEvent);
+          void inflating.then(closeAfter, closeAfter);
+          inflating = undefined;
+          return;
+        }
         // A socket the pane gave up on itself (`recoverStall`) already took the lost path.
         if (this.socket !== socket || this.closed || this.endedSocket === socket) return;
         this.wire.lifecycle("close", {
@@ -2658,8 +2726,28 @@ export class AcpmuxDirectClient {
       // the swap rejects on that answer); only its peer notes, about a connection that is gone, drop.
       // Chunk refs and row numbers are this connection's own (chatDeltas.ts).
       const deltas = new ChatDeltas();
-      socket.onmessage = (message) =>
-        acpmuxPerf.timed("client.receive", () => this.receive(String(message.data), this.socket !== socket, deltas));
+      // A Binary frame is a compressed message (`frameCompression`): it inflates off this callback,
+      // and every frame after it waits its turn, so the page reads them in the order they came.
+      socket.binaryType = "arraybuffer";
+      const read = (raw: string) =>
+        acpmuxPerf.timed("client.receive", () => this.receive(raw, this.socket !== socket, deltas));
+      socket.onmessage = (message) => {
+        const data: unknown = message.data;
+        if (typeof data === "string" && !inflating) return read(data);
+        const text =
+          typeof data === "string"
+            ? Promise.resolve(data)
+            : inflateFrame(data as ArrayBuffer).catch((error: unknown) => {
+                this.wire.lifecycle("error", { message: `compressed frame: ${(error as Error)?.message ?? error}` });
+                return undefined;
+              });
+        const turn: Promise<void> = (inflating ?? Promise.resolve()).then(async () => {
+          const raw = await text;
+          if (raw !== undefined) read(raw);
+          if (inflating === turn) inflating = undefined;
+        });
+        inflating = turn;
+      };
     }).catch((error: unknown) => {
       this.releaseCopyAttach(mine);
       this.dropTailDrawnWhileConnecting(error);
@@ -2683,7 +2771,7 @@ export class AcpmuxDirectClient {
       // answers is checked for life (`armDaemonLiveness`) instead of holding the handshake for good.
       const initialized = await this.request(
         "initialize",
-        initializeParams(),
+        initializeParams({ compression: frameCompression(this.host) }),
         AcpmuxDirectClient.DAEMON_PROBE_AFTER_MS,
       );
       // The action trace's status question and spans go on this socket once it is initialized: a
