@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR ab3586fe23f0093e51860e6356ac6919a98430e4ef8d01e30e3d8e754f8ca182.
+// cmux-tui mux protocol 12, IR aa192daae536d663c91ea8331205c56654c34135d54d451c1576ae15a2d2cbf9.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2196,6 +2196,9 @@ pub type ListClientsResult = Vec<T::ClientInfo>;
 pub struct ListNotificationsRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub limit: Optional<u64>,
+    /// true: the reply also carries agent_notice_stats.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub stats: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -3169,6 +3172,11 @@ pub struct ReleaseSurfaceSizeRequest {
 
 #[rustfmt::skip]
 pub type ReleaseSurfaceSizeResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ReleaseWorkspaceNamesRequest {
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -5759,6 +5767,10 @@ impl CmuxClient {
 
     pub fn release_surface_size(&mut self, request: ReleaseSurfaceSizeRequest) -> Result<ReleaseSurfaceSizeResult> {
         self.execute(&RELEASE_SURFACE_SIZE_METADATA, &request)
+    }
+
+    pub fn release_workspace_names(&mut self, request: ReleaseWorkspaceNamesRequest) -> Result<T::ReleaseWorkspaceNamesResult> {
+        self.execute(&RELEASE_WORKSPACE_NAMES_METADATA, &request)
     }
 
     pub fn reload_config(&mut self, request: ReloadConfigRequest) -> Result<ReloadConfigResult> {
