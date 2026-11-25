@@ -81,6 +81,18 @@ describe("images/cmux-vm/inputs.lock.json", () => {
     expect(claude?.url).toBe(`https://downloads.claude.ai/claude-code-releases/${pin}/linux-x64/claude`);
   });
 
+  test("codex ships with the code-mode host it spawns next to itself, and the install refuses an entry without it", () => {
+    // Codex 0.160 runs every tool through codex-code-mode-host from its own folder. The plain musl
+    // tarball has codex alone, so Cloud chats failed every tool call: failed to spawn code-mode host
+    // /opt/cmux/store/<sha>/codex-code-mode-host. The codex-package tarball carries both.
+    const codex = readInputsLock().programs.find((p) => p.name === "codex")!;
+    expect(codex.url).toBe(`https://github.com/openai/codex/releases/download/rust-v${codex.version}/codex-package-x86_64-unknown-linux-musl.tar.gz`);
+    expect(codex.bin.codex).toBe("bin/codex");
+    const install = programInstallCommand(codex);
+    expect(install).toContain(`test -x /opt/cmux/store/${codex.sha256}.partial/bin/codex-code-mode-host`);
+    expect(install.indexOf("codex-code-mode-host")).toBeLessThan(install.indexOf("chmod -R a-w"));
+  });
+
   test("acpmux is cmux-tui under its own name (argv0 dispatch), checked by version and by a session list", async () => {
     // Automation agent steps run `acpmux run`; cmux-tui runs acpmux when argv0 is `acpmux`.
     const lock = readInputsLock();
@@ -497,12 +509,12 @@ describe("cmux-browser-host 1.0.0-r1 in the browser role (release cmux-browser-h
 describe("codex ships codex-code-mode-host beside codex (2026-11-25: every Cloud Codex tool call failed to spawn the host)", () => {
   const lock = readInputsLock();
   const codexIndex = () => fresh().programs.findIndex((p: { name: string }) => p.name === "codex");
-  const HOST = "package/vendor/x86_64-unknown-linux-musl/bin/codex-code-mode-host";
+  const HOST = "bin/codex-code-mode-host";
 
   test("the lock lists the host beside the codex binary", () => {
     const codex = lock.programs.find((p) => p.name === "codex")!;
     expect(codex.companions).toEqual([HOST]);
-    expect(Object.values(codex.bin)[0]).toBe("package/vendor/x86_64-unknown-linux-musl/bin/codex");
+    expect(Object.values(codex.bin)[0]).toBe("bin/codex");
   });
 
   test("the install refuses an archive without the host before it moves into the store", () => {
@@ -516,7 +528,7 @@ describe("codex ships codex-code-mode-host beside codex (2026-11-25: every Cloud
     const raw = fresh();
     delete raw.programs[codexIndex()].companions;
     expect(problemsOf(raw)).toContain(
-      `programs[${codexIndex()}].companions: codex spawns codex-code-mode-host from beside package/vendor/x86_64-unknown-linux-musl/bin/codex; list ${HOST} (an archive without it breaks every tool call)`,
+      `programs[${codexIndex()}].companions: codex spawns codex-code-mode-host from beside bin/codex; list ${HOST} (an archive without it breaks every tool call)`,
     );
   });
 
