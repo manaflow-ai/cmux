@@ -54,7 +54,8 @@ held open after one turn each, raw (the harness run directly, as in a terminal) 
                             agent host, the harness and its MCP servers) and its resident memory
   harness process MB        the harness's own process alone
   idle CPU % per chat       CPU over 10 s with every chat open and nothing sent
-  shared procs / RSS MB     acpmux only: the daemon and its processes that are no chat's
+  shared procs / RSS MB     acpmux only: the daemon and the processes under it outside every
+                            chat's host tree (Claude Code's MCP servers start there, one per chat)
   machine RSS MB at n       every chat's tree plus the shared part
   left after close          processes still running 10 s after each chat closed (raw: stdin closed
                             and SIGTERM, as a terminal does; acpmux: session/close)
@@ -760,17 +761,23 @@ def kind(args):
     rest = [w for w in words[1:] if not w.startswith("-")]
     if name.startswith(("node", "python", "bun", "deno")) and rest:
         return f"{name} {os.path.basename(rest[0])}"
-    if name in ("cmux", "cmux-tui", "acpmux", "codex") and rest:
+    if name in ("cmux", "cmux-tui") and rest:
         return f"{name} {' '.join(rest[:2])}"
+    if name in ("acpmux", "codex") and rest and words[1] == rest[0]:
+        # The subcommand only: a flag's value (`codex -m MODEL`) is no kind.
+        return f"{name} {rest[0]}"
     return name
 
 
 def tree_cost(rows, pids):
     kinds: dict[str, int] = {}
+    kinds_mb: dict[str, float] = {}
     for p in pids:
         k = kind(rows[p][3])
         kinds[k] = kinds.get(k, 0) + 1
-    return {"procs": len(pids), "rss_mb": round(sum(rows[p][1] for p in pids) / 1024, 1), "kinds": kinds}
+        kinds_mb[k] = round(kinds_mb.get(k, 0.0) + rows[p][1] / 1024, 1)
+    return {"procs": len(pids), "rss_mb": round(sum(rows[p][1] for p in pids) / 1024, 1), "kinds": kinds,
+            "kinds_mb": kinds_mb}
 
 
 def idle_cpu(groups):
@@ -908,14 +915,20 @@ def procs_main(args, daemon: Daemon, env, scratch):
             chats = s["chats"]
             procs, rss = med([c["procs"] for c in chats]), med([c["rss_mb"] for c in chats])
             hm, cpu = med([c["harness_rss_mb"] for c in chats]), med([c["idle_cpu_pct"] for c in chats])
-            sh = s["shared"] or {"procs": 0, "rss_mb": 0.0, "kinds": {}}
+            sh = s["shared"] or {"procs": 0, "rss_mb": 0.0, "kinds": {}, "kinds_mb": {}}
             machine = round(sum(c["rss_mb"] for c in chats) + sh["rss_mb"], 1)
             s["machine_rss_mb"] = machine
-            kinds = {}
+            kinds, kinds_mb = {}, {}
             for c in chats:
                 for k, v in c["kinds"].items():
                     kinds[k] = kinds.get(k, 0) + v
-            ktext = ", ".join(f"{k} {v / len(chats):g}" for k, v in sorted(kinds.items(), key=lambda kv: -kv[1])) if chats else ""
+                    kinds_mb[k] = kinds_mb.get(k, 0.0) + c["kinds_mb"][k]
+            # Per chat: how many of each program and their MB, the biggest first.
+            ktext = ", ".join(f"{k} {kinds[k] / len(chats):g} ({kinds_mb[k] / len(chats):.0f} MB)"
+                              for k in sorted(kinds, key=lambda k: -kinds_mb[k])) if chats else ""
+            if sh["kinds"]:
+                ktext += "; shared: " + ", ".join(f"{k} {v} ({sh['kinds_mb'][k]:.0f} MB)"
+                                                  for k, v in sorted(sh["kinds"].items(), key=lambda kv: -sh["kinds_mb"][kv[0]]))
             left = ", ".join(sorted({x["kind"] for x in s["left"]})) or "0"
             lines.append(f"| {h} | {side} | {procs} | {rss} | {hm} | {cpu} | {sh['procs']} | {sh['rss_mb']} | {machine} | "
                          f"{len(s['left'])} ({left}) | {ktext} |")
@@ -923,7 +936,8 @@ def procs_main(args, daemon: Daemon, env, scratch):
                                               "rss_mb_per_chat": rss, "harness_rss_mb": hm, "idle_cpu_pct": cpu,
                                               "shared_procs": sh["procs"], "shared_rss_mb": sh["rss_mb"],
                                               "machine_rss_mb": machine, "left": len(s["left"]),
-                                              "kinds": kinds}), flush=True)
+                                              "kinds": kinds, "kinds_mb": {k: round(v, 1) for k, v in kinds_mb.items()},
+                                              "shared_kinds_mb": sh.get("kinds_mb", {})}), flush=True)
         if floor and "machine_rss_mb" in sides.get("acpmux", {}) and floor["machine_rss_mb"] is not None:
             print("PROCS-GAP " + json.dumps({"harness": h, "n": args.n,
                                               "acpmux_over_floor_mb": round(sides["acpmux"]["machine_rss_mb"] - floor["machine_rss_mb"], 1),
@@ -1027,12 +1041,16 @@ def main():
     stand = StandIn()
     threading.Thread(target=stand.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{stand.server_address[1]}"
-    scratch = tempfile.mkdtemp(prefix="acpmux-bench-")
+    # The daemon's socket lives in the scratch dir; a unix socket path has about 104 bytes, and a long
+    # TMPDIR (an agent's per-session one) would push it over, when the daemon listens elsewhere.
+    scratch = tempfile.mkdtemp(prefix="acpmux-bench-", dir="/tmp" if len(tempfile.gettempdir()) > 40 else None)
     cwd = os.path.join(scratch, "work")
     os.makedirs(cwd)
     env = env_for(url, scratch)
     home = os.path.join(scratch, "acpmux-home")
     os.makedirs(home)
+    # The daemon refuses a home another user can write; a umask of 002 would make it 775.
+    os.chmod(home, 0o700)
     extra = dict(kv.split("=", 1) for kv in args.daemon_env)
     if args.no_agent_tools:
         extra["ACPMUX_AGENT_TOOLS"] = "0"
