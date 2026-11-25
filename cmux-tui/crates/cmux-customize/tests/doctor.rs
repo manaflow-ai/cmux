@@ -356,7 +356,11 @@ fn announce_says_each_finding_once_and_again_when_it_changes() {
     let again = customize.doctor_announce(&at(NOW)).unwrap();
     assert_eq!(again.announce, None, "nothing new");
     assert!(again.line.is_some(), "still listed");
+    // The same problem on another line is not new (its line is not in its fingerprint).
     home.write("themes/night.json", "{\n\n  \"appearance\": }\n");
+    let moved = customize.doctor_announce(&at(NOW)).unwrap();
+    assert_eq!(moved.announce, None, "moved, not changed: {:?}", moved.findings);
+    home.write("themes/dawn.json", "{ \"appearance\": }\n");
     let changed = customize.doctor_announce(&at(NOW)).unwrap();
     assert!(changed.announce.is_some(), "a different problem is new: {:?}", changed.findings);
 }
