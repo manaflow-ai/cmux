@@ -16,10 +16,11 @@ type Look = "card" | "line" | "header";
 // the neutral veil it replaced; `popover` the popovers' denser theme tint. Compare them under a
 // hued theme (the gallery's theme axis).
 type Tint = "theme" | "gray" | "popover";
-// The toast's glass (glass-raycast-parity.md "Web popups"; design-system-decisions B1 `floating`). Chosen
-// and live: `host`, the App's own toast glass under the page where the App draws it, the native toasts'
-// material. `page` is the page's floating material it replaced there (still what a page with no App glass
-// under it draws). A browser gallery has no App, so the two look alike here: the App's capture shows them.
+// The toast's glass (glass-raycast-parity.md "Web popups"; design-system-decisions B1 `floating`; the
+// toast-glass experiment, ui/toastGlass.experiment.ts). Shipped: `page`, the page's floating material.
+// `host`, behind `experiments.toastGlass` (off by default): the App's own toast glass under the page where
+// the App draws it, the native toasts' material. A browser gallery has no App, so the two look alike
+// here: the App's capture shows them.
 type Glass = "host" | "page";
 type Props = { look: Look; only?: NoticeKind | "stack"; tint?: Tint; glass?: Glass; busy?: boolean };
 
@@ -100,7 +101,7 @@ function Kinds({ look, only, tint = "theme" }: Props) {
   );
 }
 
-function Stack({ look, tint = "theme", glass = "host", busy = false }: Props) {
+function Stack({ look, tint = "theme", glass = "page", busy = false }: Props) {
   const queue = useMemo(() => {
     const made = createNoticeQueue();
     made.show({ id: "a", message: "Archived 3 chats.", actions: [{ id: "undo", label: "Undo", onSelect: noop }] });
@@ -165,17 +166,17 @@ export default componentEntry<Props>({
       props: { look: "card", only: "stack", tint: "popover" },
       note: "Option: the popovers' theme tint (--ds-glass-popover-tint).",
     },
-    "glass-host": {
-      props: { look: "card", only: "stack", glass: "host" },
-      note: "Shipped: each toast on the App's own toast glass under the page (data-host-glass, role toast).",
-    },
     "glass-page": {
       props: { look: "card", only: "stack", glass: "page" },
-      note: "Before: the page's floating material; still what a page with no App glass under it draws.",
+      note: "Shipped (the default): the page's floating material, today's toast.",
+    },
+    "glass-host": {
+      props: { look: "card", only: "stack", glass: "host" },
+      note: "experiments.toastGlass (off by default): each toast on the App's own toast glass under the page (data-host-glass, role toast).",
     },
     "glass-host-busy": {
       props: { look: "card", only: "stack", glass: "host", busy: true },
-      note: "Shipped, over busy transcript text: the glass keeps the toast legible.",
+      note: "experiments.toastGlass, over busy transcript text: the glass keeps the toast legible.",
     },
     "ask-check": { props: { look: "card", only: "ask" }, play: checkAskFirst },
     "error-retry-first": { props: { look: "card", only: "error" }, play: retryLeads },

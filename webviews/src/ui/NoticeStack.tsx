@@ -37,6 +37,8 @@ import { NoticeDeck, type DeckAlign, type DeckDrag, type DragFeel, type Flights 
 import { experimentArm } from "../experiments/experiment";
 import { useExperimentSwitch } from "../experiments/switches";
 import { toastsV2, type ToastLook } from "./toastsV2.experiment";
+import { toastGlass } from "./toastGlass.experiment";
+import { useExperimentArm } from "../experiments/useExperimentArm";
 
 /** The native toast's default (CmuxToast `duration`). */
 export const TOAST_MS = 6000;
@@ -246,7 +248,7 @@ export function NoticeStack({
   now = systemNow,
   arm = systemTimer,
   look: lookOverride,
-  hostGlass = true,
+  hostGlass: hostGlassOverride,
 }: {
   queue: NoticeQueue;
   /** The ×'s accessible name ("Dismiss"). */
@@ -269,7 +271,8 @@ export function NoticeStack({
   arm?: ArmTimer;
   /** The toasts-v2 arm; default the experiment's (read once per mount, not per toast). */
   look?: ToastLook;
-  /** Each card on the App's toast glass (Notice `hostGlass`); false keeps the page's floating material. */
+  /** Each card on the App's toast glass (Notice `hostGlass`); false keeps the page's floating material.
+   *  Default the toast-glass experiment's arm (`experiments.toastGlass`, off by default: the page's). */
   hostGlass?: boolean;
 }) {
   const [experimentLook] = useState(() => experimentArm(toastsV2));
@@ -277,6 +280,8 @@ export function NoticeStack({
   // a gallery or debug arm other than `off` still wins.
   const switchedOn = useExperimentSwitch("toastsV2");
   const look = lookOverride ?? (experimentLook === "off" && switchedOn ? "mark" : experimentLook);
+  const glassArm = useExperimentArm(toastGlass);
+  const hostGlass = hostGlassOverride ?? glassArm === "host";
   const entries = useSyncExternalStore(queue.subscribe, queue.snapshot, queue.snapshot);
   const visible = usePageVisible();
   const [hovered, setHovered] = useState(false);

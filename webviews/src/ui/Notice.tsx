@@ -83,7 +83,8 @@ export interface NoticeProps {
   /** The toasts-v2 experiment's arm (toastsV2.experiment.ts); `off` draws today's card. */
   look?: ToastLook;
   /** A stack toast's glass is the App's own toast glass under the page (glass/hostGlass.ts), as its
-   * native toasts are drawn; false keeps the page's floating material (the gallery's comparison). */
+   * native toasts are drawn; false (the default) keeps the page's floating material. NoticeStack
+   * passes the toast-glass experiment's arm (`experiments.toastGlass`, off by default). */
   hostGlass?: boolean;
 }
 
@@ -134,7 +135,7 @@ export function Notice({
   count = 1,
   state,
   look = "off",
-  hostGlass = true,
+  hostGlass = false,
 }: NoticeProps) {
   const titleId = useId();
   const messageId = useId();
