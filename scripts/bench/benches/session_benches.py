@@ -2,12 +2,14 @@
 
 Wraps scripts/measure/published-benches-linux.sh: resume after a daemon restart, fork of a 20-turn chat, `acpmux
 session move` between two daemons, a cold and a warm release build of acpmux, and the long session under load (8 chats
-streaming, a probe prompt on an idle chat every 5 s; `--arg soak_secs=28800` is the 8 h run). It prints one
+streaming, a probe prompt on an idle chat every 5 s of the session; `--arg soak_secs=28800` is the 8 h session,
+ticked: its turns run back to back in minutes, `--arg soak_ticked=0` is the wall-time run). It prints one
 `PUBLISHED-BENCH <json>` line per part (schema cmux.published-bench.v1); `ingest` reads them. cmuxterm-hq
 docs/benchmarks/README.md publishes the numbers.
 
 Rows, better = lower: resume_ms, resume.daemon_ready_ms, fork_ms, move_ms, build.cold_s, build.warm_s,
-soak.input_ms (p50, p95), soak.ls_ms, soak.rss_end_mb, soak.rss_growth_mb, soak.zombies_max, soak.turn_errors.
+soak.input_ms (p50, p95), soak.ls_ms, soak.rss_end_mb, soak.rss_growth_mb, soak.zombies_max, soak.turn_errors,
+soak.wall_s (how long the run took).
 
 Run: `cmux-bench session-benches [--arg parts=resume,fork,move,build,soak] [--arg soak_secs=600]` sends the
 harness through `cmux-ci test --setup rust` (on a lane VM at the caller's open PR head; its 3 h cap bounds the soak
@@ -24,7 +26,7 @@ from pathlib import Path
 from benchlib.bench import Bench, BenchError, Context
 
 HARNESS = "scripts/measure/published-benches-linux.sh"
-PASS_THROUGH = ("parts", "samples", "soak_secs", "moves")
+PASS_THROUGH = ("parts", "samples", "soak_secs", "soak_ticked", "moves")
 MARK = "PUBLISHED-BENCH "
 STAMP = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ")
 
@@ -92,7 +94,8 @@ class SessionBenches(Bench):
                 one("build.cold_s", r.get("cold_s"), "s")
                 one("build.warm_s", r.get("warm_s"), "s")
             elif kind == "soak":
-                labels = {"duration_s": str(r.get("duration_s")), "load_chats": str(r.get("load_chats"))}
+                labels = {"duration_s": str(r.get("duration_s")), "load_chats": str(r.get("load_chats")),
+                          "mode": str(r.get("mode") or "wall")}
                 dist("soak.input_ms", r.get("input_ms"), "ms", labels)
                 dist("soak.ls_ms", r.get("ls_ms"), "ms", labels)
                 rss = r.get("rss_mb") or {}
@@ -101,6 +104,8 @@ class SessionBenches(Bench):
                     one("soak.rss_growth_mb", round(rss["end"] - rss["start"], 1), "MB", labels)
                 one("soak.zombies_max", r.get("zombies_max"), "count", labels)
                 one("soak.turn_errors", r.get("turn_errors"), "count", labels)
+                if isinstance(r.get("wall_s"), (int, float)):
+                    one("soak.wall_s", r["wall_s"], "s", labels)
 
 
 BENCH = SessionBenches()
