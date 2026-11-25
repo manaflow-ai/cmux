@@ -5161,225 +5161,6 @@ public func FfiConverterTypeMacScreenRd_lower(_ value: MacScreenRd) -> UInt64 {
 
 
 
-public protocol RowLayoutMemoryProtocol: AnyObject, Sendable {
-    
-    /**
-     * The keyed diff of a page's rows in `scope` (a chat, at a text size) at column `width`
-     * against the heights kept: one answer per key, in order.
-     */
-    func diff(scope: String, width: Double, keys: [RowLayoutKey])  -> [RowLayoutDiff]
-    
-    /**
-     * Drops every height kept in `scope`.
-     */
-    func forget(scope: String) 
-    
-    /**
-     * Adds the heights written by `save` at `path`; rows measured since are kept over them.
-     * How many rows it read.
-     */
-    func load(path: String)  -> UInt32
-    
-    /**
-     * A cell measured row `key` at `height` in a column `width` wide.
-     */
-    func record(scope: String, width: Double, key: RowLayoutKey, height: Double) 
-    
-    /**
-     * Writes the heights to `path` (one row per line), for the next launch. Whether it was written.
-     */
-    func save(path: String)  -> Bool
-    
-    func stats()  -> RowLayoutStats
-    
-}
-open class RowLayoutMemory: RowLayoutMemoryProtocol, @unchecked Sendable {
-    fileprivate let handle: UInt64
-
-    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public struct NoHandle {
-        public init() {}
-    }
-
-    // TODO: We'd like this to be `private` but for Swifty reasons,
-    // we can't implement `FfiConverter` without making this `required` and we can't
-    // make it `required` without making it `public`.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    required public init(unsafeFromHandle handle: UInt64) {
-        self.handle = handle
-    }
-
-    // This constructor can be used to instantiate a fake object.
-    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
-    //
-    // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public init(noHandle: NoHandle) {
-        self.handle = 0
-    }
-
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public func uniffiCloneHandle() -> UInt64 {
-        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_rowlayoutmemory(self.handle, $0) }
-    }
-    /**
-     * Keeps at most `capacity` rows (at least 64).
-     */
-public convenience init(capacity: UInt32) {
-    let handle =
-        try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_constructor_rowlayoutmemory_new(
-        FfiConverterUInt32.lower(capacity),$0
-    )
-}
-    self.init(unsafeFromHandle: handle)
-}
-
-    deinit {
-        if handle == 0 {
-            // Mock objects have handle=0 don't try to free them
-            return
-        }
-
-        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_rowlayoutmemory(handle, $0) }
-    }
-
-    
-
-    
-    /**
-     * The keyed diff of a page's rows in `scope` (a chat, at a text size) at column `width`
-     * against the heights kept: one answer per key, in order.
-     */
-open func diff(scope: String, width: Double, keys: [RowLayoutKey]) -> [RowLayoutDiff]  {
-    return try!  FfiConverterSequenceTypeRowLayoutDiff.lift(try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_diff(
-            self.uniffiCloneHandle(),
-        FfiConverterString.lower(scope),
-        FfiConverterDouble.lower(width),
-        FfiConverterSequenceTypeRowLayoutKey.lower(keys),$0
-    )
-})
-}
-    
-    /**
-     * Drops every height kept in `scope`.
-     */
-open func forget(scope: String)  {try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_forget(
-            self.uniffiCloneHandle(),
-        FfiConverterString.lower(scope),$0
-    )
-}
-}
-    
-    /**
-     * Adds the heights written by `save` at `path`; rows measured since are kept over them.
-     * How many rows it read.
-     */
-open func load(path: String) -> UInt32  {
-    return try!  FfiConverterUInt32.lift(try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_load(
-            self.uniffiCloneHandle(),
-        FfiConverterString.lower(path),$0
-    )
-})
-}
-    
-    /**
-     * A cell measured row `key` at `height` in a column `width` wide.
-     */
-open func record(scope: String, width: Double, key: RowLayoutKey, height: Double)  {try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_record(
-            self.uniffiCloneHandle(),
-        FfiConverterString.lower(scope),
-        FfiConverterDouble.lower(width),
-        FfiConverterTypeRowLayoutKey_lower(key),
-        FfiConverterDouble.lower(height),$0
-    )
-}
-}
-    
-    /**
-     * Writes the heights to `path` (one row per line), for the next launch. Whether it was written.
-     */
-open func save(path: String) -> Bool  {
-    return try!  FfiConverterBool.lift(try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_save(
-            self.uniffiCloneHandle(),
-        FfiConverterString.lower(path),$0
-    )
-})
-}
-    
-open func stats() -> RowLayoutStats  {
-    return try!  FfiConverterTypeRowLayoutStats_lift(try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_stats(
-            self.uniffiCloneHandle(),$0
-    )
-})
-}
-    
-
-    
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeRowLayoutMemory: FfiConverter {
-    typealias FfiType = UInt64
-    typealias SwiftType = RowLayoutMemory
-
-    public static func lift(_ handle: UInt64) throws -> RowLayoutMemory {
-        return RowLayoutMemory(unsafeFromHandle: handle)
-    }
-
-    public static func lower(_ value: RowLayoutMemory) -> UInt64 {
-        return value.uniffiCloneHandle()
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RowLayoutMemory {
-        let handle: UInt64 = try readInt(&buf)
-        return try lift(handle)
-    }
-
-    public static func write(_ value: RowLayoutMemory, into buf: inout [UInt8]) {
-        writeInt(&buf, lower(value))
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeRowLayoutMemory_lift(_ handle: UInt64) throws -> RowLayoutMemory {
-    return try FfiConverterTypeRowLayoutMemory.lift(handle)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeRowLayoutMemory_lower(_ value: RowLayoutMemory) -> UInt64 {
-    return FfiConverterTypeRowLayoutMemory.lower(value)
-}
-
-
-
-
-
-
 /**
  * The phone identity key (a Secure Enclave key in the app).
  */
@@ -5477,14 +5258,14 @@ fileprivate struct UniffiCallbackInterfaceMailboxSigner {
             do {
                 try FfiConverterTypeMailboxSigner.handleMap.remove(handle: uniffiHandle)
             } catch {
-                print(
+                print("Uniffi callback interface MailboxSigner: handle missing in uniffiFree")
             }
         },
         uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
             do {
                 return try FfiConverterTypeMailboxSigner.handleMap.clone(handle: uniffiHandle)
             } catch {
-                fatalError(
+                fatalError("Uniffi callback interface MailboxSigner: handle missing in uniffiClone")
             }
         },
         sign: { (
@@ -6049,6 +5830,225 @@ public func FfiConverterTypePhoneReadStore_lift(_ handle: UInt64) throws -> Phon
 #endif
 public func FfiConverterTypePhoneReadStore_lower(_ value: PhoneReadStore) -> UInt64 {
     return FfiConverterTypePhoneReadStore.lower(value)
+}
+
+
+
+
+
+
+public protocol RowLayoutMemoryProtocol: AnyObject, Sendable {
+    
+    /**
+     * The keyed diff of a page's rows in `scope` (a chat, at a text size) at column `width`
+     * against the heights kept: one answer per key, in order.
+     */
+    func diff(scope: String, width: Double, keys: [RowLayoutKey])  -> [RowLayoutDiff]
+    
+    /**
+     * Drops every height kept in `scope`.
+     */
+    func forget(scope: String) 
+    
+    /**
+     * Adds the heights written by `save` at `path`; rows measured since are kept over them.
+     * How many rows it read.
+     */
+    func load(path: String)  -> UInt32
+    
+    /**
+     * A cell measured row `key` at `height` in a column `width` wide.
+     */
+    func record(scope: String, width: Double, key: RowLayoutKey, height: Double) 
+    
+    /**
+     * Writes the heights to `path` (one row per line), for the next launch. Whether it was written.
+     */
+    func save(path: String)  -> Bool
+    
+    func stats()  -> RowLayoutStats
+    
+}
+open class RowLayoutMemory: RowLayoutMemoryProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_rowlayoutmemory(self.handle, $0) }
+    }
+    /**
+     * Keeps at most `capacity` rows (at least 64).
+     */
+public convenience init(capacity: UInt32) {
+    let handle =
+        try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_rowlayoutmemory_new(
+        FfiConverterUInt32.lower(capacity),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_rowlayoutmemory(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * The keyed diff of a page's rows in `scope` (a chat, at a text size) at column `width`
+     * against the heights kept: one answer per key, in order.
+     */
+open func diff(scope: String, width: Double, keys: [RowLayoutKey]) -> [RowLayoutDiff]  {
+    return try!  FfiConverterSequenceTypeRowLayoutDiff.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_diff(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(scope),
+        FfiConverterDouble.lower(width),
+        FfiConverterSequenceTypeRowLayoutKey.lower(keys),$0
+    )
+})
+}
+    
+    /**
+     * Drops every height kept in `scope`.
+     */
+open func forget(scope: String)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_forget(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(scope),$0
+    )
+}
+}
+    
+    /**
+     * Adds the heights written by `save` at `path`; rows measured since are kept over them.
+     * How many rows it read.
+     */
+open func load(path: String) -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_load(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+    
+    /**
+     * A cell measured row `key` at `height` in a column `width` wide.
+     */
+open func record(scope: String, width: Double, key: RowLayoutKey, height: Double)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_record(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(scope),
+        FfiConverterDouble.lower(width),
+        FfiConverterTypeRowLayoutKey_lower(key),
+        FfiConverterDouble.lower(height),$0
+    )
+}
+}
+    
+    /**
+     * Writes the heights to `path` (one row per line), for the next launch. Whether it was written.
+     */
+open func save(path: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_save(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+    
+open func stats() -> RowLayoutStats  {
+    return try!  FfiConverterTypeRowLayoutStats_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_stats(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRowLayoutMemory: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = RowLayoutMemory
+
+    public static func lift(_ handle: UInt64) throws -> RowLayoutMemory {
+        return RowLayoutMemory(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: RowLayoutMemory) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RowLayoutMemory {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: RowLayoutMemory, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRowLayoutMemory_lift(_ handle: UInt64) throws -> RowLayoutMemory {
+    return try FfiConverterTypeRowLayoutMemory.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRowLayoutMemory_lower(_ value: RowLayoutMemory) -> UInt64 {
+    return FfiConverterTypeRowLayoutMemory.lower(value)
 }
 
 
@@ -6977,6 +6977,13 @@ public protocol TerminalProjectionProtocol: AnyObject, Sendable {
     func loadOlder(hostRows: UInt32)  -> [ProjectionSegment]
     
     /**
+     * Where a daemon `terminal-find` cell (`host_from_bottom`: 1 is the
+     * Mac's last row; its column in Mac cells) lands on the phone's rows.
+     * None: the projection does not hold that row (older than the replay).
+     */
+    func locate(hostFromBottom: UInt64, hostColumn: UInt32)  -> ProjectionLocation?
+    
+    /**
      * Mac scrollback rows older than what the surface holds (a viewport
      * change paints a window: the screen and two phone screens above it).
      */
@@ -7182,6 +7189,21 @@ open func loadOlder(hostRows: UInt32) -> [ProjectionSegment]  {
     uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_load_older(
             self.uniffiCloneHandle(),
         FfiConverterUInt32.lower(hostRows),$0
+    )
+})
+}
+    
+    /**
+     * Where a daemon `terminal-find` cell (`host_from_bottom`: 1 is the
+     * Mac's last row; its column in Mac cells) lands on the phone's rows.
+     * None: the projection does not hold that row (older than the replay).
+     */
+open func locate(hostFromBottom: UInt64, hostColumn: UInt32) -> ProjectionLocation?  {
+    return try!  FfiConverterOptionTypeProjectionLocation.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_locate(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(hostFromBottom),
+        FfiConverterUInt32.lower(hostColumn),$0
     )
 })
 }
@@ -9716,6 +9738,69 @@ public func FfiConverterTypeProjectionHeld_lift(_ buf: RustBuffer) throws -> Pro
 #endif
 public func FfiConverterTypeProjectionHeld_lower(_ value: ProjectionHeld) -> RustBuffer {
     return FfiConverterTypeProjectionHeld.lower(value)
+}
+
+
+/**
+ * A `terminal-find` cell on the phone's re-wrapped rows.
+ */
+public struct ProjectionLocation: Equatable, Hashable {
+    /**
+     * Rows from the bottom of the re-wrapped content (1: its last row).
+     */
+    public var fromBottom: UInt64
+    public var column: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Rows from the bottom of the re-wrapped content (1: its last row).
+         */fromBottom: UInt64, column: UInt32) {
+        self.fromBottom = fromBottom
+        self.column = column
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ProjectionLocation: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProjectionLocation: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProjectionLocation {
+        return
+            try ProjectionLocation(
+                fromBottom: FfiConverterUInt64.read(from: &buf), 
+                column: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ProjectionLocation, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.fromBottom, into: &buf)
+        FfiConverterUInt32.write(value.column, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionLocation_lift(_ buf: RustBuffer) throws -> ProjectionLocation {
+    return try FfiConverterTypeProjectionLocation.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionLocation_lower(_ value: ProjectionLocation) -> RustBuffer {
+    return FfiConverterTypeProjectionLocation.lower(value)
 }
 
 
@@ -13173,7 +13258,7 @@ public enum MailboxState: Equatable, Hashable {
     )
     case expired
     /**
-     * 
+     * "Not confirmed by <Mac>": the outcome came without the Mac's valid signature.
      */
     case notConfirmed
     /**
@@ -14597,6 +14682,30 @@ fileprivate struct FfiConverterOptionTypePredictionLayout: FfiConverterRustBuffe
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypePredictionLayout.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeProjectionLocation: FfiConverterRustBuffer {
+    typealias SwiftType = ProjectionLocation?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeProjectionLocation.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeProjectionLocation.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -16926,6 +17035,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_load_older() != 3182) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_locate() != 7181) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_older_rows() != 21444) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -16950,13 +17062,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_take_replies() != 21867) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_autochats_new() != 34463) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_transcript_paint() != 19776) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_transcript_rows_above() != 55469) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_autochats_new() != 34463) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_chatpromptoutbox_new() != 32253) {

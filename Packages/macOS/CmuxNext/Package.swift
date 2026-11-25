@@ -2357,6 +2357,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesignTokens",
                 "CmuxNextIcons",
                 "CmuxNextTestSupport",
+                "CmuxNextWakeups",
                 "CmuxNextWakeupsTestSupport",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
             ],
