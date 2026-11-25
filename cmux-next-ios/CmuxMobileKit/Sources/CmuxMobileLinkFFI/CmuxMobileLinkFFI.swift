@@ -3847,6 +3847,225 @@ public func FfiConverterTypeMacScreenRd_lower(_ value: MacScreenRd) -> UInt64 {
 
 
 
+public protocol RowLayoutMemoryProtocol: AnyObject, Sendable {
+    
+    /**
+     * The keyed diff of a page's rows in `scope` (a chat, at a text size) at column `width`
+     * against the heights kept: one answer per key, in order.
+     */
+    func diff(scope: String, width: Double, keys: [RowLayoutKey])  -> [RowLayoutDiff]
+    
+    /**
+     * Drops every height kept in `scope`.
+     */
+    func forget(scope: String) 
+    
+    /**
+     * Adds the heights written by `save` at `path`; rows measured since are kept over them.
+     * How many rows it read.
+     */
+    func load(path: String)  -> UInt32
+    
+    /**
+     * A cell measured row `key` at `height` in a column `width` wide.
+     */
+    func record(scope: String, width: Double, key: RowLayoutKey, height: Double) 
+    
+    /**
+     * Writes the heights to `path` (one row per line), for the next launch. Whether it was written.
+     */
+    func save(path: String)  -> Bool
+    
+    func stats()  -> RowLayoutStats
+    
+}
+open class RowLayoutMemory: RowLayoutMemoryProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_rowlayoutmemory(self.handle, $0) }
+    }
+    /**
+     * Keeps at most `capacity` rows (at least 64).
+     */
+public convenience init(capacity: UInt32) {
+    let handle =
+        try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_rowlayoutmemory_new(
+        FfiConverterUInt32.lower(capacity),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_rowlayoutmemory(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * The keyed diff of a page's rows in `scope` (a chat, at a text size) at column `width`
+     * against the heights kept: one answer per key, in order.
+     */
+open func diff(scope: String, width: Double, keys: [RowLayoutKey]) -> [RowLayoutDiff]  {
+    return try!  FfiConverterSequenceTypeRowLayoutDiff.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_diff(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(scope),
+        FfiConverterDouble.lower(width),
+        FfiConverterSequenceTypeRowLayoutKey.lower(keys),$0
+    )
+})
+}
+    
+    /**
+     * Drops every height kept in `scope`.
+     */
+open func forget(scope: String)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_forget(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(scope),$0
+    )
+}
+}
+    
+    /**
+     * Adds the heights written by `save` at `path`; rows measured since are kept over them.
+     * How many rows it read.
+     */
+open func load(path: String) -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_load(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+    
+    /**
+     * A cell measured row `key` at `height` in a column `width` wide.
+     */
+open func record(scope: String, width: Double, key: RowLayoutKey, height: Double)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_record(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(scope),
+        FfiConverterDouble.lower(width),
+        FfiConverterTypeRowLayoutKey_lower(key),
+        FfiConverterDouble.lower(height),$0
+    )
+}
+}
+    
+    /**
+     * Writes the heights to `path` (one row per line), for the next launch. Whether it was written.
+     */
+open func save(path: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_save(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+    
+open func stats() -> RowLayoutStats  {
+    return try!  FfiConverterTypeRowLayoutStats_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_stats(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRowLayoutMemory: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = RowLayoutMemory
+
+    public static func lift(_ handle: UInt64) throws -> RowLayoutMemory {
+        return RowLayoutMemory(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: RowLayoutMemory) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RowLayoutMemory {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: RowLayoutMemory, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRowLayoutMemory_lift(_ handle: UInt64) throws -> RowLayoutMemory {
+    return try FfiConverterTypeRowLayoutMemory.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRowLayoutMemory_lower(_ value: RowLayoutMemory) -> UInt64 {
+    return FfiConverterTypeRowLayoutMemory.lower(value)
+}
+
+
+
+
+
+
 /**
  * The phone identity key (a Secure Enclave key in the app).
  */
@@ -7801,6 +8020,150 @@ public func FfiConverterTypeProjectionStats_lower(_ value: ProjectionStats) -> R
 
 
 /**
+ * A row as a page lays it out now.
+ */
+public struct RowLayoutKey: Equatable, Hashable {
+    /**
+     * The row's id, stable for the life of the row.
+     */
+    public var id: String
+    /**
+     * `row_layout_fingerprint` of what the row draws.
+     */
+    public var content: UInt64
+    /**
+     * Which of its disclosures are open.
+     */
+    public var fold: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The row's id, stable for the life of the row.
+         */id: String, 
+        /**
+         * `row_layout_fingerprint` of what the row draws.
+         */content: UInt64, 
+        /**
+         * Which of its disclosures are open.
+         */fold: UInt32) {
+        self.id = id
+        self.content = content
+        self.fold = fold
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension RowLayoutKey: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRowLayoutKey: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RowLayoutKey {
+        return
+            try RowLayoutKey(
+                id: FfiConverterString.read(from: &buf), 
+                content: FfiConverterUInt64.read(from: &buf), 
+                fold: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RowLayoutKey, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterUInt64.write(value.content, into: &buf)
+        FfiConverterUInt32.write(value.fold, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRowLayoutKey_lift(_ buf: RustBuffer) throws -> RowLayoutKey {
+    return try FfiConverterTypeRowLayoutKey.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRowLayoutKey_lower(_ value: RowLayoutKey) -> RustBuffer {
+    return FfiConverterTypeRowLayoutKey.lower(value)
+}
+
+
+/**
+ * Heights kept and how the last diffs went (the probe's log and tests).
+ */
+public struct RowLayoutStats: Equatable, Hashable {
+    public var rows: UInt64
+    public var unchanged: UInt64
+    public var changed: UInt64
+    public var new: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(rows: UInt64, unchanged: UInt64, changed: UInt64, new: UInt64) {
+        self.rows = rows
+        self.unchanged = unchanged
+        self.changed = changed
+        self.new = new
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension RowLayoutStats: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRowLayoutStats: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RowLayoutStats {
+        return
+            try RowLayoutStats(
+                rows: FfiConverterUInt64.read(from: &buf), 
+                unchanged: FfiConverterUInt64.read(from: &buf), 
+                changed: FfiConverterUInt64.read(from: &buf), 
+                new: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RowLayoutStats, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.rows, into: &buf)
+        FfiConverterUInt64.write(value.unchanged, into: &buf)
+        FfiConverterUInt64.write(value.changed, into: &buf)
+        FfiConverterUInt64.write(value.new, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRowLayoutStats_lift(_ buf: RustBuffer) throws -> RowLayoutStats {
+    return try FfiConverterTypeRowLayoutStats.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRowLayoutStats_lower(_ value: RowLayoutStats) -> RustBuffer {
+    return FfiConverterTypeRowLayoutStats.lower(value)
+}
+
+
+/**
  * One tap's approval before it is signed: what the target reads, plus the bytes to sign.
  */
 public struct ShareApprovalDraft: Equatable, Hashable {
@@ -10928,6 +11291,95 @@ public func FfiConverterTypeProjectionSegment_lower(_ value: ProjectionSegment) 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * A row against the heights kept for it.
+ */
+
+public enum RowLayoutDiff: Equatable, Hashable {
+    
+    /**
+     * Same id, content, disclosures and width as when it was measured: its height.
+     */
+    case unchanged(height: Double
+    )
+    /**
+     * Measured before with other content, disclosures or width: its cell measures it.
+     */
+    case changed
+    /**
+     * Never measured.
+     */
+    case new
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension RowLayoutDiff: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRowLayoutDiff: FfiConverterRustBuffer {
+    typealias SwiftType = RowLayoutDiff
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RowLayoutDiff {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .unchanged(height: try FfiConverterDouble.read(from: &buf)
+        )
+        
+        case 2: return .changed
+        
+        case 3: return .new
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: RowLayoutDiff, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .unchanged(height):
+            writeInt(&buf, Int32(1))
+            FfiConverterDouble.write(height, into: &buf)
+            
+        
+        case .changed:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .new:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRowLayoutDiff_lift(_ buf: RustBuffer) throws -> RowLayoutDiff {
+    return try FfiConverterTypeRowLayoutDiff.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRowLayoutDiff_lower(_ value: RowLayoutDiff) -> RustBuffer {
+    return FfiConverterTypeRowLayoutDiff.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * One face of a terminal and chat pair.
  */
 
@@ -12076,6 +12528,31 @@ fileprivate struct FfiConverterSequenceTypePredictedGlyph: FfiConverterRustBuffe
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeRowLayoutKey: FfiConverterRustBuffer {
+    typealias SwiftType = [RowLayoutKey]
+
+    public static func write(_ value: [RowLayoutKey], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeRowLayoutKey.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [RowLayoutKey] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [RowLayoutKey]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeRowLayoutKey.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeTabsRow: FfiConverterRustBuffer {
     typealias SwiftType = [TabsRow]
 
@@ -12168,6 +12645,31 @@ fileprivate struct FfiConverterSequenceTypeProjectionSegment: FfiConverterRustBu
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeProjectionSegment.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeRowLayoutDiff: FfiConverterRustBuffer {
+    typealias SwiftType = [RowLayoutDiff]
+
+    public static func write(_ value: [RowLayoutDiff], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeRowLayoutDiff.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [RowLayoutDiff] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [RowLayoutDiff]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeRowLayoutDiff.read(from: &buf))
         }
         return seq
     }
@@ -12742,6 +13244,17 @@ public func pairRequestsSupported(capabilities: [String]) -> Bool  {
 })
 }
 /**
+ * A stable 64-bit FNV-1a fingerprint of `text`: the same on every launch, so a kept
+ * height is found again after the app opens again.
+ */
+public func rowLayoutFingerprint(text: String) -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_row_layout_fingerprint(
+        FfiConverterString.lower(text),$0
+    )
+})
+}
+/**
  * The approval for the tap happening now, unsigned: call it only from the tap.
  */
 public func shareApprovalDraft(ask: ShareAsk)throws  -> ShareApprovalDraft  {
@@ -13072,6 +13585,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_pair_requests_supported() != 49678) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_row_layout_fingerprint() != 59393) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_share_approval_draft() != 27332) {
@@ -13443,6 +13959,24 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_phonereadstore_remove_all() != 47779) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_rowlayoutmemory_diff() != 485) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_rowlayoutmemory_forget() != 52518) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_rowlayoutmemory_load() != 27403) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_rowlayoutmemory_record() != 57096) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_rowlayoutmemory_save() != 39886) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_rowlayoutmemory_stats() != 34123) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_tabsmirror_link_up() != 53128) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -13597,6 +14131,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_phonereadstore_open() != 41914) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_rowlayoutmemory_new() != 34891) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_tabsmirror_new() != 62444) {
