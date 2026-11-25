@@ -608,6 +608,7 @@ pub(super) fn start_session_journal_stream(
     let worker_writer = writer.clone();
     let spawn = std::thread::Builder::new()
         .name("mux-resource-session-journal".into())
+        .stack_size(super::RESOURCE_WORKER_STACK_BYTES)
         .spawn(move || run_session_journal_stream(&worker_mux, client, &worker_writer, start));
     if spawn.is_err() {
         let _ = mux.control_clients.take_resource_stream(client, &stream_id);

@@ -26,7 +26,7 @@
 //! `origin.forbidden` with reason `agents_read_only` on a v2 line, the error
 //! `agents_read_only: ...` on a legacy one.
 //!
-//! The setting itself is userOnly (schemas/settings/source/agent-policy.json):
+//! The setting itself is userOnly (schemas/settings/source/agent-policy/):
 //! an agent cannot turn it back to `change`, and on `read` its settings writes
 //! are refused here before the store sees them.
 
@@ -59,7 +59,7 @@ const REPORT_OPERATIONS: [ResourceOperation; 9] = [
 /// Not `detach-client` (it detaches another viewer) or
 /// `set-terminal-command-history` (it writes a setting). Sorted (binary
 /// search).
-pub(super) const LEGACY_ALLOWED: [&str; 76] = [
+pub(super) const LEGACY_ALLOWED: [&str; 77] = [
     "cloud-attachment-read",
     "cloud-conversation-history",
     "cloud-conversation-run",
@@ -128,6 +128,7 @@ pub(super) const LEGACY_ALLOWED: [&str; 76] = [
     "subscribe-activity",
     "terminal-command-context",
     "terminal-events",
+    "terminal-find",
     "terminal-history",
     "terminal-last-command",
     "terminal-ports",
