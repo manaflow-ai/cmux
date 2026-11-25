@@ -14,6 +14,10 @@ final class TabZoomDriver {
     nonisolated static let variant = TabTransitionVariant.fromEnvironment()
     /// The cards' close buttons and titles (their own clock after 0.96).
     private(set) var chrome = CardChrome()
+    /// How far the grid shows: 0 = page, 1 = grid, clamped (the spring may
+    /// overshoot slightly). Read where it is drawn, by leaf effects, so a
+    /// zoom frame re-runs those and not the views around them.
+    var shown: Double { min(1, max(0, state.progress)) }
     @ObservationIgnored var onSettle: ((TabZoomState.Phase) -> Void)?
     /// The zoom just turned toward the page (a tap, a reversal, a pinch
     /// released that way). Called in the same update as the change, before

@@ -360,6 +360,10 @@ struct TabsScreen<Source: TabsDataSource>: View {
             // Out of the hierarchy on the settled grid (invisible there, and
             // accessibility tools list hidden views too).
             if zoomState.phase != .overview {
+            // Re-run only when what it shows changes, not on every frame of a
+            // zoom (this screen re-runs on each to place the zooming page).
+            DormantGate(dormant: false, key: GateKey(ToolbarInputs(tab: activeTab, size: size, safeTop: safeTop, safeBottom: safeBottom,
+                                                                   keyboard: keyboard, history: source.providesHistoryMenus))) {
             TabsToolbar(chrome: chrome, tab: activeTab, size: size, safeTop: safeTop, safeBottom: safeBottom, keyboard: keyboard,
                         history: source.providesHistoryMenus ? { direction in
                             activeID.map { source.history(direction, for: $0) } ?? []
@@ -373,6 +377,8 @@ struct TabsScreen<Source: TabsDataSource>: View {
                         onSwipeChanged: swipeChanged, onSwipeEnded: swipeEnded,
                         onSwipeUpChanged: swipeUpChanged, onSwipeUpEnded: swipeUpEnded,
                         onSwipeCancelled: swipeCancelled)
+            }
+                .equatable()
                 .opacity(1 - overviewShown)
                 // Usable on the page, and while a zoom heads back to the page
                 // (the tabs button then reverses it).
@@ -430,8 +436,19 @@ struct TabsScreen<Source: TabsDataSource>: View {
         // While it is hidden it is dormant: a change on the page (the toolbar collapsing, a
         // tab's title) does not re-run it (`DormantGate`).
         let hidden = zoomState.phase == .overview ? (staticCardID == activeID || gridDrawsActive ? nil : activeID) : (zoomTabId ?? activeID)
-        DormantGate(dormant: !overviewVisible, size: size) {
-        TabOverview(source: source, layout: overviewLayout, shown: overviewShown, chrome: zoomDriver.chrome, swipes: cardSwipes,
+        let pending = newTabSlot?.showsPlaceholder(in: tabs.map(\.id)) == true ? pendingNewTab : nil
+        // While it shows, it re-runs only when what it lays out changes
+        // (`OverviewInputs`): never on a zoom frame. The zoom's progress and
+        // the cards' chrome reach the leaf effects that draw them through
+        // `zoom` (TabOverview), the tabs and cards through the source's own
+        // observation.
+        let inputs = OverviewInputs(layout: overviewLayout, size: size, hidden: hidden, gridInteractive: zoomState.gridInteractive,
+                                    swipeInteractive: zoomState.phase == .animating && zoomState.headingToOverview,
+                                    controlsInteractive: overviewVisible && zoomState.headingToOverview,
+                                    isVisible: overviewVisible, isSettled: zoomState.phase == .overview, pending: pending,
+                                    transition: zoomState.motion)
+        DormantGate(dormant: !overviewVisible, size: size, key: GateKey(inputs)) {
+        TabOverview(source: source, layout: overviewLayout, zoom: zoomDriver, swipes: cardSwipes,
                     // On the settled grid the page layer draws the active
                     // tab's card live (the same view as the page); on the
                     // page and in the zoom it is the page itself, so its
@@ -447,7 +464,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
                     onNewTab: newTabFromOverview,
                     onDone: { closeOverview(selecting: activeID) },
                     onCloseAll: { confirmingCloseAll = CloseAllConfirmation(ids: tabs.map(\.id)) },
-                    pending: newTabSlot?.showsPlaceholder(in: tabs.map(\.id)) == true ? pendingNewTab : nil,
+                    pending: pending,
                     onScrolling: { source.overviewScrollingChanged($0) },
                     onQueueSelect: { queuedOpen = $0 },
                     onPressChanged: { pressedCard = $0 },
@@ -1039,11 +1056,17 @@ struct DormantGate<Content: View>: View, Equatable {
     /// 8); it takes the new size as it wakes, before it shows.
     /// None: the content takes whatever it is offered.
     var size: CGSize?
+    /// Awake, the content's inputs: two awake gates with equal keys compare
+    /// equal too, so the content re-runs only when one of them changed (the
+    /// grid during a zoom: every frame re-runs the screen around it). None:
+    /// an awake gate always passes its parent's update on.
+    var key: GateKey?
     @ViewBuilder let content: Content
 
-    init(dormant: Bool, size: CGSize? = nil, @ViewBuilder content: () -> Content) {
+    init(dormant: Bool, size: CGSize? = nil, key: GateKey? = nil, @ViewBuilder content: () -> Content) {
         self.dormant = dormant
         self.size = size
+        self.key = key
         self.content = content()
     }
 
@@ -1055,7 +1078,52 @@ struct DormantGate<Content: View>: View, Equatable {
         }
     }
 
-    nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.dormant && rhs.dormant }
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        if lhs.dormant || rhs.dormant { return lhs.dormant && rhs.dormant }
+        guard let key = lhs.key else { return false }
+        return key == rhs.key && lhs.size == rhs.size
+    }
+}
+
+/// What the page's toolbar shows (`DormantGate`'s key for it); its own
+/// state (the bar collapsing, editing, a swipe) it observes itself.
+private struct ToolbarInputs: Equatable, Sendable {
+    var tab: TabsKitTab?
+    var size: CGSize
+    var safeTop: CGFloat
+    var safeBottom: CGFloat
+    var keyboard: CGFloat
+    var history: Bool
+}
+
+/// Any equatable value, as `DormantGate`'s key.
+struct GateKey: Equatable, Sendable {
+    private let value: any Sendable
+    private let equals: @Sendable (any Sendable) -> Bool
+
+    init<Key: Equatable & Sendable>(_ key: Key) {
+        value = key
+        equals = { ($0 as? Key) == key }
+    }
+
+    static func == (lhs: GateKey, rhs: GateKey) -> Bool { lhs.equals(rhs.value) }
+}
+
+/// What the tab grid lays out (`DormantGate`'s key for it): everything the
+/// screen hands it except the zoom's per-frame values and the actions (they
+/// reach the screen's state through its storage, current whichever copy of
+/// the screen made them).
+struct OverviewInputs: Equatable, Sendable {
+    var layout: OverviewLayout
+    var size: CGSize
+    var hidden: String?
+    var gridInteractive: Bool
+    var swipeInteractive: Bool
+    var controlsInteractive: Bool
+    var isVisible: Bool
+    var isSettled: Bool
+    var pending: TabsKitNewTabOption?
+    var transition: TabTransitionVariant
 }
 
 /// A mask showing everything but the grid's bottom bar, as far as the

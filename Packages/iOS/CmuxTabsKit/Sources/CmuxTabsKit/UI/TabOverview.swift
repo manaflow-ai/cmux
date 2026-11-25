@@ -76,10 +76,10 @@ struct TabCard<Content: View>: View {
     var height: CGFloat
     var radius: CGFloat
     var showsClose: Bool
-    /// Close buttons and title rows (`CardChrome`).
-    var closeOpacity: Double
-    var titleOpacity: Double
-    var titleOffset: CGFloat = 0
+    /// Close buttons and title rows (`CardChrome`), read only by the title
+    /// row and the close button: their fade re-runs those two leaves, never
+    /// the card and its content.
+    var zoom: TabZoomDriver
     /// The zoom draws this card's content and close button; its title row
     /// stays here and fades in with the others.
     var contentHidden = false
@@ -121,8 +121,7 @@ struct TabCard<Content: View>: View {
             // A title never draws past its own card into a neighbour's.
             .clipped()
             .padding(.top, 2)
-            .offset(y: titleOffset)
-            .opacity(titleOpacity)
+            .modifier(CardTitleFade(zoom: zoom))
         }
         .frame(width: width, alignment: .top)
         // One element per card, framed to the card and its title row, with
@@ -143,11 +142,9 @@ struct TabCard<Content: View>: View {
                         .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
-                .opacity(closeOpacity * (contentHidden ? 0 : 1))
-                .allowsHitTesting(closeOpacity > 0.5 && !contentHidden)
+                .modifier(CardCloseFade(zoom: zoom, contentHidden: contentHidden))
                 .accessibilityLabel("Close")
                 .accessibilityHint(Text("Closes \(title)"))
-                .accessibilityHidden(closeOpacity < 0.5)
                 .accessibilitySortPriority(-1)
             }
         }
@@ -160,9 +157,12 @@ struct TabCard<Content: View>: View {
 struct TabOverview<Source: TabsDataSource>: View {
     var source: Source
     var layout: OverviewLayout
-    /// 0 while the page is full screen, 1 with the grid at rest.
-    var shown: Double
-    var chrome: CardChrome
+    /// The page <-> grid zoom. Its progress (0 with the page full screen,
+    /// 1 with the grid at rest) and the cards' chrome change on every frame
+    /// of a zoom; only the leaf effects that draw them read it
+    /// (`GridSettleEffect`, `OverviewControlsFade`, `CardTitleFade`,
+    /// `CardCloseFade`), so a zoom frame never re-runs this body or a card's.
+    var zoom: TabZoomDriver
     /// Swipe-to-close offsets (shared with the live page layer).
     var swipes: CardSwipeState
     /// Card hidden while the zooming page stands in for it.
@@ -227,8 +227,7 @@ struct TabOverview<Source: TabsDataSource>: View {
                     if let pending {
                         let r = layout.card(tabs.count)
                         TabCard(title: pending.title, systemImage: pending.systemImage, pageSize: layout.size, width: r.width, height: r.height,
-                                radius: layout.cardRadius, showsClose: false, closeOpacity: chrome.closeOpacity,
-                                titleOpacity: chrome.titleOpacity, titleOffset: chrome.titleOffset, onClose: {}) {
+                                radius: layout.cardRadius, showsClose: false, zoom: zoom, onClose: {}) {
                             theme.colors.pageBackground
                         }
                         .offset(x: r.minX, y: r.minY)
@@ -288,8 +287,7 @@ struct TabOverview<Source: TabsDataSource>: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
             }
-            .scaleEffect(transition.gridScale(shown: shown))
-            .blur(radius: transition.gridBlur(shown: shown))
+            .modifier(GridSettleEffect(zoom: zoom, transition: transition))
             .allowsHitTesting(gridInteractive || swipeInteractive)
 
             // Glass ignores inherited opacity, so the hidden controls are
@@ -299,21 +297,18 @@ struct TabOverview<Source: TabsDataSource>: View {
             // parked there, `accessibilityHidden` did not keep controls drawn
             // in glass or as menus out of the page's accessibility tree (full
             // verify 2026-10-19 D7, T-TABS-14: "More", "New", "Done").
-            let parked = shown <= 0
-            if !parked || controlsInteractive || swipeInteractive || gridInteractive {
             Group {
                 Group {
                     if selecting { selectControls } else { topControls }
                 }
-                    .opacity(shown)
+                    .modifier(OverviewControlsFade(zoom: zoom))
                     .allowsHitTesting(gridInteractive)
                 bottomBar(count: tabs.count)
-                    .opacity(shown)
+                    .modifier(OverviewControlsFade(zoom: zoom))
                     .allowsHitTesting(controlsInteractive)
             }
-            .offset(y: parked ? layout.size.height * 2 : 0)
-            .accessibilityHidden(parked)
-            }
+            .modifier(OverviewControlsParking(zoom: zoom, kept: controlsInteractive || swipeInteractive || gridInteractive,
+                                              height: layout.size.height))
         }
         .frame(width: layout.size.width, height: layout.size.height)
         .onChange(of: ResidencyInputs(ids: tabs.map(\.id), layout: layout), initial: true) { _, inputs in
@@ -395,8 +390,7 @@ struct TabOverview<Source: TabsDataSource>: View {
         let r = card.departed?.rect ?? layout.card(index)
         let copy = { DepartingCard(id: tab.id, tab: tab, rect: r) }
         TabCard(title: tab.title, systemImage: tab.systemImage, icon: source.icon(for: tab.id), pageSize: layout.size, width: r.width, height: r.height,
-                radius: layout.cardRadius, showsClose: !selecting, closeOpacity: chrome.closeOpacity,
-                titleOpacity: chrome.titleOpacity, titleOffset: chrome.titleOffset,
+                radius: layout.cardRadius, showsClose: !selecting, zoom: zoom,
                 contentHidden: tab.id == hiddenTabId, accessibilityValue: source.cardAccessibilityValue(for: tab.id),
                 onOpen: { onSelect(tab.id) },
                 onClose: { Task { _ = await closeTapped(tab.id) } }) {
@@ -802,6 +796,80 @@ struct TabCountLabel: View {
     var body: some View {
         let shown = swipes.countHold ?? count
         Text(shown == 1 ? "1 Tab" : "\(shown) Tabs")
+    }
+}
+// MARK: The zoom's per-frame effects
+
+/// The grid's settle (`TabTransitionVariant`): scale and blur for how far
+/// the grid shows. The only view of the grid that re-runs on a zoom frame;
+/// the scroll view and its cards it wraps are not re-evaluated.
+struct GridSettleEffect: ViewModifier {
+    let zoom: TabZoomDriver
+    let transition: TabTransitionVariant
+
+    func body(content: Content) -> some View {
+        let shown = zoom.shown
+        content
+            .scaleEffect(transition.gridScale(shown: shown))
+            .blur(radius: transition.gridBlur(shown: shown))
+    }
+}
+
+/// The grid's top controls and bottom bar fade with the zoom.
+struct OverviewControlsFade: ViewModifier {
+    let zoom: TabZoomDriver
+
+    func body(content: Content) -> some View {
+        content.opacity(zoom.shown)
+    }
+}
+
+/// Glass ignores inherited opacity, so the hidden controls are parked off
+/// screen instead of fading: building their glass in the zoom's first
+/// frames made those frames late. They leave the hierarchy only on a
+/// settled page (no zoom heading to the grid, `kept` false): parked there,
+/// `accessibilityHidden` did not keep controls drawn in glass or as menus
+/// out of the page's accessibility tree (full verify 2026-10-19 D7,
+/// T-TABS-14: "More", "New", "Done").
+struct OverviewControlsParking: ViewModifier {
+    let zoom: TabZoomDriver
+    let kept: Bool
+    let height: CGFloat
+
+    func body(content: Content) -> some View {
+        let parked = zoom.shown <= 0
+        if !parked || kept {
+            content
+                .offset(y: parked ? height * 2 : 0)
+                .accessibilityHidden(parked)
+        }
+    }
+}
+
+/// A card's title row: fades in and rises with the cards' chrome (`CardChrome`).
+struct CardTitleFade: ViewModifier {
+    let zoom: TabZoomDriver
+
+    func body(content: Content) -> some View {
+        let chrome = zoom.chrome
+        content
+            .offset(y: chrome.titleOffset)
+            .opacity(chrome.titleOpacity)
+    }
+}
+
+/// A card's close button: fades in with the cards' chrome, and takes taps
+/// (and is read by accessibility) once it is mostly shown.
+struct CardCloseFade: ViewModifier {
+    let zoom: TabZoomDriver
+    let contentHidden: Bool
+
+    func body(content: Content) -> some View {
+        let close = zoom.chrome.closeOpacity
+        content
+            .opacity(close * (contentHidden ? 0 : 1))
+            .allowsHitTesting(close > 0.5 && !contentHidden)
+            .accessibilityHidden(close < 0.5)
     }
 }
 #endif
