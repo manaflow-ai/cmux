@@ -1381,7 +1381,18 @@ impl Session {
 
 async fn send_message(socket: &WgDatagramSocket, peer: SocketAddr, message: &RoamMessage) {
     let bytes = serde_json::to_vec(message).expect("roam message serializes");
-    if let Err(error) = socket.send_to(&bytes, peer, Priority::Interactive).await {
+    // An endpoint announcement keeps Ultra Mode's repair: it is what a roam
+    // on a lossy network waits for. `reach`, `ack` and `metered` are
+    // repeated by their senders and nothing answers them, so each goes as
+    // one liveness datagram: no floor parity (which cost a lone `reach` as
+    // much again, 12 a minute on an idle link) and no silence watch armed.
+    let result = match message {
+        RoamMessage::Endpoints { .. } => socket.send_to(&bytes, peer, Priority::Interactive).await,
+        RoamMessage::Ack { .. } | RoamMessage::Metered { .. } | RoamMessage::Reach { .. } => {
+            socket.send_liveness(&bytes, peer, true).await
+        }
+    };
+    if let Err(error) = result {
         tracing::debug!(%error, "roam message not sent");
     }
 }
