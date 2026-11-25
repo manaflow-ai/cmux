@@ -38,7 +38,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-config_file="${CMUX_NEXT_CONFIG_FILE:-$HOME/.config/cmux/cmux-next.json}"
+next_dir=cmux; [[ "$(uname -s)" == Darwin ]] && next_dir=cmux-next  # cmux NEXT's own folder on macOS
+config_file="${CMUX_NEXT_CONFIG_FILE:-$HOME/.config/$next_dir/cmux-next.json}"
 config_dir="$(dirname "$config_file")"
 web_dev="$config_dir/web-dev.json"
 overlay="${CMUX_WEB_OVERLAY_DIR:-$HOME/Library/Application Support/cmux-next/web-overlay}"

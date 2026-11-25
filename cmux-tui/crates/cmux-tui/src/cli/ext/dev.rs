@@ -227,9 +227,10 @@ pub(super) fn load_package_unbuilt(dir: &Path, builds: bool) -> Result<Package, 
     // its own folder; a published `OWNER/NAME` (publish.rs) loads as `local/NAME`.
     let name = super::publish::dev_name(&id, &manifest).map_err(|message| vec![field(message)])?;
     if name == "customize" {
-        return Err(vec![field(
-            "local/customize is your customize folder (~/.config/cmux/customize), which cmux already reloads on save; pick another name".into(),
-        )]);
+        return Err(vec![field(format!(
+            "local/customize is your customize folder (~/.config/{}/customize), which cmux already reloads on save; pick another name",
+            cmux_config::NEXT_DIR
+        ))]);
     }
     Ok(Package { dir: dir.to_path_buf(), manifest, id: format!("local/{name}"), name })
 }
