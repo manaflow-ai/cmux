@@ -108,7 +108,12 @@ idfail "$RS" "an assembled Classic folder (Rust join)" '    let d = home.join(".
 idfail "$PY" "an assembled Classic folder (os.path.join)" '    d = os.path.join(home, ".local", "state", "cmux")'
 idfail "$TS" "a path in a web view" '    const d = `${home}/.config/cmux/cmux.json`'
 idfail "$SH" "a script" '    d="$HOME/.local/state/cmux/x"'
-idfail "$RS" "a text twice in one line" '    let a = "/.config/cmux/a"; let b = "/.config/cmux/b";' "$RS\t/.config/cmux/\t1\tkeep\treviewed\n"
+idfail "$RS" "a text twice in one line" '    let a = "/.config/cmux/a"; let b = "/.config/cmux/b";' "$RS\t.config/cmux\t1\tkeep\treviewed\n"
+idpass "$SW" "another id that only starts with the Classic id (com.cmuxterm.appx)" '    let ok = !isCmux("com.cmuxterm.appx")'
+idpass "$SW" "a reworded line keeps its row: the id, a quote to a slash" '    let d = "com.cmuxterm.app/x"' "$SW\tcom.cmuxterm.app\t1\tkeep\treviewed\n"
+idpass "$SW" "a reworded line keeps its row: the id, a quote to a space" '    let d = "com.cmuxterm.app x"' "$SW\tcom.cmuxterm.app\t1\tkeep\treviewed\n"
+idpass "$SW" "a reworded line keeps its row: a root, a slash to a quote" '    let d = home + "/.config/cmux"' "$SW\t.config/cmux\t1\tkeep\treviewed\n"
+idpass "$RS" "a reworded line keeps its row: a join, a paren to a comma" '    let d = home.join("cmux", "x");' "$RS\tjoin(\"cmux\")\t1\tkeep\treviewed\n"
 idpass "$SW" "NEXT's own config folder" '    let d = home + "/.config/cmux-next/cmux-next.json"'
 idpass "$SW" "NEXT's own state folder" '    let d = home + "/.local/state/cmux-next/x"'
 idpass "$RS" "NEXT's own cache" '    let d = format!("{home}/.cache/cmux-next/x");'
@@ -122,9 +127,9 @@ idpass "$SW" "a doc comment" '    /// Classic'"'"'s /tmp/cmux.sock'
 idpass "$PY" "a Python comment" '# the Classic folder ~/.config/cmux
 x = 1'
 idpass "$RS" "a Rust attribute is code, not a comment" '#[cfg(test)]'
-idpass "$RS" "a baselined text" '    let d = home.join(".local/state/cmux/server");' "$RS\t.local/state/cmux/\t1\tkeep\treviewed read\n"
+idpass "$RS" "a baselined text" '    let d = home.join(".local/state/cmux/server");' "$RS\t.local/state/cmux\t1\tkeep\treviewed read\n"
 idpass "$SW" "a move row naming lane A" '    let d = "/tmp/cmux.sock"' "$SW\t/tmp/cmux.sock\t1\tmove\tlane A: socket root\n"
-idpass "$SW" "a move row naming lane B" '    let d = "com.cmuxterm.app"' "$SW\tcom.cmuxterm.app\"\t1\tmove\tlane B: defaults read\n"
+idpass "$SW" "a move row naming lane B" '    let d = "com.cmuxterm.app"' "$SW\tcom.cmuxterm.app\t1\tmove\tlane B: defaults read\n"
 idpass "$SW" "a baselined text with a changed line number" '
     // padding
     let d = "/tmp/cmux.sock"' "$SW\t/tmp/cmux.sock\t1\tkeep\treviewed\n"

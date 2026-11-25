@@ -130,7 +130,7 @@ BEGIN {
   suf = "([^A-Za-z0-9_-]|$)"
   re = "(\\.config|\\.local/state|Library/Caches|\\.cache|Library/Logs)/cmux" suf \
     "|/tmp/cmux[^\"\047 ]*\\.sock" \
-    "|com\\.cmuxterm\\.app([^.]|$)" \
+    "|com\\.cmuxterm\\.app([^.A-Za-z0-9_-]|$)" \
     "|(appendingPathComponent|appending|push)\\((path: |component: )?\"cmux\"[,)]" \
     "|join\\([^()]*\"cmux\"[,)]"
 }
@@ -143,6 +143,11 @@ FNR == 1 { hash = (FILENAME ~ /\.(sh|py)$/) }
     m = substr(line, RSTART, RLENGTH)
     line = substr(line, RSTART + RLENGTH)
     if (m ~ /^\/tmp\/cmux-next/) continue
+    # The key is the bare text: the character after it (a quote, slash, space,
+    # comma or paren) is context, so rewording a line keeps its baseline row.
+    if (m ~ /^com\.cmuxterm\.app/) m = "com.cmuxterm.app"
+    else if (m ~ /^(\.config|\.local|Library|\.cache)/) sub(/cmux.$/, "cmux", m)
+    else if (m !~ /^\/tmp\//) sub(/[,)]$/, ")", m)
     print FILENAME "\t" m
   }
 }'
