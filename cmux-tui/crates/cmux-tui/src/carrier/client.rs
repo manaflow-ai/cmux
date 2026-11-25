@@ -51,7 +51,8 @@ use zeroize::Zeroizing;
 
 use super::answer::{CarrierAnswer, CarrierSource, Prefetched, SourceError, TicketCache};
 use super::contract::{
-    Failure, FreshSessions, Phase, PhaseTimes, PhasesOf, Step, phases_line, route_line, routes_line,
+    Failure, FreshSessions, Phase, PhaseTimes, PhasesOf, Step, phases_line, route_line,
+    routes_line, routes_line_on,
 };
 use super::source::{
     CARRIER_AUTH, CARRIER_LANES, CachedGroup, CarrierRoutes, CurrentRoute, RouteSet, carrier_routes,
@@ -320,7 +321,10 @@ pub(super) const PARK_REDIAL: Duration = Duration::from_secs(10);
 
 /// When an attempt begun at `now` stops waiting for its parked link: [`PARK_REDIAL`] on, or the
 /// dial's `deadline` when that is sooner. Its allocation then times out, which the dial retries
-/// at the park step with a new link ([`classify`]).
+/// at the park step with a new link ([`classify`]). Only the attempt's first link waits this
+/// long at most: the relay parks a link only until the machine's host registers, so the lanes
+/// opened after the first one is allocated wait until the dial's `deadline`, however near
+/// `PARK_REDIAL` the first allocation came.
 pub(super) fn park_until(deadline: Instant, now: Instant) -> Instant {
     deadline.min(now + PARK_REDIAL)
 }
@@ -404,7 +408,8 @@ fn relay_provider(
     )
     .map(|provider| {
         provider
-            .with_allocation_deadline(park_until(deadline, Instant::now()))
+            .with_allocation_deadline(deadline)
+            .with_first_allocation_deadline(park_until(deadline, Instant::now()))
             .with_peer_join_wait(join_wait)
     })
     .map_err(|e| Failure::fatal(Step::Relay, e.to_string()))
@@ -653,13 +658,30 @@ impl RouteAttempt<'_> {
                 ..ReconnectPolicy::default()
             },
         };
-        let carrier_routes = Arc::new(CarrierRoutes::new(
-            RouteSet { routes: self.set.routes.clone(), dialers: self.set.dialers.clone() },
-            index,
-            cached,
-            self.session,
-            self.current.clone(),
-        ));
+        let carrier_routes = Arc::new(
+            CarrierRoutes::new(
+                RouteSet { routes: self.set.routes.clone(), dialers: self.set.dialers.clone() },
+                index,
+                cached,
+                self.session,
+                self.current.clone(),
+            )
+            .reporting_discovery({
+                let (machine, phases) = (self.plan.machine.clone(), self.plan.phases.clone());
+                Arc::new(move |error: &ProviderError| {
+                    let detail = error.to_string();
+                    let line = routes_line(
+                        &machine,
+                        Phase::Discover,
+                        None,
+                        None,
+                        Some(Step::Relay),
+                        Some(&detail),
+                    );
+                    phases(line);
+                })
+            }),
+        );
         let routes: Arc<dyn ReconnectGroupSource> = carrier_routes.clone();
         let connecting =
             ClientConnection::connect_with_reconnect_groups(tracked, config, Some(routes));
@@ -870,9 +892,20 @@ impl ResumeHooks for Resume {
         let outcome = result.err().map(resume_outcome);
         let detail = result.err().map(ToString::to_string);
         (self.log)(route_line(&self.machine, Phase::Resume, outcome, detail.as_deref(), elapsed));
-        let carrier = Some(self.current.get()).filter(|_| outcome.is_none());
-        let detail = detail.as_deref();
-        (self.phases)(routes_line(&self.machine, Phase::Resume, None, carrier, outcome, detail));
+        // The route the session last moved to is the one this resume ran on.
+        let on = self.current.get();
+        let carrier = Some(on).filter(|_| outcome.is_none());
+        let tried = Some(on).filter(|_| outcome.is_some());
+        let line = routes_line_on(
+            &self.machine,
+            Phase::Resume,
+            None,
+            carrier,
+            tried,
+            outcome,
+            detail.as_deref(),
+        );
+        (self.phases)(line);
     }
 }
 

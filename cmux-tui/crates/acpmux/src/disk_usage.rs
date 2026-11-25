@@ -254,7 +254,9 @@ pub fn walk(home: &Path, budget: Duration, max_entries: u64) -> Walked {
         let Ok(read) = std::fs::read_dir(&dir) else { continue };
         for entry in read.flatten() {
             entries += 1;
-            if entries >= max_entries || (entries % 1024 == 0 && started.elapsed() >= budget) {
+            if entries >= max_entries
+                || (entries.is_multiple_of(1024) && started.elapsed() >= budget)
+            {
                 out.complete = false;
                 break 'walk;
             }

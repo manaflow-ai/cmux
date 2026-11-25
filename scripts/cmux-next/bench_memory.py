@@ -141,8 +141,12 @@ def _diff_tab_cells():
     return diff_tab_cells
 
 
-_libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
-_libsystem = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+if os.path.dirname(os.path.abspath(__file__)) not in sys.path:  # `python3 -I` leaves this folder off
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import macos_libs  # noqa: E402  (beside this file: a stand-in off a Mac, so the benches import anywhere)
+
+_libproc = macos_libs.library("/usr/lib/libproc.dylib")
+_libsystem = macos_libs.library("/usr/lib/libSystem.B.dylib")
 try:
     _responsible = _libsystem.responsibility_get_pid_responsible_for_pid
     _responsible.restype = ctypes.c_int
@@ -157,12 +161,13 @@ class _Timebase(ctypes.Structure):
     _fields_ = [("numer", ctypes.c_uint32), ("denom", ctypes.c_uint32)]
 
 
-_timebase = _Timebase()
-_libsystem.mach_timebase_info(ctypes.byref(_timebase))
+_timebase = macos_libs.timebase_of(_libsystem, _Timebase())
 
 
 def usage(pid: int):
-    """(resident, footprint, lifetime max footprint, cpu ns, wakeups), or None once the pid is gone."""
+    """(resident, footprint, lifetime max footprint, cpu ns, wakeups, package-idle wakeups), or None once the pid is
+    gone. wakeups is package-idle plus interrupt wakeups; a busy Mac's package is never idle, so under load the first
+    kind reads near 0 for the same wakes."""
     buf = (ctypes.c_uint64 * 64)()
     if _libproc.proc_pid_rusage(ctypes.c_int(pid), ctypes.c_int(4), ctypes.byref(buf)) != 0:
         return None
@@ -170,7 +175,7 @@ def usage(pid: int):
     # idle wakeups, interrupt wakeups, pageins, wired (7), resident (8),
     # phys_footprint (9), ... ri_lifetime_max_phys_footprint (30).
     cpu_ns = (buf[2] + buf[3]) * _timebase.numer // _timebase.denom
-    return buf[8], buf[9], buf[30], cpu_ns, buf[4] + buf[5]
+    return buf[8], buf[9], buf[30], cpu_ns, buf[4] + buf[5], buf[4]
 
 
 class _TaskInfo(ctypes.Structure):
@@ -361,7 +366,7 @@ def exe_path(pid: int) -> str | None:
     buf = ctypes.create_string_buffer(4096)
     try:
         size = _libproc.proc_pidpath(ctypes.c_int(pid), buf, ctypes.c_uint32(4096))
-    except (AttributeError, TypeError, ctypes.ArgumentError):
+    except (AttributeError, TypeError, ctypes.ArgumentError, OSError):  # OSError: off a Mac (macos_libs.OffMac)
         return None
     if not isinstance(size, int) or size <= 0:
         return None

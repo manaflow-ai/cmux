@@ -62,6 +62,10 @@ pub const IDLE_COPY_PERCENT: u64 = 1;
 /// Frames the idle-link copy remembers (more than a second at any frame rate).
 const IDLE_COPY_FRAMES: usize = 512;
 /// Most streams per peer (the viewer's CMUX_RD_SESSION_MAX_STREAMS).
+/// Measured: each popup stream runs its own video encoder on the host (`pump.rs` `add_stream`),
+/// and popups share [`POPUP_SHARE_PERCENT`] (20 %) of the target with a floor of
+/// [`MIN_POPUP_KBPS`] each: 16 x 300 kbps = 4.8 Mbps, the whole share of a 24 Mbps target. Past
+/// that every popup's floor takes from the main stream. Derived from these constants, not timed.
 pub const MAX_STREAMS: usize = 16;
 /// Share of the target that popup streams may take together, in percent.
 pub const POPUP_SHARE_PERCENT: u64 = 20;
@@ -253,8 +257,6 @@ pub struct EngineStats {
     pub target_bps: u64,
 }
 
-/// Most upstream media streams per peer.
-pub const MAX_UPSTREAMS: usize = 4;
 /// Upstream feedback interval while upstream media flows.
 const UPSTREAM_FEEDBACK_US: u64 = 50_000;
 /// How long an upstream frame may wait for missing shards.
@@ -274,7 +276,7 @@ struct Upstream {
 impl Upstream {
     fn new() -> Self {
         Self {
-            reassembler: Reassembler::new(UPSTREAM_DEADLINE_US),
+            reassembler: Reassembler::with_nack_after(UPSTREAM_DEADLINE_US, UPSTREAM_NACK_AFTER_US),
             arrivals: VecDeque::new(),
             released_since_feedback: false,
             last_feedback_us: None,
@@ -452,6 +454,8 @@ pub struct MediaEngine {
     clock: Option<ClockEstimate>,
     /// Recent cumulative frame-ack round trips: (observation time, round trip).
     ack_rtts: VecDeque<(u64, u64)>,
+    /// The carrier's last path round trip, when it measures one.
+    path_rtt_us: Option<u64>,
     /// Smoothed frame-ack round trip and its deviation, from the frame's last
     /// departure when the host reports it (`datagram_sent`), else its encode.
     ack_srtt_us: Option<u64>,
@@ -492,6 +496,7 @@ impl MediaEngine {
             keyframes: 0,
             clock: None,
             ack_rtts: VecDeque::new(),
+            path_rtt_us: None,
             ack_srtt_us: None,
             ack_rttvar_us: 0,
             recent_sends: VecDeque::new(),
@@ -568,6 +573,7 @@ impl MediaEngine {
     /// while the carrier has no RTT measurement. The caller supplies its current
     /// route's measurement each time, or None after falling back to a socket.
     pub fn update_frames_in_flight_from_rtt(&mut self, path_rtt_us: Option<u64>) {
+        self.path_rtt_us = path_rtt_us;
         if let Some(rtt_us) = path_rtt_us.or_else(|| self.ack_rtt_us()) {
             self.set_frames_in_flight(frames_in_flight_for(rtt_us, self.cfg.max_fps).max(2));
             // A measured LAN round trip starts the target high (until the first overuse).
@@ -686,9 +692,8 @@ impl MediaEngine {
         if self.upstreams.contains_key(&stream) || self.streams.contains_key(&stream) {
             return Err(StreamError::Exists(stream));
         }
-        if self.upstreams.len() >= MAX_UPSTREAMS {
-            return Err(StreamError::TooMany);
-        }
+        // Any number: an upstream is a reassembler whose frames wait at most
+        // UPSTREAM_DEADLINE_US.
         self.upstreams.insert(stream, Upstream::new());
         Ok(())
     }
@@ -1009,8 +1014,11 @@ impl MediaEngine {
                 self.on_feedback(header.stream, &fb, now_us, &mut out);
             }
             DatagramKind::UpMedia => {
+                let rtt = self.rtt_us();
                 if let Some(u) = self.upstreams.get_mut(&header.stream) {
                     let stream = header.stream;
+                    // The viewer's repairs cross the same path: size the wait from it too.
+                    u.reassembler.set_path_rtt_us(rtt);
                     out.upstream =
                         u.push(&header, payload, now_us).into_iter().map(|f| (stream, f)).collect();
                 }
@@ -1104,7 +1112,8 @@ impl MediaEngine {
                 if let Some(d) = datagrams.get(usize::from(i)) {
                     if let Ok((header, _)) = DatagramHeader::decode(d) {
                         self.cc.on_retransmitted(header.transport_seq);
-                        // The copy reuses the sequence: count the original's loss now.
+                        // The viewer reports the repair under this sequence: count the
+                        // original as path loss now.
                         self.loss_meter.on_resent(header.transport_seq);
                     }
                     out.datagrams.push(d.clone());
@@ -1336,6 +1345,21 @@ impl MediaEngine {
 
     pub fn ack_rtt_us(&self) -> Option<u64> {
         self.ack_rtts.iter().map(|(_, rtt)| *rtt).min()
+    }
+
+    /// The round trip the viewer-input (upstream) NACK wait is sized from: the
+    /// larger of the carrier's path round trip and the smoothed frame-ack
+    /// round trip plus four times its variation (`ack_srtt_us`). The host's
+    /// own recovery timers ([`TAIL_PROBE_US`], [`MIN_FORCED_IDR_INTERVAL_US`])
+    /// stay fixed: sized from the round trip, the tail probe fired inside
+    /// 50-100 ms Wi-Fi holds and its resends and keyframes burst out when the
+    /// hold lifted (about +50 ms on slow presses).
+    pub fn rtt_us(&self) -> Option<u64> {
+        let acks = self.ack_srtt_us.map(|s| s.saturating_add(self.ack_rttvar_us.saturating_mul(4)));
+        match (self.path_rtt_us, acks) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            (a, b) => a.or(b),
+        }
     }
 
     /// Answers a clock ping at once (receive and send time are the same call).

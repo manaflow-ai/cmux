@@ -26,6 +26,7 @@ after that.
 | Bring fonts, colors and terminal behavior over from another terminal | Not supported: `cmux import` was removed with the Swift CLI. Copy the values into Ghostty config by hand. |
 | Workspace names, descriptions, colors, read state | cmux CLI app actions (`cmux workspace set-color --target ws_… --color blue`), see [../cmux/references/windows-workspaces.md](../cmux/references/windows-workspaces.md) |
 | Agent hooks (agent state in the sidebar) | `cmux agent hook install [provider…]`; `cmux agent hook status` to check |
+| What Chief or any agent chat is told at the start or end of a turn, on a condition | `agents.turnRules` in `cmux-next.json`, or `~/.config/cmux/turn-rules.json` beside it (see [Turn rules](#turn-rules)) |
 
 Not yet supported in cmux-next, even though classic cmux read them:
 `text`, `workspaceCommand` and `workspace` action types (reported and skipped by
@@ -142,7 +143,8 @@ top, so a block copies between the two:
   edges, no motion), `phosphor` (green on black), `claude-desktop` (cream and clay),
   `charcoal` (a dark chat app), and three nature looks on the Blocks chrome: `moss`
   (deep forest green), `meadow` (sage and cream) and `lily-pond` (teal glass blocks
-  over Monet's water lilies). To ask for a look, start from the closest one:
+  over Monet's water lilies), and `minimal-sessions` (only the sidebar: one line per
+  session, its status mark first, then its name). To ask for a look, start from the closest one:
   copy it to `~/.config/cmux/themes/<name>.json` to edit it (your file of the same
   name wins over the shipped one). Steps and the undo path for people:
   [theme-recipes.md](../../docs/cmux-next/theme-recipes.md).
@@ -172,10 +174,13 @@ top, so a block copies between the two:
   `browser.omnibar.glass*`, `app.uiScale`, `terminal.fontFamily`,
   `terminal.fontSize`; the sidebar's shape, text and buttons: `sidebar.style`, `sidebar.border`,
   `sidebar.borderWidth`, `sidebar.sectionLook`, `sidebar.density`, `sidebar.textSize`,
-  `sidebar.groupHeader.background`, `sidebar.groupPalette`, `sidebar.groupGradient`,
   `sidebar.showSearchButton`, `sidebar.showProfileControl`, `sidebar.showNewWorkspaceChooser`,
-  `sidebar.controlsOnHover`, `sidebar.detailedStatusIcons`, `sidebar.showColors`,
-  `sidebar.spacesVisibility`; the top right buttons and tabs: `tabs.toolbarButtons`,
+  `sidebar.controlsOnHover`, `sidebar.spacesVisibility`; how its rows draw:
+  `sidebar.detailedStatusIcons`, `sidebar.showTimestamps`, `sidebar.showColors`,
+  `workspaceColors.indicatorStyle`, and every `sidebar.workspaceRow.<name>`, such as
+  `statusPlacement` and `lines`, but not the per-kind `sidebar.workspaceRow.<kind>.*`; its
+  grouping: `sidebar.groupBy`, `sidebar.groupHeader.*`, `sidebar.groupPalette`,
+  `sidebar.groupGradient`; the top right buttons and tabs: `tabs.toolbarButtons`,
   `tabs.plusButton`, `window.titlebarButtons`, `focus.inactiveTabStyle`; pane corners:
   `layout.paneCornerRadius`, `layout.cornerPadding`, `layout.paneBorderWidth`; the agent
   chat's text sizes and Session Info: `agentPane.display.font.*`, `agentPane.display.code.scale`,
@@ -341,6 +346,29 @@ copy-paste focus timer template are in
 
 The worked example, as copy-paste files, and the recipe for adding a view:
 [references/local-app-views.md](references/local-app-views.md).
+
+### Turn rules
+
+A turn rule says one line into an agent's prompt when its conditions hold: a start rule
+on the prompt it matches, an end rule (matched on the turn's final message and tool calls)
+at the session's next prompt, never by sending the session back. Same path for Chief and
+every chat acpmux runs. Rules are read at every prompt, so an edit takes effect on the next turn.
+
+```json
+{"rules": [
+  {"id": "chief-asks-first", "at": "start", "if": {"chief": true, "prompt_any": ["\\b(delete|remove)\\b"]},
+   "say": "Before deleting anything, list what it is and who made it."},
+  {"id": "say-the-cause", "at": "end", "if": {"chief": false, "draft_any": ["\\bfixed\\b"], "draft_none": ["cause"]},
+   "say": "You said something is fixed: name its cause in one line."}
+]}
+```
+
+Conditions (all must hold; regexes, case-insensitive): `prompt_any`, `prompt_none`, `draft_any`,
+`draft_none`, `tools_any`, `tools_none`, `min_tools`, `min_prompt_chars`, `session_any`,
+`host_any`, `chief` (`true` only Chief, `false` every other chat). One rule per boundary;
+`cooldown` (turns, default 6). Cost: a firing adds about 0.4 input tokens per character of its
+line; each turn's `turn_result` counts them in `harnessMagic.turnRules.saidChars`. Off:
+`agents.harnessMagic.turnRules.enabled: false`. Reference: `cmux-tui/crates/acpmux/src/hub/turn_rules.rs`.
 
 ### Change what cmux does
 

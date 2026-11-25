@@ -88,6 +88,7 @@ final class RemoteTerminalPlaceholderView: NSView, PaneCommitMotionPicture {
     func show(machine: String, state: State, snapshot: String?) {
         self.machine = machine
         self.state = state
+        // A reattach shows the saved screen alone, however long it takes (Leo, 2026-11-24: "let's just keep optimistically connecting").
         status.stringValue = switch state {
         case .reconnecting: ""
         case .offline: RemoteStrings.placeholderOffline(machine)
@@ -95,10 +96,8 @@ final class RemoteTerminalPlaceholderView: NSView, PaneCommitMotionPicture {
         }
         connect.isHidden = state != .offline || onConnect == nil
         setSnapshot(snapshot)
-        // Automatic recovery has no action to offer, however long it takes. Keep the saved screen.
         status.isHidden = state == .reconnecting
-        icon.isHidden = state == .reconnecting
-        setAccessibilityLabel(status.stringValue)
+        setAccessibilityLabel(state == .reconnecting ? machine : status.stringValue)
     }
 
     func setSnapshot(_ snapshot: String?) {

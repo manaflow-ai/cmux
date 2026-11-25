@@ -2,7 +2,7 @@
 //!
 //! The phone times every display frame of one pan of a terminal (the finger's drag and its
 //! fling) and sends the intervals here when the pan ends, one JSON line per pan:
-//! `{"kind":"tui"|"scrollback","program"?,"app"?,"expected_ms","intervals_ms":[...],"rows"?,"bytes_in"?,"rtt_ms"?}`.
+//! `{"kind":"tui"|"scrollback","program"?,"app"?,"expected_ms","intervals_ms":[...],"rows"?,"bytes_in"?,"rtt_ms"?,"painted"?}`.
 //! This host turns them into a summary (frames, p50/p95/max frame time, hitches, frames
 //! dropped, hitch time per second, and the load it ran under: the page's rows, output bytes per
 //! second during the pan, the link's round trip) and appends it, one JSON line, to `phone-frames.jsonl` in
@@ -10,6 +10,12 @@
 //! `CMUX_MOBILE_STATE_DIR` says otherwise), rotating at [`ROTATE_AT`] with one previous file
 //! kept, and logs the same summary to hostd's log. An agent on the Mac reads the phone's
 //! numbers from there; nothing on the phone is touched.
+//!
+//! `painted` (ask-0e9bbe35bb), per presented frame `[output bytes parsed, ms before the
+//! report]`, adds the Mac output to iPhone paint of the pan's output, on this Mac's clock only
+//! (`output_paint.rs`): `output_to_paint_ms` (sent to painted, the report's way back included)
+//! and `output_to_paint_less_half_rtt_ms` (less half the round trip), each `{events, p50_ms,
+//! p95_ms, max_ms}`, so the link's share and the phone's are separable.
 //!
 //! Bounded: a channel carries at most [`MAX_PANS`] pans of at most [`MAX_FRAME_BYTES`] each,
 //! a pan at most [`MAX_INTERVALS`] intervals. A line that does not parse or is out of range
@@ -61,6 +67,26 @@ pub struct Pan {
     /// and the link's last measured round trip (ms).
     #[serde(default)]
     pub rtt_ms: Option<u64>,
+    /// Each presented frame of the pan: `[output bytes its terminal had parsed, ms before the
+    /// phone sent this line]` (at most [`MAX_INTERVALS`]).
+    #[serde(default)]
+    pub painted: Option<Vec<[f64; 2]>>,
+}
+
+/// One column of `output_to_paint_*` in `phone-frames.jsonl`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct OutputToPaint {
+    /// Output events timed.
+    pub events: usize,
+    pub p50_ms: f64,
+    pub p95_ms: f64,
+    pub max_ms: f64,
+}
+
+impl From<crate::output_paint::Column> for OutputToPaint {
+    fn from(c: crate::output_paint::Column) -> Self {
+        Self { events: c.events, p50_ms: c.p50_ms, p95_ms: c.p95_ms, max_ms: c.max_ms }
+    }
 }
 
 /// What one pan came to: one line of `phone-frames.jsonl`.
@@ -104,6 +130,12 @@ pub struct Summary {
     /// [`cmux_mobile_link::dial::route_name`], never the phone's word).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<&'static str>,
+    /// Mac output to iPhone paint of the pan's output (`output_paint.rs`): sent to painted,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_to_paint_ms: Option<OutputToPaint>,
+    /// and the same less half the link's round trip (the phone's share).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_to_paint_less_half_rtt_ms: Option<OutputToPaint>,
 }
 
 /// Why a pan line was dropped.
@@ -117,12 +149,21 @@ pub enum Invalid {
 
 /// The summary of `pan` from phone `phone` at `at_ms`, or why it is not one.
 pub fn summarize(pan: Pan, phone: &str, at_ms: i64) -> Result<Summary, Invalid> {
+    summarize_painted(pan, phone, at_ms).map(|(summary, _)| summary)
+}
+
+/// [`summarize`], and the pan's `painted` frames, checked.
+fn summarize_painted(pan: Pan, phone: &str, at_ms: i64) -> Result<(Summary, Vec<[f64; 2]>), Invalid> {
     if !matches!(pan.kind.as_str(), "tui" | "scrollback") {
         return Err(Invalid::Kind);
     }
     let expected = pan.expected_ms;
     if !expected.is_finite() || !(1.0..=50.0).contains(&expected) {
         return Err(Invalid::Expected);
+    }
+    let painted = pan.painted.unwrap_or_default();
+    if painted.len() > MAX_INTERVALS || painted.iter().flatten().any(|v| !v.is_finite() || *v < 0.0) {
+        return Err(Invalid::Intervals);
     }
     let mut sorted = pan.intervals_ms;
     if sorted.is_empty()
@@ -143,7 +184,7 @@ pub fn summarize(pan: Pan, phone: &str, at_ms: i64) -> Result<Summary, Invalid> 
     }
     sorted.sort_by(f64::total_cmp);
     let round = |v: f64| (v * 100.0).round() / 100.0;
-    Ok(Summary {
+    Ok::<_, Invalid>(Summary {
         at_ms,
         phone: phone.to_owned(),
         kind: pan.kind,
@@ -166,7 +207,22 @@ pub fn summarize(pan: Pan, phone: &str, at_ms: i64) -> Result<Summary, Invalid> 
             .map(|b| (b as f64 / (duration / 1000.0)).round() as u64),
         rtt_ms: pan.rtt_ms,
         path: None,
+        output_to_paint_ms: None,
+        output_to_paint_less_half_rtt_ms: None,
     })
+    .map(|summary| (summary, painted))
+}
+
+/// The pan's [`Summary`] with its output-to-paint, timed against what this host sent `phone`
+/// (`painted` as the phone sent it, the line received at `received_us`, this host's clock).
+pub fn with_output_to_paint(mut summary: Summary, painted: &[[f64; 2]], received_us: u64) -> Summary {
+    let painted: Vec<(u64, f64)> = painted.iter().map(|[bytes, age]| (*bytes as u64, *age)).collect();
+    let half_rtt = summary.rtt_ms.map(|rtt| rtt as f64 / 2.0);
+    if let Some(window) = crate::output_paint::window_for(&summary.phone, &painted, received_us, half_rtt) {
+        summary.output_to_paint_ms = Some(window.raw.into());
+        summary.output_to_paint_less_half_rtt_ms = window.less_half_rtt.map(Into::into);
+    }
+    summary
 }
 
 /// Nearest-rank percentile of sorted values (the phone's `TerminalFrameStats.percentile`).
@@ -203,8 +259,10 @@ pub fn record_on(
     path: &Path,
     route: Option<&'static str>,
 ) -> Result<Summary, Invalid> {
+    let received_us = crate::output_paint::now_us();
     let pan: Pan = serde_json::from_slice(line).map_err(|_| Invalid::Json)?;
-    let mut summary = summarize(pan, phone, crate::activity::now_ms())?;
+    let (summary, painted) = summarize_painted(pan, phone, crate::activity::now_ms())?;
+    let mut summary = with_output_to_paint(summary, &painted, received_us);
     summary.path = route;
     tracing::info!(
         phone,
@@ -220,6 +278,8 @@ pub fn record_on(
         bytes_per_s = summary.bytes_per_s,
         rtt_ms = summary.rtt_ms,
         route = summary.path.unwrap_or("-"),
+        output_to_paint_p95_ms = summary.output_to_paint_ms.map(|c| c.p95_ms),
+        output_to_paint_less_half_rtt_p95_ms = summary.output_to_paint_less_half_rtt_ms.map(|c| c.p95_ms),
         "phone frames"
     );
     let _guard = WRITE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -263,6 +323,7 @@ pub fn record_paint(
         wire_p50_p95 = part(&summary.wire).as_deref().unwrap_or("-"),
         phone_p50_p95 = part(&summary.phone_paint).as_deref().unwrap_or("-"),
         total_p50_p95 = part(&summary.total).as_deref().unwrap_or("-"),
+        transports = ?summary.transports,
         "phone paint"
     );
     let _guard = WRITE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -342,6 +403,7 @@ mod tests {
             rows: None,
             bytes_in: None,
             rtt_ms: None,
+            painted: None,
         }
     }
 
@@ -415,6 +477,7 @@ mod tests {
         assert_eq!(rows[0]["bytes_per_s"], 100_000);
         assert_eq!(rows[0]["rtt_ms"], 41);
         assert!(rows[0].get("path").is_none(), "off a dialed link no route is claimed");
+        assert!(rows[0].get("output_to_paint_ms").is_none(), "no painted frames, no column");
     }
 
     #[test]
@@ -430,5 +493,33 @@ mod tests {
         assert_eq!(rows[0]["path"], "direct-lan");
         assert_eq!(rows[0]["rtt_ms"], 3);
         assert_eq!(rows[1]["path"], "direct-wan");
+    }
+
+    #[test]
+    fn painted_frames_add_output_to_paint_and_its_link_free_column() {
+        use base64::Engine as _;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("phone-frames.jsonl");
+        let phone = "phone-frames-output-paint";
+        let stamps = crate::output_paint::Tracker::start(phone);
+        // Two output events of 100 bytes each, sent now.
+        let data = base64::engine::general_purpose::STANDARD.encode([b'x'; 100]);
+        let line = format!(r#"{{"event":"output","surface":1,"data":"{data}"}}"#);
+        stamps.line(line.as_bytes());
+        stamps.line(line.as_bytes());
+        // Painted through 0, then 100, then 200 bytes, the last frame 0 ms before the report.
+        let pan = br#"{"kind":"scrollback","expected_ms":16.67,"intervals_ms":[16.6,16.7,16.7,16.6],"rtt_ms":40,"painted":[[0,0],[100,0],[200,0]]}"#;
+        let summary = record(pan, phone, &path).unwrap();
+        let raw = summary.output_to_paint_ms.expect("timed");
+        assert_eq!(raw.events, 2);
+        assert!(raw.max_ms >= 0.0 && raw.max_ms < 5_000.0, "{raw:?}");
+        let less = summary.output_to_paint_less_half_rtt_ms.expect("rtt known");
+        assert!(less.max_ms <= raw.max_ms);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let row: serde_json::Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+        assert_eq!(row["output_to_paint_ms"]["events"], 2);
+        assert!(row["output_to_paint_less_half_rtt_ms"]["p95_ms"].is_number());
+        let bad = br#"{"kind":"tui","expected_ms":8.33,"intervals_ms":[8.3],"painted":[[1,-1]]}"#;
+        assert_eq!(record(bad, phone, &path), Err(Invalid::Intervals));
     }
 }

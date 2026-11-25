@@ -1,3 +1,4 @@
+import CmuxEgress
 public import Foundation
 
 /// A public-domain work found in a museum's open-access collection (cx-t2x.8, "Browse more art").
@@ -67,7 +68,7 @@ public nonisolated struct MuseumArtSearch: Sendable {
     public static let live = MuseumArtSearch { url in
         var request = URLRequest(url: url, timeoutInterval: 20)
         request.setValue("cmux/1.0 (https://cmux.com/art)", forHTTPHeaderField: "User-Agent")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await CmuxEgress.shared(site: "CmuxNextDesignTokens.MuseumArtSearch").data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
         return data
     }

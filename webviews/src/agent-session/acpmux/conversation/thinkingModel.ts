@@ -12,7 +12,7 @@ export function retryParts(
   t: Translate,
   retry: AcpmuxTurnRetry,
   now?: number,
-): { label: string; count: string; error?: string; countdown?: string } {
+): { label: string; count: string; error?: string; detail?: string; countdown?: string } {
   const words = retry.error?.replaceAll("_", " ");
   const busy = retry.errorStatus === 429 || retry.errorStatus === 529 || BUSY.test(words ?? "");
   // A connection failure acpmux classified (hub/outage.rs) says what is wrong and where; the words
@@ -21,7 +21,7 @@ export function retryParts(
     ? t(retry.cause === "dns" ? "turn.live.retry.outage.dns" : "turn.live.retry.outage.host", {
         host: retry.host ?? t("turn.live.retry.outage.theApi"),
       })
-    : t(busy ? "turn.live.retry.busy" : "turn.live.retry.unreachable");
+    : t(busy ? "capacity.live" : "turn.live.retry.unreachable");
   // Seconds until the deadline acpmux computed; none once it passed or when none was announced.
   const left = retry.retryAt !== undefined && now !== undefined ? Math.ceil((retry.retryAt - now) / 1000) : undefined;
   const countdown =
@@ -37,6 +37,9 @@ export function retryParts(
         ? t("turn.live.retry.attemptOnly", { attempt: retry.attempt })
         : t("turn.live.retry.attempt", { attempt: retry.attempt, max: retry.maxRetries });
   const error = [retry.errorStatus, words].filter((part) => part !== undefined && part !== "").join(" ");
+  // A full or rate-limited model is a wait, not an error: its words leave the line for its tooltip
+  // (RFD model-overload-smoothing §3.8; Leo, 2026-11-24: "fix 529s properly with better designs").
+  if (busy && !retry.cause) return { label, count, ...(error && { detail: error }), ...(countdown && { countdown }) };
   return { label, count, ...(error && { error }), ...(countdown && { countdown }) };
 }
 
