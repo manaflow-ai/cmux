@@ -4,9 +4,12 @@
 // 3 Trust and noise (the agents' permission, explained per mode, and banners and sound), 4 Tune (density,
 // asked only here, and the background rows below). Each opens on what the settings hold, so Return four
 // times is a good setup. The look, trust and noise rows are walk.ts's writes, one publish per click.
-// The rows of screens 2 and 4:
+// The rows of screens 2 (How you work, Where chats run) and 4 (Density, Background):
 //   1. How you work: Agents first (recommended; Cmd-T opens the New Tab page, where a chat starts) or
 //      Terminal first (Cmd-T opens a terminal). The words never say "classic".
+//   1b. Where chats run: This Mac (the default) or Cloud (`agentPane.newChatsIn`), each with one
+//      caption, so a Mac with no agent installed still has a way to start (ask c-8f5f7ff8b3). An
+//      older host that sends no `chatsRunIn` gets no row.
 //   2. Density: every density Settings has, by Settings' names (the host sends them).
 //   3. Background: None, Shuffle Paintings or one of a few built-in works, then the two rows
 //      Settings > Appearance draws under its own picker: Opacity (how much of the theme color covers
@@ -27,7 +30,7 @@ import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { cx } from "../../ui/cx";
 import { Switch } from "../../ui/Switch";
 import { SlidingIndicator } from "../../ui/motion/SlidingIndicator";
-import type { MakeItYoursBackground, MakeItYoursMaterial, MakeItYoursState, WorkStyle } from "./ops";
+import type { ChatsRunIn, MakeItYoursBackground, MakeItYoursMaterial, MakeItYoursState, WorkStyle } from "./ops";
 import { HostIcon, useOnboarding } from "./parts";
 import {
   LOOK_BUNDLES,
@@ -62,6 +65,13 @@ const WORK_KEYS: Record<WorkStyle, { title: string; detail: string }> = {
     title: "onboarding.makeItYours.work.terminal",
     detail: "onboarding.makeItYours.work.terminal.detail",
   },
+};
+// Where a new chat runs (c-8f5f7ff8b3): Cloud named on the one screen every new person sees. This
+// Mac stays the default.
+const RUN_INS: readonly ChatsRunIn[] = ["local", "cloud"];
+const RUN_IN_KEYS: Record<ChatsRunIn, { title: string; detail: string }> = {
+  local: { title: "onboarding.makeItYours.runIn.local", detail: "onboarding.makeItYours.runIn.local.detail" },
+  cloud: { title: "onboarding.makeItYours.runIn.cloud", detail: "onboarding.makeItYours.runIn.cloud.detail" },
 };
 const MATERIAL_KEYS: Record<MakeItYoursMaterial, string> = {
   none: "onboarding.makeItYours.material.none",
@@ -358,6 +368,39 @@ export function MakeItYoursStep({
       </div>
     </Group>
   );
+  // An older host sends no `chatsRunIn`: no row.
+  const runIn =
+    choices.chatsRunIn == null ? null : (
+      <Group look={look} className="onb-make-run-in" label={strings.t("onboarding.makeItYours.runIn.label")}>
+        <div
+          className="onb-make-segments ui-slide-host"
+          style={{ "--onb-make-count": RUN_INS.length } as CSSProperties}
+        >
+          <SlidingIndicator selected={choices.chatsRunIn} selector="[data-checked]" className="onb-make-thumb" />
+          {RUN_INS.map((where) => (
+            <label
+              key={where}
+              className="onb-make-segment ui-slide-item"
+              data-checked={choices.chatsRunIn === where || undefined}
+            >
+              <input
+                type="radio"
+                name="chatsRunIn"
+                value={where}
+                aria-label={strings.t(RUN_IN_KEYS[where].title)}
+                aria-describedby="onb-make-run-in-detail"
+                checked={choices.chatsRunIn === where}
+                onChange={() => store.call("cmux.onboarding.makeItYours.chatsRunIn", { value: where })}
+              />
+              <span>{strings.t(RUN_IN_KEYS[where].title)}</span>
+            </label>
+          ))}
+        </div>
+        <p id="onb-make-run-in-detail" className="onb-make-option-detail onb-make-run-in-detail">
+          {strings.t(RUN_IN_KEYS[choices.chatsRunIn].detail)}
+        </p>
+      </Group>
+    );
   const density = (
     <Group look={look} className="onb-make-density" label={strings.t("onboarding.makeItYours.density.label")}>
       <div
@@ -481,6 +524,7 @@ export function MakeItYoursStep({
         </figure>
         <div className="onb-make-choices">
           {askWork && work}
+          {askWork && runIn}
           {density}
           {background}
         </div>
@@ -490,6 +534,7 @@ export function MakeItYoursStep({
   return (
     <div className="onb-make" data-look={look} data-screen={walkScreen}>
       {askWork && work}
+      {askWork && runIn}
       {askTune && density}
       {askTune && background}
     </div>

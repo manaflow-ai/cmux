@@ -498,6 +498,7 @@ export function makeItYoursState(
     opacitySet: kind === "picked",
     material: kind === "picked" ? "frosted" : null,
     materials: ["none", "frosted", "glass", "glass-clear"],
+    chatsRunIn: kind === "picked" ? "cloud" : "local",
     loaded: kind !== "loading",
     ...(introWalk ? { introWalk: true } : {}),
   };
