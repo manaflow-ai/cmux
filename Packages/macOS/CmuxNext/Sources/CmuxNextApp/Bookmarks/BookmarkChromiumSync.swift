@@ -77,49 +77,43 @@ final class BookmarkChromiumSync {
             return
         }
         do {
+            var operations: [BookmarkOperation] = []
             switch event {
             case .loaded, .reset:
                 break
             case .added(let nodes):
-                for node in nodes { try create(node, profile: profile) }
+                let tree = service.tree(profile)
+                for node in nodes where tree.node(Self.cmuxID(node.id)) == nil { try operations.append(Self.create(node)) }
             case .changed(let id, let title, let url):
-                var parsed: URL?
-                if let url {
-                    guard let value = URL(string: url) else { throw BookmarkChromiumSyncError.badURL }
-                    parsed = value
-                }
-                try service.apply(.update(id: Self.cmuxID(id), title: title, url: parsed), profile: profile)
+                let parsed = url.flatMap(URL.init(string:))
+                guard (url == nil) == (parsed == nil) else { throw BookmarkChromiumSyncError.badURL }
+                operations.append(.update(id: Self.cmuxID(id), title: title, url: parsed))
             case .moved(let id, let parent, let index):
-                try service.apply(.move(id: Self.cmuxID(id), parent: Self.cmuxID(parent), index: index), profile: profile)
+                operations.append(.move(id: Self.cmuxID(id), parent: Self.cmuxID(parent), index: index))
             case .removed(let id):
                 let id = Self.cmuxID(id)
-                if service.tree(profile).node(id) != nil { try service.apply(.delete(id: id), profile: profile) }
+                if service.tree(profile).node(id) != nil { operations.append(.delete(id: id)) }
             case .reordered(let parent, let children):
-                for (index, child) in children.enumerated() where service.tree(profile).index(of: Self.cmuxID(child)) != index {
-                    try service.apply(.move(id: Self.cmuxID(child), parent: Self.cmuxID(parent), index: index), profile: profile)
+                operations = children.enumerated().map { index, child -> BookmarkOperation in
+                    .move(id: Self.cmuxID(child), parent: Self.cmuxID(parent), index: index)
                 }
             }
+            // One bookmarks_apply call per event. An extension's bookmark is not the star's folder.
+            let lastFolder = service.lastFolder[profile]
+            defer { service.lastFolder[profile] = lastFolder }
+            for case .failure(let error) in try service.apply(operations, profile: profile) { throw error }
         } catch {
             // The deferred sync puts cmux's tree back in Chromium.
             logger.error("chrome.bookmarks change refused: \(String(describing: error), privacy: .public)")
         }
     }
 
-    private func create(_ node: CEFBookmarkNode, profile: String) throws {
-        guard let service else { return }
-        let id = Self.cmuxID(node.id), parent = Self.cmuxID(node.parent)
-        guard service.tree(profile).node(id) == nil else { return }
+    private static func create(_ node: CEFBookmarkNode) throws -> BookmarkOperation {
+        let id = cmuxID(node.id), parent = cmuxID(node.parent)
         let created = node.addedMs.map { Date(timeIntervalSince1970: $0 / 1000) } ?? Date()
-        // An extension's bookmark is not the person's choice of folder for the star.
-        let lastFolder = service.lastFolder[profile]
-        defer { service.lastFolder[profile] = lastFolder }
-        if node.isFolder {
-            try service.apply(.create(.folder(node.title, in: parent, id: id, created: created), index: node.index), profile: profile)
-        } else {
-            guard let url = node.url.flatMap(URL.init(string:)) else { throw BookmarkChromiumSyncError.badURL }
-            try service.apply(.create(.bookmark(node.title, url: url, in: parent, id: id, created: created), index: node.index),
-                              profile: profile)
-        }
+        if node.isFolder { return .create(.folder(node.title, in: parent, id: id, created: created), index: node.index) }
+        guard let url = node.url.flatMap(URL.init(string:)) else { throw BookmarkChromiumSyncError.badURL }
+        return .create(.bookmark(node.title, url: url, in: parent, id: id, created: created), index: node.index)
     }
 
     /// Syncs `store` once its events have settled for `settle`; a later

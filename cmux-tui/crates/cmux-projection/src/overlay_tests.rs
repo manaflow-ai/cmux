@@ -1234,3 +1234,49 @@ fn the_content_store_keeps_its_floor_of_free_disk() {
     scan(&overlay, &files);
     assert!(fake.calls.load(Ordering::Relaxed) > asked, "evicted blobs came from nowhere");
 }
+
+// MARK: Warm (the Mac's predicted hot set, cmux-tui `project_hot`)
+
+#[test]
+fn warm_fills_the_cache_without_a_pin_and_a_later_read_asks_nothing() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_pin_reserve(0);
+    let paths = vec!["README.md".to_owned(), "src/deep".to_owned(), "nope".to_owned()];
+    let report = overlay.warm(&paths, 64, 8 * 1024 * 1024);
+    assert_eq!((report.files, report.bytes), (2, 15));
+    assert!(report.fetched_bytes >= 15, "a read's folder read-ahead may come along");
+    assert_eq!((report.failed, report.first_error), (0, None));
+    assert!(overlay.pins().is_empty(), "a warm records no pin");
+    assert_eq!(overlay.pinned_bytes(), 0, "a warm keeps nothing apart from the LRU");
+    assert!(overlay.pin_states().is_empty());
+    assert!(!state.path().join(pin::PINS_FILE).exists(), "a warm writes no pins file");
+    let calls = fake.calls.load(Ordering::Relaxed);
+    assert_eq!(overlay.read(path_ino(&overlay, "README.md"), 0, 64).unwrap(), b"readme");
+    assert_eq!(overlay.read(path_ino(&overlay, "src/deep/d.rs"), 0, 64).unwrap(), b"fn d() {}");
+    assert_eq!(fake.calls.load(Ordering::Relaxed), calls, "a warmed read asked the Mac");
+    let again = overlay.warm(&paths, 64, 8 * 1024 * 1024);
+    assert_eq!(again.fetched_bytes, 0, "already in the cache");
+}
+
+#[test]
+fn warm_stops_at_its_file_cap_and_skips_a_file_past_its_byte_cap() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_pin_reserve(0);
+    // big.bin is past 1 KB and skipped; the walk goes on to src, whose first two files fit the cap.
+    let paths = vec!["big.bin".to_owned(), "src".to_owned()];
+    let report = overlay.warm(&paths, 2, 1024);
+    assert_eq!((report.files, report.bytes), (2, 18));
+    assert!(report.fetched_bytes >= 18 && report.fetched_bytes < BIG, "big.bin stayed home");
+    assert!(overlay.pins().is_empty());
+}
+
+#[test]
+fn warm_with_the_mac_away_stops_at_the_first_absence_and_pins_nothing() {
+    let (state, manifest, _) = setup(false);
+    let (_, _, away) = setup(true);
+    let overlay = open(state.path(), &manifest, &away).with_pin_reserve(0);
+    let report = overlay.warm(&[String::new()], 64, 1024);
+    assert_eq!(report.first_error, Some(FetchError::Away.errno()));
+    assert_eq!(report.failed, 1);
+    assert!(overlay.pins().is_empty());
+}

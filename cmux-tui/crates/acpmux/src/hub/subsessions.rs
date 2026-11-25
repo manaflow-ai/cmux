@@ -118,6 +118,11 @@ fn setting(key: &str, max: u32) -> Option<u32> {
     Some(n.floor().clamp(1.0, f64::from(max)) as u32)
 }
 
+/// [`setting`] for another module's key (`lane_fanout.rs`).
+pub(super) fn setting_u32(key: &str, max: u32) -> Option<u32> {
+    setting(key, max)
+}
+
 /// Where a limit value came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Source {
@@ -583,7 +588,11 @@ impl Hub {
                 name: None,
                 // A family lives on one daemon: a child starts beside its parent.
                 redirect: false,
+                auto: false,
+                waiting: None,
                 harness: Some(harness.clone()),
+                // The parent's lane holds this child (`lane_fanout.rs`).
+                caller: Some(parent.id.as_str()),
             })
             .await?;
         // Its worktree is made, and its harness spawns, only in the very folder checked.

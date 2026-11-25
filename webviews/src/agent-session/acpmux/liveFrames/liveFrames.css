@@ -1,0 +1,132 @@
+/* Frames of a turn: the strip under the edited-files card (TurnFramesStrip.tsx) and the floating
+   preview window (FramesDock.tsx). Pure CSS; the window is placed by transform, so a drag costs
+   no layout. */
+.acpmux-frames-strip {
+  margin-top: var(--ds-space-2, 8px);
+}
+.acpmux-frames-strip__row {
+  display: flex;
+  gap: var(--ds-space-2, 8px);
+  margin: 0;
+  padding: 0 0 var(--ds-space-1, 4px);
+  list-style: none;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.acpmux-frames-strip__item {
+  flex: none;
+}
+.acpmux-frames-strip__frame {
+  display: block;
+  padding: 0;
+  border: var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge, currentColor);
+  border-radius: 6px;
+  overflow: hidden;
+  background: none;
+  cursor: zoom-in;
+}
+.acpmux-frames-strip__frame:disabled {
+  cursor: default;
+}
+.acpmux-frames-strip__frame img {
+  display: block;
+  /* Two primary control rows tall. */
+  height: calc(2 * var(--ds-control-primary));
+  width: auto;
+}
+
+.acpmux-frames-dock-layer {
+  position: absolute;
+  inset: 0;
+  z-index: var(--layer-raised, 2);
+  pointer-events: none;
+  overflow: hidden;
+}
+.acpmux-frames-dock {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  border-radius: var(--ds-radius-xl);
+  overflow: hidden;
+  pointer-events: auto;
+  color: var(--agent-text);
+}
+.acpmux-frames-dock[data-mode="full"] {
+  inset: 0;
+  width: auto;
+  height: auto;
+  transform: none;
+  border-radius: 0;
+}
+.acpmux-frames-dock__head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1, 4px);
+  flex: none;
+  height: var(--ds-control-primary);
+  padding: 0 var(--ds-space-2, 8px);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.acpmux-frames-dock[data-mode="full"] .acpmux-frames-dock__head {
+  cursor: default;
+}
+.acpmux-frames-dock__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-caption);
+  color: var(--agent-muted);
+}
+.acpmux-frames-dock__button {
+  flex: none;
+  width: var(--ds-control-compact);
+  height: var(--ds-control-compact);
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+}
+.acpmux-frames-dock__button:hover {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+.acpmux-frames-dock__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+}
+.acpmux-frames-dock__body:disabled {
+  cursor: default;
+}
+.acpmux-frames-dock__body img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.acpmux-frames-dock__grip {
+  position: absolute;
+  margin: 0;
+  border: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
+  cursor: nwse-resize;
+  touch-action: none;
+  background: linear-gradient(135deg, transparent 55%, color-mix(in srgb, currentColor 40%, transparent) 55% 65%, transparent 65% 75%, color-mix(in srgb, currentColor 40%, transparent) 75% 85%, transparent 85%);
+}

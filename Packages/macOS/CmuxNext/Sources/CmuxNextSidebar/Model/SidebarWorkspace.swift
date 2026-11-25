@@ -119,6 +119,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var activity: StatusIndicatorState
     /// The winning report's style hint (`cmux status set --style`).
     public var activityStyle: StatusIndicatorStyle?
+    /// A look's particles glyph played in place of the loading indicator while the row works
+    /// (`cmux.sidebar.rows/1` `indicator: {choreography, trigger}` or `"glyph"`); nil by default.
+    public var activityGlyph: SidebarRowGlyph?
     /// The winning report is an OSC 7501 program status record: the program opted in to the
     /// finer row icons (a shield for permission, each pending item), with
     /// `sidebar.detailedStatusIcons` off (Lawrence msg 1351).
@@ -178,12 +181,12 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// compact row has no second line of its own, Leo 2026-10-30). Nil for
     /// every other row.
     public var stage: String?
-    /// Its front tab is a New Tab page whose Send starts a Cloud chat (`AgentCloudStartTitles`), or a Cloud machine's desktop: the row draws the
-    /// cloud mark from the Send, as the chat's own row on its machine does once it opens (``WorkspaceRowContent/runsInCloud``).
-    public var startsInCloud = false
     /// Archived in the sidebar document (`extra.archived`, or under an archived group): the row
     /// draws dimmed at the end of its list (plans/cmux-next/archiving-DESIGN.md). Set by `arrange`.
     public var isArchived = false
+    /// Pinned inside its group in the sidebar document (`extra.pinned`, `SidebarDocProjection.pinnedInGroup`): the
+    /// row draws a pin mark at rest, whatever its icon (https://github.com/manaflow-ai/cmux/issues/56146). Set by `arrange`.
+    public var isPinnedInGroup = false
     /// Agents acting in the workspace's tabs right now, in a stable order
     /// (`agent-presence-v1`); drawn only with `sidebar.presenceDots` on.
     public var presence: [SidebarPresence] = []

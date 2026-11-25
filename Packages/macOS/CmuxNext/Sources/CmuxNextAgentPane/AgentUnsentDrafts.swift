@@ -22,6 +22,8 @@ public final class AgentUnsentDrafts {
     /// Tabs whose draft came from the file and no page has been handed yet.
     /// (Each with the draft the file held: what the page's text merges with until it takes the seed.)
     private var undelivered: [String: String]
+    /// Sends queued while a Cloud start was out, by slot (``queue(_:for:)``).
+    private var queuedSends: [String: String] = [:]
     /// The file exists but could not be read: the first save that runs sets it aside first.
     private let unreadable: UnreadableFile
     /// The window tab `key` shows in (its workspace's window), for its new chat's leftover
@@ -97,6 +99,7 @@ public final class AgentUnsentDrafts {
         model.tabKey = { key() }
         let slotted = { [weak self] in self?.slot(key(), machine: machine()) ?? key() }
         model.onUnsentDraft = { [weak self] text in self?.typed(text, for: slotted()) }
+        model.onCloudStartQueue = { [weak self] text in self?.queue(text, for: slotted()) }
         model.onNewChatLeftover = { [weak self] text in
             guard let self, let window = window(ofSlot: slotted()) else { return }
             leave(text, inWindow: window)
@@ -114,6 +117,7 @@ public final class AgentUnsentDrafts {
         let started = model.onSessionChange
         model.onSessionChange = { [weak self] session in
             self?.set("", for: slotted())
+            self?.queue("", for: slotted())
             started?(session)
         }
     }
@@ -165,6 +169,16 @@ public final class AgentUnsentDrafts {
     /// click into the composer at all to, like potentially type other stuff while it's doing that
     /// initial load situation").
     public func draft(forTab key: String, machine: String?) -> String? { drafts[slot(key, machine: machine)] }
+
+    /// What Return sent in tab `key` while its Cloud start was out (`chat.cloudStartQueue`): the started
+    /// chat's first prompt carries it. In memory only: a relaunch ends the start, and the page put it
+    /// back in the composer (a draft, kept on disk) before then.
+    public func queue(_ text: String, for key: String) {
+        if Self.isBlank(text) { queuedSends.removeValue(forKey: key) } else { queuedSends[key] = text }
+    }
+
+    /// Tab `key`'s (of `machine`) queued sends, if any (``queue(_:for:)``).
+    public func queued(forTab key: String, machine: String?) -> String? { queuedSends[slot(key, machine: machine)] }
 
     /// The page of tab `key` sent its text (`chat.unsentDraft`). Until the page takes the kept
     /// draft (its seed, ``seed(for:session:local:)``), each text it sends is only its typing: it is

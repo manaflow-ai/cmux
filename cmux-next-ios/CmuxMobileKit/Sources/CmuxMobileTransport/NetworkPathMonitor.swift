@@ -59,16 +59,10 @@ public final class NetworkPathMonitor: @unchecked Sendable {
             #if canImport(CmuxMobileLinkFFI)
             // The next WireGuard dial picks its ultra mode with it (Rust `ultra_for_dial`).
             setCellularPath(cellular: path.usesInterfaceType(.cellular))
-            // Which interfaces are up; Rust decides what to do with them (second socket, roaming).
-            setNetworkInterfaces(interfaces: path.availableInterfaces.enumerated().map { index, interface in
-                NetInterface(
-                    name: interface.name,
-                    kind: interface.type == .wifi ? .wifi : interface.type == .cellular ? .cellular : interface.type == .wiredEthernet ? .wired : .other,
-                    expensive: interface.type == .cellular || (index == 0 && path.isExpensive),
-                    constrained: path.isConstrained,
-                    primary: index == 0
-                )
-            })
+            // The key-to-paint histogram's network tag (Rust `key_paint`).
+            setNetworkKind(kind: path.usesInterfaceType(.cellular) ? "lte"
+                : path.usesInterfaceType(.wifi) ? "wifi"
+                : path.usesInterfaceType(.wiredEthernet) ? "wired" : "other")
             #endif
             if let event = state.filter.update(satisfied: path.status == .satisfied, signature: Self.signature(path)) {
                 continuation.yield(event)

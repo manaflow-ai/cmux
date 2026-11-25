@@ -7,7 +7,7 @@ extension Strings {
     /// The Live button's tooltip: what it means, the click's effect, and how many teammates are live.
     static func liveTooltip(isLive: Bool, teammatesLive: Int) -> String {
         let state = isLive
-            ? String(localized: "sidebar.live.on", defaultValue: "Live is on. Click to go offline.", bundle: .localizedModule)
+            ? String(localized: "sidebar.live.on", defaultValue: "Live is on. Click to turn it off.", bundle: .localizedModule)
             : String(localized: "sidebar.live.off", defaultValue: "Live is off. Click to go live.", bundle: .localizedModule)
         let count = String(localized: "sidebar.live.count", defaultValue: "Teammates live: \(teammatesLive)", bundle: .localizedModule)
         return state + "\n" + count
