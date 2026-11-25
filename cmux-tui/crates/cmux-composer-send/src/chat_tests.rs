@@ -1229,7 +1229,9 @@ fn only_a_real_refusal_fails_and_a_not_now_that_never_ends_is_final_after_the_pa
     outbox.push("busy", "b", vec![], false, t0, t0);
     let mut now = t0;
     loop {
-        outbox.next_request(now).map(|_| outbox.wrote("busy"));
+        if outbox.next_request(now).is_some() {
+            outbox.wrote("busy");
+        }
         match outbox.refusal("busy", true, now).unwrap() {
             Refusal::Retry { retry_in, .. } => now += retry_in,
             Refusal::Final(done) => {
