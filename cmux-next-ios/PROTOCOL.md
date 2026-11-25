@@ -513,14 +513,23 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
 
 - **Join:** `GET /v1/relay/:sessionId?deviceId=<id>`, a plain HTTP/1.1
   `Upgrade: websocket` with `Authorization: Bearer <Stack token>` (or the
-  `bearer.` subprotocol entry, as for signaling) and the build space
-  header of a dev build. The Worker selects `cmux-relay.v1` when offered.
-  It admits only a device the caller's own hub bound to that session at its
-  first admitted signal (the session's initiator or responder, while the
-  session lives: 24 h, or until `bye` or the device's removal), in the
-  caller's build space: anyone else gets `403 not_in_session`, a session no
-  signal opened too. `503 relay_off` when the Worker's `LINK_RELAY_MODE` is
-  `off` (the kill switch); an older Worker answers `404`.
+  `bearer.` subprotocol entry, as for signaling), `x-cmux-relay-ticket:
+  <ticket>`, and the build space header of a dev build. The Worker selects
+  `cmux-relay.v1` when offered. It admits only a device the caller's own hub
+  bound to that session at its first admitted signal (the session's
+  initiator or responder, while the session lives: 24 h, or until `bye` or
+  the device's removal), in the caller's build space, presenting that
+  device's own ticket: anyone else gets `403 not_in_session`, a session no
+  signal opened, a missing or wrong ticket, or another device's ticket too.
+  `503 relay_off` when the Worker's `LINK_RELAY_MODE` is `off` (the kill
+  switch); an older Worker answers `404`. A malformed `%` escape in the path
+  is `400`.
+- **Tickets:** when a session opens the hub makes a random ticket (32 bytes,
+  base64url) for each of its two devices, and stamps `relayTicket` on every
+  `wg-*` signal it forwards, the recipient's own ticket, replacing any value
+  a client wrote. A device learns its ticket only from its own signaling
+  socket, so a join proves which of the user's devices it is as far as the
+  service can tell (the user's token plus that device's socket).
 - **Where:** one `LinkRelay` Durable Object per session, named by the owner
   key, build space and session id (never a client value), created in the
   region that makes the two ends' round trips through it least ("Relay
@@ -535,7 +544,21 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   device id (the UUID's 16 bytes) and never reads the payload. Malformed
   frames, other kinds and frames past the per-socket limit (1500 frames and
   8 MiB a second) are dropped; the sender hears `{"type":"error","code":...}`
-  at most every 5 s.
+  at most every 5 s. What a socket relays is first granted by the user's
+  hub (64 KiB, doubling up to 1 MiB per grant while the socket keeps
+  relaying), one budget per user and build space across all sessions
+  (`LINK_RELAY_USER_MIB_PER_MIN`, default 480: 8 MiB/s, kept in the hub's
+  storage so a wake grants no fresh minute); past it frames are dropped and
+  the sender hears `{"type":"error","code":"rate_limited"}`. A session asks
+  the hub one grant at a time (at most 256 frames wait for it); a refusal
+  holds for the hub's retry-after, and a hub that fails grants nothing for
+  1 s (fail closed), so frames past the budget cost no hub call each.
+- **Closes:** the service closes a relay socket with 4000 `replaced` (the
+  same device joined again), 4001 `ended` (the session's `bye`, also when the
+  peer's signaling socket is closed, or the session passed its 24 h), 4002
+  `removed` (a device of the session, or the account, was removed) and 4003
+  `relay_off` (the kill switch, at the socket's next frame). A client does
+  not rejoin after 4001 to 4003 (the join would be refused).
 - **Text frames, relay → client:** `{"type":"joined","peer":bool}` (the
   other party's socket is joined), then `{"type":"peer","online":bool}` when
   it joins or leaves, or at most every 5 s while frames find it absent. A
@@ -548,7 +571,14 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   heard nothing for 16 s in the foreground, when its relay socket dies while
   the session needs it, or when the peer asks (`wg-relay`). A side that
   joins on its own asks the peer; one that heard the peer while its join
-  ran drops the unused socket. A failed join is retried after 1, 3, 10 and
+  ran drops the unused socket (an asked one too, once another route is
+  confirmed both ways, and an ask that arrives then is ignored). A dead
+  socket is joined again at once only while nothing else reaches the peer,
+  and only a side that left the relay on its own (another route carried the
+  session) keeps it after joining again within 5 minutes. On joining, the phone sends its handshake
+  through the relay at once and the Mac 300 to 900 ms later (at random, and
+  only if nothing arrived meanwhile): two initiations that cross in step each
+  overwrite the other side's pending one. A failed join is retried after 1, 3, 10 and
   30 s; `403`, `404` and `503` are not.
 - **On the tunnel:** the relay is one more carrier, a path of the path
   selector like each TURN route, ranked below every direct path and, by
@@ -617,6 +647,71 @@ retries on its own; it never shows "connecting" without a bound for it
 (`scripts/cmux-next/check-connection-notices.py`). What IT must allow:
 [network requirements](../web/data/next-docs/pages.ts) (cmux.com
 `/docs/nightly/next/network-requirements`).
+
+## Three-way hub (RFD 0142 R6, added 2026-11-24, backward compatible)
+
+One room per agent session where both sources of the session's events, the
+Mac and the AutoCloud VM, upload, and every viewer (the phone, another Mac)
+downloads each event once: whichever source is ahead carries the stream, and
+the other is a warm standby. When the Mac sleeps mid-turn, the VM's copies
+are already the newest and keep flowing with no reconnect.
+
+- **Join:** `GET /v1/hub/:sessionId?deviceId=<id>&role=mac|vm|viewer`, a
+  plain HTTP/1.1 `Upgrade: websocket` with the Stack token, as for the
+  relay. The Worker admits only a device registered to the caller (its own
+  hub, then the database; anyone else gets `403 not_owner`) and a source
+  role only from a Mac-kind device (the VM's daemon registers as one; a
+  phone gets `403 not_a_source`). `400` for a session id or device id that
+  is not a UUID or an unknown role, `503 hub_off` when the Worker's
+  `HUB_RELAY_MODE` is `off`. An older Worker answers `404`.
+- **Capability:** a hub client offers the `cmux-hub.v1` subprotocol and the
+  hub echoes it. A client falls back to its other paths (one link per Mac,
+  the WebSocket relay) on `404`/`405` (no route), `503` (off), any other
+  refusal, a `101` without the subprotocol, or the error `bad_frame:kind`,
+  which is what the two-party `LinkRelay`, and so every pre-hub relay,
+  answers a kind-5 frame with (`cmux_transport::hub::hub_join_outcome`,
+  `relay_error_means_no_hub`). Old clients never ask for the hub, and the
+  relay they use is unchanged.
+- **Where:** one `HubRelay` Durable Object (wrangler migration `v4`) per
+  session, named by the owner key, build space and session id
+  (`hubRoomName`), never a client value. Hibernating sockets, no storage
+  write per frame. One socket per source role and per viewer device (a
+  newer join closes the older with 4000 `replaced`). On join the socket
+  gets `{"type":"joined","hub":1,"sources":{"mac":bool,"vm":bool}}`; every
+  socket hears `{"type":"source","role","online"}` when a source comes or
+  goes (not when a newer socket of the same role replaced it).
+- **Frames:** relay frame kind `5` (`hub`; kind `4` is the
+  `LinkRelay`'s tagged datagrams, cmux#54189), golden vectors in
+  `cmux-tui/crates/cmux-transport/tests/vectors/relay-hub-frames.json`,
+  checked by the Rust crate and the backend tests. The payload is a 35-byte
+  clear header and a sealed body:
+  `[u8 1][16-byte session][u64 BE epoch][u64 BE seq][u8 source: 1 mac, 2 vm][u8 to: 0 viewers, 1 mac, 2 vm]`.
+  The header is all the relay reads; a bad one is `bad_frame:bad_hub`.
+- **Seal (end to end, source to viewer):** XChaCha20-Poly1305 under
+  `BLAKE3 derive_key("cmux relay hub v1 session key", secret || session)`,
+  nonce `[source][to][epoch BE][seq BE][6 zero bytes]`, associated data the
+  clear header, plaintext `[session][epoch BE][seq BE][source][event]`. The
+  relay holds no key that decrypts or authenticates session content; an
+  edit to any header byte, or a header moved onto another body, fails to
+  open (`cmux_transport::hub::{seal, open}`).
+- **Relay rule** (`cmux_transport::hub::HubRelayRule`, the same in
+  `src/hub-relay.ts`): a frame `to` viewers whose `(epoch, seq)` is newer
+  than the highest the room forwarded goes to every viewer once, with
+  `peer` set to the sender's device; an older or equal one is dropped and
+  counted. A frame `to` a source (Mac-to-VM sync when the two have no direct
+  path) goes to that source as is, or the sender hears
+  `{"type":"source","role","online":false}`. A viewer may not send
+  (`bad_hub:viewer`); a source speaks only as its own role
+  (`bad_hub:role`) and for the room's session (`bad_hub:session`); other
+  kinds are `bad_frame:kind`. The high-water mark lives in memory: a wake
+  forgets it, which lets at most one more copy through. `{"type":"stats"}`
+  answers `{"type":"stats","forwarded","dropped"}`.
+- **Viewer** (`cmux_transport::hub_truth::TruthTracker`, sans-io): checks
+  that the clear header equals the sealed triple, delivers events in log
+  order with no duplicates, reports a hole inside an epoch as a `Gap` to
+  fill from the source with the higher head, and flags a `StalePick` when
+  the relay's copy trails the other source's known head by more than the
+  tolerance (4).
 
 ## Link (inside either transport)
 
@@ -1298,6 +1393,7 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `pair-requests-v1` | hostd `version` | The host serves `pair-requests`: a paired device answers a pairing request waiting on this Mac. |
 | `phone-frames-v1` | hostd `version` | The host serves `phone-frames`: the phone's terminal scroll frame times, logged to `phone-frames.jsonl` on the Mac. |
 | `tab-snapshots-v1` | hostd `version` | (2026-11-22) The host serves `tabs`: every tab's title, favicon, thumbnail or terminal screen text, each picture sent once by hash and then only changes. |
+| `mailbox-send-v1` | hostd `version` | (2026-11-24) The Mac's mailbox takes `send` (a chat message) and `compose` (a queue action) items, held up to 24 hours and applied once, in each phone's order: a phone routes a send to the mailbox only to a Mac that listed it on its last link. |
 | `browser-stream-v1` | hostd `version` | The host streams browser tabs (`browser`); listed only when the Mac has a browser host. |
 | `browser-video-track-v1` | hostd `version` | With `browser-stream-v1`: `browser {"video":"track"}` carries the page's video on the media lane (WebRTC, and WireGuard since 2026-10-14). |
 | `surface-stream-v1` | hostd `version` | (2026-10-22) The host streams the Mac's phone tabs' simulators (`surface`); listed only when the Mac app streams simulators. |
@@ -1308,6 +1404,11 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `page-tabs-v1` | cmux-tui daemon | Declared in `set-client-info`: page tabs read as `conversation` with their `page` (a phone tab is a simulator tab). |
 | `agent-session-tabs-v1` | cmux-tui daemon | Declared in `set-client-info` on a `cloud-acpmux` carrier: agent session tabs read with their session source. |
 | `send-expect-agent-v1` | cmux-tui daemon | In `identify`: a notification reply to an agent types text and Return only while that agent waits at its prompt (#24205). |
+| `agent-cli-hybrid-v1` | cmux-tui daemon | Declared by the phone's terminal in `set-client-info` (the lean stream): an agent CLI's terminal as `agent-cli-frame` cell deltas. |
+| `agent-cli-hybrid-v2` | cmux-tui daemon | With `agent-cli-hybrid-v1`: the same deltas packed as `agent-cli-lean`. |
+| `terminal-shell-lines-v1` | cmux-tui daemon | With the hybrid pair: a plain shell's terminal as lean frames too, PTY bytes while it runs a full-screen program. |
+| `attach-output-coalesce-v1` | cmux-tui daemon | `output` at most once per display frame for a terminal that stays on PTY bytes (#43373). |
+| `terminal-full-screen-frames-v1` | cmux-tui daemon | With `terminal-shell-lines-v1`: a full-screen program as lean frames as well (its modes as bytes), one display frame apart, instead of its PTY repaints (#51565). |
 <!-- link-names:capabilities:end -->
 
 ## Pairing (`auth` service and the Mac app's control lines)
@@ -1505,7 +1606,24 @@ without one and never sends `resize-surface`, so attach, an app switch, a
 lock, the keyboard and a rotation never resize the Mac's PTY, and a rotation
 re-wraps on the phone in the same frame. On the alternate screen (vim, htop)
 it claims as below, only while the page claims, and releases when the
-program leaves the alternate screen. On the primary screen, cursor position
+program leaves the alternate screen.
+
+With Settings → Terminal → Zoom Full-Screen Apps on (off by default,
+`cmuxMobile.settings.terminalZoomFullScreenApps`, read when the page opens),
+the alternate screen claims no size either: the page shows the Mac's exact
+grid, zoomed (pinch snaps to fit width and to the reader's font size, double
+tap toggles them, one finger pans and is never sent to the program). The one
+exception (2026-11-17, `fit_policy`): the phone claims its grid as below once the person types text (3 printable characters; keys, mouse
+reports and replies never count) into a TUI: the alternate screen, or a
+named program that is not a shell drawing on the primary screen with its
+cursor hidden (Claude Code, Codex). The program's name (the terminal title,
+else the tab's) is remembered on the phone, so the next time it is in the
+foreground the phone claims at once and holds the program's frames at the
+Mac's grid until the `resized` replay arrives (1.5 s at most). The claim is
+released when the program leaves the foreground (the alternate screen ends,
+the cursor shows again, another program is named) or when the page stops
+claiming. The terminal's title menu toggles it by hand (Fit to Phone, Keep
+the Mac's Size); undoing forgets the program. On the primary screen, cursor position
 (`CSI 6n`) and text area (`CSI 18t`) reports are answered by the projection
 in the Mac's cells; on the alternate screen the phone's terminal gets the
 program's bytes unchanged and answers them itself (once). A rotation
@@ -1971,6 +2089,103 @@ muted the Mac. A Mac with more than 20 boxes splits one event:
   spent id's outcome on disk until it expires, and applies nothing while that
   file cannot be read.
 
+### Store and forward (`mailbox-send-v1`, API 0.18.0)
+
+A chat send or a composer queue action the phone makes while its Mac sleeps
+or is offline goes through the same mailbox, sealed and signed the same way,
+held for hours, and applied once, in order, when the Mac's signaling socket
+comes back. Every field below is optional on the wire: an older phone, hub or
+Mac keeps the reply mailbox above as it is.
+
+**Hub (Worker user hub).**
+
+- `POST /v1/devices/:macId/mailbox` takes `hold` (seconds, an integer from 1
+  to 86400; absent, 600). The answer adds `seq` and `expiresAt` (ms): a phone
+  that gets no `seq` talks to an older hub, which holds every item 10 minutes.
+- `seq` is per (Mac, phone): 1, 2, 3, ... in post order, never reused, also
+  after items expire or are settled. A retried post of the same item answers
+  its first `seq`.
+- Bounds: items with `hold` of at most 600 count against the 32 pending per
+  Mac as before. Longer holds count per (Mac, phone): at most 64 queued and
+  at most 524288 sealed characters (`429 rate_limited`, the phone's
+  `full`). An outcome stays readable 10 minutes past its item's expiry.
+- Delivery: `mailbox` items add `seq` (absent from an older hub). The hub
+  sends a Mac's queued items ordered by phone, then `seq`, at most 32 in one
+  frame, each once per socket; after each `mailbox_ack` it sends the next
+  page. An item posted while the socket is open goes at once unless 32 sent
+  items still wait for their ack on it. Items not acked are sent again on the
+  next socket.
+- `GET /v1/devices/:macId/mailbox/:id` adds `seq` and `expiresAt` for an item
+  that has them; `expired` is reported once `expiresAt` passed unsettled.
+
+**Mac (hostd).**
+
+- hostd keeps the highest settled `seq` per phone in
+  `<state>/mailbox-cursor.json` (0600), written after the item's outcome is
+  in `mailbox-spent.json` and before its ack is sent. An item whose `seq` is
+  at or under its phone's cursor is never applied: hostd answers its first
+  outcome from the spent file (signed), else `replayed`. With the spent file
+  claimed before applying, a redelivery, an ack lost on the way, a hub retry
+  or a hostd crash mid-apply never applies an item twice.
+- Order: a phone's items are applied in `seq` order. An item that cannot be
+  settled yet (`unavailable`) holds that phone's later items back, unacked,
+  until it settles; other phones' items go on.
+- An item with no `seq` (an older hub) is handled as before, by id alone.
+  Within a frame those go first, in frame order, then each phone's items by
+  `seq`; hostd handles one frame at a time. A held item's phone sends its
+  higher `seq`s to `later` until it settles; a hold not retried in 90 s
+  (its socket died) lapses.
+- The cursor moves only for an item that passed the seal, pairing, signature
+  and expiry checks: `seq` is the hub's and not signed, so a forged item
+  cannot move it. Gaps (an expired or unreadable item) are allowed.
+- An unreadable cursor file holds every item `unavailable`. An item under the
+  cursor whose spent record is still applying, or with an unreadable spent
+  file, is `unavailable`, not `replayed`. A failed cursor write is logged:
+  the spent file still stops a second apply.
+- Crash windows: after the spent claim and before its settle, a redelivery
+  answers `replayed` (as today); after the settle and before the cursor
+  write, it answers the first outcome signed and then moves the cursor.
+- hostd lists `mailbox-send-v1` in `version` when it takes the kinds below.
+  A phone routes a send to the mailbox only to a Mac that listed it on its
+  last link.
+
+**New kinds** (the sealed plaintext of "Reply mailbox"; `target.sessionId`
+required for both):
+
+- `send`: a chat message to an agent session. `action: {type: "text", text,
+  steer?}` (`steer` defaults to true, as Send in the chat). The mailbox item's
+  `id` is the composer's client message id, used as the acpmux `promptId`
+  (`resend: true`), so the same message sent over the link and through the
+  mailbox runs once whichever comes first.
+- `compose`: a composer queue action, keyed by its item id. `action: {type:
+  "queue", op: "update" | "remove" | "send_now" | "move", promptId, text?,
+  index?}` (`text` for `update`, `index` from 0 for `move`), applied as
+  `_acpmux/queue_edit` (`queue_remove` for `remove`). `text` (1 to 4096
+  bytes, not blank) is read only for `update` and `index` only for `move`. A
+  queued prompt that is gone (`_acpmux/info` fails, or the answer is
+  `{ok:false}` or `{removed:false}`) is `not_pending`. A `send` whose `steer`
+  is not a bool is refused; absent or null is true.
+- Their lifetime is up to 24 hours: `expiresAt` at most 86400 s after
+  `issuedAt` and at most 86460 s after the Mac's clock. Every other kind keeps
+  600 s. The phone posts them with `hold` equal to its time left.
+
+**Phone (`cmux-mobile-link`, Rust).** One router decides each send: the link
+up and the Mac present goes the link; the link down or the Mac offline, with
+`mailbox-send-v1` from the Mac, goes the mailbox; neither, it fails as
+before. Both paths carry the same id, so a send that went the link and then
+the mailbox (or the reverse, after a link drop) runs once. Each item's state
+is `queued`, `applied`, `rejected` (with its reason) or `expired`; `applied`
+and `rejected` count only with the Mac's signed ack, else "Not confirmed by
+<Mac>".
+
+Phone details: it reads an item's state after 1, 2, 4 and 8 s, then every
+30 s until `expiresAt`. A `409` on a retried post counts as queued; its `seq`
+comes from the next read. A post answered with no `seq` came from an older
+hub: the phone takes `expiresAt` as its post time plus 600 s and never asks
+for a longer `hold` there. A `404` read before `expiresAt` (the hub lost the
+item) shows "Not confirmed by <Mac>", never a failure: the Mac may have
+applied it.
+
 ### Terminal replies
 
 The `daemon` policy allows `notification-reply {notification, text, reply_id?}`
@@ -2160,7 +2375,11 @@ to a phone: it changes the Mac-wide preference only.
   terminal background and a one-line note (`120×40 · set by <device>`).
   This applies to the alternate screen, and to every screen with Fit to
   Phone on; with projection (the default, "Terminal size claims" above)
-  the primary screen is re-wrapped to the phone's width instead.
+  the primary screen is re-wrapped to the phone's width instead. With
+  Zoom Full-Screen Apps on, the alternate screen's grid also takes a zoom: it opens at fit width (the
+  whole width on the page), pinch and double tap reach the reader's font
+  size, and one finger pans in both directions; the letterbox and its note
+  follow the zoomed grid's height.
 
 ## Connectivity incidents (API 0.15.0)
 

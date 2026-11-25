@@ -213,6 +213,17 @@ impl ClassQueue {
         }
     }
 
+    /// The next datagram by priority if one is queued now, without waiting
+    /// (a writer packing what is ready into one relay frame); `None` when
+    /// nothing is queued or the queue is closed.
+    pub(crate) fn try_next(&self) -> Option<Queued> {
+        let mut queues = self.lock();
+        if queues.closed {
+            return None;
+        }
+        queues.pop()
+    }
+
     /// Drop what is queued and refuse more.
     pub(crate) fn close(&self) {
         {
