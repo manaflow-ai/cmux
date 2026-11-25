@@ -132,9 +132,9 @@ enum BrowserToolbarHandlers {
         return submenu
     }
 
-    /// The profile button's menu (`ActionRegistry.makeBrowserProfileMenu`), for the tab by the key the App keeps it
-    /// under: an adopted page's own id finds no tab, and Clear Browsing Data or Delete would act on Default.
-    static func profileMenu(forTab key: String, services: AppServices) -> NSMenu {
+    /// The profile button's menu (`ActionRegistry.makeBrowserProfileMenu`, in the look `style`), for the tab by the key the App
+    /// keeps it under: an adopted page's own id finds no tab, and Clear Browsing Data or Delete would act on Default.
+    static func profileMenu(forTab key: String, services: AppServices, style: BrowserProfileMenuStyle = .card) -> NSMenu {
         let profiles = services.browserProfiles
         let current = services.cache.tabModel(key).map(profiles.profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
         let incognito = services.cache.browserTabs.isIncognitoTab(key)
@@ -143,9 +143,9 @@ enum BrowserToolbarHandlers {
         let header = incognito ? nil : profiles.toolbarBadge(forTab: key)?.menuHeader(BrowserProfileCascade.source(
             tabProfile: current, workspace: profiles.workspaceDefault(workspace), room: profiles.roomDefault(workspace), known: profiles.isKnown))
         return services.registry.makeBrowserProfileMenu(
-            tabKey: key, current: current,
-            profiles: profiles.ordered.map { record in (record.id, record.icon.map { "\($0)  \(record.name)" } ?? record.name) },
-            profileActions: !incognito, header: header, workspace: incognito ? nil : workspace)
+            tabKey: key, current: current, profiles: profiles.ordered.map { ($0.id, $0.name) }, profileActions: !incognito, header: header,
+            workspace: incognito ? nil : workspace, style: style, account: services.menuBarAccount.map { ($0.lines.last ?? "", services.menuBarAvatar) },
+            images: BrowserProfileBadge.menuImages(profiles.ordered))
     }
 
     /// The More menu (cx-6qwm, `ActionRegistry.makeBrowserMoreMenu`) on glass, as ChatGPT Atlas's: the hidden toolbar
