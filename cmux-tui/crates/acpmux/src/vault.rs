@@ -35,6 +35,8 @@ pub mod egress;
 pub mod kept;
 pub mod plan;
 pub mod pull;
+#[cfg(unix)]
+pub mod reach;
 pub mod store;
 pub mod wire;
 

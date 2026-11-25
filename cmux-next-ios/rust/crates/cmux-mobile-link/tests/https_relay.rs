@@ -580,3 +580,111 @@ async fn a_relay_join_the_proxy_policy_refuses_is_tried_again() {
     assert!(!failure.is_final());
     assert_eq!(server.relay_joins(), 0);
 }
+
+/// The Mac's network drops UDP, so its trickled answer takes its own TURN
+/// allocation after the tunnel starts, and that allocation is slow (its TLS
+/// connection takes 3.2 s, past the relay's 3 s). The relay waits for it: the
+/// Mac joins neither on its own clock nor on the phone's ask while its TURN
+/// allocation is still under way, and once that allocation works the link
+/// rides it, with the Mac never on the relay. (A UDP allocation capped at
+/// 3 s by #52961, after 250 ms of STUN silence, overruns the relay's 3 s the
+/// same way.)
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_slow_turn_allocation_on_the_mac_gets_its_window_before_the_relay() {
+    let turn = TestTurn::start().await;
+    turn.set_udp_blocked(true);
+    turn.delay_streams(Duration::from_millis(3200));
+    // Nothing answers STUN on the discard port: the Mac's UDP looks blocked.
+    let silent_stun =
+        cmux_mobile_link::api::IceServer { urls: vec!["stun:127.0.0.1:9".into()], ..turn.udp_only() };
+    let mac_options = DialOptions {
+        ice_servers: vec![turn.ice.clone(), silent_stun],
+        turn_tls_roots: Some(std::sync::Arc::clone(&turn.roots)),
+        drop_udp_to: Some(|addr| !cmux_mobile_link::testing::is_test_relay(addr)),
+        ..options()
+    };
+    let rig = rig(FakeOptions::default(), mac_options, true).await;
+    let leave = Some(Duration::from_secs(2));
+    let phone =
+        DialOptions { relay: relay(&rig.server, &rig.phone_id), relay_leave_after: leave, ..options() };
+    let connected =
+        dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
+            .await
+            .expect("dial through the Mac's TURN allocation");
+    echo(&connected.link, 2).await;
+    assert_eq!(turn.stream_connections(), 1, "the Mac's allocation over TLS");
+    // Past the relay's window after that allocation: still no Mac on it.
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    loop {
+        echo(&connected.link, 1).await;
+        let path = *connected.path.borrow();
+        let phone_left =
+            cmux_mobile_link::dial::wireguard::relay_held(&connected.session_id, true) != Some(true);
+        if matches!(path, LinkPath::Turn | LinkPath::TurnTls) && phone_left {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "path {path:?}, phone left the relay: {phone_left}");
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    echo(&connected.link, 1).await;
+    assert!(
+        rig.server.relay_joins_of(&rig.mac_id).is_empty(),
+        "the Mac joined the relay while its TURN allocation was under way"
+    );
+    assert!(matches!(rig.mac_path(), Some(LinkPath::Turn | LinkPath::TurnTls)), "{:?}", rig.mac_path());
+    connected.link.close("done");
+}
+
+/// Disco over the relay (ledger 13h): two devices on one LAN whose signaling
+/// carried no direct endpoint (an older or stripping signaling path, a
+/// relay-only meeting) meet on cmux's relay. Plain UDP between them works, so
+/// once the tunnel is up they must swap their LAN endpoints through it and
+/// move the link to the direct path: relayed -> direct, both sides.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn peers_that_met_on_the_relay_swap_lan_endpoints_and_go_direct() {
+    met_on_the_relay_goes_direct(false, "nearby_disco_over_relay").await;
+}
+
+/// The same with each side taking the other for an older peer (no `version`
+/// in wg-init or wg-resp): the endpoints ride the roam announcement, which
+/// older builds already take, so nothing new is negotiated.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_older_peer_met_on_the_relay_also_goes_direct() {
+    met_on_the_relay_goes_direct(true, "nearby_disco_over_relay_old_peer").await;
+}
+
+async fn met_on_the_relay_goes_direct(old_peer: bool, cell: &str) {
+    let fake =
+        FakeOptions { strip_direct_endpoints: true, strip_wg_version: old_peer, ..FakeOptions::default() };
+    let rig = rig(fake, options(), true).await;
+    let phone = DialOptions { relay: relay(&rig.server, &rig.phone_id), ..options() };
+    let started = std::time::Instant::now();
+    let connected =
+        dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
+            .await
+            .expect("dial with no direct endpoint in signaling");
+    echo(&connected.link, 1).await;
+    let up_ms = started.elapsed().as_secs_f64() * 1000.0;
+    let first = *connected.path.borrow();
+    let up = std::time::Instant::now();
+    let deadline = up + Duration::from_secs(10);
+    loop {
+        echo(&connected.link, 1).await;
+        if *connected.path.borrow() == LinkPath::Direct && rig.mac_path() == Some(LinkPath::Direct) {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "still {:?} (mac {:?}) 10 s after the link came up on {first:?}",
+            *connected.path.borrow(),
+            rig.mac_path()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    println!(
+        "MATRIX {{\"cell\": \"{cell}\", \"first_path\": \"{first:?}\", \"up_ms\": {up_ms:.1}, \"direct_after_ms\": {:.1}}}",
+        up.elapsed().as_secs_f64() * 1000.0
+    );
+    connected.link.close("done");
+}

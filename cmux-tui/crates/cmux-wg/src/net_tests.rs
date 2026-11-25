@@ -18,7 +18,7 @@ async fn cancelled_hub_dial_releases_the_pending_tcp_socket() {
     )
     .unwrap();
     let (reply, pending) = oneshot::channel();
-    driver.begin_connect(SocketAddr::new(pair.server_v6, 1337), reply);
+    driver.connect_now(SocketAddr::new(pair.server_v6, 1337), reply);
     assert_eq!(driver.stack.conns.len(), 1);
     assert_eq!(driver.stack.sockets.iter().count(), 1);
 
@@ -27,6 +27,16 @@ async fn cancelled_hub_dial_releases_the_pending_tcp_socket() {
 
     assert!(driver.stack.conns.is_empty(), "a cancelled dial must not wait for TCP_TIMEOUT");
     assert_eq!(driver.stack.sockets.iter().count(), 0);
+
+    // With no session yet the dial waits for one, holding no socket; cancelled,
+    // it leaves at the next pass.
+    let (reply, pending) = oneshot::channel();
+    driver.begin_connect(SocketAddr::new(pair.server_v6, 1337), reply);
+    assert_eq!(driver.held_connects.len(), 1, "a dial with no session waits for one");
+    assert_eq!(driver.stack.sockets.iter().count(), 0);
+    drop(pending);
+    driver.release_held_connects();
+    assert!(driver.held_connects.is_empty(), "a cancelled held dial must not wait for a session");
 }
 
 /// Past this side's handshake rate its session answers a handshake with a
@@ -79,104 +89,67 @@ async fn a_cookie_challenge_leaves_the_watchdog_armed() {
     assert!(driver.watchdog.deadline(None).is_some(), "a cookie challenge began a session");
 }
 
-/// A carrier that keeps what the driver sends, for the test to deliver.
-struct Outbox(Arc<std::sync::Mutex<Vec<Vec<u8>>>>);
+/// Both peers of a hybrid dial initiate at once, and every handshake message
+/// arrives on each candidate path: past the 10 a second limit the peer
+/// answers with a cookie. A handshake carrying that cookie goes out at once,
+/// and the peer, still under load, answers it, instead of the session (and
+/// the stream dial queued on it) waiting out boringtun's 5 s retry.
+#[tokio::test]
+async fn a_cookie_reply_sends_a_handshake_that_carries_it_at_once() {
+    use boringtun::noise::rate_limiter::RateLimiter;
 
-impl Underlay for Outbox {
-    fn send(&mut self, datagram: &[u8]) {
-        self.0.lock().unwrap().push(datagram.to_vec());
-    }
-
-    fn poll_recv(
-        &mut self,
-        _cx: &mut std::task::Context<'_>,
-        _buffer: &mut [u8],
-    ) -> Poll<io::Result<crate::underlay::Received>> {
-        Poll::Pending
-    }
-
-    fn has_peer(&self) -> bool {
-        true
-    }
-}
-
-type Sent = Arc<std::sync::Mutex<Vec<Vec<u8>>>>;
-
-fn outbox_driver(config: WgConfig) -> (Driver, Sent) {
-    let sent = Sent::default();
+    let pair = crate::testing::loopback_pair().await.unwrap();
+    let server = pair.server_socket.local_addr().unwrap();
+    let client = pair.client_socket.local_addr().unwrap();
+    let origin = Origin { path: cmux_transport::PathId(0), addr: Some(server) };
+    let server_private = StaticSecret::from(*pair.server.private_key);
+    let server_public = PublicKey::from(&server_private);
+    let client_public = PublicKey::from(pair.server.peer_public_key);
     let (_commands, receiver) = mpsc::channel(COMMAND_DEPTH);
-    let underlay =
-        UltraUnderlay::new(Box::new(Outbox(Arc::clone(&sent))), UltraMode::Off, Arc::default());
-    let driver = Driver::new(
-        config,
-        underlay,
+    let underlay = SocketPath::new(pair.client_socket, Some(server));
+    let mut driver = Driver::new(
+        pair.client,
+        UltraUnderlay::new(Box::new(underlay), UltraMode::Off, Arc::default()),
         Negotiation::new(UltraMode::Off),
         None,
         receiver,
         Arc::new(Notify::new()),
     )
     .unwrap();
-    (driver, sent)
-}
+    // A server past its handshake rate: every handshake without a valid
+    // MAC2 gets a cookie.
+    let under_load = Arc::new(RateLimiter::new(&server_public, 0));
+    let mut peer = Tunn::new(server_private, client_public, None, None, 1, Some(under_load));
 
-fn take(sent: &Sent) -> Vec<Vec<u8>> {
-    std::mem::take(&mut *sent.lock().unwrap())
-}
+    driver.initiate_handshake();
+    std::future::poll_fn(|cx| driver.underlay.poll_flush(cx)).await;
+    let mut datagram = [0u8; 2048];
+    let mut scratch = [0u8; 2048];
+    let receive = async |datagram: &mut [u8]| {
+        tokio::time::timeout(Duration::from_millis(500), pair.server_socket.recv(datagram))
+            .await
+            .ok()
+            .map(Result::unwrap)
+    };
+    let len = receive(&mut datagram).await.expect("no first initiation");
+    let cookie = match peer.decapsulate(Some(client.ip()), &datagram[..len], &mut scratch) {
+        TunnResult::WriteToNetwork(packet) => packet.to_vec(),
+        other => panic!("the loaded peer did not challenge: {other:?}"),
+    };
+    assert_eq!(classify(&cookie), DatagramClass::WireGuardCookieReply);
 
-fn initiations(datagrams: &[Vec<u8>]) -> usize {
-    datagrams.iter().filter(|d| classify(d) == DatagramClass::WireGuardInitiation).count()
-}
-
-/// The datagrams arrive, then the pass the run loop makes after every event.
-fn deliver(driver: &mut Driver, datagrams: &[Vec<u8>], from: SocketAddr) {
-    let origin = Origin { path: cmux_transport::PathId(0), addr: Some(from) };
-    for datagram in datagrams {
-        driver.handle_datagram(datagram, origin);
+    driver.handle_datagram(&cookie, origin);
+    std::future::poll_fn(|cx| driver.underlay.poll_flush(cx)).await;
+    let len = receive(&mut datagram)
+        .await
+        .expect("the cookie reply left the handshake to boringtun's 5 s retry");
+    assert_eq!(classify(&datagram[..len]), DatagramClass::WireGuardInitiation);
+    match peer.decapsulate(Some(client.ip()), &datagram[..len], &mut scratch) {
+        TunnResult::WriteToNetwork(packet) => {
+            assert_eq!(classify(packet), DatagramClass::WireGuardResponse, "challenged again");
+        }
+        other => panic!("the retry was not answered: {other:?}"),
     }
-    driver.underlay.flush();
-    driver.service();
-    driver.underlay.flush();
-}
-
-/// Both ends initiate at once with data waiting for a session, and each
-/// answers the other's initiation. boringtun keeps this side's initiation
-/// (as `previous`) for the answer on its way; a new one from the pacer's
-/// path right after answering replaces it, the peer's answer is refused
-/// (`UnexpectedPacket`), and the two trade handshakes forever.
-#[tokio::test(start_paused = true)]
-async fn crossing_initiations_with_data_waiting_both_complete() {
-    let pair = crate::testing::config_pair("127.0.0.1:9".parse().unwrap());
-    let a_addr: SocketAddr = "127.0.0.1:1001".parse().unwrap();
-    let b_addr: SocketAddr = "127.0.0.1:1002".parse().unwrap();
-    let (mut a, a_sent) = outbox_driver(pair.client);
-    let (mut b, b_sent) = outbox_driver(pair.server);
-    // Data waiting on both sides: a TCP dial each way.
-    let (a_reply, _a_pending) = oneshot::channel();
-    a.begin_connect(SocketAddr::new(pair.server_v4, 7000), a_reply);
-    let (b_reply, _b_pending) = oneshot::channel();
-    b.begin_connect(SocketAddr::new(pair.client_v4, 7001), b_reply);
-    // Each pass queues the SYN and, with no session, initiates: they cross.
-    deliver(&mut a, &[], b_addr);
-    deliver(&mut b, &[], a_addr);
-    assert!(a.pacer.has_queued() && b.pacer.has_queued(), "no data waits for a session");
-    let (a_init, b_init) = (take(&a_sent), take(&b_sent));
-    assert_eq!((initiations(&a_init), initiations(&b_init)), (1, 1));
-
-    // Each answers the other's initiation.
-    deliver(&mut a, &b_init, b_addr);
-    deliver(&mut b, &a_init, a_addr);
-    let (a_out, b_out) = (take(&a_sent), take(&b_sent));
-    assert_eq!(
-        (initiations(&a_out), initiations(&b_out)),
-        (0, 0),
-        "an end replaced the initiation its peer is answering"
-    );
-
-    // Each answer reaches the initiation it answers.
-    deliver(&mut a, &b_out, b_addr);
-    deliver(&mut b, &a_out, a_addr);
-    assert!(a.tunn.time_since_last_handshake().is_some(), "the dialing end has no session");
-    assert!(b.tunn.time_since_last_handshake().is_some(), "the answering end has no session");
 }
 
 fn loopback_driver(config: WgConfig, socket: UdpSocket, peer: SocketAddr) -> Driver {
@@ -239,7 +212,7 @@ async fn crossed_initiations_with_queued_data_bring_up_a_session() {
     let mut client = loopback_driver(pair.client, pair.client_socket, server_addr);
     let mut server = loopback_driver(pair.server, pair.server_socket, client_addr);
 
-    // Each side listens and dials the other: a SYN waits in each pacer.
+    // Each side listens and dials the other: each dial waits for a session.
     let mut client_incoming = client.stack.begin_listen(2001).unwrap();
     let mut server_incoming = server.stack.begin_listen(2002).unwrap();
     let (client_reply, mut client_dial) = oneshot::channel();
@@ -251,7 +224,10 @@ async fn crossed_initiations_with_queued_data_bring_up_a_session() {
         driver.initiate_handshake();
         send(driver).await;
     }
-    assert!(client.pacer.has_queued() && server.pacer.has_queued(), "no data was queued");
+    assert!(
+        !client.held_connects.is_empty() && !server.held_connects.is_empty(),
+        "no dial waits for a session"
+    );
 
     // Well inside REKEY_TIMEOUT (5 s): no retry timer may be what rescues it.
     let deadline = Instant::now() + Duration::from_secs(3);
@@ -284,4 +260,30 @@ async fn crossed_initiations_with_queued_data_bring_up_a_session() {
     // The first crossed pair is what completes: a fresh initiation in
     // between would leave both responses unexpected, costing another round.
     assert_eq!((client_initiations, server_initiations), (1, 1), "initiations each side answered");
+}
+
+/// Data with the given receiver index, as a WireGuard data message.
+fn data_to(index: u32) -> Vec<u8> {
+    let mut message = vec![0u8; 32];
+    message[0] = 4;
+    message[4..8].copy_from_slice(&index.to_le_bytes());
+    message
+}
+
+#[test]
+fn responder_sample_waits_for_data_on_the_answered_session() {
+    let answered = Instant::now() - Duration::from_millis(400);
+    let mut responded_at = Some((answered, 7));
+    let mut handshake_rtt = None;
+    // Data on the session the peer initiated (crossed handshakes) is not
+    // an answer to this side's response.
+    note_answered(&data_to(9), &mut responded_at, &mut handshake_rtt);
+    assert_eq!(handshake_rtt, None, "sampled data on another session");
+    assert!(responded_at.is_some(), "dropped the pending sample");
+    note_answered(&data_to(7), &mut responded_at, &mut handshake_rtt);
+    assert!(
+        handshake_rtt.is_some_and(|rtt| rtt >= Duration::from_millis(400)),
+        "answered session's data gave {handshake_rtt:?}"
+    );
+    assert!(responded_at.is_none());
 }

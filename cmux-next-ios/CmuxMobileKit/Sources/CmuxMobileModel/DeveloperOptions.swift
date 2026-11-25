@@ -47,7 +47,7 @@ public enum DeveloperOptions {
     /// removes them so a value set by an earlier Debug or Demo install in the
     /// same container can never apply.
     public static let storedKeys = [
-        mockDataKey, launchDemoKey, relayOnlyKey, blockUDPKey, proxyOnlyKey, dropWireGuardKey, forceRelayKey,
+        mockDataKey, launchDemoKey, relayOnlyKey, blockUDPKey, forceRelayKey, proxyOnlyKey, dropWireGuardKey,
         browserVideoOnChannelKey, terminalDemoPhasesKey,
         slowApprovalKey, retiredSlowFaceIDKey, CloudBackendOverride.storedKey,
     ]
@@ -147,9 +147,9 @@ public enum DeveloperOptions {
     /// "complete" and kept reading NO: the space choice never left the
     /// screen (App Review gate, 2026-11-11). Called once at launch, before
     /// anything reads the keys.
-    public static func seedLaunchArguments(into defaults: UserDefaults = .standard) {
+    public static func seedLaunchArguments(into defaults: UserDefaults = .standard, keys seeded: [String] = launchSeededKeys) {
         var arguments = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
-        let keys = launchSeededKeys.filter { arguments[$0] != nil }
+        let keys = seeded.filter { arguments[$0] != nil }
         guard !keys.isEmpty else { return }
         // `bool(forKey:)` reads the argument's "YES"/"NO" string as a Bool.
         let values = keys.map { (key: $0, value: defaults.bool(forKey: $0)) }

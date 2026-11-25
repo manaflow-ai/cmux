@@ -93,15 +93,12 @@ fn show_of(line: &str) -> Option<Shown> {
     let cloud: Cloud = serde_json::from_value(show.get("cloud")?.clone()).ok()?;
     let reason = show.get("reason").and_then(Value::as_str).map(str::to_owned);
     // A line from before readiness was written: its stage's.
-    let readiness = match crate::hybrid_tools::readiness(cloud, &[]) {
-        None => None,
-        Some(stage) => Some(
-            show.get("readiness")
-                .and_then(Value::as_u64)
-                .and_then(|value| u8::try_from(value.min(100)).ok())
-                .unwrap_or(stage),
-        ),
-    };
+    let readiness = crate::hybrid_tools::readiness(cloud, &[]).map(|stage| {
+        show.get("readiness")
+            .and_then(Value::as_u64)
+            .and_then(|value| u8::try_from(value.min(100)).ok())
+            .unwrap_or(stage)
+    });
     Some((cloud, reason, show.get("at").and_then(Value::as_u64), readiness))
 }
 

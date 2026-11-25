@@ -593,6 +593,20 @@
   max-height: min(420px, var(--available-height, 420px));
   overflow-y: auto;
 }
+/* A popup keeps the box it opened with while its data changes (ui/popupSettle.ts writes the three
+   lengths once the box drew the same for two frames, and takes them away while the person types or
+   presses in it). The width holds and never narrows while open; the height is a floor, and the
+   whole height where the popup scrolls its rows ("box"). `!important`: a popup's own class or an
+   inline width must not win over the rule every popup shares; the sheet's `max-*` caps still bound
+   it, so a popup still gives way to a short window. */
+.ui-popup[data-popup-settled] {
+  width: var(--popup-settled-width) !important;
+  min-height: min(var(--popup-settled-height), var(--available-height, 100vh)) !important;
+}
+.ui-popup[data-popup-settled="box"] { height: var(--popup-settled-height) !important; }
+/* From its first settled frame until it closes, freed for the person's input or not: never narrower
+   than it has been (the floor is at least the sheet's own min-width, which it replaces). */
+.ui-popup[data-popup-floor] { min-width: min(var(--popup-settled-floor), calc(100vw - 16px)) !important; }
 
 /* A page-drawn context menu's submenu (ContextMenu `submenu`): its panel opens at the row's inline
    end, its edge on the parent panel's edge and its first row level with the row (the row sits the
@@ -641,7 +655,7 @@
   --ui-popup-radius: 12px;
   --cmux-menu-highlight-radius: 8px;
   --glass-tint: color-mix(in srgb, var(--glass-surface, Canvas) 62%, transparent);
-  --glass-backdrop: blur(24px) saturate(1.6);
+  --glass-backdrop: var(--ds-glass-chip-blur); /* the chip level: 24 px, 1.6 */
   --glass-elevation: 0 10px 30px color-mix(in srgb, black 18%, transparent), var(--elevation-1, 0 1px 3px color-mix(in srgb, black 10%, transparent));
 }
 .ui-popup[data-menu-style] .ui-menu-item .ui-menu-shortcut {
@@ -675,9 +689,15 @@
 .ui-popup[data-menu-states] .ui-menu-item:is([data-disabled], :disabled):has(.ui-menu-reason) {
   padding-block: var(--grid-half-step);
   opacity: 1;
+  --ui-menu-reason-row: 1;
 }
-.ui-popup[data-menu-states] .ui-menu-item:is([data-disabled], :disabled):has(.ui-menu-reason) > :not(.ui-menu-text) {
-  opacity: 0.45;
+/* The row's children ask for the row's custom property, not for its `:has()`: a `:has()` before a
+   subject that names nothing (`> :not(.ui-menu-text)`) made Chromium restyle every element of the
+   page on any `:has()` change (test/css-invalidation-scope.test.ts). */
+@container style(--ui-menu-reason-row: 1) {
+  .ui-popup[data-menu-states] .ui-menu-item:is([data-disabled], :disabled) > :not(.ui-menu-text) {
+    opacity: 0.45;
+  }
 }
 .ui-popup[data-menu-states] .ui-menu-async {
   display: inline-flex;
