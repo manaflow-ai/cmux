@@ -8,9 +8,8 @@ import Testing
 
 /// Leo 2026-10-21 (ask-18a79e54a3): "A LOT OF THESE SESSIONS ID IMAGINE DIDNT NECESSSARILY NEED TO SHOW UP ON THE SIDE
 /// BY DEFAULT"; 2026-11-25, about the nested helper sessions: "idk who asked for those in teh sidebar. it's weird".
-/// A workspace an agent started draws no row by default (`sidebar.showAgentSessions` off), except one that needs the
-/// person or is selected. On, it lists under the workspace whose agent started it, at any depth; a parent below the
-/// top level starts folded behind a count.
+/// Agent-started sessions hide by default, with selected and needs-you exceptions, while lineage nesting stays
+/// controlled by the session-tree setting. A parent below the top level starts folded behind a count.
 @MainActor @Suite(.serialized) struct SidebarLineageNestingTests {
     private static let coordinator = WorkspaceID("coordinator"), lane = WorkspaceID("lane"), sub = WorkspaceID("sub")
     private static let reviewer = WorkspaceID("reviewer"), mine = WorkspaceID("mine")
