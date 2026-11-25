@@ -65,6 +65,27 @@ struct AgentPageDrawnParkingTests {
         kept.removeFromSuperview()
     }
 
+    /// The New Tab spare waits in its window, parked off screen: it takes no lease at open, so the one warm Cloud
+    /// machine stays for the tab the person opened (two reserves 0.3 s apart at every new tab; the spare's won, the
+    /// Send's own waited 21.8 s and its start made a machine: 87 s to the first token). Shown in its pane, it leases.
+    @Test func aSpareParkedOffScreenTakesNoCloudLeaseAtOpen() async throws {
+        let (view, _, window, host) = try await chat()
+        defer { view.page?.close(); window.close() }
+        var reserved = 0
+        view.model.cloudLeaseOnOpen = true
+        view.model.onCloudReservation = { _ in reserved += 1; return ["ok": true, "machine": "vm-warm"] }
+        let atOpen = AgentPaneRequest(body: ["method": "cloud.reserve", "params": ["composeKey": "k-open", "atOpen": true]])
+        let parking = PageOffscreenParking()
+        host.addSubview(parking)
+        parking.addSubview(view)
+        #expect(await view.model.respond(to: atOpen)["ok"] as? Bool != true)
+        #expect(reserved == 0, "the parked spare leased the warm machine")
+        host.addSubview(view)
+        parking.removeFromSuperview()
+        #expect(await view.model.respond(to: atOpen)["ok"] as? Bool == true)
+        #expect(reserved == 1)
+    }
+
     /// K switches away and back: the page is never hidden to Chromium (no blank frame on return), keeps its size
     /// (0 px shift), and is away to the document only while no pane shows it.
     @Test func aChatSwitchedAwayAndBackStaysDrawnAtItsSize() async throws {
