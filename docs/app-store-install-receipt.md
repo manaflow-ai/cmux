@@ -2,7 +2,7 @@
 
 This is a receipt that an app installs from the native App Store by clicks alone. It was recorded in the published
 cmux NEXT nightly 4551439305901 (commit `86f5bbbb0cf2`), with a fresh home on a fleet display worker
-(`cmux17`, fleet step `fd590e671137b9c6ba53ad79`), using the store's native surface (tunable
+(fleet step `fd590e671137b9c6ba53ad79`), using the store's native surface (tunable
 `apps.store.surface=native`). Every click is a real pointer event on the element's accessibility id. No install
 RPC is involved.
 
