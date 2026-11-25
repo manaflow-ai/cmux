@@ -87,8 +87,9 @@ pub(crate) fn lead_ms(left_ms: u64) -> u64 {
 /// The armed timers: session id -> (generation, the task).
 static TIMERS: std::sync::LazyLock<StdMutex<TimerMap>> = std::sync::LazyLock::new(Default::default);
 static GENERATION: AtomicU64 = AtomicU64::new(0);
-/// session id -> (generation, the task, the cache expiry it was armed for, the context share).
-type TimerMap = HashMap<String, (u64, tokio::task::AbortHandle, u64, f64)>;
+/// session id -> (generation, the task, the cache expiry it was armed for, the context used and
+/// the window, in tokens).
+type TimerMap = HashMap<String, (u64, tokio::task::AbortHandle, u64, (u64, u64))>;
 pub const SETTING_ENABLED: &str = "agents.cacheCompact.enabled";
 pub const SETTING_MIN_CONTEXT: &str = "agents.cacheCompact.minContextPercent";
 /// `0|1` in the daemon's environment: [`SETTING_ENABLED`], whatever the settings file says.
