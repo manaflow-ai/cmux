@@ -113,8 +113,10 @@ jobs:
       - name: Wait through GitHub API rate limits and 5xx in this job
         working-directory: ${{ github.workspace }}
         run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
-      # The extra hourly real tick runs only after a real run that read a reply; a quota skip (the weekly limit),
-      # or any other red, leaves the next real sample to the six-hourly canary.
+      # The extra hourly real tick runs only after a real run that read a reply (its probe.json has a first_text mark);
+      # a quota skip (the weekly limit) leaves the next real sample to the six-hourly canary. A run that read a reply
+      # but went red on a later step (run 45571173365: first text in 10.1 s, then the cold create booted at another
+      # size) still proves the login has quota: reading the step's conclusion skipped every hourly sample after it.
       - name: Gate the hourly real tick on the newest real run
         id: gate
         if: env.SELECTED == 'true' && github.event.schedule == '47 1-5,7-11,13-17,19-23 * * *'
@@ -129,13 +131,21 @@ jobs:
             [ "$id" = "${{ github.run_id }}" ] && continue
             c="$(gh run view "$id" --json jobs --jq '[.jobs[] | select(.name | test("real")) | .steps[]
               | select(.name == "Cloud journey (prod, real model)") | .conclusion][0] // ""')" || break
-            case "$c" in success|failure|cancelled|timed_out) verdict="$c (run $id)"; break ;; esac
+            case "$c" in success|failure|cancelled|timed_out) ;; *) continue ;; esac
+            # Did it read a reply? The journey's probe.json (artifact cloud-journey-prod-real) carries first_text.
+            art="$(gh api "repos/$GH_REPO/actions/runs/$id/artifacts" \
+              --jq '[.artifacts[] | select(.name == "cloud-journey-prod-real") | .id][0] // ""')" || break
+            replied=no
+            if [ -n "$art" ] && gh api "repos/$GH_REPO/actions/artifacts/$art/zip" > "$RUNNER_TEMP/real-probe.zip" \
+                && unzip -p "$RUNNER_TEMP/real-probe.zip" probe.json | grep -q '"first_text"'; then replied=yes; fi
+            verdict="$c, reply $replied (run $id)"; break
           done
           echo "newest real run: ${verdict:-none found}"
-          if [ "${verdict%% *}" = success ]; then echo "skip=false" >> "$GITHUB_OUTPUT"; else
+          case "$verdict" in *"reply yes"*) echo "skip=false" >> "$GITHUB_OUTPUT" ;; *)
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "Hourly real tick skipped: the newest real run did not read a reply (${verdict:-none found})." >> "$GITHUB_STEP_SUMMARY"
-          fi
+            ;;
+          esac
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
