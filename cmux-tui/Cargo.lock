@@ -2581,6 +2581,7 @@ name = "cmux-pty"
 version = "1.0.0"
 dependencies = [
  "anyhow",
+ "cmux-process",
  "libc",
  "portable-pty",
  "windows-sys 0.61.2",

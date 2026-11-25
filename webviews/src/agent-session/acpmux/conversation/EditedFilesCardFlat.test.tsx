@@ -112,14 +112,14 @@ const RETRY = "/home/dev/atlas/src/retry.ts";
 test("a card for one file opens its diff flat on the card, not in a second box", async () => {
   const container = await render(card(turn([write(RETRY, "export const tries = 3;\n", "export const tries = 1;\n")])));
   await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-edited-toggle")!.click());
-  const diff = container.querySelector(".acpmux-edited-diff > .cv-edit-diff");
+  const diff = container.querySelector(".acpmux-edited-stack .cv-edit-diff");
   expect(diff?.hasAttribute("data-flat")).toBe(true);
   // Its header and actions (Wrap, copy, Open in Changes) stay, now on the card itself.
   for (const action of [".cv-edit-diff__wrap", ".cv-edit-diff__copy", ".acpmux-edited-open"])
     expect(diff?.querySelector(`.cv-edit-diff__header ${action}`)).not.toBeNull();
 });
 
-test("each file row of a card for several files opens its diff flat too", async () => {
+test("a card for several files stacks every file's diff flat in the one box", async () => {
   const container = await render(
     card(
       turn([
@@ -130,10 +130,9 @@ test("each file row of a card for several files opens its diff flat too", async 
   );
   const toggle = container.querySelector<HTMLButtonElement>(".acpmux-edited-toggle");
   if (toggle?.getAttribute("aria-expanded") === "false") await act(async () => toggle.click());
-  await act(async () => container.querySelector<HTMLButtonElement>("button.acpmux-edited-file")!.click());
-  const diffs = [...container.querySelectorAll(".acpmux-edited-entry .acpmux-edited-diff > .cv-edit-diff")];
-  expect(diffs).toHaveLength(1);
-  expect(diffs[0]!.hasAttribute("data-flat")).toBe(true);
+  const diffs = [...container.querySelectorAll(".acpmux-edited-stack .acpmux-edited-section > .cv-edit-diff")];
+  expect(diffs).toHaveLength(2);
+  for (const diff of diffs) expect(diff.hasAttribute("data-flat")).toBe(true);
 });
 
 test("a flat diff draws no ring, corner, fill or inset of its own; an edit call's diff keeps its box", () => {
