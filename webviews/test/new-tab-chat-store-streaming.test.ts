@@ -323,3 +323,71 @@ test("the stored text is what JSON.stringify of the kept list makes", async () =
   // Encoding the same list again, from the cache, makes the same text.
   expect(store.encodeChatStoreForTests(sessions, T0 + 7)).toBe(text);
 });
+
+// Leo 2026-11-22, the same stutter: every agent page shares one renderer thread, and each page that
+// heard another page's 500 ms write parsed the whole list of thousands of chats, hidden pages and
+// chat pages (which never draw it) too. A page with no shown reader now keeps the text and parses it
+// when a reader asks or the page shows.
+test("a page with no shown reader parses no other page's write, and a reader still gets the newest", async () => {
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  const lists = streamingLists();
+  // A chat page: it publishes its own list and has no New Tab reader.
+  store.publishSessions(connected(lists[0]), T0 + 1);
+  const writes = 10;
+  const texts = Array.from({ length: writes }, (_, n) => store.encodeChatStoreForTests(lists[n + 1], T0 + 10 + n));
+  const parse = JSON.parse;
+  let parsedChars = 0;
+  JSON.parse = ((text: string, ...rest: unknown[]) => {
+    parsedChars += text.length;
+    return (parse as (...args: unknown[]) => unknown)(text, ...rest);
+  }) as typeof JSON.parse;
+  const started = performance.now();
+  try {
+    for (const newValue of texts)
+      window.dispatchEvent(new window.StorageEvent("storage", { key: store.CHAT_STORE_KEY_FOR_TESTS, newValue }));
+  } finally {
+    JSON.parse = parse;
+  }
+  const perWrite = (performance.now() - started) / writes;
+  console.log(`chat store, another page's write heard at ${CHATS} chats with no reader: ${perWrite.toFixed(2)} ms`);
+  expect(parsedChars).toBe(0);
+  // A held-back list never loses to an older one, and this page's own older list does not overwrite it.
+  window.dispatchEvent(new window.StorageEvent("storage", { key: store.CHAT_STORE_KEY_FOR_TESTS, newValue: texts[0] }));
+  // A reader asks: it gets the newest write, parsed once.
+  expect(store.sharedSessions([])[0]?.sessionId).toBe("s-0010");
+  expect(store.sharedSessions([]).length).toBe(CHATS);
+});
+
+test("a hidden New Tab page parses another page's write when it shows", async () => {
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  const lists = streamingLists();
+  store.publishSessions(connected(lists[0]), T0 + 1);
+  const hidden = Object.getOwnPropertyDescriptor(window.document, "visibilityState");
+  Object.defineProperty(window.document, "visibilityState", { configurable: true, get: () => "hidden" });
+  let notified = 0;
+  const parse = JSON.parse;
+  let parsedChars = 0;
+  try {
+    // A New Tab reader, as `useSharedSessions` subscribes.
+    const unsubscribe = store.subscribeChatStoreForTests(() => (notified += 1));
+    JSON.parse = ((text: string, ...rest: unknown[]) => {
+      parsedChars += text.length;
+      return (parse as (...args: unknown[]) => unknown)(text, ...rest);
+    }) as typeof JSON.parse;
+    const newer = store.encodeChatStoreForTests(lists[3], T0 + 50);
+    window.dispatchEvent(new window.StorageEvent("storage", { key: store.CHAT_STORE_KEY_FOR_TESTS, newValue: newer }));
+    expect(parsedChars).toBe(0);
+    expect(notified).toBe(0);
+    Object.defineProperty(window.document, "visibilityState", { configurable: true, get: () => "visible" });
+    window.document.dispatchEvent(new window.Event("visibilitychange"));
+    expect(notified).toBe(1);
+    expect(parsedChars).toBeGreaterThan(0);
+    JSON.parse = parse;
+    expect(store.sharedSessions([])[0]?.sessionId).toBe("s-0003");
+    unsubscribe();
+  } finally {
+    JSON.parse = parse;
+    if (hidden) Object.defineProperty(window.document, "visibilityState", hidden);
+    else delete (window.document as unknown as Record<string, unknown>).visibilityState;
+  }
+});
