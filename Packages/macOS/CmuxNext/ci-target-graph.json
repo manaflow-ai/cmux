@@ -177,7 +177,6 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextAgentList",
-        "CmuxNextAgentPanePlacement",
         "CmuxNextApps",
         "CmuxNextCloud",
         "CmuxNextCompat",
@@ -199,21 +198,6 @@
         "CmuxAppAttest",
         "CmuxEgress"
       ]
-    },
-    "CmuxNextAgentPanePlacement": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPanePlacement",
-      "targets": [],
-      "packages": []
-    },
-    "CmuxNextAgentPanePlacementTests": {
-      "kind": "test",
-      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAgentPanePlacementTests",
-      "targets": [
-        "CmuxNextAgentPanePlacement"
-      ],
-      "packages": [],
-      "reads": []
     },
     "CmuxNextAgentPaneTests": {
       "kind": "test",
@@ -247,6 +231,7 @@
         "schemas/agent-bridge/contract.json",
         "schemas/agent-pane/attach-params.json",
         "schemas/agent-pane/initialize-params.json",
+        "schemas/agent-pane/methods.json",
         "schemas/agent-pane/session-new-params.json",
         "scripts/cmux-next/pin-cmux-tui.sh",
         "webviews/src/agent-session/acpmux/flickerLog.ts",
@@ -648,7 +633,8 @@
         "CmuxNextPagesTestSupport",
         "CmuxNextSettings",
         "CmuxNextSidebar",
-        "CmuxNextWakeups"
+        "CmuxNextWakeups",
+        "CmuxNextWakeupsTestSupport"
       ],
       "packages": [
         "CmuxHomeRender"
@@ -978,6 +964,7 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCloudTests",
       "targets": [
         "CmuxNextCloud",
+        "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextWakeups",
         "CmuxNextWakeupsTestSupport"

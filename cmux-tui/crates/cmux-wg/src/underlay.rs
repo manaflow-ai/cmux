@@ -95,12 +95,8 @@ pub struct Received {
 }
 
 /// Pings a probing underlay wants sent now (path, probe id), and when it
-/// next wants anything: a ping, or the deadline of an unanswered one.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct DueProbes {
-    pub pings: Vec<(PathId, u64)>,
-    pub next: Option<Instant>,
-}
+/// next wants anything (shared with every path set, `cmux-braid-path`).
+pub use cmux_braid_path::DueProbes;
 
 /// A carrier of one peer's encrypted datagrams.
 ///

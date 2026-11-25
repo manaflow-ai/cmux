@@ -186,6 +186,10 @@ class TreeCheck(Fixture):
         self.registry([{"package": "Packages/Shared/Filtered", "target": "FilteredTests", "not_run": "a b c d e"},
                        {"package": "Packages/Shared/Owned", "target": "OwnedTests", "run_by": ".github/workflows/own.yml"}])
         self.assertIn("without a --filter", coverage.check_tree(self.root)[0])
+        # A filter naming exactly the registered target runs it (the package's other targets run on Linux).
+        write(self.root, ".github/workflows/own.yml", "on:\n  pull_request:\njobs:\n  t:\n    steps:\n"
+              "      - run: swift test --package-path Packages/Shared/Owned --filter OwnedTests\n")
+        self.assertEqual(coverage.check_tree(self.root), [])
 
     def test_a_malformed_registry_is_exit_2(self):
         self.registry([{"package": "Packages/Shared/Owned", "target": "OwnedTests"}])
