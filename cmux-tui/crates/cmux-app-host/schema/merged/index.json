@@ -910,6 +910,7 @@
     "triggerFlash",
     "updates.installEarlierBuild",
     "updates.rollback",
+    "updates.status",
     "updates.whatsNew",
     "wakeTab",
     "window.closeOthers",
