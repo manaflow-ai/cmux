@@ -383,7 +383,7 @@ import UIKit
             .frame(width: 402, height: 874).environment(\.colorScheme, .dark).drawnAsStillPicture())))
         try await Task.sleep(for: .seconds(2))
         lines.append("renderDarkAfter2s: " + Self.diagStats(AgentCardRasterizer.render(feed, dark)))
-        Issue.record("RASTERDIAG\n" + lines.joined(separator: "\n"))
+        Issue.record(Comment(rawValue: "RASTERDIAG\n" + lines.joined(separator: "\n")))
     }
 
     /// The rasterizer's picture is the tab's last-known picture from then on.
