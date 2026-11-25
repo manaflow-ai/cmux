@@ -56,9 +56,11 @@ fn replies_are_captured_as_events_but_hidden_from_the_next_list() {
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0]["kind"], "decision");
     assert_eq!(rows[1]["kind"], "ask");
-    let events = &l.lock().events;
-    assert_eq!(events.len(), 3);
-    assert_eq!(events[1].target.as_deref(), Some("reply"));
+    {
+        let state = l.lock();
+        assert_eq!(state.events.len(), 3);
+        assert_eq!(state.events[1].target.as_deref(), Some("reply"));
+    }
     assert_eq!(l.query(&AsksQuery { next: true, ..all() }, |_| None)["view"], "next");
 }
 
