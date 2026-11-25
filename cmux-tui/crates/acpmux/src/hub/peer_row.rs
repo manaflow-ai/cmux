@@ -75,6 +75,9 @@ struct Hot {
     stale: bool,
     /// Its `(mux.parent, mux.handle)` tags.
     pair: Option<(Box<str>, Box<str>)>,
+    /// Neither a side chat nor started by another chat's agent
+    /// (`session_order::top_level_summary`): what `topLevelOnly` keeps, read with no parse.
+    top_level: bool,
     /// Its `usageStats` as JSON text, when it carries any: what `_acpmux/usage` sends of the row
     /// (`usage_answer.rs`), read with no parse of the rest.
     usage_stats: Option<Box<str>>,
@@ -113,6 +116,7 @@ impl Hot {
             last_seen: number("lastSeen"),
             stale: summary.get("stale") == Some(&Value::Bool(true)),
             pair: pair_of(summary),
+            top_level: crate::session_order::top_level_summary(summary),
             usage_stats: summary
                 .get("usageStats")
                 .filter(|stats| !stats.is_null())
@@ -401,6 +405,11 @@ impl PeerRow {
 
     pub fn stale(&self) -> bool {
         self.hot.stale
+    }
+
+    /// Whether a chat list shows it on its own (`_acpmux/sessions {topLevelOnly}`).
+    pub fn top_level(&self) -> bool {
+        self.hot.top_level
     }
 
     /// Its `(mux.parent, mux.handle)` tags.

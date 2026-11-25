@@ -229,7 +229,6 @@ struct AgentChatsScreen: View {
     let source: WorkspaceTabsSource
     @State private var model: AgentChatsModel
     @State private var confirmingStopAll = false
-    @State private var showsUpdating = false
 
     private var stopAllTitle: String {
         let count = model.activeChats.count
@@ -245,17 +244,8 @@ struct AgentChatsScreen: View {
         @Bindable var model = model
         content
             .navigationTitle(model.scope == .archived ? "Archived Chats" : "Agent Chats")
-            // Like the Workspaces list: a reopen's refresh of the kept rows says "Updating…" here,
-            // and only once it is slow, instead of a row that pushes every chat down and back up.
-            .navigationSubtitle(showsUpdating && model.refreshing && !model.reconnecting ? "Updating…" : "")
-            .task(id: model.refreshing) {
-                guard model.refreshing else {
-                    showsUpdating = false
-                    return
-                }
-                try? await Task.sleep(for: .seconds(1.5))
-                if !Task.isCancelled { showsUpdating = true }
-            }
+            // Like the Workspaces list: a reopen's refresh of the kept rows says nothing; they
+            // update in place (Leo, 2026-11-24: "they dont need to know that it's updating before they KNOW it's updating").
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.visible, for: .navigationBar)
             .searchable(text: $model.query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search chats")
@@ -309,6 +299,7 @@ struct AgentChatsScreen: View {
             CmuxSpinner(label: Text("Loading chats…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("agentChats.loading")
+                .placeholderBound("agentChats.loading", .milliseconds(2000))
         case .failed(let message):
             ContentUnavailableView {
                 Label("Couldn't load chats", systemImage: "exclamationmark.triangle")
@@ -338,8 +329,10 @@ struct AgentChatsScreen: View {
                     // The model held it past the quiet gate, so the chip shows at once.
                     if model.stale {
                         ConnectionChip(ListStatusRow.State.stale.chip, downSince: nil)
+                            .placeholderBound("agentChats.connection.chip", .milliseconds(0))
                     } else {
                         ConnectionChip.SymbolOnly(ListStatusRow.State.reconnecting.chip, downSince: nil)
+                            .placeholderBound("agentChats.connection.chip", .milliseconds(0))
                     }
                 }
                 .padding(.top, 8)
@@ -353,9 +346,9 @@ struct AgentChatsScreen: View {
     private var list: some View {
         let rows = model.visible
         return List {
-            // The kept rows show while the Mac's newest page loads; "Updating…" is the nav bar
-            // subtitle (see body) and a dropped link is a chip over the list (``linkChip``), so
-            // no row is inserted above them and nothing shifts.
+            // The kept rows show while the Mac's newest page loads, with no word that they do;
+            // a dropped link is a chip over the list (``linkChip``), so no row is inserted above
+            // them and nothing shifts.
             ForEach(rows) { chat in
                 row(chat)
             }
