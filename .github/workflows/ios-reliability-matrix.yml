@@ -15,28 +15,16 @@ name: iOS reliability matrix
 #   CmuxMobileLiveTests/ConnectivityMatrixTests.swift and the existing tests
 #   the catalog names (link recovery, cached lists), and the terminal
 #   projection's resize harness on the phone (TerminalProjectionResizeHarnessTests).
+#   Nightly and dispatched runs also run the TickHarness cells
+#   (CmuxMobileLiveTests/TickHarnessCellsTests, CMUX_TICK_HARNESS=1) in an
+#   xcodebuild of their own; pull requests skip them.
 # - report: one table in the run summary (scripts/ci/ios_reliability_matrix.py);
 #   it fails when a cell marked `gate: true` fails. Nightly runs the same full
 #   matrix on feat-cmux-next.
+# A feat-cmux-next pull request runs the matrix as steps of ci/steps.toml (CI v2 step 11): the protocol cells as
+# the linux job's `ios-matrix-protocol`, the phone cells as the ios job's `ios-phone-cells`, each with its suite's
+# report. This workflow keeps the push to feat-cmux-next, the nightly and the dispatch.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    branches: [feat-cmux-next]
-    paths:
-      - "cmux-next-ios/rust/**"
-      - "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/**"
-      - "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTransport/**"
-      - "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/**"
-      - "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/**"
-      - "cmux-next-ios/reliability-matrix/**"
-      - "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/**"
-      - "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileTerminalTests/TerminalProjection*"
-      - "cmux-tui/crates/cmux-terminal-projection/**"
-      - "cmux-tui/crates/cmux-wg/**"
-      - "cmux-tui/crates/cmux-transport/**"
-      - "cmux-tui/vendor/smoltcp/**"
-      - "scripts/ci/ios_reliability_matrix.py"
-      - ".github/workflows/ios-reliability-matrix.yml"
   push:
     branches: [feat-cmux-next]
     paths:
@@ -259,7 +247,8 @@ jobs:
     name: phone cells (iOS simulator)
     # An owned simulator mini from the runner job, Blacksmith macOS 26 on a re-run or a fork.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
-    timeout-minutes: 60
+    # 60 for the cells, plus room for the nightly's TickHarness run.
+    timeout-minutes: 75
     env:
       CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
@@ -326,6 +315,7 @@ jobs:
           key: ios-link-ffi-xcframework-${{ steps.ffi-key.outputs.key }}
 
       - name: xcodebuild test (matrix cells)
+        id: cells
         working-directory: cmux-next-ios/CmuxMobileKit
         run: |
           set -o pipefail
@@ -356,6 +346,29 @@ jobs:
             -only-testing:CmuxMobileWorkspacesTests/WorkspacesLaunchStateTests \
             -only-testing:CmuxMobileTerminalTests/TerminalProjectionResizeHarnessTests \
             2>&1 | tee "$RUNNER_TEMP/matrix/ios.log" || true
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+
+      # The TickHarness cells (axis tick: 10,000 reconnects, deltas and Feed events on virtual
+      # time) run alone, in an xcodebuild of their own with the suite's opt-in, on the nightly
+      # and dispatched runs only: pull requests stay cheap. Reported, not gating (gate: false
+      # in cells.json); tick.log is the report's --tick log.
+      - name: xcodebuild test (TickHarness cells, nightly and dispatch)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        working-directory: cmux-next-ios/CmuxMobileKit
+        env:
+          TEST_RUNNER_CMUX_TICK_HARNESS: "1"
+          UDID: ${{ steps.cells.outputs.udid }}
+        run: |
+          set -o pipefail
+          if [[ -z "$UDID" ]]; then
+            echo "::warning::no simulator from the matrix cells step; the tick cells read not run"
+            exit 0
+          fi
+          # The same derived data: the build above is reused, only the tests run.
+          xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$UDID,arch=arm64" \
+            -enableCodeCoverage NO -derivedDataPath "$RUNNER_TEMP/dd-ios-sim" CODE_SIGNING_ALLOWED=NO \
+            -only-testing:CmuxMobileLiveTests/TickHarnessCellsTests \
+            2>&1 | tee "$RUNNER_TEMP/matrix/tick.log" || true
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
@@ -363,6 +376,14 @@ jobs:
           name: matrix-ios-log
           path: ${{ runner.temp }}/matrix/ios.log
           retention-days: 3
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        with:
+          name: matrix-tick-log
+          path: ${{ runner.temp }}/matrix/tick.log
+          retention-days: 3
+          if-no-files-found: ignore
 
   report:
     name: matrix report
@@ -414,6 +435,8 @@ jobs:
           args=()
           [[ "$PROTOCOL_RESULT" != "skipped" ]] && args+=(--rust logs/rust.log)
           [[ "$IOS_RESULT" != "skipped" ]] && args+=(--ios logs/ios.log)
+          # Nightly and dispatch only (the ios job's TickHarness step); without it the tick cells read not run.
+          [[ -f logs/tick.log ]] && args+=(--tick logs/tick.log)
           if (( verdict )); then
             python3 scripts/ci/ios_reliability_matrix.py "${args[@]}" --json matrix.json | tee -a "$GITHUB_STEP_SUMMARY" || true
             exit "$verdict"
