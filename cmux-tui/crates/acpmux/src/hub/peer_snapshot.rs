@@ -104,6 +104,13 @@ const WARM_QUEUED_BYTES: u64 = QUEUED_BYTES / 2;
 /// How long new records wait before their write, so a streaming turn writes every few seconds,
 /// not on every token.
 const FLUSH_AFTER: Duration = Duration::from_millis(if cfg!(test) { 10 } else { 2000 });
+/// Bytes a second the store's timed writes may put on disk, all copies together: a copy is
+/// rewritten whole (`disk::write`), so with many chats streaming at once, each written every
+/// [`FLUSH_AFTER`], the rate was the sum of their sizes. On the owner's Mac that came to 14-23
+/// MB/s of renames for hours, fseventsd grew past 40 GB on the events, and the Mac panicked out
+/// of memory (2026-11-24 21:35). A write past this waits its turn (`Store::budget_at`); a flush
+/// or the last write at shutdown never does. 256 KB/s is at most about 22 GB a day.
+const WRITE_BYTES_PER_SEC: u64 = if cfg!(test) { 64 << 10 } else { 256 << 10 };
 const RETRY_FIRST: Duration = Duration::from_millis(if cfg!(test) { 10 } else { 1000 });
 const RETRY_MAX: Duration = Duration::from_secs(60);
 /// The longest a read or a flush waits for the store's thread.
@@ -765,6 +772,11 @@ struct Store {
     /// When something is next due (a write, a retry, a scan); kept as a running minimum so taking
     /// a record costs no walk of the copies, and recomputed after the work it wakes for.
     wake: Option<Instant>,
+    /// Until when the timed writes wait: each write moves it on by its bytes at
+    /// [`WRITE_BYTES_PER_SEC`], so what the store writes stays within that rate.
+    budget_at: Option<Instant>,
+    /// Bytes on disk the writes put there this run (tests read it).
+    bytes_written: u64,
     /// Bytes of every loaded copy's records.
     memory: u64,
     /// Told the prompts a write put on disk ([`Written`]).
@@ -813,6 +825,8 @@ impl Store {
             dead: HashMap::new(),
             dead_retry: None,
             wake: None,
+            budget_at: None,
+            bytes_written: 0,
             memory: 0,
             own: 0,
             dropped,
@@ -1740,9 +1754,20 @@ impl Store {
                 .collect()
         };
         for key in due {
+            // A timed write past the rate waits its turn; a flush or the last write does not.
+            let wait = self.budget_at.filter(|at| when == When::Due && *at > now);
+            if let (Some(at), Some(c)) = (wait, self.copies.get_mut(&key)) {
+                c.due = Some(at);
+                continue;
+            }
+            let before = self.bytes_written;
             if let Err(e) = self.write_one(&key) {
                 self.failed(&key, &e);
             }
+            let cost = Duration::from_secs_f64(
+                (self.bytes_written - before) as f64 / WRITE_BYTES_PER_SEC as f64,
+            );
+            self.budget_at = Some(self.budget_at.map_or(now, |at| at.max(now)) + cost);
         }
         // Writes wait for the scan, so only its retry wakes the thread until then (never a spin
         // on writes that are due and cannot run).
@@ -1802,6 +1827,7 @@ impl Store {
             last.1
         } else {
             let written = disk::write(self.write, &self.root, key, &bytes)?;
+            self.bytes_written += written;
             if let Some(path) = path {
                 // The write took the place of a file whose removal was refused.
                 self.dead.remove(&path);
