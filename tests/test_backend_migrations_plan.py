@@ -100,5 +100,113 @@ class PlanWithoutTheApi(unittest.TestCase):
         self.assertEqual(log.read_text().split(), ["app", "t"])
 
 
+class TreelessProbe(unittest.TestCase):
+    """The plan's first step answers "no migration change" from a treeless fetch, so a head that
+    touches no SQL skips the full base checkout (184 s at p50 on the gate pool)."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        src = self.tmp / "src"
+        src.mkdir()
+        git(src, "init", "-q", "-b", "main")
+        git(src, "config", "uploadpack.allowAnySHA1InWant", "true")
+        git(src, "config", "uploadpack.allowFilter", "true")
+        (src / "backend/db/migrations").mkdir(parents=True)
+        (src / "backend/db/migrations/0001_init.sql").write_text("create table t (id int);\n")
+        (src / "App.tsx").write_text("base\n")
+        git(src, "add", "-A")
+        git(src, "commit", "-qm", "base")
+        self.base = git(src, "rev-parse", "HEAD")
+        self.src = src
+
+    def probe(self, head: str) -> tuple[int, str, str]:
+        doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        step = next(s for s in doc["jobs"]["plan"]["steps"] if s.get("id") == "same-tree")
+        work = Path(tempfile.mkdtemp(dir=self.tmp))
+        output = self.tmp / "output"
+        output.write_text("")
+        # The step fetches from https://github.com/$REPO.git; point that URL at the local repo.
+        redirect = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": f"url.file://{self.src}.insteadOf",
+                    "GIT_CONFIG_VALUE_0": "https://github.com/o/r.git"}
+        env = {**os.environ, "BASE_SHA": self.base, "HEAD_SHA": head, "REPO": "o/r",
+               "GITHUB_OUTPUT": str(output), **redirect}
+        result = subprocess.run(["bash", "-e", "-c", step["run"]], cwd=work, env=env, capture_output=True, text=True)
+        return result.returncode, output.read_text(), result.stdout + result.stderr
+
+    def test_the_probe_runs_first_and_skips_the_checkout(self):
+        plan = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["plan"]
+        self.assertEqual(plan["steps"][0].get("id"), "same-tree")
+        checkout = next(s for s in plan["steps"] if s.get("name") == "Checkout base (trusted tooling)")
+        self.assertIn("steps.same-tree.outputs.same != 'true'", checkout["if"])
+        self.assertIn("steps.same-tree.outputs.same == 'true' && 'false'", plan["outputs"]["migrations"])
+
+    def test_a_head_without_migration_changes_is_the_same_tree(self):
+        (self.src / "App.tsx").write_text("ui change\n")
+        git(self.src, "commit", "-qam", "ui")
+        code, output, log = self.probe(git(self.src, "rev-parse", "HEAD"))
+        self.assertEqual(code, 0, log)
+        self.assertIn("same=true", output, log)
+
+    def test_a_head_that_adds_a_migration_runs_the_full_plan(self):
+        (self.src / "backend/db/migrations/0002_more.sql").write_text("create table u (id int);\n")
+        git(self.src, "add", "-A")
+        git(self.src, "commit", "-qm", "migration")
+        code, output, log = self.probe(git(self.src, "rev-parse", "HEAD"))
+        self.assertEqual(code, 0, log)
+        self.assertNotIn("same=true", output)
+
+    def test_a_failed_fetch_runs_the_full_plan(self):
+        code, output, log = self.probe("0" * 40)
+        self.assertEqual(code, 0, log)
+        self.assertNotIn("same=true", output)
+
+    def without_migrations(self) -> None:
+        # main's shape: no backend/db/migrations at the base.
+        git(self.src, "rm", "-rq", "backend")
+        git(self.src, "commit", "-qm", "no migrations")
+        self.base = git(self.src, "rev-parse", "HEAD")
+
+    def test_no_migrations_on_either_side_is_the_same_tree(self):
+        # Both rev-parses come back empty here; the plan used to fall through to a full checkout of
+        # main, which hung on the gate pool until the 10-minute cancel (run 45091304441).
+        self.without_migrations()
+        (self.src / "App.tsx").write_text("ui change\n")
+        git(self.src, "commit", "-qam", "ui")
+        code, output, log = self.probe(git(self.src, "rev-parse", "HEAD"))
+        self.assertEqual(code, 0, log)
+        self.assertIn("same=true", output, log)
+        self.assertIn("no backend/db/migrations at the base or the head", log)
+
+    def test_a_head_that_adds_the_first_migration_runs_the_full_plan(self):
+        self.without_migrations()
+        (self.src / "backend/db/migrations").mkdir(parents=True)
+        (self.src / "backend/db/migrations/0001_init.sql").write_text("create table t (id int);\n")
+        git(self.src, "add", "-A")
+        git(self.src, "commit", "-qm", "first migration")
+        code, output, log = self.probe(git(self.src, "rev-parse", "HEAD"))
+        self.assertEqual(code, 0, log)
+        self.assertNotIn("same=true", output)
+
+    def test_a_head_that_deletes_the_migrations_runs_the_full_plan(self):
+        git(self.src, "rm", "-rq", "backend")
+        git(self.src, "commit", "-qm", "delete")
+        code, output, log = self.probe(git(self.src, "rev-parse", "HEAD"))
+        self.assertEqual(code, 0, log)
+        self.assertNotIn("same=true", output)
+
+    def test_the_base_checkout_is_bounded_and_retried(self):
+        steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["plan"]["steps"]
+        by_id = {s.get("id"): s for s in steps}
+        for sid in ("checkout", "checkout-retry"):
+            self.assertEqual(by_id[sid]["timeout-minutes"], 1)
+            self.assertTrue(by_id[sid]["continue-on-error"])
+            self.assertEqual(by_id[sid]["with"]["sparse-checkout"], "backend")
+            self.assertEqual(by_id[sid]["with"]["filter"], "blob:none")
+        self.assertIn("steps.checkout.outcome == 'failure'", by_id["checkout-retry"]["if"])
+        failed = next(s for s in steps if s.get("name") == "Base checkout did not finish")
+        self.assertIn("steps.checkout-retry.outcome == 'failure'", failed["if"])
+        self.assertIn("exit 1", failed["run"])
+
+
 if __name__ == "__main__":
     unittest.main()

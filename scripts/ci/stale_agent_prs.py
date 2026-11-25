@@ -325,7 +325,10 @@ def gh_json(*args: str) -> object:
     return json.loads(out) if out.strip() else None
 
 
-def search(query: str, q: str) -> list[dict]:
+SEARCH_CAP = 1000  # GitHub's search returns at most this many results for one query
+
+
+def search_window(query: str, q: str) -> list[dict]:
     nodes, after = [], None
     while True:
         args = ["api", "graphql", "-f", f"query={query}", "-f", f"q={q}"]
@@ -336,6 +339,23 @@ def search(query: str, q: str) -> list[dict]:
         if not data["pageInfo"]["hasNextPage"]:
             return nodes
         after = data["pageInfo"]["endCursor"]
+
+
+def search(query: str, q: str) -> list[dict]:
+    """Every result, past GitHub's 1000-result cap: a query whose nodes carry createdAt is read oldest first and,
+    when a window fills the cap, read again from the last createdAt it reached (2026-11-25: with 1000+ open agent
+    PRs only the newest 1000 were scored, so the oldest, most likely landed or stale, were never listed)."""
+    if "createdAt" not in query:
+        return search_window(query, q)
+    seen: dict[int, dict] = {}
+    since = None
+    while True:
+        window = search_window(query, f"{q} sort:created-asc" + (f" created:>={since}" if since else ""))
+        fresh = [n for n in window if n["number"] not in seen]
+        seen.update((n["number"], n) for n in window)
+        if len(window) < SEARCH_CAP or not fresh:
+            return list(seen.values())
+        since = window[-1]["createdAt"]
 
 
 def pr_files(repo: str, number: int) -> list[dict]:

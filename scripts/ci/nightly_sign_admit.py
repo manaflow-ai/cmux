@@ -23,7 +23,16 @@ an artifact's contents:
   zip must match the artifact digest the API records, and the tarball inside
   must match the producing job's sha256. The same record carries the run's
   publish decision; a run that does not publish (a fast dogfood build) is
-  skipped.
+  skipped;
+- builder: each producing job ran in the trusted build pool, read from the job
+  record's `labels` and `runner_name` (cmuxterm-hq docs/design/signer-service.md,
+  migration step 2). The signer signs what the builder made, so a builder that
+  shares a host with pull request code could hand it a tampered app. Every label
+  must be one of: an ephemeral vendor Mac label (a fresh VM per job), a
+  trusted-only owned pool label (glaeda-trusted-*, glaeda-nightly-*, whose hooks
+  admit only main's or nightly jobs), or a runner name label beside one of those.
+  An owned pull request pool label, a runner name label alone, or any other
+  label is refused.
 
 Exit 0 with `admitted=true` when every check passes, exit 0 with
 `admitted=false` when there is nothing to sign (the run failed, built no app,
@@ -59,6 +68,22 @@ DIGEST_MESSAGE = re.compile(
 BUILD_JOB = "build-nightly-app"
 TARBALL = "cmux-prepared-app.tar.gz"
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
+# The trusted build pool (signer-service.md, step 2). Kept here, not imported:
+# the workflow runs this tool with `python3 -I`, which puts no sibling module on
+# sys.path. tests/test_nightly_sign_admit.py checks these shapes against
+# scripts/ci/runner_label_policy.py, which reads the workflow guard's patterns.
+# A vendor Mac label: a fresh VM per job, so no earlier pull request job shares it.
+EPHEMERAL_BUILDER_LABEL = re.compile(r"blacksmith-(?:6|12)vcpu-macos-(?:15|26|latest)")
+_OWNED_SHAPE = r"(?:aws-)?(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*"
+# Owned pools whose runners take no pull request job: the trusted pool (main's
+# push and schedule only), the nightly slot (nightly jobs only), the classic
+# nightly's one mini and the NEXT signing runner.
+TRUSTED_POOL_LABEL = re.compile(
+    rf"glaeda-trusted-{_OWNED_SHAPE}|glaeda-nightly-{_OWNED_SHAPE}|glaeda-nightly-mini|glaeda-trusted-next-signing"
+)
+# A runner's own name label: trusted only beside a trusted pool label, since a
+# pull request runner has one too.
+RUNNER_NAME_LABEL = re.compile(r"glaeda-runner-[a-z0-9][a-z0-9._-]*")
 PER_PAGE = 100
 CHUNK = 1 << 20
 
@@ -229,6 +254,28 @@ def prepare_jobs(gh: GitHub, repo: str, run: dict) -> dict[str, dict]:
     return found
 
 
+def check_builder(job: dict, variant: str) -> dict:
+    """The producing job ran in the trusted build pool; its runner, for the record."""
+    labels = job.get("labels")
+    runner = job.get("runner_name")
+    if not isinstance(runner, str) or not runner:
+        fail(f"{PREPARE_JOB} ({variant}) has no runner_name; the builder cannot be checked")
+    if not isinstance(labels, list) or not labels or not all(isinstance(label, str) for label in labels):
+        fail(f"{PREPARE_JOB} ({variant}) has no runner labels; the builder cannot be checked")
+    pool = []
+    for label in labels:
+        if EPHEMERAL_BUILDER_LABEL.fullmatch(label) or TRUSTED_POOL_LABEL.fullmatch(label):
+            pool.append(label)
+        elif not RUNNER_NAME_LABEL.fullmatch(label):
+            fail(
+                f"{PREPARE_JOB} ({variant}) ran on runner {runner!r} with label {label!r}, "
+                "which is not in the trusted build pool (an ephemeral vendor Mac or a trusted-only owned pool)"
+            )
+    if not pool:
+        fail(f"{PREPARE_JOB} ({variant}) ran on runner {runner!r} with labels {labels}, none of them a trusted build pool")
+    return {"runner_name": runner, "labels": labels}
+
+
 def producer_digest(gh: GitHub, repo: str, job: dict, variant: str, channel: str) -> tuple[str, str, bool]:
     annotations = gh.pages(f"/repos/{repo}/check-runs/{job['id']}/annotations", None)
     records = [a for a in annotations if a.get("title") == DIGEST_TITLE]
@@ -312,6 +359,7 @@ def admit(gh: GitHub, repo: str, run_id: str, attempt: str, out: Path) -> dict:
     run = check_identity(gh, repo, run_id, attempt)
     branch, channel, track, ahead_by = check_ref(gh, repo, run)
     jobs = prepare_jobs(gh, repo, run)
+    builders = {variant: check_builder(job, variant) for variant, job in jobs.items()}
     records = {}
     for variant in VARIANTS:
         if variant in jobs:
@@ -325,7 +373,8 @@ def admit(gh: GitHub, repo: str, run_id: str, attempt: str, out: Path) -> dict:
     for variant, (artifact_name, sha256, _) in records.items():
         artifact = find_artifact(gh, repo, run, artifact_name)
         fetch_tarball(gh, artifact, sha256, out / variant / TARBALL)
-        variants.append({"variant": variant, "artifact": artifact_name, "sha256": sha256, "job_id": jobs[variant]["id"]})
+        variants.append({"variant": variant, "artifact": artifact_name, "sha256": sha256, "job_id": jobs[variant]["id"],
+                         "builder": builders[variant]})
     # The attempt must still be the latest after the downloads.
     latest = gh.get(f"/repos/{repo}/actions/runs/{run_id}")
     if str((latest or {}).get("run_attempt")) != attempt:
@@ -368,7 +417,10 @@ def write_outputs(result: dict) -> None:
                     f"`{result['source_branch']}` at `{result['source_head_sha']}`, channel {result['channel']}.\n\n"
                 )
                 for v in result["variants"]:
-                    handle.write(f"- {v['variant']}: `{v['artifact']}` sha256 `{v['sha256']}` (job {v['job_id']})\n")
+                    handle.write(
+                        f"- {v['variant']}: `{v['artifact']}` sha256 `{v['sha256']}` (job {v['job_id']}, "
+                        f"runner `{v['builder']['runner_name']}`)\n"
+                    )
             else:
                 handle.write(f"{result.get('verdict', 'not admitted')}: {result.get('reason', '')}\n")
 

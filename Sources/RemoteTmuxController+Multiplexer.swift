@@ -137,6 +137,12 @@ extension RemoteTmuxController {
             throw RemoteTmuxError.unreachable(
                 "host already mirrored by the per-session transport; detach it first")
         }
+        // An explicit attach asks for closed mirrors back: lift their detach before any reconcile
+        // below, or the reused view keeps them out forever (#53678).
+        if let intents = multiplexIntentsByHost[host.connectionHash] {
+            storeMultiplexIntents(
+                intents.liftingDetach(forAttachOf: sessionName), hostHash: host.connectionHash)
+        }
         try refuseARouteTheLiveConnectionDoesNotUse(host)
 
         let beganAttach = windowRegistry.beginAttach(hostHash: host.connectionHash)
@@ -158,7 +164,8 @@ extension RemoteTmuxController {
             }
             // Nothing published is not "the host has no sessions": the wait also ends on a login
             // wait or a timeout, and an empty list here would tear down a view another attach owns.
-            if !hostHasLiveMirror(host), !view.workspaces.isEmpty, let shared = view.connection {
+            // With live mirrors this reconcile brings back a session whose detach was just lifted.
+            if !view.workspaces.isEmpty, let shared = view.connection {
                 applyMultiplexedWorkspaces(
                     host: host, manager: targetManager, workspaces: view.workspaces, shared: shared)
             }
@@ -302,6 +309,12 @@ extension RemoteTmuxController {
                 applyMultiplexedWorkspaces(
                     host: host, manager: targetManager, workspaces: view.workspaces, shared: shared)
             }
+        } else if let view = heldView, !view.workspaces.isEmpty, let shared = view.connection {
+            // A live view reused with mirrors up: reconcile now so a closed session whose detach
+            // was lifted above is mirrored again (#53678). Without it the attach reports the
+            // existing mirrors and never adds the closed one.
+            applyMultiplexedWorkspaces(
+                host: host, manager: targetManager, workspaces: view.workspaces, shared: shared)
         }
         let workspaceIds = sessionMirrors.values.compactMap { mirror -> UUID? in
             guard mirror.host.connectionHash == host.connectionHash,

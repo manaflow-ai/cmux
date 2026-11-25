@@ -104,7 +104,8 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "ref: ${{ inputs.ref }}",
             workflow_job_block("resolve-ref", workflow_path),
         )
-        self.assertIn("blacksmith-4vcpu-ubuntu-2404", changes)
+        # A Linux runner: the persistent pool label same-repository jobs name (#47956), or Blacksmith.
+        self.assertTrue("'cmux-linux'" in changes or "blacksmith-4vcpu-ubuntu-2404" in changes, changes)
         self.assertIn("Detect cloud-machine package changes", changes)
         self.assertIn("/pulls/{pr_number}/files?per_page=100&page={page}", changes)
         self.assertIn('startswith("Packages/macOS/CmuxCloudMachines/")', changes)

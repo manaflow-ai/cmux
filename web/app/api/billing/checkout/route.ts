@@ -70,12 +70,13 @@ import {
 } from "../../../../services/billing/teamBillingAccess";
 import { teamPortalSession } from "../../../../services/billing/teamPortal";
 import {
-  NEXT_MAX_PLAN_ID,
   isNextPlanId,
   nextPlanPriceId,
+  nextPlanRank,
   type NextPlanId,
 } from "../../../../services/billing/nextPlans";
-import { activeNextPlanForUser } from "../../../../services/billing/nextPlanBilling";
+import { activeNextPlanForUser, activeNextSubscriptionForUser } from "../../../../services/billing/nextPlanBilling";
+import { nextPlanSwitchPortalSession } from "../../../../services/billing/nextPlanSwitch";
 
 
 type CheckoutStackServerApp = StackServerApp<true>;
@@ -476,11 +477,20 @@ async function stripeNextPlanCheckout(
     captureCheckoutAuthenticated(request, user.id, plan, attribution);
 
     const activeNextPlan = await activeNextPlanForUser(cloudDb(), stackUserId);
-    if (activeNextPlan === plan || activeNextPlan === NEXT_MAX_PLAN_ID) {
+    if (activeNextPlan && nextPlanRank(activeNextPlan) >= nextPlanRank(plan)) {
       captureCheckoutDecision(user.id, plan, activeNextPlan, "already_active", attribution, interval);
       return NextResponse.redirect(new URL("/dashboard/billing?welcome=active", requestOrigin(request)));
     }
     if (activeNextPlan) {
+      // An upgrade switches the one NEXT subscription in the portal's plan-switch flow.
+      const upgrade = await nextPlanUpgradeSession(stackUserId, requestOrigin(request)).catch((error: unknown) => {
+        captureBillingError(error, { route: "/api/billing/checkout", stackUserId, plan });
+        return null;
+      });
+      if (upgrade?.url) {
+        captureCheckoutDecision(user.id, plan, activeNextPlan, "manage_billing", attribution, interval);
+        return NextResponse.redirect(upgrade.url);
+      }
       const portalURL = new URL("/api/billing/portal", requestOrigin(request));
       forwardCheckoutAttribution(request.nextUrl.searchParams, portalURL);
       captureCheckoutDecision(user.id, plan, activeNextPlan, "manage_billing", attribution, interval);
@@ -927,4 +937,11 @@ function isStackTeamUniqueConflict(error: unknown): boolean {
   }
   const text = error instanceof Error ? error.message : String(error);
   return /stripe_customers_stack_team_id_unique/.test(text);
+}
+
+/** The portal's plan switch on the user's NEXT subscription, or null when its Stripe ids are not known. */
+async function nextPlanUpgradeSession(stackUserId: string, origin: string): Promise<{ url: string | null } | null> {
+  const active = await activeNextSubscriptionForUser(cloudDb(), stackUserId);
+  if (!active?.id || !active.customerId) return null;
+  return await nextPlanSwitchPortalSession({ customerId: active.customerId, subscriptionId: active.id, origin });
 }
