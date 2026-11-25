@@ -734,6 +734,28 @@ export type InstallableProgram = Pick<LockedProgram, "name" | "version" | "url" 
  * continues it (`curl -C -`) or skips it once it is whole; a whole file whose sha256 is wrong is removed, so the next
  * run starts over. installStoreProgram runs the command again.
  */
+/**
+ * Executables a program spawns from the folder of its own binary, by command. The install refuses
+ * a store entry without them, so an asset that ships the binary alone fails the bake instead of
+ * every chat. Codex 0.160 runs every tool through codex-code-mode-host next to codex (codex-rs
+ * install-context code_mode_host_program); its plain release tarball carries only codex, so the
+ * lock pins the codex-package tarball that has both.
+ */
+export const SPAWNED_SIBLINGS: Readonly<Partial<Record<ProgramName, Readonly<Record<string, readonly string[]>>>>> = {
+  codex: { codex: ["codex-code-mode-host"] },
+};
+
+/** The spawned siblings of a program, as paths inside its store entry. */
+export function siblingPaths(program: Pick<LockedProgram, "name" | "bin">): string[] {
+  const byCommand = SPAWNED_SIBLINGS[program.name] ?? {};
+  return Object.entries(byCommand).flatMap(([command, siblings]) => {
+    const target = program.bin[command];
+    if (target === undefined) throw new Error(`${program.name}: no bin.${command} to find ${siblings.join(", ")} next to`);
+    const dir = path.posix.dirname(target);
+    return siblings.map((sibling) => (dir === "." ? sibling : `${dir}/${sibling}`));
+  });
+}
+
 export function programInstallCommand(program: InstallableProgram): string {
   const entry = storeEntry(program.sha256);
   const dl = `/tmp/cmux-dl/${program.sha256}`;
@@ -756,6 +778,7 @@ export function programInstallCommand(program: InstallableProgram): string {
     program.format === "npm" ? `mv ${dl} ${dl}.tgz` : "true",
     unpack,
     ...Object.values(program.bin).map((target) => `test -x ${stage}/${target}`),
+    ...siblingPaths(program).map((sibling) => `test -x ${stage}/${sibling}`),
     ...(program.notices ?? []).map((notice) => `test -s ${stage}/${notice}`),
     `chmod -R a-w ${stage}`,
     `rm -rf ${entry} && mv ${stage} ${entry}`,
