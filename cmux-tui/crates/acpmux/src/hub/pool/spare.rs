@@ -130,29 +130,18 @@ pub(super) fn missing(
     recent(list, now_ms).into_iter().filter(|r| !has_spare(&r.harness)).collect()
 }
 
-/// `list`'s recent shapes at `now_ms` as `warm-home --shape` takes them: newest first, at most
-/// 4, folders left out (a Cloud machine warms them in its own reserved folder).
-pub(super) fn shapes_to_send(list: &[Remembered], now_ms: u64) -> Vec<Value> {
-    let mut list = recent(list, now_ms);
-    list.sort_by_key(|r| std::cmp::Reverse(r.used_at_ms));
-    list.into_iter()
-        .take(4)
-        .map(|r| {
-            let mut v = json!({"harness": r.harness});
-            if let Some(p) = r.preset {
-                v["preset"] = json!(p);
-            }
-            if let Some(m) = r.model {
-                v["model"] = json!(m);
-            }
-            v
-        })
-        .collect()
-}
-
-/// [`shapes_to_send`] of this machine's `pool-spares.json` (`acpmux spare-shapes`).
+/// The person's recent shapes in this machine's `pool-spares.json` (`acpmux spare-shapes`):
+/// newest first, at most 4, folders left out. One reader with the Mac app's (cmux-cloud-start-core
+/// `spare_shapes`, which builds the Cloud machine's `warm-home --shape` command from them).
 pub fn person_spare_shapes() -> Vec<Value> {
-    shapes_to_send(&read_file(&file_path()), now_ms())
+    cmux_cloud_start_core::spare_shapes::read(
+        &crate::config::home(),
+        now_ms(),
+        std::env::var(cmux_cloud_start_core::spare_shapes::SWITCH).ok().as_deref(),
+    )
+    .into_iter()
+    .filter_map(|s| serde_json::to_value(s).ok())
+    .collect()
 }
 
 fn read_file(path: &Path) -> Vec<Remembered> {

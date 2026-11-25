@@ -67,6 +67,12 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// Like the embedded terminal, iOS 26 also needs a gradient fallback:
     /// a bare top edge container alone does not obscure text under the clock.
     private let topFade = TopFadeView()
+    /// The bottom stack's region (its top to the page's bottom: the stack and, in a tab, the
+    /// toolbar under it), registered as the bottom scroll edge's container so rows scrolled
+    /// under the composer, its status line or the error capsule blur instead of colliding with
+    /// them. A stand-in view for both placements: the owned dock's host is 640 pt tall, and a
+    /// tab's stack is drawn by TabsKit outside this view.
+    private let bottomShelf = UIView()
     private let emptyHost: UIHostingController<AnyView>
     private var dockHost: UIHostingController<AnyView>?
     private var dockContainer: PassthroughView?
@@ -290,6 +296,13 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
                 view.addSubview(topFade)
             }
         }
+        bottomShelf.isUserInteractionEnabled = false
+        bottomShelf.isAccessibilityElement = false
+        view.addSubview(bottomShelf)
+        let bottomEdge = UIScrollEdgeElementContainerInteraction()
+        bottomEdge.scrollView = scrollView
+        bottomEdge.edge = .bottom
+        bottomShelf.addInteraction(bottomEdge)
 
         for host in [emptyHost] + [dockHost, jumpHost].compactMap({ $0 }) {
             addChild(host)
@@ -463,6 +476,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             if topShelf.frame != chromeFrame { topShelf.frame = chromeFrame }
             if topFade.superview != nil, topFade.frame != chromeFrame { topFade.frame = chromeFrame }
         }
+        // The stack's top as drawn this frame (its height can lead the guide's) to the bottom.
+        let stackTop = min(dockGuide.layoutFrame.minY, dockGuide.layoutFrame.maxY - stackHeight)
+        let shelfFrame = CGRect(x: 0, y: stackTop, width: view.bounds.width, height: max(0, view.bounds.maxY - stackTop))
+        if bottomShelf.frame != shelfFrame { bottomShelf.frame = shelfFrame }
 
         // As in Messages, a transcript drag takes the keyboard once the finger
         // reaches the stack's top edge.
@@ -1021,6 +1038,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             shown = jumpVisibility.update(offsetY: scrollView.contentOffset.y, minOffsetY: -scrollView.contentInset.top,
                                           maxOffsetY: bottomOffset.y, keyboardDragging: keyboardDragging)
         }
+        // The soft bottom edge only while rows are under the stack: resting on the newest turn,
+        // nothing is under it and the last row stays crisp (the terminal's rule, 2026-10-14).
+        let under = !isEmpty && scrolledDistanceFromBottom > 1
+        if scrollView.bottomEdgeEffect.isHidden == under { scrollView.bottomEdgeEffect.isHidden = !under }
         guard surface.showJump != shown else { return }
         withAnimation(.cmuxMobileSnap.unlessReduceMotion) { surface.showJump = shown }
         jumpHost?.view.isUserInteractionEnabled = shown
