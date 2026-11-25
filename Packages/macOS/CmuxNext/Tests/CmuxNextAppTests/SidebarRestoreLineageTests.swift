@@ -22,6 +22,11 @@ struct SidebarRestoreLineageTests {
     /// loose rows; once the lanes are live their own lineage wins and is what the next launch saves.
     @Test(.timeLimit(.minutes(1)))
     func theSavedLineageNestsUntilTheLanesAreLive() async throws {
+        // Lineage nesting is off by default (Leo 2026-11-25); this is its restore path.
+        try await SidebarLineageNestingTests.withNesting { try await savedLineageNestsUntilTheLanesAreLive() }
+    }
+
+    private func savedLineageNestsUntilTheLanesAreLive() async throws {
         let fixture = LargeSessionFixture(.large)
         let chats = fixture.chats()
         try #require(chats.count >= 3)

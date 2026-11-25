@@ -46,7 +46,7 @@ public final class SidebarSessionTreeFeed {
     nonisolated struct Pass: Equatable, Sendable {
         var state: SidebarSessionTreeState
         var asks: Set<String>
-        /// The session tree (`sidebar.sessionTree`) or lineage nesting (`SidebarTunables.lineageNesting`, on by
+        /// The session tree (`sidebar.sessionTree`) or lineage nesting (`SidebarTunables.lineageNesting`, off by
         /// default) is on: the pass writes `SidebarSessionTree.state`. Off, the pass runs only for the pull request
         /// badges and the Priority view's Red CI.
         var showsTree = true

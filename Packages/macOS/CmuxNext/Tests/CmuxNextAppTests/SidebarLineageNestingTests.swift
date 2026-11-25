@@ -6,9 +6,9 @@ import Foundation
 import Testing
 
 /// Leo 2026-10-21 (ask-18a79e54a3): "A LOT OF THESE SESSIONS ID IMAGINE DIDNT NECESSSARILY NEED TO SHOW UP ON THE SIDE
-/// BY DEFAULT". Lineage nesting is on by default: a workspace an agent started lists under the workspace whose agent
-/// started it, at any depth; a parent below the top level starts folded behind a count. A Debug toggle
-/// (`sidebar.lineageNesting`) turns it off.
+/// BY DEFAULT". Lineage nesting (`sidebar.lineageNesting`, off by default since Leo 2026-11-25: "has this dumb feature
+/// been removed yet so we go back to normal sidebar workspaces"): a workspace an agent started lists under the workspace
+/// whose agent started it, at any depth; a parent below the top level starts folded behind a count.
 @MainActor @Suite(.serialized) struct SidebarLineageNestingTests {
     private static let coordinator = WorkspaceID("coordinator"), lane = WorkspaceID("lane"), sub = WorkspaceID("sub")
     private static let reviewer = WorkspaceID("reviewer"), mine = WorkspaceID("mine")
@@ -404,10 +404,27 @@ import Testing
         #expect(tree.opened.isEmpty && tree.collapsed.isEmpty)
     }
 
-    /// The Debug toggle: on by default; off, the feed's tree keeps no parents, so every workspace is top level,
-    /// while `sidebar.sessionTree`'s other parts still show. Nesting alone asks GitHub nothing.
+    /// Turns lineage nesting on for `body` (it is off by default) and puts back what it found.
+    static func withNesting<T>(_ body: () async throws -> T) async rethrows -> T {
+        TunableStore.shared.register(SidebarTunables.all)
+        TunableStore.shared.activate(file: nil)
+        let before = TunableStore.shared.override(SidebarTunables.lineageNesting.key)
+        TunableStore.shared.set(SidebarTunables.lineageNesting.key, .bool(true))
+        precondition(SidebarTunables.lineageNesting.value, "the sidebar.lineageNesting override did not take")
+        defer { TunableStore.shared.set(SidebarTunables.lineageNesting.key, before) }
+        return try await body()
+    }
+
+    /// The Debug toggle: off by default, so every workspace is a plain top-level row (no chevron, no roll-up) and a
+    /// saved lineage seeds no tree; on, the feed's tree keeps the parents. Off, every workspace is top level while
+    /// `sidebar.sessionTree`'s other parts still show. Nesting alone asks GitHub nothing.
     @Test func theToggleTurnsNestingOff() {
-        #expect(SidebarTunables.lineageNesting.defaultValue == true)
+        #expect(SidebarTunables.lineageNesting.defaultValue == false)
+        if TunableStore.shared.override(SidebarTunables.lineageNesting.key) == nil {
+            let defaults = UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)")!
+            SidebarSessionTree(defaults: defaults).savedParents = [Self.lane: Self.coordinator]
+            #expect(SidebarSessionTree(defaults: defaults).state == nil, "a saved lineage nested rows with nesting off")
+        }
         #expect(SidebarTunables.all.contains { $0.key == SidebarTunables.lineageNesting.key })
         let pass = SidebarSessionTreeFeed.Pass(state: SidebarSessionTreeState(parents: Self.parents), asks: [])
         let nesting = SidebarSessionTreeFeed.shaped(pass, sessionTree: false, nests: true, reads: false)

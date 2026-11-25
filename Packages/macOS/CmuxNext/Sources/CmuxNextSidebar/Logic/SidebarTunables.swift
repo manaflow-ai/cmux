@@ -141,11 +141,13 @@ public nonisolated enum SidebarTunables {
     /// Lineage nesting (Leo 2026-10-21: "A LOT OF THESE SESSIONS ID IMAGINE DIDNT NECESSSARILY NEED TO SHOW UP ON THE
     /// SIDE BY DEFAULT"): a workspace whose agent another workspace's agent started lists under that workspace, at any
     /// depth, and a parent below the top level starts folded with its roll-up. Only person-started sessions are top
-    /// level. On by default; the rest of `sidebar.sessionTree` (keycaps, chat history) stays opt-in.
+    /// level. Off by default: every workspace is a plain top-level row, with no chevron or roll-up (Leo 2026-11-25: "idk
+    /// who asked for those in teh sidebar. it's weird", "what the hell is automatic!? PLS REMOVE", "has this dumb feature
+    /// been removed yet so we go back to normal sidebar workspaces"); it was on from #28103 to then.
     public static let lineageNesting = Tunable<Bool>.toggle(
         "sidebar.lineageNesting", .sidebar, "Nest agent-started sessions",
-        help: "A workspace an agent started lists under the workspace whose agent started it, at any depth. Sessions a lane started stay folded under it until you open them. Off lists every workspace at the top level.",
-        default: true, code: "SidebarTunables.lineageNesting")
+        help: "A workspace an agent started lists under the workspace whose agent started it, at any depth. Sessions a lane started stay folded under it until you open them. Off (the default) lists every workspace at the top level.",
+        default: false, code: "SidebarTunables.lineageNesting")
 
     /// A group or list longer than this shows its first rows, the ones that need you and the active one, then a
     /// "Show N more" row (`SidebarLayout+DoneFold`). 0, the default for now, shows every row.
