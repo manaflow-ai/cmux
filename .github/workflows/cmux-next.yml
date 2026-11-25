@@ -3641,7 +3641,6 @@ jobs:
         with:
           persist-credentials: false
           submodules: false
-          # The merge commit and its base parent: the pull request's changed paths scope the run (note-559).
           fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
 
       - name: List the changed paths
@@ -3871,8 +3870,7 @@ jobs:
           CMUX_FAST_CARGO_CACHE_HIT: ${{ steps.cargo-cache.outputs.cache-hit }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-513
           FIXIT_COMPILE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        # A pull request runs the entries and the compile its change reaches; the post-merge batch runs them all
-        # (cmux-next-fast-tier-batch.yml). Why: docs/ci/cmux-next-workflow-notes.md#note-559
+        # Why: docs/ci/cmux-next-workflow-notes.md#note-559
         run: |
           python3 -I scripts/cmux-next/fast-tier.py --kind cargo --kind script \
             ${PATHS_FILE:+--changed-files "$PATHS_FILE"} --receipt "$RUNNER_TEMP/cmux-next-fast-tier-cargo.json"

@@ -17,6 +17,15 @@ feeds two CI jobs: cmux-next.yml's `fast-tier-cargo` job runs
 `--kind cargo --kind script` and the Mac `fast-tier` job runs `--kind swift`.
 A --kind that selects no entry is a bad registry (exit 2), never an empty pass.
 
+--changed-files PATH (NUL- or newline-separated paths, a pull request's diff)
+runs only the entries the change reaches and builds only their packages:
+affected_jobs.py's crate graph for a cargo entry, cmux_next_route.py's test
+targets for a CmuxNext suite, the package and its local dependencies for another
+swift package, the script's folder for a script entry. The others print SKIP and
+run in the post-merge batch (cmux-next-fast-tier-batch.yml). An unreadable list,
+the full-ci label, a change to the runner or its registry, or any routing error
+runs every entry (docs/ci/cmux-next-workflow-notes.md#note-559).
+
 Flake policy: a failed entry runs once more only to classify it. Fail then pass
 is FLAKY, and FLAKY fails the tier like FAIL: it is never silently retried. Its
 owner quarantines it (scripts/cmux-next/quarantine.json, with a bead) or fixes
