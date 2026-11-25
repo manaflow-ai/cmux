@@ -262,6 +262,7 @@ async fn sleep_until_some(at: Option<Instant>) {
 /// list, the same race as the first connect's when `race` is set (one route at a time without
 /// one). Each route's dial ends at a provider group (transport up, before the Noise handshake);
 /// the first group wins and the dials still in flight are dropped, which closes them.
+#[cfg(test)]
 pub(crate) async fn select_reconnect_routes<T: Send>(
     routes: &[ResolvedRouteCandidate],
     start: usize,
@@ -271,11 +272,31 @@ pub(crate) async fn select_reconnect_routes<T: Send>(
     auth: AuthKind,
     attempt: &(impl ReconnectRouteAttempt<T> + ?Sized),
 ) -> Result<(usize, T), ProviderError> {
+    select_reconnect_routes_skipping(routes, start, None, race, session, lane_policy, auth, attempt)
+        .await
+}
+
+/// [`select_reconnect_routes`] without the route `skip` (one that just failed), unless it is
+/// the only route.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn select_reconnect_routes_skipping<T: Send>(
+    routes: &[ResolvedRouteCandidate],
+    start: usize,
+    skip: Option<usize>,
+    race: Option<RouteRace>,
+    session: SessionId,
+    lane_policy: LanePolicy,
+    auth: AuthKind,
+    attempt: &(impl ReconnectRouteAttempt<T> + ?Sized),
+) -> Result<(usize, T), ProviderError> {
     if routes.is_empty() {
         return Err(ProviderError::Configuration("no reconnect routes configured".into()));
     }
-    let sequence: Vec<usize> =
-        (0..routes.len()).map(|offset| (start + offset) % routes.len()).collect();
+    let skip = skip.filter(|_| routes.len() > 1);
+    let sequence: Vec<usize> = (0..routes.len())
+        .map(|offset| (start + offset) % routes.len())
+        .filter(|&index| Some(index) != skip)
+        .collect();
     let mut failures: Vec<Option<String>> = vec![None; sequence.len()];
     let mut cursor = 0;
     let mut in_flight = FuturesUnordered::new();
