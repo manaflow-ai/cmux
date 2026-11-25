@@ -84,7 +84,7 @@ impl Client {
             }
         })
         .await
-        .unwrap_or_else(|_| panic!("{m} answers"));
+        .unwrap_or_else(|_| panic!("{m} answers"))
     }
 
     async fn attach(&mut self, id: &str) {
