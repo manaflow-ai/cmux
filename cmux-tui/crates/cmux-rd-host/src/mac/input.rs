@@ -117,6 +117,12 @@ pub struct Injector {
 }
 
 impl Injector {
+    /// The streamed area moved (a shared window, same size): pointer input maps through
+    /// `bounds` from now on.
+    pub fn move_to(&mut self, bounds: Bounds) {
+        self.bounds = bounds;
+    }
+
     pub fn new(bounds: Bounds, size: (u32, u32)) -> Res<Self> {
         sys::load()?;
         // SAFETY: creates an event source this injector owns (released on drop).
