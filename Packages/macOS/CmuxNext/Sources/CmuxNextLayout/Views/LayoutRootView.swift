@@ -127,6 +127,8 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     public internal(set) var panesMovedInLastOverlaySync: Set<PaneID> = []
     /// Whether a layout motion runs now (``observeLayoutMotion(_:)``).
     public private(set) var isLayoutInMotion = false
+    /// The window's chrome resizes this layout on an animation now (``setChromeMotion(_:)``).
+    public private(set) var isInChromeMotion = false
     /// Layout motion observers by id (`observeLayoutMotion`).
     var layoutMotionObservers: [Int: (Bool) -> Void] = [:]
     /// Work waiting for the layout to be still (``whenStill(_:on:_:)``), by key, with the queue it runs on.
@@ -631,6 +633,21 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         // A strip pan and a divider drag keep the ticks a little after each event (`ScreenContentView.panTickTail`);
         // a gesture with a still pointer needs none after that.
         return moving || panning || dragging || snapWaits || screenViews.values.contains(where: \.zoomDim.goes)
+    }
+
+    /// The window's chrome starts or stops resizing this layout on an animation of its own (the sidebar's slide,
+    /// `ContentAreaMotionHosting`). Every frame of it moves the panes and dividers as a spring does, so what waits for a
+    /// still layout waits for its landing too: the divider catcher panels over pages (one window move each per frame
+    /// before), the still work and the pane spare. The landing reports the rects once, as a spring's does.
+    public func setChromeMotion(_ moving: Bool) {
+        guard moving != isInChromeMotion else { return }
+        let was = isInLayoutMotion
+        isInChromeMotion = moving
+        if isInLayoutMotion != was { for block in layoutMotionObservers.values { block(isInLayoutMotion) } }
+        if !moving {
+            runStillWork()
+            reportInteractiveRects()
+        }
     }
 
     /// Tells the layout motion observers when the first spring starts and when the last one lands.

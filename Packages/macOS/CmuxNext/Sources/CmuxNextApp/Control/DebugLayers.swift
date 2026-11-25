@@ -23,10 +23,18 @@ enum DebugLayers {
             return report(controller: controller, window: window)
         }
         let band = params["titlebar_band"]?.boolValue == true ? services.windows.controllers.first?.window?.titlebarBandMap() : nil
+        // `glass_census`: `start` counts each Liquid Glass view's layouts from now, `stop` stops; the report carries them.
+        switch params["glass_census"]?.stringValue {
+        case "start": GlassLayoutCensus.isCounting = true
+        case "stop": GlassLayoutCensus.isCounting = false
+        default: break
+        }
+        let census = JSONValue(foundation: GlassLayoutCensus.report)
         return .object([
             "windows": .array(windows),
             "consistent": .bool(windows.allSatisfy { $0["consistent"]?.boolValue == true }),
             "layout_passes": layoutPasses(),
+            "glass_census": census ?? .null,
         ].merging(band.flatMap { JSONValue(foundation: $0) }.map { ["titlebar_band": $0] } ?? [:]) { $1 })
     }
 

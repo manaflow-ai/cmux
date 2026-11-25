@@ -413,6 +413,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     func windowDidChangeOcclusionState(_ notification: Notification) { BackdropImageStore.shared.desktop.windowDidChange(); if let window { services.browserHost?.tabs.windowDidChangeOcclusion(window) }; services.windows.recordSaver.launchImages.windowsChanged() }
 
     var sidebarObservation: Task<Void, Never>?
+    /// The layouts the sidebar's slide marked as in motion at its start (`observeSidebarHidden`), cleared at its landing.
+    var chromeMotionLayouts: [WeakLayoutRoot] = []
 
     /// Set once closing this incognito window was confirmed (or needed no
     /// confirmation).

@@ -14,7 +14,7 @@ public final class TitlebarBandButton: ClickableButton {
     /// Draws a custom glyph name at a point size, or nil for an SF Symbol (the sidebar toggle's
     /// candidates, `SidebarToggleIcon.image(named:pointSize:)`).
     public var customImage: ((String, CGFloat) -> NSImage?)? {
-        didSet { renderedIconSize = 0; renderSymbol() }
+        didSet { renderedIconSize = 0; customImages = [:]; renderSymbol() }
     }
     /// Optional short text shown beside the symbol. A nil value preserves the icon-only control.
     public var text: String? {
@@ -40,6 +40,10 @@ public final class TitlebarBandButton: ClickableButton {
     }
     private let badgeLabel = NSTextField(labelWithString: "")
     private var renderedIconSize: CGFloat = 0
+    /// The ``customImage`` glyphs drawn so far, by name and point size: the sidebar toggle's bar slides through 48
+    /// of them on every toggle, and a glyph drawn again is a new image the toolbar band measures again
+    /// (`GlyphInkMeasure`, a 4x bitmap draw per frame of the slide). One image per name keeps both to the first toggle.
+    private var customImages: [String: NSImage] = [:]
     public private(set) lazy var hover = ChromeHover(self, behindContent: true)
     /// Set once `hover` follows the pointer (not during NSButton's init).
     private var followsPointer = false
@@ -146,10 +150,20 @@ public final class TitlebarBandButton: ClickableButton {
         let size = symbolPointSize?() ?? Metrics.toolbarSymbolPointSize
         guard size != renderedIconSize else { return }
         renderedIconSize = size
-        image = customImage?(symbol, size)
+        image = customGlyph(size: size)
             ?? NSImage.packOverride(forSymbol: symbol, pointSize: size)
             ?? NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: Metrics.toolbarSymbolWeight))
+    }
+
+    private func customGlyph(size: CGFloat) -> NSImage? {
+        guard let customImage else { return nil }
+        let key = "\(symbol)@\(size)"
+        if let drawn = customImages[key] { return drawn }
+        guard let drawn = customImage(symbol, size) else { return nil }
+        if customImages.count >= 128 { customImages.removeAll() }
+        customImages[key] = drawn
+        return drawn
     }
 
     private func applyText() {

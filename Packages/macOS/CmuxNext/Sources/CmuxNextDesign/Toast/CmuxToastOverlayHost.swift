@@ -283,14 +283,14 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
 
     /// Places every toast of `stack` again: `sizing` first gives each its fitting size (the window
     /// resized: a shown detail is capped again); `animated` slides them from where they are drawn.
-    private func relayout(_ stack: Stack, in window: NSWindow, sizing: Bool, animated: Bool) {
+    private func relayout(_ stack: Stack, in window: NSWindow, sizing: Bool, animated: Bool, anchors known: [NSRect]? = nil) {
         if sizing {
             for entry in stack.entries {
                 entry.view.windowGeometryDidChange()
                 size(entry.view)
             }
         }
-        for (entry, anchor) in zip(stack.entries, anchors(of: stack, in: window)) {
+        for (entry, anchor) in zip(stack.entries, known ?? anchors(of: stack, in: window)) {
             if animated {
                 CmuxToastMotion.move(entry.view) { entry.handle.update(anchor: anchor) }
             } else {
@@ -350,8 +350,13 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
 
     /// Moves every toast in `window` clear of the avoided views, sliding from where it is drawn
     /// as a restack does (``CmuxToastAvoidance/avoidanceChanged(in:)`` calls it for its window).
+    /// An avoided view that moved without changing where the toasts rest (every frame of the sidebar's slide moves
+    /// a composer across, and the floor reads only heights) moves nothing and tells no reserving view again: a move
+    /// to the same place restarted each toast's slide and walked the window's views once per frame.
     public func reanchor(in window: NSWindow) {
         guard let stack = stacks[ObjectIdentifier(window)], stack.window === window else { return }
-        relayout(stack, in: window, sizing: false, animated: true)
+        let anchors = anchors(of: stack, in: window)
+        guard anchors.count != stack.entries.count || zip(stack.entries, anchors).contains(where: { $0.handle.options.anchor != $1 }) else { return }
+        relayout(stack, in: window, sizing: false, animated: true, anchors: anchors)
     }
 }

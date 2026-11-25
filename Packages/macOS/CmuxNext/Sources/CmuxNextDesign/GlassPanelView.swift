@@ -204,6 +204,18 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override func layout() { during { super.layout() } }
+    /// A subtree layout skipped while nobody saw this glass (``layoutSubtree(withOldSize:)``), owed once it shows.
+    private var owesLayout = false {
+        didSet { if !owesLayout, oldValue { needsLayout = true } }
+    }
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        if owesLayout, !isHiddenOrHasHiddenAncestor, !bounds.isEmpty { owesLayout = false }
+    }
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        if owesLayout, !isHiddenOrHasHiddenAncestor, !bounds.isEmpty { owesLayout = false }
+    }
     override func updateConstraints() { during { super.updateConstraints() } }
     override func viewWillDraw() { during { super.viewWillDraw() } }
     /// The window this view counts in (``ActiveLookScope/attach(to:)``), while it is in one, and
@@ -220,7 +232,10 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
         super.viewWillMove(toWindow: newWindow)
     }
 
-    override func viewDidMoveToWindow() { during { super.viewDidMoveToWindow() } }
+    override func viewDidMoveToWindow() {
+        during { super.viewDidMoveToWindow() }
+        if owesLayout, window != nil, !isHiddenOrHasHiddenAncestor, !bounds.isEmpty { owesLayout = false }
+    }
     override func viewDidChangeEffectiveAppearance() { during { super.viewDidChangeEffectiveAppearance() } }
 
     /// The scope this view counts its window in, counted on the first update that finds one. A
@@ -246,6 +261,16 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
     // the read happens) through these, not through the public methods above.
     @objc(_layoutSubtreeWithOldSize:)
     func layoutSubtree(withOldSize oldSize: NSSize) {
+        // A glass nobody sees (hidden, under a hidden view, or with no size) skips its subtree's layout: AppKit lays out
+        // hidden subtrees too, and each pass re-rendered this glass's SwiftUI graph. Every frame of the sidebar's slide
+        // re-solved the window and re-rendered four such graphs (the sidebar's hidden updated card, a hidden Home pane's
+        // header glass: about 10% of each frame's main thread, cmux21). It lays out once shown or sized again.
+        if isHiddenOrHasHiddenAncestor || bounds.isEmpty {
+            owesLayout = true
+            needsLayout = false
+            return
+        }
+        GlassLayoutCensus.record(self)
         typealias Method = @convention(c) (NSView, Selector, NSSize) -> Void
         let selector = NSSelectorFromString("_layoutSubtreeWithOldSize:") // crash-allow: AppKit private selector, called only when NSGlassEffectView responds to it (superImplementation)
         guard let implementation = Self.superImplementation(selector) else { return }
@@ -476,5 +501,45 @@ public final class ActiveLookScope {
         if path.hasSuffix("/AppKit.framework/Versions/C/AppKit") || path.hasSuffix("/AppKit.framework/AppKit") { return .appKit }
         if path.hasSuffix("/SwiftUICore") || path.hasSuffix("/SwiftUI") { return .swiftUI }
         return .other
+    }
+}
+
+/// Debug: how often each Liquid Glass view in the app laid out its subtree (its SwiftUI graph) while counting, and
+/// where it sits (`debug.layers` with `glass_census`: `start` resets and counts, `stop` stops). Off by default: one
+/// flag read per glass layout.
+@MainActor
+public struct GlassLayoutCensus {
+    public init() {}
+    private final class Box {
+        weak var view: NSView?
+        var count = 0
+        init(_ view: NSView) { self.view = view }
+    }
+
+    private static var boxes: [ObjectIdentifier: Box] = [:]
+    /// Whether glass layouts are counted now.
+    public static var isCounting = false {
+        didSet { if isCounting, !oldValue { boxes.removeAll() } }
+    }
+
+    static func record(_ view: NSView) {
+        guard isCounting else { return }
+        let id = ObjectIdentifier(view)
+        if let box = boxes[id], box.view === view { box.count += 1 } else {
+            let box = Box(view)
+            box.count = 1
+            boxes[id] = box
+        }
+    }
+
+    /// Each counted glass view still alive, busiest first: its layouts, frame in its window, whether it is hidden
+    /// (or under a hidden view), and its superviews' classes, nearest first.
+    public static var report: [[String: Any]] {
+        boxes.values.compactMap { box -> (Int, [String: Any])? in
+            guard let view = box.view else { return nil }
+            let ancestry = sequence(first: view.superview, next: { $0?.superview }).prefix(16).compactMap { $0.map { String(describing: type(of: $0)) } }
+            return (box.count, ["layouts": box.count, "frame": NSStringFromRect(view.convert(view.bounds, to: nil)),
+                                "hidden": view.isHiddenOrHasHiddenAncestor, "ancestry": ancestry])
+        }.sorted { $0.0 > $1.0 }.map(\.1)
     }
 }
