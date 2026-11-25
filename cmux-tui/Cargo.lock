@@ -76,6 +76,7 @@ dependencies = [
  "cmux-source-scan",
  "cmux-stack-auth",
  "cmux-supervise-core",
+ "cmux-sync",
  "cmux-tag-cache",
  "cmux-tailnet",
  "cmux-tailnet-front",
@@ -1784,6 +1785,7 @@ version = "0.1.0"
 name = "cmux-composer-send"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "serde_json",
 ]
 
@@ -2357,6 +2359,7 @@ name = "cmux-migrate"
 version = "0.1.0"
 dependencies = [
  "cmux-git",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
@@ -2863,6 +2866,14 @@ dependencies = [
  "cmux-process",
  "cmux-tui-platform",
  "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-sync"
+version = "0.1.0"
+dependencies = [
  "serde",
  "serde_json",
 ]

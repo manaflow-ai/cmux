@@ -1162,6 +1162,58 @@
           ]
         },
         {
+          "key": "appearance.settingsBetaChips",
+          "note": "Taste prototype (Taste Board #15): the Settings page draws a small Beta chip beside the title of each experimental row (the Experimental category, labs.* keys, rows tagged labs or experimental) and beside the Experimental sidebar entry (webviews/src/pages/settings/betaChips.ts). Off by default: the page is unchanged.",
+          "title": {
+            "key": "settings.appearance.settingsBetaChips",
+            "text": "Beta Chips in Settings"
+          },
+          "help": {
+            "key": "settings.appearance.settingsBetaChips.help",
+            "text": "Marks experimental settings with a Beta chip."
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "AppearanceSettingsSchema",
+            "prefixed": true
+          },
+          "default": false,
+          "keywords": [
+            "beta",
+            "chip",
+            "badge",
+            "new",
+            "experimental",
+            "labs",
+            "preview"
+          ]
+        },
+        {
+          "key": "appearance.glassControls",
+          "title": {
+            "key": "settings.appearance.glassControls",
+            "text": "Glass Controls"
+          },
+          "help": {
+            "key": "settings.appearance.glassControls.help",
+            "text": "Draws the knobs of the switches and sliders in Settings as glass."
+          },
+          "kind": "toggle",
+          "swift_owner": {"type": "AppearanceSettingsSchema", "prefixed": true},
+          "default": false,
+          "keywords": [
+            "experimental",
+            "glass",
+            "liquid glass",
+            "switch",
+            "toggle",
+            "slider",
+            "knob",
+            "thumb",
+            "labs"
+          ]
+        },
+        {
           "key": "appearance.backgroundOpacity",
           "name": "opacity",
           "title": {
@@ -1330,6 +1382,28 @@
             "colour",
             "space",
             "background"
+          ]
+        },
+        {
+          "key": "appearance.wallpaperLighting",
+          "title": {
+            "key": "settings.appearance.wallpaperLighting",
+            "text": "Wallpaper Lighting"
+          },
+          "help": {
+            "key": "settings.appearance.wallpaperLighting.help",
+            "text": "Treats the wallpaper as a light source: glass edges facing its brightest part catch its color, the composer glows with it, and the glass leans toward its hue."
+          },
+          "kind": "toggle",
+          "swift_owner": "WallpaperLightingSetting",
+          "default": false,
+          "keywords": [
+            "light",
+            "lighting",
+            "glow",
+            "rim",
+            "wallpaper",
+            "glass"
           ]
         },
         {
@@ -1782,6 +1856,35 @@
             "text",
             "thin",
             "weight"
+          ]
+        },
+        {
+          "key": "appearance.appFont",
+          "note": "The font family of cmux's interface, any installed family (Leo, 2026-11-08: \"there's no whole app font change thing\"). Unset is the system font. Every web page (chat, Settings, palette) takes it as --font-ui live through the web theme (WebTheme.appFontStack, a <style id=cmux-app-font> rule under inline styles, so a chat font set on Chat still wins there). Native chrome text (CheckedFont.system) takes it too while experiments.appFontChrome is on. Terminals keep terminal.fontFamily. Validation domain:ui_font_family: any family name, the owner checks the shape only.",
+          "title": {
+            "key": "settings.appearance.appFont",
+            "text": "App Font"
+          },
+          "help": {
+            "key": "settings.appearance.appFont.help",
+            "text": "The font of cmux's interface: chat, Settings and every page. Terminals keep their own."
+          },
+          "kind": "font_family",
+          "default": null,
+          "default_label": {
+            "key": "settings.appearance.appFont.system",
+            "text": "System"
+          },
+          "swift_owner": "AppFontSetting",
+          "keywords": [
+            "font",
+            "app font",
+            "interface font",
+            "ui font",
+            "typeface",
+            "family",
+            "whole app",
+            "text"
           ]
         },
         {
