@@ -127,6 +127,10 @@ BOUND_COPIES: tuple[tuple[str, str, int], ...] = (
      r"threshold: Duration = \.seconds\(([0-9_]+)\)", 1000),
 )
 
+# Copy that names the person's own action ("Click to go offline.", "Tap to reconnect") is a control's label or
+# tooltip, not a state the person can do nothing about.
+NAMES_ITS_ACTION = re.compile(r"\b(?:Click|Tap|Press)\s+to\b")
+
 # A person action on the same unit.
 PERSON_ACTIONS = re.compile(
     r"(\bonClick\s*=|\bonPress\s*=|<Button\b|<button\b|\bonAction\b|\bprimaryAction\b"  # web
@@ -279,7 +283,8 @@ def connection_keys(tree: Tree, files: list[str]) -> set[str]:
                 pass
             if not isinstance(english, str):
                 english = key
-            if KEY_SHAPE.match(key) and not OUTCOME_KEY.search(key) and CONNECTION_WORDS.search(english or ""):
+            if (KEY_SHAPE.match(key) and not OUTCOME_KEY.search(key) and CONNECTION_WORDS.search(english or "")
+                    and not NAMES_ITS_ACTION.search(english or "")):
                 keys.add(key)
     return keys
 
@@ -294,6 +299,8 @@ def says_connection(text: str, keys: set[str]) -> bool:
         return text in keys  # a dotted string-table key
     if REGEX_SHAPE.search(text):
         return False  # a pattern that reads errors, not words anyone sees
+    if NAMES_ITS_ACTION.search(text):
+        return False  # "Live is on. Click to go offline.": a control's own words, the action named in them
     return bool(CONNECTION_WORDS.search(text)) and bool(TEXT_SHAPE.match(text))
 
 

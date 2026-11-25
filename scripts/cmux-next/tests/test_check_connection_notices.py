@@ -230,6 +230,37 @@ class Tree:
         self.git("commit", "-q", "-m", message)
 
 
+LIVE_TOOLTIP = """\
+import Foundation
+
+extension Strings {
+    static func liveTooltip(isLive: Bool) -> String {
+        isLive
+            ? String(localized: "sidebar.live.on", defaultValue: "Live is on. Click to go offline.", bundle: .module)
+            : String(localized: "sidebar.live.off", defaultValue: "Live is off. Click to go live.", bundle: .module)
+    }
+    static var offline: String { String(localized: "sidebar.offline", defaultValue: "Offline", bundle: .module) }
+}
+"""
+
+
+class CopyThatNamesItsAction(unittest.TestCase):
+    def test_click_to_copy_is_not_a_quiet_state(self):
+        self.assertFalse(ccn.says_connection("Live is on. Click to go offline.", set()))
+        self.assertFalse(ccn.says_connection("Disconnected. Tap to reconnect", set()))
+        self.assertTrue(ccn.says_connection("Offline", set()))
+        self.assertTrue(ccn.says_connection("Mac offline. Not sent.", set()))
+
+    def test_the_sidebar_live_tooltip_passes_and_a_bare_offline_still_fails(self):
+        # Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Strings+Live.swift (#53574) failed every kit run.
+        tree = Tree(self)
+        tree.write("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Strings+Live.swift", LIVE_TOOLTIP)
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("('Offline')", out)
+        self.assertNotIn("sidebar.live.on", out)
+
+
 class WebShapes(unittest.TestCase):
     def test_old_retry_line_drawn_at_once_fails_at_its_drawing(self):
         tree = Tree(self)
