@@ -10,9 +10,9 @@ use super::ledger::{LIMIT, Ledger, Send, WORKSPACE_LIMIT};
 use super::pick::{self, Candidate, Destination};
 use super::trust::{level_at, trusted_at};
 use super::{
-    Ensure, Flags, Keys, Lease, StartCopy, ensure_answer, github_repo, import, made_no_machine,
-    origin_url, percent_segment, pin, plan, plan_with, refused, remote_name, setup_state,
-    too_broad, valid_environment, valid_key, valid_repo, valid_workspace,
+    Ensure, Flags, Keys, Lease, StartCopy, ensure_answer, ensured_in_environment, github_repo,
+    import, made_no_machine, origin_url, percent_segment, pin, plan, plan_with, refused,
+    remote_name, setup_state, too_broad, valid_environment, valid_key, valid_repo, valid_workspace,
 };
 
 const ME: &str = "user-leo";
