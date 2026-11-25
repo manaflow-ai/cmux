@@ -1440,7 +1440,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "cmux-cloud-client",
  "cmux-cloud-config",
+ "cmux-cloud-environment",
+ "cmux-cloud-wire",
  "cmux-egress",
  "cmux-process",
  "cmux-scope",
