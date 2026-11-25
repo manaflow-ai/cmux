@@ -9,6 +9,7 @@ import { ErrorDetails } from "./ErrorDetails";
 import { MessageCard } from "./MessageCard";
 import { DispatchCard } from "./DispatchCard";
 import { WhoElseCard } from "./WhoElseCard";
+import { ForumCallCard } from "./ForumCallCard";
 import { GitHubConnectCard } from "./GitHubConnectCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
@@ -27,7 +28,6 @@ import { ThoughtRow } from "./ThoughtRow";
 import { groupId, runStretches, stretchStart, toolGroups, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
-import { SavePromptButton } from "./SavePromptButton";
 import { TurnActionsContext } from "./turnActions";
 import { FailedSendsContext } from "./promptDeliveryModel";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
@@ -35,19 +35,23 @@ import {
   isEmptyFooter,
   isStopped,
   offersRetry,
+  turnTimeKey,
+  FOLD_COUNTS_SWITCH,
   workedCallsText,
+  workedCountsText,
   workedLabel,
   workedMessagesText,
-  turnTimeKey,
   formatDuration,
 } from "./turns";
+import { FailedCount } from "./FailedCount";
+import { useExperimentSwitch } from "../../../experiments/switches";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { failedTurnMark } from "./failedTurnMark.experiment";
 import { turnCopyText } from "./turnCopy";
 import { workedLine } from "./workedLine.experiment";
 import { workedCountParts, workedOutcome, workedOutcomeParts, workedSentence, type WorkedPart } from "./workedOutcome";
 import { TimedLabel } from "./TurnTokens";
-import { AlertCircle, ChevronRight, Retry, Close } from "./icons";
+import { AlertCircle, ChevronRight, Close, Retry } from "./icons";
 import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton } from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { dismissFailure, useFailureDismissed } from "./dismissedFailures";
@@ -60,9 +64,9 @@ import {
   failureCopy,
   failureKind,
   failureRecovery,
-  isAccountLimit,
   isTeamMachineSignIn,
   type FailureRoute,
+  isAccountLimit,
 } from "../failureCopy";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
@@ -141,6 +145,13 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   // The `header` arm of turnFoldSteered names the work the line holds after its time.
   const runs = row.workedRuns;
   const work = useMemo(() => (runs?.length ? toolRunSummary(t, runs) : undefined), [t, runs]);
+  // Settings > Advanced > Experiments > Fold Summary Counts (off by default): the line names what
+  // it hides after its time, "· ran 4 commands, edited 2 files", with the runs' "(1 failed)".
+  const countsOn = useExperimentSwitch(FOLD_COUNTS_SWITCH);
+  const counts = useMemo(
+    () => (countsOn && !work && row.durationMs !== undefined ? workedCountsText(t, row) : undefined),
+    [countsOn, work, t, row],
+  );
   // workedLine.experiment.ts: a line that says what the turn did and how it came out.
   const outcome = workedOutcomeLabel(t, row, experimentArm(workedLine));
   if (outcome !== undefined) return outcome;
@@ -149,9 +160,19 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   else {
     const key = turnTimeKey(row);
     // A line that names its runs' work leaves their count to it.
-    const after = (work ? "" : workedCallsText(t, row)) + workedMessagesText(t, row);
+    const after = (work || counts ? "" : workedCallsText(t, row)) + workedMessagesText(t, row);
     label = <TimedLabel text={(time) => t(key, { time }) + after} time={row.durationMs} />;
   }
+  if (counts && row.previous === undefined)
+    return (
+      <>
+        {label}
+        <span className="cv-worked__work">
+          {` · ${counts.text}`}
+          <FailedCount n={counts.failed} />
+        </span>
+      </>
+    );
   if (!work) return label;
   return (
     <>
@@ -288,6 +309,8 @@ function groupNode(
           group={group.calls.map((call, i) => ({ call, tool: group.items[i]!.tool! }))}
         />
       );
+    case "forum":
+      return <ForumCallCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
     case "agentCall":
       return <AgentCallCard key={group.item.tool!.id || index} call={group.call} tool={group.item.tool!} />;
     case "item":
@@ -634,7 +657,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             {!messages && timeline.toggle}
             {!messages && text && <ReadAloudButton id={row.id} text={text} />}
             {!messages && text && <RowReplyButton text={text} />}
-            {!messages && text && <SavePromptButton text={text} />}
             {!messages && ((text && row.answerId) || menuRetry) && <MessageMore rowId={row.answerId ?? row.id} />}
           </span>
           {stoppedLook === "word" && stoppedWord}
