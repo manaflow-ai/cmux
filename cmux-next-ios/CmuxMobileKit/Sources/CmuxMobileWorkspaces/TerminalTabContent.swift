@@ -133,11 +133,13 @@ public final class PlaceholderTerminalTabContent: TerminalTabContent {
                 await self.retry(workspace)
             }
         }
-        return AnyView(PlaceholderTerminalPage(tab: tab, insets: context.safeAreaInsets, retry: retryAction))
+        return AnyView(PlaceholderTerminalPage(tab: tab, insets: context.safeAreaInsets, retry: retryAction)
+            .placeholderBound("terminal.page.unavailable", .milliseconds(2000)))
     }
 
     public func card(for tab: WorkspaceTab, in workspace: Workspace) -> AnyView {
-        AnyView(PlaceholderTerminalPage(tab: tab, insets: EdgeInsets(top: 62, leading: 0, bottom: 90, trailing: 0)))
+        AnyView(PlaceholderTerminalPage(tab: tab, insets: EdgeInsets(top: 62, leading: 0, bottom: 90, trailing: 0))
+            .placeholderBound("tabgrid.terminal.unavailable", .milliseconds(1000)))
     }
 }
 
