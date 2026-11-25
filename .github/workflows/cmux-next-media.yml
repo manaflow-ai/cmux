@@ -309,7 +309,12 @@ jobs:
     # 35 min to reach its web bundles (job 115856352658). A tour builds in the
     # slot it claims on the Mac, so it reuses that slot's warm DerivedData
     # whichever pull request toured there last (scripts/ci/media_tag_lock.py).
-    timeout-minutes: 120
+    # The job's clock runs from the runner's setup. On 2026-11-25 (job
+    # 139295566977) setup, both builds and the before/after capture took 116
+    # min, so a 120 min cap cancelled "Record What's New clips" 4 min into its
+    # own 45 and the media hand-off after it: no clip that night. 180 leaves
+    # that step its whole 45 and the hand-off its time.
+    timeout-minutes: 180
     # actions: read finds and downloads another run's base app artifact.
     permissions:
       actions: read
