@@ -668,6 +668,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarGroupDrag.run(call.params, services: services))
             },
+            // `debug.views_at {x, y}`: every view of the main window over a window point, with its layer's moves and masks.
+            .mainActor("debug.views_at") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugViewsAt.report(call.params, services: services))
+            },
             // `debug.view_key {view, key, modifiers?, window?}`: a real key-down/up into a
             // named view made first responder; `debug.focus_ring`: the sidebar's ring (cx-tupd).
             .mainActor("debug.view_key") { [weak services] call in
