@@ -85,37 +85,20 @@ import Testing
         #expect(folded[a]?.rollUp == SidebarTreeRollUp(blocked: 1, failed: 1, running: 1, unread: 1, total: 4))
     }
 
-    /// The folded parent uses the same shared working mark as a live agent row. When the last
-    /// running child stops, or when the fold is removed, that mark must lose its animation plan.
-    @Test func foldedRunningRollUpOnlyShowsWorkingWhileAChildRuns() throws {
+    /// A folded parent draws only what may need the person: waiting on you and failed, a dot and a count each. How
+    /// many it hides, what runs and what finished unread draw nothing (Leo 2026-11-23: "state can fucking only be
+    /// relevant when you may need to investigate/take action"), and no working animation runs for hidden children.
+    @Test func aFoldedRollUpDrawsOnlyWhatNeedsThePerson() throws {
         let view = SidebarTreeRollUpView(frame: NSRect(x: 0, y: 0, width: 180, height: 22))
-        let indicator = try #require(view.subviews.compactMap { $0 as? StatusIndicatorView }.first)
-        #expect(indicator.state == .idle)
-
-        view.configure(SidebarTreeRollUp(blocked: 1, failed: 1, running: 2, unread: 1))
-        view.layout()
-        #expect(indicator.state == .working)
-        #expect(indicator.indicator.plan.glyph != .none)
-        #expect(!indicator.isHidden)
-        #expect(indicator.frame.width > 0)
-
-        // Hidden pooled rows must stop their work animation; showing the same row resumes it.
-        view.isHidden = true
-        #expect(indicator.state == .idle)
-        #expect(indicator.indicator.runningAnimation == nil)
-        view.isHidden = false
-        #expect(indicator.state == .working)
-
-        view.configure(SidebarTreeRollUp(blocked: 1, failed: 1, running: 0, unread: 1))
-        #expect(indicator.state == .idle)
-        #expect(indicator.indicator.plan == .hidden)
-        #expect(indicator.indicator.runningAnimation == nil)
-
-        view.configure(SidebarTreeRollUp(blocked: 0, failed: 0, running: 1, unread: 0))
-        #expect(indicator.state == .working)
+        #expect(view.subviews.allSatisfy { !($0 is StatusIndicatorView) })
+        view.configure(SidebarTreeRollUp(blocked: 1, failed: 2, running: 3, unread: 1, total: 7))
+        let counts = view.subviews.compactMap { $0 as? ChromeLabel }.filter { !$0.isHidden }.map(\.stringValue)
+        #expect(counts == ["1", "2"])
+        #expect(!view.isHidden)
+        view.configure(SidebarTreeRollUp(running: 2, unread: 1, total: 3))
+        #expect(view.isHidden, "running, unread and the hidden count are no reason to look")
         view.configure(nil)
-        #expect(indicator.state == .idle)
-        #expect(indicator.indicator.plan == .hidden)
+        #expect(view.isHidden)
     }
 
     /// A filter opens every fold (search finds a session a fold hides), so a folded parent that
@@ -168,13 +151,13 @@ import Testing
 
     @Test func aFoldSurvivesTheFeedsNextPass() {
         let defaults = UserDefaults(testSuiteName: "SidebarDeepTreeTests.\(UUID().uuidString)") ?? .standard
-        let tree = SidebarSessionTree(defaults: defaults)
+        let tree = SidebarSessionTree(defaults: defaults, showsStarted: true)
         let a = WorkspaceID("a")
         tree.state = SidebarSessionTreeState(parents: [WorkspaceID("b"): a])
         tree.toggle(a)
         tree.state = SidebarSessionTreeState(parents: [WorkspaceID("b"): a, WorkspaceID("c"): a]) // the feed passes again
         #expect(tree.drawn?.collapsed == [a])
-        #expect(SidebarSessionTree(defaults: defaults).collapsed == [a]) // and the next launch
+        #expect(SidebarSessionTree(defaults: defaults, showsStarted: true).collapsed == [a]) // and the next launch
         tree.toggle(a)
         #expect(tree.drawn?.collapsed == [])
     }
@@ -184,7 +167,7 @@ import Testing
     /// feed's first pass (no parents yet) nothing is dropped.
     @Test func aClosedParentsFoldLeavesTheSavedList() {
         let defaults = UserDefaults(testSuiteName: "SidebarDeepTreeTests.\(UUID().uuidString)") ?? .standard
-        let tree = SidebarSessionTree(defaults: defaults)
+        let tree = SidebarSessionTree(defaults: defaults, showsStarted: true)
         let a = WorkspaceID("a"), b = WorkspaceID("b"), d = WorkspaceID("d")
         tree.state = SidebarSessionTreeState(parents: [WorkspaceID("child-a"): a, WorkspaceID("child-d"): d])
         tree.toggle(a)
@@ -193,7 +176,7 @@ import Testing
         tree.toggle(b)
         #expect(tree.collapsed == [b, d])
         #expect(Set(defaults.stringArray(forKey: SidebarSessionTree.collapsedKey) ?? []) == ["b", "d"])
-        let launched = SidebarSessionTree(defaults: defaults)
+        let launched = SidebarSessionTree(defaults: defaults, showsStarted: true)
         launched.toggle(WorkspaceID("e")) // before the first pass
         #expect(launched.collapsed == [b, d, WorkspaceID("e")])
     }
@@ -204,7 +187,7 @@ import Testing
         let defaults = UserDefaults(testSuiteName: "SidebarDeepTreeTests.\(UUID().uuidString)") ?? .standard
         let a = WorkspaceID("a"), b = WorkspaceID("b"), d = WorkspaceID("d"), c = WorkspaceID("c")
         defaults.set(["a", "b", "d"], forKey: SidebarSessionTree.collapsedKey)
-        let tree = SidebarSessionTree(defaults: defaults)
+        let tree = SidebarSessionTree(defaults: defaults, showsStarted: true)
         tree.state = SidebarSessionTreeState(parents: [b: a, c: b]) // d's lane hasn't loaded yet
         tree.reveal(c, lists: [{ _ in true }])
         #expect(tree.collapsed == [d])

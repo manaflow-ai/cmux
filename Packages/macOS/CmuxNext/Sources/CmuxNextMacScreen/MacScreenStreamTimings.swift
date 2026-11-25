@@ -63,11 +63,14 @@ nonisolated struct MacScreenFrameTimings: Equatable, Sendable {
     private var lastPresentedNanos: UInt64?
     private var lastFrame: UInt32?
 
-    /// A frame (`frame`, the host's number for it, decoded at `decodedAtNanos`) reached the
-    /// presenter at `nowNanos` (both `DispatchTime` uptime) and `now`.
-    mutating func presented(frame: UInt32, decodedAtNanos: UInt64, nowNanos: UInt64, now: ContinuousClock.Instant) {
+    /// A frame (`frame`, the host's number for it, released at `releasedAtNanos` and decoded at
+    /// `decodedAtNanos`) reached the presenter at `nowNanos` (all `DispatchTime` uptime) and `now`.
+    /// Decode is taken here, at decode time, so it never waits on the presented handler.
+    mutating func presented(frame: UInt32, releasedAtNanos: UInt64 = 0, decodedAtNanos: UInt64, nowNanos: UInt64,
+                            now: ContinuousClock.Instant) {
         total += 1
         if firstPresentedAt == nil { firstPresentedAt = now }
+        if releasedAtNanos > 0, releasedAtNanos <= decodedAtNanos { decode.add(Double(decodedAtNanos - releasedAtNanos) / 1e6) }
         if let last = lastPresentedNanos, nowNanos >= last { intervals.add(Double(nowNanos - last) / 1e6) }
         lastPresentedNanos = nowNanos
         if decodedAtNanos > 0, nowNanos >= decodedAtNanos { present.add(Double(nowNanos - decodedAtNanos) / 1e6) }
@@ -77,12 +80,12 @@ nonisolated struct MacScreenFrameTimings: Equatable, Sendable {
         lastFrame = frame
     }
 
-    /// A frame reached the glass: its Decode and Present stages. Out-of-order times (a clock
-    /// that is not the decoder's) are left out.
+    /// A frame reached the glass: its Present stage and Decode + Present (Decode came with
+    /// ``presented(frame:releasedAtNanos:decodedAtNanos:nowNanos:now:)``). Out-of-order times
+    /// (a clock that is not the decoder's) are left out.
     mutating func shown(_ times: RemoteViewerFrameTimes) {
         guard times.releasedAtNanos > 0, times.releasedAtNanos <= times.decodedAtNanos,
               times.decodedAtNanos <= times.presentedAtNanos else { return }
-        decode.add(Double(times.decodedAtNanos - times.releasedAtNanos) / 1e6)
         glass.add(Double(times.presentedAtNanos - times.decodedAtNanos) / 1e6)
         decodePresent.add(Double(times.presentedAtNanos - times.releasedAtNanos) / 1e6)
     }

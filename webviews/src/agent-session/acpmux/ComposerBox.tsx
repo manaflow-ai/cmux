@@ -1,8 +1,19 @@
-import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject, useInsertionEffect } from "react";
+import React, {
+  useCallback,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type RefObject,
+  useInsertionEffect,
+  useLayoutEffect,
+} from "react";
 import { type ComposerAttachment, type DroppedKind, inlineCopyId } from "./attachments";
 import { composerCopy, forgetCopy, pastePlan, pastesPlaced, writeComposerCopy } from "./composer/composerCopy";
+import { stagesComposerCopy } from "./composer/composerCopyStage";
 import { useInlineAttachments } from "./composer/inlineAttachments";
 import { AttachmentStrip } from "./composer/attachmentIntake";
+import { attachStripSize } from "./composer/attachStrip.experiment";
+import { experimentArm } from "../../experiments/experiment";
 import { backspacedAttachment, type MadeFile, type PendingAttachment } from "./composer/attachmentIntakeModel";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
@@ -16,7 +27,13 @@ import { ChromeArea, type HideableChromeItem } from "../../ui/HideableChrome";
 import { ComposerListAnchor } from "./backdropLayer";
 import { remember } from "./composer/pasteMarks";
 import { acpmuxPerf } from "./perf";
+import { composerChanged } from "./launchInputEcho";
 import { holdFlag, setRef } from "./heldFlag";
+import { Slot } from "../../slots/Slot";
+import { composerCaretSlot } from "../../slots/composerCaret";
+import { watchFocusVisible } from "./focusVisibleMark";
+import { composerControlsAnchor } from "./composerControlsAnchor.experiment";
+import { ComposerCopyStatusLine, useComposerCopyStatus } from "./composer/ComposerCopyStatus";
 
 /// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
 /// and dialogs the card opens, and attachments.
@@ -46,6 +63,10 @@ export type ComposerBoxProps = {
   handle?: React.Ref<ComposerBoxHandle>;
   /// Receives the glass card's element (New Tab anchors its suggestions to it).
   boxRef?: React.Ref<HTMLDivElement>;
+  /// Hears when focus-visible enters or leaves the card (focusVisibleMark.ts): the host marks its own
+  /// parts (`data-focused` on the form, the dock's edge) from it, never with a wide `:has()`. Called on
+  /// focus changes only, outside React state, so a keystroke renders nothing.
+  onFocusVisible?: (focused: boolean) => void;
   /// What the prompt holds besides its text (attachmentIntake.tsx), shown over the prompt.
   attachments: ComposerAttachment[];
   /// Files still being read: a placeholder chip each, after the staged ones (PendingAttachment).
@@ -84,6 +105,8 @@ export type ComposerBoxProps = {
   onFieldMenuOpen?(): void;
   /// Drawn with the prompt, inside its menu (the chat's shell field over the hidden prompt).
   fieldOverlay?: React.ReactNode;
+  /// The vim mode to show (`agentPane.composerVimKeys` on); unset, nothing is drawn.
+  vimMode?: "normal" | "insert";
   /// The box's first children: menus anchored to the field (the `/` and `@` lists, which draw out of
   /// the box's glass, backdropLayer.tsx) and hidden inputs.
   top?: React.ReactNode;
@@ -96,6 +119,9 @@ export type ComposerBoxProps = {
   chips?: React.ReactNode;
   /// What ends the quiet row (the context ring).
   ring?: React.ReactNode;
+  /// Drawn centered in the quiet row, out of its flow (the chat's Customize button,
+  /// ComposerCustomizer.tsx); the row's fit never counts it.
+  footCenter?: React.ReactNode;
   /// The one send control (Send or Stop) before the mic, which keeps the right edge (the plain
   /// footer, in both looks); without the plain footer it is last (`trailing`).
   actionsLead?: React.ReactNode;
@@ -117,6 +143,7 @@ export function ComposerBox({
   fieldRef,
   handle,
   boxRef,
+  onFocusVisible,
   attachments,
   pending,
   setAttachments,
@@ -137,11 +164,13 @@ export function ComposerBox({
   fieldMenu,
   onFieldMenuOpen,
   fieldOverlay,
+  vimMode,
   top,
   onCardPress,
   leading,
   chips,
   ring,
+  footCenter,
   actionsLead,
   accessory,
   trailing,
@@ -161,7 +190,8 @@ export function ComposerBox({
   // The composer refresh (Settings > Advanced > Experiments, composerV2.ts): its arm and whether the draft has
   // words, as attributes composerV2.css reads; both absent while it is off.
   const composerV2 = useComposerV2();
-  const hasText = composerV2 !== undefined && /\S/.test(field.value);
+  const value = field.value;
+  const hasText = composerV2 !== undefined && /\S/.test(value);
   // The footer look and the row's place can change while this component stays mounted: the fit key
   // has both, so the live row is measured again before the new form paints.
   const bar = useRef<HTMLDivElement>(null);
@@ -201,7 +231,7 @@ export function ComposerBox({
   const inline = useInlineAttachments({
     field: prompt,
     scope: field.selectionKey,
-    text: field.value,
+    text: value,
     attachments,
     attachmentsRef: attachmentsRef ?? ownAttachments,
     setAttachments,
@@ -239,21 +269,24 @@ export function ComposerBox({
     }),
     [inline, pastedChips.pastes],
   );
-  const placed = inline.inText(field.value);
+  const placed = inline.inText(value);
   const { onBeforeInput, onKeyDown } = field;
   // Select All selects the attachments with the text (Leo, 2026-11-01: "i wanna be able to select
   // all in composer which also selects all the attachments as the copy as well"): those placed in
   // the text are in its selection (composer/inlineNode.ts); the strip's show as selected while the
   // whole draft is, and go with its copy, cut and delete.
   const [whole, setWhole] = useState(false);
+  const [copyStatus, setCopyStatus] = useComposerCopyStatus(field.selectionKey);
   const staged = () => (attachmentsRef ?? ownAttachments).current;
   /// The strip's own attachments, those not placed in the text, go with a whole draft cut or deleted.
-  const dropStrip = () => {
-    for (const chip of staged().filter((each) => !placed.has(each.id))) {
+  const dropStrip = (selected?: ReadonlySet<string>) => {
+    for (const chip of staged().filter((each) => !placed.has(each.id) && (!selected || selected.has(each.id)))) {
       inline.remove(chip.id);
       onRemoveAttachment(chip.id);
     }
-    if (onCancelAttachment) for (const chip of pending ?? []) if (!placed.has(chip.id)) inline.cancel(chip.id);
+    if (onCancelAttachment)
+      for (const chip of pending ?? [])
+        if (!placed.has(chip.id) && (!selected || selected.has(chip.id))) inline.cancel(chip.id);
   };
   // A press on the card around the text (the field's padding, the gap around the button row, the
   // card's edge) focuses the prompt where its caret was, as in Codex and Claude Code, whose whole
@@ -282,6 +315,7 @@ export function ComposerBox({
       <ComposerFoot ref={bar} plain={plainFooter}>
         {shownChips}
         {ring}
+        {footCenter}
       </ComposerFoot>
     </ChromeArea>
   );
@@ -294,17 +328,43 @@ export function ComposerBox({
     },
     [boxRef],
   );
+  // The card's focus ring reads `data-focused` (composerStates.css), the card's own state, set here
+  // as focus moves: a `:has(:focus-visible)` on the card was checked again for every node a keystroke
+  // put in the prompt (transcript-motion-model step 7).
+  const focusHeard = useRef(onFocusVisible);
+  useInsertionEffect(() => {
+    focusHeard.current = onFocusVisible;
+  });
+  useLayoutEffect(() => {
+    if (!boxElement) return;
+    const stop = watchFocusVisible(boxElement, (focused) => {
+      boxElement.toggleAttribute("data-focused", focused);
+      focusHeard.current?.(focused);
+    });
+    return () => {
+      stop();
+      boxElement.removeAttribute("data-focused");
+      focusHeard.current?.(false);
+    };
+  }, [boxElement]);
   return (
     <>
+      <ComposerCopyStatusLine status={copyStatus} />
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the prompt inside is the control and takes the keyboard itself. */}
       <div
         ref={attachBox}
         className="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box"
+        // The page's glass, at the popups' tokens (composerStates.css, ONE MATERIAL FAMILY), never the App's:
+        // the card animates its height and the App's glass trails a report, and the stack's seams are one rim.
+        data-page-glass="docked composer: animates its height and joins the stack's rim, which the App's glass cannot follow"
         // The compact grid (composerLocation.css): a state attribute, not a :has() on the box.
         data-composer-grid=""
         data-attachment-view={attachmentView}
+        data-attach-size={experimentArm(attachStripSize)}
         data-composer-v2={composerV2}
         data-has-text={hasText ? "true" : undefined}
+        // Where +, the mic and Send stand as the prompt grows (composerControlsAnchor.experiment.ts).
+        data-controls-anchor={experimentArm(composerControlsAnchor)}
         onMouseDown={focusFromCard}
       >
         <ComposerListAnchor box={boxElement}>{top}</ComposerListAnchor>
@@ -335,6 +395,7 @@ export function ComposerBox({
           <MarkdownField
             ref={setPrompt}
             {...field}
+            value={value}
             onReady={() => {
               inline.ready();
               field.onReady?.();
@@ -342,14 +403,26 @@ export function ComposerBox({
             onInlineViews={inline.onInlineViews}
             isInlineAttachment={inline.known}
             onWholeSelection={setWhole}
-            onCopy={(copy, cut) => {
+            onCopy={(copy, cut, commitCut) => {
               const made = composerCopy(copy.parts, copy.whole, staged());
               // Text alone is the field's own copy: the last copy with attachments is gone from the pasteboard.
               if (!made) {
                 forgetCopy();
+                setCopyStatus(undefined);
                 return false;
               }
-              writeComposerCopy(made);
+              setCopyStatus(undefined);
+              if (cut && stagesComposerCopy(made)) {
+                const selected = new Set([
+                  ...staged().map((chip) => chip.id),
+                  ...(pending ?? []).map((chip) => chip.id),
+                ]);
+                writeComposerCopy(made, setCopyStatus, () => {
+                  if (commitCut() && copy.whole) dropStrip(selected);
+                });
+                return "pending";
+              }
+              writeComposerCopy(made, setCopyStatus);
               if (cut && copy.whole) dropStrip();
               return true;
             }}
@@ -371,6 +444,7 @@ export function ComposerBox({
               return true;
             }}
             onChange={(markdown, caret) => {
+              composerChanged(); // a launch's first typed key drawn (launchInputEcho.ts)
               inline.edited(markdown);
               field.onChange(markdown, caret);
             }}
@@ -419,7 +493,15 @@ export function ComposerBox({
           />
           {inline.chips}
           {fieldOverlay}
+          {/* The theme slot `composer.caret` (slots/composerCaret): its default draws nothing, the
+              field's own caret as before. */}
+          <Slot slot={composerCaretSlot} props={{ empty: !/\S/.test(field.value) }} />
         </ContextMenu>
+        {vimMode && (
+          <output className="acpmux-vim-mode" data-vim-mode={vimMode} aria-live="off">
+            {vimMode === "normal" ? "NORMAL" : "INSERT"}
+          </output>
+        )}
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
           {/* The box grid for +, the prompt, the mic and Send, with the model group in

@@ -19,7 +19,7 @@ Install [the whole setup](whole) for the creation page, host list and activity, 
 | [Preferences](preferences) | Use background banners, tab activity indicators, a Dock badge, larger sidebar text and 13-point terminal type. |
 
 ```sh
-cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/whole@lane/rex-feature-looks
+cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/whole@feat-cmux-next
 ```
 
 From the repository root, preview any feature with `cmux customize use examples/looks/rex/FEATURE/profile.json`. Run `cmux customize check`, then `cmux customize apply` to keep it or `cmux customize discard` to restore the previous configuration. Hosts, Activity, Session picker and New Tab each supply their own customize app. The whole setup combines those views.

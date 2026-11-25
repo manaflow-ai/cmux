@@ -47,11 +47,20 @@
 use super::*;
 
 /// How long a foreground shell runs before it goes to the background.
-pub(super) const AUTO_BACKGROUND_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
+///
+/// Leo, 2026-11-24, on a 5-second `slack-post` the chat labelled "manually backgrounded by user":
+/// "honestly do we want to reduce the forced backgrounding now? on cosmic-gray and potentialy
+/// everywhere". It was 60 s (the 2026-11-03 value); a normal short or medium command (up to
+/// about two minutes, Claude Code's own default `timeout`) now stays in the foreground, and only
+/// a truly long one moves.
+pub(super) const AUTO_BACKGROUND_AFTER: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// How long a foreground call of the chat's own turn has run before the person's message waiting
 /// behind it moves it to the background (module docs).
-pub(super) const MESSAGE_BACKGROUND_AFTER: std::time::Duration = std::time::Duration::from_secs(30);
+/// Was 30 s; two minutes now (Leo, 2026-11-24, above), so a command of normal length finishes
+/// before a message moves it.
+pub(super) const MESSAGE_BACKGROUND_AFTER: std::time::Duration =
+    std::time::Duration::from_secs(120);
 
 /// How long the person's message waits for the translator's list of foreground calls.
 const FOREGROUND_ASK: std::time::Duration = std::time::Duration::from_secs(5);
