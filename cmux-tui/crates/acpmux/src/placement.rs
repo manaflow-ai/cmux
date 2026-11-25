@@ -357,7 +357,7 @@ pub fn last_resort(registry: Option<&Value>, name: &str) -> bool {
 }
 
 /// The registry's entry for `name`, by name or alias (`canonical`).
-fn machine<'a>(registry: Option<&'a Value>, name: &str) -> Option<&'a Value> {
+pub(crate) fn machine<'a>(registry: Option<&'a Value>, name: &str) -> Option<&'a Value> {
     let machines = registry?.get("machines")?.as_object()?;
     let want = canonical(name);
     machines.iter().find(|(n, m)| machine_names(n, m).contains(&want)).map(|(_, m)| m)
