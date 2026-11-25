@@ -93,8 +93,8 @@ final class WorkspaceContentView: NSView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        guard let backgroundMenu, isBackground(at: event) else { return super.menu(for: event) }
-        return backgroundMenu()
+        guard let backgroundMenu, isBackground(at: event) else { return NSMenu.withoutSystemItems(super.menu(for: event)) }
+        return NSMenu.withoutSystemItems(backgroundMenu())
     }
 
     /// Whether the right-click is on the background itself. A view that showed its own menu or

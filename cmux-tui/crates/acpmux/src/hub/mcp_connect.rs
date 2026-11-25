@@ -151,7 +151,7 @@ impl Hub {
         }
         self.append(session, "mux", "mcp_connect_request", card.clone());
         let prev = session.status();
-        self.set_status(session, SessionStatus::Waiting);
+        self.set_waiting(session, crate::store::WaitReason::McpConnect);
         let mut answer = tokio::time::timeout(ASK_TTL, rx).await.ok().and_then(Result::ok);
         self.mcp_connects.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&request_id);
         let key = answer.as_mut().and_then(|a| a.key.take());
@@ -166,12 +166,11 @@ impl Hub {
             "mcp_connect_decision",
             json!({"requestId": request_id, "name": name, "outcome": status, "scope": scope}),
         );
-        if session.status() == SessionStatus::Waiting
-            && session.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.is_empty()
-            && !self.secrets.waiting_in(&session.id)
-            && !self.mcp_connects.waiting_in(&session.id)
         {
-            self.set_status(session, super::permissions::status_after_ask(session, prev));
+            let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+            self.settle_after_ask(session, &state, || {
+                super::permissions::status_after_ask(session, prev)
+            });
         }
         let Some(scope) = scope else {
             return Ok(json!({"status": status, "name": name}));
@@ -344,8 +343,13 @@ impl Hub {
         .record();
         if let (Some(value), Some(header)) = (key, field(card, "keyName").as_str()) {
             let secrets = shared::key_secrets(header, value);
-            write_private(&shared::secrets_path(dir, &name), secrets.to_string().as_bytes())
-                .ok()?;
+            // The crate's private writer: a 0600 file in a 0700 folder, on Windows each with an
+            // owner-only access list.
+            crate::agent_tools::write_private(
+                &shared::secrets_path(dir, &name),
+                secrets.to_string().as_bytes(),
+            )
+            .ok()?;
         }
         let text = serde_json::to_vec_pretty(&record).ok()?;
         write_file(&path, &text, 0o644).ok()?;
@@ -418,66 +422,36 @@ impl McpConnects {
     }
 }
 
-/// Writes `bytes` to `path` through a temporary file and a rename, with `mode`
-/// (the Unix file mode; see [`temp_file_options`] for Windows).
+/// Writes `bytes` to `path` through a temporary file and a rename, with `mode` (the Unix file
+/// mode; Windows has none). The home is checked first, as the secret's writer checks it: a home
+/// that is gone gets no record. Each step then goes through the folder this daemon holds
+/// (`home_fs`): a home replaced after that check never gets the file.
 fn write_file(path: &std::path::Path, bytes: &[u8], mode: u32) -> std::io::Result<()> {
     use std::io::Write as _;
+    crate::config::refuse_lost_home(path).map_err(std::io::Error::other)?;
     let dir = path.parent().ok_or_else(|| std::io::Error::other("no folder"))?;
-    std::fs::create_dir_all(dir)?;
+    crate::home_fs::create_dirs(dir)?;
     let tmp = dir.join(format!(
         ".{}.acpmux.{}.tmp",
         path.file_name().and_then(|n| n.to_str()).unwrap_or("f"),
         std::process::id()
     ));
-    let mut f = temp_file_options(mode).open(&tmp)?;
+    let mut f = crate::home_fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(mode)
+        .open(&tmp)?;
     f.write_all(bytes)?;
     f.sync_all()?;
-    std::fs::rename(&tmp, path)
-}
-
-/// How [`write_file`] opens its temporary file: made, or cut to nothing, with `mode`.
-#[cfg(unix)]
-fn temp_file_options(mode: u32) -> std::fs::OpenOptions {
-    use std::os::unix::fs::OpenOptionsExt as _;
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true).mode(mode);
-    options
-}
-/// Windows has no file mode: the file takes the access list of its folder
-/// ([`private_folder`] for a secret's).
-#[cfg(windows)]
-fn temp_file_options(_mode: u32) -> std::fs::OpenOptions {
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    options
-}
-
-/// [`write_file`] at 0600 in a 0700 folder (a secret).
-fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-    if let Some(dir) = path.parent() {
-        private_folder(dir)?;
-    }
-    write_file(path, bytes, 0o600)
-}
-
-/// Makes `dir` if it is missing and sets it to 0700.
-#[cfg(unix)]
-fn private_folder(dir: &std::path::Path) -> std::io::Result<()> {
-    use std::os::unix::fs::PermissionsExt as _;
-    std::fs::create_dir_all(dir)?;
-    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
-}
-/// Windows: the folder gets the owner-only access list (`owner_only.rs`), which a file made in
-/// it takes. The file is not made with a list of its own.
-#[cfg(windows)]
-fn private_folder(dir: &std::path::Path) -> std::io::Result<()> {
-    crate::owner_only::create_dir_all(dir)?;
-    crate::owner_only::restrict(dir)
+    crate::home_fs::rename(&tmp, path)
 }
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::{write_file, write_private};
+    use super::{Hub, write_file};
+    use crate::agent_tools::write_private;
+    use serde_json::{Value, json};
     use std::os::unix::fs::PermissionsExt as _;
 
     fn mode(path: &std::path::Path) -> std::io::Result<u32> {
@@ -485,10 +459,11 @@ mod tests {
     }
 
     #[test]
-    fn mcp_connect_a_secret_is_a_0600_file_in_a_0700_folder() -> std::io::Result<()> {
+    fn mcp_connect_a_secret_is_a_0600_file_in_a_0700_folder() -> anyhow::Result<()> {
         let tmp = tempfile::tempdir()?;
         let secrets = tmp.path().join("secrets");
         let secret = secrets.join("a.json");
+        // The store writes a secret with the crate's private writer (`keep_in_shared_store`).
         write_private(&secret, b"one")?;
         // A second write replaces the file and leaves no temporary file beside it.
         write_private(&secret, b"two")?;
@@ -497,10 +472,74 @@ mod tests {
         assert_eq!(mode(&secrets)?, 0o700);
         assert_eq!(std::fs::read_dir(&secrets)?.count(), 1);
         // A record is not a secret. The process's umask can take bits from 0644, never add any.
-        let record = tmp.path().join("servers").join("a.json");
+        let servers = tmp.path().join("servers");
+        let record = servers.join("a.json");
         write_file(&record, b"{}", 0o644)?;
+        write_file(&record, b"[]", 0o644)?;
+        assert_eq!(std::fs::read(&record)?, b"[]");
         assert_eq!(mode(&record)? & !0o644, 0);
         assert_eq!(mode(&record)? & 0o600, 0o600);
+        assert_eq!(std::fs::read_dir(&servers)?.count(), 1);
         Ok(())
+    }
+
+    /// The store's own choice of writer for a card with a key (`keep_in_shared_store`): the key
+    /// goes to the 0600 secrets file in the 0700 folder only, and the record names the key's
+    /// header, never its value.
+    #[tokio::test]
+    async fn mcp_connect_a_key_card_keeps_its_key_in_a_0600_file_and_its_name_in_the_record()
+    -> anyhow::Result<()> {
+        use cmux_mcp_connect::shared;
+        let mut config = crate::config::Config::default();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent"))?;
+        let hub = Hub::new(config, store);
+        let session = hub.insert_test_session(serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "chat", "name": "worker", "harness": "fake",
+            "cwd": "/tmp", "status": "waiting", "createdAt": 1, "updatedAt": 1
+        }))?);
+        let tmp = tempfile::tempdir()?;
+        let card = json!({
+            "transport": "remote", "name": "keyed", "url": "https://mcp.example/mcp",
+            "publisher": "example", "verified": false, "keyName": "x-api-key"
+        });
+        let connected = json!({"connect": "connected"});
+        let kept = hub.keep_in_shared_store(
+            tmp.path(),
+            &session,
+            &card,
+            "agents",
+            &connected,
+            Some("k-1"),
+        );
+        assert_eq!(kept.as_deref(), Some("keyed"));
+        let secret = shared::secrets_path(tmp.path(), "keyed");
+        assert_eq!(mode(&secret)?, 0o600);
+        assert_eq!(mode(&tmp.path().join("secrets"))?, 0o700);
+        let secrets: Value = serde_json::from_slice(&std::fs::read(&secret)?)?;
+        assert_eq!(secrets, json!({"headers": {"x-api-key": "k-1"}}));
+        let record = std::fs::read_to_string(shared::server_path(tmp.path(), "keyed"))?;
+        let saved: Value = serde_json::from_str(&record)?;
+        assert_eq!(saved["secret_names"], json!(["x-api-key"]), "{saved}");
+        assert!(!record.contains("k-1"), "the record holds the key's value: {record}");
+        Ok(())
+    }
+
+    /// A record held at the end of its home check while the home is replaced: the write lands in
+    /// the folder this daemon holds, and the new home gets nothing.
+    #[test]
+    fn mcp_connect_a_record_held_past_its_home_check_stays_out_of_a_replaced_home() {
+        use crate::lost_home_race_tests::{forced, isolated, nothing};
+        isolated(
+            module_path!(),
+            "mcp_connect_a_record_held_past_its_home_check_stays_out_of_a_replaced_home",
+            |home| {
+                let path = home.join("mcp").join("servers").join("a.json");
+                forced(home, path.clone(), nothing, Some("mcp/servers/a.json"), move || {
+                    let _ = write_file(&path, b"{}", 0o644);
+                });
+            },
+            |_, _| {},
+        );
     }
 }

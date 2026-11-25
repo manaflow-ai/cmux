@@ -1,0 +1,37 @@
+[package]
+name = "acpmux-tui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "acpmux's ratatui terminal UI, outside the headless acpmux crate; the cmux binary links it and installs it at start (acpmux::tui_entry::install)"
+
+# acpmux is headless (Lawrence, 2026-11-17: "we want to keep acpmux headless"): its terminal UI
+# and the terminal crates it needs live here, not in acpmux. Bare `acpmux` (the bundle's symlink),
+# `cmux acp attach`, `new` without --detach and `cmux chats open` open it in the `cmux` binary;
+# a standalone acpmux hands those to a `cmux` (acpmux `src/tui_entry.rs`).
+
+[dependencies]
+acpmux = { path = "../acpmux", default-features = false }
+anyhow = "1"
+base64 = "0.22"
+# Bounded waits (`reconnect_wait.rs`): every waiting state declares its bound and recovery.
+cmux-bounded = { workspace = true, features = ["tokio"] }
+cmux-json.workspace = true
+cmux-scope.workspace = true
+crossterm = { workspace = true, features = ["event-stream"] }
+dirs = "6"
+futures-util = "0.3"
+libc = "0.2"
+pulldown-cmark = { version = "0.13", default-features = false }
+ratatui.workspace = true
+serde_json = "1"
+syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
+tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "io-util", "net", "sync", "time"] }
+unicode-width.workspace = true
+
+[dev-dependencies]
+# A paused clock for the bounded-wait tests (`reconnect_wait.rs`).
+tokio = { version = "1.52", features = ["test-util"] }
+uuid = { version = "1.20", features = ["v7"] }

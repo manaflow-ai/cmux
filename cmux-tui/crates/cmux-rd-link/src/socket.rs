@@ -1,0 +1,131 @@
+use std::collections::BTreeMap;
+use std::net::{SocketAddr, UdpSocket};
+
+/// Read the host's absolute monotonic clock in the same domain as the ledger.
+#[cfg(unix)]
+pub(super) fn monotonic_us() -> Option<u64> {
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: the kernel writes a valid, live timespec; this is the host's clock domain.
+    (unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) } == 0)
+        .then_some(ts.tv_sec as u64 * 1_000_000 + ts.tv_nsec as u64 / 1000)
+}
+
+/// Windows: the performance counter, the clock the host's ledger reads there
+/// (cmux-rd-host `clock::now_ns`).
+#[cfg(windows)]
+pub(super) fn monotonic_us() -> Option<u64> {
+    use windows_sys::Win32::System::Performance::{
+        QueryPerformanceCounter, QueryPerformanceFrequency,
+    };
+    let (mut count, mut freq) = (0i64, 0i64);
+    // SAFETY: both calls write one i64 into a live local.
+    let ok = unsafe {
+        QueryPerformanceCounter(&mut count) != 0 && QueryPerformanceFrequency(&mut freq) != 0
+    };
+    (ok && freq > 0).then(|| (count as u128 * 1_000_000 / freq as u128) as u64)
+}
+
+/// Sample the absolute protocol clock only after the complete payload is accepted.
+pub(super) fn send_to_observed(
+    socket: &UdpSocket,
+    refused: &mut BTreeMap<i32, u64>,
+    packet: &[u8],
+    addr: SocketAddr,
+) -> Option<(u64, usize)> {
+    let sent = match socket.send_to(packet, addr) {
+        Ok(sent) => sent,
+        Err(e) => {
+            *refused.entry(e.raw_os_error().unwrap_or(-1)).or_default() += 1;
+            return None;
+        }
+    };
+    if sent != packet.len() {
+        return None;
+    }
+    Some((monotonic_us()?, sent))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[cfg(unix)]
+    use std::io;
+    #[cfg(unix)]
+    use std::mem::size_of_val;
+    #[cfg(unix)]
+    use std::os::fd::AsRawFd;
+
+    #[test]
+    fn departure_failed_socket_send_has_no_success_timestamp() {
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
+        assert!(
+            send_to_observed(
+                &socket,
+                &mut BTreeMap::new(),
+                &[0; 65_536],
+                peer.local_addr().unwrap()
+            )
+            .is_none()
+        );
+        let before = monotonic_us().unwrap();
+        let (departed, bytes) =
+            send_to_observed(&socket, &mut BTreeMap::new(), b"ok", peer.local_addr().unwrap())
+                .unwrap();
+        let after = monotonic_us().unwrap();
+        assert!((before..=after).contains(&departed));
+        assert_eq!(bytes, 2);
+    }
+
+    #[cfg(unix)]
+    fn set_socket_buffer(socket: &UdpSocket, option: libc::c_int, value: i32) {
+        // SAFETY: the descriptor is open for the borrow of `socket`, and the
+        // option value points at a live integer of the length passed.
+        let result = unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                option,
+                (&value as *const i32).cast(),
+                size_of_val(&value) as libc::socklen_t,
+            )
+        };
+        assert_eq!(result, 0, "setsockopt failed: {}", io::Error::last_os_error());
+    }
+
+    #[cfg(unix)]
+    fn socket_buffer(socket: &UdpSocket, option: libc::c_int) -> i32 {
+        let mut value = 0i32;
+        let mut length = size_of_val(&value) as libc::socklen_t;
+        // SAFETY: the descriptor is open, and the kernel writes at most the
+        // size of `value` bytes to the pointer and length supplied.
+        let result = unsafe {
+            libc::getsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                option,
+                (&mut value as *mut i32).cast(),
+                &mut length,
+            )
+        };
+        assert_eq!(result, 0, "getsockopt failed: {}", io::Error::last_os_error());
+        value
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn grow_udp_buffers_expands_both_queues() {
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        // Use a small starting point so the assertion does not depend on the
+        // host's default buffers already being larger than our request.
+        set_socket_buffer(&socket, libc::SO_SNDBUF, 4096);
+        set_socket_buffer(&socket, libc::SO_RCVBUF, 4096);
+        let before =
+            [socket_buffer(&socket, libc::SO_SNDBUF), socket_buffer(&socket, libc::SO_RCVBUF)];
+        super::super::grow_udp_buffers(&socket);
+        let after =
+            [socket_buffer(&socket, libc::SO_SNDBUF), socket_buffer(&socket, libc::SO_RCVBUF)];
+        assert!(after[0] > before[0], "send buffer did not grow: {before:?} -> {after:?}");
+        assert!(after[1] > before[1], "receive buffer did not grow: {before:?} -> {after:?}");
+    }
+}

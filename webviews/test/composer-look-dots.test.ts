@@ -1,6 +1,5 @@
 // cmux-web-test-timeout: 300
-// New Tab always keeps Claude without a look switcher. Chat composers keep their two look dots.
-// The gallery exercises stored preferences, reloads and the chat's hover and keyboard controls.
+// New Tab and agent chat use one composer layout even when an old preference is stored.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -32,7 +31,7 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     await vite.listen();
     browser = await chromium.launch({ headless: true });
     await warmGalleryFrame(vite, "agent-pane.new-tab", { browser, params: { variant: "minimal-default" } });
-    await warmGalleryFrame(vite, "agent-pane.composer", { browser, params: { variant: "quiet-chips" } });
+    await warmGalleryFrame(vite, "agent-pane.composer", { browser, params: { variant: "idle" } });
   });
   afterAll(async () => {
     await browser?.close();
@@ -49,7 +48,7 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     await page.goto(stageURL(entry, variant, 760));
     await ready(page);
   };
-  /** The look dots' radios: their values, names and which is checked. */
+  /** The template switch radios. */
   const dots = (page: Page, scope: string) =>
     page.$$eval(`${scope} input[type=radio]`, (radios) =>
       radios.map((radio) => ({
@@ -58,12 +57,6 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
         checked: (radio as HTMLInputElement).checked,
       })),
     );
-  /** Whether the dots draw: the group's opacity once its fade has run. */
-  const shown = (page: Page, scope: string) =>
-    page.$eval(`${scope} .acpmux-look-dots`, (group) => {
-      for (const animation of group.getAnimations()) animation.finish();
-      return Number(getComputedStyle(group).opacity) > 0.5;
-    });
   const pickDot = async (page: Page, scope: string, value: string) => {
     const box = (await page.$(`${scope} .nt-style-option[data-style="${value}"]`))!;
     await box.hover();
@@ -105,130 +98,42 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
       await pickDot(page, ".nt-style", "minimal");
       await page.waitForSelector('.nt-screen[data-template="minimal"]');
       expect(await page.$(".nt-style, .nt-composer[data-composer-look]")).toBeNull();
-      await open(page, "agent-pane.new-tab", "template-cards");
-      expect(await page.$(".nt-composer[data-composer-look], .nt-look-dots")).toBeNull();
+      // Minimal opened fresh (Cards no longer ships, Leo 2026-11-18): Claude's look, no dots.
+      await open(page, "agent-pane.new-tab", "minimal-default");
+      expect(await page.$(".nt-composer[data-composer-look], .nt-look-dots, .nt-style")).toBeNull();
       expect(await page.$(".nt-composer .nt-above")).not.toBeNull();
       expect(await page.$(".nt-composer .nt-foot .acpmux-model")).not.toBeNull();
-      expect(await page.$(".nt-style input[value=cards]:checked")).not.toBeNull();
       expect(await page.evaluate(() => localStorage.getItem("cmux.composer.look"))).toBe("codex");
     } finally {
       await context.close();
     }
   });
 
-  test("in a chat the dots show on hover in the composer's bottom area and switch its look", async () => {
+  test("an existing Codex preference cannot change the chat layout or show a style switch", async () => {
     const context = await browser.newContext({ viewport: { width: 760, height: 600 } });
+    await context.addInitScript(() => localStorage.setItem("cmux.composer.look", "codex"));
     const page = await context.newPage();
-    await open(page, "agent-pane.composer", "quiet-chips");
-    const form = ".acpmux-composer";
-    // Claude's look: the quiet row under the box holds the dots, unseen at rest.
-    expect(await page.$(`${form}[data-composer-look]`)).toBeNull();
-    // The dots sit over the quiet row, inside its height.
-    const row = (await (await page.$(`${form} .acpmux-composer-foot`))!.boundingBox())!;
-    const group = (await (await page.$(`${form} .acpmux-look-dots`))!.boundingBox())!;
-    expect(group.y >= row.y && group.y + group.height <= row.y + row.height).toBe(true);
-    expect(await shown(page, form)).toBe(false);
-    expect(await dots(page, `${form} .acpmux-look-dots`)).toEqual([
-      { value: "claude", name: "Claude", checked: true },
-      { value: "codex", name: "Codex", checked: false },
-    ]);
-
-    // The pointer in the bottom area's empty room, clear of the controls: the dots show.
-    const foot = (await (await page.$(`${form} .acpmux-composer-foot`))!.boundingBox())!;
-    await page.mouse.move(foot.x + foot.width * 0.35, foot.y + foot.height / 2);
-    expect(await shown(page, form)).toBe(true);
-
-    await pickDot(page, form, "codex");
-    await page.waitForSelector(`${form}[data-composer-look="codex"]`);
-    // Codex's look moves the quiet row into the box under the prompt (+, the mic and Send stay
-    // Claude's): the mode and model sit there, the dots over its middle, shown on hover there; the
-    // first dot goes back.
-    expect(await page.$(`${form} .acpmux-composer-box .acpmux-composer-foot .acpmux-model`)).not.toBeNull();
-    expect(await page.$(`${form} .acpmux-composer-box .acpmux-composer-foot .acpmux-access`)).not.toBeNull();
-    expect(await page.$(`${form} .acpmux-composer-foot .acpmux-access`)).not.toBeNull();
-    await page.mouse.move(1, 1);
-    expect(await shown(page, form)).toBe(false);
-    const codexRow = (await (await page.$(`${form} .acpmux-composer-foot`))!.boundingBox())!;
-    const codexDots = (await (await page.$(`${form} .acpmux-look-dots`))!.boundingBox())!;
-    expect(codexDots.y >= codexRow.y && codexDots.y + codexDots.height <= codexRow.y + codexRow.height).toBe(true);
-    await page.mouse.move(codexDots.x + codexDots.width / 2, codexDots.y + codexDots.height / 2);
-    expect(await shown(page, form)).toBe(true);
-    await pickDot(page, form, "claude");
-    await page.waitForFunction((selector) => !document.querySelector(`${selector}[data-composer-look]`), form);
-    expect(await page.$(`${form} .acpmux-composer-foot`)).not.toBeNull();
-    expect(await page.$(`${form} .acpmux-composer-box .acpmux-composer-foot`)).toBeNull();
-    await context.close();
-  });
-
-  // Leo 2026-11-02: "switching to the codex view in the middle of an agent chat doesn't do anything
-  // right now": both looks drew Claude's layout (#30395), so the switch showed nothing. It redraws
-  // the open chat's composer in place: the draft stays in the same field (nothing remounts or
-  // reloads), and Codex's box holds the mode and model.
-  test("mid-chat, a look switch redraws the open composer as Codex's and keeps the draft", async () => {
-    const context = await browser.newContext({ viewport: { width: 760, height: 600 } });
-    const page = await context.newPage();
-    await open(page, "agent-pane.composer", "quiet-chips");
-    const form = ".acpmux-composer";
-    await page.locator(`${form} [contenteditable="true"]`).first().click();
-    await page.keyboard.type("half-written draft");
-    await page.evaluate(() => {
-      (window as unknown as { __field?: Element | null }).__field = document.querySelector(
-        '.acpmux-composer [contenteditable="true"]',
-      );
-    });
-    const layout = () =>
-      page.$eval(form, (composer) => {
-        const box = composer.querySelector(".acpmux-composer-box")!;
-        const field = composer.querySelector('[contenteditable="true"]');
-        return {
-          look: composer.getAttribute("data-composer-look"),
-          modelInBox: !!box.querySelector(".acpmux-model"),
-          modeInBox: !!box.querySelector(".acpmux-access"),
-          boxHeight: Math.round(box.getBoundingClientRect().height),
-          sameField: field === (window as unknown as { __field?: Element | null }).__field,
-          draft: field?.textContent ?? "",
-        };
-      });
-    const before = await layout();
-    expect(before).toMatchObject({ look: null, modelInBox: false, modeInBox: false, sameField: true });
-    expect(before.draft).toBe("half-written draft");
-
-    const foot = (await (await page.$(`${form} .acpmux-composer-foot`))!.boundingBox())!;
-    await page.mouse.move(foot.x + foot.width * 0.35, foot.y + foot.height / 2);
-    await pickDot(page, form, "codex");
-    await page.waitForSelector(`${form}[data-composer-look="codex"]`);
-    const codex = await layout();
-    expect(codex).toMatchObject({
-      look: "codex",
-      modelInBox: true,
-      modeInBox: true,
-      sameField: true,
-      draft: "half-written draft",
-    });
-    expect(codex.boxHeight).toBeGreaterThan(before.boxHeight + 20);
-
-    // A pick on another page (New Tab's dots) reaches this chat by the shared storage key.
-    await page.evaluate(() => {
-      localStorage.setItem("cmux.composer.look", "claude");
-      window.dispatchEvent(new StorageEvent("storage", { key: "cmux.composer.look", newValue: "claude" }));
-    });
-    await page.waitForFunction((selector) => !document.querySelector(`${selector}[data-composer-look]`), form);
-    expect(await layout()).toMatchObject({
-      look: null,
-      modelInBox: false,
-      modeInBox: false,
-      boxHeight: before.boxHeight,
-      sameField: true,
-      draft: "half-written draft",
-    });
-    await context.close();
+    try {
+      await open(page, "agent-pane.composer", "idle");
+      const composer = page.locator(".acpmux-composer");
+      const footer = composer.locator(":scope > .acpmux-composer-foot");
+      await footer.hover();
+      expect(await composer.getAttribute("data-composer-look")).toBeNull();
+      expect(await composer.locator(".acpmux-look-dots").count()).toBe(0);
+      await page.reload();
+      await ready(page);
+      expect(await footer.count()).toBe(1);
+      expect(await composer.getAttribute("data-composer-look")).toBeNull();
+      expect(await page.evaluate(() => localStorage.getItem("cmux.composer.look"))).toBe("codex");
+    } finally {
+      await context.close();
+    }
   });
 
   test("a long Codex draft keeps the box's controls and the quiet row in a short chat pane", async () => {
     const context = await browser.newContext({ viewport: { width: 760, height: 400 } });
     const page = await context.newPage();
-    await open(page, "agent-pane.composer", "quiet-chips");
-    await pickDot(page, ".acpmux-composer", "codex");
+    await open(page, "agent-pane.composer-look", "codex-chat");
     await page.waitForSelector('.acpmux-composer[data-composer-look="codex"]');
     await page
       .locator('.acpmux-composer [contenteditable="true"]')
@@ -249,8 +154,7 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
   test("a long Codex shell draft keeps its field clear of actions in a short pane", async () => {
     const context = await browser.newContext({ viewport: { width: 760, height: 400 } });
     const page = await context.newPage();
-    await open(page, "agent-pane.composer", "quiet-chips");
-    await pickDot(page, ".acpmux-composer", "codex");
+    await open(page, "agent-pane.composer-look", "codex-chat");
     await page.locator(".acpmux-composer-prompt").click();
     await page.keyboard.type("!");
     const shell = page.locator(".acpmux-shell-field");
@@ -274,106 +178,6 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     // The actions stand right of the field (Claude's grid): they never overlap it.
     expect(bounds.fieldRight <= bounds.actionsLeft || bounds.fieldBottom <= bounds.actionsTop).toBe(true);
     expect(bounds.footerBottom).toBeLessThanOrEqual(400);
-    await context.close();
-  });
-
-  test("in a chat the dots switch the look by keys both ways, and Escape goes back to the prompt", async () => {
-    const context = await browser.newContext({ viewport: { width: 760, height: 600 } });
-    const page = await context.newPage();
-    await open(page, "agent-pane.composer", "quiet-chips");
-    const form = ".acpmux-composer";
-    /** The focused element: a look dot's value, or what else has the keyboard. */
-    const focused = () =>
-      page.evaluate(() => {
-        const active = document.activeElement as HTMLElement | null;
-        if (active?.matches(".acpmux-look-dots input[type=radio]")) return `dot:${(active as HTMLInputElement).value}`;
-        if (active?.closest(".acpmux-composer-box") && active.matches("[contenteditable], textarea")) return "prompt";
-        return active?.tagName ?? "none";
-      });
-    const settle = () =>
-      page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
-
-    await page.focus(`${form} .acpmux-look-dots input[value=claude]`);
-    expect(await focused()).toBe("dot:claude");
-    expect(await shown(page, form)).toBe(true);
-
-    // ArrowRight: Codex's look, the keyboard still on its dot, the dots still drawn.
-    await page.keyboard.press("ArrowRight");
-    await page.waitForSelector(`${form}[data-composer-look="codex"]`);
-    await settle();
-    expect(await focused()).toBe("dot:codex");
-    expect(await shown(page, form)).toBe(true);
-
-    // ArrowLeft: back to Claude's look, the keyboard on the first dot.
-    await page.keyboard.press("ArrowLeft");
-    await page.waitForFunction((selector) => !document.querySelector(`${selector}[data-composer-look]`), form);
-    await settle();
-    expect(await focused()).toBe("dot:claude");
-    expect(await shown(page, form)).toBe(true);
-
-    // Escape: back to the prompt.
-    await page.keyboard.press("Escape");
-    await settle();
-    expect(await focused()).toBe("prompt");
-    await context.close();
-  });
-
-  test("in shell mode Escape on a look dot goes back to the shell prompt", async () => {
-    const context = await browser.newContext({ viewport: { width: 760, height: 600 } });
-    const page = await context.newPage();
-    await open(page, "agent-pane.composer", "quiet-chips");
-    const form = ".acpmux-composer";
-    await page.locator(".acpmux-composer-prompt").click();
-    await page.keyboard.type("!");
-    await page.locator(".acpmux-shell-field").waitFor();
-
-    await page.focus(`${form} .acpmux-look-dots input[value=claude]`);
-    await page.keyboard.press("Escape");
-    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
-    expect(await page.evaluate(() => document.activeElement?.className ?? "none")).toBe("acpmux-shell-field");
-    await context.close();
-  });
-
-  test("arrow keys keep the keyboard on the dots right after load and right after a click", async () => {
-    const context = await browser.newContext({ viewport: { width: 760, height: 600 } });
-    const page = await context.newPage();
-    await open(page, "agent-pane.composer", "quiet-chips");
-    const form = ".acpmux-composer";
-    const focused = () =>
-      page.evaluate(() => {
-        const active = document.activeElement as HTMLInputElement | null;
-        return active?.matches(".acpmux-look-dots input[type=radio]")
-          ? `dot:${active.value}`
-          : (active?.tagName ?? "none");
-      });
-    const look = () => page.$eval(form, (element) => (element as HTMLElement).dataset.composerLook ?? "claude");
-    const settle = () =>
-      page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
-
-    // The page's clock as at a fresh load (performance.now() near 0): keys are keys from the start.
-    await page.evaluate(() => {
-      const real = performance.now.bind(performance);
-      const origin = real();
-      performance.now = () => real() - origin;
-    });
-    await page.focus(`${form} .acpmux-look-dots input[value=claude]`);
-    await page.keyboard.press("ArrowRight");
-    await settle();
-    expect(await look()).toBe("codex");
-    expect(await focused()).toBe("dot:codex");
-    await page.keyboard.press("ArrowRight");
-    await settle();
-    expect(await look()).toBe("claude");
-    expect(await focused()).toBe("dot:claude");
-
-    // A click on the marked dot, then a key at once: the key's pick is a key's, the keyboard stays.
-    const marked = (await page.$(`${form} .nt-style-option[data-style="claude"]`))!;
-    await marked.hover();
-    await marked.click();
-    await page.keyboard.press("ArrowRight");
-    await settle();
-    expect(await look()).toBe("codex");
-    expect(await focused()).toBe("dot:codex");
     await context.close();
   });
 });

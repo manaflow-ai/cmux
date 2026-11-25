@@ -8,18 +8,18 @@ nonisolated extension StatusIndicatorState {
     public var shortLabel: String? {
         switch self {
         case .idle: nil
-        case .working: String(localized: "status.label.working", defaultValue: "Working", bundle: .module)
-        case .busy: String(localized: "status.label.loading", defaultValue: "Loading", bundle: .module)
-        case .paused: String(localized: "status.label.paused", defaultValue: "Paused", bundle: .module)
+        case .working: String(localized: "status.label.working", defaultValue: "Working", bundle: .localizedModule)
+        case .busy: String(localized: "status.label.loading", defaultValue: "Loading", bundle: .localizedModule)
+        case .paused: String(localized: "status.label.paused", defaultValue: "Paused", bundle: .localizedModule)
         case .waiting(let kind):
             switch kind {
-            case .permission?: String(localized: "status.label.permission", defaultValue: "Needs permission", bundle: .module)
-            case .question?: String(localized: "status.label.question", defaultValue: "Question", bundle: .module)
-            case .auth?: String(localized: "status.label.auth", defaultValue: "Sign-in needed", bundle: .module)
-            case nil: String(localized: "status.label.waiting", defaultValue: "Waiting", bundle: .module)
+            case .permission?: String(localized: "status.label.permission", defaultValue: "Needs permission", bundle: .localizedModule)
+            case .question?: String(localized: "status.label.question", defaultValue: "Question", bundle: .localizedModule)
+            case .auth?: String(localized: "status.label.auth", defaultValue: "Sign-in needed", bundle: .localizedModule)
+            case nil: String(localized: "status.label.waiting", defaultValue: "Waiting", bundle: .localizedModule)
             }
-        case .error: String(localized: "status.label.error", defaultValue: "Error", bundle: .module)
-        case .success: String(localized: "status.label.done", defaultValue: "Done", bundle: .module)
+        case .error: String(localized: "status.label.error", defaultValue: "Error", bundle: .localizedModule)
+        case .success: String(localized: "status.label.done", defaultValue: "Done", bundle: .localizedModule)
         }
     }
 }

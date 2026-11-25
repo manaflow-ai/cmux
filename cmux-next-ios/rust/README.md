@@ -168,7 +168,12 @@ with a TURN server it offers only its relayed address and the path is
 dial fails at once (the backend relay frames are retired). `blockUdp`
 (debug "Block UDP", or `CMUX_MOBILE_DEV_BLOCK_UDP` in the environment) sends and
 accepts no plain UDP and skips TURN over UDP: WireGuard rides TURN over TLS
-on 443 (path `turnTls`). The path enum is `Direct`, `Turn`, `TurnTls`,
+on 443 (path `turnTls`). `proxyOnly` (debug "Proxy only",
+`CMUX_MOBILE_DEV_PROXY_ONLY`) blocks UDP too and lets TURN over TLS out only
+through the system's proxy; `dropWireguard` (debug "Drop WireGuard",
+`CMUX_MOBILE_DEV_DROP_WIREGUARD`) drops every WireGuard datagram over UDP while
+STUN still answers, so the link falls through to TURN over TLS
+(PROTOCOL.md "Corporate networks"). The path enum is `Direct`, `Turn`, `TurnTls`,
 `NoPath`.
 
 ## cmux-mobile-host
@@ -185,6 +190,7 @@ target/release/cmux-mobile-host
 | --- | --- |
 | `CMUX_MOBILE_BASE_URL` | Backend base URL (required). |
 | `CMUX_MOBILE_TEAM_ID` | Team whose signaling hub to join (required). |
+| `CMUX_BUILD_SPACE` (or the older `CMUX_MOBILE_BUILD_SPACE`) | A dev build's cloud data space, `dev:<slug>`: sent as `X-Cmux-Build-Space` on every request and the signaling upgrade, so dev builds never share data with each other or with nightly and stable. The Mac app sets it for every Rust child of a dev build with a usable tag; unset is no space (nightly, stable) unless `CMUX_BUNDLE_ID` names a tagged dev build. A blank value, one not matching `^dev:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$`, or the two names disagreeing stops the host at start (fail closed), never sending nightly's requests. Rules: cmux-tui `crates/cmux-build-space`. |
 | `CMUX_MOBILE_REFRESH_TOKEN` / `CMUX_MOBILE_REFRESH_TOKEN_FILE` | Stack refresh token; hostd mints access tokens at `POST <CMUX_MOBILE_STACK_API>/api/v1/auth/sessions/current/refresh` (`x-stack-access-type: client`). Preferred. |
 | `CMUX_MOBILE_ACCESS_TOKEN` / `CMUX_MOBILE_ACCESS_TOKEN_FILE` | A fixed Stack access token instead (expires; for short runs). |
 | `CMUX_MOBILE_STACK_PROJECT_ID` | Default the dev project `454ecd03-1db2-4050-845e-4ce5b0cd9895`. |

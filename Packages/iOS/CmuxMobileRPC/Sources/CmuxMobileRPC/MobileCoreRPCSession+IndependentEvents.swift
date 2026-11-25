@@ -1,6 +1,8 @@
 internal import CMUXMobileCore
 import Foundation
+#if canImport(OSLog)
 import OSLog
+#endif
 
 private let independentEventLog = Logger(subsystem: "dev.cmux.ios", category: "independent-events")
 

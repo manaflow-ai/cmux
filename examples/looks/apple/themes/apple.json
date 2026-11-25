@@ -1,0 +1,126 @@
+// Apple: cmux as a first-party macOS 26 (Tahoe) app in Light mode, the way Notes, Mail and Xcode's
+// navigator look. A translucent source-list sidebar over the desktop beside an opaque white content
+// card, systemBlue (#007AFF) for selection, focus, Send and links, label at 85% black, the grouped
+// background (#F2F2F7) behind Settings and pages, SF Pro chrome at 13 pt, the Apple System Colors
+// Light terminal theme, and spring motion at the standard speed.
+{
+  "name": "Apple",
+  "description": "macOS Tahoe, Light: a vibrant source-list sidebar, a white content card, systemBlue.",
+
+  // The terminal theme Apple ships with Terminal.app, and the window, sidebar and pages follow it.
+  "appearance.theme": "Apple System Colors Light",
+  "appearance.appTheme": "followTerminal",
+  // background: textBackgroundColor. foreground: labelColor (black at 85%) resolved opaque over it.
+  // selection: selectedTextBackgroundColor. accent: systemBlue.
+  "colors": { "background": "#ffffff", "foreground": "#262626", "selection": "#b3d7ff", "accent": "#007aff" },
+  "appearance.accent": "blue",
+  // The terminal face: SF Mono at 12 pt, the face and size the system's own terminal opens in.
+  "terminal.fontFamily": "SF Mono",
+  "terminal.fontSize": 12,
+
+  // Material: the window is behind-window glass (NSVisualEffectView); only the sidebar lets it show.
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "glass",
+  "appearance.backgroundOpacity": 0.6,
+  "appearance.glassTransparency": 0.35,
+  "appearance.wallpaperTint": true,
+  "appearance.fontSmoothing": "antialiased",
+
+  // Layout: the content sits in one rounded card beside the floating sidebar (Tahoe's inset content),
+  // hairline separators, one tone across the toolbar and the content.
+  "appearance.chromeStyle": "card",
+  "appearance.borders": "default",
+  "appearance.titleAreaTone": "oneColor",
+  "appearance.focusIndicator": "border",
+  "appearance.density": "comfortable",
+  // Pending cmux#46780: Safari's and Finder's tabs are rounded capsules.
+  // "appearance.tabShape": "rounded",
+  // Pending cmux#46516: a source list's selected row is an accent-tinted capsule (the default there).
+  // "appearance.selection": "accent",
+
+  // Proportions: Tahoe's unified toolbar (52 pt), a 240 pt source list with 28 pt rows, 13 pt
+  // system text, Safari's 12 pt tab titles in a 30 pt strip, tabs filling the strip evenly, a
+  // 1 pt NSSplitView divider and an 8 pt gutter around the content card.
+  "appearance.metrics.titlebarHeight": 52,
+  "appearance.metrics.sidebarWidth": 240,
+  "appearance.metrics.sidebarRowHeight": 28,
+  "appearance.metrics.chromeFontSize": 13,
+  "appearance.metrics.tabStripHeight": 30,
+  "appearance.metrics.tabFontSize": 12,
+  "appearance.metrics.tabMaxWidth": 320,
+  "appearance.metrics.tabMinActiveWidth": 140,
+  "appearance.metrics.tabMinInactiveWidth": 96,
+  "appearance.metrics.columnGap": 8,
+  "appearance.metrics.dividerThickness": 1,
+
+  // The sidebar: vibrant (about 80% of windowBackgroundColor over the glass), no edge line, as in
+  // Tahoe, with quiet section headers.
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#fefefe",
+  "appearance.surfaces.sidebar.opacity": 0.8,
+  "sidebar.style": "standard",
+  "sidebar.border": false,
+  "sidebar.sectionLook": "quiet",
+
+  // The content: opaque white, the tab strip a shade under it so the selected tab reads as the
+  // content's own (Safari), the toolbar and docks in windowBackground's light step.
+  "appearance.surfaces.agentPane.color": "#ffffff",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#ebebeb",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "appearance.surfaces.browserChrome.color": "#f6f6f6",
+  "appearance.surfaces.browserChrome.opacity": 1,
+  "appearance.surfaces.docks.color": "#f6f6f6",
+  "appearance.surfaces.docks.opacity": 1,
+  "appearance.surfaces.editor.color": "#ffffff",
+  "appearance.surfaces.editor.opacity": 1,
+  "appearance.surfaces.diff.color": "#ffffff",
+  "appearance.surfaces.diff.opacity": 1,
+  "appearance.surfaces.markdown.color": "#ffffff",
+  "appearance.surfaces.markdown.opacity": 1,
+  "appearance.surfaces.splitDivider.color": "#dadada",
+  "appearance.surfaces.splitDivider.opacity": 1,
+
+  // Settings and pages: systemGroupedBackground, as System Settings and Safari's pages.
+  "appearance.surfaces.settings.color": "#f2f2f7",
+  "appearance.surfaces.settings.opacity": 1,
+  "appearance.surfaces.internalPage.color": "#f2f2f7",
+  "appearance.surfaces.internalPage.opacity": 1,
+  "appearance.surfaces.newTabPage.color": "#f2f2f7",
+  "appearance.surfaces.newTabPage.opacity": 1,
+  "appearance.surfaces.home.color": "#f2f2f7",
+  "appearance.surfaces.home.opacity": 1,
+
+  // Status: the system's own spinner and SF Symbol marks.
+  "appearance.statusIndicator.style": "native",
+  "appearance.statusIndicator.animation": "animated",
+  "appearance.statusIndicator.showAgentWorkingOnTabs": true,
+
+  // Safari's address field: a glass capsule.
+  "browser.omnibar.glass": "regular",
+  "browser.omnibar.glassTint": "background",
+  "browser.omnibar.glassTintStrength": 0.35,
+
+  // Motion: SwiftUI's default animation, a critically damped spring of 0.55 s, at the standard speed.
+  "ui.animationSpeed": "normal",
+  "appearance.colorTransition.enabled": true,
+  "appearance.colorTransition.curve": "spring",
+  "appearance.colorTransition.springResponse": 0.55,
+  "appearance.colorTransition.springDamping": 1,
+  "appearance.colorTransition.colorSpace": "oklab",
+  "appearance.colorTransition.reduceMotion": "crossfade"
+
+  // Pending cmux#46861 (layout and proportions): macOS: 28 pt toolbar buttons with a 6 pt rounded-rect fill, no toolbar hairline (Tahoe), 10 pt source-list insets. Uncomment once your build has it.
+  // "appearance.metrics.sidebarRowHeightWithSubtitle": 44,
+  // "appearance.metrics.sidebarRowInset": 10,
+  // "appearance.metrics.sidebarRowPadding": 8,
+  // "appearance.metrics.sidebarRowGap": 0,
+  // "appearance.metrics.toolbarButtonSize": 28,
+  // "appearance.metrics.toolbarButtonGap": 8,
+  // "appearance.metrics.toolbarButtonCornerRadius": 6,
+  // "appearance.metrics.toolbarButtonActiveFill": 0.1,
+  // "appearance.metrics.headerDivider": 0,
+  // "appearance.metrics.composerPadding": 10,
+  // "appearance.metrics.composerMinHeight": 36,
+  // "appearance.metrics.spacingScale": 1,
+}

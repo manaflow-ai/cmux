@@ -8,6 +8,8 @@ pub(in crate::link) struct Summary {
     pub(in crate::link) written: u64,
     pub(in crate::link) unchanged: u64,
     pub(in crate::link) deleted: u64,
+    /// Files the machine changed since the last push, left as the machine has them.
+    pub(in crate::link) kept: u64,
     /// Every path left out, named or not.
     pub(in crate::link) skipped: u64,
     pub(in crate::link) bytes: u64,
@@ -28,6 +30,7 @@ impl Summary {
             "written": self.written,
             "unchanged": self.unchanged,
             "deleted": self.deleted,
+            "kept": self.kept,
             "skipped": self.skipped,
             "bytes": self.bytes,
             "skipped_files": if self.skipped_files.is_null() { json!([]) } else { self.skipped_files.clone() },

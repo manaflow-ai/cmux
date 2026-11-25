@@ -1,3 +1,4 @@
+import Foundation
 @testable import CmuxNextHomeEngine
 import Testing
 
@@ -19,7 +20,7 @@ struct ChiefMoveTargetsTests {
     ]
 
     private var targets: [ChiefMoveTarget] {
-        ChiefMoveTargets(localHome: "/Users/me/.cmux/chief/default", hosts: hosts, cloud: .signedIn(staging: false)).targets
+        ChiefMoveTargets(localHome: "/Users/me/.cmux/chief/default", hosts: hosts, cloud: .signedIn(api: nil)).targets
     }
 
     private func target(_ id: String) -> ChiefMoveTarget? { targets.first { $0.machineID == id } }
@@ -38,10 +39,21 @@ struct ChiefMoveTargetsTests {
     }
 
     @Test func cloudFollowsTheAppsAuthAndNeedsASignIn() {
-        let staging = ChiefMoveTargets(localHome: "/h", hosts: [], cloud: .signedIn(staging: true)).targets
-        #expect(staging.first { $0.machineID == ChiefMoveTargets.cloudID }?.to == "cloud:staging")
+        let staging = ChiefMoveTargets(localHome: "/h", hosts: [], cloud: .signedIn(api: URL(string: "https://cloud-api-staging.cmux.dev"))).targets
+        #expect(staging.first { $0.machineID == ChiefMoveTargets.cloudID }?.to == "cloud:https://cloud-api-staging.cmux.dev")
         let signedOut = ChiefMoveTargets(localHome: "/h", hosts: [], cloud: .signedOut).targets
         #expect(signedOut.first { $0.machineID == ChiefMoveTargets.cloudID }?.disabledReason == .signInNeeded)
+    }
+
+    /// A DEV build signed in to the development Cloud moves its Chief to that same service, never to
+    /// staging, where its session is not valid (HTTP 401) and where the app would not look for the moved
+    /// Chief (cmux issue 31488).
+    @Test func cloudGoesToTheServiceTheAppIsSignedInTo() {
+        let api = URL(string: "https://cmux-api-development.debussy.workers.dev/")
+        let dev = ChiefMoveTargets(localHome: "/h", hosts: [], cloud: .signedIn(api: api)).targets
+        let cloud = dev.first { $0.machineID == ChiefMoveTargets.cloudID }
+        #expect(cloud?.to == "cloud:https://cmux-api-development.debussy.workers.dev")
+        #expect(cloud?.kind == .cloud(staging: true))
     }
 
     @Test func offlineTargetsAreListedButGreyedOut() {

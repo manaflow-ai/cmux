@@ -10,6 +10,7 @@ struct Fake {
     reads: usize,
     replies: Vec<(usize, Option<String>)>,
     invalidations: std::cell::Cell<usize>,
+    page_ins: std::cell::Cell<usize>,
     /// `carrier_changed` answers, in order (then `false`).
     carrier: VecDeque<bool>,
     exits: VecDeque<Exit>,
@@ -32,6 +33,9 @@ struct Fake {
 impl Platform for Fake {
     fn invalidate_remote_authority(&self) {
         self.invalidations.set(self.invalidations.get() + 1);
+    }
+    fn page_in_harnesses(&self) {
+        self.page_ins.set(self.page_ins.get() + 1);
     }
     fn wait(&mut self) -> io::Result<Vec<Wake>> {
         self.clock_ms += self.advance_ms.pop_front().unwrap_or(0);
@@ -137,6 +141,12 @@ fn identity_queries_observe_again_and_refuse_failed_metadata_or_clone_transition
 /// Runs `wakes` on a bound machine and returns its action log and how
 /// often remote authority was ended.
 fn run_wakes(wakes: &[Wake]) -> (String, usize) {
+    let (log, invalidations, _) = run_wakes_paging(wakes);
+    (log, invalidations)
+}
+
+/// [`run_wakes`], with how many times the harnesses were paged in.
+fn run_wakes_paging(wakes: &[Wake]) -> (String, usize, usize) {
     let fake = Fake {
         observations: std::iter::repeat_n(Some("a"), wakes.len() + 1).collect(),
         wakes: wakes.iter().copied().chain([Wake::Terminate]).collect(),
@@ -161,7 +171,19 @@ fn run_wakes(wakes: &[Wake]) -> (String, usize) {
     let _ = std::fs::remove_file(&path);
     // Every clock wake still reads the metadata again (the clone check).
     assert_eq!(agent.platform.reads, wakes.len() + 1);
-    (log, agent.platform.invalidations.get())
+    (log, agent.platform.invalidations.get(), agent.platform.page_ins.get())
+}
+
+#[test]
+fn a_resume_pages_the_harnesses_in_and_a_clock_sync_does_not() {
+    let (log, _, page_ins) = run_wakes_paging(&[Wake::ClockAdjusted, Wake::ClockAdjusted]);
+    assert_eq!(page_ins, 0, "a clock sync paged the harnesses in: {log}");
+    let (log, _, page_ins) = run_wakes_paging(&[Wake::ClockSet]);
+    assert_eq!(page_ins, 1, "a resume clock jump paged nothing in: {log}");
+    let (log, _, page_ins) = run_wakes_paging(&[Wake::ClockAdjusted, Wake::Paused]);
+    assert_eq!(page_ins, 1, "a pause watch gap paged nothing in: {log}");
+    let (log, _, page_ins) = run_wakes_paging(&[Wake::DriverFile]);
+    assert_eq!(page_ins, 0, "a driver file change paged the harnesses in: {log}");
 }
 
 #[test]
