@@ -117,7 +117,7 @@ ATTACH_NAME = "cmux-attach-e2e.mov"
 ATTACH_LINE = re.compile(r"demo step: live-attach (\S+) ?(.*)")
 
 
-def mac_workspace(app, sock, home):
+def mac_workspace(app, sock, home, session=None):
     """A terminal workspace on the Mac, made by its bundled CLI (`cmux workspace create`, as
     relaunch_restore_check does): "created <id8>, terminal <id8>", or why not."""
     cli = os.path.join(app, "Contents/Resources/bin/cmux")
@@ -133,7 +133,10 @@ def mac_workspace(app, sock, home):
     if temp:
         env["TMPDIR"] = temp
     try:
-        done = subprocess.run([cli, "--json", "--app-socket", sock, "workspace", "create", "--name", "pair-e2e"],
+        # The app names its home daemon session itself (snapshot.get topology.sessions, `session_name`); the CLI
+        # guessed it from the app socket's file name and found nothing there (run 45562601448).
+        named = ["--session", session] if session else []
+        done = subprocess.run([cli, "--json", "--app-socket", sock, *named, "workspace", "create", "--name", "pair-e2e"],
                               env=env, cwd=home, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
         lines = [line for line in done.stdout.splitlines() if line.strip()]
         made = json.loads(lines[-1]) if lines else {}
@@ -576,7 +579,12 @@ def main():
             phone_env["SIMCTL_CHILD_CMUX_MOBILE_FOCUS_MAC"] = mac_id
             # A new tag's Mac opens with no workspace, so the phone's live-terminal and live-attach
             # demos found "no terminal" (run 45538405955): one terminal workspace for them to open.
-            note(f"- Mac terminal workspace: {mac_workspace(a.mac_app, sock, pwd.getpwuid(os.getuid()).pw_dir)}")
+            sessions = (rpc("snapshot.get").get("topology") or {}).get("sessions") or []
+            home_session = next((s.get("session_name") for s in sessions
+                                 if isinstance(s, dict) and s.get("home") is True), None)
+            note(f"- Mac terminal workspace: "
+                 f"{mac_workspace(a.mac_app, sock, pwd.getpwuid(os.getuid()).pw_dir, home_session)}"
+                 f" (home session {home_session or 'not reported'})")
 
         # ---- the phone ------------------------------------------------------
         # A new install, setup marked done (the account's preferences are the live keys until the
