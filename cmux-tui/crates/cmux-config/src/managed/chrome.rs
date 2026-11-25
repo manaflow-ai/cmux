@@ -17,7 +17,8 @@ pub struct Document {
 
 impl Document {
     pub fn from_json(value: &Value) -> Document {
-        let part = |key: &str| value.get(key).and_then(Value::as_object).cloned().unwrap_or_default();
+        let part =
+            |key: &str| value.get(key).and_then(Value::as_object).cloned().unwrap_or_default();
         Document { mandatory: part("mandatory"), recommended: part("recommended") }
     }
 
@@ -53,7 +54,14 @@ pub fn merged(chrome: &Document, cmux_browser: &Document) -> Document {
 
 /// Swift `CharacterSet.whitespaces`: spaces and tabs (Unicode space separators).
 fn trim_whitespaces(text: &str) -> &str {
-    text.trim_matches(|c: char| c == '\t' || (c.is_whitespace() && !matches!(c, '\n' | '\r' | '\u{b}' | '\u{c}' | '\u{85}' | '\u{2028}' | '\u{2029}')))
+    text.trim_matches(|c: char| {
+        c == '\t'
+            || (c.is_whitespace()
+                && !matches!(
+                    c,
+                    '\n' | '\r' | '\u{b}' | '\u{c}' | '\u{85}' | '\u{2028}' | '\u{2029}'
+                ))
+    })
 }
 
 /// The RFC 3986 scheme of `text`, lowercased.
@@ -97,7 +105,11 @@ pub fn settings(policies: &Map<String, Value>) -> Map<String, Value> {
         && crate::schema::new_tab_page_url_is_valid(page)
     {
         let trimmed = trim_whitespaces(page);
-        let url = if scheme(trimmed).is_some() { trimmed.to_string() } else { format!("https://{trimmed}") };
+        let url = if scheme(trimmed).is_some() {
+            trimmed.to_string()
+        } else {
+            format!("https://{trimmed}")
+        };
         if is_web_scheme(&url) {
             settings.insert("browser.newTabPage".into(), json!(url));
         }

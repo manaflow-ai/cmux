@@ -12,9 +12,7 @@ pub const FEATURES: [&str; 6] =
 /// `(features, problem message)` for the forced policy value of `DisabledFeatures`.
 pub fn disabled_features(value: Option<&Value>) -> (Vec<&'static str>, Option<String>) {
     let Some(value) = value else { return (Vec::new(), None) };
-    let items = value
-        .as_array()
-        .filter(|items| items.iter().all(Value::is_string));
+    let items = value.as_array().filter(|items| items.iter().all(Value::is_string));
     let Some(items) = items else {
         return (
             FEATURES.to_vec(),
@@ -61,7 +59,9 @@ mod tests {
         assert_eq!(features, vec!["mcp", "cloud"]);
         assert_eq!(
             problem.as_deref(),
-            Some("DisabledFeatures names unknown features bogus (known: computerUse, browserAutomation, mcp, cloud, apps, remoteHosts)")
+            Some(
+                "DisabledFeatures names unknown features bogus (known: computerUse, browserAutomation, mcp, cloud, apps, remoteHosts)"
+            )
         );
     }
 }

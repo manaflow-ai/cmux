@@ -3,7 +3,9 @@ use crate::schema::Schema;
 
 fn checked_in(name: &str) -> &'static str {
     match name {
-        "com.manaflow.cmux.plist" => include_str!("../../../../../docs/mdm/com.manaflow.cmux.plist"),
+        "com.manaflow.cmux.plist" => {
+            include_str!("../../../../../docs/mdm/com.manaflow.cmux.plist")
+        }
         "com.manaflow.cmux.json" => include_str!("../../../../../docs/mdm/com.manaflow.cmux.json"),
         "cmux-example.mobileconfig" => {
             include_str!("../../../../../docs/mdm/cmux-example.mobileconfig")
@@ -94,7 +96,10 @@ fn numbers_print_as_the_swift_writers_do() {
     assert_eq!(swift_double(0.00001), "1e-05");
     assert_eq!(swift_double(2.5), "2.5");
     assert_eq!(format_number(3.0), "3");
-    assert_eq!(compact_text(&serde_json::json!({"b": [1, 2.5, "x"], "a": null})), r#"{"a":null,"b":[1,2.5,"x"]}"#);
+    assert_eq!(
+        compact_text(&serde_json::json!({"b": [1, 2.5, "x"], "a": null})),
+        r#"{"a":null,"b":[1,2.5,"x"]}"#
+    );
 }
 
 #[test]

@@ -1,8 +1,8 @@
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::*;
 
-fn request() -> serde_json::Value {
+fn request() -> Value {
     json!({
         "context": { "appVersion": "1.2.3", "bundleID": "com.manaflow.cmux.next" },
         "managed": {
@@ -26,7 +26,10 @@ fn body_names_sources_and_hides_the_token() {
     assert_eq!(body["schema_version"], 1);
     assert_eq!(body["domain"], "com.manaflow.cmux");
     assert_eq!(body["profile_present"], true);
-    assert_eq!(body["keys_forced"], json!(["EnrollmentToken", "UpdateChannel", "browser.searchEngine"]));
+    assert_eq!(
+        body["keys_forced"],
+        json!(["EnrollmentToken", "UpdateChannel", "browser.searchEngine"])
+    );
     assert_eq!(body["keys_recommended"], json!(["app.language"]));
     assert_eq!(body["policy"], json!({ "EnrollmentToken": "<set>", "UpdateChannel": "stable" }));
     assert_eq!(body["enrollment_token_present"], true);
@@ -54,7 +57,7 @@ fn the_mdm_value_wins_a_conflict_and_chat_keys_are_skipped() {
 fn an_empty_profile_and_no_team_report_null() {
     let body = body(&json!({ "context": { "appVersion": "1", "bundleID": "b" } }));
     assert_eq!(body["profile_present"], false);
-    assert_eq!(body["managing_team"], serde_json::Value::Null);
+    assert_eq!(body["managing_team"], Value::Null);
     assert_eq!(body["enrollment_token_present"], false);
 }
 

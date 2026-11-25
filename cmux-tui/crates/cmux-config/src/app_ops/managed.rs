@@ -76,7 +76,9 @@ fn status_document(request: &Value) -> Result<Value, OpError> {
 
 fn status_path(request: &Value) -> Result<Value, OpError> {
     let classic = request.get("classic").and_then(Value::as_bool).unwrap_or(false);
-    Ok(json!({ "path": status::path(string(request, "bundleID")?, string(request, "home")?, classic) }))
+    Ok(
+        json!({ "path": status::path(string(request, "bundleID")?, string(request, "home")?, classic) }),
+    )
 }
 
 fn document(request: &Value, key: &str) -> chrome::Document {
@@ -152,7 +154,10 @@ mod tests {
             run("managed.enrollment_token", json!({ "forced": { "EnrollmentToken": "  abc \n" } })),
             json!({ "token": "abc" })
         );
-        assert_eq!(run("managed.enrollment_token", json!({ "forced": { "EnrollmentToken": " " } })), json!({}));
+        assert_eq!(
+            run("managed.enrollment_token", json!({ "forced": { "EnrollmentToken": " " } })),
+            json!({})
+        );
         assert_eq!(run("managed.enrollment_token", json!({})), json!({}));
     }
 
@@ -171,7 +176,10 @@ mod tests {
         assert_eq!(layer["version"], 2);
         assert_eq!(layer["defaults"], json!({ "browser.searchEngine": "kagi" }));
         assert_eq!(layer["enforced"], json!({ "app.language": "en" }));
-        assert_eq!(run("managed.device_policy_layer", json!({ "value": { "managed": false } })), json!({}));
+        assert_eq!(
+            run("managed.device_policy_layer", json!({ "value": { "managed": false } })),
+            json!({})
+        );
     }
 
     #[test]

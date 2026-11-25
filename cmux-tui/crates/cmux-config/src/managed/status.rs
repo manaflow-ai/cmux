@@ -48,9 +48,9 @@ pub fn conflicts(
         .filter(|(key, _)| !CHAT_KEYS.contains(&key.as_str()))
         .filter_map(|(key, team)| {
             let device = forced.get(key)?;
-            (device != team).then(|| {
-                json!({ "key": key, "mdm_value": device, "team_value": team, "winner": "mdm" })
-            })
+            (device != team).then(
+                || json!({ "key": key, "mdm_value": device, "team_value": team, "winner": "mdm" }),
+            )
         })
         .collect()
 }
@@ -82,14 +82,13 @@ pub fn body(request: &Value) -> Value {
     let mut policy = Map::new();
     for (key, value) in &forced {
         if !is_setting_key(key) {
-            let shown = if SECRET_KEYS.contains(&key.as_str()) { json!("<set>") } else { value.clone() };
+            let shown =
+                if SECRET_KEYS.contains(&key.as_str()) { json!("<set>") } else { value.clone() };
             policy.insert(key.clone(), shown);
         }
     }
-    let token_present = forced
-        .get("EnrollmentToken")
-        .and_then(Value::as_str)
-        .is_some_and(|t| !t.trim().is_empty());
+    let token_present =
+        forced.get("EnrollmentToken").and_then(Value::as_str).is_some_and(|t| !t.trim().is_empty());
     let managing = if team_id.is_empty() {
         Value::Null
     } else {

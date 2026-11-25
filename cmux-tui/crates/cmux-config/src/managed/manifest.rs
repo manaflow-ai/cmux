@@ -145,7 +145,8 @@ pub fn entries(schema: &Schema) -> Vec<Entry> {
             }
             "string_map" | "sound_rules" => entry.ty = "dictionary",
             "json" => {
-                entry.help = format!("{help}{more}Nested; see `cmux settings schema` for its shape.");
+                entry.help =
+                    format!("{help}{more}Nested; see `cmux settings schema` for its shape.");
                 let shape = row.get("shape").cloned().unwrap_or(Value::Null);
                 entry.ty = if shape.get("type").and_then(Value::as_str) == Some("object") {
                     "dictionary"
@@ -162,7 +163,9 @@ pub fn entries(schema: &Schema) -> Vec<Entry> {
         let (ty, choices): (&'static str, Vec<String>) = match key.ty {
             PolicyType::String => ("string", Vec::new()),
             PolicyType::Boolean => ("boolean", Vec::new()),
-            PolicyType::Choice(values) => ("string", values.iter().map(|v| v.to_string()).collect()),
+            PolicyType::Choice(values) => {
+                ("string", values.iter().map(|v| v.to_string()).collect())
+            }
             PolicyType::StringArray(values) => {
                 ("array", values.iter().map(|v| v.to_string()).collect())
             }
@@ -255,7 +258,11 @@ fn real_text(value: f64) -> String {
     }
     let decimals = (16 - exponent).max(0) as usize;
     let text = format!("{value:.decimals$}");
-    if text.contains('.') { text.trim_end_matches('0').trim_end_matches('.').to_string() } else { text }
+    if text.contains('.') {
+        text.trim_end_matches('0').trim_end_matches('.').to_string()
+    } else {
+        text
+    }
 }
 
 fn write_plist(value: &Plist, depth: usize, out: &mut Vec<String>) {
@@ -385,14 +392,20 @@ pub fn deterministic_json(value: &Value, pretty: bool, indent: usize) -> String 
         ),
         Value::Object(members) => {
             let mut keys: Vec<&String> = members.keys().collect();
-            keys.sort_by(|a, b| (a.to_lowercase(), a.as_str()).cmp(&(b.to_lowercase(), b.as_str())));
+            keys.sort_by(|a, b| {
+                (a.to_lowercase(), a.as_str()).cmp(&(b.to_lowercase(), b.as_str()))
+            });
             let separator = if pretty { " : " } else { ":" };
             container(
                 '{',
                 '}',
                 keys.into_iter()
                     .map(|k| {
-                        format!("{}{separator}{}", quote(k), deterministic_json(&members[k], pretty, indent + 1))
+                        format!(
+                            "{}{separator}{}",
+                            quote(k),
+                            deterministic_json(&members[k], pretty, indent + 1)
+                        )
                     })
                     .collect(),
                 pretty,
@@ -475,7 +488,10 @@ pub fn profile_manifest(entries: &[Entry]) -> String {
                 == Some("array");
             let mut item = BTreeMap::new();
             item.insert("pfm_name".to_string(), Plist::Str("Item".into()));
-            item.insert("pfm_type".to_string(), Plist::Str(if nested { "array" } else { "string" }.into()));
+            item.insert(
+                "pfm_type".to_string(),
+                Plist::Str(if nested { "array" } else { "string" }.into()),
+            );
             if !e.choices.is_empty() {
                 item.insert("pfm_range_list".into(), list(&e.choices));
             }
@@ -542,7 +558,8 @@ pub fn jamf_schema(entries: &[Entry]) -> String {
             properties.insert(e.name.clone(), Value::Object(p));
             continue;
         }
-        let strings = |items: &[String]| Value::Array(items.iter().cloned().map(Value::from).collect());
+        let strings =
+            |items: &[String]| Value::Array(items.iter().cloned().map(Value::from).collect());
         match e.ty {
             "boolean" => {
                 p.insert("type".into(), "boolean".into());
@@ -634,7 +651,9 @@ pub fn example_mobileconfig(entries: &[Entry]) -> String {
         ("PayloadDisplayName".to_string(), text("cmux (example)")),
         (
             "PayloadDescription".to_string(),
-            text("Example managed settings for cmux. Generated from the settings catalog; see managed-preferences.md."),
+            text(
+                "Example managed settings for cmux. Generated from the settings catalog; see managed-preferences.md.",
+            ),
         ),
         ("PayloadScope".to_string(), text("System")),
         ("PayloadContent".to_string(), Plist::Array(vec![Plist::Dict(payload)])),
@@ -668,7 +687,8 @@ pub fn markdown(entries: &[Entry]) -> String {
         } else {
             String::new()
         };
-        let fallback = e.default.as_ref().map(|d| format!("`{}`", compact_text(d))).unwrap_or_default();
+        let fallback =
+            e.default.as_ref().map(|d| format!("`{}`", compact_text(d))).unwrap_or_default();
         let help = e.help.replace('|', "\\|");
         let description = if e.title == e.name {
             help
