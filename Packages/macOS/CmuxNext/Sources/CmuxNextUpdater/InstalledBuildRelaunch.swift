@@ -13,20 +13,22 @@ enum InstalledBuildRelaunch {
         return true
     }
 
-    /// Waits for `$1` (this app's pid) to exit, at most `$3` seconds (a refused quit never leaves
-    /// the helper behind), then opens the bundle `$0`.
+    /// Waits for `$1` (this app's pid) to exit, at most `$2` ticks (a refused quit never leaves
+    /// the helper behind), then opens the bundle `$0`. Any further arguments are `open` options:
+    /// the running app's home (``RelaunchHome``), so an app in a custom home reopens in it.
     static let script = #"""
     n=0
     while /bin/kill -0 "$1" 2>/dev/null && [ "$n" -lt "$2" ]; do /bin/sleep 0.2; n=$((n+1)); done
     /bin/kill -0 "$1" 2>/dev/null && exit 0
-    exec /usr/bin/open "$0"
+    shift 2
+    exec /usr/bin/open "$@" "$0"
     """#
 
     /// How long the helper waits for the quit: 5 ticks a second, two minutes.
     static let maxTicks = 600
 
-    static func arguments(bundle: URL, pid: pid_t) -> [String] {
-        ["/bin/sh", "-c", script, bundle.path, String(pid), String(maxTicks)]
+    static func arguments(bundle: URL, pid: pid_t, openOptions: [String] = RelaunchHome.openArguments()) -> [String] {
+        ["/bin/sh", "-c", script, bundle.path, String(pid), String(maxTicks)] + openOptions
     }
 
     /// Starts the helper; false when it could not start (the app then stays).
