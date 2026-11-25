@@ -286,12 +286,6 @@ function withRecovered(
   return { ...listed, ...(name ? { name } : {}), ...(error ? { error } : {}) };
 }
 
-/// acpmux's queue (a session's `queue`, in order) over the one the pane has. acpmux lists each
-/// prompt's preview (its first 200 characters on one line), so a prompt the pane read whole from
-/// its `queued` record keeps its whole text, and one sent now stays next. A prompt's author is the
-/// one acpmux lists, else the one its newest `queued` or `queue_updated` record named (`authors`, by
-/// prompt id: null when that record named none), else the one the pane had: an attach's page can
-/// hold a teammate's edit without the `queued` record before it.
 export function mergeQueue(
   current: readonly QueuedPrompt[],
   listed: readonly any[],
