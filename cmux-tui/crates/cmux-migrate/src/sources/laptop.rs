@@ -322,7 +322,7 @@ fn is_sha(s: &str) -> bool {
     (s.len() == 40 || s.len() == 64) && s.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
-fn project(
+pub(crate) fn project(
     home: &Path,
     checkout: &Path,
     history: &History,
@@ -462,7 +462,7 @@ pub fn secret_names(checkout: &Path) -> BTreeSet<String> {
 
 /// The working folders agent histories record, each with the chat that ran there.
 #[derive(Clone, Debug, Default)]
-struct History {
+pub(crate) struct History {
     /// (working folder, chat).
     chats: Vec<(PathBuf, ChatRef)>,
     /// Claude Code project folders by name, for the slug fallback.
@@ -470,7 +470,7 @@ struct History {
 }
 
 impl History {
-    fn read(home: &Path) -> Self {
+    pub(crate) fn read(home: &Path) -> Self {
         let mut history = Self::default();
         history.read_claude(home);
         history.read_codex(home);
@@ -657,8 +657,15 @@ fn carry(home: &Path, options: &Options, plan: &mut Plan) {
     for rel in SHELL {
         add(plan, CarryKind::Shell, &home.join(rel), None);
     }
+    // History can hold tokens typed on a command line and goes as plain text: listed, unchecked,
+    // carried only when the person checks it.
     for rel in SHELL_HISTORY {
         add(plan, CarryKind::ShellHistory, &home.join(rel), None);
+        if let Some(last) = plan.carry.last_mut()
+            && last.kind == CarryKind::ShellHistory
+        {
+            last.checked = false;
+        }
     }
 
     for rel in [".gitconfig", ".config/git/config"] {
@@ -781,7 +788,7 @@ pub fn editor_extensions(home: &Path, app: &str) -> Vec<String> {
 // ---- small helpers --------------------------------------------------------------------------
 
 /// `~/rest` for a path under the home, else the path.
-fn tilde(home: &Path, path: &Path) -> String {
+pub(crate) fn tilde(home: &Path, path: &Path) -> String {
     let home_real = real(home);
     let path_real = real(path);
     for (h, p) in [(home, path), (home_real.as_path(), path_real.as_path())] {
@@ -796,7 +803,7 @@ fn tilde(home: &Path, path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-fn real(path: &Path) -> PathBuf {
+pub(crate) fn real(path: &Path) -> PathBuf {
     fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 

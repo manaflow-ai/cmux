@@ -1,15 +1,15 @@
 import { composerPickerEntries } from "./composerPickerEntries";
 import { acpmuxPerf } from "./perf";
 import React, {
-  memo,
   useCallback,
   useContext,
   useEffect,
-  useLayoutEffect,
+  useEffectEvent,
   useMemo,
   useRef,
   useState,
-  useEffectEvent,
+  memo,
+  useLayoutEffect,
 } from "react";
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
@@ -114,14 +114,14 @@ import {
   type ModeIconName,
   RECOMMENDED_BADGE,
   type ShownMode,
+  cloudPickableModes,
   cloudStartAgent,
+  cloudStartMode,
   harnessFamilyMenu,
   harnessModeMenu,
   highestMode,
   remoteStartMode,
   shownModes,
-  cloudPickableModes,
-  cloudStartMode,
 } from "./harnessModes";
 import {
   PICKER_LABELS,
@@ -251,15 +251,11 @@ export function ComposerPickers({
   // The rail lists the harnesses set up here (Leo 2026-10-11): one whose launcher check failed (not
   // installed, not signed in) stays behind the rail's +, unless this chat runs it. A failed model
   // probe alone (a timeout) keeps it.
-  // Once a chat has a message its harness is fixed (Leo 2026-10-13): the picker lists that
-  // harness's models only, with no harness rail and no Add harness… (Leo 2026-10-19: a rail of one
-  // harness, then Add harness…, read as an offer to switch), and another harness is Continue In…,
-  // never a pick. Where the chat can fork (`fork`), the menus keep the rail again (Leo 2026-10-22:
-  // "why did you guys even remove the fucking harness model picker"), every harness Continue In…
-  // can take listing its models; a pick of another harness's is held for the next message, which
-  // forks (Leo 2026-11-06: "it should only need to necessarily fork when you enter a message on
+  // Once a chat has a message (`locked`), a pick of another harness's model is held for the next
+  // message, which forks (Leo 2026-10-22: "why did you guys even remove the fucking harness model
+  // picker"; Leo 2026-11-06: "it should only need to necessarily fork when you enter a message on
   // that new model"). Debug Settings' "Allow switching harness in a started chat" (`harnessSwitch`)
-  // keeps the whole rail and its switch.
+  // switches in place instead.
   // A message, not the session's start row: the deferred chat a New Tab pick or typed prompt starts
   // behind the page draws its start row before any prompt (Leo 2026-10-31: "IM SAYING I CANT
   // FUCKING SEE ANY HARNESS"), and a New Tab never fixes the harness.
@@ -274,14 +270,17 @@ export function ComposerPickers({
     // A snapshot that already holds acpmux's harnesses has had its answer, flag or not.
     harnessesListed || snapshot.catalog.some((entry) => !entry.folder),
   );
-  // A harness acpmux has not listed yet (the first open after launch) keeps the whole list rather
-  // than an empty picker. A chat that can fork keeps every harness: a pick of another's model is
-  // held for the next message's fork, never a switch in place (Leo 2026-10-22: "can expose as fork").
-  const ownEntries = locked && !fork ? allEntries.filter((entry) => entry.id === summary?.harness) : [];
-  const pickerEntries = ownEntries.length > 0 ? ownEntries : allEntries;
+  // Every chat's menu is the one shared picker: every harness and its models (cmux#55750:
+  // "it should be the same picker here so i can fork to a different agent as well"). A started chat
+  // that can fork holds a pick of another harness's model for its next message's fork (`forks`);
+  // one that cannot (no session yet, a daemon without forks, the Quick Composer) switches to it in
+  // place, as a chat with no message does. No chat's menu narrows to its own harness's models.
+  const sessionId = summary?.sessionId;
+  const forks = locked && fork === true && !!sessionId;
+  const pickerEntries = allEntries;
   // Installed launch configurations are separate from route-backed accounts in the model menu.
   const profiles = pickerCatalog ? catalogProfiles(snapshot.catalog, pickerCatalog.harnesses) : undefined;
-  const switchHarness = locked ? undefined : onHarness;
+  const switchHarness = forks ? undefined : onHarness;
   // An agent's own default remains an internal sentinel. The picker omits it
   // instead of exposing a separate "Default" row.
   const models: Choice[] = sessionModels(snapshot.catalog, summary);
@@ -533,8 +532,6 @@ export function ComposerPickers({
   // target (forkHold.ts; Leo 2026-11-06: "it should only need to necessarily fork when you enter a
   // message on that new model"). Leaving the chat, the composer closing, or the chat losing its
   // fork drops its held pick, so none comes back when the chat shows again (review of #37196, F2).
-  const sessionId = summary?.sessionId;
-  const forks = locked && fork === true && !!sessionId;
   const forkTargets = forks ? switchTargets(snapshot.catalog, summary?.harness) : [];
   // One set per list of targets, so the menus' lists are not rebuilt on every render.
   const targetsKey = forkTargets.map((target) => target.id).join("\u0000");
@@ -1363,7 +1360,7 @@ export function ComposerPickers({
           onHarnessEnable={onHarnessEnable}
           onAddAgent={onAddAgent}
           onSetUpPick={setUpPick}
-          harnessFixed={locked}
+          harnessFixed={forks}
           {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
           {...(claudeConnect.row ? { claudeConnect: claudeConnect.row } : {})}
           {...(fastMode && (!reasoningMenu || (fastOffered && !held && !switching))
@@ -1850,6 +1847,8 @@ export function ContextRing({
   now,
   breakdown: reported,
   onOpenDetails,
+  onCompact,
+  compactDisabled,
   plan,
 }: {
   /// The chat the reading is of: a new chat's ring shows its value at once, with no ease from the last.
@@ -1866,6 +1865,10 @@ export function ContextRing({
   breakdown?: unknown;
   /// Opens Session Info at its Context section; the card shows Details › only with it.
   onOpenDetails?(): void;
+  /// Sends the agent's /compact; the card shows Compact conversation above Details only with it.
+  onCompact?(): void;
+  /// A turn or a compaction is running: the row stays in place, disabled.
+  compactDisabled?: boolean;
   /// The ring shows the account's plan usage: its limits (acpmux `usageLimits`) and the chat's
   /// harness family, which names the usage page.
   plan?: { limits?: AcpmuxUsageLimits; family?: string };
@@ -2107,6 +2110,14 @@ export function ContextRing({
                   onOpenDetails();
                 })
               }
+              onCompact={
+                onCompact &&
+                (() => {
+                  closeCard();
+                  onCompact();
+                })
+              }
+              compactDisabled={compactDisabled}
             />
           </div>
         )}
@@ -2513,7 +2524,7 @@ const TerminalShieldIcon = () => (
   </Icon>
 );
 /** A mode's symbol: the harness's own icon for it when its menu draws one, else the shield family. */
-function ModeIcon({ modeId, icon }: { modeId?: unknown; icon?: ModeIconName }) {
+export function ModeIcon({ modeId, icon }: { modeId?: unknown; icon?: ModeIconName }) {
   if (icon === "hand") return <HandIcon />;
   if (icon === "terminal-shield") return <TerminalShieldIcon />;
   if (icon === "shield-alert") return <ShieldIcon shield="alert" modeIcon="shield-alert" />;

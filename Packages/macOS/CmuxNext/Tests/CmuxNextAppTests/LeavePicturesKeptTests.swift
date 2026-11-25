@@ -85,6 +85,25 @@ struct LeavePicturesKeptTests {
         }
         #expect(cache.pageThumbnails.totalBytes < 640 * 400 * 4, "the stored picture was never compressed (\(cache.pageThumbnails.totalBytes) bytes)")
     }
+
+    /// cmux#56141: a page on screen was pictured on a hover only once it finished loading, so a page that keeps loading
+    /// (a long poll, a stalled resource) never had a picture and its card showed none. A page on screen with no picture
+    /// at all is pictured while it loads.
+    @Test func aLoadingPageOnScreenWithNoPictureIsPictured() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let cache = services.cache
+        let tab = MockBrowserEngine(completesNavigationsImmediately: false)
+            .makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://loading.example/")))
+        tab.snapshotPixelSize = CGSize(width: 640, height: 400)
+        let key = tab.id.rawValue
+        _ = cache.install(tab, for: key)
+        defer { cache.browsers[key] = nil }
+        try #require(tab.state.phase != .finished)
+        cache.shownPages.insert(key)
+        let image = await cache.previewImage(for: key, maxPixelSize: CGSize(width: 320, height: 200))
+        #expect(image != nil, "a loading page on screen with no picture gave its card none")
+    }
 }
 
 /// Holds every encode until released, and counts the encodes done.

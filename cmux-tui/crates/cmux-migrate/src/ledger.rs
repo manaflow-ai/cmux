@@ -128,12 +128,17 @@ impl Ledger {
     }
 
     /// Done over attempted, and the median time to first working chat, across every source.
+    /// Only projects count: an older run's `_machine-wide` carry entry (never a project) is left out.
     pub fn stats(&self) -> Stats {
-        let attempted = self.projects.values().filter(|e| e.stage != Stage::Undone).count();
-        let done = self.projects.values().filter(|e| e.stage == Stage::Done).count();
-        let mut times: Vec<i64> = self
-            .projects
-            .values()
+        let projects = || {
+            self.projects
+                .iter()
+                .filter(|(key, _)| !key.ends_with(&format!("/{}", crate::apply::MACHINE_WIDE)))
+                .map(|(_, entry)| entry)
+        };
+        let attempted = projects().filter(|e| e.stage != Stage::Undone).count();
+        let done = projects().filter(|e| e.stage == Stage::Done).count();
+        let mut times: Vec<i64> = projects()
             .filter_map(|e| e.first_chat_ms?.checked_sub(e.started_ms?))
             .filter(|ms| *ms >= 0)
             .collect();

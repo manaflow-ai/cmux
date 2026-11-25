@@ -79,6 +79,7 @@ cmux-cloud-handlers.workspace = true
 cmux-apps.workspace = true
 cmux-cloud-environment.workspace = true
 cmux-cloud-machine.workspace = true
+cmux-cloud-disk.workspace = true
 cmux-cloud-wire.workspace = true
 # `cmux chat --repo`: the repository spec `cloud new-machine --repo` reads (cli/chat_start/local_repo.rs).
 cmux-cloud-start-core.workspace = true
@@ -98,6 +99,8 @@ cmux-sdk = { path = "../../bindings/rust", default-features = false }
 # Only for `hotpatch` (see the feature).
 cmux-terminal-client = { path = "../cmux-terminal-client", optional = true }
 cmux-git.workspace = true
+# The three-tree sync rule and the synced-revision store (link sync pull, base.rs).
+cmux-sync.workspace = true
 cmux-migrate.workspace = true
 cmux-conversation.workspace = true
 cmux-process.workspace = true
@@ -182,6 +185,7 @@ acpmux-build-id = { path = "../acpmux-build-id" }
 # `cmux acp attach` (the app's chat-in-a-terminal-tab, `acp.rs` `chat_tab_command`) and the
 # bundle's `acpmux` symlink open it (acpmux `src/tui_entry.rs`).
 acpmux-tui = { path = "../acpmux-tui" }
+cmux-autocloud = { path = "../cmux-autocloud" }
 # A device row's kind and glyph (`devices/model.rs`).
 cmux-device-kind = { path = "../cmux-device-kind" }
 
@@ -258,6 +262,8 @@ futures-util.workspace = true
 rusqlite.workspace = true
 # `cmux machine add|list`: the platform's RFC 3339 times; already in the graph via acpmux.
 cmux-chat-index.workspace = true
+# `cmux repro` (cmuxterm-hq#23808): repro capsules, replayed on a Cloud machine by the journey.
+cmux-repro = { path = "../cmux-repro" }
 
 [target.'cfg(windows)'.dependencies]
 tokio.workspace = true

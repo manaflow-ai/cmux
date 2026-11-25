@@ -114,6 +114,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-cloud-tasks",
                     # Which imported Chrome cookie domains changed (cmux-cookie-sync).
                     "cmux-cookie-sync",
+                    # The key style and keyboard layout matcher (cmux-keymap, schemas/keymap).
+                    "cmux-keymap",
                     # The control connection rules (cmux-daemon-conn-core).
                     "cmux-daemon-conn-core",
                     # The daemon launch rules and the install-key proof they use (cmux-daemon-launch-core).

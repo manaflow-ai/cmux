@@ -60,9 +60,9 @@ import {
   type CloudEnvironmentsState,
   type LibraryListing,
   type LibraryRun,
+  type Standup,
   type SharesState,
   type TailnetState,
-  type TailnetVMReply,
   type DevicesRun,
   type DevicesRunResult,
   type DevicesState,
@@ -107,13 +107,17 @@ import {
   type AccountsRunReply,
   type DoctorReport,
   type DoctorRun,
+  type ArchivedRun,
+  type ArchivedState,
+  type ConnectionsRun,
+  type ConnectionsState,
+  type TailnetVMReply,
   type AutocloudAction,
   type AutocloudAnswer,
   type AutocloudState,
-  type ConnectionsRun,
-  type ConnectionsState,
-  type ArchivedRun,
-  type ArchivedState,
+  type Checklist,
+  type ChecklistFact,
+  type PreviousBuild,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -198,7 +202,7 @@ export type NativeTarget = "cmuxJSON";
 /** `appearance.background`, which the picker's host ops set. */
 const BACKGROUND = "appearance.background";
 
-const emptyDomains: Domains = { themes: [], font_families: [], sounds: [], recent_fonts: [] };
+const emptyDomains: Domains = { themes: [], font_families: [], ui_font_families: [], sounds: [], recent_fonts: [] };
 
 /** The page's state from the cache and the UI state (one function for hooks and getSnapshot). */
 export function composeState(ui: UiState, cache: CacheView): SettingsState {
@@ -748,6 +752,18 @@ export class SettingsStore {
     return reply.ok;
   }
 
+  /** Updates > App Update's Go Back to Previous Build row; null when nothing is kept or the host has no updater. */
+  async previousBuild(): Promise<PreviousBuild | null> {
+    const reply = await this.request("cmux.settings.app_update.previous", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** That row's Go Back: the app restarts into the kept build; else the host's reason. */
+  async goBackToPreviousBuild(build: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.app_update.rollback", { build });
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
+  }
+
   /** Updates > Web UI: Check Now or Roll Back, then re-read the host lists; false when the host refused. */
   async runWebUpdates(action: "check" | "rollback"): Promise<boolean> {
     const reply = await this.request(`cmux.settings.web_updates.${action}` as const, {});
@@ -1126,6 +1142,20 @@ export class SettingsStore {
       ? null
       : (answer.message ?? (answer.code ? t("settingsPage.customizeLibrary.notChanged") : null));
     return { library: answer.library ?? null, refusal };
+  }
+
+  /** Settings > Customize's Standup: every library entry as one line (`cmux customize library
+   * standup`); null when the host cannot run it (an older build, no CLI). */
+  async customizeStandup(): Promise<Standup | null> {
+    const reply = await this.request("cmux.settings.customize.library", { verb: "standup" });
+    return reply.ok ? (reply.value?.standup ?? null) : null;
+  }
+
+  /** Settings > General > Customize cmux: the checklist and progress, with `has` the connections the
+   * page knows of; null when the host has no CLI or did not answer. */
+  async customizeChecklist(has: ChecklistFact[]): Promise<Checklist | null> {
+    const reply = await this.request("cmux.settings.customize.checklist", { has });
+    return reply.ok ? (reply.value?.checklist ?? null) : null;
   }
 
   /** Personalization > Customization Problems: one `cmux customize doctor` verb (or `doctor-open`,
@@ -1526,6 +1556,14 @@ export class SettingsStore {
 
   playSound(name: string): void {
     void this.request("cmux.settings.sound.play", { name });
+  }
+
+  /** Custom Sound…: the host asks for an audio file, keeps a copy in cmux's sounds folder and sets
+   * it as `key`'s sound. */
+  async importSound(key: string): Promise<void> {
+    const reply = await this.request("cmux.settings.sound.import", { key });
+    if (!reply.ok) this.setError(key, rowError(reply.error));
+    else if (reply.value.name !== null) await this.refresh();
   }
 
   /**

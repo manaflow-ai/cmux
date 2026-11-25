@@ -137,7 +137,10 @@ export function ChatUnavailableState({
     title = t("unavailable.notFound.title");
     detail = named ? t("unavailable.notFound.detailOn", { machine: named }) : t("unavailable.notFound.detail");
   } else {
-    title = `${t("header.reconnecting")}…`;
+    // A machine down past the bound says it is offline, with Reconnect: never a "Reconnecting…" that
+    // leaves the person in limbo (Leo, 2026-11-24: "making the user think they're constsntly suspended
+    // in a state of connection limbo").
+    title = t("machineLink.offline");
     detail =
       unavailable.lastSeen !== undefined
         ? t("unavailable.offline.lastSeen", {
@@ -182,9 +185,7 @@ export function ChatUnavailableState({
         data-enter="top"
       >
         <p className="acpmux-peer-copy-title">
-          {(unavailable.reason === "offline" || resuming) && (
-            <Spinner size={12} loading className="acpmux-peer-copy-spinner" />
-          )}
+          {resuming && <Spinner size={12} loading className="acpmux-peer-copy-spinner" />}
           {title}
         </p>
         {error && (
@@ -205,33 +206,30 @@ export function ChatUnavailableState({
       role={unavailable.reason === "offline" || unavailable.reason === "paused" ? "status" : "alert"}
       data-enter="fade"
     >
-      {unavailable.reason === "offline" ? (
-        <Spinner size={28} loading className="acpmux-unavailable-spinner" />
-      ) : (
-        <svg
-          className="acpmux-empty-glyph"
-          width={36}
-          height={36}
-          viewBox="0 0 36 36"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={1.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-          focusable="false"
-        >
-          <rect x="4.75" y="6.75" width="26.5" height="22.5" rx="6" />
-          {unavailable.reason === "deleted" ||
-          unavailable.reason === "notFound" ||
-          unavailable.reason === "gone" ||
-          unavailable.reason === "unreached" ? (
-            <path d="M13.5 18h9" />
-          ) : (
-            <path d="M11.5 18h1M17.5 18h1M23.5 18h1" />
-          )}
-        </svg>
-      )}
+      {/* No spinner for an offline machine: it says Offline with Reconnect, not limbo. */}
+      <svg
+        className="acpmux-empty-glyph"
+        width={36}
+        height={36}
+        viewBox="0 0 36 36"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <rect x="4.75" y="6.75" width="26.5" height="22.5" rx="6" />
+        {unavailable.reason === "deleted" ||
+        unavailable.reason === "notFound" ||
+        unavailable.reason === "gone" ||
+        unavailable.reason === "unreached" ? (
+          <path d="M13.5 18h9" />
+        ) : (
+          <path d="M11.5 18h1M17.5 18h1M23.5 18h1" />
+        )}
+      </svg>
       <h2 className="acpmux-empty-title acpmux-unavailable-title">{title}</h2>
       <div className="acpmux-unavailable-copy">
         {unavailable.reason === "paused" ? (
