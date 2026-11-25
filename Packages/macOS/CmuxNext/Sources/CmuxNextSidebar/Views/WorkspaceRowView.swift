@@ -61,6 +61,9 @@ final class WorkspaceRowView: SidebarRowView {
     var activityState = StatusIndicatorState.idle
     let badge = UnreadBadgeView(), rowBadge = RowBadgeView() // the count, and its replacement (WorkspaceRowView+Badges)
     var rowBadgeStyle = SidebarRowBadgeStyle.corner
+    /// `sidebar.workspaceRow.statusPlacement` `leading` (`WorkspaceRowContent.statusLeads`): the status mark draws in
+    /// the leading icon slot (`leadingStatusMark`, WorkspaceRowView+StatusGlyph), which the row keeps while idle.
+    var statusLeads = false
     /// The badge states this row last showed, and for which workspace: a done glyph settles in only
     /// when the same workspace's work finishes (`configureBadges`), never on a first configure or a
     /// row the pool hands to another workspace (cleared in `prepareForReuse`).
@@ -399,7 +402,9 @@ final class WorkspaceRowView: SidebarRowView {
         (isExpanded, timeText) = (shown.expanded, trailingText)
         timeLabel.setString(trailingText ?? "")
         metaLabel.setString(shown.meta ?? "")
-        activity.configure(badgesLead || pill != nil ? .idle : shown.activity, style: badgesLead || pill != nil ? nil : ws.activityStyle)
+        let activityHidden = badgesLead || pill != nil
+        activity.configure(activityHidden ? .idle : shown.activity, style: activityHidden ? nil : ws.activityStyle,
+                           glyph: activityHidden ? nil : ws.activityGlyph)
         activityState = shown.activity
         agentMarkVariant = content.agentMark
         let markImage = Self.agentMarkImage(ws, variant: agentMarkVariant, placeholder: isShowingPlaceholder)
@@ -413,7 +418,7 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.image = ws.muted && !isShowingPlaceholder
             ? NSImage.icon(symbol: "bell.slash", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)) : nil
         mutedMark.isHidden = mutedMark.image == nil
-        cloudMark.image = shown.runsInCloud && !isShowingPlaceholder ? NSImage.icon(.cloud, size: SidebarStyle.indicatorSize) : nil
+        cloudMark.image = shown.runsInCloud && !isShowingPlaceholder ? NSImage.icon(.cloud, size: Self.cloudMarkSide) : nil
         cloudMark.isHidden = cloudMark.image == nil
         // The bell-slash alone does not say what is muted: notifications, not the tabs' sound. The row's hover card
         // and its accessibility label say it (a1315's cut 3: rows carry no tooltips).
@@ -437,6 +442,7 @@ final class WorkspaceRowView: SidebarRowView {
         subagentsView.configure(isShowingPlaceholder ? nil : shown.subagents)
         subagentsHeight = subagentsView.isHidden ? 0 : SidebarLayoutMetrics.standard.subagentsHeight(shown)
         rowBadgeStyle = content.rowBadge
+        statusLeads = shown.statusLeads
         configureBadges(ws, shown: shown, style: content.rowBadge, stackLimit: content.stackLimit)
         if pill != nil {
             shownBadges = (ws.id, [])

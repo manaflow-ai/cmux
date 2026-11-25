@@ -4,7 +4,7 @@ import CmuxNextSettings
 import Foundation
 
 extension AgentPaneRequest {
-    private static let maximumUploadStageChunk = 512 * 1024
+    private nonisolated static let maximumUploadStageChunk = 512 * 1024
 
     /// A Cloud environment id as the platform makes them (`env_` and up to 64 letters, digits, `_`
     /// or `-`): the only `environment` `action.run` passes on.
@@ -36,7 +36,7 @@ extension AgentPaneRequest {
         return name != "." && name != ".."
     }
 
-    private static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
+    nonisolated static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
         guard let params else { return .unsupported(method) }
         switch method {
         case "chat.upload.begin":
@@ -276,6 +276,12 @@ extension AgentPaneRequest {
                             settled: params?["settled"] as? Bool ?? false,
                             copy: params?["copy"] as? Bool ?? false,
                             live: params?["live"] as? Bool ?? false)
+        case "pane.inputEchoed":
+            if let epochMs = params?["echoedEpochMs"] as? Double, epochMs.isFinite {
+                self = .inputEchoed(at: Date(timeIntervalSince1970: epochMs / 1_000))
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.launchSettle":
             if let epochMs = params?["settledEpochMs"] as? Double, epochMs.isFinite,
                let px = params?["maxMovePx"] as? Double, px.isFinite, px >= 0,
@@ -594,6 +600,11 @@ extension AgentPaneRequest {
             else { self = .unsupported(method) }
         case "pane.tabRowTools.set":
             if let tools = AgentPaneTabRowTools.list(params?["tools"]) { self = .tabRowToolsSet(tools) }
+            else { self = .unsupported(method) }
+        case "customizations.menu":
+            if let point = params?["point"] as? [String: Any],
+               let x = (point["x"] as? NSNumber)?.doubleValue, let y = (point["y"] as? NSNumber)?.doubleValue,
+               x.isFinite, y.isFinite { self = .customizationsMenu(x: x, y: y) }
             else { self = .unsupported(method) }
         case "pane.tabRowTools.openMenu":
             guard let id = params?["id"] as? String, id == "chat-menu",
