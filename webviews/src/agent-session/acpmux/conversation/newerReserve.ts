@@ -38,12 +38,13 @@ export function newerReserve(
 /// first row, a page that landed above it, or another set of rows). O(the rows before the new first row).
 export function heightLeftAbove(
   before: readonly AcpmuxRow[],
-  top: (index: number) => number,
+  geometry: { topAt(index: number): number },
   rows: readonly AcpmuxRow[],
 ): number {
   const first = rows[0]?.id;
   if (first === undefined || before.length === 0 || before[0]!.id === first) return 0;
-  for (let at = 1; at < before.length; at += 1) if (before[at]!.id === first) return Math.max(0, top(at) - top(0));
+  for (let at = 1; at < before.length; at += 1)
+    if (before[at]!.id === first) return Math.max(0, geometry.topAt(at) - geometry.topAt(0));
   return 0;
 }
 
