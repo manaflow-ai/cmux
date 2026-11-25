@@ -235,7 +235,6 @@ pub mod tailnet_ingress;
 #[cfg(all(unix, feature = "tailnet"))]
 #[path = "../tailnet/embedded_service.rs"]
 pub(crate) mod tailnet_service;
-mod task_list;
 mod team;
 mod trigger_authority;
 mod trigger_chat;
