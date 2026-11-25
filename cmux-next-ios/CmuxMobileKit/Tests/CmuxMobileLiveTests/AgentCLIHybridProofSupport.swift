@@ -236,6 +236,10 @@ struct HybridScreenModel {
             cells = Array(repeating: Array(repeating: Self.blank(style), count: columns), count: rows)
         case "X":
             let count = max(number(0, 1), 1)
+            // As in Ghostty (the reference screen): erasing half of a wide glyph erases the
+            // glyph, so a wide glyph cut at either end of the run loses its other half too.
+            unwide(x)
+            unwide(min(columns, x + count) - 1)
             for column in x..<min(columns, x + count) {
                 cells[y][column] = Self.blank(style)
             }

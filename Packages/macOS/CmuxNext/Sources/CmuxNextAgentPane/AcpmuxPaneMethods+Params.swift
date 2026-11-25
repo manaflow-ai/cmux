@@ -19,7 +19,9 @@ nonisolated extension AcpmuxPaneMethods {
         // the chat sees beside its own (the composer's Add folder…, cmux#32811); AcpmuxPathPolicy checks
         // each as it checks `cwd`. `restricted`: a read-only chat in a folder the person declined
         // (Read-only here); acpmux keeps its policy and the folder's config off (hub/restricted.rs).
-        "session/new": (["cwd", "mcpServers", "additionalDirectories", "_meta"], ["harness", "adopt", "peer", "noProject", "model", "restricted"]),
+        // `autoPlace`: the person picked Auto, so with no room anywhere acpmux may wait for a machine
+        // being added (hub/admission.rs); an explicit This Mac or machine never sends it.
+        "session/new": (["cwd", "mcpServers", "additionalDirectories", "_meta"], ["harness", "adopt", "peer", "noProject", "model", "restricted", "autoPlace"]),
         "chat.fix_from_link": (["url", "cwd", "harness", "model", "_meta"], []),
         "chat.fix_from_link.prepare": (["url", "cwd", "harness", "model"], []),
         // `context`: a chat's workspace context on its first prompt (cx-ihyx2); acpmux sends it to the
@@ -63,10 +65,12 @@ nonisolated extension AcpmuxPaneMethods {
         // `afterSeq`: a reconnect that holds the chat's rows asks only the records after them
         // (attachParams.ts plainAttach, forward attach, #47119); refused, every reconnect said "cmux
         // blocked opening this chat" over the composer (Leo, 2026-11-22).
+        // `attending`: the reader's hand on a shown chat, apart from `visible` (on screen); `quietHidden`: the
+        // page draws nothing while hidden, so acpmux leaves the agent's stream out until it shows (CMUX-571).
         // schemas/agent-pane/attach-params.json lists every key the page sends here.
-        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "attending", "waitLogs", "settled", "hold", "afterSeq"], []),
+        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "attending", "quietHidden", "waitLogs", "settled", "hold", "afterSeq"], []),
         "_acpmux/detach": (["sessionId"], []),
-        "_acpmux/view": (["sessionId", "visible", "attending", "seenSeq"], []),
+        "_acpmux/view": (["sessionId", "visible", "attending", "seenSeq", "cutoverSeq"], []),
         "_acpmux/seen": (["sessionId", "seq"], []),
         // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).
         "_acpmux/typing": (["sessionId", "on"], []),
@@ -128,8 +132,9 @@ nonisolated extension AcpmuxPaneMethods {
         // The chat Inspector's Perf tab and page reporter (PerfPanel.tsx, perfReporter.ts; acpmux perf_watch.rs):
         // a default-off diagnostic that names no path and starts nothing; acpmux answers this Mac's app and
         // unix socket only. `op`: on, off, status, read (`after`, `limit`, `waitMs`), snapshot, budgets, or report (the
-        // page's measurements: `page`, `windowMs`, `spans`, `renders`, `frames`, `layoutShifts`, `bytes`).
-        "_acpmux/perf": (["op", "after", "limit", "waitMs", "page", "windowMs", "spans", "renders", "frames", "layoutShifts", "bytes"], []),
+        // page's measurements: `page`, `windowMs`, `spans`, `renders`, `frames`, `layoutShifts`, `bytes`), frames, or tally (frameTally.ts: `bucketMs`, `gaps`).
+        "_acpmux/perf": (["op", "after", "limit", "waitMs", "page", "windowMs", "spans", "renders", "frames", "layoutShifts", "bytes", "bucketMs", "gaps"], []),
+        "_acpmux/host_overload": ([], []),
         // Placement names are local display labels; the optional source lets the page filter
         // targets for a chat without exposing a host URL or session identity.
         "_acpmux/move_targets": (["source", "sourceKind"], []),
@@ -166,7 +171,7 @@ nonisolated extension AcpmuxPaneMethods {
         // `_meta`: only the gesture ticket of the person's Build pick, as an answer's. No
         // `harnesses`: the pane builds with the chat's own harness, or it and the other of Claude
         // and Codex for a compare.
-        "_acpmux/plan/build": (["sessionId", "permissionId", "target", "_meta"], []),
+        "_acpmux/plan/build": (["sessionId", "permissionId", "target", "plan", "_meta"], []),
         "_acpmux/plan/compare": (["sessionId", "buildId"], []),
         "_acpmux/plan/keep": (["sessionId", "buildId", "keep"], []),
         "_acpmux/handoff_prepare": (["sessionId", "harness", "handoffKey"], []),
@@ -184,6 +189,12 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/archive": (["sessionId", "archived"], []),
         "_acpmux/cold_archive": (["sessionId", "archived"], []),
         "_acpmux/prompt_coach": (["sessionId", "coachId"], []),
+        // Auto (plans/cmux-next/auto-mode/DESIGN.md): `keepInCloud` only while the Cloud runs the chat.
+        "_acpmux/auto_session/set": (["sessionId", "auto", "keepInCloud"], []),
+        // `action`: show, apply or discard.
+        "_acpmux/auto_session/leftover": (["sessionId", "action"], []),
+        // The Cloud's events after seq `after`; `version`: the read the page speaks.
+        "_acpmux/auto_session/transcript": (["sessionId", "after", "version"], []),
         "_acpmux/run_elsewhere/plan": (["sessionId", "command"], []),
         "_acpmux/run_elsewhere/start": (["sessionId", "command", "peer", "digest", "sendSecrets"], []),
         "_acpmux/bg/output": (["sessionId", "id", "fromByte", "maxBytes"], []), // maxBytes: bgTail, a finished task line's tail.
