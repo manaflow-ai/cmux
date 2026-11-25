@@ -3,15 +3,22 @@
 // Connect sends the server and whose it is (the active team only when picked), a key-auth row's
 // pasted key goes once and is cleared, Disconnect asks first, an unavailable row says why and has no
 // button, and with no hub only the Connections tab shows.
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, test, beforeAll } from "bun:test";
 import { installDom } from "./testDom";
 
 const restore = installDom();
 afterAll(() => restore());
 const { renderPage, settle, click, changeValue, fire } = await import("./testing");
 const { mockHubOverview, mockHubState } = await import("./mockHub");
+const { ensureConnectionsUpcomingLabRow } = await import("./mockConnections");
+beforeAll(() => ensureConnectionsUpcomingLabRow());
 
 const path = "/settings/integrations";
+/** The top five in rank order, then the rest a person can see with the Labs toggle off. */
+const TOP_AND_MORE = ["linear", "sentry", "atlassian", "notion", "vercel", "github", "exa", "figma"];
+const UPCOMING = ["slack", "gmail", "google-calendar", "google-drive"];
+const noApprovals = (provider: { hub: unknown }) =>
+  void (provider.hub = mockHubState(mockHubOverview({ approvals: [] })));
 const tabs = (container: HTMLElement) =>
   [...container.querySelectorAll<HTMLElement>("[data-hub-tab]")].map((tab) => tab.dataset.hubTab);
 const tiles = (container: HTMLElement) =>
@@ -30,7 +37,7 @@ test("a waiting call opens Approvals; Connections holds the grid in rank order b
   expect(page.container.querySelector('[data-hub-panel="approvals"]')).not.toBeNull();
   expect(page.container.querySelector("[data-connections-entry]")).toBeNull();
   await openConnections(page.container);
-  expect(tiles(page.container)).toEqual(["linear", "github", "sentry", "notion", "exa", "stripe", "figma"]);
+  expect(tiles(page.container)).toEqual(TOP_AND_MORE);
   expect(tile(page.container, "linear").textContent).toContain("Connected · 23 tools");
   expect(tile(page.container, "linear").textContent).toContain("Team");
   expect(page.container.querySelector('[data-hub-group="accounts"]')).not.toBeNull();
@@ -118,6 +125,34 @@ test("an unavailable row says why in one line and has no button", async () => {
   page.unmount();
 });
 
+test("Slack and Google list as Not set up only with labs.connectionsUpcoming on", async () => {
+  const off = await renderPage({ path, setup: noApprovals });
+  await settle();
+  expect(tiles(off.container)).toEqual(TOP_AND_MORE);
+  off.unmount();
+  const on = await renderPage({ path, setup: noApprovals, mock: { values: { "labs.connectionsUpcoming": true } } });
+  await settle();
+  expect(tiles(on.container)).toEqual([...TOP_AND_MORE, ...UPCOMING]);
+  const slack = tile(on.container, "slack");
+  expect(slack.dataset.connectionsState).toBe("unavailable");
+  expect(slack.dataset.connectionsUpcoming).toBe("");
+  expect(slack.querySelector("[data-connections-why]")!.textContent).toBe("Not set up on this deployment yet.");
+  expect(slack.querySelector("[data-connections-action]")).toBeNull();
+  on.unmount();
+});
+
+test("Vercel connects in one tap like the rest; its tile is marked as signing in back to this Mac", async () => {
+  const page = await renderPage({ path, setup: noApprovals });
+  await settle();
+  const vercel = () => tile(page.container, "vercel");
+  expect(vercel().dataset.connectionsLoopback).toBe("");
+  expect(tile(page.container, "linear").dataset.connectionsLoopback).toBeUndefined();
+  await click(vercel().querySelector('[data-connect-action="connect"]')!);
+  expect(page.provider.connectionsRuns).toEqual([{ action: "connect", name: "vercel", owner: "me" }]);
+  expect(vercel().dataset.connectionsState).toBe("connected");
+  page.unmount();
+});
+
 test("with no hub on this deployment only the Connections tab shows", async () => {
   const page = await renderPage({
     path,
@@ -126,7 +161,7 @@ test("with no hub on this deployment only the Connections tab shows", async () =
   });
   await settle();
   expect(tabs(page.container)).toEqual(["connections"]);
-  expect(tiles(page.container).length).toBe(7);
+  expect(tiles(page.container)).toEqual(TOP_AND_MORE);
   page.unmount();
 });
 
@@ -175,7 +210,7 @@ test("All connections lists the accounts, the model accounts and the connected a
   expect(rows.map((row) => row.dataset.allConnectionsKind)).toEqual(["account", "model", "app", "app"]);
   for (const row of rows) expect(row.querySelectorAll("button").length).toBe(1);
   expect(rows[2]!.textContent).toContain("Connected · 23 tools");
-  expect(tiles(page.container)).toEqual(["linear", "github", "sentry", "notion", "exa", "stripe", "figma"]);
+  expect(tiles(page.container)).toEqual(TOP_AND_MORE);
   // A model row only links to where it is managed.
   await click(rows[1]!.querySelector('[data-all-connections-action="manage"]')!);
   await settle();

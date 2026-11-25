@@ -199,9 +199,10 @@
 }
 .acpmux-hybrid-row__count + .acpmux-session-info-switch__input { margin-inline-start: 8px; }
 .acpmux-hybrid-row .acpmux-hybrid-toggle { margin-inline-start: auto; }
-.acpmux-hybrid-where {
-  margin-left: auto;
-  color: var(--agent-muted);
+/* Runs On: a whole-row menu trigger, as the list's other action rows; open, it keeps their hover
+   fill. Its value is the row's muted end (sessionInfo.css .acpmux-session-info-row__end). */
+.acpmux-session-info-row--button.acpmux-hybrid-row[data-popup-open] {
+  background: var(--acpmux-session-info-row-hover);
 }
 
 /* The sidebar mark's web sketch (the rows themselves are native): a lit cloud at the row's end. */

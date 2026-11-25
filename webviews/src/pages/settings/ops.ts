@@ -117,6 +117,32 @@ export type HostListRow = {
    * running or the machine is not reachable now; the switch is disabled.
    */
   vm_host?: { on: boolean; busy: boolean; error: string | null };
+  /**
+   * A Remote machine's AutoCloud enrollment (`_acpmux/autocloud_enroll` there), as the machine's own acpmux
+   * reports it (`_acpmux/peers` health `autoCloud`). Read-only: only the owner's own client enrolls it.
+   * Absent until the machine answered, and on a machine too old to say.
+   */
+  autocloud?: MachineAutoCloud;
+};
+
+/** A machine's AutoCloud enrollment as the host sends it (acpmux `autoCloud`, v1). */
+export type MachineAutoCloud = {
+  /** Enrolled there. */
+  on: boolean;
+  /** The machine's AutoCloud report could not be read. */
+  error: string | null;
+  /** Taking AutoCloud work now: enrolled, owner idle, within its hours. */
+  accepting?: boolean;
+  /** The owner is idle on it now (host-presence). */
+  owner_idle?: boolean;
+  /** Who may use it: team ids (empty: the owner's own work only), harnesses (empty: any), local hours. */
+  policy?: {
+    teams: string[];
+    agents: string[];
+    hours: { from: number; to: number } | null;
+  };
+  /** What it can run: `macos`, `xcode`, `ios-simulator`, `gpu-metal`, `linux`, `gpu-nvidia`, an arch. */
+  caps?: string[];
 };
 
 /** One browser profile row. */
@@ -212,7 +238,8 @@ export type DevicesJoinState = {
   known: boolean;
   /** The label of the action that turns every switch off while the record is unknown; null while it is known. */
   revoke_all: string | null;
-  switches: Array<{ surface: JoinConsentSurface; title: string; help: string; on: boolean }>;
+  /** Each switch; `keywords` are what Settings search also finds it by (the page's language and English). */
+  switches: Array<{ surface: JoinConsentSurface; title: string; help: string; keywords?: string[]; on: boolean }>;
 };
 
 /** The lists the host shows beside the schema rows; `rooms` is null when spaces are unsupported. */
@@ -1153,6 +1180,30 @@ export type LibraryEntry = {
   added_ms: number | null;
   /** Keys and files a higher entry that is on sets too, so this one's value is not in use. */
   overridden: string[];
+  /** The unmerged pull request a `pr-N` entry is (`cmux customize use pr:N`; cmux-customize
+   * `library/code.rs` `CodeLayer`). Absent on every other entry. */
+  code?: LibraryCode;
+};
+
+/** A pull request's code as a library entry: its web part is served on this app while it is on and
+ * the highest such entry; what it cannot carry needs a build. */
+export type LibraryCode = {
+  /** `owner/name`. */
+  repo: string;
+  pr: number;
+  title: string;
+  /** The PR head the layer was built from. */
+  head: string;
+  /** The commit CI merged the head onto. */
+  base: string;
+  /** The published web bundle key; absent when the PR changes no web bundle (nothing applies to a
+   * running app, so the CLI refuses to turn it on). */
+  web?: string;
+  abi?: number;
+  /** What the layer cannot carry, one line each: "needs a build: ...". */
+  needs_build?: string[];
+  /** The last refresh's word on it: `in your build`, `no longer applies: ...`, `newer head ...`. */
+  note?: string;
 };
 
 /** Two or more entries that are on set the same key or file; the highest one's value is in use. */
@@ -1943,6 +1994,11 @@ export type ConnectionEntry = {
   /** When the connection's sign-in lapses (RFC 3339, the platform's `connection.expiresAt`); null or
    * absent when the platform does not say. The card offers Reconnect a few days before. */
   expiresAt?: string | null;
+  /** The provider only signs in back to this Mac (Vercel): the CLI listens on 127.0.0.1 for the
+   * return while Connect waits (cmux-tui cli/mcp_loopback.rs). */
+  loopback: boolean;
+  /** Slack or Google before its client is registered: listed only with labs.connectionsUpcoming on. */
+  upcoming: boolean;
 };
 
 /** `cmux mcp-servers catalog --json`, or the CLI's refusal. `available: false` is a deployment
@@ -2642,6 +2698,8 @@ const unavailableCodes = new Set(["cmux.protocol.closed", "cmux.page.unavailable
 export const SETTINGS_SENTENCES = {
   "cmux.page.refused": OWNER_SENTENCE,
   "cmux.app.user_only": OWNER_SENTENCE,
+  // A pasted key the provider refused (acpmux `connections/key.check`): "Key rejected by OpenAI".
+  "cmux.models.key_rejected": OWNER_SENTENCE,
 } as const;
 
 /** The error a call rejected with, as a plain record (its `message` is for logs; the page shows
