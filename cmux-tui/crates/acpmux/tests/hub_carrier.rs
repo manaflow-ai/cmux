@@ -3789,7 +3789,18 @@ async fn hub_carrier_a_chat_moved_around_a_ring_comes_home_with_every_turn() {
     for (i, h) in hubs.iter().enumerate().skip(1) {
         let left = h.resolve(&id).expect("a closed record of the move");
         assert!(left.meta().moved_to.is_some(), "{}: still holds the chat as its own", names[i]);
+        assert_eq!(
+            left.meta().status,
+            acpmux::store::SessionStatus::Closed,
+            "{}: copy open",
+            names[i]
+        );
+        // What the hub lists for this machine: its heartbeat rows.
+        let rows = h.mesh_rows().await;
+        assert!(!rows.iter().any(|r| r.session_id == id), "{} still lists the chat", names[i]);
     }
+    let rows = hubs[0].mesh_rows().await;
+    assert!(rows.iter().any(|r| r.session_id == id), "A does not list the chat it holds");
     drop(serving);
     let _ = std::fs::remove_dir_all(&root);
 }
