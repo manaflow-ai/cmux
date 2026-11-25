@@ -810,6 +810,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 -I tests/test_ci_red_autofix.py
 
+      - name: Validate the red-to-green fix miner
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 -I tests/test_ci_red_fix_mine.py
+
       - name: Validate Ghostty helper cache failure handling
         if: ${{ matrix.group == 'release-tooling' }}
         run: bash tests/test_ghostty_cli_helper_cache.sh
