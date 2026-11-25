@@ -505,10 +505,24 @@ class GhApiTests(unittest.TestCase):
     def test_installation_rate_limit_is_waited_out(self):
         # Runs 45598154329 and 45600895404 died on "API rate limit exceeded for installation" at their first read.
         run, calls = self.runner([(1, "gh: API rate limit exceeded for installation (HTTP 403)", ""), (0, "", "{}")])
-        with mock.patch.object(ra.time, "sleep") as slept:
+        with mock.patch.object(ra, "_api_waited", 0.0), mock.patch.object(ra.time, "sleep") as slept, \
+                mock.patch("sys.stderr"):
             self.assertEqual(ra.gh_api("p", run=run), {})
         slept.assert_called_once_with(60)
         self.assertEqual(len(calls), 2)
+
+    def test_waits_share_one_budget_that_fits_the_job(self):
+        # Run 45612343778: per-call waits of up to 15 min, silent, ran triage past its 10-minute job timeout.
+        limited = (1, "gh: API rate limit exceeded for installation (HTTP 403)", "")
+        run, calls = self.runner([limited] * 12)
+        with mock.patch.object(ra, "_api_waited", 0.0), mock.patch.object(ra, "API_WAIT_BUDGET_S", 240), \
+                mock.patch.object(ra.time, "sleep") as slept, mock.patch("sys.stderr"):
+            with self.assertRaisesRegex(RuntimeError, "wait budget of 240s spent"):
+                ra.gh_api("a", run=run)
+            with self.assertRaisesRegex(RuntimeError, "wait budget"):
+                ra.gh_api("b", run=run)  # a second call has nothing left to wait
+        self.assertEqual(sum(c.args[0] for c in slept.call_args_list), 240)
+        self.assertEqual(len(calls), 5, "a: 60 + 120 + 60 (capped), then refused; b: refused at its first limit")
 
     def test_a_real_refusal_raises_at_once(self):
         run, calls = self.runner([(1, "HTTP 404: Not Found", "")])
