@@ -1034,6 +1034,26 @@ fn earliest_due(new: &[&Item]) -> u64 {
 
 /// Whether `item` is a folded repeat of a program's page (`inbox_page_rule.rs`): it starts no
 /// flush of its own and goes with the next notice.
+/// A session's held-message deadlines for its `ls` row: how many new messages are past their
+/// deadline, and the soonest one's (module docs, "Deadlines"). NOW reads `inboxOverdue` from
+/// `acpmux ls --live --fields` in one call and counts each such session red.
+pub(super) fn deadline_row(session: &Session) -> (usize, Option<u64>) {
+    deadline_counts(&session.inbox().items, now_ms())
+}
+
+fn deadline_counts(items: &[Item], now: u64) -> (usize, Option<u64>) {
+    let mut overdue = 0;
+    let mut due_at: Option<u64> = None;
+    for item in items.iter().filter(|i| !i.noticed && !folded(i)) {
+        let due = item.due();
+        if due < now {
+            overdue += 1;
+        }
+        due_at = Some(due_at.map_or(due, |d| d.min(due)));
+    }
+    (overdue, due_at)
+}
+
 fn folded(item: &Item) -> bool {
     item.verdict == Some(page_rule::Verdict::Fold)
 }
