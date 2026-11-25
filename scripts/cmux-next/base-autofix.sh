@@ -325,8 +325,7 @@ if (( app_host )) && [[ -f "$repo/$app_host_gen" ]]; then
 fi
 
 # 1e3. The defaults snapshot, from the action and settings exports
-# (scripts/ci/defaults_guard.py). Rewriting it never passes the defaults guard:
-# a changed default still needs a SHIP review receipt or a call owner's approval on the pull request.
+# (scripts/ci/defaults_guard.py snapshot).
 defaults_snapshot=schemas/defaults/cmux-next.json
 if (( unverified_exports || unverified_settings )); then
   waits=()

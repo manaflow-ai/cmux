@@ -69,7 +69,7 @@ main() {
   trap 'rm -rf "${work:-}"' EXIT
   root="$(git rev-parse --show-toplevel)"
   # The run's own push and area rules, copied before a checkout of the tip can change them. The repair
-  # and the defaults guard on the tip are the tip's own (in the checkout).
+  # and the defaults snapshot tool on the tip are the tip's own (in the checkout).
   cp "$here/autofix-areas.sh" "$work/autofix-areas.sh"
   areas_script="${CMUX_BASE_AUTOFIX_AREAS:-$work/autofix-areas.sh}"
   push_script="${CMUX_BASE_AUTOFIX_PUSH:-}"
