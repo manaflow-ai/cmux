@@ -525,6 +525,22 @@ fn terminal_tables() {
 }
 
 #[test]
+fn go_to_directory_types_one_cd_line() {
+    let go = panes::go_to_directory_input;
+    assert_eq!(go("/tmp/it's here").as_deref(), Some("\u{15}cd -- '/tmp/it'\\''s here'\r"));
+    assert_eq!(go("  ~/src/cmux ").as_deref(), Some("\u{15}cd -- ~/'src/cmux'\r"));
+    assert_eq!(go("~").as_deref(), Some("\u{15}cd -- ~\r"));
+    assert_eq!(go("~/").as_deref(), Some("\u{15}cd -- ~/\r"));
+    assert_eq!(go("../lib").as_deref(), Some("\u{15}cd -- '../lib'\r"));
+    // `~user` is not the home shorthand this rule expands: quoted, as typed.
+    assert_eq!(go("~bob").as_deref(), Some("\u{15}cd -- '~bob'\r"));
+    assert_eq!(go("a;rm -rf ~").as_deref(), Some("\u{15}cd -- 'a;rm -rf ~'\r"));
+    assert_eq!(go(""), None);
+    assert_eq!(go("   "), None);
+    assert_eq!(go("/tmp\nrm -rf ~"), None);
+}
+
+#[test]
 fn a_gui_chat_no_terminal_runs_shows_no_toggle() {
     let chat = ToggleFacts {
         chat: true,

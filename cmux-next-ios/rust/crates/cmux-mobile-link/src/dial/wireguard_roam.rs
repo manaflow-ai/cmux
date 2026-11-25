@@ -176,6 +176,9 @@ pub(super) struct RelayShared {
     confirmed_elsewhere: AtomicBool,
     /// The held carrier's view of the peer's socket.
     peer_online: Mutex<Option<watch::Receiver<bool>>>,
+    /// The newest joined carrier's text side for relay-held sends (RFD 0142
+    /// R8): a new join replaces it, so a hold route follows the redials.
+    hold_port: watch::Sender<Option<super::super::relay::HoldPort>>,
     state: Mutex<RelayClock>,
     asked: tokio::sync::Notify,
 }
@@ -248,6 +251,7 @@ impl Default for RelayShared {
             on_relay: AtomicBool::new(true),
             confirmed_elsewhere: AtomicBool::new(false),
             peer_online: Mutex::new(None),
+            hold_port: watch::Sender::new(None),
             state: Mutex::new(RelayClock {
                 lost: None,
                 since: Instant::now(),
@@ -554,9 +558,10 @@ pub(super) struct Session {
     inject: mpsc::UnboundedSender<RoamMessage>,
     injected: Mutex<Option<mpsc::UnboundedReceiver<RoamMessage>>>,
     /// Asks the control task to send its latest announcement through
-    /// signaling again (a new signaling socket).
-    resignal: mpsc::UnboundedSender<()>,
-    resignals: Mutex<Option<mpsc::UnboundedReceiver<()>>>,
+    /// signaling again: `false` for a new signaling socket, `true` to nudge
+    /// a peer whose route went quiet ([`Self::nudge_peer`]).
+    resignal: mpsc::UnboundedSender<bool>,
+    resignals: Mutex<Option<mpsc::UnboundedReceiver<bool>>>,
     follow: Mutex<Option<JoinHandle<()>>>,
     announce: Mutex<Option<mpsc::UnboundedSender<Announcement>>>,
     control_task: Mutex<Option<JoinHandle<()>>>,
@@ -934,7 +939,9 @@ impl Session {
 
     /// Hand `turn` to the underlay and watch its stream.
     fn install_turn(self: &Arc<Self>, turn: TurnCarrier, relayed: (Vec<String>, Vec<String>)) {
-        let dead = turn.transport.is_stream().then(|| turn.dead());
+        // UDP too: its allocation dies when its server stops answering
+        // (`TurnCarrier::check_server`).
+        let dead = Some(turn.dead());
         *lock(&self.relayed) = relayed;
         if self.control.send(Control::Turn(turn)).is_err() {
             return;
@@ -957,6 +964,15 @@ impl Session {
 
     fn signaling(&self) -> SignalingClient {
         lock(&self.signaling).clone()
+    }
+
+    /// The signaling socket this session follows now.
+    pub(super) fn signaling_client(&self) -> SignalingClient {
+        self.signaling()
+    }
+
+    pub(super) fn id(&self) -> &str {
+        &self.session_id
     }
 
     /// Watch `events` for the peer's `bye`, replacing the subscription of
@@ -1305,19 +1321,40 @@ impl Session {
         timeline
     }
 
+    /// Our route to the peer went quiet: send the peer our latest endpoint
+    /// announcement again through signaling (generation 0 with none yet).
+    /// Already applied there, it is only acknowledged, inside the tunnel,
+    /// which is the point: the peer sends on its route to us, and that
+    /// starts its silence watch (and, on its TURN allocation, the server
+    /// check) without waiting for its next probe.
+    pub(super) fn nudge_peer(&self) {
+        let _ = self.resignal.send(true);
+    }
+
     fn rehome_onto(&self, client: &SignalingClient) {
         let old = std::mem::replace(&mut *lock(&self.signaling), client.clone());
         old.unsubscribe(&self.session_id);
         self.follow(client.subscribe(&self.session_id));
         // An announcement sent while the old socket was dead is sent again.
-        let _ = self.resignal.send(());
+        let _ = self.resignal.send(false);
         tracing::debug!(session = self.session_id, "WireGuard session moved to a new signaling socket");
     }
 }
 
 async fn send_message(socket: &WgDatagramSocket, peer: SocketAddr, message: &RoamMessage) {
     let bytes = serde_json::to_vec(message).expect("roam message serializes");
-    if let Err(error) = socket.send_to(&bytes, peer, Priority::Interactive).await {
+    // An endpoint announcement keeps Ultra Mode's repair: it is what a roam
+    // on a lossy network waits for. `reach`, `ack` and `metered` are
+    // repeated by their senders and nothing answers them, so each goes as
+    // one liveness datagram: no floor parity (which cost a lone `reach` as
+    // much again, 12 a minute on an idle link) and no silence watch armed.
+    let result = match message {
+        RoamMessage::Endpoints { .. } => socket.send_to(&bytes, peer, Priority::Interactive).await,
+        RoamMessage::Ack { .. } | RoamMessage::Metered { .. } | RoamMessage::Reach { .. } => {
+            socket.send_liveness(&bytes, peer, true).await
+        }
+    };
+    if let Err(error) = result {
         tracing::debug!(%error, "roam message not sent");
     }
 }
@@ -1362,7 +1399,7 @@ struct ControlChannels {
     announce: mpsc::UnboundedReceiver<Announcement>,
     reach: mpsc::UnboundedReceiver<(SocketAddr, Carrier)>,
     injected: mpsc::UnboundedReceiver<RoamMessage>,
-    resignal: mpsc::UnboundedReceiver<()>,
+    resignal: mpsc::UnboundedReceiver<bool>,
     /// The reflexive address of this side's second socket (`None`: gone).
     metered: mpsc::UnboundedReceiver<Option<SocketAddr>>,
     /// Where the peer's mapped endpoints are kept (for `link_stat`).
@@ -1489,9 +1526,20 @@ async fn run_control(
                     pending = None;
                 }
             }
-            Some(()) = resignal.recv() => {
-                if let Some(message) = &latest {
-                    signal.send(message);
+            Some(nudge) = resignal.recv() => {
+                match &latest {
+                    Some(message) => signal.send(message),
+                    // Nothing announced yet: generation 0, which every peer
+                    // has applied, so it only acknowledges it.
+                    None if nudge => signal.send(&RoamMessage::Endpoints {
+                        generation: 0,
+                        endpoints: Vec::new(),
+                        relayed: Vec::new(),
+                        relayed_tls: Vec::new(),
+                        mapped: Vec::new(),
+                        mapped_by: None,
+                    }),
+                    None => {}
                 }
             }
             received = async {
@@ -1716,6 +1764,16 @@ pub fn relay_held(session_id: &str, dialer: bool) -> Option<bool> {
     find(session_id, dialer).map(|s| s.relay_shared.held())
 }
 
+/// The relay-held send queue's socket for a live session (RFD 0142 R8): the
+/// newest joined relay carrier's [`HoldPort`](super::super::relay::HoldPort),
+/// as it changes (`None` before the first join). `None` without the session.
+pub fn relay_hold_port(
+    session_id: &str,
+    dialer: bool,
+) -> Option<watch::Receiver<Option<super::super::relay::HoldPort>>> {
+    find(session_id, dialer).map(|s| s.relay_shared.hold_port.subscribe())
+}
+
 /// Join cmux's relay whenever this session needs it ([`RelayShared::due`]),
 /// until the session ends. A side that joins on its own (not because the
 /// peer asked or said it would) asks the peer to join too.
@@ -1800,6 +1858,7 @@ async fn run_relay_watch(session: Weak<Session>) {
                     shared.sticky.store(true, Ordering::Relaxed);
                 }
                 *lock(&shared.peer_online) = Some(carrier.peer_online_watch());
+                shared.hold_port.send_replace(Some(carrier.hold_port()));
                 if session.control.send(Control::Relay(carrier)).is_err() {
                     return;
                 }
@@ -1917,6 +1976,7 @@ mod tests {
             keeps_turn: false,
             turn_dead: None,
             route_to: Arc::new(watch::channel(None).0),
+            peer_version: super::super::WG_VERSION,
             relay: None,
             relay_shared: Arc::new(RelayShared::default()),
         });
@@ -2065,8 +2125,10 @@ mod tests {
             addresses: vec!["[2001:db8::1234:5678:9abc:def0]:65535".into(); MAX_METERED],
         };
         assert!(serde_json::to_vec(&many).unwrap().len() <= 1232);
-        const { assert!(super::super::WG_VERSION >= super::super::multipath::MULTIPATH_VERSION) };
-        assert!(2 < super::super::multipath::MULTIPATH_VERSION, "a version-2 peer gets no second socket");
+        const {
+            assert!(super::super::WG_VERSION >= super::super::multipath::MULTIPATH_VERSION);
+            assert!(2 < super::super::multipath::MULTIPATH_VERSION, "a version-2 peer gets no second socket");
+        };
     }
 
     /// PROTOCOL.md "Mapped endpoints": a mapped endpoint is a plain endpoint

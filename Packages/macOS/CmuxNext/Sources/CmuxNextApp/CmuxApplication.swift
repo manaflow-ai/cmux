@@ -41,6 +41,8 @@ import os
 ///   clicked refuses it too, for a few seconds (`InputVerificationService.endRelaunchBehind`).
 final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
     private var handlingSendEvent = false, sawKeyDown = false
+    /// A click on the full-screen titlebar band that lands on a button of the window under it.
+    private let fullScreenTitlebarPresses = FullScreenTitlebarPress()
     /// Set in `CmuxNextApp.main` before `run()`; an update relaunch's startup turns it
     /// off again when it ends (`InputVerificationService.endRelaunchBehind`).
     var refusesActivation = false
@@ -147,6 +149,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
         if event.type == .keyDown, FindPillView.forwardArrowKeyDown(event, in: keyWindow ?? event.window) { return }
         if event.type == .keyUp || event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown, keyUpOrClickInterceptor?(event) == true { return }
+        if fullScreenTitlebarPresses.take(event, in: event.window) { return }
         if event.type == .leftMouseDown || event.type == .leftMouseUp {
             BenchSpans.measure(event.type == .leftMouseDown ? "app.sendEvent.down" : "app.sendEvent.up") { super.sendEvent(event) }
         } else { super.sendEvent(event) }
