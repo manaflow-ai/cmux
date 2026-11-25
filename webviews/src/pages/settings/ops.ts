@@ -1206,6 +1206,21 @@ export type LibraryCode = {
   note?: string;
 };
 
+/** One entry at standup (`cmux customize library standup`): what it is, on or off, the last word
+ * on it and its link, all worded by the CLI. */
+export type StandupLine = {
+  name: string;
+  /** `pr`, `branch`, `sha`, `dir`, `fork`, `setup` or `recipe`. */
+  kind: string;
+  on: boolean;
+  title: string;
+  status: string;
+  link?: string;
+};
+
+/** The standup report: code first, then repos, then recipes; `text` is the Markdown to copy. */
+export type Standup = { lines: StandupLine[]; on: number; text: string };
+
 /** Two or more entries that are on set the same key or file; the highest one's value is in use. */
 export type LibraryConflict = { kind: string; key: string; winner: string; losers: string[] };
 
@@ -1217,6 +1232,7 @@ export type LibraryListing = { entries: LibraryEntry[]; conflicts: LibraryConfli
  * `doctor-open`, which the host runs itself: it reveals or opens the finding's `path`. */
 export type LibraryRun =
   | { verb: "list" }
+  | { verb: "standup" }
   | { verb: "on" | "off" | "remove"; name: string }
   | { verb: "order"; name: string; position: string }
   | DoctorRun;
@@ -1303,6 +1319,8 @@ export type DoctorFixed = { id: string; kind: DoctorFixKind; kept: string | null
  * error envelope (`code`, `message`). */
 export type LibraryAnswer = {
   library?: LibraryListing;
+  /** `standup`: every entry as one line (`cmux customize library standup`). */
+  standup?: Standup;
   doctor?: DoctorReport;
   fixed?: DoctorFixed;
   recovered?: DoctorRecovered;
