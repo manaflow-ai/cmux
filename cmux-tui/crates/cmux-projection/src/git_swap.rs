@@ -384,6 +384,25 @@ fn copy_mac_state(projected: &Path, local: &Path, seed_url: Option<&str>) -> any
     }
     fetch.arg(projected).arg("+refs/*:refs/*");
     output(fetch)?;
+    // upload-pack does not advertise a clone's remote-tracking refs (for example
+    // refs/remotes/origin/main), so the wildcard fetch above cannot copy them. Mirror the
+    // projected ref namespace explicitly after the object transfer. The objects are already
+    // reachable from the fetched heads in the normal case; update-ref also makes the state
+    // visible atomically to readers of the machine repository.
+    let mut mac_refs = git(projected);
+    mac_refs.args(["for-each-ref", "--format=%(objectname) %(refname)"]);
+    let mac_refs = text(mac_refs)?
+        .lines()
+        .filter_map(|line| {
+            let (object, name) = line.split_once(' ')?;
+            valid_object_name(object).then(|| format!("update {name} {object}"))
+        })
+        .collect::<Vec<_>>();
+    if !mac_refs.is_empty() {
+        let mut update = git(local);
+        update.args(["update-ref", "--stdin"]);
+        with_stdin(update, &mac_refs)?;
+    }
     // An index can name staged blobs that no ref reaches. Fetch those object IDs from the
     // projected repository explicitly; the carry pack stays blobless while staged work still
     // survives the swap without consulting the configured remote.
