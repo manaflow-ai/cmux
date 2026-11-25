@@ -107,3 +107,64 @@ fn rollback_and_ring_return_answer() {
     assert_eq!(code, OK);
     assert_eq!(body, json!({"orders": [-1]}));
 }
+
+#[test]
+fn feed_resolve_picks_the_architecture_feed() {
+    let (code, body) = call(
+        c"updater_feed_resolve",
+        &json!({"infoFeedURL": "https://x/nightly/appcast.xml", "architecture": "x86_64"}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body["url"], "https://x/nightly/appcast-x86_64.xml");
+    assert_eq!(body["channel"], "nightly");
+    assert_eq!(body["allowedSparkleChannels"], json!([]));
+}
+
+#[test]
+fn install_attempt_confirms_the_fresh_update() {
+    let (code, body) = call(
+        c"updater_install_attempt",
+        &json!({"attempt": "awaitingResult", "event": "phase", "phase": "updateAvailable"}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body["action"], "confirmInstall");
+    assert_eq!(body["disarm"], false);
+    let (code, _) = call(c"updater_install_attempt", &json!({"event": "request"}));
+    assert_eq!(code, ERR_INVALID);
+}
+
+#[test]
+fn relaunch_permits_holds_for_a_running_command() {
+    let (code, body) = call(
+        c"updater_relaunch_permits",
+        &json!({"blockers": {"runningCommandCount": 1}, "automatic": false,
+                "waits": {"waited": 9999, "daemonUnavailableFor": 0, "agentTimeout": 1,
+                          "daemonUnavailableTimeout": 1, "automaticWaitCap": 1}}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"permits": false, "empty": false}));
+}
+
+#[test]
+fn policy_waits_for_deltas_on_a_push() {
+    let (code, body) = call(
+        c"updater_policy",
+        &json!({"delta": {"listsDeltas": false, "userAsked": false, "waited": 0}}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"deltaDownloadNow": false}));
+}
+
+#[test]
+fn channel_tracks_list_one_track_per_ring() {
+    let (code, body) = call(
+        c"updater_channel_tracks",
+        &json!({"index": [{"build": "1204", "shortVersion": "0.9.4", "date": "2026-11-24"}],
+                "installedBuild": "1204", "followed": "nightly"}),
+    );
+    assert_eq!(code, OK);
+    let rings: Vec<&str> =
+        body.as_array().unwrap().iter().map(|t| t["ring"].as_str().unwrap()).collect();
+    assert_eq!(rings, ["stable", "nightly", "canary", "dev"]);
+    assert_eq!(body[1]["builds"][0]["isInstalled"], true);
+}

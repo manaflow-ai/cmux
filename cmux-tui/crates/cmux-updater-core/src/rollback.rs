@@ -214,7 +214,7 @@ mod tests {
             decide(&list, None, Some("1210"), &stored(&[("zeta", 1), ("feed", 1)]), Some("TEAM")),
             Err(Refusal::UnknownStore { store: "feed".into(), kept: 0 })
         );
-        let mut old = list.clone();
+        let mut old = list;
         old[0].store_schemas = None;
         assert_eq!(
             decide(&old, None, Some("1210"), &tabs, Some("TEAM")),
