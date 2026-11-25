@@ -337,17 +337,19 @@ jobs:
       # owned_pool_rescue.py reads this step by name.
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
-      # The kit's iOS simulator tests on the fleet pool (vars.CMUX_IOS_SIM_LINUX, unset: shadow): when the change
+      # The kit's iOS simulator tests on the fleet pool (vars.CMUX_IOS_SIM_LINUX, unset: on): when the change
       # routes ios-kit, this Mac builds them for testing and uploads the build, and a Linux VM of the pool
       # (cmux-linux-simsdk-x64, agent-sim) runs them while ci/run works. shadow: the Mac runs them too and the
       # pool's verdict is only read and reported (the step after ci/run); on: ios-kit waits for the pool's verdict
       # instead of the simulator, and runs them here only when the pool gave none. off: the Mac alone, as before.
-      # A fork's pull request (Blacksmith) and a fork of the repository never reach the pool.
+      # A fork's pull request (Blacksmith) and a fork of the repository never reach the pool. Default on (Leo,
+      # 2026-11-25: "freeing up the Mac's from doing things that don't need Mac's asap"); set the variable to shadow
+      # or off to go back.
       - name: Route the kit to the fleet pool
         id: sim-pool
-        if: ${{ contains(fromJSON('["shadow","on"]'), vars.CMUX_IOS_SIM_LINUX || 'shadow') && github.repository == 'manaflow-ai/cmux' && !startsWith(runner.name, 'blacksmith') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ contains(fromJSON('["shadow","on"]'), vars.CMUX_IOS_SIM_LINUX || 'on') && github.repository == 'manaflow-ai/cmux' && !startsWith(runner.name, 'blacksmith') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         env:
-          MODE: ${{ vars.CMUX_IOS_SIM_LINUX || 'shadow' }}
+          MODE: ${{ vars.CMUX_IOS_SIM_LINUX || 'on' }}
         run: |
           routed="$(ci/run route ${PATHS_FILE:+--paths-file "$PATHS_FILE"} | python3 -I -c 'import json, sys; print(int("ios-kit" in json.load(sys.stdin).get("ios", [])))')"
           echo "routed=$routed" >> "$GITHUB_OUTPUT"
