@@ -18,7 +18,6 @@ import { CopyButton } from "./CopyButton";
 import { copyMarkdownResult } from "../richClipboard";
 import { hasMessageMenuHost, openMessageMenu, openForkMenu, releaseMessagePopupOnUnmount } from "./messageMenu";
 import { RowReplyButton } from "./SelectionReply";
-import { SavePromptButton } from "./SavePromptButton";
 import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { useTranscriptReadOnly } from "./readOnly";
 import { ROW_ICON } from "./messageActionsModel";
@@ -401,7 +400,6 @@ export function PromptActions({
       <MessageTime at={row.at} className="cv-user__time" />
       <MessageCopy text={text} />
       <PinButton rowId={row.id} bookmark />
-      <SavePromptButton text={row.resend ?? row.text ?? text} />
     </MessageFooterRow>
   );
   return <div className="cv-user__actions">{pending ? pending(actions, {}) : actions}</div>;
@@ -457,7 +455,6 @@ export function ReplyActions({ row }: { row: AcpmuxRow }) {
               <PinButton rowId={row.id} />
               <ReadAloudButton id={row.id} text={text} />
               <RowReplyButton text={text} />
-              <SavePromptButton text={text} />
               <MessageMore rowId={row.id} />
             </span>
             <ReplyTime at={row.at} />

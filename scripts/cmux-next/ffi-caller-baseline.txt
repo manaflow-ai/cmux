@@ -142,7 +142,6 @@ cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_t
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_window_close_selection_kept
 cmux-tui/crates/cmux-palette-ranker/include/cmux_palette_ranker.h	cmux_palette_ranker_abi_version
 cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_session_clock
-cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_session_enable_clock
 cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_upstream_target_bps
 cmux-tui/crates/cmux-sdk-ffi/include/cmux_sdk_ffi.h	cmux_sdk_bytes_free
 cmux-tui/crates/cmux-sdk-ffi/include/cmux_sdk_ffi.h	cmux_sdk_call

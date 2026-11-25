@@ -88,10 +88,10 @@ pub(super) fn parse(params: &Value) -> Result<MintAsk, RpcError> {
         return Err(refused("invalid_arguments", "kind must be cloudflare-r2"));
     }
     let bucket = params["bucket"].as_str().unwrap_or_default();
-    if !((3..=63).contains(&bucket.len())
-        && bucket.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-        && !bucket.starts_with('-')
-        && !bucket.ends_with('-'))
+    if !(3..=63).contains(&bucket.len())
+        || !bucket.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        || bucket.starts_with('-')
+        || bucket.ends_with('-')
     {
         return Err(bad("bucket"));
     }

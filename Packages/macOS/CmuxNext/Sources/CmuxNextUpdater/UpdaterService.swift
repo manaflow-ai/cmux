@@ -149,6 +149,10 @@ public final class UpdaterService {
     /// The pictures of the windows that stay on screen across a relaunch (set by the App:
     /// ``RelaunchAfterimage``); the quit waits for them before the process ends.
     @ObservationIgnored public var afterimage: RelaunchAfterimage?
+    /// The save of the pages' pictures a relaunch ran while its windows were still on screen
+    /// (``UpdateWindowHandoff/savesBeforeLeaving``); the quit awaits it instead of saving from windows already gone.
+    /// nil: no relaunch took the windows off screen, the quit saves for itself.
+    @ObservationIgnored public var savedForRelaunch: Task<Void, Never>?
     /// Reads a build's verified notes (``releaseNotes`` in the app; replaced by tests).
     @ObservationIgnored var notesLoader: (@Sendable (String) async -> ReleaseNotes?)?
     /// UPDATE-CARD: the staged update's display version (kept while it
@@ -263,6 +267,9 @@ public final class UpdaterService {
     @ObservationIgnored var dismissAvailable: () -> Void = {}
     /// Whether found updates download by themselves now (``applyDownloadPolicy()``).
     @ObservationIgnored var downloadsFoundUpdates = false
+    /// A pushed build's automatic download waits for its deltas (``TipUpdateCheck/holdDownload``): the
+    /// found update is offered, a click still downloads it at once.
+    @ObservationIgnored var downloadHeldForDeltas = false
     /// The App's observation of the `updates.*` settings.
     @ObservationIgnored public var settingsObservation: Task<Void, Never>?
     @ObservationIgnored let now: () -> Date
