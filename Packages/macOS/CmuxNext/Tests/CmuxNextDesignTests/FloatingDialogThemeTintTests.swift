@@ -6,7 +6,9 @@ import Testing
 
 /// Leo 2026-11-22, on the "A machine on your team asked to control this Mac." card at the top right: "im not sure what
 /// was up with the glass on it, and the lack of theming on it too". Every card in the floating dialog panel floats over
-/// other apps, so it draws the transient glass, whose veil is the theme's glass tint, as toasts do
+/// other apps, so it draws theme-tinted glass: the transient glass, whose veil is the theme's glass tint, as toasts do,
+/// or with Settings > Experiments > Themed Floating Prompts on (off by default), the ``SurfaceRole/prompt`` glass
+/// (``FloatingPromptGlassTests``); its veil is the theme's tint too
 /// (``ToastVeilThemeTintTests``). The sheet glass it drew before has a gray veil that the shipped Liquid Glass variant
 /// drops, so the device-control prompts showed bare, untinted glass in every theme, while Add Server, Pair Invite and Add
 /// Machine, which opted into the transient glass one by one, were themed.
@@ -33,21 +35,37 @@ struct FloatingDialogThemeTintTests {
         return nil
     }
 
-    @Test func aFloatingPanelsCardDrawsTheTransientGlass() throws {
-        let panel = CmuxFloatingDialogPanel(identifier: "test.floatingDialog.panel")
-        defer { panel.hide(); panel.close() }
-        #expect(!Self.spec.usesTransientMaterial, "the spec itself does not ask for it: the panel does")
-        let card = panel.show(Self.spec) { _ in }
-        #expect(card.dialog.floatsOverApps)
-        let surface = try #require(card.surface)
-        #expect(surface.glass.tone.style == .transient)
+    /// Off (the default) the floating cards draw the transient glass, as before; on, the prompt glass: the theme's
+    /// tint at a denser veil (``FloatingPromptGlassTests``).
+    @Test(arguments: [false, true])
+    func aFloatingPanelsCardDrawsThemedGlass(themedPrompts: Bool) throws {
+        try DesignSettings.$themedPromptsOverride.withValue(themedPrompts) {
+            let panel = CmuxFloatingDialogPanel(identifier: "test.floatingDialog.panel")
+            defer { panel.hide(); panel.close() }
+            #expect(!Self.spec.usesTransientMaterial, "the spec itself does not ask for it: the panel does")
+            let card = panel.show(Self.spec) { _ in }
+            #expect(card.dialog.floatsOverApps)
+            #expect(card.overApps == themedPrompts)
+            let surface = try #require(card.surface)
+            #expect(surface.glass.tone.style == (themedPrompts ? .prompt : .transient))
+        }
     }
 
-    @Test func aHostViewsCardDrawsTheTransientGlass() throws {
-        let host = CmuxDialogHostView(frame: NSRect(x: 0, y: 0, width: 432, height: 160))
-        let card = host.draw(Self.spec) { _ in }
-        #expect(card.dialog.floatsOverApps)
-        #expect(try #require(card.surface).glass.tone.style == .transient)
+    @Test(arguments: [false, true])
+    func aHostViewsCardDrawsThemedGlass(themedPrompts: Bool) throws {
+        try DesignSettings.$themedPromptsOverride.withValue(themedPrompts) {
+            let host = CmuxDialogHostView(frame: NSRect(x: 0, y: 0, width: 432, height: 160))
+            let card = host.draw(Self.spec) { _ in }
+            #expect(card.dialog.floatsOverApps)
+            let surface = try #require(card.surface)
+            #expect(surface.glass.tone.style == (themedPrompts ? .prompt : .transient))
+        }
+    }
+
+    /// The switch is off by default: with no override, nothing turned it on.
+    @Test func themedPromptsIsOffByDefault() {
+        #expect(DesignSettings.themedPromptsOverride == nil)
+        #expect(DesignSettings().themedPrompts == false)
     }
 
     @Test func anInAppStandaloneCardKeepsTheSheetGlass() throws {

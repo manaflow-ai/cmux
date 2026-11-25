@@ -97,4 +97,36 @@ describe("UserDO signs out the stalest client installs past MAX_ACTIVE_INSTALLS"
     if (!r.ok) return
     expect(activeCount(r.state)).toBe(MAX_ACTIVE_INSTALLS + 51)
   })
+
+  it("an evicted install's presence key goes with it, so the head stays bounded over many evictions (11-25 recurrence)", () => {
+    // Every install has a presence key: the probe's app registered one each run.
+    const presence_keys: Record<string, unknown> = {}
+    for (let k = 0; k < 3_000; k++) presence_keys[id("inst", k)] = { public_jwk: jwk(k), created_at: k, revoked_at: k % 2 === 0 ? null : k, attested: false }
+    const s = seed(3_000, "mac", { confirm: { level: null, locks: {}, rev: 0, challenges: [], presence_keys, audit: [] } } as unknown as Partial<UserState>)
+    const r = register(s, 99_995)
+    expect(r.ok, JSON.stringify(r).slice(0, 300)).toBe(true)
+    if (!r.ok) return
+    const keys = Object.keys(r.state.confirm?.presence_keys ?? {})
+    // No revoked presence key outlives its install.
+    for (const install of keys) {
+      const k = r.state.confirm!.presence_keys[install]!
+      if (k.revoked_at !== null) expect(r.state.installs[install], install).toBeDefined()
+    }
+    expect(keys.length).toBeLessThanOrEqual(MAX_ACTIVE_INSTALLS + 1)
+    expect(stateFull(JSON.stringify(r.state), "user:test", "install.register")).toBeUndefined()
+    // Run after run (a fresh app copy each time) the head never grows past the bound again.
+    let cur = r.state
+    let bytes = 0
+    for (let run = 0; run < 400; run++) {
+      const n = register(cur, 200_000 + run)
+      expect(n.ok).toBe(true)
+      if (!n.ok) return
+      cur = n.state
+      bytes = Math.max(bytes, utf8Length(JSON.stringify(cur)))
+    }
+    expect(bytes).toBeLessThan(STATE_MAX_BYTES)
+    expect(Object.keys(cur.confirm?.presence_keys ?? {}).every((i) => cur.installs[i])).toBe(true)
+    // 401 registers over a 3,000-install head, each serialized: CPU-bound, and past the suite's 20 s on a packed
+    // runner even run alone (run 45605232679, shard 6/12, twice; cmux#56511).
+  }, 120_000)
 })
