@@ -54,7 +54,11 @@ function call(binary: string, request: Record<string, unknown>, timeoutMs: numbe
     const child = spawn(binary, [], { stdio: ["pipe", "pipe", "pipe"] });
     let out = "";
     let err = "";
-    const timer = setTimeout(() => child.kill("SIGTERM"), timeoutMs);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+    }, timeoutMs);
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (err += d));
     child.on("close", (code) => {
@@ -63,6 +67,7 @@ function call(binary: string, request: Record<string, unknown>, timeoutMs: numbe
       try {
         line = JSON.parse(out.trim().split("\n").at(-1) ?? "");
       } catch {
+        if (timedOut) return reject(new Error(`${request.call}: timed out after ${timeoutMs / 1000} s`));
         return reject(new Error(`${request.call}: exit ${code}, no answer line: ${err.trim().slice(-600)}`));
       }
       if (line.ok === true) resolve(line.body);
