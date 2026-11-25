@@ -46,12 +46,11 @@ pub struct Record {
 }
 
 /// The folder was removed from its chat (`projection.detach`): unmounted, its upper layer kept
-/// for Bring Back or Discard while the chat that removed it lives.
+/// for Bring Back or Discard.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Detached {
     pub ms: u64,
-    /// The chat that removed it, when the Mac named one: the upper layer stays while that chat is
-    /// live, and goes with it.
+    /// The notification recipient, when the Mac named one. Its lifetime only governs empty layers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chat: Option<String>,
 }

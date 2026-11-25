@@ -230,9 +230,10 @@ fn an_orphan_goes_after_the_grace_and_not_while_mounted() {
             name: &str,
             _at: Option<&Path>,
             only_if_idle: bool,
+            still_eligible: &dyn Fn() -> bool,
             free: &mut dyn FnMut() -> io::Result<u64>,
         ) -> Option<io::Result<u64>> {
-            (!(only_if_idle && self.mounted(name))).then(free)
+            (!(only_if_idle && self.mounted(name)) && still_eligible()).then(free)
         }
     }
     let machine = Machine::new();
@@ -250,6 +251,57 @@ fn an_orphan_goes_after_the_grace_and_not_while_mounted() {
     let report = pass(&places, &list, &Idle, later, &Limits::default());
     assert!(!state.exists(), "an orphan outlived its grace: {report:?}");
     assert!(report.reclaimed.iter().any(|reclaim| reclaim.why == Why::Orphan));
+}
+
+/// Detach wins the mount lock after the scan selected an archived or orphaned projection.
+#[test]
+fn detach_between_scan_and_unmount_preserves_edits_and_whiteouts() {
+    struct Detaching<'a> {
+        state: &'a Path,
+        at: &'a Path,
+    }
+
+    impl Live for Detaching<'_> {
+        fn mounted(&self, _: &str) -> bool {
+            false
+        }
+
+        fn end(
+            &self,
+            _: &str,
+            _: Option<&Path>,
+            _: bool,
+            still_eligible: &dyn Fn() -> bool,
+            _: &mut dyn FnMut() -> io::Result<u64>,
+        ) -> Option<io::Result<u64>> {
+            state::update(self.state, self.at, |record| {
+                record.detached = Some(Detached { ms: 1, chat: None });
+            })
+            .unwrap();
+            assert!(!still_eligible(), "a stale verdict authorized unmount and cleanup");
+            None
+        }
+    }
+
+    for archived in [false, true] {
+        let machine = Machine::new();
+        let at = machine.chat_folder("removed");
+        let (state, overlay) = machine.project("projection", &at);
+        edit(&overlay);
+        drop(overlay);
+        let before = state::mark(&state).unwrap();
+        let folder = if archived { at.clone() } else { machine.chat_folder("other") };
+        let list = chats(vec![chat("chat", &folder, archived)]);
+        let now = SystemTime::now() + ORPHAN_GRACE + DAY;
+        let expected = if archived { Why::Archived } else { Why::Orphan };
+        assert_eq!(verdict(&state, &list, false, now, ORPHAN_GRACE), Some(expected));
+        let live = Detaching { state: &state, at: &at };
+        let report = pass(&machine.places(), &list, &live, now, &Limits::default());
+        assert!(report.reclaimed.is_empty());
+        assert!(state::read(&state).unwrap().detached.is_some());
+        assert_eq!(state::mark(&state).unwrap(), before);
+        assert!(at.exists());
+    }
 }
 
 /// The Mac released the projection (its chat was archived or deleted): it goes at once, mounted
@@ -321,7 +373,7 @@ fn a_projections_cache_stays_under_its_cap() {
 /// the folder rule would call it an orphan; it stays while the chat that removed it lives, every
 /// edit made before the seal is in it, and a change after the seal is refused, not lost.
 #[test]
-fn a_removed_folders_edits_stay_while_its_chat_lives() {
+fn a_removed_folders_edits_stay_even_when_its_notification_chat_is_gone() {
     let machine = Machine::new();
     let chat_home = machine.chat_folder("c0de");
     let extra = machine.home.path().join("work/extra/repo");
@@ -355,8 +407,34 @@ fn a_removed_folders_edits_stay_while_its_chat_lives() {
     let gone = chats(vec![chat("c2", &other, false)]);
     assert!(run(&machine, &gone, Duration::ZERO).reclaimed.is_empty(), "freed inside the grace");
     let archived = chats(vec![chat("c1", &chat_home, true), chat("c2", &other, false)]);
-    let report = run(&machine, &archived, Duration::ZERO);
-    assert_eq!(report.reclaimed.iter().map(|r| r.why).collect::<Vec<_>>(), [Why::Archived]);
+    assert!(run(&machine, &gone, ORPHAN_GRACE * 4).reclaimed.is_empty());
+    assert!(run(&machine, &archived, Duration::ZERO).reclaimed.is_empty());
+    assert_eq!(state::mark(&state).unwrap(), mark);
+    // An explicit release still reclaims it, even with edits.
+    state::update(&state, &extra, |record| {
+        record.released = Some(Released { ms: 1, why: Release::Archived });
+    })
+    .unwrap();
+    assert_eq!(run(&machine, &archived, Duration::ZERO).reclaimed.len(), 1);
+    assert!(!state.exists());
+    assert!(extra.exists(), "release removed the path given up by detach");
+}
+
+#[test]
+fn detached_cleanup_checks_whiteouts_and_reclaims_an_empty_layer() {
+    let machine = Machine::new();
+    let extra = machine.chat_folder("extra");
+    let (state, overlay) = machine.project("p-whiteout", &extra);
+    drop(overlay);
+    state::update(&state, &extra, |r| {
+        r.detached = Some(Detached { ms: 1, chat: None });
+    })
+    .unwrap();
+    let known = chats(vec![chat("other", &machine.chat_folder("other"), false)]);
+    fs::write(state.join("whiteouts"), b"gone\0").unwrap();
+    assert!(run(&machine, &known, ORPHAN_GRACE * 4).reclaimed.is_empty());
+    fs::write(state.join("whiteouts"), b"").unwrap();
+    assert_eq!(run(&machine, &known, ORPHAN_GRACE * 4).reclaimed.len(), 1);
     assert!(!state.exists());
 }
 

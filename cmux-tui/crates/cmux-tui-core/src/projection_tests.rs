@@ -489,6 +489,25 @@ fn control_line(name: &str, mark: Option<&str>, why: Option<&str>) -> WayBackLin
     }
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn detach_wins_over_a_redial_that_already_loaded_its_manifest() {
+    let home = cmux_unix_socket::short_test_dir("proj");
+    let name = "p-late-redial";
+    let (state, at) = projected_state(home.path(), name);
+    let manifest = cmux_projection::manifest::Manifest::build(0, Vec::new()).unwrap();
+    detach(&control_line(name, None, None), &state).unwrap();
+    // Exercise the mount decision after the store fetch or the client's full-manifest retry.
+    for bytes in [0, 123] {
+        let line = serde_json::from_value(json!({
+            "cmd": SERVE, "name": name, "at": at, "manifest_bytes": bytes, "redial": true
+        }))
+        .unwrap();
+        let refused = mount(&line, manifest.clone(), &state, &at, 0).err().unwrap();
+        assert_eq!(refused.0, "projection.detached");
+    }
+}
+
 /// Leo, 2026-11-25: "we'll also presumably want to deal with various cases of like them maybe
 /// adding/removing folders and files per chat?" A folder removed from its chat keeps its edits
 /// for Bring Back, records which chat removed it, and is attached again when added back.
@@ -513,7 +532,9 @@ fn a_detached_projection_keeps_its_edits_and_serving_it_again_clears_the_detach(
     assert!(detached.ms > 0);
     // Detaching again is fine (the Mac retried); Bring Back still reads the layer by name.
     assert_eq!(detach(&line, &state).unwrap()["detached"], true);
+    assert_eq!(allow_redial(&state, "p-removed").unwrap_err().0, "projection.detached");
     attached_in(&state, &at);
+    assert!(allow_redial(&state, "p-removed").is_ok());
     assert!(cmux_projection::state::read(&state).unwrap().detached.is_none());
 
     let bad = WayBackLine { chat: Some("a\nb".into()), ..control_line("p-removed", None, None) };
@@ -570,6 +591,18 @@ fn release_frees_the_state_and_its_empty_mount_point() {
     assert_eq!(free(RELEASE, &line, &state).unwrap()["freed_bytes"], 0);
     let line = control_line("p-gone", None, Some("lost"));
     assert_eq!(free(RELEASE, &line, &state).unwrap_err().0, "projection.params_invalid");
+}
+
+#[test]
+fn releasing_detached_state_leaves_its_former_mount_path_alone() {
+    let home = cmux_unix_socket::short_test_dir("proj");
+    let (state, at) = projected_state(home.path(), "p-detached-release");
+    let line = control_line("p-detached-release", None, Some("deleted"));
+    detach(&line, &state).unwrap();
+    std::fs::create_dir_all(&at).unwrap();
+    free(RELEASE, &line, &state).unwrap();
+    assert!(!state.exists());
+    assert!(at.is_dir());
 }
 
 fn pin_line(name: &str, path: Option<&str>) -> WayBackLine {
