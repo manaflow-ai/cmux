@@ -34,49 +34,30 @@ public nonisolated struct EditorSettingsSources: Sendable {
 
     /// The settings file and the key bindings file of `editor`.
     public func files(of editor: ImportableEditor) -> (settings: URL, keys: URL) {
-        let support = home.appending(path: "Library/Application Support")
-        func code(_ folder: String) -> (URL, URL) {
-            let user = support.appending(path: folder).appending(path: "User")
-            return (user.appending(path: "settings.json"), user.appending(path: "keybindings.json"))
-        }
-        switch editor {
-        case .vscode: return code("Code")
-        case .cursor: return code("Cursor")
-        case .windsurf: return code("Windsurf")
-        case .vscodium: return code("VSCodium")
-        case .zed:
-            let zed = home.appending(path: ".config/zed")
-            return (zed.appending(path: "settings.json"), zed.appending(path: "keymap.json"))
-        }
+        let files = watchedFiles(.editor(editor))
+        return (files.first ?? home, files.dropFirst().first ?? home)
     }
 
-    /// Every file a choice may read (what a watcher watches).
+    /// Every file a choice may read (what a watcher watches), in the order ``load(_:)`` tries them.
     public func watchedFiles(_ choice: EditorImportChoice) -> [URL] {
-        let editors: [ImportableEditor] = switch choice {
-        case .none: []
-        case .auto: ImportableEditor.allCases
-        case .editor(let editor): [editor]
-        }
-        return editors.flatMap { [files(of: $0).settings, files(of: $0).keys] }
+        let reply = SettingsRust.answer("import.editor_files", ["home": .string(home.path), "choice": .string(choice.id)])
+        return (reply["files"]?.arrayValue ?? []).compactMap(\.stringValue).map { URL(filePath: $0) }
     }
 
     /// The mapped section of the chosen editor, or of the first editor in ``ImportableEditor/allCases``
-    /// order whose settings file parses (`auto`). Nil when there is none.
+    /// order whose settings file parses (`auto`). Nil when there is none. This reads the files;
+    /// `import.editor_load` picks the editor and maps them.
     public func load(_ choice: EditorImportChoice) -> Found? {
-        let editors: [ImportableEditor] = switch choice {
-        case .none: []
-        case .auto: ImportableEditor.allCases
-        case .editor(let editor): [editor]
+        var texts: [String: JSONValue] = [:]
+        for file in watchedFiles(choice) {
+            if let text = read(file) { texts[file.path] = .string(text) }
         }
-        for editor in editors {
-            let (settingsFile, keysFile) = files(of: editor)
-            guard let text = read(settingsFile), let settings = try? JSONC.parse(text), settings.objectValue != nil else { continue }
-            let keys = read(keysFile).flatMap { try? JSONC.parse($0) }
-            let mapper = EditorSettingsImport()
-            let section = editor == .zed ? mapper.zed(settings: settings, keymap: keys)
-                : mapper.vscode(settings: settings, keybindings: keys)
-            return Found(editor: editor, files: [settingsFile] + (keys == nil ? [] : [keysFile]), section: section)
-        }
-        return nil
+        guard !texts.isEmpty else { return nil }
+        let request: JSONValue = ["home": .string(home.path), "choice": .string(choice.id), "texts": .object(texts)]
+        let reply = SettingsRust.answer("import.editor_load", request)
+        guard let editor = reply["editor"]?.stringValue.flatMap(ImportableEditor.init(rawValue:)),
+              let section = reply["section"] else { return nil }
+        let files = (reply["files"]?.arrayValue ?? []).compactMap(\.stringValue).map { URL(filePath: $0) }
+        return Found(editor: editor, files: files, section: section)
     }
 }

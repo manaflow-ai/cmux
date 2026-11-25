@@ -11,13 +11,14 @@ public nonisolated enum BrowserImportSetting {
 
 nonisolated extension BrowserImportSetting {
     /// A missing key is the default with no diagnostic; a bad value is the
-    /// default plus a diagnostic.
+    /// default plus a diagnostic (`import.browser_enabled`; only the key crosses).
     static func parse(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
         guard let value = root.value(at: configPath) else { return (fallback, nil) }
-        guard let enabled = value.boolValue else {
-            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: "browser.import.enabled",
-                                                 message: "expected true or false"))
-        }
-        return (enabled, nil)
+        let only = configPath.reversed().reduce(value) { inner, key in .object([key: inner]) }
+        let reply = SettingsRust.answer("import.browser_enabled", ["root": only])
+        let enabled = reply["enabled"]?.boolValue ?? fallback
+        guard let diagnostic = reply["diagnostic"], let message = diagnostic["message"]?.stringValue else { return (enabled, nil) }
+        return (enabled, SettingsDiagnostic(kind: .invalidValue, path: diagnostic["path"]?.stringValue ?? "browser.import.enabled",
+                                            message: message))
     }
 }

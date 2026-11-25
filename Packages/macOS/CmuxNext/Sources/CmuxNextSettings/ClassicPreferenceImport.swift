@@ -4,47 +4,29 @@ public import Foundation
 /// Classic cmux settings its Settings window kept only in its preferences
 /// (UserDefaults), never in `cmux.json`, so adopting the classic file misses
 /// them (hq#1870 parity audit). Next ships under classic's bundle IDs, so the
-/// app's defaults are classic's preferences on the same channel.
+/// app's defaults are classic's preferences on the same channel. Which keys,
+/// how each reads and what `cmux.json` gets live in Rust (cmux-config
+/// `migrations::classic`); this reads the domains.
 nonisolated enum ClassicPreferenceImport {
-    nonisolated struct Entry: Sendable {
-        let next: [String]
-        /// An older next key for the same value: imported under it already, or set in `cmux.json`, counts.
-        var legacy: [String]? = nil
-        /// The value one classic domain holds, nil when it holds none.
-        let read: @Sendable (UserDefaults) -> JSONValue?
-
-        func wasImported(in done: Set<String>) -> Bool {
-            done.contains(next.joined(separator: ".")) || legacy.map { done.contains($0.joined(separator: ".")) } == true
-        }
-    }
+    /// The preference keys to read from each domain and the marker key (`import.classic_preferences_pending`).
+    static let layout = SettingsRust.answer("import.classic_preferences_pending", [:])
 
     /// The `cmux.json` paths already imported, so each is read once and a
     /// value the person later removes from `cmux.json` stays removed.
-    static let importedKey = "classicPreferencesImported"
+    static var importedKey: String { layout["marker"]?.stringValue ?? "classicPreferencesImported" }
 
-    static let entries: [Entry] = [
-        // Classic's effective value: a disabled browser opened every link outside.
-        Entry(next: LinkRouting.openPath, legacy: LinkRouting.legacyOpenPath) { defaults in
-            if defaults.bool(forKey: "browserDisabledOverride") { return .bool(false) }
-            return (defaults.object(forKey: "browserOpenTerminalLinksInCmuxBrowser") as? Bool).map(JSONValue.bool)
-        },
-        // Classic's Disable cmux Browser switch.
-        Entry(next: LinkRouting.enabledPath) { defaults in
-            (defaults.object(forKey: "browserDisabledOverride") as? Bool).map { JSONValue.bool(!$0) }
-        },
-        Entry(next: LinkRouting.hostsPath) { lines(defaults: $0, key: "browserHostWhitelist") },
-        Entry(next: LinkRouting.rulesPath) { lines(defaults: $0, key: "browserExternalOpenPatterns") },
-    ]
+    /// Whether a key is left to import once `done` are.
+    static func pending(_ done: [String]) -> Bool {
+        SettingsRust.answer("import.classic_preferences_pending", ["done": .array(done.map(JSONValue.string))])["pending"]?.boolValue ?? false
+    }
 
-    /// Classic's one-per-line text, or the array older releases left.
-    static func lines(defaults: UserDefaults, key: String) -> JSONValue? {
-        let raw: JSONValue
-        switch defaults.object(forKey: key) {
-        case let text as String: raw = .string(text)
-        case let items as [String]: raw = .array(items.map(JSONValue.string))
-        default: return nil
+    /// The classic preferences one domain holds, as JSON.
+    static func source(_ defaults: UserDefaults) -> JSONValue {
+        var out: [String: JSONValue] = [:]
+        for key in (layout["keys"]?.arrayValue ?? []).compactMap(\.stringValue) {
+            if let object = defaults.object(forKey: key), let value = JSONValue(foundation: object) { out[key] = value }
         }
-        return LinkRouting.lines(raw).map { .array($0.map(JSONValue.string)) }
+        return .object(out)
     }
 }
 
@@ -54,34 +36,30 @@ extension SettingsController {
     @discardableResult
     public func importClassicPreferences(marker: UserDefaults, bundleIdentifier: String? = Bundle.main.bundleIdentifier)
         async throws -> Bool {
-        let done = Set(marker.stringArray(forKey: ClassicPreferenceImport.importedKey) ?? [])
-        guard ClassicPreferenceImport.entries.contains(where: { !$0.wasImported(in: done) }) else { return false }
+        guard ClassicPreferenceImport.pending(marker.stringArray(forKey: ClassicPreferenceImport.importedKey) ?? []) else { return false }
         // A DEV build never derives its settings from another build's preferences (BuildStatePaths): its own only.
         let others = BuildIdentity(bundleID: bundleIdentifier, bundledTag: nil).isolatesSharedState ? []
             : ClassicShortcutImport.domains.filter { $0 != bundleIdentifier }.compactMap { UserDefaults(suiteName: $0) }
         return try await importClassicPreferences(from: [marker] + others, marker: marker)
     }
 
-    /// Writes each `ClassicPreferenceImport` value to `cmux.json` from the
-    /// first of `sources` that holds one, once per key (`marker` records it).
+    /// Writes each classic preference to `cmux.json` from the first of
+    /// `sources` that holds one, once per key (`marker` records it).
     /// A value `cmux.json` already has wins, and a value equal to next's
-    /// default isn't written. Returns whether it wrote.
+    /// default isn't written (`import.classic_preferences`). Returns whether it wrote.
     @discardableResult
     public func importClassicPreferences(from sources: [UserDefaults], marker: UserDefaults) async throws -> Bool {
-        var done = Set(marker.stringArray(forKey: ClassicPreferenceImport.importedKey) ?? [])
-        var edits: [(path: [String], value: JSONValue)] = []
-        for entry in ClassicPreferenceImport.entries {
-            guard !entry.wasImported(in: done) else { continue }
-            done.insert(entry.next.joined(separator: "."))
-            if let legacy = entry.legacy, try await file.value(at: legacy) != nil { continue }
-            guard let value = sources.lazy.compactMap(entry.read).first, try await file.value(at: entry.next) == nil,
-                  let descriptor = SettingsSchema.all.first(where: { $0.path == entry.next }),
-                  descriptor.accepts(value), value != descriptor.defaultValue else { continue }
-            edits.append((entry.next, value))
+        let done = marker.stringArray(forKey: ClassicPreferenceImport.importedKey) ?? []
+        let request: JSONValue = ["done": .array(done.map(JSONValue.string)), "file": try await file.document(),
+                                  "sources": .array(sources.map(ClassicPreferenceImport.source))]
+        let reply = try SettingsRust.call("import.classic_preferences", request)
+        let edits: [(path: [String], value: JSONValue)] = (reply["edits"]?.arrayValue ?? []).compactMap { edit in
+            guard let path = edit["path"]?.arrayValue?.compactMap(\.stringValue), !path.isEmpty, let value = edit["value"] else { return nil }
+            return (path, value)
         }
         let applied = edits.isEmpty ? [] : try await file.setUnset(edits)
         if !applied.isEmpty { await reloadAfterWrite() }
-        marker.set(done.sorted(), forKey: ClassicPreferenceImport.importedKey)
+        marker.set((reply["done"]?.arrayValue ?? []).compactMap(\.stringValue), forKey: ClassicPreferenceImport.importedKey)
         return !applied.isEmpty
     }
 }

@@ -7,12 +7,23 @@ public nonisolated enum EditorImportChoice: Sendable, Hashable {
     /// One editor.
     case editor(ImportableEditor)
 
-    /// The choice `editor.importFrom` holds; an absent or unknown value is ``auto``.
+    /// The choice `editor.importFrom` holds; an absent or unknown value is ``auto``
+    /// (`import.editor_choice`).
     public init(setting: String?) {
-        switch setting {
+        let reply = SettingsRust.answer("import.editor_choice", ["setting": setting.map(JSONValue.string) ?? .null])
+        switch reply["choice"]?.stringValue {
         case "none"?: self = .none
-        case let name?: self = ImportableEditor(rawValue: name).map(EditorImportChoice.editor) ?? .auto
+        case let id?: self = ImportableEditor(rawValue: id).map(EditorImportChoice.editor) ?? .auto
         case nil: self = .auto
+        }
+    }
+
+    /// The setting value Rust reads this choice from.
+    var id: String {
+        switch self {
+        case .auto: "auto"
+        case .none: "none"
+        case .editor(let editor): editor.rawValue
         }
     }
 }
