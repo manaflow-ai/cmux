@@ -432,9 +432,6 @@ pub struct TunnelKeys {
     pub answerer: String,
 }
 
-/// Runs once a dialed link exists ([`Dialed::on_link`]).
-pub type OnLink = Box<dyn FnOnce(&Link) + Send>;
-
 /// The WireGuard overlay a link rides, for its own datagram ports (viewport sync, 7424).
 #[derive(Clone)]
 pub struct Overlay {
@@ -442,6 +439,9 @@ pub struct Overlay {
     /// The other side's overlay address.
     pub peer_ip: std::net::IpAddr,
 }
+
+/// Runs once the link exists (see [`Dialed::on_link`]).
+pub type OnLink = Box<dyn FnOnce(&Link) + Send>;
 
 /// A dialed or answered transport.
 pub struct Dialed {

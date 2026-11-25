@@ -1,5 +1,8 @@
 import CmuxEgress
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// Where the device hub gets the account: the app's Stack Auth access token
 /// (CloudAuth's `tokens().access`), exchanged once for a hub session.
