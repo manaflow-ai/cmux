@@ -136,7 +136,7 @@ public struct MobilePlansView: View {
                         .accessibilityIdentifier("BillingIneligible")
                 }
                 // Nothing is on sale here, but the plans are still listed.
-                // visible-only: at most 3 distinct plan ids (Go, Pro, Max); a plan id is its own stable identity.
+                // visible-only: a handful of distinct plan ids (NEXT Plus, Pro, Max, plus a current or on-sale one); a plan id is its own stable identity.
                 ForEach(account.catalogPlanIDs, id: \.self) { planID in
                     Section {
                         MobilePlanCatalogRow(planID: planID, isCurrent: planID == account.currentPlan.planID)
