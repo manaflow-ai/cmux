@@ -1,6 +1,4 @@
-# cmux-next sidebar: owner note
-
-- 2026-11-25 (lane/session-list-state-groups): Sidebar-Look: shadow-leo pursuit gap:peer:a1e4fa81d8, "Group the cmux session list by state ... with keyboard selection". Under Group by Status (Debug `sidebar.groupByStatus`, off by default) a header that folds is a keyboard stop: while the keyboard is on it, it draws the same focus ring the Done and Show more rows draw. Nothing else moves or changes color; a click looks as before. Regression: `SidebarStatusGroupingKeysTests`.
+# cmux-next sidebar: owner note (frozen log: a new entry is its own file in [`plans/cmux-next/sidebar-owner/`](sidebar-owner/README.md))
 
 - 2026-11-24 (lane/sidebar-thumb-scroll-only, ask-969743672d): Sidebar-Look: Leo, 2026-11-22: "to be honest, when
   hovering your mouse to the sidebar, do you want to see the thumb? claude code, you dont see it... unless you scroll
