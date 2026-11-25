@@ -54,7 +54,7 @@ struct PermissionCard: View {
                 }
             }
             .padding(16)
-            .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))
+            .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 20, style: .continuous))
             .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
         }
     }
@@ -262,7 +262,7 @@ public struct QuestionCard: View {
             }
         }
         .padding(16)
-        .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))
+        .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 20, style: .continuous))
         .clipShape(.rect(cornerRadius: 20, style: .continuous))
     }
 
@@ -422,7 +422,7 @@ struct AnsweredSummary: View {
                         .font(.subheadline)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
-                        .background(Color.cmuxMobileBubble, in: .rect(cornerRadius: 16, style: .continuous))
+                        .background(Color.cmuxMobileChatBubble, in: .rect(cornerRadius: 16, style: .continuous))
                 }
             }
         }

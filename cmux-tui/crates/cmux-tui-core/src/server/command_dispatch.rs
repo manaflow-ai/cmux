@@ -292,6 +292,7 @@ fn dispatch_command(
             projection,
             mutation,
         ),
+        Command::FlushLaunchSnapshot => launch_snapshot::flush_command(mux),
         Command::JournalFrontendEvent { event } => {
             cmd_frontend::journal_frontend_event(mux, client, event)
         }
@@ -446,8 +447,17 @@ fn dispatch_command(
         Command::NewWorkspace { name, cols, rows } => {
             cmd_workspaces::new_workspace(mux, actor, name, cols, rows)
         }
-        Command::CreateWorkspace { name, key, first_tab, mutation } => {
-            cmd_workspaces::create_workspace(mux, client, name, key, first_tab, mutation)
+        Command::CreateWorkspace { name, key, first_tab, name_source, mutation } => {
+            let explicit_name = name_source == Some(crate::resource_name::NameSource::User);
+            cmd_workspaces::create_workspace(
+                mux,
+                client,
+                name,
+                key,
+                first_tab,
+                explicit_name,
+                mutation,
+            )
         }
         Command::CreateTerminal {
             workspace,

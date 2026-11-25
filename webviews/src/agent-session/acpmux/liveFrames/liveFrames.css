@@ -95,7 +95,6 @@
   color: inherit;
   font: inherit;
   line-height: 1;
-  cursor: pointer;
 }
 .acpmux-frames-dock__button:hover {
   background: color-mix(in srgb, currentColor 12%, transparent);

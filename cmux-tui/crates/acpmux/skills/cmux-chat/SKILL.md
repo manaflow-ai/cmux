@@ -56,6 +56,20 @@ Skip it for a short answer or plain conversation. Do not restate the plan or the
 When the cmux tools list `acpmux_wrap_up`, pass the recap to it (it draws the box under
 your answer) instead of also writing it in prose.
 
+## Asking for a connection
+
+When you need the person to connect GitHub (for a repository or an org), call
+`settings_ask` (`acpmux_settings_ask` on the cmux server) with `target`
+`connection:github`, `connection:github:ORG` or `connection:github:OWNER/REPO` and a
+short `why`, then end your turn. The chat shows a small Needs you card with a working
+Connect GitHub button under your answer; when they connect, the chat goes on. Never tell
+them to open Settings and hunt for it.
+
+For any other setting, call `settings_ask` with `target` `setting:SECTION` or
+`setting:SECTION/KEY` (for example `setting:terminal/terminal.fontSize`) and write the
+`cmux://settings/...` link it returns in your answer: the chat draws it as a link, and a
+click opens that exact setting in Settings.
+
 ## Editing cmux live
 
 When the person asks to change how cmux itself looks or behaves (a panel, a view, a

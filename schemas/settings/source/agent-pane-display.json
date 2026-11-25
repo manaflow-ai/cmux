@@ -177,6 +177,31 @@
           ]
         },
         {
+          "key": "agentPane.display.subagentOf",
+          "note": "A subagent's own pane says whose it is, \"Subagent of <chat>\" muted beside its name on the header's one line (webviews subagents/subagentPanes.ts paneHeading; Leo, 2026-11-22). Off by default; off, the header names the subagent alone, as before.",
+          "title": {
+            "key": "settings.agentPane.display.subagentOf",
+            "text": "Subagent Of in Header"
+          },
+          "help": {
+            "key": "settings.agentPane.display.subagentOf.help",
+            "text": "In a subagent's own pane, show which chat it belongs to beside its name in the header."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "display",
+            "header",
+            "subagent",
+            "parent",
+            "of",
+            "provenance",
+            "toggle"
+          ]
+        },
+        {
           "key": "agentPane.display.environmentCard",
           "note": "A floating card at the chat's top right (webviews session-info/EnvironmentCard.tsx), after the Codex app's Environment panel: the chat folder's changes (Session Info's Changes row, changeCounts.ts), its branch or worktree, Commit or push (the diff tab's Commit form and Push, as the palette's Commit opens it) and Create PR (git.pullRequest). Off by default: today's chat draws no card. A look turns it on (chameleon-codex).",
           "title": {

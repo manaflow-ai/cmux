@@ -134,10 +134,8 @@ final class TabContentCache {
     /// a tab (`RemoteLocalhostService.configuration`). Nil result: the proxy
     /// could not start, so the page must not load (never this Mac's localhost).
     var configureBrowser: ((TabModel, URL?, BrowserTabConfiguration) async -> BrowserTabConfiguration?)?
-    /// The omnibar's browser profile badge of tab `key` (nil: hidden).
+    /// The avatar the toolbar's profile button draws for tab `key` (nil: its plain glyph).
     var profileBadge: ((String) -> BrowserProfileBadge?)?
-    /// The menu of tab `key`'s browser profile badge.
-    var profileBadgeMenu: ((String) -> NSMenu?)?
     /// The omnibar and tab-strip machine chip of tab `key` for a URL.
     var machineBadge: ((String, URL?) -> (text: String, help: String)?)?
     /// The tab with durable id `key` on any machine (`browserTabs` only
@@ -452,7 +450,6 @@ final class TabContentCache {
         entry.state.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
         serveAppPages(entry, key: key)
         entry.state.profileBadge = profileBadge?(key)
-        entry.state.profileBadgeMenu = { [weak self] in self?.profileBadgeMenu?(key) }
         onBrowserEntryCreated?(entry)
         if Self.isBrowserPage(page) { onBrowserTab?() }
         if page.engineKind == .cef, let handler = makeExtensionMenuHandler?(key) {
