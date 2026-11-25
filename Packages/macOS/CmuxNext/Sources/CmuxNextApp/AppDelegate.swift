@@ -164,7 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                    heldKeyReplay: { event, _, _ in NSApp.sendEvent(event) }, work: launchReads.work, mainWork: mainWork,
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, peerApprover: PeerApprovalsApp.approver())
         AppProcessRoot.shared.adopt(services)
-        self.services = services
+        self.services = services; services.launchReveal.pages.bind(firstFrame) { DebugTimings.markLaunch($0) } // no page view before the first frame (startup-tti)
         services.home.ensure.ensuresAtLaunch = true // before the restore asks: the launch waits for Home, which may start after the first frame
         // Where each agent chat rests, beside the snapshot, so a relaunch reopens it there (cx-6bgzj).
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), files: services.agentPaneStateFiles)
