@@ -623,7 +623,9 @@ run = '''
 base="$(git rev-parse -q --verify 'HEAD^1')"
 bash scripts/ci/fetch-complexity-base.sh "$base"
 cd web
-bash ../scripts/ci/bun-install.sh --frozen-lockfile
+# Under the job's install lock like every other step: web-typecheck installs into this same web/node_modules
+# at the same time, and two unlocked installs there left it half-written (next/navigation missing, #55938).
+flock "$CI_TOOLS/bun-install.lock" bash ../scripts/ci/bun-install.sh --frozen-lockfile
 ./node_modules/.bin/oxlint --config .oxlintrc.json --print-config app/page.tsx >/dev/null
 bun run lint:complexity -- --base "$base" --head "$(git rev-parse HEAD)"
 '''
