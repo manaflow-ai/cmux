@@ -69,6 +69,6 @@ export function SuggestionGlyph({ row }: { row: ScreenRow }) {
         <CommandGlyph symbol={row.symbol} />
       </span>
     );
-  const icon = row.type === "tab" || row.type === "history" ? row.icon : undefined;
+  const icon = row.type === "tab" || row.type === "history" || row.type === "open" ? row.icon : undefined;
   return <RowGlyph kind={row.type} {...(icon ? { icon } : {})} />;
 }

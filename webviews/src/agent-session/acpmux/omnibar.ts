@@ -12,6 +12,9 @@ export type OmnibarContext = {
   folders: string[];
   commands: string[];
   history: { url: string; title?: string; icon?: string }[];
+  /// Saved bookmarks the host sends (`AgentPaneOmnibar.bookmarks`): read only for their favicons, so an
+  /// address row for a bookmarked site draws its icon (``siteIcon``).
+  bookmarks?: { url: string; title?: string; icon?: string }[];
   /// Every Commands palette (Cmd-Shift-P) action the host can run here (`app.action`), in the
   /// palette's order: `detail` is its palette section, `keycaps` its shortcut.
   actions?: OmnibarAction[];
@@ -83,6 +86,16 @@ const records = (value: unknown) =>
     (item): item is Record<string, unknown> => typeof item === "object" && item !== null,
   );
 
+/// The host's pages (history or bookmarks), dropping one without an address.
+const pages = (value: unknown) =>
+  records(value)
+    .flatMap((entry) => {
+      const url = string(entry.url);
+      const title = string(entry.title);
+      return url ? [{ url, ...(title ? { title } : {}), ...icon(entry.icon) }] : [];
+    })
+    .slice(0, MAX_NEW_TAB_ENTRIES);
+
 /// Reads the handshake's `newTab.omnibar`, dropping entries without the fields a row needs.
 export function omnibarContext(value: unknown): OmnibarContext | undefined {
   if (typeof value !== "object" || value === null) return undefined;
@@ -126,13 +139,8 @@ export function omnibarContext(value: unknown): OmnibarContext | undefined {
     commands: (Array.isArray(object.commands) ? object.commands : [])
       .flatMap((command) => string(command) ?? [])
       .slice(0, MAX_NEW_TAB_ENTRIES),
-    history: records(object.history)
-      .flatMap((entry) => {
-        const url = string(entry.url);
-        const title = string(entry.title);
-        return url ? [{ url, ...(title ? { title } : {}), ...icon(entry.icon) }] : [];
-      })
-      .slice(0, MAX_NEW_TAB_ENTRIES),
+    history: pages(object.history),
+    ...(Array.isArray(object.bookmarks) ? { bookmarks: pages(object.bookmarks) } : {}),
     actions: omnibarActions(object.actions),
     ...(omnibarUses(object.uses) ? { uses: omnibarUses(object.uses) } : {}),
     ...(Array.isArray(object.profiles) ? { profiles: omnibarProfiles(object.profiles) } : {}),
@@ -339,4 +347,39 @@ function rowTexts(row: OmnibarRow): (string | undefined)[] {
     default:
       return [];
   }
+}
+
+/// Each site's favicon among what the host already sent (open browser tabs, then history, then
+/// bookmarks), by host: built once per context, so a keystroke only looks a host up. Nothing here
+/// fetches: a site the host has no icon for keeps its row's glyph.
+const siteIcons = new WeakMap<OmnibarContext, Map<string, string>>();
+
+/// `reddit.com` for `https://www.reddit.com/r/rust?x=1`, lowercased; undefined off the web.
+function iconHost(address: string): string | undefined {
+  const text = address.trim();
+  if (!text || /^(file|about|data|javascript):/i.test(text)) return undefined;
+  const bare = text
+    .replace(/^https?:\/\//i, "")
+    .split(/[/?#]/)[0]!
+    .toLowerCase()
+    .replace(/^www\./, "");
+  return bare.includes(".") || bare.startsWith("localhost") ? bare : undefined;
+}
+
+/// The favicon the host has for `address`'s site, if any (``siteIcons``).
+export function siteIcon(omnibar: OmnibarContext, address: string): string | undefined {
+  let icons = siteIcons.get(omnibar);
+  if (!icons) {
+    icons = new Map();
+    const add = (url: string | undefined, image: string | undefined) => {
+      const host = url && image ? iconHost(url) : undefined;
+      if (host && image && !icons!.has(host)) icons!.set(host, image);
+    };
+    for (const tab of omnibar.tabs) if (tab.kind === "browser") add(tab.detail ?? tab.title, tab.icon);
+    for (const page of omnibar.history) add(page.url, page.icon);
+    for (const page of omnibar.bookmarks ?? []) add(page.url, page.icon);
+    siteIcons.set(omnibar, icons);
+  }
+  const host = iconHost(address);
+  return host ? icons.get(host) : undefined;
 }

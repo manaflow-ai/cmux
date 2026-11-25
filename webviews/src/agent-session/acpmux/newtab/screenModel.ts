@@ -10,6 +10,7 @@ import {
   foldedTexts,
   matchScore,
   omnibarRows,
+  siteIcon,
   type OmnibarContext,
   type OmnibarProfile,
   type OmnibarRow,
@@ -37,7 +38,8 @@ export type ScreenRow =
   | { type: "search"; text: string }
   | { type: "create"; kind: "terminal" | "browser" | "chat"; title: string }
   /// Load `url` (what `text` resolved to, or a top site that completes it).
-  | { type: "open"; url: string; text: string }
+  /// `icon`: the site's favicon when the host has one (``siteIcon``), never fetched.
+  | { type: "open"; url: string; text: string; icon?: string }
   /// An open tab; `url` is a browser tab's page as `canonicalAddress` gives it.
   | { type: "tab"; id: string; title: string; detail?: string; icon?: string; url?: string }
   | { type: "workspace"; id: string; title: string; detail?: string }
@@ -155,7 +157,18 @@ export function screenRows(
     order?: SuggestionOrder;
   } & ScreenAgentSources,
 ): ScreenRow[] {
-  return withProfileRows(navigationRows(text, context), text, context);
+  return withSiteIcons(withProfileRows(navigationRows(text, context), text, context), context.omnibar);
+}
+
+/// An address row (a typed address, a top site) and a visited page the host sent no icon with take
+/// the site's favicon from what the host already sent (``siteIcon``); the glyph box stays the same
+/// size, so a row never moves when it has one.
+function withSiteIcons(rows: ScreenRow[], omnibar: OmnibarContext): ScreenRow[] {
+  return rows.map((row) => {
+    if ((row.type !== "open" && row.type !== "history") || row.icon) return row;
+    const icon = siteIcon(omnibar, row.url);
+    return icon ? { ...row, icon } : row;
+  });
 }
 
 /// A typed web address gets Open in Profile… (with more than one profile to pick from) and Open in
