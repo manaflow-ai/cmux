@@ -6,6 +6,9 @@
 //!   `machine-join.sh` runs on a joined machine), which puts `claude` in `~/.local/bin`.
 //! - `codex`: cmux's managed Codex runtime (`managed_codex`: the pinned official release, its
 //!   SHA-256 checked), on macOS and Linux.
+//! - `opencode`: `npm install -g opencode-ai` where npm is, else OpenCode's official installer
+//!   (`https://opencode.ai/install`, into `~/.opencode/bin`). Microsoft Foundry runs on it, and
+//!   uses the official installer when it is also installing the Azure CLI with Homebrew.
 //!
 //! Each step is one JSON line on stdout with `--json` (`{"step", "state", "detail"}`), so a caller
 //! can draw progress; the last line is the result (`{"id", "installed", "path", "version"}`), or the
@@ -20,11 +23,14 @@ use std::time::Duration;
 pub const AGENTS: &[(&str, &str, &str)] = &[
     ("claude", "Claude Code", "https://docs.anthropic.com/en/docs/claude-code/setup"),
     ("codex", "Codex", "https://developers.openai.com/codex/cli"),
+    ("opencode", "OpenCode", "https://opencode.ai/docs/"),
 ];
 
 const CLAUDE_INSTALLER: &str = "https://claude.ai/install.sh";
-/// Claude's installer downloads a native build: bounded so a stalled download fails with a reason.
-const CLAUDE_INSTALL_LIMIT: Duration = Duration::from_secs(600);
+const OPENCODE_INSTALLER: &str = "https://opencode.ai/install";
+const OPENCODE_NPM_PACKAGE: &str = "opencode-ai";
+/// An installer downloads a native build: bounded so a stalled download fails with a reason.
+const INSTALL_LIMIT: Duration = Duration::from_secs(600);
 
 /// `ID`'s display name and install page, or the error that names the ids this command installs.
 pub fn agent(id: &str) -> Result<(&'static str, &'static str)> {
@@ -69,10 +75,56 @@ pub async fn install(id: &str, mut step: impl FnMut(&str, &str, &str)) -> Result
             step("install", "done", ready.get("path").and_then(Value::as_str).unwrap_or_default());
             result_line(id, &crate::managed_codex::managed_path())
         }
+        "opencode" => {
+            if let Some(path) = opencode_path() {
+                step(
+                    "check",
+                    "done",
+                    &format!("{name} is already installed at {}", path.display()),
+                );
+                return Ok(result_line(id, &path));
+            }
+            if let Some(npm) = crate::config::which("npm") {
+                step("install", "running", &format!("npm install -g {OPENCODE_NPM_PACKAGE}"));
+                run_tool(&npm, &["install", "-g", OPENCODE_NPM_PACKAGE])
+                    .await
+                    .map_err(|e| fail(format!("{e:#}")))?;
+                let path = opencode_path().ok_or_else(|| {
+                    fail("the installer finished but no opencode was found".into())
+                })?;
+                step("install", "done", &path.display().to_string());
+                result_line(id, &path)
+            } else {
+                return install_opencode_official(step).await;
+            }
+        }
         // agent() admits only AGENTS, so no other id gets here.
         other => bail!("acpmux harness install has no installer for `{other}`"),
     };
     Ok(result)
+}
+
+/// OpenCode through its official installer (`~/.opencode/bin`), not `npm install -g`. Foundry uses
+/// this when the Azure CLI is being installed with Homebrew at the same time: both would otherwise
+/// write `/opt/homebrew`.
+pub(crate) async fn install_opencode_official(
+    mut step: impl FnMut(&str, &str, &str),
+) -> Result<Value> {
+    let (name, page) = agent("opencode")?;
+    let fail = |what: String| anyhow!("{name} did not install: {what}. Install it from {page}");
+    if let Some(path) = opencode_path() {
+        step("check", "done", &format!("{name} is already installed at {}", path.display()));
+        return Ok(result_line("opencode", &path));
+    }
+    step("download", "running", OPENCODE_INSTALLER);
+    let script = fetch(OPENCODE_INSTALLER).await.map_err(|e| fail(format!("{e:#}")))?;
+    step("download", "done", &format!("{} bytes", script.len()));
+    step("install", "running", "the official installer");
+    run_installer(&script).await.map_err(|e| fail(format!("{e:#}")))?;
+    let path = opencode_path()
+        .ok_or_else(|| fail("the installer finished but no opencode was found".into()))?;
+    step("install", "done", &path.display().to_string());
+    Ok(result_line("opencode", &path))
 }
 
 fn result_line(id: &str, path: &Path) -> Value {
@@ -86,6 +138,11 @@ fn claude_path() -> Option<PathBuf> {
         let local = dirs::home_dir()?.join(".local/bin/claude");
         is_executable(&local).then_some(local)
     })
+}
+
+/// `opencode` on the login PATH, else OpenCode's installer's `~/.opencode/bin/opencode`.
+pub(crate) fn opencode_path() -> Option<PathBuf> {
+    crate::config::which("opencode").map(PathBuf::from)
 }
 
 pub(crate) fn which_on_path(program: &str) -> Option<PathBuf> {
@@ -125,36 +182,63 @@ async fn fetch(url: &str) -> Result<String> {
 /// group (bash and anything the installer started) is killed, so nothing outlives the command.
 #[cfg(not(unix))]
 async fn run_installer(_script: &str) -> Result<()> {
-    bail!("Claude Code's installer is a shell script for macOS and Linux")
+    bail!("the installer is a shell script for macOS and Linux")
 }
 
 #[cfg(unix)]
 async fn run_installer(script: &str) -> Result<()> {
+    let mut bash = tokio::process::Command::new("/bin/bash");
+    bash.arg("-s");
+    run_bounded(bash, Some(script)).await
+}
+
+#[cfg(not(unix))]
+pub(crate) async fn run_tool(_program: &str, _args: &[&str]) -> Result<()> {
+    bail!("acpmux runs installers on macOS and Linux")
+}
+
+/// `PROGRAM ARGS` (`npm install -g`, `brew install`) with the login PATH, bounded and in its own
+/// process group as [`run_installer`].
+#[cfg(unix)]
+pub(crate) async fn run_tool(program: &str, args: &[&str]) -> Result<()> {
+    let mut cmd = tokio::process::Command::new(program);
+    cmd.args(args);
+    // npm runs under `#!/usr/bin/env node`: node is on the login PATH, not the daemon's own.
+    if let Some(path) = crate::login_env::path() {
+        cmd.env("PATH", path);
+    }
+    run_bounded(cmd, None).await
+}
+
+#[cfg(unix)]
+async fn run_bounded(mut cmd: tokio::process::Command, input: Option<&str>) -> Result<()> {
+    use std::process::Stdio;
     use tokio::io::AsyncWriteExt as _;
-    let mut child = tokio::process::Command::new("/bin/bash")
-        .arg("-s")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+    let stdin = if input.is_some() { Stdio::piped() } else { Stdio::null() };
+    let mut child = cmd
+        .stdin(stdin)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .process_group(0)
         .kill_on_drop(true)
         .spawn()?;
     let group = child.id();
-    let mut stdin = child.stdin.take().ok_or_else(|| anyhow!("no stdin for bash"))?;
-    let script = script.to_owned();
+    let stdin = child.stdin.take();
+    let input = input.map(str::to_owned);
     let run = async move {
-        stdin.write_all(script.as_bytes()).await?;
-        drop(stdin);
+        if let (Some(mut stdin), Some(input)) = (stdin, input) {
+            stdin.write_all(input.as_bytes()).await?;
+        }
         anyhow::Ok(child.wait_with_output().await?)
     };
-    let out = match tokio::time::timeout(CLAUDE_INSTALL_LIMIT, run).await {
+    let out = match tokio::time::timeout(INSTALL_LIMIT, run).await {
         Ok(out) => out?,
         Err(_) => {
             if let Some(group) = group {
                 // SAFETY: killpg signals only the group this function started (process_group(0)).
                 unsafe { libc::killpg(group as i32, libc::SIGKILL) };
             }
-            bail!("the installer did not finish in {} s", CLAUDE_INSTALL_LIMIT.as_secs())
+            bail!("the installer did not finish in {} s", INSTALL_LIMIT.as_secs())
         }
     };
     if !out.status.success() {
@@ -183,8 +267,9 @@ mod tests {
     fn only_the_known_agents_install() {
         assert_eq!(agent("claude").unwrap().0, "Claude Code");
         assert_eq!(agent("codex").unwrap().0, "Codex");
+        assert_eq!(agent("opencode").unwrap().0, "OpenCode");
         let err = agent("gemini").unwrap_err().to_string();
-        assert!(err.contains("installs claude, codex"), "{err}");
+        assert!(err.contains("installs claude, codex, opencode"), "{err}");
     }
 
     #[cfg(unix)]
@@ -206,6 +291,29 @@ mod tests {
         assert_eq!(last_line(b"warn\nboom\n\n", b"ok"), "boom");
         assert_eq!(last_line(b"  \n", b"step 1\nerror: offline\n"), "error: offline");
         assert_eq!(last_line(b"", b""), "no output");
+    }
+
+    /// Microsoft Foundry runs on OpenCode, and connecting it installs OpenCode through npm where
+    /// npm is: the package goes in globally, and a failed install says npm's own last line.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn npm_installs_opencode_globally_and_a_failure_names_npms_last_line() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let args = dir.path().join("args");
+        let ok = dir.path().join("npm-ok");
+        std::fs::write(&ok, format!("#!/bin/sh\necho \"$@\" > '{}'\n", args.display())).unwrap();
+        let bad = dir.path().join("npm-bad");
+        std::fs::write(&bad, "#!/bin/sh\necho 'npm ERR! network offline' >&2\nexit 1\n").unwrap();
+        for file in [&ok, &bad] {
+            std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        run_tool(ok.to_str().unwrap(), &["install", "-g", OPENCODE_NPM_PACKAGE]).await.unwrap();
+        assert_eq!(std::fs::read_to_string(&args).unwrap().trim(), "install -g opencode-ai");
+        let err = run_tool(bad.to_str().unwrap(), &["install", "-g", OPENCODE_NPM_PACKAGE])
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("npm ERR! network offline"), "{err:#}");
     }
 
     #[tokio::test]

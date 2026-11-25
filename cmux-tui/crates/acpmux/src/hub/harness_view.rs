@@ -43,6 +43,11 @@ impl Hub {
                 if let Some(r) = cfg.unavailable.get(name) {
                     o.insert("unavailable".into(), json!(r));
                 }
+                // A chat on it cannot start: the picker offers its install (a Foundry profile
+                // on a Mac with no OpenCode failed at the first send).
+                if p.argv.first().is_some_and(|bin| program_missing(bin)) {
+                    o.insert("programMissing".into(), json!(true));
+                }
                 if let Some(r) = self.probe_errors.lock().unwrap().get(name) {
                     o.insert("probeError".into(), json!(r));
                 }
@@ -116,6 +121,19 @@ impl Hub {
     }
 }
 
+/// `bin` (a profile's program) is not on this machine: not on the login PATH or where the agents'
+/// own installers put it, or a path to no runnable file. A capture fixture names no real program.
+fn program_missing(bin: &str) -> bool {
+    if crate::harness_fixture::active().is_some() {
+        return false;
+    }
+    if bin.contains('/') {
+        !crate::harness_install::is_executable(std::path::Path::new(bin))
+    } else {
+        crate::config::which(bin).is_none()
+    }
+}
+
 /// One `folderProfiles` row: id, folder, path, state, diagnostics, and when
 /// the file parsed displayName?, icon?, kind and family. Never the command
 /// line or env.
@@ -140,4 +158,17 @@ fn folder_profile_row(fp: &FolderProfile) -> Value {
         row.set("family", json!(crate::config::derive_family(&fp.id, profile)));
     }
     row
+}
+
+#[cfg(test)]
+mod tests {
+    /// A Foundry profile on a Mac with no OpenCode was listed as ready, and its first send failed
+    /// "spawn harness process opencode: No such file or directory". The reply marks a harness
+    /// whose program is missing, by name or by path, and only that one.
+    #[test]
+    fn a_missing_program_is_found_by_name_or_path() {
+        assert!(!super::program_missing("/bin/sh"));
+        assert!(super::program_missing("/nonexistent/acpmux-test/opencode"));
+        assert!(super::program_missing("acpmux-test-no-such-program"));
+    }
 }

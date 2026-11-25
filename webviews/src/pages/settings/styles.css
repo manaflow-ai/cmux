@@ -2885,6 +2885,103 @@ button.menu-disclosure {
   visibility: hidden;
 }
 
+/* Add a Connection > Microsoft Foundry: 1–2–3, then only the active step. */
+.models-foundry-steps {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  margin: 0;
+  padding: 0 var(--ds-space-4);
+  list-style: none;
+}
+
+.models-foundry-steps::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--ds-space-4) + 11px);
+  right: calc(var(--ds-space-4) + 11px);
+  top: 50%;
+  block-size: 1px;
+  background: var(--muted-text);
+  opacity: 0.45;
+}
+
+.models-foundry-steps > li > span {
+  /* Relative, and after the ::before line in the DOM, so the circles paint over it. */
+  position: relative;
+  display: grid;
+  place-items: center;
+  inline-size: 22px;
+  block-size: 22px;
+  border-radius: 50%;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+}
+
+.models-foundry-steps > li[data-state="todo"] > span {
+  color: var(--muted-text);
+}
+
+.models-foundry-steps > li[data-state="current"] > span,
+.models-foundry-steps > li[data-state="done"] > span {
+  background: var(--text);
+  color: var(--input-bg);
+}
+
+/* Step copy wraps. The sheet's help lines otherwise stay on one line and end in an ellipsis. */
+[data-models-way="foundry"] :is(.row-title, .row-help) {
+  overflow: visible;
+  white-space: normal;
+  text-overflow: clip;
+  overflow-wrap: break-word;
+}
+
+/* A bit more air above every step title; title-to-subtext stays the same in all three steps. */
+.accounts-form[data-models-way="foundry"] {
+  gap: var(--ds-space-4);
+}
+
+[data-models-foundry-step] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+}
+
+[data-models-foundry-step] > .row-help {
+  margin: 0;
+}
+
+.models-foundry-bars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-6);
+}
+
+.models-foundry-tool {
+  display: grid;
+  gap: var(--ds-space-2);
+}
+
+.models-foundry-tool-head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.models-foundry-meter {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-2);
+  margin-left: auto;
+  color: var(--muted-text);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+}
+
 .models-chatgpt {
   display: flex;
   align-items: center;
@@ -2900,6 +2997,66 @@ button.menu-disclosure {
   overflow: auto;
   padding: 16px;
   color: var(--text);
+}
+
+.models-run-error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ds-space-4);
+  margin-top: 8px;
+}
+
+.models-run-error-body {
+  min-width: 0;
+}
+
+.models-run-error-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.models-run-error .row-error {
+  margin-top: 0;
+}
+
+.models-run-error-toggle {
+  display: inline-flex;
+  flex: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--danger);
+  cursor: pointer;
+}
+
+.models-run-error-toggle .icon {
+  transform: rotate(-90deg);
+  transition: transform 160ms ease;
+}
+
+.models-run-error-toggle[aria-expanded="true"] .icon {
+  transform: rotate(0deg);
+}
+
+.models-run-error-detail {
+  margin: 4px 0 0;
+  color: var(--danger);
+  font-size: var(--text-detail);
+  white-space: pre-wrap;
+}
+
+.models-region {
+  width: min(280px, calc(100vw - 32px));
+  padding: 16px;
+  color: var(--text);
+}
+
+.models-region-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .models-sheet-body {

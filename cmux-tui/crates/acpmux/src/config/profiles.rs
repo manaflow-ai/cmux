@@ -238,8 +238,10 @@ pub struct ModelDetail {
     pub short_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub efforts: Vec<String>,
+    /// `None` when the profile did not declare levels. `Some([])` is a declaration that the
+    /// model has none, which the picker keeps instead of copying another model's menu.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub efforts: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -329,7 +331,7 @@ struct FileModelFull {
     short_name: Option<String>,
     family: Option<String>,
     #[serde(default)]
-    efforts: Vec<String>,
+    efforts: Option<Vec<String>>,
     #[serde(alias = "defaultEffort")]
     default_effort: Option<String>,
     fast: Option<bool>,
@@ -805,7 +807,10 @@ fn build(
         match m {
             FileModel::Id(id) => models.push(DeclaredModel::Id(id)),
             FileModel::Full(m) => {
-                check_efforts(&format!("models {:?}", m.id), &m.efforts);
+                check_efforts(
+                    &format!("models {:?}", m.id),
+                    m.efforts.as_deref().unwrap_or_default(),
+                );
                 if let Some(d) = &m.default_effort {
                     check_efforts(
                         &format!("models {:?} default_effort", m.id),

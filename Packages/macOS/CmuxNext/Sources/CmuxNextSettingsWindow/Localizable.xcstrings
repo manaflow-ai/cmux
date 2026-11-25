@@ -142201,6 +142201,270 @@
         }
       }
     },
+    "settingsWindow.models.sheet.cloudProviders": {
+      "comment": "Settings > Models (ModelsCard.tsx): Add a Connection sheet group for Microsoft Foundry and other cloud providers.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud providers"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مزودو السحابة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pružaoci usluga u oblaku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloududbydere"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Anbieter"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proveedores de nube"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fournisseurs cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provider cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドプロバイダー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ្នកផ្តល់សេវាពពក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 제공업체"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skyleverandører"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostawcy chmury"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provedores de nuvem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Облачные провайдеры"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ผู้ให้บริการคลาวด์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bulut sağlayıcıları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хмарні провайдери"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhà cung cấp đám mây"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云服务提供商"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雲端服務供應商"
+          }
+        }
+      }
+    },
+    "settingsWindow.models.foundry.help": {
+      "comment": "Settings > Models (ModelsCard.tsx): Add a Connection > Microsoft Foundry, the region step. Foundry and cmux are product names.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux creates the Foundry resources in the region you pick. You can change the region later."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ينشئ cmux موارد Foundry في المنطقة التي تختارها. يمكنك تغيير المنطقة لاحقًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pravi Foundry resurse u regionu koji odabereš. Region možeš promijeniti kasnije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux opretter Foundry-ressourcerne i den region, du vælger. Du kan skifte region senere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux erstellt die Foundry-Ressourcen in der Region, die du wählst. Die Region kannst du später ändern."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux crea los recursos de Foundry en la región que elijas. Puedes cambiar la región más tarde."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux crée les ressources Foundry dans la région que vous choisissez. Vous pourrez changer de région plus tard."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux crea le risorse di Foundry nell'area che scegli. Puoi cambiare area in seguito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選んだリージョンに Foundry のリソースを作成します。リージョンは後から変更できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux បង្កើតធនធាន Foundry នៅតំបន់ដែលអ្នកជ្រើស។ អ្នកអាចប្តូរតំបន់នៅពេលក្រោយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 지역에 Foundry 리소스를 만듭니다. 지역은 나중에 바꿀 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux oppretter Foundry-ressursene i regionen du velger. Du kan bytte region senere."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux tworzy zasoby Foundry w wybranym regionie. Region można później zmienić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux cria os recursos do Foundry na região que você escolher. Você pode mudar a região depois."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux создаёт ресурсы Foundry в выбранном регионе. Регион можно сменить позже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux สร้างทรัพยากร Foundry ในภูมิภาคที่คุณเลือก คุณเปลี่ยนภูมิภาคทีหลังได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux, seçtiğin bölgede Foundry kaynaklarını oluşturur. Bölgeyi daha sonra değiştirebilirsin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux створює ресурси Foundry в регіоні, який ви обираєте. Регіон можна змінити пізніше."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux tạo tài nguyên Foundry ở khu vực bạn chọn. Bạn có thể đổi khu vực sau."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 会在你选择的区域创建 Foundry 资源。之后可以更改区域。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 會在你選擇的區域建立 Foundry 資源。之後可以變更區域。"
+          }
+        }
+      }
+    },
     "settingsWindow.models.sheet.apiKey": {
       "comment": "Settings > Models (ModelsCard.tsx): Cloud threads' subscriptions and keys. ChatGPT, Claude, Claude Code, OpenAI, Anthropic and the provider names are product names.",
       "extractionState": "manual",
@@ -177155,6 +177419,459 @@
             "value": "自訂聲音…"
           }
         }
+      }
+    },
+    "settingsWindow.models.foundry.enable": {
+      "comment": "Settings > Models (ModelsCard.tsx): Add a Connection > Microsoft Foundry. Creates the resources in the chosen region.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Enable" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تفعيل" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Omogući" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Aktivér" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Aktivieren" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Activar" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Activer" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Abilita" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "有効にする" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បើក" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "사용 설정" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Aktiver" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Włącz" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Ativar" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Включить" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เปิดใช้" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Etkinleştir" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Увімкнути" } },
+        "vi": { "stringUnit": { "state": "translated", "value": "Bật" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "启用" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "啟用" } }
+      }
+    },
+    "settingsWindow.models.foundry.signIn": {
+      "comment": "Settings > Models (ModelsCard.tsx): Add a Connection > Microsoft Foundry, the sign-in step title. Azure CLI is a product name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sign in to Azure CLI" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تسجيل الدخول إلى Azure CLI" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Prijavi se u Azure CLI" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Log på Azure CLI" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Bei der Azure CLI anmelden" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Iniciar sesión en Azure CLI" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Se connecter à Azure CLI" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Accedi ad Azure CLI" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Azure CLI にサインイン" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ចូល Azure CLI" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Azure CLI에 로그인" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Logg på Azure CLI" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Zaloguj się do Azure CLI" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Entrar na Azure CLI" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Войти в Azure CLI" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ลงชื่อเข้าใช้ Azure CLI" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Azure CLI’de oturum aç" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Увійти в Azure CLI" } },
+        "vi": { "stringUnit": { "state": "translated", "value": "Đăng nhập Azure CLI" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "登录 Azure CLI" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "登入 Azure CLI" } }
+      }
+    },
+    "settingsWindow.models.foundry.signInHelp": {
+      "comment": "Settings > Models (ModelsCard.tsx): Add a Connection > Microsoft Foundry. The browser opens for Azure CLI sign-in.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "A browser window opens shortly. Sign in there." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "ستفتح نافذة المتصفح بعد قليل. سجّل الدخول هناك." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Uskoro se otvara prozor preglednika. Prijavi se tamo." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Et browservindue åbner om lidt. Log på der." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Gleich öffnet sich ein Browserfenster. Melde dich dort an." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Enseguida se abre una ventana del navegador. Inicia sesión allí." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Une fenêtre de navigateur s’ouvre sous peu. Connectez-vous dedans." } },
+        "it": { "stringUnit": { "state": "translated", "value": "A breve si apre una finestra del browser. Accedi lì." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "まもなくブラウザが開きます。そこでサインインしてください。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បង្អួចកម្មវិធីរុករកនឹងបើកឆាប់ៗ។ ចូលនៅទីនោះ។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "잠시 후 브라우저가 열립니다. 거기서 로그인하세요." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Et nettleservindu åpnes snart. Logg på der." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Za chwilę otworzy się okno przeglądarki. Zaloguj się w nim." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Uma janela do navegador abre em instantes. Entre nela." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Скоро откроется окно браузера. Войдите в нём." } },
+        "th": { "stringUnit": { "state": "translated", "value": "หน้าต่างเบราว์เซอร์จะเปิดในไม่ช้า ลงชื่อเข้าใช้ที่นั่น" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Birazdan bir tarayıcı penceresi açılır. Orada oturum aç." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Невдовзі відкриється вікно браузера. Увійдіть у ньому." } },
+        "vi": { "stringUnit": { "state": "translated", "value": "Cửa sổ trình duyệt sẽ mở ngay. Hãy đăng nhập ở đó." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "浏览器窗口即将打开。请在其中登录。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "瀏覽器視窗即將開啟。請在其中登入。" } }
+      }
+    },
+    "settingsWindow.models.foundry.installBoth": {
+      "comment": "Settings > Models (ModelsCard.tsx): Add a Connection > Microsoft Foundry, when both tools are missing. OpenCode, Azure CLI and cmux are product names.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Install OpenCode & Azure CLI" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تثبيت OpenCode وAzure CLI" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Instaliraj OpenCode i Azure CLI" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Installer OpenCode og Azure CLI" } },
+        "de": { "stringUnit": { "state": "translated", "value": "OpenCode und Azure CLI installieren" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Instalar OpenCode y Azure CLI" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Installer OpenCode et Azure CLI" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Installa OpenCode e Azure CLI" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OpenCode と Azure CLI をインストール" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ដំឡើង OpenCode និង Azure CLI" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "OpenCode 및 Azure CLI 설치" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Installer OpenCode og Azure CLI" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Zainstaluj OpenCode i Azure CLI" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Instalar OpenCode e a Azure CLI" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Установить OpenCode и Azure CLI" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ติดตั้ง OpenCode และ Azure CLI" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "OpenCode ve Azure CLI'yi yükle" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Установити OpenCode і Azure CLI" } },
+        "vi": { "stringUnit": { "state": "translated", "value": "Cài OpenCode và Azure CLI" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "安装 OpenCode 和 Azure CLI" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "安裝 OpenCode 與 Azure CLI" } }
+      }
+    },
+    "settingsWindow.models.foundry.installHelp": {
+      "comment": "Settings > Models (ModelsCard.tsx): Add a Connection > Microsoft Foundry, under the install title. OpenCode, Azure and cmux are product names.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux uses the CLI to provision model deployments from Azure. OpenCode is a proxy." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "يستخدم cmux واجهة سطر الأوامر لتجهيز عمليات نشر النماذج في Azure. OpenCode وكيل." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "cmux koristi CLI da pripremi implementacije modela na Azureu. OpenCode je proxy." } },
+        "da": { "stringUnit": { "state": "translated", "value": "cmux bruger CLI'en til at klargøre modeludrulninger i Azure. OpenCode er en proxy." } },
+        "de": { "stringUnit": { "state": "translated", "value": "cmux nutzt die CLI, um Modellbereitstellungen in Azure einzurichten. OpenCode ist ein Proxy." } },
+        "es": { "stringUnit": { "state": "translated", "value": "cmux usa la CLI para aprovisionar implementaciones de modelos en Azure. OpenCode es un proxy." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "cmux utilise la CLI pour provisionner les déploiements de modèles dans Azure. OpenCode est un proxy." } },
+        "it": { "stringUnit": { "state": "translated", "value": "cmux usa la CLI per preparare le distribuzioni dei modelli in Azure. OpenCode è un proxy." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux は CLI で Azure のモデルデプロイを用意します。OpenCode はプロキシです。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "cmux ប្រើ CLI ដើម្បីរៀបចំការដាក់ពង្រាយម៉ូដែលពី Azure។ OpenCode គឺជាប្រូកស៊ី។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "cmux는 CLI로 Azure에서 모델 배포를 준비합니다. OpenCode는 프록시입니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "cmux bruker CLI-en til å klargjøre modellutrullinger i Azure. OpenCode er en proxy." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "cmux używa CLI, aby przygotować wdrożenia modeli na platformie Azure. OpenCode jest serwerem proxy." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "O cmux usa a CLI para provisionar implantações de modelos no Azure. O OpenCode é um proxy." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "cmux использует CLI, чтобы подготовить развёртывания моделей в Azure. OpenCode — прокси." } },
+        "th": { "stringUnit": { "state": "translated", "value": "cmux ใช้ CLI เพื่อจัดเตรียมการปรับใช้โมเดลจาก Azure. OpenCode เป็นพร็อกซี" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "cmux, Azure'da model dağıtımlarını hazırlamak için CLI'yi kullanır. OpenCode bir proxy'dir." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "cmux використовує CLI, щоб підготувати розгортання моделей в Azure. OpenCode — проксі." } },
+        "vi": { "stringUnit": { "state": "translated", "value": "cmux dùng CLI để chuẩn bị triển khai mô hình trên Azure. OpenCode là một proxy." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "cmux 使用 CLI 在 Azure 中准备模型部署。OpenCode 是代理。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "cmux 使用 CLI 在 Azure 中準備模型部署。OpenCode 是代理。" } }
+      }
+    },
+    "settingsWindow.models.foundry.installOne": {
+      "comment": "Settings > Models (ModelsCard.tsx): Add a Connection > Microsoft Foundry, when only one tool is missing. %@ is OpenCode or Azure CLI.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Install %@" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تثبيت %@" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Instaliraj %@" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Installer %@" } },
+        "de": { "stringUnit": { "state": "translated", "value": "%@ installieren" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Instalar %@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Installer %@" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Installa %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ をインストール" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ដំឡើង %@" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%@ 설치" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Installer %@" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Zainstaluj %@" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Instalar %@" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Установить %@" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ติดตั้ง %@" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "%@ yükle" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Установити %@" } },
+        "vi": { "stringUnit": { "state": "translated", "value": "Cài %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "安装 %@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "安裝 %@" } }
+      }
+    },
+    "settingsWindow.models.foundry.region": {
+      "comment": "Settings > Models (ModelsCard.tsx): Microsoft Foundry region label in Add a Connection / Switch Region.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Region"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المنطقة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Område"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Region"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Región"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Région"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Area geografica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リージョン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តំបន់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지역"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Område"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Region"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Região"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Регион"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ภูมิภาค"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bölge"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Регіон"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khu vực"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "区域"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "區域"
+          }
+        }
+      }
+    },
+    "settingsWindow.models.foundry.switchRegion": {
+      "comment": "Settings > Models (ModelsCard.tsx): Microsoft Foundry row menu and setup button to move the cmux Azure account to another region.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Region"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل المنطقة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Promijeni regiju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift område"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Region wechseln"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar región"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changer de région"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambia area geografica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リージョンを切り替え"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្តូរតំបន់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지역 전환"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bytt område"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zmień region"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trocar região"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сменить регион"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปลี่ยนภูมิภาค"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bölgeyi Değiştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Змінити регіон"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đổi khu vực"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换区域"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換區域"
+          }
+        }
+      }
+    },
+    "settingsWindow.models.foundry.switch": {
+      "comment": "Settings > Models (ModelsCard.tsx): the button in the Foundry region dialog. The dialog title stays Switch Region.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Switch" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تبديل" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Promijeni" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Skift" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Wechseln" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Cambiar" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Changer" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Cambia" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "切り替え" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ប្តូរ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "전환" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Bytt" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Zmień" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Trocar" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Сменить" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เปลี่ยน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Değiştir" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Змінити" } },
+        "vi": { "stringUnit": { "state": "translated", "value": "Đổi" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "切换" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "切換" } }
       }
     }
   },

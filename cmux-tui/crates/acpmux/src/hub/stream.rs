@@ -197,6 +197,11 @@ impl Hub {
     ) -> Option<String> {
         let update = params.and_then(|p| p.get("update"))?;
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
+        // The model's own first words end the Foundry wait. Until then the live line is
+        // "Connecting" or "Deploying model", not "Thinking" (`foundry_gate.rs`).
+        if matches!(kind, "agent_message_chunk" | "agent_thought_chunk" | "tool_call" | "plan") {
+            self.foundry_line_end(session, None);
+        }
         if kind == "compaction" {
             let fenced = session.compaction_metadata_fenced.load(Ordering::SeqCst);
             match update.get("state").and_then(Value::as_str) {

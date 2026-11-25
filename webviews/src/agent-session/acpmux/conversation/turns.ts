@@ -7,6 +7,7 @@
 // Stop-gap seam: acpmux owns the turn structure (spec acp-ui.md, OWNERSHIP-PRINCIPLES.md). When
 // acpmux serves turn-structured rows (`acp.view.subscribe`, `_acpmux/view`), `turnView` becomes
 // a field-for-field mapping of them and nothing else in the pane changes.
+import { isFoundryWait } from "../hiddenTools";
 import {
   isLineRow,
   pathKey,
@@ -3244,6 +3245,13 @@ export function withoutReadWork(rows: AcpmuxRow[]): AcpmuxRow[] {
   return out;
 }
 
+/// The Foundry wait's own call (`foundry_gate.rs`, id `foundry-line-…`): the live line names it, so
+/// it is not the work a "Working" header stands over.
+const foundryWaitOnly = (row: AcpmuxRow) => {
+  const items = row.items ?? [];
+  return items.length > 0 && items.every((item) => isFoundryWait(item.tool));
+};
+
 function shapeLiveTurn(
   user: AcpmuxRow,
   turn: AcpmuxRow[],
@@ -3258,7 +3266,8 @@ function shapeLiveTurn(
   // Opened mid-turn, the work already there draws as its fold will hold it: folded.
   const kept = withoutReadWork(all);
   // The "Working for" line stands over work the open read folded, as over work it watched.
-  const worked = all.some((row) => row.kind === "activity" && row.inBackground === undefined);
+  // A Foundry wait ("Connecting", "Deploying model") is the live line's step, not that work.
+  const worked = all.some((row) => row.kind === "activity" && row.inBackground === undefined && !foundryWaitOnly(row));
   // The agent's wrap-up call draws as its card the moment the call returns, not once the turn ends:
   // the turn ends only after one more model request (6 s and more), and the card waited that long
   // (Leo, 2026-11-19, on the Needs your input cards: "plus it's not instant yet"). Same id as the
@@ -3369,7 +3378,7 @@ function shapeLiveRows(
   trayAgents: number,
   turnStartedAtMs: number | undefined,
   foldsPrompt: boolean,
-  worked = drawn.some((row) => row.kind === "activity" && row.inBackground === undefined),
+  worked = drawn.some((row) => row.kind === "activity" && row.inBackground === undefined && !foundryWaitOnly(row)),
   workOpen = false,
 ): AcpmuxRow[] {
   // A started chat's card that no row follows yet is not the turn's latest step. The latest step is

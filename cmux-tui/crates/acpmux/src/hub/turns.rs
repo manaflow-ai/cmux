@@ -1197,6 +1197,15 @@ impl Hub {
                 json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "state": "started"}),
             );
         }
+        // Deploy failed: settle the turn here. Starting the agent would only hit DeploymentNotFound.
+        if let Err(e) = self.foundry_deploy(session).await {
+            let e = RpcError::invalid_params(e);
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
+            Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
+            drop(guard);
+            return Err(e);
+        }
         // The prompt is recorded and acknowledged above before the agent is started again (it
         // died, or the daemon restarted), so a client hears prompt_accepted at once.
         // Logged on the `woke` line: who sent the prompt that woke the chat (`idle_governor.rs`).
@@ -1859,6 +1868,7 @@ impl Hub {
         trigger: bool,
         next: Option<&super::carried_turn::NextTurn>,
     ) -> Result<Value, RpcError> {
+        self.foundry_line_end(session, result.is_err().then_some(""));
         // The turn's end, which its cost is ready after (`turn_cost.rs`).
         let ended = std::time::Instant::now();
         // This turn's number, before taking it lets the next one start (`lane_reports.rs`).
@@ -2342,12 +2352,12 @@ impl Hub {
         // It no longer reads `stopping`: a Stop that came while its agent started (`cancel.rs`)
         // ends it as stopped, also when the start then failed.
         let was_stopping = take_if_turn(&session.stopping, turn_id);
-        // The prompt behind it waits for no turn now (`queue_turn`).
-        session.queue_moved.notify_waiters();
-        // The agent messages that joined it never reached the agent either: back unheld, unless
-        // a person's Stop holds them (`requeue_joined`).
-        self.requeue_joined(session, joined, false);
         let stopped_early = is_stopped_before_prompt(e);
+        let failed = !(stopped_early || was_stopping);
+        self.foundry_line_end(session, failed.then_some(e.message.as_str()));
+        session.queue_moved.notify_waiters();
+        // Joined messages go back unheld unless a Stop holds them (`requeue_joined`).
+        self.requeue_joined(session, joined, false);
         if stopped_early || was_stopping {
             let stop = stopped_answer().get("stopReason").cloned().unwrap_or_default();
             self.append(

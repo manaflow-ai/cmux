@@ -7,12 +7,15 @@ export function Select({
   disabled,
   labelId,
   onChange,
+  closeOnPick,
   children,
 }: {
   value: string;
   disabled: boolean;
   labelId: string;
   onChange: (value: string) => void;
+  /** Close the menu when an option is picked. The shared menu keeps a radio menu open otherwise. */
+  closeOnPick?: boolean;
   children: ReactNode;
 }) {
   const options: SelectOption[] = Children.toArray(children).flatMap((child) => {
@@ -45,6 +48,7 @@ export function Select({
         label=""
         labelledBy={labelId}
         onChange={onChange}
+        closeOnPick={closeOnPick}
         className="ui-select-shared"
         buttonClassName="field"
       />

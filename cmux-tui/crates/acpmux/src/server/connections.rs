@@ -44,6 +44,7 @@ pub(super) const METHODS: &[&str] = &[
     method::MUX_CONNECTIONS_CHATGPT_TOKEN,
     method::MUX_CONNECTIONS_CHATGPT_IMPORT,
     method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD,
+    method::MUX_CONNECTIONS_FOUNDRY_SET,
     method::MUX_CONNECTIONS_CREDENTIAL,
 ];
 
@@ -366,6 +367,7 @@ pub(super) fn state(dir: Option<&Path>, home: &Path) -> Value {
         "connections": connections,
         "spread": b.spread.unwrap_or(true),
         "order_explicit": !b.connection_order.is_empty(),
+        "foundry": crate::foundry::status_with_order(&b.connection_order),
     })
 }
 
@@ -373,7 +375,7 @@ fn route_error(e: &routes::RouteError) -> RpcError {
     crate::hub::route_error(e)
 }
 
-/// Stores the person's order. Every id must name a connection, once.
+/// Stores the person's order. Every id must name a connection (or the Foundry harness), once.
 pub(super) fn set_order(
     dir: Option<&Path>,
     home: &Path,
@@ -383,7 +385,7 @@ pub(super) fn set_order(
         list(dir, home, &routes::bindings(home)).into_iter().map(|c| c.id).collect();
     let mut seen = BTreeSet::new();
     for id in ids {
-        if !known.contains(id) {
+        if !known.contains(id) && id != crate::foundry::HARNESS_ID {
             return Err(RpcError::invalid_params(format!("no connection {id:?}"))
                 .with_data(json!({"reason": "connections.unknown_id", "id": id})));
         }
@@ -786,6 +788,20 @@ pub(super) async fn handle(
                 hub.chatgpt.token(&home, &id).await.map_err(failure)?;
             Ok(json!({"access_token": access_token, "expires_at": expires_at}))
         }
+        method::MUX_CONNECTIONS_FOUNDRY_SET => {
+            let cfg = hub.config.read().await.clone();
+            let Some(step) = params.get("step").and_then(Value::as_str) else {
+                return Err(RpcError::invalid_params("foundry.set needs step"));
+            };
+            let region = params.get("region").and_then(Value::as_str);
+            crate::foundry::set(step, region, &cfg, &home)
+                .await
+                .map_err(RpcError::invalid_params)?;
+            hub.reload_and_announce().await;
+            let state = blocking(move || state(dir.as_deref(), &home)).await?;
+            announce_later(hub);
+            Ok(state)
+        }
         _ => Err(RpcError::method_not_found(m)),
     }
 }
@@ -869,14 +885,14 @@ mod tests {
         let twice = vec!["anthropic-key".to_owned(), "anthropic-key".to_owned()];
         assert!(set_order(Some(&d.routes), &d.home, &twice).is_err());
 
-        let state = set_order(Some(&d.routes), &d.home, &["anthropic-key".to_owned()]).unwrap();
-        assert_eq!(state["order_explicit"], true);
-        assert_eq!(state_ids(&state)[0], "anthropic-key");
-        let text = std::fs::read_to_string(d.home.join("routes/bindings.json")).unwrap();
-        assert!(text.contains("\"connection_order\""), "{text}");
-        // Removing the route drops it from the order.
+        // The Foundry harness token rides along for its row placement (its index in the order).
+        let order = vec!["anthropic-key".to_owned(), crate::foundry::HARNESS_ID.to_owned()];
+        let state = set_order(Some(&d.routes), &d.home, &order).unwrap();
+        assert_eq!(state_ids(&state)[0], "anthropic-key", "the harness token is no connection");
+        assert_eq!(state["foundry"]["order"], json!(1), "Foundry sits after the one connection");
+        // Removing the connection drops it; the Foundry token (not a connection) stays.
         routes::remove(Some(&d.routes), &d.home, "anthropic-key").unwrap();
-        assert!(routes::bindings(&d.home).connection_order.is_empty());
+        assert_eq!(routes::bindings(&d.home).connection_order, ["foundry"]);
     }
 
     #[test]

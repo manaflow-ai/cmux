@@ -283,12 +283,14 @@ fn native_install(bin: &str) -> Option<String> {
     native_install_in(&dirs::home_dir()?, bin)
 }
 
-/// [`native_install`] under `home`.
+/// [`native_install`] under `home`. OpenCode's own installer uses `~/.opencode/bin`.
 fn native_install_in(home: &std::path::Path, bin: &str) -> Option<String> {
-    if !matches!(bin, "claude" | "codex") {
-        return None;
-    }
-    let candidate = home.join(".local/bin").join(bin);
+    let dir = match bin {
+        "claude" | "codex" => ".local/bin",
+        "opencode" => ".opencode/bin",
+        _ => return None,
+    };
+    let candidate = home.join(dir).join(bin);
     // A stale or non-executable file there is no installed CLI (as `harness install` checks).
     crate::harness_install::is_executable(&candidate)
         .then(|| candidate.to_string_lossy().into_owned())
@@ -335,6 +337,14 @@ mod tests {
         }
         std::fs::write(bin.join("opencode"), "").unwrap();
         assert_eq!(super::native_install_in(home.path(), "opencode"), None);
+        let opencode = home.path().join(".opencode/bin/opencode");
+        std::fs::create_dir_all(opencode.parent().unwrap()).unwrap();
+        std::fs::write(&opencode, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&opencode, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            super::native_install_in(home.path(), "opencode"),
+            Some(opencode.to_string_lossy().into_owned())
+        );
         let empty = tempfile::tempdir().unwrap();
         assert_eq!(super::native_install_in(empty.path(), "codex"), None);
     }

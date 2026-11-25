@@ -51,6 +51,28 @@ test("the turn's end puts Worked for in Working for's place, at the same height"
   expect(after.heights[worked]).toBe(during.heights[header]);
 });
 
+test("a Foundry wait is the live step, with no Working header over it", () => {
+  const wait = row("deploy", "activity", 1_000, {
+    items: [
+      {
+        kind: "tool",
+        text: "Connecting",
+        tool: { id: "foundry-line-1", kind: "other", title: "Connecting", status: "in_progress" },
+      },
+    ],
+  });
+  const live = shown(
+    turnView([row("u", "user", 0, { text: "hi" }), wait], new Set(), {
+      now: 60_000,
+      agentFamily: "codex",
+      working: true,
+    }),
+  );
+  expect(live.some((each) => each.turnPhase === "running")).toBe(false);
+  expect(live.at(-1)).toMatchObject({ kind: THINKING, doing: "Connecting" });
+  expect(live.at(-1)!.untimed).toBeUndefined();
+});
+
 test("a turn of only a reply so far draws no Working for: its end has no fold line to take its place", () => {
   const live = shown(turnView(turn.slice(0, 2), new Set(), { now: 60_000, agentFamily: "codex", working: true }));
   expect(live.some((each) => each.turnPhase === "running")).toBe(false);

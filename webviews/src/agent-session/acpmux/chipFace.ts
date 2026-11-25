@@ -53,10 +53,11 @@ function markOf(raw: string): string | undefined {
 }
 
 /// The face of a chip that names `model` as `name`. Its logo is the model's provider; only a model
-/// no known provider makes takes `harnessMark` (it is that harness's own model).
+/// no known provider makes takes `harnessMark` (it is that harness's own model). Foundry's models
+/// are named like OpenAI's (`azure/gpt-4o`) but the chip draws Foundry's own mark.
 export function modelFace(model: string, name: string, harnessMark: string | undefined, detail: Detail = {}): ChipFace {
   return {
-    mark: providerMark(model) ?? harnessMark,
+    mark: harnessMark === "foundry" ? harnessMark : (providerMark(model) ?? harnessMark),
     name,
     model,
     ...(detail.detail ? { detail: detail.detail } : {}),

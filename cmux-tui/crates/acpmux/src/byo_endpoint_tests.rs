@@ -173,8 +173,42 @@ fn byo_endpoint_openai_profile_configures_opencode_with_a_keychain_key() {
     assert_eq!(provider["npm"], "@ai-sdk/openai-compatible", "{config}");
     assert_eq!(provider["options"]["baseURL"], "https://api.example.com/v1", "{config}");
     assert_eq!(provider["options"]["apiKey"], format!("{{env:{OPENAI_KEY_ENV}}}"), "{config}");
+    assert!(provider["options"]["headers"].is_null(), "{config}");
     assert!(provider["models"]["org/model-7b"].is_object(), "{config}");
     assert_eq!(config["model"], "byo/org/model-7b", "{config}");
+}
+
+#[test]
+fn an_azure_openai_endpoint_uses_the_openai_sdk_and_api_key_header() {
+    // Foundry / Azure OpenAI refuse `max_tokens`; `@ai-sdk/openai` sends `max_completion_tokens`.
+    let root = scratch("azure-oai");
+    let src = sources(&root);
+    let store = |_: &StoreCommand| -> anyhow::Result<()> { Ok(()) };
+    let added = admin::add_endpoint_keyed(
+        &params(
+            "openai-endpoint",
+            "foundry",
+            "https://cmux-test.openai.azure.com/openai/v1",
+            "gpt-5-nano",
+            None,
+        ),
+        &src,
+        &admin::EndpointKey { value: Some(GOOD_KEY), store: &store, ..admin::EndpointKey::NONE },
+    )
+    .unwrap();
+    let (profile, _) = load(&added.path, "foundry");
+    let config: Value = serde_json::from_str(&profile.env["OPENCODE_CONFIG_CONTENT"]).unwrap();
+    // Provider id `azure` is what makes OpenCode honor `useCompletionUrls` (Chat Completions).
+    assert!(config["provider"].get("byo").is_none(), "{config}");
+    let provider = &config["provider"]["azure"];
+    assert_eq!(provider["npm"], "@ai-sdk/azure", "{config}");
+    assert_eq!(provider["options"]["resourceName"], "cmux-test", "{config}");
+    assert_eq!(provider["options"]["useCompletionUrls"], true, "{config}");
+    assert_eq!(provider["options"]["apiVersion"], "v1", "{config}");
+    assert!(provider["options"].get("baseURL").is_none(), "{config}");
+    assert_eq!(provider["options"]["apiKey"], format!("{{env:{OPENAI_KEY_ENV}}}"), "{config}");
+    assert_eq!(config["model"], "azure/gpt-5-nano", "{config}");
+    assert_eq!(profile.model.as_deref(), Some("azure/gpt-5-nano"));
 }
 
 #[test]

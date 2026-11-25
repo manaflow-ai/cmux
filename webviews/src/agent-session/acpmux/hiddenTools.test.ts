@@ -307,3 +307,11 @@ test("a later call reusing a ToolSearch call's id draws and becomes the action (
   const audit = fold.takeRows().flatMap((row) => row.subagents ?? []);
   expect(audit.map((agent) => agent.action)).toEqual(["ToolSearch"]);
 });
+
+test("a finished Foundry wait draws nothing, and one still running or failed stays", () => {
+  expect(isCompletedPlumbingTool({ id: "foundry-line-1", status: "completed", title: "Connecting" })).toBe(true);
+  expect(isCompletedPlumbingTool({ id: "foundry-line-1", status: "in_progress", title: "Deploying model" })).toBe(
+    false,
+  );
+  expect(isCompletedPlumbingTool({ id: "foundry-line-1", status: "failed", title: "Deploying model" })).toBe(false);
+});

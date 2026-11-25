@@ -21,7 +21,7 @@ import { AgentMark, agentBrand, hasAgentMark } from "../shared/AgentMark";
 import { chipFace as faceFor, harnessFace } from "./chipFace";
 import { agentDisplayName, picksOwnModel } from "./agents";
 import { agentKey } from "../shared/agentKey";
-import { isDefaultChoice } from "./defaultChoice";
+import { isDefaultChoice, withoutByoPrefix } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, SearchIcon } from "./ComposerPickers";
 import { PICKER_LABELS, nearestLevel } from "./composerPickerModel";
 import { Spinner } from "./conversation/icons";
@@ -42,7 +42,7 @@ import { ModelSearchIndex } from "./modelSearch";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
 import { effortWords, fitsQuery, modelEffort, parseQuery, type ParsedQuery, matchingModels } from "./modelQuery";
 import { listsFeedModels } from "./feedHarnesses";
-import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
+import { installCommand } from "./harnesses/harnessRows";
 import { groupVariants } from "./modelVariants";
 import { registerPicker } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";
@@ -153,7 +153,9 @@ function sectionsFor(
     return [
       {
         id: model.id,
-        name: defaultChoice ? translate("picker.default", {}, lang) : model.shortName || model.name || model.id,
+        name: defaultChoice
+          ? translate("picker.default", {}, lang)
+          : withoutByoPrefix(model.shortName || model.name || model.id),
         ...(defaultChoice ? { defaultChoice: true } : {}),
         ...(model.family ? { family: model.family } : {}),
         ...(model.unavailable ? { unavailable: model.unavailable } : {}),
@@ -1154,7 +1156,7 @@ export function ModelPicker(props: ModelPickerProps) {
     const rank = (entry: HarnessChoice) => {
       if (!needsSetup(entry)) return 0;
       const id = entry.acpmuxHarness ?? entry.id;
-      if (entry.notInstalled && !INSTALL_COMMANDS[id]) return 3;
+      if (entry.notInstalled && !installCommand(id, entry.family)) return 3;
       return entry.notInstalled && listsFeedModels(id) ? 2 : 1;
     };
     const found = searchModels(searchable, typed, lang);

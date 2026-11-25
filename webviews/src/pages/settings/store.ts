@@ -241,6 +241,14 @@ export function composeState(ui: UiState, cache: CacheView): SettingsState {
 
 export type Reply<R> = { ok: true; value: R } | { ok: false; error: WireError };
 
+/** The sentence Settings shows for a refused gesture, and the host's own message when it says more. */
+export function refusalOf(error: unknown): { summary: string; detail: string | null } {
+  const summary = userMessage(error, SETTINGS_SENTENCES);
+  const message = (error as { message?: unknown } | null)?.message;
+  const detail = typeof message === "string" && message && message !== summary ? message : null;
+  return { summary, detail };
+}
+
 export class SettingsStore {
   readonly queryClient: QueryClient;
   readonly transport: SettingsTransport;
@@ -981,12 +989,11 @@ export class SettingsStore {
     await this.fetchNative(settingsKeys.models);
   }
 
-  /** One Settings > Models gesture, then a fresh read of the part; answers the host's refusal in plain
-   * words (userMessage), null when it took the gesture. */
-  async runModels(run: ModelsRun): Promise<string | null> {
+  /** One Settings > Models gesture, then a fresh read of the part. Null when the host took it. */
+  async runModels(run: ModelsRun): Promise<{ summary: string; detail: string | null } | null> {
     const reply = await this.request("cmux.settings.models.run", run);
     await this.refreshModels();
-    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
+    return reply.ok ? null : refusalOf(reply.error);
   }
 
   /** One Harnesses gesture (Settings > Agents), then a fresh read of the part. */
