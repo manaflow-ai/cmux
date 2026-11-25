@@ -204,8 +204,9 @@ async fn stream_across(
     let channel = connected.link.open("echo", serde_json::json!({})).await.unwrap();
     let (sender, mut receiver) = channel.split();
 
-    // Terminal-like output: 1 KB every 10 ms.
-    const CHUNK: usize = 1000;
+    // Terminal-like output: 1 KB every 10 ms (`ROAM_CHUNK_BYTES` raises it:
+    // 20000 keeps more in flight than a datagram replay resends).
+    let chunk: usize = std::env::var("ROAM_CHUNK_BYTES").ok().and_then(|v| v.parse().ok()).unwrap_or(1000);
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let writer = {
         let stop = std::sync::Arc::clone(&stop);
@@ -214,8 +215,8 @@ async fn stream_across(
             let mut tick = tokio::time::interval(Duration::from_millis(10));
             while !stop.load(std::sync::atomic::Ordering::Relaxed) {
                 tick.tick().await;
-                sender.send(Bytes::from(pattern(sent, CHUNK))).await.expect("send");
-                sent += CHUNK;
+                sender.send(Bytes::from(pattern(sent, chunk))).await.expect("send");
+                sent += chunk;
             }
             // Dropping the sender would close the channel before the echo
             // of the last bytes arrives.

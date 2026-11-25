@@ -433,6 +433,12 @@ pub fn primary_local_ip() -> Option<IpAddr> {
 }
 
 /// Whether this side uses no plain UDP at all (relay only, or UDP blocked).
+/// `CMUX_LINK_PATH_RESEND=on`: [`DialOptions::path_resend`] without a
+/// rebuild (netlab and the rig).
+fn path_resend_env() -> bool {
+    std::env::var("CMUX_LINK_PATH_RESEND").is_ok_and(|value| value == "on")
+}
+
 fn no_plain_udp(options: &DialOptions) -> bool {
     options.relay_only || options.block_udp || options.force_relay
 }
@@ -999,6 +1005,11 @@ struct HybridUnderlay {
     /// overflowed the peer's socket buffer and lost the very datagrams the
     /// replay is for.
     replay_pending: bool,
+    /// [`DialOptions::path_resend`] (or `CMUX_LINK_PATH_RESEND=on`).
+    path_resend: bool,
+    /// A replay went out on a new route since the tunnel last asked
+    /// (`take_path_change`): its TCP resends what is unacknowledged.
+    path_changed: bool,
     /// The tunnel's receive task, woken when a control message applied on
     /// the send side brings a new socket or TURN allocation: nothing would
     /// otherwise poll it until a timer fires (the old socket's readiness is
@@ -1129,6 +1140,8 @@ impl HybridUnderlay {
             recent: std::collections::VecDeque::new(),
             last_replay: None,
             replay_pending: false,
+            path_resend: options.path_resend || path_resend_env(),
+            path_changed: false,
             recv_waker: None,
             handshake_repeat: None,
             paths: paths::Paths::new(),
@@ -1681,6 +1694,7 @@ impl HybridUnderlay {
         if !recent.is_empty() {
             tracing::debug!(count = recent.len(), "WireGuard resends recent datagrams on the new route");
         }
+        self.path_changed |= self.path_resend;
         for (datagram, class) in recent {
             self.transmit(&datagram, class);
         }
@@ -1727,6 +1741,7 @@ impl HybridUnderlay {
             return;
         }
         self.last_replay = Some(now);
+        self.path_changed |= self.path_resend;
         let recent = self.replay_set(now);
         tracing::debug!(count = recent.len(), "WireGuard resends recent datagrams through the relays");
         for (datagram, class) in recent {
@@ -2272,6 +2287,16 @@ impl HybridUnderlay {
 }
 
 impl Underlay for HybridUnderlay {
+    /// A replay went out on a new route: the datagram replay covers only
+    /// what was sent in the last [`REPLAY_AGE`] under [`REPLAY_BYTES`], and
+    /// what it resent may have gone before the peer knew the route. The
+    /// tunnel's TCP resends from its first unacknowledged byte with its
+    /// retransmit timer reset, so nothing waits out a timer the outage
+    /// doubled.
+    fn take_path_change(&mut self) -> bool {
+        std::mem::take(&mut self.path_changed)
+    }
+
     fn send(&mut self, datagram: &[u8]) {
         self.drain_control();
         let class = send_class(datagram);
@@ -3376,6 +3401,7 @@ mod tests {
                 path: watch::channel(LinkPath::NoPath).0,
                 route_to: Arc::new(watch::channel(None).0),
                 control,
+                relay_shared: Default::default(),
             },
             &DialOptions::default(),
         );
@@ -3432,6 +3458,7 @@ mod tests {
                 path: watch::channel(LinkPath::NoPath).0,
                 route_to: Arc::new(watch::channel(None).0),
                 control,
+                relay_shared: Default::default(),
             },
             &DialOptions::default(),
         );
@@ -3753,6 +3780,49 @@ mod tests {
         assert_eq!(replay, (first..SENT).collect::<Vec<_>>(), "the newest, oldest first: {order:?}");
         assert!(replay.len() * SIZE <= REPLAY_BYTES, "{} bytes replayed at once", replay.len() * SIZE);
         assert!(replay.len() * SIZE + SIZE > REPLAY_BYTES, "as many as fit: {replay:?}");
+    }
+
+    /// A route change's replay also tells the tunnel's TCP the path changed
+    /// ([`DialOptions::path_resend`]), once, so it resends its
+    /// unacknowledged tail with its retransmit timer reset. Off, the tunnel
+    /// hears nothing (today's behavior).
+    #[tokio::test]
+    async fn a_replay_on_a_new_route_tells_the_tunnel_the_path_changed() {
+        for path_resend in [false, true] {
+            let old_relay = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+            let new_relay = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+            let (old, new) = (old_relay.local_addr().unwrap(), new_relay.local_addr().unwrap());
+            let (reach_out, _reaches) = mpsc::unbounded_channel();
+            let (_control, control) = mpsc::unbounded_channel();
+            let mut underlay = HybridUnderlay::new(
+                UnderlaySpec {
+                    socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                    peer_endpoints: &[old.to_string()],
+                    peer_relayed: &[],
+                    peer_relayed_tls: &[],
+                    peer_version: WG_VERSION,
+                    turn: None,
+                    reach_out,
+                    path: watch::channel(LinkPath::NoPath).0,
+                    route_to: Arc::new(watch::channel(None).0),
+                    control,
+                    relay_shared: Default::default(),
+                },
+                &DialOptions { path_resend, ..DialOptions::default() },
+            );
+            underlay.socket.writable().await.unwrap();
+            let udp_from = |addr| Origin { path: UDP_PATH, addr: Some(addr) };
+            underlay.authenticated(udp_from(old));
+            let mut datagram = vec![7u8; 200];
+            datagram[..4].copy_from_slice(&[4, 0, 0, 0]);
+            underlay.send(&datagram);
+            assert!(!underlay.take_path_change(), "no route change yet");
+            // The peer roamed: its datagrams come from a new address.
+            underlay.authenticated(udp_from(new));
+            assert_eq!(underlay.direct, Some(Route { carrier: Carrier::Udp, addr: new }));
+            assert_eq!(underlay.take_path_change(), path_resend, "path_resend {path_resend}");
+            assert!(!underlay.take_path_change(), "told once");
+        }
     }
 
     /// The roam's new TURN allocation can get the old one's relayed address
