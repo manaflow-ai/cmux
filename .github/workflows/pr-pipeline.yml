@@ -512,6 +512,8 @@ jobs:
           CMUX_FAST_CACHE_MATCHED_KEY: ${{ steps.fast-cache-restore.outputs.cache-matched-key }}
           # `0` runs every fast tier suite on the pull request again, not only the ones the change reaches.
           CI_FAST_TIER_PR_SCOPE: ${{ vars.CI_FAST_TIER_PR_SCOPE || '1' }}
+          # tooling-tests-1..4 leave a step only a wide reach selects to the post-merge batch, as the job does.
+          CI_TOOLING_TESTS_PR_SCOPE: ${{ vars.CI_TOOLING_TESTS_PR_SCOPE || '1' }}
           # `1` takes the fast tier's Swift test bundles from the fleet job that built them for this commit
           # (scripts/ci/fleet-test-products.py); with none this Mac builds them. Off unless set.
           CMUX_SWIFT_TEST_PRODUCTS: ${{ vars.CI_FAST_TIER_PRODUCTS_FLEET == '1' && 'fleet' || 'build' }}
