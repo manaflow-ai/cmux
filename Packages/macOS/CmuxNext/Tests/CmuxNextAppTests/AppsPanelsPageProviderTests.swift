@@ -198,6 +198,24 @@ import Testing
         #expect(transport.mounts.last?.interface == "cmux.newtab/1")
     }
 
+    /// `cmux customize use` loads the app in the daemon, then a New Tab opens at once: the page's mount
+    /// can arrive before the `apps-changed` list lands. It lists again and mounts instead of refusing,
+    /// since a refused New Tab page draws cmux's own page for the rest of its life.
+    @Test func newTabMountsAnAppTheDaemonLoadedBeforeTheMirrorHeard() async throws {
+        let transport = FakePanelsTransport(manifest: FakePanelsTransport.everySurface())
+        transport.listed = false
+        let client = try await Self.listedClient(transport)
+        #expect(client.app("local/customize") == nil)
+        transport.listed = true
+        let provider = AppsPanelsPageProvider(client: client)
+        #expect(try await Self.mount(provider, surface: "newTab")["mount_id"] != nil)
+        await client.tail?.value
+        #expect(transport.mounts.last?.interface == "cmux.newtab/1")
+
+        // An app the daemon still does not list is refused after that one list.
+        await #expect(throws: PageError.self) { try await Self.mount(provider, surface: "newTab", app: "local/missing") }
+    }
+
     /// A widget tile mounts only for a visible app that implements `cmux.widget/1`, with the page's
     /// `{place, size, instance}` (and `preview` for the Add Widget gallery) passed to the daemon.
     @Test func widgetMountsOnlyAVisibleAppThatImplementsIt() async throws {
@@ -443,6 +461,9 @@ private final class FakePanelsTransport: AppsTransport {
 
     /// The listed app is hidden (Settings > Apps > Hide): it shows on no surface.
     var hidden = false
+    /// The daemon lists the app; false: it has not loaded it yet.
+    var listed = true
+    private var listRevision: UInt64 = 0
 
     init(manifest: AppJSON = FakePanelsTransport.sessionInfo, bundleDirectory: String? = nil) {
         self.manifest = manifest
@@ -479,7 +500,8 @@ private final class FakePanelsTransport: AppsTransport {
     func list() async throws(AppsTransportError) -> AppsListReply {
         var record: [String: AppJSON] = ["id": manifest["id"] ?? "local/customize", "installed": true, "hidden": .bool(hidden), "manifest": manifest]
         if let bundleDirectory { record["bundle_dir"] = .string(bundleDirectory) }
-        return AppsListReply(revision: 1, apps: [AppRecord(json: .object(record))].compactMap { $0 })
+        listRevision += 1
+        return AppsListReply(revision: listRevision, apps: listed ? [AppRecord(json: .object(record))].compactMap { $0 } : [])
     }
     func sessionInfoPanels() async throws(AppsTransportError) -> [AppSessionInfoPanel] {
         [AppSessionInfoPanel(json: ["app": "local/customize", "section": "prs", "title": "PRs"])].compactMap { $0 }

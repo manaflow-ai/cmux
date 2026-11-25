@@ -4,6 +4,7 @@
     "bench/composer-arms.ts": "servePane builds the pane by default and serves a dev server only for --dev; its callers (composer-typing) check which React the page loaded.",
     "bench/delta-renders.bench.ts": "counts renders, not milliseconds, and the built pane page never installs the debug hooks it drives (cmuxAcpmuxDebug): it serves the pane's dev server and labels its numbers dev.",
     "bench/permission-card-estimates.ts": "the gallery frame's warmup needs a dev server (test/support/galleryFrame.ts); it measures drawn heights, not frame cost, and labels its output build=dev.",
+    "bench/session-scale-typing.bench.ts": "asks Vite for production mode on a dev server (NODE_ENV and mode: production) so its profile names source lines, drives the mock's cmuxAcpmuxDebug hooks the built page lacks, and checks the bundle the page loaded (requireProductionReact).",
     "bench/support/benchPage.ts": "the helper itself: the one place that may serve a dev server, and only for --dev.",
     "bench/update-one.bench.ts": "asks Vite for production mode on a dev server (NODE_ENV and mode: production), and checks the bundle the page loaded.",
     "bench/wheel-tick-scaling.bench.ts": "serves with mode: production unless CMUX_TICK_DEV=1, and checks the bundle the page loaded."

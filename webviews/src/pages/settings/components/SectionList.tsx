@@ -17,6 +17,8 @@ import type { SettingsState } from "../store";
 import { managedOf } from "../store";
 import { t, text } from "../strings";
 import { harnessesNeedAttention } from "../harnesses";
+import { isExperimentalCategory, useBetaChips } from "../betaChips";
+import { BetaChip } from "./BetaChip";
 import { followScrollEdges } from "../../../ui/scrollEdges";
 import { followStripWheel, revealInStrip } from "./sectionStrip";
 
@@ -111,6 +113,7 @@ const SectionLink = createLink(function SectionAnchor({
  * David Beyer 2026-11-20: Settings felt overwhelming), each opening its categories while shown. */
 export function SectionList({ current, onSelect }: { current: string | null; onSelect: (section: string) => void }) {
   const state = useSettingsState();
+  const betaChips = useBetaChips();
   // A narrow pane's strip (sectionStrip.ts): its edges fade where categories are past them, a wheel
   // scrolls it sideways, and the shown category scrolls into view.
   const strip = useRef<HTMLElement | null>(null);
@@ -161,6 +164,7 @@ export function SectionList({ current, onSelect }: { current: string | null; onS
         <span className="section-name">
           {pageLink && page.section.title ? text(page.section.title) : text(category.title)}
         </span>
+        {betaChips && isExperimentalCategory(category.id) && <BetaChip />}
         {mark && (
           <span className={`badge badge-${mark}`} data-badge={mark}>
             <Icon name={mark} />

@@ -625,22 +625,44 @@ impl Hub {
     /// The mode a new chat on `session` starts in (module docs), or `None`
     /// to keep the harness's own.
     pub(super) async fn start_mode(&self, session: &Session) -> Option<String> {
-        let meta = session.meta();
-        let offered = available(&meta);
+        self.start_mode_of(&session.meta()).await
+    }
+
+    /// The start mode a fresh Claude Code chat on `session` spawns in (`--permission-mode`), by
+    /// the rules of `start_mode` over Claude Code's own mode list (`claude_stdio::MODES`), or
+    /// `None` when it has a mode already or keeps Claude Code's own. Set after the spawn, the
+    /// mode was a `set_permission_mode` that Claude Code answers only once it has booted: every
+    /// full-access start (a Cloud chat's) waited that boot out in `session/new` (849 to 958 ms
+    /// on a Linux lane VM, where an asking start, spawned in its mode, took 114 to 145 ms).
+    pub(super) async fn claude_spawn_start_mode(&self, session: &Session) -> Option<String> {
+        let mut meta = session.meta();
+        if crate::web_modes::mode_of(&meta).is_some() {
+            return None;
+        }
+        let modes: Vec<Value> = crate::claude_stdio::MODES
+            .iter()
+            .map(|(id, ..)| serde_json::json!({"id": id}))
+            .collect();
+        meta.modes = Some(serde_json::json!({ "availableModes": modes }));
+        self.start_mode_of(&meta).await
+    }
+
+    async fn start_mode_of(&self, meta: &crate::store::SessionMeta) -> Option<String> {
+        let offered = available(meta);
         if offered.is_empty() {
             return None;
         }
         // A chat with its own policy narrower than approve-all runs in the mode that keeps it
         // (`policy_mode.rs`), never in the start level.
         let default = self.config.read().await.permission_policy;
-        let mode = match Self::mode_for_policy(&meta, &offered, default) {
+        let mode = match Self::mode_for_policy(meta, &offered, default) {
             Some(mode) => mode,
             None => {
                 let (level, _) = self.start_level(&meta.harness).await;
-                mode_for(level, &crate::web_modes::family_of(&meta), &offered)
+                mode_for(level, &crate::web_modes::family_of(meta), &offered)
             }
         };
-        mode.filter(|m| crate::web_modes::mode_of(&meta).as_deref() != Some(m.as_str()))
+        mode.filter(|m| crate::web_modes::mode_of(meta).as_deref() != Some(m.as_str()))
     }
 
     /// `start_mode` for a chat an agent started: at its starter's level (module docs, "Inherit"),
@@ -849,7 +871,7 @@ impl Hub {
         if Self::host_record_live(&session.id) {
             self.end_unadopted_host(session).await;
         }
-        self.set_status(session, SessionStatus::Idle);
+        self.set_status(session, NotWaiting::Idle);
         self.append(session, "mux", event, record);
     }
 

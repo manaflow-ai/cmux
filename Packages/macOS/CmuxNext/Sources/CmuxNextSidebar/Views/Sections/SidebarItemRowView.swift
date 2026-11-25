@@ -206,7 +206,7 @@ class SidebarItemRowView: NSView {
         setAccessibilityValue(value.isEmpty ? nil : value)
         // An icon names itself (and its shortcut) in its tooltip; an item that shows its title has none (a1315's
         // cut 2). The profile control draws no name, so its tooltip says who it is: the email.
-        themedToolTip = info.avatar?.toolTip ?? (style.isIconOnly ? info.toolTip : nil)
+        themedToolTip = info.avatar?.toolTip ?? info.tooltip ?? (style.isIconOnly ? info.toolTip : nil)
         setAccessibilityLabel(info.accessibilityTitle ?? info.title)
         applyAvatar()
         setAccessibilitySelected(info.isActive || info.isSecondarySelected)

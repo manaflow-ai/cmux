@@ -16,6 +16,8 @@ Usage: hint-mode-e2e.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock [--out 
 Exit status 0 when every check passes.
 """
 import argparse, json, os, socket, sys, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the tagged app's debug socket")
@@ -88,9 +90,21 @@ def cmd_j():
 
 
 def new_workspace():
+    before = focused_workspace()
     print("new workspace:", json.dumps(rpc("action.run", {"action": "workspace.newAtBottom", "focus": True}))[:200], flush=True)
-    time.sleep(1.5)  # test harness: the workspace shows and its terminal takes focus
+    # The workspace shows (the focused workspace changes) and its terminal takes focus (the focus stops changing).
+    if not wait(lambda: focused_workspace() not in (None, before), 10):
+        print("new workspace: the focused workspace did not change within 10 s", flush=True)
+    wait_stable(lambda: topology().get("focus"), "the new workspace's focus", timeout=10, interval=0.1,
+                raise_on_timeout=False)
     return focused_workspace()
+
+
+def set_preview(value):
+    """Sets labs.previewFeatures and waits until the settings snapshot reports it."""
+    rpc("settings.set", {"path": "labs.previewFeatures", "value": value})
+    wait_until(lambda: (rpc("settings.get", {"path": "labs.previewFeatures"}) or {}).get("value") is value,
+               f"labs.previewFeatures to read {value}", timeout=10, interval=0.1)
 
 
 def prefix_free(labels):
@@ -104,11 +118,11 @@ def checks():
     print("workspaces:", first, name, "->", second, flush=True)
 
     # Off by default: the action is unavailable and Cmd-J labels nothing.
-    rpc("settings.set", {"path": "labs.previewFeatures", "value": False})
-    time.sleep(0.5)  # test harness: the settings snapshot reloads
+    set_preview(False)
     ran = rpc("action.run", {"action": "hints.show", "origin": "script"})
     cmd_j()
-    time.sleep(0.5)  # test harness: hint mode would have started
+    # sleep-ok: an observation window: hint mode must not start within it (nothing to wait on when it is right).
+    time.sleep(0.5)
     off = hints()
     rpc("debug.key", {"key": "Escape", "modifiers": []})
     row("Hint mode is off without preview features", "hints.show unavailable; Cmd-J F shows no labels",
@@ -116,8 +130,7 @@ def checks():
         isinstance(ran, dict) and "error" in ran and not off.get("active"))
 
     # On: Cmd-J F labels the window's controls.
-    rpc("settings.set", {"path": "labs.previewFeatures", "value": True})
-    time.sleep(0.5)  # test harness: the settings snapshot reloads
+    set_preview(True)
     cmd_j()
     shown = wait(lambda: (lambda h: h if h.get("active") and h.get("hints") else None)(hints()), 5) or hints()
     labels = [h.get("label") for h in shown.get("hints") or []]

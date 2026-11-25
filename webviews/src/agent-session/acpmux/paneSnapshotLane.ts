@@ -59,6 +59,13 @@ export function drawsAtOnce(drawn: AcpmuxSnapshot | undefined, next: AcpmuxSnaps
   if (!sameList(drawn.waitingSteers, next.waitingSteers) || drawn.newestOwnSteer !== next.newestOwnSteer) return true;
   // A stop the person asked for.
   if (drawn.stopping !== next.stopping) return true;
+  // Older history the reader scrolled up to: a page that landed above the first row, or what the transcript
+  // sizes the room above the rows from (the prompt counts, whether more is left). The reader is scrolling while
+  // it lands, and each scroll frame's urgent render restarted a pending transition, so a dragged scroll drew
+  // none of the page until it stopped: 15 to 28 blank frames a drag where #45749 had 0
+  // (bench/transcript-scroll-up.bench.ts MODE=drag; Leo, 2026-11-22: "scrolling.. bit of blank screening
+  // when the content loads").
+  if (olderHistoryMoved(drawn, next)) return true;
   // The turn starts or ends, or the link goes up or down: the composer's Send and Stop and the
   // line above it follow the turn's phase, and a deferred phase lets the composer's own state move
   // its buttons a frame before the snapshot that matches them (agentStart.gallery.ts slow-start).
@@ -68,6 +75,18 @@ export function drawsAtOnce(drawn: AcpmuxSnapshot | undefined, next: AcpmuxSnaps
   // snapshot, so a deferred echo would flash the old value (agent-pane-picks-hold.test.ts).
   if (!samePicks(drawn.summary, next.summary)) return true;
   return false;
+}
+
+/// Whether `next` changes the history above the rows: a new first row (a page prepended, or the oldest let
+/// go), more or less left to load, or the counts the room above the rows is sized from. O(1).
+function olderHistoryMoved(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot): boolean {
+  return (
+    drawn.rows[0]?.id !== next.rows[0]?.id ||
+    drawn.canLoadOlder !== next.canLoadOlder ||
+    drawn.historyFrom !== next.historyFrom ||
+    drawn.promptCount !== next.promptCount ||
+    (drawn.earlierPrompts?.length ?? 0) !== (next.earlierPrompts?.length ?? 0)
+  );
 }
 
 type Summary = AcpmuxSnapshot["summary"];

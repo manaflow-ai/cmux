@@ -1,4 +1,7 @@
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 public import Observation
 
 /// The signed-in user's devices as this app sees them: who is online, who
@@ -78,6 +81,7 @@ public final class DeviceHub {
         self.now = now
     }
 
+    #if canImport(Security)
     /// The app's hub: its Secure Enclave identity under `<bundleIdentifier>.device-hub`
     /// (loaded off the main thread, renewed when the hub refuses it), relay secrets
     /// in the same Keychain service, and `tokens` for the account (CloudAuth's access token).
@@ -88,6 +92,7 @@ public final class DeviceHub {
                          secrets: KeychainRelaySecretStore(bundleIdentifier: bundleIdentifier), deviceName: deviceName,
                          platform: platform, renewIdentity: { try DeviceIdentity.renew(bundleIdentifier: bundleIdentifier) })
     }
+    #endif
 
     /// Runs `load` off the main thread: the file Keychain and Secure Enclave
     /// calls behind an identity took 8-20 s on some Macs (H7).
@@ -323,6 +328,11 @@ public final class DeviceHub {
     public func setMacScreenShared(_ shared: Bool) async throws {
         let device = try await perform { try await $0.setMacScreenShared(shared) }
         replace(device)
+    }
+
+    /// Carries a signed share approval to `target` (``DeviceHubClient/sendShareApproval(target:approvalJSON:)``).
+    public func sendShareApproval(target: String, approvalJSON: String) async throws {
+        try await perform { try await $0.sendShareApproval(target: target, approvalJSON: approvalJSON) }
     }
 
     public func setPermission(host: String, viewer: String, scope: DeviceScope) async throws {

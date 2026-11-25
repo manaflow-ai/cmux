@@ -39,17 +39,12 @@ fn decision(line: &Value) -> Option<&str> {
 #[tokio::test]
 async fn the_backend_reports_its_gate_in_its_agent_info() {
     let t = Translator::new("acp-1".into(), "auto", "haiku", "default");
-    let out = t
-        .inbound(&json!({"type": "control_response", "response": {"subtype": "success",
-            "request_id": "init-1", "response": {"commands": [], "version": "2.1.319"}}}))
-        .await;
-    let info = out
-        .iter()
-        .find_map(|m| match m {
-            Message::Response { result: Some(r), .. } => r.get("agentInfo").cloned(),
-            _ => None,
-        })
-        .expect("the initialize answer");
+    let Outbound::LinesThenReply(_, Message::Response { result: Some(answer), .. }) =
+        t.outbound(&Message::request(1, method::INITIALIZE, json!({}))).await
+    else {
+        panic!("the initialize answer");
+    };
+    let info = answer["agentInfo"].clone();
     assert_eq!(has_tool_gate(Some(&info)), cfg!(unix), "{info}");
     assert!(!has_tool_gate(Some(&json!({"name": AGENT_NAME, "title": "Claude Code"}))));
 }
@@ -135,4 +130,51 @@ fn the_gate_is_registered_for_every_tool_and_fails_closed() {
     assert_eq!(gate["matcher"], "*");
     assert_eq!(gate["onFailure"], "block");
     assert_eq!(gate["timeout"], policy_gate::GATE_TIMEOUT_S);
+}
+
+/// A hybrid start's call routed to its Cloud machine: the hub's `updatedInput` reaches Claude
+/// Code with the allow, on the one answer the call gets (`hub/hybrid_hold.rs`).
+#[tokio::test]
+async fn an_allow_with_updated_input_rewrites_the_call_once() {
+    let t = Translator::new("acp-1".into(), "auto", "haiku", "default");
+    let (id, _) = asked(&t, &hook("h1", "Bash", json!({"command": "ls"}))).await.unwrap();
+    let input = json!({"command": "cmux vm exec 'vm-1' -- bash -lc 'ls'"});
+    let answer = json!({"decision": "allow", "reason": "on the machine", "updatedInput": input});
+    let lines = answered(&t, id.clone(), Ok(answer)).await;
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert_eq!(decision(&lines[0]), Some("allow"));
+    assert_eq!(
+        lines[0].pointer("/response/response/hookSpecificOutput/updatedInput"),
+        Some(&input)
+    );
+    // The same answer again is no second reply: the call was answered once.
+    let again = match t.outbound(&Message::ok(id, json!({"decision": "allow"}))).await {
+        Outbound::Lines(lines) | Outbound::LinesThenReply(lines, _) => lines,
+        Outbound::Reply(_) => Vec::new(),
+    };
+    assert!(!again.iter().any(|line| line["response"]["request_id"] == "h1"), "{again:?}");
+    // Beside ask, the person is asked about the command as it will run.
+    let (id, _) = asked(&t, &hook("h2", "Bash", json!({"command": "ls"}))).await.unwrap();
+    let lines =
+        answered(&t, id, Ok(json!({"decision": "ask", "updatedInput": {"command": "x"}}))).await;
+    assert_eq!(decision(&lines[0]), Some("ask"));
+    assert_eq!(
+        lines[0].pointer("/response/response/hookSpecificOutput/updatedInput"),
+        Some(&json!({"command": "x"}))
+    );
+    // Beside no decision, the rewrite goes on with no decision: it never approves the call.
+    let (id, _) = asked(&t, &hook("h3", "Bash", json!({"command": "ls"}))).await.unwrap();
+    let lines =
+        answered(&t, id, Ok(json!({"decision": "none", "updatedInput": {"command": "x"}}))).await;
+    assert_eq!(decision(&lines[0]), None);
+    assert_eq!(
+        lines[0].pointer("/response/response/hookSpecificOutput/updatedInput"),
+        Some(&json!({"command": "x"}))
+    );
+    // Beside a deny, nothing is rewritten.
+    let (id, _) = asked(&t, &hook("h4", "Bash", json!({"command": "ls"}))).await.unwrap();
+    let lines =
+        answered(&t, id, Ok(json!({"decision": "deny", "updatedInput": {"command": "x"}}))).await;
+    assert_eq!(decision(&lines[0]), Some("deny"));
+    assert_eq!(lines[0].pointer("/response/response/hookSpecificOutput/updatedInput"), None);
 }

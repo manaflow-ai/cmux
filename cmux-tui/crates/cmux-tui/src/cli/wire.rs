@@ -159,6 +159,7 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
         &mut plan,
         &mut request,
         &mut reader,
+        &socket,
         caller_route,
         &key_report,
     ) {
@@ -503,6 +504,8 @@ pub(super) fn response_read_timeout(
                 | cmux_tui_core::resource::ResourceOperation::GitWorktreeCreate
                 | cmux_tui_core::resource::ResourceOperation::GitWorktreeApply
                 | cmux_tui_core::resource::ResourceOperation::GitWorktreeRemove
+                | cmux_tui_core::resource::ResourceOperation::GitReviewStart
+                | cmux_tui_core::resource::ResourceOperation::GitReviewComment
         )
     ) {
         return Some(Duration::from_secs(200));

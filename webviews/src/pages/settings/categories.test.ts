@@ -29,8 +29,10 @@ test("every page row has exactly one home", () => {
 // Settings felt overwhelming; Leo 2026-11-22: "ay, fuck it we ball"), each opening on its first.
 test("the categories are the approved ones, in order", () => {
   expect(categories.map((category) => category.id)).toEqual([
-    // General: the app itself, what it tells you, its updates, the New Tab page and menus.
+    // General: the app itself, every customization one click away (Leo 2026-11-22), what it tells
+    // you, its updates, the New Tab page and menus.
     "general",
+    "customize",
     "notifications",
     "updates",
     "newTab",
@@ -41,12 +43,15 @@ test("the categories are the approved ones, in order", () => {
     "appearance",
     "sidebar",
     "tabs",
-    // AI: the chat, agents, Chief, models, computer use and MCP servers.
+    // AI: the chat, agents, Chief, models, automations, computer use and MCP servers.
     "chat",
     "agents",
     "chief",
     // Settings > Models: which subscription or key each Cloud thread runs on (model-connections.md).
     "models",
+    // Settings > Automations: cloud automations, what sets an agent off and what it does (Leo
+    // 2026-11-24: "having people be able to set up their own conditions for when autocloud will go off").
+    "automations",
     "computerUse",
     // Settings > MCP Servers: the services agents use for the person (user 2026-11-18).
     "mcpServers",
@@ -59,14 +64,19 @@ test("the categories are the approved ones, in order", () => {
     "cloud",
     // Keys: the keys agents keep and ask the person for (design/settings-keys.md).
     "keys",
+    // Integrations: the integrations hub, linked accounts agents act through (Leo 2026-11-23: "an
+    // aggregator of integrations. linking up things like e.g. stripe so that your agents can refund for you").
+    "integrations",
     "import",
     "privacy",
     "keyboard",
-    // Advanced: the app's internals, then the terminal, editor and browser engines.
+    // Advanced: the app's internals, the terminal, editor and browser engines, and extensions.
     "advanced",
     "terminal",
     "editor",
     "browser",
+    // Settings > Extensions: each installed extension's own declared settings.
+    "extensions",
     "experimental",
     "development",
   ]);

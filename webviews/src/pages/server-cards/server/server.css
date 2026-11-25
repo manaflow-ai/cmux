@@ -336,7 +336,7 @@ button.sv-role:focus-visible {
 /* Boxes: the dashboard's roles, the pairing box, Health's summary alerts, the candidate's facts. */
 .sv-box,
 .sv-role {
-  border: 0.5px solid var(--page-separator);
+  border: var(--cmux-hairline, 0.5px) solid var(--page-separator);
   border-radius: 8px;
   background: var(--page-elevated);
 }
@@ -576,7 +576,7 @@ button.sv-role:focus-visible {
   width: 100%;
   height: 28px;
   padding: 0 var(--ds-space-3);
-  border: 0.5px solid var(--page-separator);
+  border: var(--cmux-hairline, 0.5px) solid var(--page-separator);
   border-radius: 6px;
   outline: none;
   background: var(--page-elevated);

@@ -279,11 +279,7 @@ fn a_seed_serves_its_blobs_and_nothing_else() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     std::thread::spawn(move || {
-        serve_on(
-            &git_dir,
-            listener,
-            &SeedLimits { load_per_core: f64::MAX, ..SeedLimits::default() },
-        );
+        serve_on(&git_dir, listener, &test_limits());
     });
     let http = Http::new().unwrap();
     let base = format!("http://{addr}");
@@ -303,4 +299,211 @@ fn a_seed_serves_its_blobs_and_nothing_else() {
     let (rest, filled) = chain.fill(&[HELLO.to_owned(), EMPTY.to_owned()], &|_, _| Ok(()));
     assert_eq!(rest, vec![EMPTY.to_owned()]);
     assert_eq!(filled.ssd, 1);
+}
+
+/// Limits a test seed never trips by itself: no load cutoff.
+fn test_limits() -> SeedLimits {
+    SeedLimits { load_per_core: f64::MAX, ..SeedLimits::default() }
+}
+
+/// A bare mirror holding `hello\n`, or `None` where this host has no git.
+fn mirror(dir: &Path) -> Option<PathBuf> {
+    let git_dir = dir.join("m.git");
+    let init =
+        std::process::Command::new("git").args(["init", "-q", "--bare"]).arg(&git_dir).status();
+    if !init.is_ok_and(|status| status.success()) {
+        return None;
+    }
+    write_loose(&git_dir, HELLO, b"hello\n").unwrap();
+    Some(git_dir)
+}
+
+/// A seed on a fresh loopback port, serving `git_dir` until the test process ends.
+fn start_seed(git_dir: PathBuf, limits: SeedLimits) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || serve_on(&git_dir, listener, &limits));
+    base
+}
+
+/// A one-shot server that reads one request and writes `answer` raw, then closes.
+fn raw_server(answer: Vec<u8>) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut buf = [0; 4096];
+            let _ = stream.read(&mut buf);
+            let _ = stream.write_all(&answer);
+        }
+    });
+    base
+}
+
+#[test]
+fn a_peer_streams_a_whole_batch_in_one_request() {
+    let dir = tempfile::tempdir().unwrap();
+    let Some(git_dir) = mirror(dir.path()) else { return };
+    let base = start_seed(git_dir, test_limits());
+    let mut got = Vec::new();
+    let answer = batch_request(
+        &base,
+        &[HELLO.to_owned(), EMPTY.to_owned(), "not-an-id".to_owned()],
+        Duration::from_secs(2),
+        &mut |oid, bytes| {
+            got.push((oid.to_owned(), bytes));
+            true
+        },
+    );
+    assert_eq!(answer, BatchAnswer::Streamed);
+    assert_eq!(got, vec![(HELLO.to_owned(), b"hello\n".to_vec())]);
+    // Through the chain: the peer's stream fills HELLO; EMPTY, which it lacks, goes to git.
+    let chain = Chain::new(vec![remote("peer", &base)], Box::new(Http::new().unwrap()));
+    let kept = Mutex::new(Vec::new());
+    let (rest, filled) = chain.fill(&[HELLO.to_owned(), EMPTY.to_owned()], &|oid, _| {
+        kept.lock().unwrap().push(oid.to_owned());
+        Ok(())
+    });
+    assert_eq!(rest, vec![EMPTY.to_owned()]);
+    assert_eq!(filled.peer, 1);
+    assert_eq!(*kept.lock().unwrap(), vec![HELLO.to_owned()]);
+}
+
+#[test]
+fn a_tampered_batch_is_refused_and_the_next_source_asked() {
+    let mut tampered = b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n".to_vec();
+    tampered.extend_from_slice(format!("{HELLO} 8\ntampered").as_bytes());
+    let liar = raw_server(tampered);
+    let fake = Arc::new(Fake::new(&[(&format!("http://r2/objects/{HELLO}"), b"hello\n")]));
+    // The liar is a real socket, so the chain's batch goes over the network: wrap Fake's GETs
+    // and the real batch client in one Get.
+    struct Both(Arc<Fake>);
+    impl Get for Both {
+        fn get(&self, url: &str, token: Option<&str>, deadline: Duration) -> Answer {
+            self.0.get(url, token, deadline)
+        }
+        fn batch(
+            &self,
+            base: &str,
+            ids: &[String],
+            first_byte: Duration,
+            each: &mut dyn FnMut(&str, Vec<u8>) -> bool,
+        ) -> BatchAnswer {
+            batch_request(base, ids, first_byte, each)
+        }
+    }
+    let chain =
+        Chain::new(vec![remote("peer", &liar), remote("r2", "http://r2")], Box::new(Both(fake)));
+    let (rest, filled) = chain.fill(&[HELLO.to_owned()], &|_, _| Ok(()));
+    assert!(rest.is_empty());
+    assert_eq!((filled.peer, filled.r2, filled.rejected), (0, 1, 1));
+}
+
+#[test]
+fn a_seed_without_batches_is_asked_per_blob() {
+    // What an older seed answers a POST.
+    let old = raw_server(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n".to_vec());
+    let answer = batch_request(&old, &[HELLO.to_owned()], Duration::from_secs(2), &mut |_, _| true);
+    assert_eq!(answer, BatchAnswer::Unsupported);
+    let busy =
+        raw_server(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n".to_vec());
+    let answer =
+        batch_request(&busy, &[HELLO.to_owned()], Duration::from_secs(2), &mut |_, _| true);
+    assert_eq!(answer, BatchAnswer::Busy);
+    assert_eq!(
+        batch_request("https://far", &[HELLO.to_owned()], Duration::from_secs(2), &mut |_, _| true),
+        BatchAnswer::Unsupported
+    );
+}
+
+#[test]
+fn a_peer_slow_to_answer_a_batch_costs_one_short_deadline() {
+    // Accepts and never answers.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        let held: Vec<_> = listener.incoming().take(1).collect();
+        std::thread::park();
+        drop(held);
+    });
+    let start = Instant::now();
+    let answer = batch_request(&base, &[HELLO.to_owned()], BATCH_FIRST_BYTE, &mut |_, _| true);
+    assert_eq!(answer, BatchAnswer::Failed);
+    assert!(start.elapsed() < Duration::from_secs(2), "{:?}", start.elapsed());
+}
+
+#[test]
+fn peers_are_asked_nearest_first() {
+    let fake = Arc::new(Fake::new(&[]));
+    let peers = (0..5).map(|at| remote("peer", &format!("http://p{at}"))).collect();
+    let chain = Chain::new(peers, Box::new(fake.clone()));
+    let _ = chain.fill(&[HELLO.to_owned(), EMPTY.to_owned()], &|_, _| Ok(()));
+    let mut asked = fake.asked.lock().unwrap().clone();
+    asked.sort();
+    // HELLO's id sorts before EMPTY's.
+    let expected: Vec<String> = ["p0", "p1"]
+        .iter()
+        .flat_map(|peer| [HELLO, EMPTY].map(|oid| format!("http://{peer}/objects/{oid}")))
+        .collect();
+    assert_eq!(asked, expected);
+}
+
+#[test]
+fn a_seed_yields_while_a_build_lock_is_held() {
+    let dir = tempfile::tempdir().unwrap();
+    let lock = dir.path().join("build.lock");
+    assert!(!lock_held(&lock), "a missing lock is not held");
+    let file = std::fs::File::create(&lock).unwrap();
+    assert!(!lock_held(&lock), "an unheld lock is not held");
+    let held = cmux_file_lock::FileLock::take(file, cmux_file_lock::Kind::Exclusive).unwrap();
+    assert!(lock_held(&lock));
+    let Some(git_dir) = mirror(dir.path()) else { return };
+    let base = start_seed(git_dir, SeedLimits { yield_locks: vec![lock], ..test_limits() });
+    let http = Http::new().unwrap();
+    let url = format!("{base}/objects/{HELLO}");
+    assert_eq!(http.get(&url, None, Duration::from_secs(2)), Answer::Busy);
+    drop(held);
+}
+
+#[test]
+fn the_collision_detecting_id_matches_git() {
+    // The check is SHA-1 with collision detection (what git ships): a plain blob hashes as git
+    // does, and the detector reports no attack on it.
+    assert_eq!(blob_id(b"hello\n", 40), HELLO);
+    let mut hash = Sha1CD::default();
+    hash.update(b"hello\n");
+    assert!(hash.finalize_cd().is_ok());
+}
+
+#[test]
+fn a_url_index_is_asked_once_a_minute() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("peer-index");
+    let fake = Arc::new(Fake::new(&[("http://controller/v1/seeds", b"http://p0:7480\n")]));
+    let first = peers_in_cached(&fake, "http://controller/v1/seeds", Some(&cache));
+    let second = peers_in_cached(&fake, "http://controller/v1/seeds", Some(&cache));
+    assert_eq!(first, vec![remote("peer", "http://p0:7480")]);
+    assert_eq!(second, first);
+    assert_eq!(fake.asked.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn a_heartbeat_names_the_packs_and_tips_it_holds() {
+    let dir = tempfile::tempdir().unwrap();
+    let Some(git_dir) = mirror(dir.path()) else { return };
+    std::fs::create_dir_all(git_dir.join("objects/pack")).unwrap();
+    std::fs::write(git_dir.join("objects/pack/pack-abc.pack"), b"").unwrap();
+    std::fs::write(git_dir.join("objects/pack/pack-abc.idx"), b"").unwrap();
+    let beat = beat_repo(&git_dir, "manaflow-ai/cmux");
+    assert_eq!(beat.packs, vec!["pack-abc".to_owned()]);
+    assert!(beat.tips.is_empty(), "no branches yet");
+    let json = serde_json::to_value(Beat {
+        host: "h".into(),
+        seed_url: "http://10.0.0.1:7480".into(),
+        zone: "us-west1-c".into(),
+        repos: vec![beat],
+    })
+    .unwrap();
+    assert_eq!(json["repos"][0]["repo"], "manaflow-ai/cmux");
 }

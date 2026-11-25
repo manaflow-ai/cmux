@@ -125,6 +125,16 @@ pub struct Theme {
     /// `background-opacity` with `appearance.backgroundOpacity` over it, 0...1.
     #[serde(default = "opaque")]
     pub background_opacity: f64,
+    /// `background-blur` with `appearance.backgroundBlur` over it, as the Mac resolved it, in
+    /// Ghostty's encoding: 0 none, a radius in points, -1 regular Liquid Glass, -2 clear Liquid
+    /// Glass. The phone blurs the wallpaper by it. 0 from a Mac that predates it.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub background_blur: i32,
+}
+
+/// No blur: the frame leaves the field out, as before it existed.
+fn is_zero(value: &i32) -> bool {
+    *value == 0
 }
 
 // JSON has no NaN, and `sanitize` drops any non-finite value: equality is total here.
@@ -381,7 +391,16 @@ pub fn sanitize(theme: Theme) -> Option<Theme> {
         accent: if ACCENTS.contains(&theme.accent.as_str()) { theme.accent } else { neutral() },
         accent_color: optional(theme.accent_color),
         background_opacity: unit(theme.background_opacity)?,
+        background_blur: blur(theme.background_blur),
     })
+}
+
+/// The largest blur radius kept, in points (Ghostty's blur is far below it).
+const MAX_BLUR: i32 = 200;
+
+/// `background_blur` when it is a radius up to ``MAX_BLUR`` or a glass (-1, -2), else none (0).
+fn blur(value: i32) -> i32 {
+    if (-2..=MAX_BLUR).contains(&value) { value } else { 0 }
 }
 
 /// The text of `value` when it is one of `known`.
@@ -500,6 +519,18 @@ pub fn publish(current: Current) {
         if now.as_ref() == Some(&current) {
             return false;
         }
+        // One line per change phones hear, so a run times this hop of a theme change
+        // (scripts/ci/cmux_next_pair_e2e.py's theme-file leg reads it from the hostd log).
+        let terminal_background = current
+            .terminal
+            .as_ref()
+            .and_then(|lines| lines.iter().rev().find_map(|line| line.strip_prefix("background = ")))
+            .unwrap_or("none");
+        tracing::info!(
+            background = %current.theme.background,
+            terminal_background = %terminal_background,
+            "appearance: published a changed appearance"
+        );
         *now = Some(current);
         true
     });
@@ -510,16 +541,37 @@ pub fn subscribe() -> watch::Receiver<Option<Current>> {
     current_sender().subscribe()
 }
 
+/// A short identity of a sent appearance frame: the first 12 hex digits of its SHA-256, so two
+/// log lines with the same `theme` carried the same bytes.
+pub fn frame_identity(frame: &[u8]) -> String {
+    Sha256::digest(frame).iter().take(6).map(|b| format!("{b:02x}")).collect()
+}
+
 /// The `appearance` service: the message now and on each change, until the phone closes it.
-pub async fn serve(sender: &ChannelSender, mut receiver: ChannelReceiver) -> Result<(), Refusal> {
+/// Each frame sent logs one line (device, theme identity, background, bytes), so the Mac's log
+/// says whether and which theme a phone got.
+pub async fn serve(
+    sender: &ChannelSender,
+    mut receiver: ChannelReceiver,
+    device: &str,
+) -> Result<(), Refusal> {
     let mut current = subscribe();
+    if current.borrow().is_none() {
+        tracing::info!(device, "appearance not known yet: nothing sent until the app sends one");
+    }
     loop {
-        let message = current.borrow_and_update().as_ref().map(Current::message);
+        let message = current
+            .borrow_and_update()
+            .as_ref()
+            .map(|current| (current.message().to_string(), current.theme.background.clone()));
         // Not known yet: nothing is sent until the app's first appearance arrives.
-        if let Some(message) = message
-            && sender.send(Bytes::from(message.to_string())).await.is_err()
-        {
-            return Ok(());
+        if let Some((message, background)) = message {
+            let theme = frame_identity(message.as_bytes());
+            let bytes = message.len();
+            if sender.send(Bytes::from(message)).await.is_err() {
+                return Ok(());
+            }
+            tracing::info!(device, theme, background, bytes, "appearance sent");
         }
         loop {
             tokio::select! {
@@ -575,7 +627,38 @@ mod tests {
             accent: "magenta".into(),
             accent_color: None,
             background_opacity: 0.9,
+            background_blur: 20,
         }
+    }
+
+    #[test]
+    fn sanitize_keeps_the_macs_blur_and_drops_an_impossible_one() {
+        assert_eq!(sanitize(theme()).unwrap().background_blur, 20);
+        for glass in [-1, -2, 0, MAX_BLUR] {
+            let mut t = theme();
+            t.background_blur = glass;
+            assert_eq!(sanitize(t).unwrap().background_blur, glass);
+        }
+        for bad in [-3, MAX_BLUR + 1, i32::MIN] {
+            let mut t = theme();
+            t.background_blur = bad;
+            assert_eq!(sanitize(t).unwrap().background_blur, 0);
+        }
+        // A Mac that predates it sends none: 0.
+        let old: Theme = serde_json::from_value(serde_json::json!({
+            "background": "#000000", "foreground": "#ffffff", "palette": vec!["#000000"; 8]
+        }))
+        .unwrap();
+        assert_eq!(old.background_blur, 0);
+    }
+
+    #[test]
+    fn a_frame_is_named_by_a_short_stable_hash() {
+        let id = frame_identity(b"{\"theme\":1}");
+        assert_eq!(id.len(), 12);
+        assert!(id.bytes().all(|b| b.is_ascii_hexdigit()));
+        assert_eq!(id, frame_identity(b"{\"theme\":1}"));
+        assert_ne!(id, frame_identity(b"{\"theme\":2}"));
     }
 
     #[test]

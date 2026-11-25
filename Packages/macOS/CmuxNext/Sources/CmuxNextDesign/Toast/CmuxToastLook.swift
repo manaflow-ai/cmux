@@ -17,6 +17,9 @@ public nonisolated struct CmuxToastLook: Hashable, Sendable {
     public var glass: CmuxToastGlass?
     /// An opaque surface in the theme's popup fill instead of glass, as under Reduce Transparency.
     public var solid = false
+    /// On ``solid``: the window's background color, the button corner (not the toast role's, which adds the
+    /// padding) and no shadow.
+    public var flat = false
     /// The caption font and tighter padding: one short line.
     public var compact = false
     /// A leading SF Symbol in the tone's color (``CmuxToastTone``; an Undo shows its arrow).
@@ -40,7 +43,9 @@ public nonisolated struct CmuxToastLook: Hashable, Sendable {
     /// How it arrives and leaves.
     public var entrance: CmuxToastEntrance = .rise
     /// A rounded surface's corner (``Corner``); a capsule's is always half its height.
-    public var corner: Corner = .concentric
+    /// Leo 2026-11-24 00:34Z, on the "Option or Shift + drag selects text" hint: "it's a pill and i already told
+    /// you guys to fix this." A one-line toast takes the card corner (12), never the 16 pt concentric one.
+    public var corner: Corner = .points(12)
 
     /// A rounded toast's corner. Its buttons stay concentric inside it (the corner less the padding), as every
     /// container of buttons (``ConcentricContainer``). The Toast Playground's Corner row draws each (Leo,

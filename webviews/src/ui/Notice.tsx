@@ -14,7 +14,8 @@
 // it when it can be dismissed. Native calls forward into the same card through the host's cards
 // (toolCards) rather than drawing their own.
 import { Checkbox } from "@base-ui/react/checkbox";
-import { useId, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useId, type KeyboardEvent, type ReactNode, useRef } from "react";
+import { Spinner } from "../agent-session/acpmux/conversation/Spinner";
 import { Button } from "./Button";
 import { cx } from "./cx";
 import { DismissButton } from "./DismissButton";
@@ -165,6 +166,7 @@ export function Notice({
       ref={card}
       id={id}
       className={cx("ui-notice ui-glass", className)}
+      data-surface-role={kind === "toast" ? "toast" : "card"}
       data-kind={kind}
       data-placement={placement}
       data-state={state}
@@ -274,14 +276,10 @@ function NoticeCheckmark({ label, checked, onCheckedChange, hint }: NoticeCheck)
   );
 }
 
-/** The working mark: a ring on the shared spinner keyframes and clock (spinnerClock.ts). */
+/** The working mark: the one shared spinner (conversation/icons.tsx `Spinner`), turned by its own sheet
+ * on the shared keyframes and clock (spinnerClock.ts). */
 export function NoticeSpinner() {
-  return (
-    <svg className="ui-notice-mark ui-notice-spinner" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-      <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="1.5" />
-      <path d="M8 2a6 6 0 0 1 6 6" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
+  return <Spinner loading size={14} className="ui-notice-mark ui-notice-spinner" />;
 }
 
 /** The kind's small mark: a ring for an error, a triangle for a warning, a dot for an ask, a check

@@ -109,6 +109,8 @@ fn scoped_raw_commands(page: &str) -> &'static [&'static str] {
             "conversation-run",
             "conversation-live",
             "conversation-inbox-op",
+            "conversation-scheduled-list",
+            "conversation-scheduled-op",
             "home-inbox",
             "chief-work",
             "conversation-attachment-upload",
@@ -410,3 +412,7 @@ mod untrusted_mint_tests;
 #[cfg(all(test, unix))]
 #[path = "connection_panic_tests.rs"]
 mod connection_panic_tests;
+
+#[cfg(all(test, unix))]
+#[path = "page_relay_events_tests.rs"]
+mod page_relay_events_tests;

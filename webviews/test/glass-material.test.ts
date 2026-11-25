@@ -173,6 +173,26 @@ await requireBrowserLane("glass-material.test.ts", async () => {
       await page.close();
     });
 
+  // Liquid Glass off (appearance.liquidGlass; the host sends data-glass="off", CMUX-653): the same
+  // solid card as Reduce Transparency, over art and on an opaque window, floating and docked.
+  for (const colorScheme of ["light", "dark"] as const)
+    for (const seeThrough of [true, false])
+      test(`${colorScheme}, ${seeThrough ? "over art" : "opaque window"}, Liquid Glass off: a solid card, no specular band, no frost, no depth`, async () => {
+        const page = await open(colorScheme, {
+          ...(seeThrough ? { "data-cmux-see-through": "" } : {}),
+          "data-glass": "off",
+        });
+        for (const id of ["composer", "docked-composer"]) {
+          const { fill, backdrop, shadow } = await look(page, id);
+          expect(fill, `${id} fill`).toBe(1);
+          expect(backdrop, `${id} backdrop`).toBe("none");
+          expect(layerAlpha(shadow, SPECULAR_BAND), `${id} specular band`).toBe(-1);
+          expect(layerAlpha(shadow, SHEEN), `${id} sheen`).toBe(-1);
+          expect(layerAlpha(shadow, DEPTH), `${id} depth`).toBe(-1);
+        }
+        await page.close();
+      });
+
   // The system's Reduce Transparency (prefers-reduced-transparency), with no host attribute: the
   // same solid card, for the floating and the docked card alike.
   for (const colorScheme of ["light", "dark"] as const)

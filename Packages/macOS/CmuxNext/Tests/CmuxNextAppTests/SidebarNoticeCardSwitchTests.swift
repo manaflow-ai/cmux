@@ -28,7 +28,7 @@ import Testing
         let button = try #require(card.actionButtons.first)
         #expect(toggle.frame.minX > button.frame.maxX, "the switch sits right of Archive")
         #expect(toggle.frame.maxX <= card.bounds.width, "inside the card")
-        let title = ("Always" as NSString).size(withAttributes: [.font: Typography.caption]).width
+        let title = ("Always" as NSString).size(withAttributes: [.font: Typography.cardBody]).width
         #expect(toggle.frame.width >= title + 20, "the title shows whole beside the switch (a capture read \"Alw…\")")
     }
 

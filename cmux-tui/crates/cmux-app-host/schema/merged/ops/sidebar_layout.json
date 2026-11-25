@@ -1,0 +1,15 @@
+{
+  "family": "sidebar_layout",
+  "ops": {
+    "sidebar_layout.get": {
+      "source": "local",
+      "class": "read",
+      "digest": "ff69d29a1b2252ba"
+    },
+    "sidebar_layout.update": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "91c4375c18d3b855"
+    }
+  }
+}

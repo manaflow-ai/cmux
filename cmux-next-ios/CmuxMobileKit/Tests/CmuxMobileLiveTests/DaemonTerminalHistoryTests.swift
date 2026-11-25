@@ -10,13 +10,17 @@ import Testing
 /// chunks, without the terminal ever leaving the attached state. An older
 /// daemon, or a lane that refuses the field, gets today's whole replay.
 @MainActor @Suite struct DaemonTerminalHistoryTests {
-    private func session(_ daemon: FakeTerminalDaemon, _ channels: ChannelLog) -> DaemonTerminalSession {
+    /// `prefetch`: the history behind the screen follows by itself (off in
+    /// the tests of the on-demand chunks).
+    private func session(_ daemon: FakeTerminalDaemon, _ channels: ChannelLog, prefetch: Duration? = nil) -> DaemonTerminalSession {
         let link = MockMacLink { service, line in daemon.respond(service, line) }
-        return DaemonTerminalSession(surface: 7) {
+        let session = DaemonTerminalSession(surface: 7) {
             let channel = try await link.openChannel(service: "daemon", args: [:])
             channels.append(channel)
             return DaemonClient(channel: channel)
         }
+        session.historyPrefetchDelay = prefetch
+        return session
     }
 
     private func attaches(_ daemon: FakeTerminalDaemon) -> [[String: Any]] {
@@ -39,7 +43,7 @@ import Testing
         defer { session.stop() }
         var events: [TerminalSessionEvent] = []
         session.start { events.append($0) }
-        try await waitUntil { session.isAttached }
+        try await waitUntil { session.isAttached && session.historyRowsOmitted == 9_000 && text(events).hasSuffix("$ ") }
         #expect(attaches(daemon).first?["replay_history_rows"] as? Int == 0)
         #expect(session.historyRowsOmitted == 9_000)
         #expect(text(events) == "\u{1B}c[0 rows]hello\r\n$ ")
@@ -121,8 +125,9 @@ import Testing
         let session = session(daemon, ChannelLog())
         defer { session.stop() }
         session.start { _ in }
-        try await waitUntil { session.isAttached }
-        #expect(session.historyRowsOmitted == 9_000)
+        // The attach is marked before its replay's `vt-state` names the rows
+        // omitted: wait for both.
+        try await waitUntil { session.isAttached && session.historyRowsOmitted == 9_000 }
         session.handle(FakeTerminalDaemon.line(["event": "resized", "surface": 7, "cols": 60, "rows": 20,
                                                 "replay": Data("all".utf8).base64EncodedString()]))
         #expect(session.historyRowsOmitted == 0)
@@ -160,10 +165,352 @@ import Testing
         defer { session.stop() }
         session.requestHistoryRows(2_500)
         session.start { _ in }
-        try await waitUntil { session.isAttached }
+        try await waitUntil { session.isAttached && session.historyRowsOmitted == 5_000 }
         #expect(attaches(daemon).count == 1)
         #expect(attaches(daemon).first?["replay_history_rows"] as? Int == 2 * DaemonTerminalSession.historyChunkRows)
         #expect(session.historyRowsOmitted == 5_000)
+    }
+
+    // MARK: The Mac keeps the scrollback (attach-replay-history-window-v1)
+
+    /// Leo, 2026-11-14: "is there a way to do it and like maintain expected
+    /// behavior while not needing to f***ing stream the literal f***ing Mac
+    /// screen on the f***ing phone?" A reader who scrolls a 100,000-row
+    /// history all the way back reaches line 1, and no replay on the way
+    /// holds more than 10,000 rows: the phone holds a window of the Mac's
+    /// history, never all of it. Before, each fetch asked for 2,000 more
+    /// rows, and the last ones asked for the whole history.
+    @Test func scrollingAHundredThousandRowHistoryToLineOneHoldsABoundedWindow() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.tailReplay = true
+        daemon.windowReplay = true
+        daemon.historyRows = 100_000
+        daemon.afterAttach = nil
+        let session = session(daemon, ChannelLog())
+        defer { session.stop() }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        #expect(attaches(daemon).first?["replay_history_rows"] as? Int == 0, "the attach is the screen alone")
+        events.removeAll()
+
+        var fetches = 0
+        while session.historyRowsOmitted > 0, fetches < 200 {
+            // Each fetch waits for the one before it (one at a time).
+            try await ask { session.historyRowsOmitted == 0 || session.loadOlderHistory() }
+            fetches += 1
+        }
+        try await waitUntil { session.historyRowsOmitted == 0 }
+        #expect(session.historyRowsOmitted == 0, "line 1 is reached")
+        let held = daemon.replayedHistoryRows
+        #expect(held.max() ?? 0 <= 10_000, "a replay held \(held.max() ?? 0) of the Mac's 100,000 history rows")
+        #expect(attaches(daemon).allSatisfy { $0["replay_history_rows"] != nil }, "no fetch asked for the whole history")
+        #expect(fetches <= 80, "\(fetches) fetches to line 1")
+        #expect(attaches(daemon).last?["replay_history_start"] as? Int == 0)
+        #expect(text(events).hasSuffix("\u{1B}c[rows 0..<4000]hello\r\n$ "), "the mirror starts at line 1")
+        #expect(!events.contains { if case .connection(let state) = $0 { !state.isAttached } else { false } })
+    }
+
+    /// The phone tells the Mac it reads the rows a `resized` replay leaves out.
+    @Test func theAttachDeclaresTheHistoryWindow() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.tailReplay = true
+        daemon.windowReplay = true
+        let session = session(daemon, ChannelLog())
+        defer { session.stop() }
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        let info = daemon.recorded.first { $0["cmd"] as? String == "set-client-info" }
+        #expect((info?["capabilities"] as? [String])?.contains("attach-replay-history-window-v1") == true)
+    }
+
+    /// A `resized` replay of the Mac's history window (a resize, the phone's
+    /// keyboard, the Mac's own window) keeps only the newest rows: the rows it
+    /// names as left out are still the Mac's to send, not lost.
+    @Test func aWindowedResizedReplayKeepsTheOlderRowsFetchable() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.tailReplay = true
+        daemon.windowReplay = true
+        daemon.historyRows = 100_000
+        daemon.afterAttach = nil
+        let session = session(daemon, ChannelLog())
+        defer { session.stop() }
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        session.handle(FakeTerminalDaemon.line(["event": "resized", "surface": 7, "cols": 60, "rows": 20,
+                                                "replay": Data("screen".utf8).base64EncodedString(),
+                                                "history_rows_omitted": 101_000]))
+        #expect(session.historyRowsOmitted == 101_000)
+        #expect(session.loadOlderHistory(), "older rows are fetched after the resize")
+    }
+
+    /// A Mac app older than its daemon refuses the window field while the
+    /// daemon still advertises it: after the first refusal the session fetches
+    /// the newest rows in chunks, as before the window, and line 1 is reached.
+    /// Before, every replacement attach asked for a window again, and the
+    /// reader never got past about 12,000 rows.
+    @Test func aLaneThatRefusesTheWindowStillReachesLineOne() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.tailReplay = true
+        daemon.windowReplay = true
+        daemon.laneRefusesHistoryStart = true
+        daemon.historyRows = 30_000
+        daemon.afterAttach = nil
+        let session = session(daemon, ChannelLog())
+        defer { session.stop() }
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        var fetches = 0
+        while session.historyRowsOmitted > 0, fetches < 60 {
+            try await ask { session.historyRowsOmitted == 0 || session.loadOlderHistory() }
+            fetches += 1
+        }
+        try await waitUntil { session.historyRowsOmitted == 0 }
+        #expect(session.historyRowsOmitted == 0, "line 1 is reached after \(fetches) fetches")
+        #expect(attaches(daemon).filter { $0["replay_history_start"] != nil }.count == 1, "one refused window, then chunks")
+    }
+
+    /// Past the newest 10,000 rows the mirror holds a window: coming back down
+    /// moves it toward the screen until the Mac sends the rows down to the
+    /// screen again; coming up from the screen brings the newest rows at once.
+    @Test func comingBackDownFromAWindowReachesTheNewestRows() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.tailReplay = true
+        daemon.windowReplay = true
+        daemon.historyRows = 100_000
+        daemon.afterAttach = nil
+        let session = session(daemon, ChannelLog())
+        defer { session.stop() }
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        var fetches = 0
+        while session.historyWindowRows == nil, fetches < 20 {
+            try await ask { session.historyWindowRows != nil || session.loadOlderHistory() }
+            fetches += 1
+        }
+        try await waitUntil { session.historyWindowRows != nil }
+        #expect(session.historyWindowRows == DaemonTerminalSession.historyWindowRows)
+        let start = try #require(attaches(daemon).last?["replay_history_start"] as? Int)
+
+        // Down a step: the window moves toward the screen.
+        try await ask { session.loadNewerHistory(toTheScreen: false) }
+        try await waitUntil { session.historyRowsOmitted == start + DaemonTerminalSession.historyWindowStep }
+        #expect(session.historyWindowRows != nil)
+
+        // Up from the screen to the window: the newest rows, contiguous again.
+        try await ask { session.loadNewerHistory(toTheScreen: true) }
+        // The tail has landed once no rows are skipped (the window step above
+        // also left 90,000 rows above the mirror).
+        try await waitUntil { session.historyRowsSkipped == 0 && session.historyRowsOmitted == 90_000 }
+        #expect(session.historyWindowRows == nil)
+        #expect(attaches(daemon).last?["replay_history_rows"] as? Int == DaemonTerminalSession.maxTailHistoryRows)
+        #expect(attaches(daemon).last?["replay_history_start"] == nil)
+        #expect(session.historyRowsSkipped == 0)
+    }
+
+    /// The attach's reply can reach the session before its own `vt-state`
+    /// (that line is decoded off the main actor; on a phone the replay of a
+    /// 4,000-row window is half a megabyte). Until the replay is applied the
+    /// rows the Mac left out are still the last attach's: no fetch may start.
+    /// Before, the next fetch asked for the window just sent again and its
+    /// attach dropped that replay on the way, so a 100,000-row scroll to line
+    /// 1 took 491 fetches at a 40 ms round trip (the load bench) for about 64
+    /// windows.
+    @Test func noFetchStartsBeforeTheLastReplayIsApplied() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.tailReplay = true
+        daemon.windowReplay = true
+        daemon.historyRows = 100_000
+        daemon.afterAttach = nil
+        let gate = ReplayGate()
+        let session = DaemonTerminalSession(surface: 7) {
+            DaemonClient(channel: ReplayGateChannel(daemon: daemon, gate: gate))
+        }
+        session.historyPrefetchDelay = nil
+        defer { session.stop() }
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        try await ask { session.loadOlderHistory() }
+        try await waitUntil { session.historyRowsOmitted == 98_000 }
+        try await waitUntil { daemon.recorded.filter { $0["cmd"] as? String == "release-surface-size" }.count == 1 }
+
+        // The next fetch's reply is confirmed; its replay is held back.
+        gate.holding = true
+        #expect(session.loadOlderHistory())
+        try await waitUntil { daemon.recorded.filter { $0["cmd"] as? String == "release-surface-size" }.count == 2 }
+        #expect(session.historyRowsOmitted == 98_000, "the replay is still on its way")
+        #expect(!session.loadOlderHistory(), "a fetch started with the last attach's rows")
+        #expect(attaches(daemon).count == 3)
+
+        gate.release()
+        try await waitUntil { session.historyRowsOmitted == 96_000 }
+        #expect(session.loadOlderHistory(), "the next fetch starts once the replay is applied")
+        try await waitUntil { session.historyRowsOmitted == 94_000 }
+        #expect(attaches(daemon).last?["replay_history_rows"] as? Int == 6_000)
+    }
+
+    /// A history fetch replaces a live attach on the same daemon at the size
+    /// it claims: its client info, identify and attach go in one write (one
+    /// round trip), and it does not ask where the terminal is first. Before,
+    /// each fetch took three round trips (resolve-terminal, set-client-info
+    /// with identify, attach-surface): at 40 ms, 120 ms per window of the
+    /// about 64 to line 1 of a 100,000-row history.
+    @Test func aHistoryFetchIsOneRoundTrip() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.initialSize = true
+        daemon.tailReplay = true
+        daemon.windowReplay = true
+        daemon.historyRows = 100_000
+        daemon.afterAttach = nil
+        daemon.terminals = ["term_a": 7]
+        let writes = WriteLog()
+        let link = MockMacLink { service, data in
+            writes.append(data)
+            return daemon.respond(service, data)
+        }
+        let session = DaemonTerminalSession(surface: 7, terminalID: "term_a") {
+            DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
+        }
+        session.historyPrefetchDelay = nil
+        defer { session.stop() }
+        // The fake Mac answers 80x24: a grid it does not overrule.
+        session.resize(columns: 80, rows: 24)
+        session.start { _ in }
+        try await waitUntil { session.isAttached && session.historyRowsOmitted == 100_000 }
+
+        var fetches = 0
+        while session.historyRowsOmitted > 0, fetches < 80 {
+            try await ask { session.historyRowsOmitted == 0 || session.loadOlderHistory() }
+            fetches += 1
+        }
+        try await waitUntil { session.historyRowsOmitted == 0 }
+        #expect(daemon.recorded.filter { $0["cmd"] as? String == "resolve-terminal" }.isEmpty, "a fetch asked where the terminal is")
+        let fetchAttaches = writes.all.filter { String(decoding: $0, as: UTF8.self).contains("\"attach-surface\"") }.dropFirst()
+        #expect(fetchAttaches.count >= 60, "\(fetchAttaches.count) fetches")
+        #expect(fetchAttaches.allSatisfy { String(decoding: $0, as: UTF8.self).contains("\"set-client-info\"") },
+                "a fetch's attach waited for identify's reply")
+        let sized = attaches(daemon).dropFirst()
+        #expect(sized.allSatisfy { $0["cols"] as? Int == 80 && $0["rows"] as? Int == 24 })
+        #expect(attaches(daemon).last?["replay_history_start"] as? Int == 0)
+    }
+
+    // MARK: History behind the screen (Leo, 2026-11-22: "so the phone side is clearly doing something off")
+
+    /// The screen comes first and is live alone; the history follows by
+    /// itself on a replacing attach, so a reader scrolling up reads rows the
+    /// phone already holds instead of waiting at the top for the Mac.
+    @Test func theHistoryFollowsTheScreenByItself() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.tailReplay = true
+        daemon.historyRows = 3_500
+        daemon.afterAttach = nil
+        let session = session(daemon, ChannelLog(), prefetch: .milliseconds(50))
+        defer { session.stop() }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        #expect(attaches(daemon).first?["replay_history_rows"] as? Int == 0, "the screen still comes first")
+        #expect(text(events) == "\u{1B}c[0 rows]hello\r\n$ ")
+        events.removeAll()
+
+        try await waitUntil { session.historyRowsOmitted == 0 }
+        #expect(attaches(daemon).count == 2)
+        #expect(attaches(daemon).last?["replay_history_rows"] == nil, "3,500 rows fit the prefetch: all of them")
+        #expect(text(events) == "\u{1B}chello\r\n$ ", "the whole history: no row count")
+        #expect(!events.contains { if case .connection(let state) = $0 { !state.isAttached } else { false } })
+        #expect(session.isAttached)
+        // Once: a scroll to the top has nothing left to fetch.
+        try await Task.sleep(for: .milliseconds(150))
+        session.loadOlderHistory()
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(attaches(daemon).count == 2)
+    }
+
+    /// A longer history: the prefetch brings ``prefetchHistoryRows`` and the
+    /// rows older than that still come in chunks at the top.
+    @Test func aLongHistoryPrefetchesItsLatestRowsAndChunksTheRest() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.tailReplay = true
+        daemon.historyRows = 25_000
+        daemon.afterAttach = nil
+        let session = session(daemon, ChannelLog(), prefetch: .milliseconds(50))
+        defer { session.stop() }
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        try await waitUntil { session.historyRowsOmitted == 25_000 - DaemonTerminalSession.prefetchHistoryRows }
+        #expect(attaches(daemon).count == 2)
+        #expect(attaches(daemon).last?["replay_history_rows"] as? Int == DaemonTerminalSession.prefetchHistoryRows)
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(attaches(daemon).count == 2, "one prefetch per session")
+        session.loadOlderHistory()
+        try await waitUntil { attaches(daemon).count == 3 }
+        #expect(attaches(daemon).last?["replay_history_rows"] as? Int
+            == DaemonTerminalSession.prefetchHistoryRows + DaemonTerminalSession.historyChunkRows)
+    }
+
+    /// With the window (#43189) the prefetch brings the newest
+    /// ``maxTailHistoryRows`` and never more; the first scroll past them
+    /// moves a window, and no replay holds more than 10,000 rows.
+    @Test func thePrefetchStopsAtTheTailAndTheWindowTakesOver() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.tailReplay = true
+        daemon.windowReplay = true
+        daemon.historyRows = 100_000
+        daemon.afterAttach = nil
+        let session = session(daemon, ChannelLog(), prefetch: .milliseconds(50))
+        defer { session.stop() }
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        try await waitUntil { session.historyRowsOmitted == 100_000 - DaemonTerminalSession.maxTailHistoryRows }
+        #expect(attaches(daemon).last?["replay_history_rows"] as? Int == DaemonTerminalSession.maxTailHistoryRows)
+        #expect(attaches(daemon).last?["replay_history_start"] == nil, "the prefetch is a tail")
+        try await ask { session.loadOlderHistory() }
+        try await waitUntil { attaches(daemon).count == 3 }
+        #expect(attaches(daemon).last?["replay_history_start"] != nil, "past the tail the window moves")
+        #expect(daemon.replayedHistoryRows.max() ?? 0 <= 10_000)
+    }
+
+    /// An older daemon replays the whole history already: no prefetch.
+    @Test func anOlderDaemonGetsNoPrefetch() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.historyRows = 9_000
+        let session = session(daemon, ChannelLog(), prefetch: .milliseconds(20))
+        defer { session.stop() }
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(attaches(daemon).count == 1)
+    }
+
+    /// Stopped before the wait ends (a tab cooled out of the warm set): nothing goes.
+    @Test func aStoppedSessionPrefetchesNothing() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.tailReplay = true
+        daemon.historyRows = 9_000
+        daemon.afterAttach = nil
+        let session = session(daemon, ChannelLog(), prefetch: .milliseconds(200))
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        session.stop()
+        try await Task.sleep(for: .milliseconds(350))
+        #expect(attaches(daemon).count == 1)
+    }
+
+    @Test func theDefaultSessionPrefetches() {
+        let session = DaemonTerminalSession(surface: 7) { throw CancellationError() }
+        #expect(session.historyPrefetchDelay == DaemonTerminalSession.defaultHistoryPrefetchDelay)
+        #expect(DaemonTerminalSession.prefetchHistoryRows >= 5 * DaemonTerminalSession.historyChunkRows)
+    }
+
+    /// Calls `request` until it answers true (a fetch started, or none is
+    /// needed), and never again after: unlike ``waitUntil(attempts:_:)``,
+    /// whose last check would start a second fetch.
+    private func ask(attempts: Int = 300, _ request: @MainActor () -> Bool) async throws {
+        for _ in 0..<attempts {
+            if request() { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        Issue.record("the request never started")
     }
 
     private func waitUntil(attempts: Int = 300, _ condition: @MainActor () -> Bool) async throws {
@@ -172,4 +519,73 @@ import Testing
         }
         #expect(condition())
     }
+}
+
+/// Holds back the `vt-state` replays answered while ``holding`` (the attach
+/// reply after them still goes out) until ``release()``: a reply that reaches
+/// the session before its own replay, at will.
+final class ReplayGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var held: [@Sendable () -> Void] = []
+    private var isHolding = false
+    var holding: Bool {
+        get { lock.withLock { isHolding } }
+        set { lock.withLock { isHolding = newValue } }
+    }
+
+    /// Whether `deliver` was held (it runs at ``release()``).
+    func hold(_ line: Data, _ deliver: @escaping @Sendable () -> Void) -> Bool {
+        guard String(decoding: line, as: UTF8.self).contains("\"event\":\"vt-state\"") else { return false }
+        return lock.withLock {
+            guard isHolding else { return false }
+            held.append(deliver)
+            return true
+        }
+    }
+
+    func release() {
+        let deliveries = lock.withLock {
+            isHolding = false
+            defer { held = [] }
+            return held
+        }
+        for deliver in deliveries { deliver() }
+    }
+}
+
+/// A daemon channel answered by a ``FakeTerminalDaemon`` through a ``ReplayGate``.
+final class ReplayGateChannel: LinkChannel, @unchecked Sendable {
+    let id: UInt32 = 1
+    private let daemon: FakeTerminalDaemon
+    private let gate: ReplayGate
+    private let stream: AsyncStream<Data>
+    private let continuation: AsyncStream<Data>.Continuation
+    private var iterator: AsyncStream<Data>.Iterator
+
+    init(daemon: FakeTerminalDaemon, gate: ReplayGate) {
+        self.daemon = daemon
+        self.gate = gate
+        (stream, continuation) = AsyncStream.makeStream()
+        iterator = stream.makeAsyncIterator()
+    }
+
+    func send(_ data: Data) async throws {
+        let continuation = continuation
+        for line in daemon.respond("daemon", data) {
+            let held = gate.hold(line) { continuation.yield(line) }
+            if !held { continuation.yield(line) }
+        }
+    }
+
+    func receive() async throws -> Data? { await iterator.next() }
+
+    func close(code: String, reason: String) async { continuation.finish() }
+}
+
+/// Each write a channel sent, whole (a batch is one write).
+final class WriteLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var writes: [Data] = []
+    func append(_ data: Data) { lock.withLock { writes.append(data) } }
+    var all: [Data] { lock.withLock { writes } }
 }

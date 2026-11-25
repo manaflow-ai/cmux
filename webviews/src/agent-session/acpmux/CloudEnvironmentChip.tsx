@@ -10,6 +10,7 @@ import { postNative } from "./native";
 import { openCloudEnvironment } from "./cloudEnvironment";
 import {
   AUTO_ENVIRONMENT,
+  autoEditEnvironment,
   autoEnvironment,
   cloudStartEnvironment,
   recentEnvironments,
@@ -74,12 +75,15 @@ export function useCloudEnvironmentControl(
           pick(environment.id);
         },
       }),
-    onEdit: (id) =>
+    onEdit: (id) => {
+      // Auto's (no id) is the Default it runs in: the team's in a team's context, else the personal one.
+      const target = id ?? autoEditEnvironment(environments);
       openCloudEnvironment({
-        ...(id ? { environmentId: id } : {}),
+        ...(target ? { environmentId: target } : {}),
         section: id ? "overview" : "script",
         ...(repo ? { repo } : {}),
-      }),
+      });
+    },
     onNewMachine: (environment) => {
       void postNative("action.run", { id: "newCloudMachine", ...(environment ? { environment } : {}) }).catch(
         () => undefined,
@@ -277,6 +281,7 @@ export function CloudEnvironmentChip({
           align="start"
           label={name}
           className={`acpmux-menu acpmux-location-menu acpmux-cloud-env-menu acpmux-cloud-env-menu-${dropUp}`}
+          resize={{ id: "composer.cloudEnvironment" }}
         >
           {dropUp === "sections" && <div className="acpmux-env-heading">{label}</div>}
           <MenuRadioGroup value={control.current} onValueChange={(next) => pick(String(next))}>

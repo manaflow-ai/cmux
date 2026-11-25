@@ -30,7 +30,12 @@ final class CEFDrawOnInput {
     /// shim without the call, or an engine below ``forkAPI``.
     typealias Call = (_ browser: Int32, _ enabled: Bool) -> Bool
 
+    /// `cmux_shim_draw_on_input_key_frames(browser)`: frames this mode drew for a key on that page, or -1
+    /// when the engine has no such call. Nil without a shim or below ``forkAPI``.
+    typealias KeyFrames = (_ browser: Int32) -> Int32
+
     private let call: Call?
+    private let keyFramesCall: KeyFrames?
     private let isOn: () -> Bool
     /// Browsers whose agent chat page the fork draws keys for.
     private(set) var drawing: Set<Int32> = []
@@ -38,15 +43,19 @@ final class CEFDrawOnInput {
     private var addresses: [Int32: URL] = [:]
     private var settingLoop: ObservationLoop?
 
-    init(call: Call?, isOn: @escaping () -> Bool = { CEFDrawOnInput.setting.value }) {
+    init(call: Call?, keyFrames: KeyFrames? = nil,
+         isOn: @escaping () -> Bool = { CEFDrawOnInput.setting.value }) {
         self.call = call
+        self.keyFramesCall = keyFrames
         self.isOn = isOn
     }
 
     convenience init(shim: CEFShimLibrary?, apiVersion: Int32) {
         let call: Call? = apiVersion >= Self.forkAPI
             ? shim?.browserSetDrawOnInput.map { fn in { browser, enabled in fn(browser, enabled ? 1 : 0) == 1 } } : nil
-        self.init(call: call)
+        let keyFrames: KeyFrames? = apiVersion >= Self.forkAPI
+            ? shim?.drawOnInputKeyFrames.map { fn in { browser in fn(browser) } } : nil
+        self.init(call: call, keyFrames: keyFrames)
         // A Debug Settings change reaches the open chats (the tunable's read is observable per key).
         if call != nil { settingLoop = ObservationLoop { [weak self] in self?.settingChanged() } }
     }
@@ -74,6 +83,22 @@ final class CEFDrawOnInput {
     func closed(browser: Int32) {
         addresses[browser] = nil
         drawing.remove(browser)
+    }
+
+    /// Whether this engine answers the per-key frame count (fork API ``forkAPI`` and a shim with the call).
+    var hasKeyFrames: Bool { keyFramesCall != nil }
+
+    /// Frames this mode drew for keys, per page it is on (`debug.cef.draw_on_input`): a bench tells a live mode
+    /// from an inert one by this growing, since an engine below ``forkAPI`` takes no call and nothing changes.
+    /// Empty when the engine has no counter, so a reader never mistakes a missing call for zero frames.
+    var keyFrames: [Int32: Int32] {
+        guard let keyFramesCall else { return [:] }
+        var frames: [Int32: Int32] = [:]
+        for browser in drawing {
+            let count = keyFramesCall(browser)
+            if count >= 0 { frames[browser] = count }
+        }
+        return frames
     }
 
     private func apply(_ browser: Int32, wants: Bool) {

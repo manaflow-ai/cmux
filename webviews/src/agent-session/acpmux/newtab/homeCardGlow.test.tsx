@@ -107,3 +107,19 @@ test("the hover brightening is gated on reduced motion and moves only opacity", 
   expect(block.slice(0, gate)).not.toContain("transition");
   expect(block.slice(gate)).toMatch(/transition:\s*opacity var\(--cmux-motion-/);
 });
+
+test("a light page gets a little more glow color, keyed on the data-theme the app sets", () => {
+  const css = readFileSync(new URL("./screen.css", import.meta.url), "utf8");
+  const block = css.slice(css.indexOf("/* The home-card-glow experiment"));
+  const mix = (selector: string) => {
+    const at = block.indexOf(`${selector} {`);
+    expect(at).toBeGreaterThan(-1);
+    const rule = block.slice(at, block.indexOf("}", at));
+    return Number(/--nt-glow-mix:\s*(\d+)%/.exec(rule)?.[1]);
+  };
+  // The app marks a light page with data-theme="light" on the root (shared/theme.ts), never a class.
+  expect(block).not.toMatch(/:root\.light\b/);
+  const light = ':root[data-theme="light"] .nt-cards';
+  expect(mix(`${light}[data-glow]`)).toBeGreaterThan(mix(".nt-cards[data-glow]"));
+  expect(mix(`${light}[data-glow="vivid"]`)).toBeGreaterThan(mix('.nt-cards[data-glow="vivid"]'));
+});

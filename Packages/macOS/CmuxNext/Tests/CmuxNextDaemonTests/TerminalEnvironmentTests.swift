@@ -3,6 +3,22 @@ import Testing
 
 @Suite("Terminal environment")
 struct TerminalEnvironmentTests {
+    /// A side instance's daemon (`side-instance.sh make`) ran without the app's
+    /// `CMUX_NEXT_CONFIG_FILE` and read the Mac's shared settings and keybindings. The app's own
+    /// daemon gets it; a terminal's env and a remote daemon's identity keys do not.
+    @Test
+    func daemonGetsTheAppSettingsFileButTerminalsDoNot() {
+        let base = ["HOME": "/h", "PATH": "/usr/bin", "CMUX_NEXT_CONFIG_FILE": "/side/config/cmux-next.json"]
+        let login = ["PATH": "/usr/bin", "LANG": "en_US.UTF-8"]
+        let daemon = TerminalEnvironment.instance.daemon(login: login, base: base, overrides: [:])
+        #expect(daemon["CMUX_NEXT_CONFIG_FILE"] == "/side/config/cmux-next.json")
+        #expect(TerminalEnvironment.instance.terminal(login: login, base: base)["CMUX_NEXT_CONFIG_FILE"] == nil)
+        #expect(!TerminalEnvironment.instance.daemonIdentityKeys.contains("CMUX_NEXT_CONFIG_FILE"))
+        let unset = TerminalEnvironment.instance.daemon(login: login, base: ["HOME": "/h", "CMUX_NEXT_CONFIG_FILE": ""],
+                                                         overrides: [:])
+        #expect(unset["CMUX_NEXT_CONFIG_FILE"] == nil)
+    }
+
     /// `echo $TERM_PROGRAM` in a cmux terminal says `cmux` (user, 2026-11-11).
     /// The daemon adds cmux's `TERM_PROGRAM_VERSION` at spawn, so the app's
     /// identity carries no version, least of all libghostty's.

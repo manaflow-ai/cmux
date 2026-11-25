@@ -48,7 +48,7 @@ extension UpdaterService {
         let urgency = StagedUpdatePrewarm.Urgency()
         prewarmRun = StagedPrewarmRun(build: build, started: ContinuousClock.now, urgency: urgency)
         log.append("launch pre-warm of \(build): started (\(trigger))")
-        let prewarm = StagedUpdatePrewarm(installation: UpdateInstallPreflight.stagedInstallation(bundleIdentifier: bundleIdentifier),
+        let prewarm = StagedUpdatePrewarm(installations: UpdateInstallPreflight.stagedInstallations(bundleIdentifier: bundleIdentifier),
                                           bundleIdentifier: bundleIdentifier, build: build)
         let runner = prewarmRunner, log = log, work = work
         // The build's first launch records itself as pre-warmed (`cmux app launch-times`); no test writes the person's marker.
@@ -58,7 +58,7 @@ extension UpdaterService {
         // task-owner: one pre-warm per staged build; ends after its last process (each stopped at its timeout).
         // Best effort until an install click waits for it (``installAfterPrewarm(_:)`` raises `urgency`); its folder
         // scan runs on a files lane slot of its own
-        // (``StagedUpdatePrewarm/perform(work:processes:timeout:marker:urgency:progress:)``), its processes through AsyncProcess.
+        // (``StagedUpdatePrewarm/perform(work:processes:timeout:total:clock:marker:urgency:progress:)``), its processes through AsyncProcess.
         Task.detached(priority: WorkPriority.bestEffort.taskPriority) { [weak self] in
             let line: String
             if let runner { line = await runner(prewarm) } else { line = await prewarm.perform(work: work, marker: marker, urgency: urgency, progress: { log.append($0) }) }
