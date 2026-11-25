@@ -35,6 +35,8 @@ struct HostBrowserSignInFlowHarness {
         clock: (any Clock<Duration>)? = nil,
         openSucceeds: Bool = true,
         approveUnsolicitedCallback: @escaping @MainActor (UnsolicitedAuthCallbackApprovalRequest) async -> Bool = { _ in false },
+        codeRedeemer: (any AuthCallbackCodeRedeeming)? = nil,
+        codeExchangeMemory: HostBrowserCodeExchangeMemory? = nil,
         beginSignOut: @escaping @MainActor @Sendable () -> Void = {},
         localSignOut: @escaping @MainActor @Sendable () async -> Void = {},
         onSignedOut: @escaping @Sendable (
@@ -68,6 +70,8 @@ struct HostBrowserSignInFlowHarness {
             callbackScheme: { "cmux-dev" },
             openExternalURL: { openedURLRecorder.append($0) },
             approveUnsolicitedCallback: approveUnsolicitedCallback,
+            codeRedeemer: codeRedeemer,
+            codeExchangeMemory: codeExchangeMemory,
             clock: clock ?? ContinuousClock(),
             browserAttemptTimeout: browserAttemptTimeout,
             slowSignInThreshold: slowSignInThreshold,

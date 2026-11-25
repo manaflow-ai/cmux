@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isAllowedNativeReturnTo, nativeAppDisplayName } from "../../lib/native-callback";
 import {
-  DEFAULT_NATIVE_CALLBACK_SCHEME,
-  isAllowedNativeReturnTo,
-} from "../../lib/native-callback";
+  isValidCodeChallenge,
+  issueNativeSignInCode,
+  PKCE_METHOD_S256,
+  type NativeSignInCodeStore,
+} from "../../lib/native-sign-in-codes";
 import {
   APP_PRICING_NATIVE_RETURN_QUERY_PARAMS,
   verifiedAppPricingNativeReturnTo,
@@ -10,9 +13,11 @@ import {
 import type { Locale } from "../../../i18n/routing";
 import { locales, routing } from "../../../i18n/routing";
 import {
-  clearNativeHandoffCookie,
-  NATIVE_HANDOFF_COOKIE_NAME,
-  NATIVE_HANDOFF_QUERY_PARAM,
+  clearNativeConfirmCookie,
+  issueNativeConfirmCookie,
+  makeNativeConfirmNonce,
+  NATIVE_CONFIRM_QUERY_PARAM,
+  verifiedNativeConfirmation,
 } from "../native-handoff-cookie";
 import { requestOrigin } from "../../lib/request-origin";
 import { hasAuthRateLimitSignal } from "../../../services/vms/authErrors";
@@ -22,6 +27,7 @@ const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 type AfterSignInMessages = {
   title: string;
   body: string;
+  confirmBody: string;
   button: string;
   switchAccountButton: string;
   rateLimitedTitle: string;
@@ -75,6 +81,8 @@ type AfterSignInHandlerDependencies = {
   claimVerifiedBilling?: (userId: string, email: string) => Promise<void>;
   /** Apply operator Pro grants addressed to the verified mailbox. */
   applyAdminGrants?: (userId: string, email: string) => Promise<void>;
+  /** Where one-time native sign-in codes are kept (PKCE hand-off). */
+  nativeSignInCodeStore?: NativeSignInCodeStore;
 };
 
 function findStackCookie(
@@ -129,40 +137,38 @@ function decodeRefreshCookie(value: string | undefined): string | undefined {
   return undefined;
 }
 
-function buildNativeHref(
-  baseHref: string | null,
-  refreshToken: string | undefined,
-  accessCookie: string | undefined
-): string | null {
-  if (!refreshToken || !accessCookie) return baseHref;
-  const href = baseHref ?? `${DEFAULT_NATIVE_CALLBACK_SCHEME}://auth-callback`;
+/** Query names a callback URL must only carry when this handler sets them. */
+const CALLBACK_CREDENTIAL_PARAMS = ["stack_refresh", "stack_access", "code"] as const;
+
+/**
+ * The validated native return target with `credentials` set, and any
+ * credential-looking parameter the request supplied removed.
+ */
+function nativeCallbackHref(nativeReturnTo: string, credentials: Record<string, string>): string | null {
   try {
-    const url = new URL(href);
-    url.searchParams.set("stack_refresh", refreshToken);
-    url.searchParams.set("stack_access", accessCookie);
+    const url = new URL(nativeReturnTo);
+    for (const name of CALLBACK_CREDENTIAL_PARAMS) url.searchParams.delete(name);
+    for (const [name, value] of Object.entries(credentials)) url.searchParams.set(name, value);
     return url.toString();
   } catch {
-    return `${DEFAULT_NATIVE_CALLBACK_SCHEME}://auth-callback?stack_refresh=${encodeURIComponent(refreshToken)}&stack_access=${encodeURIComponent(accessCookie)}`;
+    return null;
   }
 }
 
-function hasAuthState(href: string): boolean {
+function nativeReturnScheme(nativeReturnTo: string): string | null {
   try {
-    return new URL(href).searchParams.has("cmux_auth_state");
+    return new URL(nativeReturnTo).protocol.replace(/:$/, "").toLowerCase();
   } catch {
-    return false;
+    return null;
   }
 }
 
-function verifiedNativeHandoff(
-  request: NextRequest,
-  cookieStore: { get: (name: string) => { value: string } | undefined },
-  nativeReturnTo: string
-): boolean {
-  if (!hasAuthState(nativeReturnTo)) return false;
-  const handoffNonce = request.nextUrl.searchParams.get(NATIVE_HANDOFF_QUERY_PARAM);
-  if (!handoffNonce) return false;
-  return cookieStore.get(NATIVE_HANDOFF_COOKIE_NAME)?.value === handoffNonce;
+/** The request's PKCE challenge: absent (`null`), valid, or `"invalid"`. */
+function requestedCodeChallenge(request: NextRequest): string | null | "invalid" {
+  const challenge = request.nextUrl.searchParams.get("code_challenge");
+  if (challenge === null) return null;
+  const method = request.nextUrl.searchParams.get("code_challenge_method");
+  return isValidCodeChallenge(challenge) && method === PKCE_METHOD_S256 ? challenge : "invalid";
 }
 
 function escapeHtml(value: string): string {
@@ -209,10 +215,17 @@ async function afterSignInMessages(request: NextRequest): Promise<LocalizedAfter
   };
 }
 
+/** Who is signed in and which app the hand-off goes to, as the page shows them. */
+type HandoffIdentity = {
+  readonly account: string | null;
+  readonly app: string;
+};
+
 function nativeReturnResponse(
   href: string,
   localized: LocalizedAfterSignInMessages,
-  switchAccountHref: string | null
+  switchAccountHref: string | null,
+  identity: HandoffIdentity,
 ): NextResponse {
   const { locale, messages } = localized;
   const escapedHref = escapeHtml(href);
@@ -220,8 +233,12 @@ function nativeReturnResponse(
     ? `      <a class="secondary" href="${escapeHtml(switchAccountHref)}">${escapeHtml(messages.switchAccountButton)}</a>\n`
     : "";
   const escapedTitle = escapeHtml(messages.title);
-  const escapedBody = escapeHtml(messages.body);
+  const escapedBody = escapeHtml(messages.confirmBody);
   const escapedButton = escapeHtml(messages.button);
+  // Names are data, not copy: the account's email and the app's own name.
+  const identityLine = identity.account
+    ? `<strong>${escapeHtml(identity.account)}</strong> &rarr; <strong>${escapeHtml(identity.app)}</strong>`
+    : `&rarr; <strong>${escapeHtml(identity.app)}</strong>`;
   const response = new NextResponse(
     `<!doctype html>
 <html lang="${escapeHtml(locale)}">
@@ -255,6 +272,11 @@ function nativeReturnResponse(
       line-height: 1.5;
       margin: 0 0 24px;
     }
+    p.identity {
+      color: #111;
+      margin: 0 0 12px;
+      overflow-wrap: anywhere;
+    }
     .actions {
       align-items: center;
       display: flex;
@@ -281,6 +303,7 @@ function nativeReturnResponse(
 <body>
   <main>
     <h1>${escapedTitle}</h1>
+    <p class="identity">${identityLine}</p>
     <p>${escapedBody}</p>
     <div class="actions">
       <a class="primary" href="${escapedHref}">${escapedButton}</a>
@@ -301,7 +324,32 @@ ${switchAccountAction}    </div>
 function nativeRedirectResponse(request: NextRequest, href: string): NextResponse {
   const response = NextResponse.redirect(href);
   response.headers.set("Cache-Control", "no-store");
-  clearNativeHandoffCookie(response, request);
+  clearNativeConfirmCookie(response, request);
+  return response;
+}
+
+/**
+ * The page that asks for a click before every hand-off to an app. It names
+ * the signed-in account and the destination app. Its button returns to this
+ * callback with a nonce that only this response's cookie matches; no code or
+ * session exists until that click. Anyone can start a sign-in for any
+ * allowed scheme, so nothing but this click may release one.
+ */
+function nativeConfirmationResponse(
+  request: NextRequest,
+  localized: LocalizedAfterSignInMessages,
+  identity: HandoffIdentity,
+): NextResponse {
+  const nonce = makeNativeConfirmNonce();
+  const confirm = new URL(currentAfterSignInPath(request), requestOrigin(request));
+  confirm.searchParams.set(NATIVE_CONFIRM_QUERY_PARAM, nonce);
+  const response = nativeReturnResponse(
+    `${confirm.pathname}${confirm.search}`,
+    localized,
+    switchAccountHref(request),
+    identity,
+  );
+  issueNativeConfirmCookie(response, request, nonce);
   return response;
 }
 
@@ -339,7 +387,7 @@ function currentAfterSignInPath(request: NextRequest): string {
   const afterSignIn = new URL(request.nextUrl.pathname, requestOrigin(request));
   const nativeReturnTo = request.nextUrl.searchParams.get("native_app_return_to");
   if (nativeReturnTo) afterSignIn.searchParams.set("native_app_return_to", nativeReturnTo);
-  for (const name of APP_PRICING_NATIVE_RETURN_QUERY_PARAMS) {
+  for (const name of [...APP_PRICING_NATIVE_RETURN_QUERY_PARAMS, "code_challenge", "code_challenge_method"]) {
     const value = request.nextUrl.searchParams.get(name);
     if (value) afterSignIn.searchParams.set(name, value);
   }
@@ -358,28 +406,30 @@ function switchAccountHref(request: NextRequest): string | null {
   return `${signOut.pathname}${signOut.search}`;
 }
 
-type FreshSession =
-  | { readonly kind: "tokens"; readonly refreshToken?: string; readonly accessToken?: string }
+/** Lifetime of a session minted for the native app. */
+const NATIVE_SESSION_EXPIRES_IN_MILLIS = 30 * 24 * 60 * 60 * 1000;
+
+type ResolvedUser =
+  | { readonly kind: "user"; readonly user: StackAuthUserLike | null; readonly lookupFailed?: boolean }
   | { readonly kind: "response"; readonly response: NextResponse };
 
 /**
- * Read the signed-in (or anonymous) user, finish account promotion, billing
- * claims and admin grants, and mint a fresh 30-day session. A Stack throttle
- * anywhere in this answers a retry page: continuing with the old cookie
- * tokens would skip the promotion and the claim this callback exists for.
- * Any other failure keeps the cookie tokens, as before.
+ * Read the signed-in (or anonymous) user and finish account promotion,
+ * billing claims and admin grants. No session is minted here. A Stack
+ * throttle answers a retry page: continuing would skip the promotion and the
+ * claim this callback exists for. Any other failure reads as no user.
  */
-async function mintFreshSession(
+async function resolveSignedInUser(
   authApp: NonNullable<StackServerAppLike>,
   dependencies: AfterSignInHandlerDependencies,
   request: NextRequest,
   localizedMessages: LocalizedAfterSignInMessages,
-): Promise<FreshSession> {
+): Promise<ResolvedUser> {
   try {
     const user =
       (await authApp.getUser({ or: "return-null" })) ??
       (await authApp.getUser({ or: ANONYMOUS_IF_EXISTS }));
-    if (!user) return { kind: "tokens" };
+    if (!user) return { kind: "user", user: null };
     const promoted = await promoteVerifiedAnonymous(user, dependencies);
     if (promoted === "failed") {
       return {
@@ -390,17 +440,53 @@ async function mintFreshSession(
     if (user.id && user.primaryEmail && (promoted === "promoted" || isVerifiedAccount(user))) {
       await runVerifiedAccountSideEffects(user.id, user.primaryEmail, dependencies);
     }
-    const session = await user.createSession({ expiresInMillis: 30 * 24 * 60 * 60 * 1000 });
-    const tokens = await session.getTokens();
-    return { kind: "tokens", refreshToken: tokens.refreshToken || undefined, accessToken: tokens.accessToken || undefined };
+    return { kind: "user", user };
+  } catch (error) {
+    if (hasAuthRateLimitSignal(error)) {
+      console.error("auth.after_sign_in.stack_throttled", { failure: "rate_limited" });
+      return { kind: "response", response: stackThrottledResponse(request, localizedMessages) };
+    }
+    console.error("[After Sign In] Failed to read the signed-in user", error);
+    return { kind: "user", user: null, lookupFailed: true };
+  }
+}
+
+type LegacySession =
+  | { readonly kind: "tokens"; readonly refreshToken?: string; readonly accessCookie?: string }
+  | { readonly kind: "response"; readonly response: NextResponse };
+
+/**
+ * Legacy hand-off only (apps that send no PKCE challenge): mint a fresh
+ * session, keeping the cookie tokens when minting fails, as before.
+ */
+async function mintLegacySession(
+  user: StackAuthUserLike | null,
+  stackCookies: CookieStore,
+  projectId: string,
+  request: NextRequest,
+  localizedMessages: LocalizedAfterSignInMessages,
+): Promise<LegacySession> {
+  const rawAccessCookie = findStackCookie(stackCookies, "stack-access");
+  const parsedAccess = decodeAccessCookie(rawAccessCookie);
+  let refreshToken = parsedAccess.refreshToken ??
+    decodeRefreshCookie(findStackCookie(stackCookies, `stack-refresh-${projectId}`));
+  let accessToken = parsedAccess.accessToken;
+  let accessCookie = decodeCookieValue(rawAccessCookie);
+  try {
+    if (user) {
+      const tokens = await (await user.createSession({ expiresInMillis: NATIVE_SESSION_EXPIRES_IN_MILLIS })).getTokens();
+      refreshToken = tokens.refreshToken || refreshToken;
+      accessToken = tokens.accessToken || accessToken;
+    }
   } catch (error) {
     if (hasAuthRateLimitSignal(error)) {
       console.error("auth.after_sign_in.stack_throttled", { failure: "rate_limited" });
       return { kind: "response", response: stackThrottledResponse(request, localizedMessages) };
     }
     console.error("[After Sign In] Failed to create fresh session", error);
-    return { kind: "tokens" };
   }
+  if (refreshToken && accessToken) accessCookie = JSON.stringify([refreshToken, accessToken]);
+  return { kind: "tokens", refreshToken, accessCookie };
 }
 
 function isVerifiedAccount(user: StackAuthUserLike): boolean {
@@ -506,73 +592,126 @@ function stackThrottledResponse(
   );
 }
 
-/** Hand fresh tokens back to an allowed native return target, or go home. */
-function nativeReturnFlow(
-  request: NextRequest,
-  stackCookies: CookieStore,
-  nativeReturnTo: string,
-  refreshToken: string,
-  accessCookie: string,
-  localizedMessages: LocalizedAfterSignInMessages,
-): NextResponse {
-  const trustedPurchaseReturnTo = verifiedAppPricingNativeReturnTo(request.nextUrl);
-  if (
-    trustedPurchaseReturnTo === nativeReturnTo ||
-    isAllowedNativeReturnTo(nativeReturnTo, request)
-  ) {
-    const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
-    if (href) {
-      if (verifiedNativeHandoff(request, stackCookies, nativeReturnTo)) {
-        return nativeRedirectResponse(request, href);
-      }
-      return nativeReturnResponse(href, localizedMessages, switchAccountHref(request));
-    }
-  }
+type NativeReturnContext = {
+  readonly request: NextRequest;
+  readonly stackCookies: CookieStore;
+  readonly nativeReturnTo: string;
+  readonly user: StackAuthUserLike | null;
+  /** Reading the user failed for a reason other than a throttle. */
+  readonly userLookupFailed: boolean;
+  readonly projectId: string;
+  readonly dependencies: AfterSignInHandlerDependencies;
+  readonly localizedMessages: LocalizedAfterSignInMessages;
+};
+
+function homeRedirect(request: NextRequest): NextResponse {
   return NextResponse.redirect(new URL("/", requestOrigin(request)));
+}
+
+/**
+ * PKCE hand-off: store a one-time code bound to the app's challenge and
+ * scheme and send the app only that code with its state. The session is
+ * minted when the app redeems the code (`/api/native/token`).
+ */
+async function nativeCodeHandoff(context: NativeReturnContext, codeChallenge: string): Promise<NextResponse> {
+  const { request, nativeReturnTo, user, dependencies, localizedMessages } = context;
+  const scheme = nativeReturnScheme(nativeReturnTo);
+  // A failed lookup is retried on this same callback rather than stranding
+  // the app's attempt on the home page.
+  if (context.userLookupFailed) return stackThrottledResponse(request, localizedMessages);
+  if (!user?.id || !scheme) {
+    console.error("auth.after_sign_in.native_code_unavailable", { failure: "no_user" });
+    return homeRedirect(request);
+  }
+  const store = dependencies.nativeSignInCodeStore;
+  let code: string;
+  try {
+    if (!store) throw new Error("native sign-in code store is not configured");
+    code = await issueNativeSignInCode(store, {
+      userId: user.id,
+      codeChallenge,
+      scheme,
+      issuer: context.projectId,
+    });
+  } catch (error) {
+    console.error("auth.after_sign_in.native_code_unavailable", { failure: "store_unavailable" }, error);
+    return stackThrottledResponse(request, localizedMessages);
+  }
+  const href = nativeCallbackHref(nativeReturnTo, { code });
+  return href ? nativeRedirectResponse(request, href) : homeRedirect(request);
+}
+
+/**
+ * Legacy hand-off for apps that send no challenge: tokens in the callback
+ * URL, only after the person clicked this page's confirmation link.
+ */
+async function nativeLegacyTokenHandoff(context: NativeReturnContext): Promise<NextResponse> {
+  const { request, stackCookies, nativeReturnTo, user, projectId, localizedMessages } = context;
+  const minted = await mintLegacySession(user, stackCookies, projectId, request, localizedMessages);
+  if (minted.kind === "response") return minted.response;
+  if (!minted.refreshToken || !minted.accessCookie) return homeRedirect(request);
+  const href = nativeCallbackHref(nativeReturnTo, {
+    stack_refresh: minted.refreshToken,
+    stack_access: minted.accessCookie,
+  });
+  return href ? nativeRedirectResponse(request, href) : homeRedirect(request);
+}
+
+/** Hand off to an allowed native return target, or go home. */
+async function nativeReturnFlow(context: NativeReturnContext): Promise<NextResponse> {
+  const { request, stackCookies, nativeReturnTo, localizedMessages } = context;
+  const trustedPurchaseReturnTo = verifiedAppPricingNativeReturnTo(request.nextUrl);
+  if (trustedPurchaseReturnTo !== nativeReturnTo && !isAllowedNativeReturnTo(nativeReturnTo, request)) {
+    return homeRedirect(request);
+  }
+  const codeChallenge = requestedCodeChallenge(request);
+  if (codeChallenge === "invalid") return homeRedirect(request);
+  // Every hand-off, PKCE or legacy, waits for the person's click on the page
+  // that names the account and the app: a sign-in any local app can start
+  // must not release a code or tokens on its own.
+  if (!verifiedNativeConfirmation(request, stackCookies)) {
+    if (context.userLookupFailed) return stackThrottledResponse(request, localizedMessages);
+    return nativeConfirmationResponse(request, localizedMessages, {
+      account: context.user?.primaryEmail ?? null,
+      app: nativeAppDisplayName(nativeReturnScheme(nativeReturnTo) ?? ""),
+    });
+  }
+  if (codeChallenge) return nativeCodeHandoff(context, codeChallenge);
+  // Builds without PKCE keep signing in during the transition; logged so the
+  // path can be retired.
+  console.warn("auth.after_sign_in.legacy_native_handoff", { scheme: nativeReturnScheme(nativeReturnTo) });
+  return nativeLegacyTokenHandoff(context);
 }
 
 export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependencies) {
   return async function GET(request: NextRequest) {
     const projectId = dependencies.projectId;
     const authApp = dependencies.stackServerApp;
-    if (!authApp || !projectId) return NextResponse.redirect(new URL("/", requestOrigin(request)));
+    if (!authApp || !projectId) return homeRedirect(request);
     const localizedMessages = await afterSignInMessages(request);
-
     const stackCookies = await dependencies.getCookieStore();
-    const refreshBaseName = `stack-refresh-${projectId}`;
-    const rawRefreshCookie = findStackCookie(stackCookies, refreshBaseName);
-    const rawAccessCookie = findStackCookie(stackCookies, "stack-access");
-    const parsedAccess = decodeAccessCookie(rawAccessCookie);
-    const parsedRefresh = decodeRefreshCookie(rawRefreshCookie);
 
-    let refreshToken = parsedAccess.refreshToken ?? parsedRefresh;
-    let accessToken = parsedAccess.accessToken;
-    let accessCookie = decodeCookieValue(rawAccessCookie);
-
-    const fresh = await mintFreshSession(authApp, dependencies, request, localizedMessages);
-    if (fresh.kind === "response") return fresh.response;
-    refreshToken = fresh.refreshToken ?? refreshToken;
-    accessToken = fresh.accessToken ?? accessToken;
-
-    if (refreshToken && accessToken) {
-      accessCookie = JSON.stringify([refreshToken, accessToken]);
-    }
+    const resolved = await resolveSignedInUser(authApp, dependencies, request, localizedMessages);
+    if (resolved.kind === "response") return resolved.response;
 
     const nativeReturnTo = request.nextUrl.searchParams.get("native_app_return_to");
-    if (refreshToken && accessCookie && nativeReturnTo !== null) {
-      return nativeReturnFlow(request, stackCookies, nativeReturnTo, refreshToken, accessCookie, localizedMessages);
+    if (nativeReturnTo !== null) {
+      return nativeReturnFlow({
+        request,
+        stackCookies,
+        nativeReturnTo,
+        user: resolved.user,
+        userLookupFailed: resolved.lookupFailed === true,
+        projectId,
+        dependencies,
+        localizedMessages,
+      });
     }
 
     const afterAuth = request.nextUrl.searchParams.get("after_auth_return_to");
     if (afterAuth && afterAuth.startsWith("/") && !afterAuth.startsWith("//")) {
       return NextResponse.redirect(new URL(afterAuth, requestOrigin(request)));
     }
-
-    if (refreshToken && accessCookie) {
-      const fallback = buildNativeHref(null, refreshToken, accessCookie);
-      if (fallback) return nativeReturnResponse(fallback, localizedMessages, switchAccountHref(request));
-    }
-
-    return NextResponse.redirect(new URL("/", requestOrigin(request)));
+    return homeRedirect(request);
   };
 }
