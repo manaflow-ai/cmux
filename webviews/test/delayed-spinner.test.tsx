@@ -50,9 +50,13 @@ test("no spinner before 300 ms, one after", async () => {
     expect(host.querySelector(".cv-spinner")).toBeNull();
     const box = host.querySelector<HTMLElement>("[data-spinner-wait]")!;
     expect(box.style.width).toBe("14px");
-    act(() => jest.advanceTimersByTime(290));
+    await act(async () => {
+      jest.advanceTimersByTime(290);
+    });
     expect(host.querySelector(".cv-spinner")).toBeNull();
-    act(() => jest.advanceTimersByTime(20));
+    await act(async () => {
+      jest.advanceTimersByTime(20);
+    });
     expect(host.querySelector(".cv-spinner")).not.toBeNull();
   } finally {
     jest.useRealTimers();
