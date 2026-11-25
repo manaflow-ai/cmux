@@ -30,8 +30,6 @@ use serde::{Deserialize, Serialize};
 
 /// The kill switch: `0`, `off` or `false` keeps a plain `cmux autocloud` on this machine.
 pub const KILL_SWITCH: &str = "CMUX_AUTOCLOUD_START";
-/// The Cloud API to start machines on (`prod`, `staging`, `dev` or a URL).
-pub const API_ENV: &str = "CMUX_AUTOCLOUD_API";
 
 /// Whether a chat with no target starts (or reuses) an AutoCloud machine: on unless the kill
 /// switch says otherwise and when signed in (the probe).
@@ -177,7 +175,7 @@ pub async fn ensure_machine(
 async fn retried<T, F, Fut>(say: &mut dyn FnMut(&str), op: &str, mut send: F) -> Result<T>
 where
     F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = Result<T, cmux_cloud_client::ApiError>>,
+    Fut: Future<Output = Result<T, cmux_cloud_client::ApiError>>,
 {
     let mut attempt = 0;
     loop {
