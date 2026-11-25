@@ -309,6 +309,7 @@ export const ROW_LEVELS: {
     "agentPane.display.statusVerbs.custom": "hidden",
     "agentPane.display.width": "more",
     "agentPane.display.vscodeMinimap": "hidden",
+    "agentPane.display.chatListStatusPills": "hidden",
     "agentPane.display.headerBreadcrumb": "hidden",
     "agentPane.display.trayHandle": "hidden",
     "agentPane.display.senderIcon.lead": "hidden",
