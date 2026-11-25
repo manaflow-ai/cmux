@@ -374,6 +374,7 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<events::EventsParams, events::EventsResult>(method::MUX_EVENTS),
         keyed::<params::AttachmentParams>(method::MUX_ATTACHMENT, Request),
         keyed::<params::TurnShotsParams>(method::MUX_TURN_SHOTS, Request),
+        keyed::<params::TurnFramesParams>(method::MUX_TURN_FRAMES, Request),
         keyed::<params::CustomizeRunParams>(method::MUX_CUSTOMIZE_RUN, Request),
         request::<MailSendParams, MailSendResult>(method::MUX_MAIL_SEND),
         request::<MailReadParams, MailPageResult>(method::MUX_MAIL_READ),
