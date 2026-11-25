@@ -36,6 +36,10 @@ public final class SettingsApplier {
         }
 
         if design.showModifierHoldHints != snapshot.showModifierHoldHints { design.showModifierHoldHints = snapshot.showModifierHoldHints }
+        let qwertyPositions = snapshot.keyboardStyle.shortcutLayout == .qwertyPositions
+        if registry.matchesQwertyPositions != qwertyPositions {
+            registry.matchesQwertyPositions = qwertyPositions
+        }
         if design.customDensities != snapshot.customDensities { design.customDensities = snapshot.customDensities }
         let density = snapshot.selectedDensity
         if design.densityTokens != density { design.densityTokens = density }
@@ -70,6 +74,8 @@ public final class SettingsApplier {
         if design.sidebarSections != snapshot.sidebarSections { design.sidebarSections = snapshot.sidebarSections }
         let agentBadges = AgentBadgesExperiment(switches: snapshot.experimentSwitches)
         if design.agentBadges != agentBadges { design.agentBadges = agentBadges }
+        let terminalAgentMarks = snapshot.experimentSwitches["terminalAgentMark"] == true
+        if design.terminalAgentMarks != terminalAgentMarks { design.terminalAgentMarks = terminalAgentMarks }
         if design.hoverCardsEnabled != snapshot.hoverCards.enabled { design.hoverCardsEnabled = snapshot.hoverCards.enabled }
         let pageDeveloperTools = AppPageDevToolsSetting().value(in: snapshot.root)
         if design.pageDeveloperTools != pageDeveloperTools { design.pageDeveloperTools = pageDeveloperTools }

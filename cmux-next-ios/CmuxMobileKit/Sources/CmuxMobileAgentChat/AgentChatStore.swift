@@ -222,7 +222,8 @@ public final class AgentChatStore {
     /// The source is still reading the chat's history from the Mac
     /// (``AgentSessionSource/loadsHistory``, then ``AgentSessionEvent/historyLoading(_:)``). With no
     /// turns yet the chat shows a loading state, never the empty new-chat screen; with turns it
-    /// shows them (kept from before) and says it is updating.
+    /// shows them (kept from before) and says nothing while it catches up (Leo, 2026-11-24:
+    /// "they dont need to know that it's updating before they KNOW it's updating").
     public private(set) var isLoadingHistory = false
     /// The first message this phone is sending has not shown in the transcript yet (New Task):
     /// the chat still says it is starting. Read live: the source's note goes once the send ends.
@@ -412,8 +413,9 @@ public final class AgentChatStore {
     /// grid card and the subagent screens share them).
     @ObservationIgnored public let diffs = ChatDiffCache()
 
-    /// Says when a dropped or catching-up chat may show its line (after 10 s);
-    /// its rows stay on screen the whole time.
+    /// Says when a dropped chat may show its line, or a chat with nothing kept its slow-load
+    /// words (after 10 s); kept rows stay on screen the whole time, and a catch-up over them
+    /// shows no line (``connectionLine``).
     @ObservationIgnored public let quietStatus: QuietStatusGate
 
     /// The chat's one quiet status line by the composer: nil while live and for the first

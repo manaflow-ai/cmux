@@ -39,6 +39,15 @@
 //! Tuning: [`ENV_ENABLED`] (`0|1`) and [`ENV_MIN_CONTEXT`] (a percent) in the daemon's
 //! environment beat the two settings (the crate's README, "Tuning compaction").
 //!
+//! The idle reaper (`idle.rs`) stops a harness after its idle period (2 min by default), long
+//! before the timer's deadline, and a compaction into the respawned harness runs cold: on one
+//! lane VM every measured `/compact` into a resumed harness read about 3K and wrote about 131K
+//! tokens, 570-1,833 s after the last request, well inside the 1 h TTL. So the reaper asks
+//! first ([`Hub::cache_compact_before_reap`]): a session due to sleep with this timer armed
+//! compacts now, into the live harness while its cache is warm, and sleeps on a later pass. The
+//! timer's entry goes as it is taken, so a compaction its gates refuse (a draft, a Web turn
+//! last) keeps the harness up for at most one more idle period, never for good.
+//!
 //! A turn of [`KIND`] that fails is not continued by `auto_resume.rs` (`turns.rs`): the next
 //! turn's usage arms the timer again, and a continuation would be a model call nobody asked for.
 
@@ -70,7 +79,8 @@ pub(crate) fn lead_ms(left_ms: u64) -> u64 {
 /// The armed timers: session id -> (generation, the task).
 static TIMERS: std::sync::LazyLock<StdMutex<TimerMap>> = std::sync::LazyLock::new(Default::default);
 static GENERATION: AtomicU64 = AtomicU64::new(0);
-type TimerMap = HashMap<String, (u64, tokio::task::AbortHandle)>;
+/// session id -> (generation, the task, the cache expiry it was armed for, the context share).
+type TimerMap = HashMap<String, (u64, tokio::task::AbortHandle, u64, f64)>;
 pub const SETTING_ENABLED: &str = "agents.cacheCompact.enabled";
 pub const SETTING_MIN_CONTEXT: &str = "agents.cacheCompact.minContextPercent";
 /// `0|1` in the daemon's environment: [`SETTING_ENABLED`], whatever the settings file says.
@@ -182,15 +192,38 @@ impl Hub {
     /// Ends `session`'s armed timer, if one is.
     fn cache_compact_disarm(id: &str) {
         let mut timers = TIMERS.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some((_, timer)) = timers.remove(id) {
+        if let Some((_, timer, ..)) = timers.remove(id) {
             timer.abort();
         }
+    }
+
+    /// The idle reaper is about to stop `session`'s harness (`idle.rs` `idle_exit`): when its
+    /// timer is armed, the timer ends and the compaction runs now, into the live harness, on a
+    /// task of its own; true keeps the harness up for it (module docs). False when no timer is
+    /// armed (off, under the threshold, no cache expiry, or already compacted) or the hub is
+    /// gone.
+    pub(in crate::hub) fn cache_compact_before_reap(&self, session: &Arc<Session>) -> bool {
+        let Some(hub) = self.hub_ref.get().and_then(std::sync::Weak::upgrade) else {
+            return false;
+        };
+        let armed = {
+            let mut timers = TIMERS.lock().unwrap_or_else(|e| e.into_inner());
+            timers.remove(&session.id)
+        };
+        let Some((_, timer, expires, used)) = armed else { return false };
+        timer.abort();
+        tracing::info!(session = %session.id, "cache compaction runs before the idle stop");
+        let session = session.clone();
+        self.scope.spawn_until_cancelled("cache-compact-before-reap", async move {
+            hub.cache_compact_fire(&session, expires, used).await;
+        });
+        true
     }
 
     /// A live (not replayed) `usage_update` of `session`: arms its timer again (module docs).
     fn cache_compact_on_usage(self: &Arc<Self>, session: &Arc<Session>, update: &Value) {
         let mut timers = TIMERS.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some((_, timer)) = timers.remove(&session.id) {
+        if let Some((_, timer, ..)) = timers.remove(&session.id) {
             timer.abort();
         }
         let Some(threshold) = read_threshold() else { return };
@@ -210,7 +243,7 @@ impl Hub {
             // insert); a dropped session or hub leaves nothing behind.
             let own = {
                 let mut timers = TIMERS.lock().unwrap_or_else(|e| e.into_inner());
-                let own = timers.get(&id).is_some_and(|(g, _)| *g == generation);
+                let own = timers.get(&id).is_some_and(|(g, ..)| *g == generation);
                 if own {
                     timers.remove(&id);
                 }
@@ -222,7 +255,7 @@ impl Hub {
             let (Some(hub), Some(session)) = (hub.upgrade(), weak.upgrade()) else { return };
             hub.cache_compact_fire(&session, expires, used).await;
         });
-        timers.insert(session.id.clone(), (generation, task.abort_handle()));
+        timers.insert(session.id.clone(), (generation, task.abort_handle(), expires, used));
     }
 
     /// Whether `session` may be compacted now: idle as the reaper judges it, nobody typing, no
