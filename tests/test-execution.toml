@@ -899,6 +899,11 @@ path = "tests/test_ci_source_lint_guard_structure.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cas_mac_archive_manifest.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cas_mac_archive_manifest.py"
+
+[[test]]
 path = "tests/test_ci_test_execution_registry.py"
 lane = "linux-guard"
 
@@ -2423,4 +2428,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_select_ios_simulator.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_shed_retired_route.py"
 lane = "linux-guard"
