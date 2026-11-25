@@ -3100,6 +3100,9 @@ class WorkflowRedStatusesHaveAReader(unittest.TestCase):
         # A compile on the build fleet dispatched at one sha: failure is a real compile verdict (the PR's own) and
         # error is no verdict (re-run it); neither is ever a base red, so the plain refusal is right for both.
         "fleet/compile-check": "FAIL_CLOSED: a compile verdict or no verdict, never a base red",
+        # pr-router.yml posts pr_router.land_status's word, only pending or success (the land tier's handoff, not a
+        # required check): the scan sees `state="$STATE"`, but no red ever reaches a reader.
+        "cmux/land-tier": "FAIL_CLOSED: posts only pending or success (pr_router.land_status), never a red",
     }
     POST = re.compile(r"/statuses/")
     CONTEXTS = (re.compile(r"-f context=([^\s\"'$]+)"), re.compile(r"\bcontext: \"([^\"$]+)\""),
