@@ -857,6 +857,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                                                          prestaged: prestaged)
                     try Task.checkCancellation()
                 } catch {
+                    // Stopped or failed before every early upload was linked: none of them is wanted now.
+                    for entry in prestaged.values { entry.task.cancel() }
                     let reason = error is CancellationError ? "Not sent: you stopped it." : AcpmuxSessionSource.message(error)
                     self.emit(.promptNotSent(text: text, attachments: attachments, promptID: promptID, reason: reason))
                     return
@@ -968,6 +970,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private var sendTasks: [String: Task<Void, Never>] = [:]
     /// The composer's files, uploading to the Mac since they were picked (``prestageAttachments(_:)``).
     private let prestager = AttachmentPrestager()
+    /// The current composer contents, retained while the Mac link is down so the next link can
+    /// resume optimistic transfers without requiring another attachment change in the UI.
+    private var composerAttachments: [AgentAttachment] = []
 
     /// Sends a prompt now, or after the ones held before it (the Mac gets them in order).
     /// Returns once it is written or held; its answer is awaited apart.
@@ -1116,6 +1121,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// The composer's attachments changed: files a prompt would upload start uploading now, into the
     /// same folder Send uploads to; files taken off stop (``AttachmentPrestager``).
     public func prestageAttachments(_ attachments: [AgentAttachment]) {
+        composerAttachments = attachments
         let cwd = baseDirectory
         let macName = summary.macName
         var upload: AttachmentPrestager.Upload?
@@ -1661,6 +1667,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     }
 
     func linkDown() {
+        prestager.cancelAll()
         // An attach still waiting on the old connection ends without touching this chat.
         generation += 1
         attachTask?.cancel()
@@ -1719,6 +1726,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         flushHeldPrompts()
         // Kept records still being read: the attach starts once they are in (`restoreKept`).
         guard !attaching, !restoring, let hub, hub.isReady else { return }
+        prestageAttachments(composerAttachments)
         retryTask?.cancel()
         retryTask = nil
         gapTask?.cancel()

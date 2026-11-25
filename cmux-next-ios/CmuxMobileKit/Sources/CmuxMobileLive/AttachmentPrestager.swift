@@ -45,7 +45,10 @@ final class AttachmentPrestager {
             entry.task.cancel()
             entries[id] = nil
         }
-        guard let upload else { return }
+        guard let upload else {
+            cancelAll()
+            return
+        }
         for attachment in attachments where wanted.contains(attachment.id) && entries[attachment.id] == nil {
             let payload: LinkUpload.Payload
             if let data = attachment.data { payload = .data(data) } else if let url = attachment.fileURL { payload = .file(url) } else { continue }
@@ -74,6 +77,18 @@ final class AttachmentPrestager {
             if let entry = entries.removeValue(forKey: attachment.id) { claimed[attachment.id] = entry }
         }
         return claimed
+    }
+
+    /// Cancels composer uploads that belong to a link which is no longer usable. The source
+    /// keeps the desired attachment list and starts these again when the next link is ready.
+    func cancelAll() {
+        for entry in entries.values { entry.task.cancel() }
+        entries.removeAll()
+    }
+
+    /// The chat went away with files still on its composer: their uploads have no owner.
+    isolated deinit {
+        for entry in entries.values { entry.task.cancel() }
     }
 
     nonisolated static func ms(_ duration: Duration) -> Int64 {
