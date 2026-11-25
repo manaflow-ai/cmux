@@ -908,9 +908,16 @@ def lower_words(line: str) -> list[str]:
     return [word.lower() for word in WORD.findall(line)]
 
 
+def close_in_length(words: list[str], other: list[str]) -> bool:
+    """Whether `other` is about as long as `words`: at most half again plus two words longer or shorter. A short
+    removed line (`let x = 1;`) is not "still said" by a long unrelated line that happens to hold its words."""
+    slack = max(2, len(words) // 2)
+    return abs(len(other) - len(words)) <= slack
+
+
 def reworded(pr_patch: str, keep_out: set[str]) -> set[str]:
     """The removed lines of three or more words the same edit replaces with a reworded line: one sharing its
-    first three words, or at least half of its words. A skills index row rewritten in place (PR #54943 rewording #53846's
+    first three words, or at least half of the longer line's distinct words, at a close length. A skills index row rewritten in place (PR #54943 rewording #53846's
     row) is an edit of the line, not a takeback of it. Added lines in `keep_out` (lines the commit replaced,
     now restored) do not count, so putting back the old wording is still a revert."""
     kept = set()
@@ -921,16 +928,18 @@ def reworded(pr_patch: str, keep_out: set[str]) -> set[str]:
             if len(words) < 3:
                 continue
             for other in candidates:
+                if not close_in_length(words, other):
+                    continue
                 shared = len(set(words) & set(other))
-                if words[:3] == other[:3] or shared * 2 >= len(words):
+                if words[:3] == other[:3] or shared * 2 >= max(len(set(words)), len(set(other))):
                     kept.add(line)
                     break
     return kept
 
 
 def still_said(pr_patch: str, keep_out: set[str]) -> set[str]:
-    """The removed lines of three or more words whose words all still appear, in order, in a line the file
-    keeps or gains anywhere in the patch: a duplicate dropped beside the entry that stays, or a comment
+    """The removed lines of three or more words whose words all still appear, in order, in a line of close
+    length the file keeps or gains anywhere in the patch: a duplicate dropped beside the entry that stays, or a comment
     folded into another one (PR #50003 dropping `cmux-deadline.workspace = true` under
     `cmux-deadline = { workspace = true, features = ["tokio"] }`). Added lines in `keep_out` do not count."""
     lines = [l[1:] for l in pr_patch.splitlines()
@@ -939,7 +948,7 @@ def still_said(pr_patch: str, keep_out: set[str]) -> set[str]:
     kept = set()
     for line in diff_lines(pr_patch)[0]:
         words = lower_words(line)
-        if len(words) >= 3 and any(in_order(words, stream) for stream in streams):
+        if len(words) >= 3 and any(close_in_length(words, stream) and in_order(words, stream) for stream in streams):
             kept.add(line)
     return kept
 

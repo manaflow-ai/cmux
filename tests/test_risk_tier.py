@@ -742,6 +742,16 @@ class RecentRevertTests(unittest.TestCase):
                                     "-# One deadline per wait (daemon/watchdog.rs: a hello waits until systemd's own limit).\n"
                                     "-cmux-deadline.workspace = true\n cmux-supervise-core.workspace = true", commit))
 
+    def test_a_short_line_is_not_still_said_by_a_long_unrelated_one(self):
+        # Review F1 on #55358: `let x = 1;` taken back beside `let x = compute(a, b, 1);` is still a takeback.
+        commit = "@@ -1,2 +1,3 @@\n ctx\n+    let x = 1;\n ctx"
+        pr = "@@ -1,4 +1,3 @@\n ctx\n-    let x = 1;\n     let x = compute(a, b, 1);\n ctx"
+        self.assertTrue(risk.undoes(pr, commit))
+        # A line replaced by a much longer one that merely shares half its words is not a reword of it.
+        summed = "@@ -1,2 +1,3 @@\n ctx\n+    let total = sum(a);\n ctx"
+        reword = "@@ -1,3 +1,3 @@\n ctx\n-    let total = sum(a);\n+    let total_count = sum(x, y, z, w, v, u);\n ctx"
+        self.assertTrue(risk.undoes(reword, summed))
+
     def test_a_revert_of_last_weeks_change_names_its_pull_request(self):
         now = time.time()
         with tempfile.TemporaryDirectory() as repo:
