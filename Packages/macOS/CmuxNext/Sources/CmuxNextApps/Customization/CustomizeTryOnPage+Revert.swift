@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextActions
 import CmuxNextDesign
 public import Foundation
+import CmuxNextCompat
 
 /// Undo Look Change (`customize.revert`, Ctrl-Opt-Cmd-Z by default): the recovery key for a look
 /// that broke the window (customization capability matrix row `recovery-hotkey`). It runs the
@@ -27,7 +28,7 @@ extension CustomizeTryOnPage {
                        run: @Sendable (URL, [String]) async throws -> (Int32, Data, Data)) async -> Result<[String: ActionResultValue], ActionWorkFailure> {
         guard let binary = await cli() else { return .failure(ActionWorkFailure(AppsStrings.customizeNoCLI)) }
         do {
-            let (status, stdout, stderr) = try await run(binary, ["--json", "customize", "revert"])
+            let (status, stdout, stderr) = try await awaitConcurrently({ try await run(binary, ["--json", "customize", "revert"]) })
             if status == 0 { return .success([:]) }
             return .failure(ActionWorkFailure(errorMessage(stderr) ?? errorMessage(stdout) ?? "cmux customize revert: exit \(status)"))
         } catch {
