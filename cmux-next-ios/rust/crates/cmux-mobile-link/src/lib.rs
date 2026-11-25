@@ -36,6 +36,7 @@ pub mod names;
 pub mod path_report;
 pub mod reconnect;
 mod send_queue;
+pub mod signal_dial;
 pub mod signaling;
 #[cfg(feature = "testing")]
 pub mod testing;
