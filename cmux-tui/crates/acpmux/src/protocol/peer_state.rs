@@ -332,6 +332,7 @@ mod tests {
             down_reason: Some(DialFail::PathChanged),
             last_seen: None,
             error: None,
+            status: None,
             at: 2,
         })
         .unwrap();
