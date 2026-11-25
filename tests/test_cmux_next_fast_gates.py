@@ -674,23 +674,22 @@ class WorkflowShape(unittest.TestCase):
         gates_job = job(workflow())
         steps = gates_job["steps"]
         gates = steps.index(step_named(steps, "Fast gates on the merge"))
-        # A pool VM runs its mirror checkout in place of actions/checkout (#55973): the two steps' `if`s exclude each
-        # other, so the bounds add up per kind of runner, not across both.
-        pool = "startsWith(runner.name, 'cmux-runner-pool-')"
-        totals = {"pool": 0, "other": 0}
+        # A step that runs only on a pool VM and one that runs only off it are alternatives (the pool mirror's
+        # checkout replaces actions/checkout, cmux#55973): a job pays one side's bounds, never both.
+        pool = "${{ startsWith(runner.name, 'cmux-runner-pool-') }}"
+        off_pool = "${{ !startsWith(runner.name, 'cmux-runner-pool-') }}"
+        common = on_pool = not_pool = 0
         for step in steps[:gates]:
             with self.subTest(step=step["name"]):
                 self.assertIn("timeout-minutes", step)
-                cond = str(step.get("if", ""))
-                for kind in totals:
-                    if kind == "pool" and f"!{pool}" in cond:
-                        continue
-                    if kind == "other" and pool in cond.replace(f"!{pool}", ""):
-                        continue
-                    totals[kind] += int(step["timeout-minutes"])
-        for kind, total in totals.items():
-            with self.subTest(runner=kind):
-                self.assertLessEqual(total, 40)
+                minutes = int(step["timeout-minutes"])
+                if step.get("if") == pool:
+                    on_pool += minutes
+                elif step.get("if") == off_pool:
+                    not_pool += minutes
+                else:
+                    common += minutes
+        self.assertLessEqual(common + max(on_pool, not_pool), 40)
         # Node never comes from GitHub's node-versions releases (setup-node's download): the tool cache or nodejs.org.
         node = step_named(steps, "Setup Node")
         self.assertNotIn("uses", node)
@@ -747,9 +746,8 @@ class WorkflowShape(unittest.TestCase):
             # The pinned toolchain restores (scripts/ci/toolchain-r2.sh) are best-effort too: a miss is setup's download.
             if "toolchain-r2.sh\" restore " in str(step.get("run", "")):
                 continue
-            # So are the Actions cache restores (#55346 bounds them): an error or a timeout there is a miss, and the
-            # install after it runs cold; it is not a check's verdict.
-            if str(step.get("uses", "")).startswith("actions/cache"):
+            # So are the bounded package cache restores (cmux#55346): a miss or a timeout is a cold install, not a verdict.
+            if str(step.get("uses", "")).startswith(("actions/cache@", "actions/cache/restore@")):
                 continue
             if step.get("continue-on-error") is True and not any(r in step["name"] for r in receipt_steps):
                 with self.subTest(gated=step["name"]):
