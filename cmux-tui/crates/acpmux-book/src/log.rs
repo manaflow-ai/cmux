@@ -52,8 +52,8 @@ pub use checkpoint::{
 };
 pub use index::ROW_ENTRY_LEN;
 pub use read::{
-    Anchor, Edge, MAX_FRAME_BYTES, MAX_PAGE_BYTES, MAX_ROWS, ResumeSize, RowRef, Side, Since,
-    Window,
+    Anchor, Edge, LiveFold, MAX_FRAME_BYTES, MAX_PAGE_BYTES, MAX_ROWS, ResumeSize, RowRef, Side,
+    Since, Window,
 };
 pub use record::{HEADER_LEN, RECORD_OVERHEAD};
 
@@ -464,6 +464,11 @@ pub struct Log {
     stats: Stats,
     #[cfg(test)]
     fail_after: Option<usize>,
+    /// Every segment read, as its segment and offset, once a test arms it
+    /// (`take_segment_reads`), so it can say which records a read touched; `stats.reads` only
+    /// counts them. None until then, so the gates, also test builds, hold nothing.
+    #[cfg(test)]
+    segment_reads: Option<Vec<(u32, u64)>>,
 }
 
 fn segment_path(rows_dir: &Path, seg: u32) -> PathBuf {
@@ -891,6 +896,8 @@ impl Log {
             stats,
             #[cfg(test)]
             fail_after: None,
+            #[cfg(test)]
+            segment_reads: None,
         };
         Ok((log, recovered))
     }
@@ -1576,11 +1583,22 @@ impl Log {
         })
     }
 
+    /// The segment reads since the last call, oldest first; the first call arms the record and
+    /// answers none.
+    #[cfg(test)]
+    pub(crate) fn take_segment_reads(&mut self) -> Vec<(u32, u64)> {
+        self.segment_reads.replace(Vec::new()).unwrap_or_default()
+    }
+
     /// Reads segment `seg` at `offset` into `buf`, until `buf` is full or the segment ends; the
     /// bytes read.
     fn read_segment(&mut self, seg: u32, offset: u64, buf: &mut [u8]) -> Result<usize, Error> {
         if self.broken {
             return Err(Error::Stopped);
+        }
+        #[cfg(test)]
+        if let Some(reads) = &mut self.segment_reads {
+            reads.push((seg, offset));
         }
         let read = if seg == self.tail.seg {
             fsio::read_at(&self.tail.file, buf, offset)?
@@ -1610,62 +1628,5 @@ impl Log {
 }
 
 #[cfg(test)]
-mod failure_tests {
-    use super::*;
-
-    #[test]
-    fn failed_writes_stop_the_log_until_reopen() {
-        for map_failure in [false, true] {
-            let home = tempfile::tempdir().unwrap();
-            let (mut log, _) = Log::open(home.path(), Options::default()).unwrap();
-            log.append_settled(1, 1, RawRange::NONE, b"old").unwrap();
-            log.write_checkpoint(&[], &[]).unwrap();
-            // Read-only descriptors produce a real failed write without production fault hooks.
-            let error = if map_failure {
-                log.raw_map = File::open(home.path().join("raw.map")).unwrap();
-                log.append_raw_file(b"raw").unwrap_err()
-            } else {
-                log.tail.file = File::open(segment_path(&log.rows_dir, log.tail.seg)).unwrap();
-                log.append_settled(2, 1, RawRange::NONE, b"new").unwrap_err()
-            };
-            assert!(matches!(error, Error::Io(_)));
-            assert!(matches!(
-                log.append_settled(2, 1, RawRange::NONE, b"new"),
-                Err(Error::Stopped)
-            ));
-            assert!(matches!(log.patch(1, 2, RawRange::NONE, b"patch"), Err(Error::Stopped)));
-            assert!(matches!(log.write_checkpoint(&[], &[]), Err(Error::Stopped)));
-            assert!(matches!(log.append_raw_file(b"raw"), Err(Error::Stopped)));
-            drop(log);
-            let (mut log, _) = Log::open(home.path(), Options::default()).unwrap();
-            assert_eq!(log.append_settled(2, 1, RawRange::NONE, b"new").unwrap(), 2);
-        }
-    }
-
-    #[test]
-    fn a_short_write_in_a_new_segment_does_not_shift_the_next_record() {
-        let home = tempfile::tempdir().unwrap();
-        let (mut log, _) = Log::open(home.path(), Options::default()).unwrap();
-        log.append_settled(1, 1, RawRange::NONE, b"first").unwrap();
-        log.roll().unwrap();
-        log.fail_after = Some(3);
-        assert!(matches!(log.append_settled(2, 1, RawRange::NONE, b"second"), Err(Error::Io(_))));
-        log.append_settled(2, 1, RawRange::NONE, b"second").unwrap();
-        log.append_settled(3, 1, RawRange::NONE, b"third").unwrap();
-        drop(log);
-        let (log, _) = Log::open(home.path(), Options::default()).unwrap();
-        assert_eq!(log.row(2).unwrap().len, 6);
-        assert_eq!(log.row(3).unwrap().len, 5);
-    }
-
-    #[test]
-    fn a_failed_sync_stops_the_log() {
-        let home = tempfile::tempdir().unwrap();
-        let (mut log, _) = Log::open(home.path(), Options::default()).unwrap();
-        let file = log.append_raw_file(b"raw").unwrap();
-        log.append_settled(1, 1, RawRange { file, off: 0, len: 1 }, b"row").unwrap();
-        log.tail.file = File::open("/dev/full").unwrap();
-        assert!(matches!(log.sync(), Err(Error::Io(_))));
-        assert!(matches!(log.append_settled(2, 1, RawRange::NONE, b"row"), Err(Error::Stopped)));
-    }
-}
+#[path = "log_failure_tests.rs"]
+mod failure_tests;

@@ -14,8 +14,16 @@ pub(crate) const PROVIDER_CHANGED_CAPABILITY: &str = "app-provider-changed-v1";
 
 /// The read op `cmux-app-host/schema/v2/events.json` names for `stream`: an app hears the stream
 /// only when it may call that op. `None` for a stream the table does not declare.
+#[cfg(test)]
 pub(super) fn declared_reads(stream: &str) -> Option<&'static str> {
-    static TABLE: std::sync::OnceLock<Vec<(String, String)>> = std::sync::OnceLock::new();
+    declared(stream).map(|(reads, _)| reads)
+}
+
+/// The `reads` op and its `readsParams` (`Null` when the table names none): `github.changed`
+/// reads `integration.request` with `{provider: "github", method: "GET"}`, so it needs
+/// `integration:github:read`, not any integration grant.
+pub(super) fn declared(stream: &str) -> Option<(&'static str, &'static Value)> {
+    static TABLE: std::sync::OnceLock<Vec<(String, String, Value)>> = std::sync::OnceLock::new();
     TABLE
         .get_or_init(|| {
             let table: Value =
@@ -27,15 +35,19 @@ pub(super) fn declared_reads(stream: &str) -> Option<&'static str> {
                     events
                         .iter()
                         .filter_map(|(name, event)| {
-                            Some((name.clone(), event["reads"].as_str()?.to_string()))
+                            Some((
+                                name.clone(),
+                                event["reads"].as_str()?.to_string(),
+                                event.get("readsParams").cloned().unwrap_or(Value::Null),
+                            ))
                         })
                         .collect()
                 })
                 .unwrap_or_default()
         })
         .iter()
-        .find(|(name, _)| name == stream)
-        .map(|(_, reads)| reads.as_str())
+        .find(|(name, _, _)| name == stream)
+        .map(|(_, reads, params)| (reads.as_str(), params))
 }
 
 /// A sequence belongs to this supervisor boot and its current provider connection.
@@ -67,15 +79,24 @@ impl Supervisor {
         };
         let grant = Self::grant_for(inner, key);
         let table = ScopeTable::get();
-        let allowed = |op: &str| {
-            matches!(table.check(op, &Value::Null, &grant), Decision::Allow(_))
-                && matches!(table.check(op, &Value::Null, &host.grant), Decision::Allow(_))
+        let allowed = |op: &str, params: &Value| {
+            matches!(table.check(op, params, &grant), Decision::Allow(_))
+                && matches!(table.check(op, params, &host.grant), Decision::Allow(_))
         };
-        // A stream the SDKs' table declares is readable with its `reads` op (`theme.changed`
-        // reads `settings.get`); a provider family's stream, with that family's list or get.
-        match declared_reads(stream) {
-            Some(op) => allowed(op),
-            None => ["list", "get"].iter().any(|verb| allowed(&format!("{family}.{verb}"))),
+        // An extension signal source's stream (`signal_sources.rs`): its scope, or its own app.
+        if let Some(source) = Self::signal_source_for_stream(inner, stream) {
+            return !key.preview && key.app == source.app
+                || grant.scopes.contains(&source.scope)
+                    && host.grant.scopes.contains(&source.scope);
+        }
+        // A stream the SDKs' table declares is readable with its `reads` op and `readsParams`
+        // (`theme.changed` reads `settings.get`); a provider family's stream, with that family's
+        // list or get.
+        match declared(stream) {
+            Some((op, params)) => allowed(op, params),
+            None => ["list", "get"]
+                .iter()
+                .any(|verb| allowed(&format!("{family}.{verb}"), &Value::Null)),
         }
     }
 
@@ -172,14 +193,20 @@ impl Supervisor {
                 "agent_cli changes go through apps-agent-inventory-changed",
             ));
         }
-        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if inner.providers.get(family) != Some(&client) {
             return Err(ApiError::new(
                 "apps.provider.unknown",
                 "this connection does not provide that family",
             ));
         }
-        Self::publish_stream_locked(&inner, &format!("{family}.changed"), json!({}));
+        // A changed calendar makes every cached read stale before anyone reads again.
+        if family == super::system_calendar::FAMILY {
+            inner.system_calendar.clear();
+        }
+        let stream = format!("{family}.changed");
+        self.signals_pushed_locked(&inner, &stream);
+        Self::publish_stream_locked(&inner, &stream, json!({}));
         Ok(json!({}))
     }
 

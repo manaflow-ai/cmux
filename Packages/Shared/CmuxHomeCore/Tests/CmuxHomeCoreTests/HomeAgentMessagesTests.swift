@@ -174,6 +174,9 @@ struct HomeAgentMessagesTests {
         expectedFold.peerTitles = ["please check", "please build"]
         // a1's report is unread until the person opens a1 (the agent pane).
         expectedFold.peerUnread = [true, false]
+        // Each agent's task began at the Chief's message to it; a1's ended at its report, a2 works on.
+        expectedFold.peerStarted = [date, date]
+        expectedFold.peerEnded = [date, nil]
         #expect(rows[1].agentMessage == expectedFold)
         #expect(rows[2].agentMessage?.kind == .message(from: "agent_mux", to: "a1", outgoing: true, text: "please check"))
         #expect(rows[3].agentMessage?.kind == .message(from: "agent_mux", to: "a2", outgoing: true, text: "please build"))
@@ -375,6 +378,75 @@ struct HomeAgentMessagesTests {
         // Opened, the row stays first and every message and note follows in order.
         let open = book.inserting(into: [question()], summary: nil, expanded: [pills.group])
         #expect(open.count == 7 && open[1].key == rows[1].key)
+    }
+
+    /// User 2026-11-19: "would be useful to see how long it has been running for". Each agent of a row
+    /// carries when its current task began (the Chief's tell) and, once it reported or stopped, when that
+    /// was: the pill's working time and its total come from these, with nothing polled.
+    @Test func eachAgentCarriesWhenItsTaskBeganAndWhenItEnded() throws {
+        var book = HomeAgentMessages()
+        let at = { (minutes: Double) in Date(timeIntervalSince1970: 1_000 + minutes * 60) }
+        _ = book.apply(run(revision: 1, messages: [
+            .init(id: "tell", sequence: 1, revision: 1, peer: "a1", outgoing: true, text: "Title: Fix the sidebar", date: at(0)),
+            .init(id: "tell2", sequence: 2, revision: 1, peer: "a2", outgoing: true, text: "Title: Nightly", date: at(1)),
+            .init(id: "nudge", sequence: 3, revision: 1, peer: "a1", outgoing: true, text: "Land it too.", date: at(5)),
+            .init(id: "report", sequence: 4, revision: 1, peer: "a1", outgoing: false, text: "Fixed.", date: at(64)),
+            .init(id: "tell3", sequence: 5, revision: 1, peer: "a3", outgoing: true, text: "Title: Audit", date: at(70)),
+            .init(id: "note", sequence: 6, revision: 1, peer: "a3", outgoing: false,
+                  text: "(stopped without a report: its session is Disconnected)", date: at(73)),
+        ]))
+        let row = try #require(book.inserting(into: [question()], summary: nil).last?.agentMessage)
+        #expect(row.peerStates == [.reported, .told, .stopped])
+        // A follow-up tell to a working agent keeps its task's start.
+        #expect(row.peerStarted == [at(0), at(1), at(70)])
+        #expect(row.peerEnded == [at(64), nil, at(73)])
+    }
+
+    /// An agent told again after its report starts a new task: its time counts from that tell, and it has no end.
+    @Test func anAgentToldAgainAfterItsReportCountsFromTheNewTell() throws {
+        var book = HomeAgentMessages()
+        let at = { (minutes: Double) in Date(timeIntervalSince1970: 1_000 + minutes * 60) }
+        _ = book.apply(run(revision: 1, messages: [
+            .init(id: "tell", sequence: 1, revision: 1, peer: "a1", outgoing: true, text: "Title: One", date: at(0)),
+            .init(id: "report", sequence: 2, revision: 1, peer: "a1", outgoing: false, text: "Done.", date: at(10)),
+            .init(id: "again", sequence: 3, revision: 1, peer: "a1", outgoing: true, text: "Now two.", date: at(20)),
+        ]))
+        let row = try #require(book.inserting(into: [question()], summary: nil).last?.agentMessage)
+        #expect(row.peerStates == [.told])
+        #expect(row.peerStarted == [at(20)])
+        #expect(row.peerEnded == [nil])
+    }
+
+    /// A pill counts from the agent's session start, not the Chief's tell (user 2026-11-20): an agent that waited in
+    /// the queue or took a while to spawn starts later than its tell. A session older than the task (a tell to an
+    /// agent whose session runs on from an earlier task) counts from the tell.
+    @Test func aPillCountsFromItsAgentsSessionStart() throws {
+        var book = HomeAgentMessages()
+        let at = { (minutes: Double) in Date(timeIntervalSince1970: 10_000 + minutes * 60) }
+        _ = book.apply(run(revision: 1, messages: [
+            .init(id: "tell", sequence: 1, revision: 1, peer: "a1", outgoing: true, text: "Title: Queued one", date: at(0)),
+            .init(id: "tell2", sequence: 2, revision: 1, peer: "a2", outgoing: true, text: "Title: Running on", date: at(1)),
+            .init(id: "tell3", sequence: 3, revision: 1, peer: "a3", outgoing: true, text: "Title: Quick", date: at(2)),
+            .init(id: "report", sequence: 4, revision: 1, peer: "a3", outgoing: false, text: "Done.", date: at(30)),
+        ]))
+        let starts = ["a1": at(10), "a2": at(-60), "a3": at(3)]
+        let row = try #require(book.inserting(into: [question()], summary: nil, sessionStarts: starts).last?.agentMessage)
+        #expect(row.peerStarted == [at(10), at(1), at(3)])
+        #expect(row.peerEnded == [nil, nil, at(30)])
+    }
+
+    /// An agent whose row holds only its report (the Chief told it in an earlier turn) counts its total from its
+    /// session start; with no session start known it shows none, as before.
+    @Test func aReportOnlyPillCountsFromItsAgentsSessionStart() throws {
+        var book = HomeAgentMessages()
+        let at = { (minutes: Double) in Date(timeIntervalSince1970: 10_000 + minutes * 60) }
+        _ = book.apply(run(revision: 1, messages: [
+            .init(id: "report", sequence: 1, revision: 1, peer: "a1", outgoing: false, text: "Done.", date: at(40)),
+            .init(id: "report2", sequence: 2, revision: 1, peer: "a2", outgoing: false, text: "Done too.", date: at(41)),
+        ]))
+        let row = try #require(book.inserting(into: [question()], summary: nil, sessionStarts: ["a1": at(2)]).last?.agentMessage)
+        #expect(row.peerStarted == [at(2), nil])
+        #expect(row.peerEnded == [at(40), at(41)])
     }
 
     /// A lone task is a pill too (it was a bubble): the agent is working on it.

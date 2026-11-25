@@ -317,8 +317,7 @@ pub fn task_result(from: &str, from_name: &str, to: &str, task_id: &str, state: 
     json!({"kind": "task_result", "from": from, "fromName": from_name, "to": to, "taskId": task_id, "state": state})
 }
 
-/// What `from` says in [`named_sender`]: the sender named itself and is no address here.
-pub const NAMED_SENDER: &str = "fromAgent";
+pub use crate::provenance_keys::{NAMED_SENDER, NOTICE_KIND, VERIFIED};
 
 /// The provenance of a prompt whose sender named itself (`_meta.acpmux.fromAgent`) with no
 /// provenance and no caller proof here: `acpmux send --from NAME`, `ACPMUX_FROM`, a peer daemon
@@ -329,11 +328,6 @@ pub fn named_sender(name: &str, to: &str) -> Value {
     json!({"kind": "agent_message", "from": NAMED_SENDER, "fromName": name, "to": to, VERIFIED: false})
 }
 
-/// Whether the daemon itself bound the sender's identity (`true`: a caller-proven session, the
-/// hub's own prompt), or the sender only claimed it (`false`: a name, a peer's label, a
-/// provenance a client sent). Set by the daemon only: a client's own `verified` is never read
-/// ([`of`] keeps only its listed fields), and the person's prompt carries none (see [`ORIGIN`]).
-pub const VERIFIED: &str = "verified";
 /// How the prompt reached this daemon, as the daemon saw it: `unix` (the socket, any local
 /// process of the user), `app` (the app's own connection), `web`, `peer`, `carrier`, `trigger`.
 pub const TRANSPORT: &str = "transport";
@@ -439,8 +433,6 @@ pub fn forwarded_by_peer(mut provenance: Value, via: Option<&str>) -> Value {
 /// unverified, never as the person.
 pub const ORIGIN: &str = "origin";
 
-/// The provenance kind of a tool's notice ([`notice`]).
-pub const NOTICE_KIND: &str = "notice";
 /// A peer-carried proof that the originating connection was a verified person.
 pub const PERSON_VERIFIED: &str = "personVerified";
 /// Longest notice title, in characters.
@@ -790,6 +782,13 @@ mod message_meta_tests {
 pub const FROM_SESSION_ID: &str = "fromSessionId";
 /// See [`FROM_SESSION_ID`].
 pub const FROM_HARNESS: &str = "fromHarness";
+/// `_meta.acpmux.fromDisplayName`: the name people call the sending session, its given handle
+/// (`acpmux rename @ Mango --handle`, `SessionSummary.displayName`), bound and carried like
+/// [`FROM_SESSION_ID`]. Every line that names the sender of a message (the header the receiving
+/// agent reads, inbox rows, notices, the chat's sender card) shows it first, with the session's
+/// `HOST/NAME` beside it ([`display_label`]). Leo, 2026-11-23: "the send/recieve messages are
+/// still only the older names". Absent from a session with no given handle and from an older peer.
+pub const FROM_DISPLAY_NAME: &str = "fromDisplayName";
 
 /// `_meta.acpmux.fromRelay`: `{"by", "machine", "session"}`, a relay's word on where a message it
 /// carries came from: the lane-gh broker relays a lane VM's `lane-gh send` and knows the calling
@@ -818,7 +817,7 @@ pub struct RelaySender {
 impl RelaySender {
     /// The relay record in `value`, each field one name of at most [`MAX_NAME_CHARS`] (a
     /// session at most [`MAX_FIELD_BYTES`]); anything else is no relay record.
-    fn of(value: &Value) -> Option<Self> {
+    pub(crate) fn of(value: &Value) -> Option<Self> {
         let field = |k: &str| value.get(k).and_then(Value::as_str);
         let by = field("by").filter(|b| harness_fits(b))?;
         let machine = field("machine").filter(|m| harness_fits(m))?;
@@ -830,8 +829,17 @@ impl RelaySender {
         Some(Self { by: by.to_owned(), machine: machine.to_owned(), session })
     }
 
-    fn to_value(&self) -> Value {
-        json!({"by": self.by, "machine": self.machine, "session": self.session})
+    /// The record with no `session` key when it names none: the hub's `MeshSenderRelay.session` is
+    /// an optional string, and `session: null` was a 400 for every send from a program outside any
+    /// session (2026-11-24 04:58Z, after #52662; the hub takes null since cmux-platform's fix).
+    pub(crate) fn to_value(&self) -> Value {
+        let mut record = serde_json::Map::new();
+        record.insert("by".into(), json!(self.by));
+        record.insert("machine".into(), json!(self.machine));
+        if let Some(session) = &self.session {
+            record.insert("session".into(), json!(session));
+        }
+        Value::Object(record)
     }
 
     /// How the sender reads as its label (`fromAgent`): `MACHINE/SESSION`, or the machine alone,
@@ -858,6 +866,50 @@ pub fn relay_of(provenance: Option<&Value>) -> Option<RelaySender> {
     RelaySender::of(provenance?.get(FROM_RELAY)?)
 }
 
+/// The `--relay` name an outbox's ssh carry (`server/ssh_carry.rs`) gives the far daemon. A
+/// carry goes only to a peer whose link was down on an earlier attempt, so its message waited.
+pub const SSH_CARRY_RELAY: &str = "acpmux-ssh";
+
+/// On a prompt's provenance: `true` when the message waited for its receiver's machine (a peer
+/// daemon's outbox sent it again, `_meta.acpmux.resend`, after an attempt that did not take it).
+pub const WAITED: &str = "waited";
+
+/// `provenance` marked [`WAITED`].
+pub fn mark_waited(mut provenance: Value) -> Value {
+    if let Some(fields) = provenance.as_object_mut() {
+        fields.insert(WAITED.to_owned(), Value::Bool(true));
+    }
+    provenance
+}
+
+/// Whether a message waited for its receiver's machine to come back: a peer's outbox sent it
+/// again ([`WAITED`]), or that outbox's ssh carry brought it while the link was down
+/// ([`SSH_CARRY_RELAY`]). A wait that long is the sender's to know about: the receiver's inbox
+/// wakes the chat for it rather than holding it to a flush that a parked machine never reaches
+/// (cmuxterm-hq#17784).
+pub fn waited(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|p| p.get(WAITED)) == Some(&Value::Bool(true))
+        || relay_of(provenance).is_some_and(|r| r.by == SSH_CARRY_RELAY)
+}
+
+/// On a prompt's provenance: the sender's own delivery deadline in ms (`acpmux send --within`,
+/// `_meta.acpmux.within`), which tightens its class's (`prompt_class::due_at`). Kept on the
+/// inbox record, so a restart keeps the deadline.
+pub const WITHIN: &str = "within";
+
+/// `provenance` with the sender's `within`, when it gave one.
+pub fn mark_within(mut provenance: Value, within: Option<u64>) -> Value {
+    if let (Some(fields), Some(ms)) = (provenance.as_object_mut(), within) {
+        fields.insert(WITHIN.to_owned(), Value::from(ms));
+    }
+    provenance
+}
+
+/// The sender's `within` on `provenance`, in ms.
+pub fn within(provenance: Option<&Value>) -> Option<u64> {
+    provenance.and_then(|p| p.get(WITHIN)).and_then(Value::as_u64)
+}
+
 /// A caller-supplied sender label kept beside authenticated provenance.  It is deliberately
 /// separate from `fromName`: the latter is the daemon's name for a proven session.
 pub const DECLARED_LABEL: &str = "declared";
@@ -869,6 +921,8 @@ pub struct BoundSender {
     pub harness: Option<String>,
     /// A relay's word on the machine and session it took the message from ([`FROM_RELAY`]).
     pub relay: Option<RelaySender>,
+    /// The sending session's given handle ([`FROM_DISPLAY_NAME`]).
+    pub display_name: Option<String>,
 }
 
 impl BoundSender {
@@ -878,6 +932,7 @@ impl BoundSender {
             session_id: fits(id, MAX_FIELD_BYTES).then(|| id.to_owned()),
             harness: Some(crate::web_modes::family_of(meta)).filter(|h| harness_fits(h)),
             relay: None,
+            display_name: meta.handle.clone().filter(|h| crate::session_handle::valid(h)),
         }
     }
 
@@ -896,6 +951,9 @@ impl BoundSender {
         }
         if let Some(relay) = &self.relay {
             out.insert(FROM_RELAY.to_owned(), relay.to_value());
+        }
+        if let Some(name) = &self.display_name {
+            out.insert(FROM_DISPLAY_NAME.to_owned(), json!(name));
         }
         Value::Object(out)
     }
@@ -925,6 +983,11 @@ pub fn peer_sender(params: &Value) -> Option<BoundSender> {
             .map(str::to_owned),
         harness: field(FROM_HARNESS).filter(|h| harness_fits(h)).map(str::to_owned),
         relay: mux.get(FROM_RELAY).and_then(RelaySender::of),
+        // Only beside the session it names: a handle alone identifies no sender.
+        display_name: field(FROM_DISPLAY_NAME)
+            .filter(|n| crate::session_handle::valid(n))
+            .filter(|_| field(FROM_SESSION_ID).is_some())
+            .map(str::to_owned),
     };
     (!sender.is_empty()).then_some(sender)
 }
@@ -937,7 +1000,12 @@ pub fn relay_sender(params: &Value) -> Option<BoundSender> {
     let mux = params.pointer("/_meta/acpmux")?;
     let relay = RelaySender::of(mux.get(FROM_RELAY)?)?;
     let harness = mux.get(FROM_HARNESS).and_then(Value::as_str).filter(|h| harness_fits(h));
-    Some(BoundSender { session_id: None, harness: harness.map(str::to_owned), relay: Some(relay) })
+    Some(BoundSender {
+        session_id: None,
+        harness: harness.map(str::to_owned),
+        relay: Some(relay),
+        display_name: None,
+    })
 }
 
 /// Takes `fromSessionId`, `fromHarness` and `fromRelay` out of a prompt's `_meta.acpmux`: what a
@@ -947,6 +1015,7 @@ pub fn drop_sender_fields(params: &mut Value) {
         mux.remove(FROM_SESSION_ID);
         mux.remove(FROM_HARNESS);
         mux.remove(FROM_RELAY);
+        mux.remove(FROM_DISPLAY_NAME);
     }
 }
 
@@ -957,7 +1026,12 @@ pub fn declared_harness(params: &Value) -> Option<BoundSender> {
     let mux = params.pointer("/_meta/acpmux")?;
     mux.get("fromAgent").and_then(Value::as_str)?;
     let harness = mux.get(FROM_HARNESS)?.as_str().filter(|h| harness_fits(h))?;
-    Some(BoundSender { session_id: None, harness: Some(harness.to_owned()), relay: None })
+    Some(BoundSender {
+        session_id: None,
+        harness: Some(harness.to_owned()),
+        relay: None,
+        display_name: None,
+    })
 }
 
 /// `provenance` with the bound sender's fields set (replacing any it had).
@@ -972,8 +1046,38 @@ pub fn stamp_sender(mut provenance: Value, sender: Option<&BoundSender>) -> Valu
         if let Some(relay) = &sender.relay {
             fields.insert(FROM_RELAY.to_owned(), relay.to_value());
         }
+        if let Some(name) = &sender.display_name {
+            fields.insert(FROM_DISPLAY_NAME.to_owned(), json!(name));
+        }
     }
     provenance
+}
+
+/// The sender's given handle a prompt's provenance carries ([`FROM_DISPLAY_NAME`]).
+pub fn display_name_of(provenance: Option<&Value>) -> Option<&str> {
+    provenance?.get(FROM_DISPLAY_NAME)?.as_str().filter(|n| crate::session_handle::valid(n))
+}
+
+/// How a line names a sender or recipient: its given handle first, then the `HOST/NAME` (or
+/// name) it was known by, `Mango · studio-mac/claude-sr2-coord-old`, the same `HANDLE · NAME`
+/// form `acpmux ls` prints and every resolver takes (#49803). `name` alone when no handle was
+/// given, or when `name` already is the handle.
+pub fn display_label(display_name: Option<&str>, name: &str) -> String {
+    let name = name.trim();
+    match display_name.map(str::trim).filter(|d| !d.is_empty()) {
+        Some(given)
+            if !name.eq_ignore_ascii_case(given)
+                && !name.rsplit('/').next().is_some_and(|n| n.eq_ignore_ascii_case(given))
+                && !name.starts_with(&format!("{given} ·")) =>
+        {
+            if name.is_empty() {
+                given.to_owned()
+            } else {
+                format!("{given} · {name}")
+            }
+        }
+        _ => name.to_owned(),
+    }
 }
 
 /// The `fromSessionId` and `fromHarness` a prompt's provenance carries (`stamp_sender`).
@@ -1106,6 +1210,7 @@ pub fn sender_record_with_auth(
         "authenticated": authenticated,
         "harness": harness,
         "relay": relay.as_ref().map(RelaySender::to_value),
+        "displayName": display_name_of(Some(provenance)),
         "label": label,
         "labelDeclared": label.is_some(),
         "author": author,
@@ -1138,7 +1243,12 @@ mod sender_tests {
         let harness = declared_harness(&named);
         assert_eq!(
             harness,
-            Some(BoundSender { session_id: None, harness: Some("codex".into()), relay: None })
+            Some(BoundSender {
+                session_id: None,
+                harness: Some("codex".into()),
+                relay: None,
+                display_name: None
+            })
         );
         let stamped = stamp_sender(named_sender("codex@workstation", "s-2"), harness.as_ref());
         assert_eq!(stamped["kind"], "agent_message");
@@ -1159,6 +1269,7 @@ mod sender_tests {
             session_id: Some("s-1".into()),
             harness: Some("claude".into()),
             relay: None,
+            display_name: None,
         };
         assert_eq!(peer_sender(&both), Some(bound.clone()));
         assert_eq!(sent(bound.mux_fields())["_meta"]["acpmux"], both["_meta"]["acpmux"]);
@@ -1171,6 +1282,53 @@ mod sender_tests {
         let half = sent(json!({"fromSessionId": "s-2", "fromHarness": 7}));
         assert_eq!(peer_sender(&half).and_then(|s| s.session_id).as_deref(), Some("s-2"));
         assert_eq!(peer_sender(&json!({})), None);
+    }
+
+    /// A given handle rides a peer link beside the session it names, and reads first in every
+    /// label (`display_label`); a handle with no session, or not a handle, is dropped.
+    #[test]
+    fn a_given_handle_crosses_a_peer_link_and_labels_the_sender() {
+        let sent = |mux: Value| json!({"_meta": {"acpmux": mux}});
+        let bound = BoundSender {
+            session_id: Some("s-1".into()),
+            harness: Some("claude".into()),
+            relay: None,
+            display_name: Some("Mango".into()),
+        };
+        let wire = sent(bound.mux_fields());
+        assert_eq!(wire["_meta"]["acpmux"]["fromDisplayName"], "Mango");
+        assert_eq!(peer_sender(&wire), Some(bound.clone()));
+        assert_eq!(peer_sender(&sent(json!({"fromDisplayName": "Mango"}))), None);
+        let odd = sent(json!({"fromSessionId": "s-1", "fromDisplayName": "Mango Mochi"}));
+        assert_eq!(peer_sender(&odd).and_then(|s| s.display_name), None);
+        let mut params = wire.clone();
+        drop_sender_fields(&mut params);
+        assert_eq!(params["_meta"]["acpmux"], json!({}));
+
+        let stamped = stamp_sender(json!({"kind": "session_message"}), Some(&bound));
+        assert_eq!(display_name_of(Some(&stamped)), Some("Mango"));
+        assert_eq!(sender_record(Some(&stamped), None, None)["displayName"], "Mango");
+        assert_eq!(sender_record(Some(&json!({})), None, None)["displayName"], Value::Null);
+
+        let label = |d: Option<&str>, n: &str| display_label(d, n);
+        assert_eq!(label(Some("Mango"), "studio-mac/coord-old"), "Mango · studio-mac/coord-old");
+        assert_eq!(label(Some("Mango"), "coord-old"), "Mango · coord-old");
+        assert_eq!(label(None, "studio-mac/coord-old"), "studio-mac/coord-old");
+        assert_eq!(label(Some("Mango"), "studio-mac/Mango"), "studio-mac/Mango", "no repeat");
+        assert_eq!(label(Some("Mango"), "Mango · coord-old"), "Mango · coord-old", "no repeat");
+        assert_eq!(label(Some("Mango"), ""), "Mango");
+    }
+
+    #[test]
+    fn a_session_binds_its_given_handle_and_not_a_derived_one() {
+        let mut meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": "acpmux.session.v1", "id": "s-1", "name": "coord-old",
+            "harness": "claude", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2,
+        }))
+        .unwrap();
+        assert_eq!(BoundSender::of_session("s-1", &meta).display_name, None);
+        meta.handle = Some("Mango".into());
+        assert_eq!(BoundSender::of_session("s-1", &meta).display_name.as_deref(), Some("Mango"));
     }
 
     #[test]
@@ -1215,6 +1373,7 @@ mod sender_tests {
             session_id: Some("s-1".into()),
             harness: Some("codex".into()),
             relay: None,
+            display_name: None,
         };
         let stamped = stamp_sender(given.clone(), Some(&bound));
         assert_eq!(sender_of(Some(&stamped)), (Some("s-1".into()), Some("codex".into())));
@@ -1271,6 +1430,7 @@ mod sender_tests {
                     session_id: Some("s-1".into()),
                     harness: Some("codex".into()),
                     relay: None,
+                    display_name: None,
                 }),
             ),
             Some("dot"),
@@ -1290,6 +1450,19 @@ mod sender_tests {
         let proven = sender_record_with_auth(Some(&person), None, None, true);
         assert_eq!(proven["actorKind"], "authenticated_human");
         assert_eq!(proven["actorId"], "user-1");
+    }
+
+    /// A message waited for its machine (cmuxterm-hq#17784): marked by a peer's resend, or carried
+    /// by an outbox's ssh carry. Another relay's message, or one with no mark, did not.
+    #[test]
+    fn a_resent_or_ssh_carried_message_waited_and_no_other_did() {
+        let relayed = |by: &str| json!({FROM_RELAY: {"by": by, "machine": "vm-1", "session": "s"}});
+        assert!(waited(Some(&relayed(SSH_CARRY_RELAY))));
+        assert!(!waited(Some(&relayed("lane-gh"))));
+        assert!(waited(Some(&mark_waited(json!({"kind": "agent_message"})))));
+        assert!(!waited(Some(&json!({"kind": "agent_message", WAITED: "yes"}))));
+        assert!(!waited(Some(&json!({"kind": "agent_message"}))));
+        assert!(!waited(None));
     }
 
     /// A relay's MACHINE/SESSION past `fromAgent`'s length (review of #37652, F1): the record
@@ -1349,6 +1522,7 @@ mod sender_tests {
                 session_id: Some("worker".into()),
                 harness: Some("codex".into()),
                 relay: None,
+                display_name: None,
             }),
         );
         let record = sender_record(Some(&provenance), None, Some(&meta));
@@ -1374,6 +1548,7 @@ mod sender_tests {
                 session_id: Some("worker".into()),
                 harness: Some("codex".into()),
                 relay: None,
+                display_name: None,
             }),
         );
         let record = sender_record_with_auth(Some(&provenance), Some("root"), Some(&meta), false);

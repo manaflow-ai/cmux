@@ -1,5 +1,20 @@
 public import Foundation
 
+/// When the app reads a tunable, which decides whether changing it takes
+/// effect in this process.
+///
+/// A ``launch`` tunable is read once while the process starts (a Chromium
+/// command-line switch, a flag an engine copies at init), so setting it
+/// later changes the stored value and nothing else: the reader already has
+/// the old one. `debug.tunables set` says so instead of reporting success,
+/// and an A/B over such a key needs one launch per arm.
+public enum TunableReadCadence: String, Sendable, CaseIterable {
+    /// Read where it is used, so a change applies at once (nearly every tunable).
+    case live
+    /// Read once at process start; a change needs a relaunch.
+    case launch
+}
+
 /// Everything the Debug Settings window and the exports know about one
 /// tunable, without its Swift value type.
 public nonisolated struct TunableDescriptor: Sendable, Identifiable {
@@ -20,9 +35,13 @@ public nonisolated struct TunableDescriptor: Sendable, Identifiable {
     /// The Swift name that holds the default (`MotionSpring.move`), for
     /// "Copy as Swift defaults". Nil uses the key.
     public let codeName: String?
+    /// When the app reads this tunable: ``TunableReadCadence/live`` unless
+    /// the declaration says it is read once at launch.
+    public let readCadence: TunableReadCadence
 
     public init(key: String, section: TunableSection, label: String, help: String, kind: TunableKind,
-                defaultSource: DefaultSource, codeName: String? = nil) {
+                defaultSource: DefaultSource, codeName: String? = nil,
+                readCadence: TunableReadCadence = .live) {
         self.key = key
         self.section = section
         self.label = label
@@ -30,6 +49,7 @@ public nonisolated struct TunableDescriptor: Sendable, Identifiable {
         self.kind = kind
         self.defaultSource = defaultSource
         self.codeName = codeName
+        self.readCadence = readCadence
     }
 
     public var id: String { key }
@@ -94,9 +114,12 @@ nonisolated extension SpringParameters: TunableValueConvertible {
 }
 
 /// A string enum a choice tunable picks from. `tunableTitle` is the option
-/// label in Debug Settings.
+/// label in Debug Settings. `tunableCases` are the options Debug Settings offers: every case unless a
+/// type withholds some (an unreviewed family), while `allCases` stays every case so nothing walking
+/// them skips one silently.
 public nonisolated protocol TunableChoice: TunableValueConvertible, RawRepresentable, CaseIterable where RawValue == String {
     var tunableTitle: String { get }
+    static var tunableCases: [Self] { get }
 }
 
 nonisolated extension TunableChoice {
@@ -105,7 +128,8 @@ nonisolated extension TunableChoice {
         self = value
     }
     public var tunableValue: TunableValue { .choice(rawValue) }
+    public static var tunableCases: [Self] { Array(allCases) }
     public static var tunableOptions: [TunableChoiceOption] {
-        allCases.map { TunableChoiceOption(value: $0.rawValue, title: $0.tunableTitle) }
+        tunableCases.map { TunableChoiceOption(value: $0.rawValue, title: $0.tunableTitle) }
     }
 }

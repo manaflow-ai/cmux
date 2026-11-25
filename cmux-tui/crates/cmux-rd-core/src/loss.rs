@@ -1,5 +1,11 @@
 //! Packet-weighted transport loss with bounded tolerance for reordered feedback.
 //! A later receipt exposes a possible gap, but does not prove that gap is lost.
+//!
+//! Two readings settle from the same receipts. Path loss counts a packet the
+//! viewer NACKed and the host repaired as lost, because the repair reuses its
+//! transport sequence and is reported as an arrival; it is what the stats show
+//! and what sizes FEC. Congestion loss counts only packets never reported:
+//! a repaired random loss is not a sign of a full queue.
 
 use std::collections::{HashMap, VecDeque};
 
@@ -13,6 +19,9 @@ const REORDER_GRACE_US: u64 = 100_000;
 struct Sent {
     seq: u16,
     arrived: bool,
+    repaired: bool,
+    /// Never sent after all (`forget`): settles as neither received nor lost.
+    retired: bool,
     settle_due_us: Option<u64>,
 }
 
@@ -41,9 +50,40 @@ impl LossMeter {
     pub fn on_sent(&mut self, seq: u16) {
         self.ordinals.insert(seq, self.next_ordinal);
         self.next_ordinal += 1;
-        self.order.push_back(Sent { seq, arrived: false, settle_due_us: None });
+        self.order.push_back(Sent {
+            seq,
+            arrived: false,
+            repaired: false,
+            retired: false,
+            settle_due_us: None,
+        });
         while self.order.len() > MAX_TRACKED {
             self.pop_front(); // Eviction is unknown evidence, not network loss.
+        }
+    }
+
+    /// The viewer NACKed this datagram (missing past its NACK grace) and the host
+    /// resent the same bytes. Unless a receipt came first, the original was lost
+    /// on the path, even though the copy is reported under the same sequence.
+    /// Without this a 1 % link drop that NACK repairs reads as 0 % loss.
+    /// Tail probes are speculative resends and must not call this.
+    pub fn on_resent(&mut self, seq: u16) {
+        let first_ordinal = self.next_ordinal - self.order.len() as u64;
+        let Some(&ordinal) = self.ordinals.get(&seq) else { return };
+        if let Some(packet) = self.order.get_mut((ordinal - first_ordinal) as usize)
+            && !packet.arrived
+        {
+            packet.repaired = true;
+        }
+    }
+
+    /// A datagram recorded by `on_sent` was dropped before it left (a pacer
+    /// queue emptied after an outage, D12): its missing receipt is not loss.
+    pub fn forget(&mut self, seq: u16) {
+        let first_ordinal = self.next_ordinal - self.order.len() as u64;
+        let Some(ordinal) = self.ordinals.remove(&seq) else { return };
+        if let Some(packet) = self.order.get_mut((ordinal - first_ordinal) as usize) {
+            packet.retired = true;
         }
     }
 
@@ -58,7 +98,8 @@ impl LossMeter {
 
     /// Consume a packet-weighted observation window at most once per 500 ms,
     /// after at least 20 packets settle. Settlement itself happens only in
-    /// `on_arrivals`, so FEC and congestion observe the same loss evidence.
+    /// `on_arrivals`, so FEC and congestion observe the same receipts; this
+    /// window leaves out repaired packets (see the module comment).
     pub fn take_congestion_loss(&mut self, now_us: u64) -> Option<f64> {
         let total = self.sample_received.saturating_add(self.sample_lost);
         if total == 0 {
@@ -102,19 +143,25 @@ impl LossMeter {
                 self.exposed_through = Some(newest);
             }
         }
-        let (mut received, mut lost) = (0u64, 0u64);
+        let (mut received, mut lost, mut repaired) = (0u64, 0u64, 0u64);
         while self.order.front().is_some_and(|p| p.settle_due_us.is_some_and(|due| now_us >= due)) {
             let Some(packet) = self.pop_front() else { break };
-            if packet.arrived {
-                received += 1;
-            } else {
-                lost += 1;
+            if packet.retired {
+                continue;
+            }
+            match (packet.arrived, packet.repaired) {
+                (true, false) => received += 1,
+                (true, true) => repaired += 1,
+                (false, _) => lost += 1,
             }
         }
-        self.sample_received = self.sample_received.saturating_add(received);
+        // Congestion: a repaired packet was delivered.
+        self.sample_received = self.sample_received.saturating_add(received + repaired);
         self.sample_lost = self.sample_lost.saturating_add(lost);
-        let total = received + lost;
-        (total > 0).then(|| lost as f64 / total as f64)
+        // Path loss: a repaired packet was lost first.
+        let path_lost = lost + repaired;
+        let total = received + path_lost;
+        (total > 0).then(|| path_lost as f64 / total as f64)
     }
 }
 
@@ -141,6 +188,18 @@ mod tests {
     }
 
     #[test]
+    fn a_forgotten_datagram_is_not_loss() {
+        let mut m = sent(10);
+        for seq in 3..7 {
+            m.forget(seq);
+        }
+        assert_eq!(m.on_arrivals([0, 1, 2, 7, 8, 9], 0), None);
+        assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.0));
+        assert_eq!(m.take_congestion_loss(0), None, "six settled, too few for a sample");
+        m.forget(42); // unknown: ignored
+    }
+
+    #[test]
     fn reversed_feedback_chunks_do_not_invent_loss() {
         let mut m = sent(300);
         assert_eq!(m.on_arrivals(256..300, 0), None);
@@ -148,6 +207,46 @@ mod tests {
         assert_eq!(m.on_arrivals(0..128, 75_000), None);
         assert_eq!(m.on_arrivals([], REORDER_GRACE_US - 1), None);
         assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.0));
+    }
+
+    #[test]
+    fn a_resent_datagram_is_loss_even_when_its_copy_arrives() {
+        let mut m = sent(10);
+        assert_eq!(m.on_arrivals([0, 1, 2, 4, 5, 6, 7, 8, 9], 0), None);
+        m.on_resent(3);
+        assert_eq!(m.on_arrivals([3], 10_000), None, "the copy's receipt");
+        assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.1));
+    }
+
+    #[test]
+    fn a_resend_after_a_receipt_is_not_loss() {
+        let mut m = sent(4);
+        assert_eq!(m.on_arrivals([0, 1, 2, 3], 0), None);
+        m.on_resent(2);
+        m.on_resent(77); // unknown: ignored
+        assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.0));
+    }
+
+    #[test]
+    fn one_percent_repaired_by_nack_reads_one_percent() {
+        let mut m = sent(1000);
+        let dropped = |s: &u16| s % 100 == 37;
+        assert_eq!(m.on_arrivals((0..1000).filter(|s| !dropped(s)), 0), None);
+        for seq in (0..1000).filter(dropped) {
+            m.on_resent(seq);
+        }
+        assert_eq!(m.on_arrivals((0..1000).filter(dropped), 8_000), None);
+        assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.01));
+    }
+
+    #[test]
+    fn a_repaired_packet_is_path_loss_but_not_congestion_loss() {
+        let mut m = sent(20);
+        m.on_resent(3);
+        assert_eq!(m.on_arrivals(0..20, 0), None);
+        assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.05));
+        assert_eq!(m.take_congestion_loss(REORDER_GRACE_US), None);
+        assert_eq!(m.take_congestion_loss(REORDER_GRACE_US + 500_000), Some(0.0));
     }
 
     #[test]

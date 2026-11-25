@@ -1,6 +1,7 @@
 import CmuxNextRemoteView
 import CmuxNextCompat
 import CoreGraphics
+import Foundation
 
 /// The pane's input events, sent as they are on the session's cmux.rd/1
 /// transport: physical keys by HID usage (the host maps them to its own
@@ -20,17 +21,31 @@ final class MacScreenInputSink: RemoteViewInputSink {
 
 /// Counts presented frames off the main actor; every 15th frame (and the
 /// first) tells the pane, which updates the stats and the picture state.
+/// It also keeps the stream's frame timings (`mac_screen.state`), bounded.
 nonisolated final class MacScreenFrameCounter: Sendable {
-    private let state = Mutex((total: 0, pending: 0))
+    // carve-out: counted from the decode/present callbacks, off any actor, once per frame.
+    private let state = Mutex((pending: 0, timings: MacScreenFrameTimings()))
 
-    /// Counts one frame; true when the pane should hear now.
-    func tick() -> Bool {
-        state.withLock { state in
-            state.total += 1
+    /// Counts one frame (the host's `frame` number, released at `releasedAtNanos` and decoded at
+    /// `decodedAtNanos`, `DispatchTime` uptime) as it reaches the presenter; true when the pane
+    /// should hear now.
+    func tick(frame: UInt32 = 0, releasedAtNanos: UInt64 = 0, decodedAtNanos: UInt64 = 0) -> Bool {
+        let nowNanos = DispatchTime.now().uptimeNanoseconds, now = ContinuousClock.now
+        return state.withLock { state in
+            state.timings.presented(frame: frame, releasedAtNanos: releasedAtNanos, decodedAtNanos: decodedAtNanos,
+                                    nowNanos: nowNanos, now: now)
             state.pending += 1
-            return state.total == 1 || state.pending >= 15
+            return state.timings.total == 1 || state.pending >= 15
         }
     }
+
+    /// A frame reached the glass (the presenter's presented handler, any thread).
+    func shown(_ times: RemoteViewerFrameTimes) {
+        state.withLock { $0.timings.shown(times) }
+    }
+
+    /// The stream's timings so far (a copy of a few kilobytes at most).
+    var timings: MacScreenFrameTimings { state.withLock { $0.timings } }
 
     /// The frames counted since the last call.
     func take() -> Int {

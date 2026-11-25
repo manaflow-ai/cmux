@@ -32,28 +32,37 @@ export function videoShapeStyle(ratio: number | undefined): Record<string, strin
 
 /// How long a pasted video's tile is held unseen for its header (as an image's is,
 /// attachmentIntakeModel.ts HEADER_WAIT_MS): past it, the tile shows square.
+// motion-allow: a header read timeout, not a motion
 export const VIDEO_HEADER_WAIT_MS = 120;
 
-/// The most of a movie's metadata box read at once: `moov` of a long recording holds its sample
-/// tables, but its track headers come first, so only their boxes are read.
-const MAX_BOX_READ = 64 * 1024;
-
 type Size = { width: number; height: number };
+type Read = (at: number, length: number) => Promise<DataView>;
 
-async function bytes(file: Blob, at: number, length: number): Promise<DataView> {
-  return new DataView(await file.slice(at, at + length).arrayBuffer());
+/// Nearby movie and track headers share one small file read. A recording with its metadata after
+/// the media skips straight there, usually reading two 256-byte windows in total.
+function headerReader(file: Blob): Read {
+  let start = 0;
+  let chunk = new ArrayBuffer(0);
+  return async (at, length) => {
+    const end = Math.min(file.size, at + length);
+    if (at < start || end > start + chunk.byteLength) {
+      chunk = await file.slice(at, at + Math.max(length, 256)).arrayBuffer();
+      start = at;
+    }
+    const offset = at - start;
+    return new DataView(chunk, offset, Math.min(end - at, chunk.byteLength - offset));
+  };
 }
 
 const kind = (view: DataView, at: number) =>
   String.fromCharCode(view.getUint8(at), view.getUint8(at + 1), view.getUint8(at + 2), view.getUint8(at + 3));
 
-/// Each box in `file` from `start` to `end`: its type, where its body starts and where it ends. Reads
-/// only the 16 bytes of each box's header.
-async function* boxes(file: Blob, start: number, end: number) {
+/// Each box from `start` to `end`, its type and its body's bounds.
+async function* boxes(read: Read, start: number, end: number) {
   let at = start;
   // A movie's top level has a handful of boxes and a track a few more: a bound against a corrupt file.
   for (let count = 0; at + 8 <= end && count < 64; count += 1) {
-    const head = await bytes(file, at, 16);
+    const head = await read(at, 16);
     if (head.byteLength < 8) return;
     let size = head.getUint32(0);
     let body = at + 8;
@@ -71,6 +80,7 @@ async function* boxes(file: Blob, start: number, end: number) {
 /// The display size a track header (`tkhd`) gives: its width and height (16.16 fixed point) turned
 /// by its matrix, so a phone recording held upright is tall. Undefined for a track with no picture.
 function trackSize(view: DataView): Size | undefined {
+  if (!view.byteLength) return undefined;
   const version = view.getUint8(0);
   // The matrix and size follow the version's times: 32-bit in version 0, 64-bit in version 1.
   const matrix = version === 1 ? 52 : 40;
@@ -88,13 +98,14 @@ function trackSize(view: DataView): Size | undefined {
 /// The picture size of the movie `file` (QuickTime or MP4) from its track headers, wherever its
 /// `moov` is (a screen recording writes it after its media): undefined for a file that is not one.
 export async function videoHeaderSize(file: Blob): Promise<Size | undefined> {
-  for await (const top of boxes(file, 0, file.size)) {
+  const read = headerReader(file);
+  for await (const top of boxes(read, 0, file.size)) {
     if (top.type !== "moov") continue;
-    for await (const trak of boxes(file, top.body, top.end)) {
+    for await (const trak of boxes(read, top.body, top.end)) {
       if (trak.type !== "trak") continue;
-      for await (const box of boxes(file, trak.body, trak.end)) {
+      for await (const box of boxes(read, trak.body, trak.end)) {
         if (box.type !== "tkhd") continue;
-        const size = trackSize(await bytes(file, box.body, Math.min(MAX_BOX_READ, box.end - box.body)));
+        const size = trackSize(await read(box.body, Math.min(96, box.end - box.body)));
         if (size) return { width: Math.round(size.width), height: Math.round(size.height) };
         break;
       }

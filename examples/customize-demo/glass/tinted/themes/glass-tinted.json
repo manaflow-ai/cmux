@@ -1,0 +1,51 @@
+// Glass: tinted. Liquid Glass over the live desktop, stained a deep indigo with aurora-colored
+// workspace groups and an accent-tinted address bar: the same native glass as the other looks, in
+// color. Move a window behind it and it shows through, bent and tinted.
+{
+  "name": "Glass: tinted",
+  "description": "Indigo-stained Liquid Glass over the live desktop, aurora workspace groups, a cyan accent.",
+
+  "appearance.theme": "Apple System Colors",
+  "colors": { "background": "#0e1024", "foreground": "#e9ecff", "selection": "#2b2f63", "accent": "#67e8f9" },
+  "appearance.accent": "theme",
+
+  // The window: regular Liquid Glass over the desktop and the windows behind it, no picture.
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "glass",
+  "appearance.backgroundOpacity": 0.6,
+  "appearance.glassTransparency": 0.3,
+  "appearance.wallpaperTint": true,
+
+  // The stain: indigo on every surface, lightest on the chrome.
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#120d47",
+  "appearance.surfaces.sidebar.opacity": 0.5,
+  "appearance.surfaces.tabBar.color": "#120d47",
+  "appearance.surfaces.tabBar.opacity": 0.55,
+  "appearance.surfaces.terminal.color": "#0e1024",
+  "appearance.surfaces.terminal.opacity": 0.8,
+  "appearance.surfaces.agentPane.color": "#0e1024",
+  "appearance.surfaces.agentPane.opacity": 0.82,
+  "appearance.surfaces.newTabPage.color": "#120d47",
+  "appearance.surfaces.newTabPage.opacity": 0.45,
+  "appearance.surfaces.splitDivider.color": "#67e8f9",
+  "appearance.surfaces.splitDivider.opacity": 0.35,
+
+  // The address bar takes the accent through its glass.
+  "browser.omnibar.glass": "regular",
+  "browser.omnibar.glassTint": "accent",
+  "browser.omnibar.glassTintStrength": 0.45,
+
+  // Cards for the sidebar sections, panes floating on the glass.
+  "sidebar.sectionLook": "card",
+  "appearance.chromeStyle": "floating",
+  "appearance.titleAreaTone": "subtleTone",
+  "appearance.statusIndicator.style": "arc",
+  "appearance.statusIndicator.color": "#67e8f9",
+
+  // Shape, not only color (Leo: "customizing the tabs/sidebars a lot deeper"): tinted glass pills: 14 pt tabs and rows, a 290 pt sidebar.
+  "density": { "basedOn": "comfortable", "tokens": {"tabCornerRadius": 14, "verticalTabCornerRadius": 12, "sidebarCornerRadius": 12, "itemCornerRadius": 10, "sidebarWidth": 290, "sidebarRowGap": 2, "tabGap": 5 } },
+  "window.titlebarButtons": "hover",
+  "tabs.plusButton": "hover",
+  "agentPane.display.sessionInfo.placement": "overlay"
+}

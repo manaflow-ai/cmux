@@ -273,6 +273,51 @@ class AccountIsolationTests(unittest.TestCase):
 
 
 class PrivateOutputTests(unittest.TestCase):
+    def test_private_json_failures_survive_storage_without_public_details(self):
+        failure = {"claim": 2, "outcome": "fail", "error": "private-machine could not reply"}
+        payload = {"header": {"kind": "preclaim"}, "rows": [], "failures": [failure]}
+        writes = []
+        output = io.StringIO()
+
+        def request(token, method, suffix, data):
+            writes.append(data["body"])
+            return {"number": 456} if suffix == "/issues" else {"id": 789}
+
+        with tempfile.NamedTemporaryFile("w", suffix=".json") as f:
+            json.dump(payload, f)
+            f.flush()
+            with patch.dict(logs.os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch"}), \
+                    patch.object(logs.sys, "argv", ["logs", "--private-json", f.name]), \
+                    patch.object(logs.sys, "stdout", output), \
+                    patch.object(logs, "private_destination", return_value="fixture-hq-token"), \
+                    patch.object(logs, "hq_request", side_effect=request):
+                self.assertEqual(logs.main(), 0)
+        stored = [json.loads(line) for body in writes
+                  for line in body.split("```jsonl\n", 1)[1].split("```", 1)[0].splitlines()]
+        self.assertEqual(stored[0]["header"].get("failures"), [failure])
+        self.assertNotIn("private-machine", output.getvalue())
+        self.assertEqual(json.loads(output.getvalue()), {
+            "row_count": 0, "pointer": "https://github.com/manaflow-ai/cmuxterm-hq/issues/456"})
+
+    def test_private_json_mode_reuses_store_and_prints_only_pointer(self):
+        payload = {"header": {"kind": "preclaim", "run": "123"}, "rows": [{"machine": "vm_private", "reply_ms": 22}]}
+        output = io.StringIO()
+        with tempfile.NamedTemporaryFile("w", suffix=".json") as f:
+            json.dump(payload, f)
+            f.flush()
+            pointer = "https://github.com/manaflow-ai/cmuxterm-hq/issues/456"
+            with patch.dict(logs.os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch"}), \
+                    patch.object(logs.sys, "argv", ["logs", "--private-json", f.name]), \
+                    patch.object(logs.sys, "stdout", output), \
+                    patch.object(logs, "private_destination", return_value="fixture-hq-token"), \
+                    patch.object(logs, "private_upload", return_value=pointer) as upload, \
+                    patch.object(logs, "query") as query:
+                self.assertEqual(logs.main(), 0)
+        self.assertEqual(json.loads(output.getvalue()), {"row_count": 1, "pointer": pointer})
+        self.assertEqual(upload.call_args.args, ("fixture-hq-token", payload["header"], payload["rows"]))
+        query.assert_not_called()
+        self.assertNotIn("vm_private", output.getvalue())
+
     def test_everything_matching_still_prints_only_count_and_private_pointer(self):
         rows = [event({"msg": "team selection unreachable", "team": TEAM, "code": "forbidden"})]
         response = {"result": {"events": {"events": rows}}}
@@ -360,6 +405,21 @@ class PrivateOutputTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "private store refused"):
                 logs.main()
         self.assertEqual(output.getvalue(), "")
+
+
+class RefusalWhyTests(unittest.TestCase):
+    def test_rate_limited_refusal_names_its_quota(self):
+        why = logs.refusal_why({"x-ratelimit-remaining": "0", "x-ratelimit-resource": "core",
+                                "x-ratelimit-reset": "1795570000"})
+        self.assertEqual(why, " (rate limited: remaining=0 resource=core reset=1795570000)")
+
+    def test_permission_refusal_says_not_rate_limited(self):
+        self.assertEqual(logs.refusal_why({"x-ratelimit-remaining": "4812", "x-ratelimit-resource": "core"}),
+                         " (not rate limited: remaining=4812 resource=core)")
+
+    def test_no_headers_or_odd_values_add_nothing(self):
+        self.assertEqual(logs.refusal_why(None), "")
+        self.assertEqual(logs.refusal_why({"x-ratelimit-resource": "core; token=ghs_x"}), "")
 
 
 if __name__ == "__main__":

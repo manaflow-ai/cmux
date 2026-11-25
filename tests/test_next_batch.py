@@ -84,7 +84,16 @@ class Classify(unittest.TestCase):
             "schemas/settings/settings-schema.json": "swift",
             "plans/cmux-next/action-surfaces.json": "swift",
             "cmux-tui/bindings/python/cmux/raw/_generated/models.py": "sdk",
-            "cmux-tui/bindings/java/src/com/cmux/raw/Client.java": "sdk",
+            "cmux-tui/bindings/java/src/com/cmux/raw/AckTabNotificationsRequest.java": "sdk",
+            # Hand-written files beside generated ones (not in the package's .cmux-sdk-manifest.json).
+            "cmux-tui/bindings/java/src/com/cmux/raw/CmuxClient.java": "source",
+            "cmux-tui/bindings/go/raw/client.go": "source",
+            # Every other generated family (scripts/cmux-next/generated_merge.py).
+            "webviews/src/agent-session/acpmux/protocol/generated/types.ts": "generated",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSection.generated.swift": "generated",
+            # Hand-written registries: cmux-insertions-v1, never kept.
+            "cmux-tui/crates/cmux-agent-pane-policy/policy.json": "source",
+            "cmux-tui/crates/acpmux/docs/acpmux-schema.json": "source",
             "cmux-tui/spec/sdk-schema.json": "spec",
             "Resources/Localizable.xcstrings": "xcstrings",
             "cmux.xcodeproj/project.pbxproj": "pbxproj",
@@ -177,7 +186,9 @@ class OpenPrsQuery(unittest.TestCase):
                 cursors = [None] + [page["repository"]["pullRequests"]["pageInfo"]["endCursor"] for page in pages]
                 return pages[cursors.index(after)]
             reply = {}
-            for alias, node_id, rest in re.findall(r'^(p\d+): node\(id: "([^"]+)"\)(.*?)(?=^p\d+: |\Z)', query, re.S | re.M):
+            self.assertEqual((variables.get("owner"), variables.get("name")), ("o", "r"))
+            for alias, number, rest in re.findall(r'^(p\d+): pullRequest\(number: (\d+)\)(.*?)(?=^p\d+: |\Z)', query, re.S | re.M):
+                node_id = f"PR_{number}"
                 cursor = None
                 if "contexts(" in rest:
                     found = re.search(r'after: "([^"]+)"', rest)
@@ -191,7 +202,7 @@ class OpenPrsQuery(unittest.TestCase):
                     node["commits"] = {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {
                         "nodes": contexts, "pageInfo": {"hasNextPage": bool(following), "endCursor": following}}}}}]}
                 reply[alias] = node
-            return reply
+            return {"repository": reply}
 
         gh.graphql = graphql
         return gh, seen
@@ -287,7 +298,10 @@ class OpenPrsQuery(unittest.TestCase):
 
     def test_the_detail_query_refuses_an_unexpected_id(self):
         with self.assertRaises(ValueError):
-            nb.detail_query([('x") { a } b: node(id: "y', True, None)])
+            nb.detail_query([(1, True, 'x") { a } b: node(id: "y')])
+        with self.assertRaises(ValueError):
+            nb.detail_query([("1) { a } b: node(id: 2", True, None)])
+        self.assertNotIn("node(", nb.detail_query([(7, True, "")]))
 
     def test_a_gateway_timeout_is_retried_once(self):
         gh = nb.GitHub("o/r")

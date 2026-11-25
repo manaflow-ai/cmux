@@ -6,7 +6,7 @@ terminal switching to GUI and back type thing. How's that going?").
     terminal-chat-toggle-latency.py CAPTURE_DIR [CAPTURE_DIR ...]
 
 A tour holds at most 30 steps, so one case's 20 runs come from two captures: give every capture folder
-(~/.cache/pr-capture/SHA8/<state>) and the runs are pooled. Each run is one Opt-Cmd-` through the real key path
+(~/.cache/pr-capture/SHA8/<state>) and the runs are pooled. Each run is one Toggle Terminal and Chat through the real action path
 (`debug.new_tab frame_strip`): its time is the first composited frame after the key whose content area differs from
 the frame before the key and is not blank (`content_blank`), so a blank new terminal does not count as shown. Prints
 p50/p95 per case, the `debug.tab_switch` rows (apply and commit) by kind, each capture's chat open trace
@@ -65,13 +65,24 @@ def pct(values, p):
 
 for arg in sys.argv[1:]:
     read(Path(arg).expanduser())
+# A chat that never showed the seeded transcript (its harness refused the session, the seed failed) makes every swap
+# a swap to an empty or error page: its numbers measure nothing about the long chat, so they are not printed.
+empty = sorted({b[0] for b in bad if b[2].startswith("Before: the chat painted its newest turn")})
+if empty:
+    print(f"\nrefused: the chat never showed the seeded transcript in {', '.join(empty)}; its swaps measure an empty "
+          "or error page (look at light.png). Not reporting numbers.", file=sys.stderr)
+    for b in bad:
+        print(" ", b, file=sys.stderr)
+    sys.exit(2)
 print()
-print("| case | n | first content p50 | p95 | max | misses (no change) | blank frames |")
-print("|---|---|---|---|---|---|---|")
+# Settled: the last frame that changed. A page rebuilt behind its last picture shows content at once but settles late.
+print("| case | n | first content p50 | p95 | max | misses (no change) | blank frames | settled p50 | settled p95 |")
+print("|---|---|---|---|---|---|---|---|---|")
 for key, rows in cases.items():
     got = [r["first_content_ms"] for r in rows if r["first_content_ms"] is not None]
+    settled = [r["settled_ms"] for r in rows if r["settled_ms"] is not None]
     print(f"| {key} | {len(got)} | {pct(got, 50)} | {pct(got, 95)} | {max(got) if got else None} | "
-          f"{len(rows) - len(got)} | {sum(r['blank'] for r in rows)} |")
+          f"{len(rows) - len(got)} | {sum(r['blank'] for r in rows)} | {pct(settled, 50)} | {pct(settled, 95)} |")
 by = {}
 for r in switch_rows:
     by.setdefault(r.get("kind", "?"), []).append(r)

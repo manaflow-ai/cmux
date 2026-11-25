@@ -9,7 +9,7 @@
 // Then the call's locations, a path field in a cut-off input, and a path in the title. A row never
 // shows the raw input: no path found is an empty list (the card says "Unknown file").
 import { cmuxTitle } from "./conversation/cmuxExec";
-import { mcpCall, mcpDescription, mcpUsing } from "./conversation/mcpCalls";
+import { mcpCall, mcpDescription, mcpPlainLine, mcpUsing } from "./conversation/mcpCalls";
 import { harnessToolLabel } from "./harnessToolLabels";
 import { currentLanguage, translatorFor } from "./i18n";
 import { commandLine, commandLook, commandSaid } from "./conversation/commandActions";
@@ -60,6 +60,9 @@ export function editedPaths(tool: Tool): string[] {
 /// say one thing while the line does another (#36940). Anything else reads as its command without
 /// the plumbing after it (`commandLabel`). One with no command yet reads as `unnamedCommand` ("Ran a
 /// command"), never as the bare tool name ("Bash").
+/// A `$name` or `${name}` a title shows as written.
+const UNEXPANDED = /\$\{?[A-Za-z_]/;
+
 export function toolLabel(
   tool: Tool,
   fallback: string,
@@ -75,7 +78,10 @@ export function toolLabel(
   const command = tool.command?.trim();
   // Without its setup, a leading `cd <folder> &&` included: the opened Shell block names the folder (#20456).
   // Never cut by length: the line it draws on ends in a CSS ellipsis at its right edge.
-  if (tool.kind === "execute" && command) {
+  // A harness's own title that kept a shell variable ("Read $f", Codex's parse of a loop) reads as
+  // its command does: a label never shows a `$f` (Leo, 2026-11-21: "this is not a good enough tool
+  // call heading that we have derived").
+  if (command && (tool.kind === "execute" || UNEXPANDED.test(title))) {
     const look = commandLook();
     const said = saysWhatItDid ? commandSaid(translatorFor(currentLanguage()), tool, look) : undefined;
     // Cleaning is for a finished row's label; a running row and the live line keep the line as written.
@@ -92,6 +98,7 @@ export function toolLabel(
     return (
       mcpDescription(call) ??
       cmuxTitle(t, [call], [tool]) ??
+      mcpPlainLine(t, [call], new Map(), tool.status === "pending" || tool.status === "in_progress") ??
       mcpUsing(t, call, tool.status === "pending" || tool.status === "in_progress")
     );
   }

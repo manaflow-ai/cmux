@@ -38,7 +38,19 @@ package final class DesktopNotifier: NSObject {
         package var approval = false
         /// The banner's action set (`defaultCategory`, `replyCategory`, the approval one, ...).
         package var category: String?
+        /// An incognito window's banner: the lists name nothing of the window, its surface included.
+        package var incognito = false
+        /// When the app asked for the banner (wall clock), stamped where it is posted so a reader times the
+        /// app's hop from the daemon notification's `created_at_ms` without polling (`posted_at_ms`).
+        package var postedAt = Date()
     }
+
+    /// The id prefix of a daemon notification's banner, whose click shows its tab: the only banners a
+    /// script may open (`notifications.open`).
+    package nonisolated static let tabBannerPrefix = "cmux-notification-"
+    /// A script's open of a tab banner (`notifications.open`): only the tab-showing part of a click,
+    /// never a passkey ceremony, a page's click handler or another banner's own route.
+    package var onOpenTab: ((_ id: String, _ surface: UInt64?) -> Void)?
 
     /// Banner clicked: the notification id and its tab's surface handle.
     package var onOpen: ((_ id: String, _ surface: UInt64?) -> Void)?
@@ -118,7 +130,7 @@ package final class DesktopNotifier: NSObject {
         let category = category ?? (approval ? approvalCategory : reply ? Self.replyCategory : Self.defaultCategory)
         posted.append(Posted(id: id, title: title, subtitle: subtitle, body: body, surface: surface,
                              sound: defaultSound ? "default" : nil, attachment: attachment, reply: reply,
-                             approval: approval, category: category))
+                             approval: approval, category: category, incognito: incognito))
         if posted.count > Self.postedLimit { posted.removeFirst(posted.count - Self.postedLimit) }
         guard let center = resolvedCenter() else { return }
         let content = UNMutableNotificationContent()
@@ -194,6 +206,11 @@ package final class DesktopNotifier: NSObject {
     /// The banner click path, also used by `debug.notifications` (click).
     package func open(id: String, surface: UInt64?) {
         onOpen?(id, surface)
+    }
+
+    /// A script's open of a tab banner (`notifications.open`): shows its tab, nothing else.
+    package func openTab(id: String, surface: UInt64?) {
+        onOpenTab?(id, surface)
     }
 
     /// The Reply field's Send path, also used by `debug.notifications` (reply).
@@ -284,11 +301,11 @@ package final class DesktopNotifier: NSObject {
     private static func replyBannerCategory() -> UNNotificationCategory {
         let action = UNTextInputNotificationAction(
             identifier: replyAction,
-            title: String(localized: "notifications.reply.action", defaultValue: "Reply", bundle: .module),
+            title: String(localized: "notifications.reply.action", defaultValue: "Reply", bundle: .localizedModule),
             // A reply ends in Return in a terminal: the Mac must be unlocked to send one.
             options: [.authenticationRequired],
-            textInputButtonTitle: String(localized: "notifications.reply.send", defaultValue: "Send", bundle: .module),
-            textInputPlaceholder: String(localized: "notifications.reply.placeholder", defaultValue: "Reply to the terminal…", bundle: .module)
+            textInputButtonTitle: String(localized: "notifications.reply.send", defaultValue: "Send", bundle: .localizedModule),
+            textInputPlaceholder: String(localized: "notifications.reply.placeholder", defaultValue: "Reply to the terminal…", bundle: .localizedModule)
         )
         return UNNotificationCategory(identifier: replyCategory, actions: [action, markReadBannerAction()], intentIdentifiers: [])
     }
@@ -296,21 +313,21 @@ package final class DesktopNotifier: NSObject {
     /// Other banners' category: Open (brings cmux to the tab) and Mark as Read (reads it in place).
     private static func defaultBannerCategory() -> UNNotificationCategory {
         let open = UNNotificationAction(identifier: openAction,
-                                        title: String(localized: "notifications.action.open", defaultValue: "Open", bundle: .module),
+                                        title: String(localized: "notifications.action.open", defaultValue: "Open", bundle: .localizedModule),
                                         options: [.foreground])
         return UNNotificationCategory(identifier: defaultCategory, actions: [open, markReadBannerAction()], intentIdentifiers: [])
     }
 
     /// Needs you banners' category: Show, which brings cmux to the marked tab.
     package static func attentionBannerCategory() -> UNNotificationCategory {
-        let show = UNNotificationAction(identifier: showAction, title: String(localized: "notifications.attention.show", defaultValue: "Show", bundle: .module), options: [.foreground])
+        let show = UNNotificationAction(identifier: showAction, title: String(localized: "notifications.attention.show", defaultValue: "Show", bundle: .localizedModule), options: [.foreground])
         return UNNotificationCategory(identifier: attentionCategory, actions: [show], intentIdentifiers: [])
     }
 
     /// Mark as Read: reads the banner's tab without bringing cmux forward.
     private static func markReadBannerAction() -> UNNotificationAction {
         UNNotificationAction(identifier: markReadAction,
-                             title: String(localized: "notifications.action.markRead", defaultValue: "Mark as Read", bundle: .module))
+                             title: String(localized: "notifications.action.markRead", defaultValue: "Mark as Read", bundle: .localizedModule))
     }
 }
 

@@ -10,11 +10,19 @@ final class CmuxToastPlaygroundSheet: NSView {
     private(set) var toasts: [CmuxToastView] = []
     private let scope = ThemeScope(level: .room)
     private let tuning: CmuxToastTuning
+    private let corner: CmuxToastLook.Corner?
+    private let samples: [CmuxToast]
+    private let name: String
 
-    init(style: CmuxToastStyle, isDark: Bool, themes: CmuxToastPlaygroundThemes, tuning: CmuxToastTuning) {
+    /// `corner`, `samples` and `name`: the Corner row's sheets draw a few samples at one corner.
+    init(style: CmuxToastStyle, isDark: Bool, themes: CmuxToastPlaygroundThemes, tuning: CmuxToastTuning,
+         corner: CmuxToastLook.Corner? = nil, samples: [CmuxToast] = CmuxToastPlaygroundSamples.sheet, name: String? = nil) {
         self.style = style
         self.isDark = isDark
         self.tuning = tuning
+        self.corner = corner
+        self.samples = samples
+        self.name = name ?? style.rawValue
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
@@ -43,11 +51,11 @@ final class CmuxToastPlaygroundSheet: NSView {
         stack.alignment = style.look.placement == .bottomTrailing ? .trailing : .centerX
         stack.spacing = CmuxToastOverlayHost.stackGap + 2
         stack.translatesAutoresizingMaskIntoConstraints = false
-        for toast in CmuxToastPlaygroundSamples.kinds + CmuxToastPlaygroundSamples.sidebarRefusals {
-            let view = CmuxToastView(toast: toast, tuning: tuning, style: style)
+        for toast in samples {
+            let view = CmuxToastView(toast: toast, tuning: tuning, style: style, corner: corner)
             // In a window of its own, not the overlay panel: the glass samples the page under it.
             view.surface?.samplesBehindWindow = false
-            view.setAccessibilityIdentifier("cmux.toastPlayground.\(style.rawValue).\(isDark ? "dark" : "light").\(toast.id)")
+            view.setAccessibilityIdentifier("cmux.toastPlayground.\(name).\(isDark ? "dark" : "light").\(toast.id)")
             toasts.append(view)
             stack.addArrangedSubview(view)
         }

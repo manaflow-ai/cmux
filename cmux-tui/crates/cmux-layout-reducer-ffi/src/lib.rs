@@ -1,7 +1,8 @@
 //! Narrow C ABI for `cmux-layout-reducer`'s sidebar drop resolver
 //! (`sidebar_drop`) and sidebar section layout reducer (`sidebar_layout`),
 //! plus `cmux-tasks-core`'s optimistic Tasks preview (`tasks_preview`),
-//! the group hover card's summary (`group_hover_summary`), the sidebar's
+//! the group hover card's summary (`group_hover_summary`), the ports a
+//! workspace's hover card opens (`workspace_port_links`), the sidebar's
 //! launch order hold (`sidebar_launch_order`), a workspace row's own layout
 //! (`sidebar_row_layout`), the app sidebar
 //! bridge's decision rules (`sidebar_bridge`), the store's
@@ -10,19 +11,25 @@
 //! workspace lands),
 //! auto-archive's plan (`auto_archive_plan`: which idle workspaces are due
 //! and when to look again),
+//! the sidebar's settled chats (`sidebar_settle_plan`: which seen, finished
+//! chats fold behind Settled, and what Archive Settled Chats archives),
+//! the sidebar's automatic sessions (`sidebar_automatic_plan`: which rows no
+//! person started and no chat spawned fold behind Automatic),
+//! `cmux-tab-discard`'s hidden browser tab rules (`tab_discard_*`: which hidden tabs freeze,
+//! are discarded or are kept),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
 //! hold off idle sleep and when to look again),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
 //! confirmed listing with the pending ops applied by the daemon's rules),
-//! `cmux-cloud-start-core`'s Cloud start decisions (`cloud_harness_login`,
-//! one call that reads the harness and both probes' output; `cloud_start_*`:
+//! `cmux-cloud-start-core`'s Cloud start decisions (`cloud_start_*`:
 //! the refusal, the account checks and the folder a start may copy;
-//! `cloud_folder_too_broad`, `cloud_vm_kind`, `cloud_login_fingerprint`;
+//! `cloud_folder_too_broad`, `cloud_vm_kind`;
 //! `cloud_agent_check`: whether the start's agent can run, before its lease;
 //! `cloud_ask_answer`, `cloud_ask_first`: who may answer an agent's Cloud ask;
-//! `cloud_sequence_*`: the start's one sequencer, its step order and times; and
-//! `cloud_harness_login_provider`, `cloud_guest_kind`, `cloud_guest_kind_probe`,
-//! kept for an app pinned before `cloud_harness_login` read them itself),
+//! `cloud_sequence_*`: the start's one sequencer, its step order and times;
+//! `cloud_hybrid_*`: a hybrid start, the chat here at once beside its machine, then there;
+//! `cloud_computer_status`: one session's computer status for the chat header (RFD 0080);
+//! a Cloud machine reaches models through its edge, so no op decides a login copy),
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
 //! `cloud_identity_*`: the install identity's rules;
@@ -73,6 +80,7 @@ pub mod closing_panes;
 mod cloud_bootstrap;
 mod cloud_config;
 mod cloud_handler;
+mod cloud_hybrid;
 mod cloud_machine;
 mod cloud_move;
 mod cloud_sequence;
@@ -87,6 +95,7 @@ pub mod shown_resize;
 pub mod sidebar_caps;
 pub mod sidebar_face;
 pub mod sidebar_mirror;
+mod tab_discard;
 pub mod tab_drag;
 pub mod typed;
 pub mod window_close_selection;
@@ -237,6 +246,18 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&auto_archive::plan(&request)).map_err(|_| ERR_INVALID)?
             }
+            b"sidebar_automatic_plan" => {
+                use cmux_layout_reducer::automatic;
+                let request: automatic::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&automatic::plan(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_settle_plan" => {
+                use cmux_layout_reducer::settle;
+                let request: settle::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&settle::plan(&request)).map_err(|_| ERR_INVALID)?
+            }
             b"keep_awake_plan" => {
                 use cmux_layout_reducer::keep_awake;
                 let request: keep_awake::Request =
@@ -267,6 +288,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&sidebar_row_layout::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
+            b"sidebar_nav" => {
+                use cmux_layout_reducer::sidebar_nav;
+                let request: sidebar_nav::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_nav::respond(&request)).map_err(|_| ERR_INVALID)?
+            }
             b"sidebar_section_customization" => {
                 let request: cmux_layout_reducer::sidebar_section_customization::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
@@ -281,6 +308,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&cmux_layout_reducer::group_hover_summary::summarize(&request))
                     .map_err(|_| ERR_INVALID)?
             }
+            b"workspace_port_links" => {
+                use cmux_layout_reducer::workspace_port_links;
+                let request: workspace_port_links::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&workspace_port_links::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
             b"new_placement" => {
                 use cmux_layout_reducer::new_placement;
                 let request: new_placement::Request =
@@ -288,8 +322,8 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&new_placement::plan(&request)).map_err(|_| ERR_INVALID)?
             }
             b"optimistic" => {
-                let request: cmux_layout_reducer::optimistic::Request =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                let request = cmux_layout_reducer::optimistic::parse_request(request)
+                    .map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&cmux_layout_reducer::optimistic::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
@@ -304,12 +338,6 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&cmux_bookmarks_core::preview::respond(request))
                     .map_err(|_| ERR_INVALID)?
-            }
-            b"cloud_harness_login" => {
-                use cmux_cloud_start_core::harness_login;
-                let request: harness_login::Inputs =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&harness_login::decide(&request)).map_err(|_| ERR_INVALID)?
             }
             b"cloud_agent_check" => {
                 use cmux_cloud_start_core::agent_check;
@@ -332,6 +360,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             b"cloud_capability_drop" => {
                 cmux_cloud_start_core::capability::forget();
                 b"{}".to_vec()
+            }
+            b"cloud_one_pane" => {
+                use cmux_cloud_start_core::one_pane;
+                let request: one_pane::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&serde_json::json!({ "shown": one_pane::shown(&request) }))
+                    .map_err(|_| ERR_INVALID)?
             }
             b"cloud_start_refusal" => {
                 #[derive(serde::Deserialize)]
@@ -441,6 +476,53 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&serde_json::json!({ "uploads": uploads }))
                     .map_err(|_| ERR_INVALID)?
             }
+            // The start's check of the machine's model route: the command to run there, and,
+            // given what it printed, the verdict.
+            b"cloud_machine_route" => {
+                #[derive(serde::Deserialize)]
+                struct Request {
+                    #[serde(default)]
+                    stdout: Option<String>,
+                }
+                use cmux_cloud_start_core::machine_route;
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                let verdict = request.stdout.as_deref().map(machine_route::verdict);
+                serde_json::to_vec(&serde_json::json!({
+                    "command": machine_route::GUEST, "verdict": verdict,
+                }))
+                .map_err(|_| ERR_INVALID)?
+            }
+            // A spare machine's warm-home command, with the person's recent shapes read off this
+            // Mac's acpmux home (`acpmuxHome`), so the spare warms the harnesses and models they
+            // set up beside the default (ask-30d56720f6; off with `ACPMUX_SPARE_PERSONAL=0`).
+            b"cloud_warm_home" => {
+                #[derive(serde::Deserialize)]
+                #[serde(rename_all = "camelCase")]
+                struct Request {
+                    #[serde(default)]
+                    acpmux_home: Option<String>,
+                    /// A number, as Swift's `JSONValue` sends one (tests; the clock when absent).
+                    #[serde(default)]
+                    now_ms: Option<f64>,
+                }
+                use cmux_cloud_start_core::spare_shapes;
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let now_ms = request.now_ms.map(|ms| ms.max(0.0) as u64).unwrap_or_else(|| {
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+                        .unwrap_or(0)
+                });
+                let switch = std::env::var(spare_shapes::SWITCH).ok();
+                let shapes = request.acpmux_home.as_deref().map_or_else(Vec::new, |home| {
+                    spare_shapes::read(std::path::Path::new(home), now_ms, switch.as_deref())
+                });
+                serde_json::to_vec(&serde_json::json!({
+                    "command": spare_shapes::warm_home_command(&shapes), "shapes": shapes,
+                }))
+                .map_err(|_| ERR_INVALID)?
+            }
             b"cloud_folder_too_broad" => {
                 #[derive(serde::Deserialize)]
                 struct Request {
@@ -466,41 +548,6 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 ))
                 .map_err(|_| ERR_INVALID)?
             }
-            b"cloud_login_fingerprint" => {
-                #[derive(serde::Deserialize)]
-                struct Request {
-                    token: Vec<u8>,
-                }
-                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                let fingerprint = cmux_cloud_start_core::machine_login::fingerprint(&request.token);
-                serde_json::to_vec(&serde_json::json!({ "fingerprint": fingerprint }))
-                    .map_err(|_| ERR_INVALID)?
-            }
-            b"cloud_harness_login_provider" => {
-                #[derive(serde::Deserialize)]
-                struct Request {
-                    harness: Option<String>,
-                }
-                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                let provider = cmux_cloud_start_core::harness_login::login_provider(
-                    request.harness.as_deref(),
-                );
-                serde_json::to_vec(&serde_json::json!({ "provider": provider }))
-                    .map_err(|_| ERR_INVALID)?
-            }
-            b"cloud_guest_kind" => {
-                #[derive(serde::Deserialize)]
-                struct Request {
-                    stdout: String,
-                }
-                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                let kind = cmux_cloud_start_core::harness_login::guest_kind(&request.stdout);
-                serde_json::to_vec(&serde_json::json!({ "kind": kind })).map_err(|_| ERR_INVALID)?
-            }
-            b"cloud_guest_kind_probe" => serde_json::to_vec(&serde_json::json!({
-                "probe": cmux_cloud_start_core::harness_login::GUEST_KIND_PROBE
-            }))
-            .map_err(|_| ERR_INVALID)?,
             b"focus_type_ahead" => {
                 let request: cmux_focus_core::wire::TypeAheadRequest =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
@@ -543,6 +590,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_handler::handles(operation) => {
                 cloud_handler::respond(operation, request)?
             }
+            operation if cloud_hybrid::handles(operation) => {
+                cloud_hybrid::respond(operation, request)?
+            }
             operation if cloud_move::handles(operation) => cloud_move::respond(operation, request)?,
             operation if cloud_sequence::handles(operation) => {
                 cloud_sequence::respond(operation, request)?
@@ -554,6 +604,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if cloud_machine::handles(operation) => {
                 cloud_machine::respond(operation, request)?
+            }
+            operation if tab_discard::handles(operation) => {
+                tab_discard::respond(operation, request)?
             }
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?

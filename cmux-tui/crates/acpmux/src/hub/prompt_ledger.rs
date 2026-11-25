@@ -82,6 +82,37 @@ pub(crate) const PROMPT_STATE_KINDS: &[&str] = &[
     "dequeued",
 ];
 
+/// The heads `Hub::logged_prompt_state` reads of prompt `prompt_id`, in log order: a superset of
+/// the records its arms act on. Each arm joins a record to the prompt by its `promptId`, by a
+/// turn id one of the prompt's records named (`turnId`, `joinedTurnId`), or by the digest a
+/// record named (`digestPromptId`, a digest's `took` list); a kept record's ids join the records
+/// after it. A Stop is kept whatever it names (`stopped_turns`), and joins only by its prompt.
+pub(crate) fn keep_prompt(prompt_id: &str) -> impl FnMut(&crate::store::KindHead<'_>) -> bool {
+    let mut prompts: HashSet<String> = HashSet::from([prompt_id.to_owned()]);
+    let mut turns: HashSet<String> = HashSet::new();
+    move |h| {
+        if h.unread {
+            return true;
+        }
+        let joined = h.prompt_id.is_some_and(|p| prompts.contains(p))
+            || h.turn_id.is_some_and(|t| turns.contains(t));
+        if h.kind == "turn_stop_requested" && !joined {
+            return true;
+        }
+        // A list joins it only by naming one of its prompts (a digest's `took`).
+        if !joined && !h.names(|p| prompts.contains(p)) {
+            return false;
+        }
+        for p in [h.prompt_id, h.digest_prompt_id].into_iter().flatten() {
+            prompts.insert(p.to_owned());
+        }
+        for t in [h.turn_id, h.joined_turn_id].into_iter().flatten() {
+            turns.insert(t.to_owned());
+        }
+        true
+    }
+}
+
 impl Hub {
     /// Read an accepted prompt without submitting another turn. An adopted active turn
     /// may have no in-memory ledger entry: its persisted completion wakes this wait.
@@ -227,7 +258,7 @@ impl Hub {
         let mut closed_window = false;
         let mut prompt_hash = None::<String>;
         let mut permissions = HashSet::<String>::new();
-        let scanned = self.store.scan_strict(&session.id, 0, &mut |rec| {
+        let scanned = self.scan_strict_off(&session.id, 0, &mut |rec| {
             let field = |key: &str| rec.msg.get(key).and_then(Value::as_str);
             let mux = rec.dir == "mux";
             // Only daemon-authored admission records bind a delivery. A human prompt
@@ -421,6 +452,27 @@ impl Hub {
         } else if let Some(inbox) = self.logged_inbox(session, prompt_id) {
             return Some((Ok(inbox), None));
         }
+        self.logged_prompt_records(session, prompt_id, outcome)
+    }
+
+    /// [`Self::logged_prompt`] for a prompt the caller already knows no inbox record answers
+    /// (`turns.rs`: a resend asks [`Hub::logged_inbox_answer`] first), so the chat's inbox
+    /// records are not read a second time.
+    pub(super) fn logged_prompt_past_inbox(
+        &self,
+        session: &Session,
+        prompt_id: &str,
+    ) -> Option<Result<Value, crate::rpc::RpcError>> {
+        self.logged_prompt_records(session, prompt_id, false).map(|(result, _)| result)
+    }
+
+    /// [`Self::logged_prompt_state`] from the prompt's own records, past the inbox's.
+    fn logged_prompt_records(
+        &self,
+        session: &Session,
+        prompt_id: &str,
+        outcome: bool,
+    ) -> Option<(Result<Value, RpcError>, Option<Value>)> {
         // The last completed turn may predate a later queued/declined incarnation reusing
         // this client id. Reconstruct the latest incarnation from its ordered durable records.
         let mut turn_id: Option<String> = None;
@@ -435,7 +487,11 @@ impl Hub {
         // Every resend reads this (a team message, a watch, an outbox retry), on chats that
         // grow to a million records: the kinds below only, from the log's copies of them
         // (`store/kind_index.rs`), never the log.
-        let _ = self.store.scan_kinds(&session.id, PROMPT_STATE_KINDS, &mut |rec| {
+        // Only this prompt's records, as the arms below join them, are read whole: those naming
+        // it, those of a turn or digest one of them names, every Stop (`stopped_turns`), and
+        // those whose list (a digest's `took`) names one of its prompts.
+        let (kinds, mut keep) = (PROMPT_STATE_KINDS, keep_prompt(prompt_id));
+        let _ = self.store.scan_kinds_keyed(&session.id, kinds, &mut keep, &mut |rec| {
             let field = |k: &str| rec.msg.get(k).and_then(Value::as_str);
             // Admission installs the live turn before user_message is durable. Stop can
             // therefore be journaled before we learn which turn owns this prompt.
@@ -673,6 +729,16 @@ mod tests {
     use serde_json::json;
     use std::sync::Arc;
 
+    /// A resend's keyed scans read held heads only for kinds the store holds heads of
+    /// (`store/kind_heads.rs` `KEYED_KINDS`); any other kind reads the chat's log.
+    #[test]
+    fn a_resends_kinds_are_keyed() {
+        for kind in PROMPT_STATE_KINDS.iter().chain(super::super::inbox::INBOX_ANSWER_KINDS) {
+            assert!(crate::store::KEYED_KINDS.contains(kind), "{kind}");
+            assert!(crate::store::INDEXED_KINDS.contains(kind), "{kind}");
+        }
+    }
+
     fn chat() -> (Arc<Hub>, Arc<Session>) {
         let mut cfg = crate::config::Config::default();
         cfg.store.mode = crate::config::StoreMode::Memory;
@@ -743,6 +809,7 @@ mod tests {
             notice: false,
             persons: true,
             accepted: true,
+            device: None,
         });
         // Legacy resend behavior stays intact, but recovery must not answer interrupted.
         assert_eq!(
@@ -757,7 +824,7 @@ mod tests {
             () = tokio::task::yield_now() => {}
         }
         *session.turn.lock().unwrap() = None;
-        hub.set_status(&session, crate::store::SessionStatus::Running);
+        hub.set_status(&session, crate::hub::NotWaiting::Running);
         assert_eq!(session.status(), crate::store::SessionStatus::Running);
         tokio::select! {
             biased;
@@ -787,7 +854,7 @@ mod tests {
         hub.append(&session, "mux", "turn_started", json!({"promptId": "p", "turnId": "t"}));
         // finish_turn has taken TurnInfo and recorded lastTurn, but has not appended
         // turn_result yet. A reconnect must wait for its original code and error data.
-        hub.set_status(&session, crate::store::SessionStatus::Running);
+        hub.set_status(&session, crate::hub::NotWaiting::Running);
         assert_eq!(session.status(), crate::store::SessionStatus::Running);
         session.meta.lock().unwrap().last_turn = Some(json!({
             "promptId": "p", "turnId": "t", "status": "failed", "errorText": "summary only",
@@ -855,7 +922,7 @@ mod tests {
             "turn_started",
             json!({"promptId": "other", "turnId": "other-turn"}),
         );
-        hub.set_status(&session, crate::store::SessionStatus::Running);
+        hub.set_status(&session, crate::hub::NotWaiting::Running);
         assert_eq!(session.status(), crate::store::SessionStatus::Running);
         let orphan = tokio::time::timeout(
             std::time::Duration::from_secs(1),

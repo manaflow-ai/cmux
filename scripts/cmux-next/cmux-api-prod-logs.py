@@ -485,9 +485,22 @@ def hq_request(token, method, suffix="", data=None):
         with urllib.request.urlopen(request, timeout=60) as response:
             return json.load(response)
     except urllib.error.HTTPError as error:
-        sys.exit(f"private log store refused: HTTP {error.code}")
+        sys.exit(f"private log store refused: HTTP {error.code}{refusal_why(error.headers)}")
     except (OSError, ValueError):
         sys.exit("private log store unavailable or returned invalid JSON")
+
+
+def refusal_why(headers):
+    """Name a rate-limit refusal from GitHub's own quota headers (counts and times, never the body or token)."""
+    get = (lambda k: (headers.get(k) or "").strip()) if headers is not None else (lambda k: "")
+    remaining, resource, reset, retry = (get(k) for k in (
+        "x-ratelimit-remaining", "x-ratelimit-resource", "x-ratelimit-reset", "retry-after"))
+    parts = [f"{k}={v}" for k, v in (("remaining", remaining), ("resource", resource), ("reset", reset),
+                                      ("retry_after", retry)) if v and len(v) <= 32 and v.replace("_", "").isalnum()]
+    if not parts:
+        return ""
+    kind = "rate limited" if remaining == "0" or retry else "not rate limited"
+    return f" ({kind}: {' '.join(parts)})"
 
 
 def private_destination():
@@ -538,12 +551,36 @@ def main():
     if os.environ.get("GITHUB_EVENT_NAME") not in (None, "workflow_dispatch"):
         sys.exit("logs: only workflow_dispatch may query")
     ap = argparse.ArgumentParser()
-    ap.add_argument("--from", dest="frm", required=True, help="UTC start, e.g. 2026-11-11T13:20:00Z")
+    ap.add_argument("--from", dest="frm", required=False, help="UTC start, e.g. 2026-11-11T13:20:00Z")
     ap.add_argument("--minutes", type=int, default=30)
     ap.add_argument("--needles", default="")
     ap.add_argument("--needles-from-event", default="", help="read inputs.needles from this workflow event file")
     ap.add_argument("--account", default="", help="exact parsed team/account id; required")
+    ap.add_argument("--private-json", default="", help="store a pre-filtered private JSON object through the existing HQ route")
     args = ap.parse_args()
+    if args.private_json:
+        private_token = private_destination()
+        try:
+            with open(args.private_json) as stream:
+                payload = json.load(stream)
+        except (OSError, ValueError):
+            sys.exit("private rows: invalid JSON input")
+        if not isinstance(payload, dict) or not isinstance(payload.get("header"), dict) or not isinstance(payload.get("rows"), list):
+            sys.exit("private rows: expected {header: object, rows: array}")
+        rows = [row for row in payload["rows"] if isinstance(row, dict)]
+        if len(rows) != len(payload["rows"]):
+            sys.exit("private rows: every row must be an object")
+        header = dict(payload["header"])
+        if "failures" in payload:
+            failures = payload["failures"]
+            if not isinstance(failures, list) or any(not isinstance(row, dict) for row in failures):
+                sys.exit("private rows: failures must be an array of objects")
+            header["failures"] = failures
+        pointer = private_upload(private_token, header, rows)
+        print(json.dumps({"row_count": len(rows), "pointer": pointer}))
+        return 0
+    if not args.frm:
+        sys.exit("logs: --from is required")
     account = args.account or (event_input(args.needles_from_event, "account") if args.needles_from_event else "")
     if not ID_OK.fullmatch(account):
         sys.exit("account: an exact team/account id is required")

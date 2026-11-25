@@ -115,6 +115,28 @@ fn a_host_without_the_fs_owner_does_not_advertise_and_refuses_every_op() {
     }
 }
 
+/// `fs.stat` of a folder says how many bytes the machine still has for a
+/// writer there, so a copy can be refused before it starts; a file's stat
+/// does not. RED before the stat said it: a folder copy could only learn of
+/// a full disk from a refused write partway.
+#[test]
+fn a_folder_stat_names_the_free_bytes_and_a_file_stat_does_not() {
+    let home = Home::new("free");
+    let service = home.service();
+    let line = home.map(r#"{"id":1,"cmd":"fs.stat","path":"/home/cmux"}"#);
+    let answer = answer_line(Some(&service), true, "owner", &line);
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert!(answer["data"]["available_bytes"].as_u64().is_some_and(|free| free > 0), "{answer}");
+
+    let write = home
+        .map(r#"{"id":2,"cmd":"fs.write","path":"/home/cmux/a.txt","text":"a","mode":"create"}"#);
+    assert_eq!(answer_line(Some(&service), true, "owner", &write)["ok"], true);
+    let line = home.map(r#"{"id":3,"cmd":"fs.stat","path":"/home/cmux/a.txt"}"#);
+    let answer = answer_line(Some(&service), true, "owner", &line);
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert!(answer["data"].get("available_bytes").is_none(), "{answer}");
+}
+
 #[test]
 fn a_websocket_client_is_refused() {
     let home = Home::new("ws");
@@ -746,4 +768,53 @@ fn a_no_follow_write_stream_and_a_late_symlink_are_refused() {
     assert_eq!(std::fs::read_to_string(home.path.join("real/elsewhere")).unwrap(), "theirs");
     let left: Vec<_> = std::fs::read_dir(home.path.join("real")).unwrap().collect();
     assert_eq!(left.len(), 2, "only the link and its target remain: {left:?}");
+}
+
+/// A machine of the person's own (`Scope::Owner`): the owner's connections use file ops, and
+/// nobody else's. The local socket unstamped (same user) or stamped owner by the carrier, and a
+/// remote dial signed for the owner, pass; a teammate's carrier stream, an unverified one, a
+/// classic paired peer and a WebSocket are refused. A Cloud host keeps every transport it had.
+#[test]
+fn on_a_machine_of_ones_own_only_the_owners_connections_use_file_ops() {
+    use cmux_link::token::VmKind;
+    let kinds = [None, Some(None), Some(Some(VmKind::Team)), Some(Some(VmKind::Owner))];
+    for kind in kinds {
+        // Unstamped (`None`) is refused too: a bridge may open the socket for a remote member.
+        let owner = kind == Some(Some(VmKind::Owner));
+        assert_eq!(transport_allows_fs_in(true, ClientTransport::Unix, kind), owner, "{kind:?}");
+        assert_eq!(
+            transport_allows_fs_in(true, ClientTransport::Remote, kind),
+            kind == Some(Some(VmKind::Owner)),
+            "remote {kind:?}"
+        );
+        assert!(!transport_allows_fs_in(true, ClientTransport::WebSocket, kind));
+        assert!(transport_allows_fs_in(false, ClientTransport::Unix, kind), "cloud {kind:?}");
+        assert!(transport_allows_fs_in(false, ClientTransport::Remote, kind), "cloud {kind:?}");
+        assert!(!transport_allows_fs_in(false, ClientTransport::WebSocket, kind));
+    }
+}
+
+/// The link's remote entry on a machine of the person's own: a classic dial (a paired peer, who
+/// has no shell there) never sends a file, seed, blob, projection or repo frame; the owner's
+/// Native dial does; other frames keep the gate's answer. On a Cloud host a classic dial still
+/// sends them.
+#[test]
+fn on_a_machine_of_ones_own_a_classic_dial_sends_no_data_frame() {
+    use cmux_link::token::VmKind;
+    let data = [
+        r#"{"id":1,"cmd":"fs.read","path":"/home/cmux/a"}"#,
+        r#"{"id":1,"cmd":"git.seed.start"}"#,
+        r#"{"id":1,"cmd":"projection.serve","name":"a","at":"/x"}"#,
+    ];
+    for line in data {
+        assert!(data_frame(line), "{line}");
+        assert!(!remote_dial_admits_in(true, None, line), "classic, own machine: {line}");
+        assert!(remote_dial_admits_in(true, Some(Some(VmKind::Owner)), line), "{line}");
+        assert!(!remote_dial_admits_in(true, Some(Some(VmKind::Team)), line), "{line}");
+        assert!(!remote_dial_admits_in(true, Some(None), line), "{line}");
+        assert!(remote_dial_admits_in(false, None, line), "classic, Cloud host: {line}");
+    }
+    let other = r#"{"id":1,"cmd":"identify"}"#;
+    assert!(remote_dial_admits_in(true, None, other));
+    assert!(remote_dial_admits_in(true, Some(Some(VmKind::Team)), other));
 }

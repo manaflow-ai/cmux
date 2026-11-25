@@ -35,6 +35,8 @@ enum Stun {
 }
 
 impl LinkCfg {
+    /// Only `--listen-systemd` (Linux, host.rs) builds one outside tests.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub fn new(names: Vec<String>) -> Self {
         Self { names, resolved: Arc::default() }
     }
@@ -129,7 +131,7 @@ pub use with_link::HybridCarrier;
 #[cfg(feature = "link")]
 mod with_link {
     use super::{LinkCfg, LINK_MAX_DATAGRAM, MAX_CANDIDATES, MAX_OFFERS, MAX_PROLOGUE};
-    use crate::carrier::{Carrier, Incoming, SocketCarrier};
+    use crate::carrier::{Carrier, Incoming, MediaQueueStats, SocketCarrier};
     use crate::wire::Control;
     use cmux_rd_link::net::{Candidate, Net, NetConfig, NetEvent};
     use cmux_rd_link::{EndpointEvent, Event, KeyPair, Role};
@@ -297,6 +299,20 @@ mod with_link {
     }
 
     impl<S: Read + Write + AsRawFd> Carrier for HybridCarrier<'_, S> {
+        fn drain_departures(&mut self, out: &mut Vec<cmux_rd_proto::DatagramDeparture>) {
+            // A route switch must not hide receipts from the previous carrier.
+            self.stream.drain_departures(out);
+            if let Some(net) = &self.net {
+                net.drain_departures(out);
+            }
+        }
+
+        fn departure_overflows(&self) -> u64 {
+            self.stream
+                .departure_overflows()
+                .saturating_add(self.net.as_ref().map_or(0, |net| net.departure_overflows()))
+        }
+
         fn fds(&self) -> Vec<RawFd> {
             let mut fds = self.stream.fds();
             fds.extend(self.net.as_ref().map(Net::event_fd));
@@ -309,17 +325,21 @@ mod with_link {
             let mut answered = Ok(());
             for item in incoming.drain(..) {
                 let result = match item {
-                    Incoming::Control(Control::LinkOffer { session, key, candidates }) => {
-                        self.on_offer(session, key, candidates)
-                    }
-                    Incoming::Control(Control::LinkCandidate { candidate }) => {
-                        self.on_candidate(&candidate);
-                        Ok(())
-                    }
-                    // Host-to-viewer messages are not taken from the viewer.
-                    Incoming::Control(Control::LinkAnswer { .. } | Control::LinkState { .. }) => {
-                        Ok(())
-                    }
+                    Incoming::Control(control) => match *control {
+                        Control::LinkOffer { session, key, candidates } => {
+                            self.on_offer(session, key, candidates)
+                        }
+                        Control::LinkCandidate { candidate } => {
+                            self.on_candidate(&candidate);
+                            Ok(())
+                        }
+                        // Host-to-viewer messages are not taken from the viewer.
+                        Control::LinkAnswer { .. } | Control::LinkState { .. } => Ok(()),
+                        other => {
+                            out.push(Incoming::Control(Box::new(other)));
+                            Ok(())
+                        }
+                    },
                     other => {
                         out.push(other);
                         Ok(())
@@ -343,6 +363,10 @@ mod with_link {
             }
         }
 
+        fn media_queue_stats(&self) -> Option<MediaQueueStats> {
+            self.net.as_ref().filter(|_| self.up).map(|net| net.stats().into())
+        }
+
         fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()> {
             match &self.net {
                 Some(net) if self.up && datagram.len() <= LINK_MAX_DATAGRAM => {
@@ -350,6 +374,22 @@ mod with_link {
                     Ok(())
                 }
                 _ => self.stream.send_datagram(datagram),
+            }
+        }
+
+        fn send_datagram_frame(
+            &mut self,
+            datagrams: Vec<Vec<u8>>,
+            droppable: bool,
+        ) -> io::Result<()> {
+            let on_link =
+                self.up && datagrams.iter().all(|datagram| datagram.len() <= LINK_MAX_DATAGRAM);
+            match (on_link, &self.net) {
+                (true, Some(net)) => {
+                    net.send_datagram_frame(datagrams, droppable);
+                    Ok(())
+                }
+                _ => self.stream.send_datagram_frame(datagrams, droppable),
             }
         }
 
@@ -361,7 +401,9 @@ mod with_link {
 
 /// Parses `--link-stun HOST:PORT[,HOST:PORT...]`. Only the form is checked
 /// here (a malformed entry is an error); names resolve later
-/// ([`LinkCfg::resolve_stun`]), and one that does not is left out.
+/// ([`LinkCfg::resolve_stun`]), and one that does not is left out. Only `--listen-systemd`
+/// (Linux, host.rs) reads `--link-stun` outside tests.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn stun_names(list: Option<&str>) -> Result<Vec<String>, String> {
     let Some(list) = list else {
         return Ok(Vec::new());
@@ -443,7 +485,9 @@ mod tests {
             carrier.receive(&mut out).expect("receive");
         }
         // The link messages are the carrier's; the session sees only the rest.
-        assert!(matches!(out.as_slice(), [Incoming::Control(Control::Stop)]));
+        assert!(
+            matches!(out.as_slice(), [Incoming::Control(control)] if matches!(**control, Control::Stop))
+        );
         let states = controls(&viewer.frames());
         assert!(
             states.iter().any(|c| matches!(c, Control::LinkState { up: false, reason: Some(r) } if r.contains("64 hex"))),

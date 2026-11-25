@@ -7,6 +7,7 @@
 //!   gen/<n>.json         generation n's tree: logical path to content hash
 //!   objects/ab/cdef…     file contents by sha256, written once
 //!   draft.json           the open draft, when one is
+//!   try-on.json          the applied generation that reverts by itself at a time, when one is
 //! ```
 //!
 //! Every replace is temp file, fsync, rename, so a crash leaves the old or
@@ -72,6 +73,11 @@ pub struct Generation {
     /// Files that differ from the parent.
     pub changed: u32,
     pub parts: Vec<Part>,
+    /// The library entries that were on while this generation was current
+    /// (`None`: recorded before the library kept this). A restore to it turns
+    /// the library to match, so what the library says is on is what is live.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub library_on: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -98,6 +104,10 @@ pub struct Ask {
     pub text: String,
     pub at_ms: u64,
     pub origin: String,
+    /// A profile's own description, for the ask that used it: what the
+    /// library entry it becomes says it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 /// The open draft: what is live and not yet applied or discarded.
@@ -114,6 +124,42 @@ pub struct Draft {
     /// it now was edited by hand since, and the agent re-reads it first.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_tree: Option<Tree>,
+    /// The folders a customization writes into that were not there when the
+    /// draft began: the library takes away the ones it leaves empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub absent_dirs: Vec<PathBuf>,
+}
+
+/// A try-on: a generation applied for a while. Unless someone keeps it, it
+/// reverts to `revert_to` once `expires_ms` passes, whether or not anything
+/// was running then (the next look settles it).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TryOn {
+    /// The generation being tried on. The try-on ends unreverted when it is
+    /// no longer current: someone applied or rolled back past it.
+    pub generation: u32,
+    /// What it reverts to: the setup before the first of the try-ons in a
+    /// row, so trying three things and keeping none puts back the first.
+    pub revert_to: Option<u32>,
+    pub started_ms: u64,
+    pub expires_ms: u64,
+    /// What is being tried on, in one line.
+    pub label: String,
+    pub origin: String,
+    /// The library before the first of the try-ons in a row. A revert puts
+    /// it back: an entry a try-on added goes (nobody kept it), and one it
+    /// turned on is off again where it was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub library: Option<LibraryMark>,
+}
+
+/// What the library was at one moment: every entry's name, top first, and
+/// the names of those that were on. Code entries are left out: their web
+/// part follows its own switch.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LibraryMark {
+    pub names: Vec<String>,
+    pub on: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -190,6 +236,24 @@ impl Store {
         match draft {
             Some(draft) => self.put_json("draft.json", draft),
             None => match fs::remove_file(self.dir.join("draft.json")) {
+                Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+                _ => Ok(()),
+            },
+        }
+    }
+
+    pub fn try_on(&self) -> io::Result<Option<TryOn>> {
+        match fs::read(self.dir.join("try-on.json")) {
+            Ok(bytes) => serde_json::from_slice(&bytes).map(Some).map_err(corrupt("try-on.json")),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    pub fn put_try_on(&self, try_on: Option<&TryOn>) -> io::Result<()> {
+        match try_on {
+            Some(try_on) => self.put_json("try-on.json", try_on),
+            None => match fs::remove_file(self.dir.join("try-on.json")) {
                 Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
                 _ => Ok(()),
             },

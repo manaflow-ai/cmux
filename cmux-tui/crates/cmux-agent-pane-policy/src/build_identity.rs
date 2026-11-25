@@ -29,6 +29,21 @@ pub const NIGHTLY_BUNDLE_ID: &str = "com.cmuxterm.app.nightly";
 /// The key of a process outside any app bundle.
 pub const UNBUNDLED_KEY: &str = "unbundled";
 
+/// The folder below the user's home where every cmux NEXT control socket
+/// lives (CmuxNext `ControlSocketPath.stateDirectory`): NEXT's own, beside
+/// classic cmux's `~/.local/state/cmux`, which NEXT never writes
+/// (cmuxterm-hq goals/next-zero-classic-footprint-all-surfaces.md).
+pub const SOCKET_STATE_DIR: &str = ".local/state/cmux-next";
+
+/// Where NEXT builds before [`SOCKET_STATE_DIR`] put their sockets: classic
+/// cmux's state folder. Only read, to reach an app from before the move.
+pub const SOCKET_STATE_DIR_BEFORE: &str = ".local/state/cmux";
+
+/// [`SOCKET_STATE_DIR`] below `user_home`.
+pub fn socket_state_dir(user_home: &Path) -> PathBuf {
+    user_home.join(SOCKET_STATE_DIR)
+}
+
 /// The bundle id prefixes, longest first, and the kind each one names.
 const KINDS: [(&str, BuildKind); 5] = [
     ("com.cmuxterm.app.nightly", BuildKind::Nightly),
@@ -84,7 +99,7 @@ pub struct BuildIdentity {
 }
 
 /// The app daemon session tag (`cmux-app[-<tag>]`) and control socket name
-/// (`/tmp/cmux-<name>.sock`; `None`: release's `~/.local/state/cmux/cmux.sock`)
+/// (`/tmp/cmux-<name>.sock`; `None`: release's `~/.local/state/cmux-next/cmux.sock`)
 /// of a build that keeps the names it had before per-build isolation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct KeptNames {
@@ -332,7 +347,7 @@ impl BuildIdentity {
     /// the path it had before per-build isolation where that path belongs to
     /// exactly one build (`/tmp/cmux-<channel>.sock`,
     /// `/tmp/cmux-nightly-cmux-next.sock`, `/tmp/cmux-debug-<tag>.sock`,
-    /// release's `~/.local/state/cmux/cmux.sock`), else
+    /// release's `~/.local/state/cmux-next/cmux.sock`), else
     /// `/tmp/cmux-<kind>--<key hash>.sock` (`debug` for DEV). `None` outside
     /// any bundle.
     pub fn control_socket(&self, user_home: &Path) -> Option<PathBuf> {
@@ -342,12 +357,32 @@ impl BuildIdentity {
             kind => kind.name(),
         };
         Some(match &self.kept {
-            Some(KeptNames { socket: None, .. }) => user_home.join(".local/state/cmux/cmux.sock"),
+            Some(KeptNames { socket: None, .. }) => socket_state_dir(user_home).join("cmux.sock"),
             Some(KeptNames { socket: Some(name), .. }) => {
                 PathBuf::from(format!("/tmp/cmux-{name}.sock"))
             }
             None => PathBuf::from(format!("/tmp/cmux-{word}--{}.sock", self.key_hash())),
         })
+    }
+
+    /// The app daemon's state directory (`CMUX_TUI_STATE_DIR`) under
+    /// `app_support` (`~/Library/Application Support/cmux-next` for a real
+    /// app): `tags/<tag>/tui` for a kept tag, `builds/<key>/tui` for names
+    /// of the key, `None` for release (cmux-tui's default root) and outside
+    /// any bundle (CmuxNext `BuildIdentity.daemonStateDirectory(appSupport:)`,
+    /// vectors `app_daemon.state_dir`). An untagged channel app that adopted
+    /// the old shared session runs on the default root instead
+    /// ([`Self::legacy_session_marker`]); callers check that first.
+    pub fn daemon_state_dir(&self, app_support: &Path) -> Option<PathBuf> {
+        if self.kind == BuildKind::Unbundled {
+            return None;
+        }
+        match &self.kept {
+            Some(KeptNames { session_tag, .. }) => {
+                session_tag.as_ref().map(|tag| app_support.join("tags").join(tag).join("tui"))
+            }
+            None => Some(app_support.join("builds").join(&self.key).join("tui")),
+        }
     }
 
     /// This build's directory under `~/Library/Application Support/cmux`
@@ -435,22 +470,9 @@ pub fn path_identity(path: &Path) -> std::borrow::Cow<'_, Path> {
 }
 
 #[cfg(test)]
-mod path_identity_tests {
-    use super::path_identity;
-    use std::path::Path;
+#[path = "build_identity_path_identity_tests.rs"]
+mod path_identity_tests;
 
-    #[test]
-    fn a_moved_state_path_keeps_its_name_from_before_the_move() {
-        let support = Path::new("/Users/a/Library/Application Support");
-        let at = |folder: &str, rest: &str| support.join(folder).join(rest);
-        for rest in ["tags/nightly/tui/terminal-hosts-x", "builds/k1/tui"] {
-            assert_eq!(path_identity(&at("cmux-next", rest)), at("cmux", rest));
-        }
-        for own in [
-            Path::new("/Users/a/.local/state/cmux-tui").to_path_buf(),
-            at("cmux-next", "agent-home"),
-        ] {
-            assert_eq!(path_identity(&own), own);
-        }
-    }
-}
+#[cfg(test)]
+#[path = "build_identity_daemon_state_dir_tests.rs"]
+mod daemon_state_dir_tests;

@@ -15,6 +15,9 @@ import os
 public final class MacHomeRowsCache: @unchecked Sendable {
     /// Rows kept per Mac: the owner's order puts the pins and the newest conversations first.
     public static let rowLimit = 200
+    /// Rows in each list's head file: Home's first screen (the first window is 20 rows), with
+    /// room for pins and a tall screen. A launch reads only this before its first frame.
+    public static let firstScreenRows = 40
     /// Bytes kept on disk for every account and Mac together.
     public static let byteLimit = 2 * 1024 * 1024
 
@@ -51,6 +54,20 @@ public final class MacHomeRowsCache: @unchecked Sendable {
 
     /// The rows for `key` read or written this run, without touching the disk.
     @MainActor public func cached(_ key: String) -> [MacHomeRow]? { memory[key] }
+
+    /// The first screen of the rows kept for `key`, for the first frame: from memory, else one
+    /// small head file (``firstScreenRows`` rows) read in this turn, as the Workspaces cache's
+    /// head is (`LiveSnapshotStore.loadFirstScreen`). Nil when nothing is kept, or the list was
+    /// kept before head files (``load(_:)`` reads it off the main thread then). Leo, 2026-11-14:
+    /// "i also want all our connectivity stuff to shut the f*** up and load faster".
+    @MainActor public func firstScreen(_ key: String) -> [MacHomeRow]? {
+        if let held = memory[key] { return held }
+        // A bounded read (at most `firstScreenRows` rows) on the main actor, on purpose: the
+        // first frame draws the kept rows, never a "Connecting…" note over an empty list.
+        guard let data = try? Data(contentsOf: headFile(for: key)),
+              let rows = try? JSONDecoder().decode([MacHomeRow].self, from: data) else { return nil }
+        return rows
+    }
 
     /// The rows for `key`: from memory, else read from disk off the main thread.
     @MainActor public func load(_ key: String) async -> [MacHomeRow]? {
@@ -96,6 +113,10 @@ public final class MacHomeRowsCache: @unchecked Sendable {
         }
         let written = file(for: key)
         guard (try? data.write(to: written, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])) != nil else { return }
+        // The first screen's rows on their own, for the next launch's first frame (``firstScreen(_:)``).
+        if let head = try? JSONEncoder().encode(Array(rows.prefix(Self.firstScreenRows))) {
+            try? head.write(to: headFile(for: key), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        }
         ConversationTranscriptCache.trim(directory, to: byteLimit, keeping: written)
     }
 
@@ -117,7 +138,17 @@ public final class MacHomeRowsCache: @unchecked Sendable {
     }
 
     private func file(for key: String) -> URL {
+        directory.appending(path: "\(Self.safeName(key)).json")
+    }
+
+    /// The head file of `key`: its first ``firstScreenRows`` rows (`.head` keeps it apart from
+    /// every list file: a safe name never holds a dot).
+    private func headFile(for key: String) -> URL {
+        directory.appending(path: "\(Self.safeName(key)).head.json")
+    }
+
+    private static func safeName(_ key: String) -> String {
         let safe = key.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) || $0 == "-" ? String($0) : "_" }.joined()
-        return directory.appending(path: "\(safe.isEmpty ? "default" : safe).json")
+        return safe.isEmpty ? "default" : safe
     }
 }

@@ -40,25 +40,20 @@
   /* How far a row's divider stays off the card's sides: none, the line runs edge to edge (Lucas
      2026-11-11: "full lines instead of the padded ones"). */
   --look-line-inset: 0px;
-  --look-card-radius: 16px;
+  --look-card-radius: var(--ds-space-4);
+  --look-card-border-width: 1px;
   --look-section-gap: var(--ds-space-6);
   --settings-row-inset: var(--look-row-pad-x);
   /* Rounder everywhere on the page (Lucas 2026-11-11: "a bit more rounded ... looks a bit cheap"):
      the scale's steps one notch up, so every control, field, menu button, segment and card takes
      them, and nested corners stay concentric (a segment 6 inside its 10 track with a 4 inset). */
-  --ds-radius-sm: 6px;
-  --ds-radius-md: 8px;
-  --ds-radius-lg: 10px;
-  --ds-radius-xl: 14px;
+  --ds-radius-sm: var(--page-size-6);
+  --ds-radius-md: var(--ds-space-2);
+  --ds-radius-lg: var(--page-size-10);
+  --ds-radius-xl: var(--page-size-14);
 }
 
-/* Titles as Codex and ChatGPT weigh them: the sidebar's "Settings" at the title size, under the
-   page's own title ("Notifications") at the heading size (the type scale's nearest steps). */
-:root[data-settings-look="refined"] .settings .sidebar-title {
-  font-size: var(--text-title);
-  line-height: var(--text-title--line-height);
-}
-
+/* The page's own title ("Notifications") at the heading size. */
 :root[data-settings-look="refined"] .settings .section-title {
   font-size: var(--text-heading);
   line-height: var(--text-heading--line-height);
@@ -126,21 +121,20 @@
       mask-image: none;
     }
 
-    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .sidebar-scroll-viewport:not(:has(.section-link[aria-current])) {
+    /* Nested links sit inside the expanding group. The folder cutout belongs to top-level tabs. */
+    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .sidebar-scroll-viewport:not(:has(.section-link[data-section-link][aria-current])) {
       background: var(--cmux-sidebar-surface, transparent);
     }
 
-    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings :is(.section-link[aria-current], .section-link[aria-current]:hover) {
+    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .section-link[aria-current] {
       position: relative;
-      background: var(--cmux-folder-fill, transparent);
     }
 
-    /* The press sink would lift the tab into its own layer, over the rows its shadow runs under. */
-    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .section-link[aria-current]:active {
-      transform: none;
+    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .section-link[data-section-link][aria-current] {
+      --settings-nav-selection-fill: var(--cmux-folder-fill, transparent);
     }
 
-    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .section-link[aria-current]::before {
+    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .section-link[data-section-link][aria-current]::before {
       content: "";
       position: absolute;
       z-index: var(--layer-backdrop);
@@ -183,36 +177,13 @@
    one fills; its weight stays, so selecting never widens its name. */
 :root[data-settings-look="refined"] .settings .section-link {
   min-height: var(--look-nav-height);
-  padding: 0 var(--look-nav-inset);
+  --settings-nav-padding: 0 var(--look-nav-inset);
   border-radius: var(--look-nav-radius);
   font-size: var(--look-nav-font-size);
 }
 
 :root[data-settings-look="refined"] .settings .sidebar-section {
   gap: var(--look-nav-gap);
-}
-
-/* Hover follows the pointer at once, as a native sidebar's does (Lucas 2026-11-11: a quick pass
-   over the rows lagged behind the pointer: each fill faded in over the hover duration). A press
-   sinks the row a little and lets it snap back on release, with the timing measured from a
-   recording of Aside's sidebar (Lucas 2026-11-11): in and back over the quick motion token, no
-   overshoot. The sink is shallower than Aside's 97 %, which was still "too much". Only the transform
-   moves, so nothing around the row shifts, and Reduce Motion and the motion settings end it (the
-   page's bootstrap sheet). */
-:root[data-settings-look="refined"] .settings .section-link,
-:root[data-settings-look="refined"] .settings .section-link:hover {
-  transition: transform var(--cmux-motion-quick) var(--cmux-ease-out);
-}
-
-:root[data-settings-look="refined"] .settings .section-link:active {
-  transform: scale(0.99);
-  transition: transform var(--cmux-motion-quick) var(--cmux-ease-out);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  :root[data-settings-look="refined"] .settings .section-link:active {
-    transform: none;
-  }
 }
 
 :root[data-settings-look="refined"] .settings .section-link[aria-current] .section-name {
@@ -239,7 +210,7 @@
 }
 
 :root[data-settings-look="refined"] .settings .rows {
-  border: 1px solid var(--look-line);
+  border: var(--look-card-border-width) solid var(--look-line);
   border-radius: var(--look-card-radius);
   background: var(--look-card-fill);
 }
@@ -287,7 +258,7 @@
     color-mix(in srgb, var(--polish-ink) 14%, transparent),
     color-mix(in srgb, var(--polish-ink) 14%, var(--polish-base))
   );
-  --look-control-edge: inset 0 0 0 1px var(--look-control-line);
+  --look-control-edge: inset 0 0 0 var(--page-size-1) var(--look-control-line);
 }
 
 :root[data-settings-look="refined"] .settings :is(.ui-btn[data-variant="subtle"], .ui-select-button) {
@@ -345,8 +316,12 @@
 
 /* Text and number fields: the same shape as the menus beside them. A focused field's edge steps up
    to the focus ink; a refused value keeps its danger edge. */
+/* Over a see-through window the fill lies over the field's glass surface (ui/controls.css,
+   --ui-input-glass-underlay; unset elsewhere, so the field stays clear). */
 :root[data-settings-look="refined"] .settings .ui-input[data-variant="filled"] {
-  background: var(--look-control-fill);
+  background:
+    linear-gradient(var(--look-control-fill), var(--look-control-fill)),
+    var(--ui-input-glass-underlay, transparent);
   box-shadow: var(--look-control-edge);
 }
 
@@ -404,13 +379,20 @@
 }
 
 /* More Options: the card's row that opens the rows behind it in place (MoreOptions.tsx). Quiet at
-   rest (muted label, count and chevron). */
+   rest: its count and chevron are muted. Its label is a button's, in the text ink: muted, it read 1.8:1
+   over a busy picture in dark (control-contrast-11, #aaaaaa on #7c7c7c). */
 .more-options {
+  --more-options-inset: var(--ds-space-2);
+  --more-options-inset-top: var(--ds-space-1);
+  --more-options-inset-bottom: var(--ds-space-1);
+  --more-options-min-height: var(--ds-control-primary);
+  position: relative;
+  isolation: isolate;
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);
   width: 100%;
-  min-height: var(--ds-control-primary);
+  min-height: var(--more-options-min-height);
   border: 0;
   background-color: transparent;
   color: var(--muted-text);
@@ -421,31 +403,34 @@
   transition: color var(--motion-hover);
 }
 
-/* Its hover and press fill is a rounded shape inside the card, with no line above or below it
-   (Lucas 2026-11-11: a fill between two hairlines looked weird; text alone was too little). It sits
-   a step off the card's sides, and as the card's last row (closed) a step off its bottom, with the
-   control radius, near the card corner less the inset. The label, count and chevron brighten with
-   it. The keyboard ring goes around the same shape. */
-.more-options {
-  position: relative;
-  isolation: isolate;
-}
-
+/* The fill's corner subtracts its inset and the card's border from the card's outer radius. */
 .more-options::before {
   content: "";
   position: absolute;
-  inset: var(--ds-space-1) var(--ds-space-2);
+  inset: var(--more-options-inset-top) var(--more-options-inset) var(--more-options-inset-bottom);
   z-index: var(--layer-backdrop);
-  border-radius: var(--ds-radius-md);
+  border-radius: min(
+    max(
+      var(--page-size-2),
+      calc(var(--look-card-radius, var(--card-radius)) - var(--look-card-border-width) - var(--more-options-inset))
+    ),
+    calc((var(--more-options-min-height) - var(--more-options-inset-top) - var(--more-options-inset-bottom)) / 2)
+  );
   pointer-events: none;
 }
 
-.more-options:last-child::before {
-  bottom: var(--ds-space-2);
+.more-options:not([data-open]) {
+  --more-options-inset-bottom: var(--more-options-inset);
+}
+
+:root[data-settings-look="refined"] .settings .more-options {
+  padding-top: calc(var(--look-row-pad-y) + (var(--more-options-inset-top) - var(--more-options-inset-bottom)) / 2);
+  padding-bottom: calc(var(--look-row-pad-y) + (var(--more-options-inset-bottom) - var(--more-options-inset-top)) / 2);
 }
 
 .more-options:hover,
-.more-options[data-open] {
+.more-options[data-open],
+.more-options .more-options-label {
   color: var(--text);
 }
 

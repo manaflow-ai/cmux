@@ -2,7 +2,8 @@
 //! terminal runs. It shows the chat's running turn as plain text (as `acpmux attach --plain`),
 //! asks the daemon to hand the conversation over (`_acpmux/release_to_watch`, answered once the
 //! chat is idle: the turn is never cut off), then becomes the harness's own resume command in
-//! this terminal. The chat goes on as a watch of this terminal's transcript.
+//! this terminal. The chat goes on as a watch of this terminal's transcript, and what is sent from
+//! it goes into this terminal's harness (`hub/bridge.rs`): two live views of one session.
 
 use crate::client::Client;
 use crate::rpc::method;
@@ -57,11 +58,20 @@ impl Resume {
 pub async fn run(client: Arc<Client>, key: &str, print: bool, json_out: bool) -> Result<()> {
     let id = crate::cli::run::resolve_id(&client, key).await?;
     // The turn shows while it runs; the release answers once it ended.
-    let release = client.request(method::MUX_RELEASE_TO_WATCH, json!({"sessionId": id}));
+    // This process becomes the harness (`exec`, same pid): the chat's prompts go into it while it
+    // runs (`hub/bridge.rs`). `--print` runs nothing here, so it names no process.
+    let params = if print {
+        json!({"sessionId": id})
+    } else {
+        json!({"sessionId": id, "terminalPid": std::process::id()})
+    };
+    let release = client.request(method::MUX_RELEASE_TO_WATCH, params);
     let answer = if print {
         release.await
     } else {
         // Both on this task: the stream ends when the release answers (it is dropped then).
+        // A permission the turn waits on is asked and answered here (`resume_here_ask.rs`).
+        let asked = crate::cli::resume_here_ask::start(&id);
         let shown = crate::cli::output::plain_attach(client.clone(), &id);
         tokio::pin!(release, shown);
         let answer = tokio::select! {
@@ -69,6 +79,7 @@ pub async fn run(client: Arc<Client>, key: &str, print: bool, json_out: bool) ->
             // The stream ended first (a closed connection, a mesh read): wait for the answer alone.
             _ = &mut shown => release.await,
         };
+        asked.end().await;
         println!();
         answer
     };

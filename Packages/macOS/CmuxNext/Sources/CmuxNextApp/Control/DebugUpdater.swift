@@ -15,6 +15,8 @@ import CmuxNextUpdater
 /// `{action: "unstage"}` follows the real updater again. `{action: "tip",
 /// id?}` shows a "Did you know" tip; `{action: "untip"}` hides it;
 /// `{action: "tips", press?, at?}`: `UpdaterService.debugTips`.
+/// `{action: "star", press?}`: `UpdaterService.debugStarPrompt` (shows the one-time GitHub star card again;
+/// `press: "reset"` forgets it, `"x"` or `"open"` presses it).
 /// `{action: "available", version?, asked?}` shows a found, not downloaded update: the titlebar's
 /// Update Available, or with `asked` the notice card a Check for Updates shows;
 /// `{action: "press", button}` presses an update card's button as a click does (`update`: the
@@ -65,6 +67,8 @@ enum DebugUpdater {
             return .object(["tip": services.updater.tip.map { .string($0.id) } ?? .null])
         case "tips":
             return .object(services.updater.debugTips(press: params["press"]?.stringValue, at: params["at"]?.doubleValue).mapValues(JSONValue.string))
+        case "star":
+            return .object(services.updater.debugStarPrompt(press: params["press"]?.stringValue).mapValues(JSONValue.string))
         case "untip":
             services.updater.debugShowTip(nil)
             return .object(["tip": .null])
@@ -89,8 +93,10 @@ enum DebugUpdater {
         case "unstage":
             services.updater.debugStage(version: nil, notes: nil)
             return .object(["staged": .null])
+        case "input": // Update When Idle's harness input time (`UpdaterService.debugInput`; DEV and bench builds)
+            return .object(services.updater.debugInput(clear: params["clear"]?.boolValue == true).mapValues(JSONValue.bool))
         default:
-            throw ControlError.invalidParams("debug.updater: action must be \"relaunch\", \"stage\", \"simulate\", \"unstage\", \"available\", \"press\", \"snooze\", \"tip\", \"tips\", \"untip\", \"updated\", \"newest\", \"feedCards\", \"share\" or \"share-copy\"")
+            throw ControlError.invalidParams("debug.updater: action must be \"relaunch\", \"stage\", \"simulate\", \"unstage\", \"available\", \"press\", \"snooze\", \"tip\", \"tips\", \"star\", \"untip\", \"updated\", \"newest\", \"feedCards\", \"share\" or \"share-copy\"")
         }
     }
 

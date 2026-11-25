@@ -5,13 +5,29 @@ use crate::no_panic::JsonExt;
 use crate::no_panic::LockExt;
 use crate::rpc::{Message, RpcError, method};
 use anyhow::{Context, Result};
+use futures::{Stream, StreamExt};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::{Arc, Mutex as StdMutex};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{Mutex, mpsc, oneshot};
+
+type PendingReplies = StdMutex<HashMap<String, oneshot::Sender<Result<Value, RpcError>>>>;
+
+/// The caller owns its reply slot. Dropping a timed-out or cancelled request forgets the
+/// waiter even when the daemon never replies. This does not cancel work already sent.
+struct PendingRequest<'a> {
+    replies: &'a PendingReplies,
+    key: String,
+}
+
+impl Drop for PendingRequest<'_> {
+    fn drop(&mut self) {
+        self.replies.lock_or_recover().remove(&self.key);
+    }
+}
 
 pub struct Client {
     /// Build id the daemon reported at initialize, for mismatch hints.
@@ -35,34 +51,42 @@ pub struct Client {
     person_challenge: std::sync::Mutex<Option<(String, String)>>,
     out: mpsc::Sender<String>,
     next_id: AtomicI64,
-    pending: Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, RpcError>>>>>,
+    // Only map operations hold this lock; no I/O or await. A synchronous lock lets the
+    // request's drop release its slot without spawning another task to clean up.
+    pending: Arc<PendingReplies>,
     notifications: Mutex<Option<mpsc::Receiver<Message>>>,
     notif_tx: Arc<Mutex<mpsc::Sender<Message>>>,
     closed: Arc<std::sync::atomic::AtomicBool>,
+    /// Print `_acpmux/admission_waiting` to stderr as it arrives
+    /// ([`Client::print_admission_waiting`]), rather than queue it behind a create that may
+    /// wait minutes for a new machine.
+    print_admission_waiting: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Client {
     pub async fn connect(path: &Path) -> Result<Arc<Self>> {
-        Self::connect_with_caller(path, true).await
+        Self::open_socket(path).await?.initialize(true).await
     }
 
     /// Connect a single-purpose trigger client without inheriting ambient
     /// ACPMUX caller credentials from the invoking shell/session.
     pub async fn connect_without_caller(path: &Path) -> Result<Arc<Self>> {
-        Self::connect_with_caller(path, false).await
+        Self::open_socket(path).await?.initialize(false).await
     }
 
-    async fn connect_with_caller(path: &Path, include_caller: bool) -> Result<Arc<Self>> {
+    /// A renewal proves its origin from the local socket peer and inbox. Put it on the wire
+    /// before waiting for the daemon; it needs none of the normal hello's caller capabilities.
+    pub(crate) async fn renew_registration(path: &Path, params: Value) -> Result<Value> {
+        let client = Self::open_socket(path).await?;
+        client.request(method::MUX_REGISTER, params).await
+    }
+
+    async fn open_socket(path: &Path) -> Result<Arc<Self>> {
         let stream = crate::local_stream::connect(path)
             .await
             .with_context(|| format!("connect {}", path.display()))?;
         let (rd, mut wr) = crate::local_stream::split(stream);
         let (out, mut out_rx) = mpsc::channel::<String>(1024);
-        let (notif_tx, notif_rx) = mpsc::channel::<Message>(4096);
-        let notif_tx = Arc::new(Mutex::new(notif_tx));
-        let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let pending: Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, RpcError>>>>> =
-            Arc::new(Mutex::new(HashMap::new()));
         tokio::spawn(async move {
             while let Some(line) = out_rx.recv().await {
                 if wr.write_all(line.as_bytes()).await.is_err() {
@@ -70,21 +94,60 @@ impl Client {
                 }
             }
         });
+        let lines = futures::stream::unfold(BufReader::new(rd).lines(), |mut lines| async {
+            let line = lines.next_line().await.ok()??;
+            Some((line, lines))
+        });
+        Ok(Self::from_lines(path, out, lines))
+    }
+
+    /// The holder drives an authorized hub move against this exact daemon through its usual RPCs.
+    pub(crate) async fn in_process(hub: Arc<crate::hub::Hub>) -> Result<Arc<Self>> {
+        let (out, requests) = mpsc::channel(32);
+        let (responses, mut incoming) = mpsc::channel(32);
+        hub.scope.spawn_until_cancelled(
+            "hub-move-out-client",
+            crate::server::serve_connection(hub.clone(), requests, responses),
+        );
+        let lines = futures::stream::poll_fn(move |cx| incoming.poll_recv(cx));
+        Self::from_lines(&crate::config::socket_path(), out, lines).initialize(false).await
+    }
+
+    fn from_lines(
+        path: &Path,
+        out: mpsc::Sender<String>,
+        lines: impl Stream<Item = String> + Send + 'static,
+    ) -> Arc<Self> {
+        let (notif_tx, notif_rx) = mpsc::channel::<Message>(4096);
+        let notif_tx = Arc::new(Mutex::new(notif_tx));
+        let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let print_admission_waiting = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let pending = Arc::new(PendingReplies::default());
         {
             let pending = pending.clone();
             let notif_tx = notif_tx.clone();
             let closed = closed.clone();
+            let print_admission_waiting = print_admission_waiting.clone();
             tokio::spawn(async move {
-                let mut lines = BufReader::new(rd).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
+                tokio::pin!(lines);
+                while let Some(line) = lines.next().await {
                     let Ok(msg) = Message::parse(&line) else { continue };
                     match msg {
                         Message::Response { id, result, error } => {
-                            if let Some(tx) = pending.lock().await.remove(&id.to_string()) {
+                            let tx = pending.lock_or_recover().remove(&id.to_string());
+                            if let Some(tx) = tx {
                                 let _ = tx.send(match error {
                                     Some(e) => Err(e),
                                     None => Ok(result.unwrap_or(Value::Null)),
                                 });
+                            }
+                        }
+                        Message::Notification { method: ref name, ref params }
+                            if name == method::MUX_ADMISSION_WAITING
+                                && print_admission_waiting.load(Ordering::Relaxed) =>
+                        {
+                            if let Some(text) = admission_waiting_text(params.as_ref()) {
+                                eprintln!("{text}");
                             }
                         }
                         other => {
@@ -100,18 +163,16 @@ impl Client {
                     }
                 }
                 closed.store(true, Ordering::SeqCst);
-                let mut p = pending.lock().await;
                 // Dropping the senders identifies transport EOF independently
                 // of any message or error code supplied by the daemon.
-                p.clear();
-                drop(p);
+                pending.lock_or_recover().clear();
                 // The stream never ends on its own (the client keeps a
                 // sender), so say goodbye explicitly.
                 let tx = notif_tx.lock().await.clone();
                 let _ = tx.send(Message::notification(method::MUX_DISCONNECTED, json!({}))).await;
             });
         }
-        let client = Arc::new(Self {
+        Arc::new(Self {
             daemon_build: std::sync::Mutex::new(None),
             proven_caller_session: std::sync::OnceLock::new(),
             daemon_cli_path: std::sync::Mutex::new(None),
@@ -125,24 +186,34 @@ impl Client {
             notifications: Mutex::new(Some(notif_rx)),
             notif_tx,
             closed,
-        });
+            print_admission_waiting,
+        })
+    }
+
+    /// Say on stderr, when it begins, that an Auto create waits for a machine being added
+    /// (`_acpmux/admission_waiting`, `hub/admission.rs`): `acpmux new --host auto`.
+    pub fn print_admission_waiting(&self) {
+        self.print_admission_waiting.store(true, Ordering::Relaxed);
+    }
+
+    async fn initialize(self: Arc<Self>, include_caller: bool) -> Result<Arc<Self>> {
         let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux-cli", "version": crate::hub::VERSION}});
         // Inside an acpmux session: say which, with the caller token the
         // daemon put in that session's env (`hub/person.rs` (a)), only to
         // the socket of the daemon that issued it (never to another daemon,
         // or whatever listens on a path the agent pointed the CLI at).
-        let caller = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+        let caller = |k: &str| crate::tool_env::var(k).filter(|v| !v.is_empty());
         let issuer = caller(crate::hub::person::CALLER_SOCKET_ENV);
         let mut meta = serde_json::Map::new();
         if include_caller
             && let (Some(id), Some(token), true) = (
                 caller("ACPMUX_SESSION_ID"),
                 caller(crate::hub::person::CALLER_TOKEN_ENV),
-                issuer.is_some_and(|socket| Path::new(&socket) == path),
+                issuer.is_some_and(|socket| Path::new(&socket) == self.socket),
             )
         {
             meta.insert(
-                crate::hub::person::CALLER_FIELD.to_owned(),
+                crate::meta_fields::CALLER_FIELD.to_owned(),
                 json!({"sessionId": id, "token": token}),
             );
         }
@@ -151,38 +222,38 @@ impl Client {
         crate::cli_caller::declare(&mut meta, caller);
         hello.set("_meta", json!({"acpmux": meta}));
         // Every command waits here first: a daemon that stopped answering says so (`slow_notice.rs`).
-        let init = crate::cli::slow_notice::noted(
+        let init = crate::slow_notice::noted(
             "the connection's hello",
-            client.request(method::INITIALIZE, hello),
+            self.request(method::INITIALIZE, hello),
         )
         .await?;
         if let Some(session) = init.pointer("/_meta/acpmux/callerSessionId").and_then(Value::as_str)
         {
-            let _ = client.proven_caller_session.set(session.to_owned());
+            let _ = self.proven_caller_session.set(session.to_owned());
         }
-        *client.daemon_build.lock_or_recover() =
+        *self.daemon_build.lock_or_recover() =
             init.pointer("/_meta/acpmux/build").and_then(Value::as_str).map(str::to_owned);
-        *client.daemon_cli_path.lock_or_recover() = init
+        *self.daemon_cli_path.lock_or_recover() = init
             .pointer("/_meta/acpmux/cliPath")
             .and_then(Value::as_str)
             .filter(|path| std::path::Path::new(path).is_absolute())
             .map(std::path::PathBuf::from);
         if let Some(Value::Array(features)) = init.pointer("/_meta/acpmux/features") {
-            *client.daemon_features.lock_or_recover() =
+            *self.daemon_features.lock_or_recover() =
                 features.iter().filter_map(Value::as_str).map(str::to_owned).collect();
         }
         if let Some(Value::Array(capabilities)) = init.pointer("/_meta/acpmux/capabilities") {
-            *client.daemon_capabilities.lock_or_recover() =
+            *self.daemon_capabilities.lock_or_recover() =
                 capabilities.iter().filter_map(Value::as_str).map(str::to_owned).collect();
         }
         if let (Some(n), Some(c)) = (
             init.pointer("/_meta/acpmux/personChallenge/nonce").and_then(Value::as_str),
             init.pointer("/_meta/acpmux/personChallenge/connection").and_then(Value::as_str),
         ) {
-            *client.person_challenge.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            *self.person_challenge.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
                 Some((n.to_owned(), c.to_owned()));
         }
-        Ok(client)
+        Ok(self)
     }
 
     /// The session the daemon authenticated on this connection. Older daemons
@@ -198,7 +269,8 @@ impl Client {
         let challenge =
             self.person_challenge.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
         let Some((nonce, connection)) = challenge else { return false };
-        let Some(proof) = crate::hub::person::person_proof(key, "unix", &nonce, &connection) else {
+        let Some(proof) = crate::person_proof::person_proof(key, "unix", &nonce, &connection)
+        else {
             return false;
         };
         self.request(method::MUX_PERSON_PROVE, json!({ "proof": proof })).await.is_ok()
@@ -228,6 +300,14 @@ impl Client {
     /// The error for a connection that ended: says why, as far as the pid
     /// file and socket tell, and what to do.
     pub fn closed(&self, context: &str) -> anyhow::Error {
+        // The pid file and panic log say only how this machine's own daemon is. A connection to
+        // another socket (a move's `ssh -L` forward of another machine's daemon, a sibling
+        // build's) ended for reasons they cannot tell: on a laptop a move's dropped forwards
+        // read "the daemon (pid N) is still running but dropped this connection", naming the
+        // local daemon, which was never on that path (2026-11-23).
+        if !same_socket(&self.socket, &crate::config::socket_path()) {
+            return other_socket_closed(&self.socket, context);
+        }
         closed_error(context, self.daemon_build().as_deref())
     }
 
@@ -252,7 +332,7 @@ impl Client {
         if m != method::SESSION_NEW {
             return self.send_request(m, params).await;
         }
-        let tool_call = std::env::var(crate::hub::lineage::TOOL_CALL_ENV).ok();
+        let tool_call = crate::tool_env::var(crate::meta_fields::TOOL_CALL_ENV);
         let reply = self.send_request(m, with_spawn_tool_call(params, tool_call)).await?;
         self.tag_spawned_by(&reply).await;
         Ok(reply)
@@ -304,7 +384,7 @@ impl Client {
         if !seen.is_empty()
             && let Some(rows) = reply.get_mut("sessions").and_then(Value::as_array_mut)
         {
-            crate::hub::session_pages::sort_session_summaries(rows);
+            crate::session_order::sort_session_summaries(rows);
         }
         Ok(reply)
     }
@@ -326,7 +406,7 @@ impl Client {
     /// not prove) is never tagged from this env var. The session exists either way; a failed
     /// tag only lists it on its own.
     async fn tag_spawned_by(&self, reply: &Value) {
-        let Some(parent) = std::env::var("ACPMUX_SESSION_ID").ok().filter(|id| !id.is_empty())
+        let Some(parent) = crate::tool_env::var("ACPMUX_SESSION_ID").filter(|id| !id.is_empty())
         else {
             return;
         };
@@ -336,7 +416,7 @@ impl Client {
         // A peer may return the same raw id as a local session. Keep the owner
         // namespace on the tag request just like prompts and lifecycle calls.
         let Some(id) = crate::cli::resolve::routed_id(reply).ok() else { return };
-        let set = json!({ crate::hub::views::SPAWNED_BY_TAG: parent });
+        let set = json!({ crate::meta_fields::SPAWNED_BY_TAG: parent });
         let _ = self.send_request(method::MUX_TAG, json!({"sessionId": id, "set": set})).await;
     }
 
@@ -355,14 +435,15 @@ impl Client {
         {
             // Check and register under the lock the reader drains with after
             // it marks the connection closed, so no request slips between.
-            let mut pending = self.pending.lock().await;
+            let mut pending = self.pending.lock_or_recover();
             if self.closed.load(Ordering::SeqCst) {
+                drop(pending);
                 return Err(self.closed(&context));
             }
             pending.insert(key.clone(), tx);
         }
+        let _pending = PendingRequest { replies: &self.pending, key };
         if self.out.send(Message::request(id, m, params).to_line()).await.is_err() {
-            self.pending.lock().await.remove(&key);
             return Err(self.closed(&context));
         }
         match rx.await {
@@ -385,7 +466,7 @@ impl Client {
 fn with_spawn_tool_call(mut params: Value, tool_call: Option<String>) -> Value {
     let Some(id) = tool_call.filter(|id| !id.is_empty()) else { return params };
     if let Some(mux) = mux_meta(&mut params) {
-        mux.entry(crate::hub::lineage::TOOL_CALL_FIELD).or_insert(Value::String(id));
+        mux.entry(crate::meta_fields::TOOL_CALL_FIELD).or_insert(Value::String(id));
     }
     params
 }
@@ -393,7 +474,7 @@ fn with_spawn_tool_call(mut params: Value, tool_call: Option<String>) -> Value {
 /// `session/new` params that ask for no parent (`_meta.acpmux.parent: null`).
 fn parentless(mut params: Value) -> Value {
     if let Some(mux) = mux_meta(&mut params) {
-        mux.insert(crate::hub::lineage::PARENT_FIELD.into(), Value::Null);
+        mux.insert(crate::meta_fields::PARENT_FIELD.into(), Value::Null);
     }
     params
 }
@@ -412,7 +493,7 @@ fn reply_lacks_lineage(reply: &Value) -> bool {
         || !reply
             .pointer("/_meta/acpmux")
             .and_then(Value::as_object)
-            .is_some_and(|m| m.contains_key(crate::hub::lineage::PARENT_FIELD))
+            .is_some_and(|m| m.contains_key(crate::meta_fields::PARENT_FIELD))
 }
 
 /// An error reply from the daemon. It prints as the message alone and
@@ -523,6 +604,27 @@ pub(crate) fn closed_cause(
     (cause, why + &panicked.unwrap_or_default())
 }
 
+/// Whether `a` and `b` name one socket (as written, or once resolved).
+fn same_socket(a: &std::path::Path, b: &std::path::Path) -> bool {
+    a == b || matches!((a.canonicalize(), b.canonicalize()), (Ok(a), Ok(b)) if a == b)
+}
+
+/// "daemon connection closed" for a connection to a socket that is not this machine's own
+/// daemon's: cause `other_socket`, and no claim about the local daemon.
+pub(crate) fn other_socket_closed(socket: &std::path::Path, context: &str) -> anyhow::Error {
+    TransportClosed {
+        message: format!(
+            "daemon connection closed while {context}: the connection to the daemon at {} ended \
+             (an ssh forward of another machine's daemon, or another build's socket; this \
+             machine's own daemon is not on that path)",
+            socket.display()
+        ),
+        cause: "other_socket",
+        panic: None,
+    }
+    .into()
+}
+
 /// "daemon connection closed" with a cause: the pid file and socket say
 /// whether the daemon is still running (it dropped us: a restart or an
 /// internal error), died without cleanup (a crash), or was shut down; the
@@ -531,24 +633,43 @@ pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error 
     use std::io::Read as _;
 
     let home = crate::config::home();
-    let pid_path = home.join("daemon.pid");
-    let pid = crate::config::private_state_file(&pid_path)
-        .and_then(|mut file| {
-            let mut text = String::new();
-            file.read_to_string(&mut text)?;
-            Ok(text)
-        })
-        .ok()
-        .and_then(|s| s.trim().parse::<i32>().ok());
-    #[cfg(unix)]
-    let alive = pid.map(|p| unsafe { libc::kill(p, 0) } == 0).unwrap_or(false);
-    #[cfg(not(unix))]
-    let alive = pid.is_some();
+    // The daemon's owner record names it by pid, start time and boot (`daemon/supervision.rs`):
+    // a pid that a crash or a reboot left behind and another process now holds reads dead, so
+    // the next command starts a daemon instead of waiting on a stranger (F7). An unreadable
+    // record proves nothing and reads as running. A daemon from before the record wrote only
+    // `daemon.pid`.
+    let (pid, alive) = match crate::daemon::supervision::owner(&home) {
+        Some(owner) => {
+            (i32::try_from(owner.pid).ok(), owner.liveness() != cmux_supervise_core::Liveness::Dead)
+        }
+        None => {
+            let pid = crate::config::private_state_file(&home.join("daemon.pid"))
+                .and_then(|mut file| {
+                    let mut text = String::new();
+                    file.read_to_string(&mut text)?;
+                    Ok(text)
+                })
+                .ok()
+                .and_then(|s| s.trim().parse::<i32>().ok());
+            // Alive only while that pid still holds this home's daemon lock: a bare
+            // `kill(pid, 0)` reads a pid a reboot handed to another process as the daemon
+            // "still running but dropped this connection".
+            #[cfg(unix)]
+            let alive = pid.is_some_and(|p| {
+                u32::try_from(p).is_ok_and(|p| {
+                    crate::daemon::live_holder_pid(&home.join("daemon.lock")) == Some(p)
+                })
+            });
+            #[cfg(not(unix))]
+            let alive = pid.is_some();
+            (pid, alive)
+        }
+    };
     let socket = crate::config::socket_path().exists();
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64);
-    let panic = recent_panic(&crate::daemon::panic_log_path(), now_ms, pid);
+    let panic = recent_panic(&crate::config::panic_log_path(), now_ms, pid);
     let (cause, why) = closed_cause(pid, alive, socket, panic.as_ref());
     let build = match daemon_build {
         Some(b) if b != crate::hub::build() => {
@@ -567,9 +688,19 @@ pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error 
     .into()
 }
 
+/// The stderr line of an `_acpmux/admission_waiting` note: its warning.
+fn admission_waiting_text(params: Option<&Value>) -> Option<String> {
+    let warning = params?.get("warning")?.as_str()?;
+    Some(format!("acpmux: {warning}"))
+}
+
 #[cfg(test)]
 #[path = "client_closed_tests.rs"]
 mod closed_tests;
+
+#[cfg(all(test, unix))]
+#[path = "client_cancel_tests.rs"]
+mod cancel_tests;
 
 #[cfg(test)]
 mod lineage_tests {
@@ -588,6 +719,17 @@ mod lineage_tests {
         assert_eq!(sent["_meta"]["acpmux"]["spawnToolCallId"], "mine");
         let bare = with_spawn_tool_call(json!({"cwd": "/tmp"}), Some("t".into()));
         assert_eq!(bare["_meta"]["acpmux"]["spawnToolCallId"], "t");
+    }
+
+    #[test]
+    fn an_admission_waiting_note_prints_its_warning() {
+        let note = json!({"warning": "a machine is being added", "scalingUp": true});
+        assert_eq!(
+            admission_waiting_text(Some(&note)).as_deref(),
+            Some("acpmux: a machine is being added")
+        );
+        assert_eq!(admission_waiting_text(Some(&json!({}))), None);
+        assert_eq!(admission_waiting_text(None), None);
     }
 
     #[test]

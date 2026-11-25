@@ -11,10 +11,10 @@
 //!
 //! The leading space keeps it out of shell history where the shell ignores
 //! such lines, and the token rides in `sh`'s environment, never in an argument
-//! list. With a host (`machine add HOST`, `--destination HOST`) the command is
+//! list; a Windows PC pastes the PowerShell line beside it (`windows.rs`). With a host (`machine add HOST`, `--destination HOST`) the command is
 //! the app's ssh Add Machine card, as before.
 //!
-//! The platform origin comes from `--platform` (or `CMUX_PLATFORM_URL`) and
+//! The platform origin comes from `--platform` (or `CMUX_PLATFORM_ORIGIN`, alias `CMUX_PLATFORM_URL`) and
 //! defaults to the production platform, where `acpmux host join` and the served
 //! join.sh redeem by default too (Leo, 2026-11-04: "don't stick it into dev. Put
 //! it into prod").
@@ -52,7 +52,6 @@ use cmux_json::JsonSet as _;
 /// The production platform: the default, the same hub `acpmux host join` and production's join.sh use,
 /// so a line minted with no flags is redeemed where it was minted.
 pub(super) const DEFAULT_ORIGIN: &str = cmux_cloud_environment::PRODUCTION_PLATFORM;
-const PLATFORM_ENV: &str = "CMUX_PLATFORM_URL";
 const TOKEN_ENV: &str = "CMUX_CLOUD_ACCESS_TOKEN";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 /// A list merge (`machine list`, `device list`) costs at most this.
@@ -64,8 +63,7 @@ const WAIT_EVERY: Duration = Duration::from_secs(2);
 /// instead: its 90 s rows and its heartbeat stamp, which moves at most every 30 s.
 pub(super) const LEGACY_ONLINE_WITHIN_MS: u64 = 120_000;
 /// How soon a revoke takes effect: the platform checks revocation on every heartbeat (each
-/// 10 s, a third of the hub's row TTL) and relay request. A revoke answer that carries `accessEndsWithinSeconds` replaces
-/// this.
+/// 10 s, a third of the hub's row TTL) and relay request. A revoke answer that carries `accessEndsWithinSeconds` replaces this.
 const REVOKE_BOUND: &str = "30 seconds";
 /// The minted line's default life when the answer's `expiresAt` is unreadable.
 const DEFAULT_TTL_SECS: u64 = 600;
@@ -76,6 +74,7 @@ pub(super) const USB_TTL_SECS: u64 = MAX_TTL_SECS;
 
 mod bootstrap;
 pub(super) mod vault;
+mod windows;
 
 const USAGE: &str = "usage: cmux machine add [--name NAME] [--ttl 10m] [--wait|--no-wait] [--vault [--yes]]
        cmux machine add --usb PATH [--ttl 10m] [--vault [--yes]]
@@ -83,7 +82,7 @@ const USAGE: &str = "usage: cmux machine add [--name NAME] [--ttl 10m] [--wait|-
        cmux machine revoke ID|NAME [--yes]
        cmux machine rotate ID|NAME
        cmux machine vault set|rm NAME, cmux machine vault ls, cmux machine vault grant|revoke MACHINE
-  each takes --platform URL (or CMUX_PLATFORM_URL; default the production platform)
+  each takes --platform URL (or CMUX_PLATFORM_ORIGIN, alias CMUX_PLATFORM_URL; default the production platform)
   and --cloud-token-file PATH, --cloud-token-stdin or CMUX_CLOUD_ACCESS_TOKEN.
   cmux machine add HOST (without --vault or --bootstrap) opens the app's Add Machine card for an ssh host.";
 const SIGN_IN: &str = "sign in: pass --cloud-token-file PATH (or set CMUX_CLOUD_ACCESS_TOKEN), or use Add Machine in the app";
@@ -155,6 +154,11 @@ impl Failure {
 /// `Some(exit code)` when `args` is a verb this module runs.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, command_args) = super::parse_globals(args).ok()?;
+    // `cmux machine revoke --help`: that verb's usage, exit 0 (before, a usage error, exit 2).
+    if let Some(text) = verb_help(&command_args) {
+        println!("{text}");
+        return Some(0);
+    }
     let parsed = parse(&command_args)?;
     let fail = |failure: Failure| {
         super::app::failure(
@@ -175,7 +179,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             // With no credential, `machine add` stays the app's Add Machine card wherever an
             // app answers, as it was before joining existed.
             if matches!(&command.verb, Verb::Add(add) if add.plain())
-                && let Some(code) = super::run_app_action_fallback(args)
+                && let Some(code) = super::app_commands::run_app_action_fallback(args)
             {
                 return Some(code);
             }
@@ -210,6 +214,47 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         Ok(code) => code,
         Err(failure) => fail(failure),
     })
+}
+
+/// `machine add|revoke|rotate|vault ... --help`: the verb's own lines of [`USAGE`] (the vault's
+/// whole usage for `vault`) and the auth notes every verb shares. `None` without a help flag.
+pub(super) fn verb_help(args: &[String]) -> Option<String> {
+    let [scope, verb, rest @ ..] = args else { return None };
+    let asks =
+        rest.iter().take_while(|w| *w != "--").any(|w| matches!(w.as_str(), "-h" | "--help"));
+    if scope != "machine"
+        || !asks
+        || !matches!(verb.as_str(), "add" | "revoke" | "rotate" | "vault")
+    {
+        return None;
+    }
+    if verb == "vault" {
+        return Some(vault::USAGE.to_owned());
+    }
+    let own = format!("cmux machine {verb} ");
+    let mut usage = Vec::new();
+    let mut notes = Vec::new();
+    for line in USAGE.lines() {
+        if let Some(form) = line.strip_prefix("usage: ").or_else(|| line.strip_prefix("       ")) {
+            if form.starts_with(&own) || form == own.trim_end() {
+                usage.push(form);
+            }
+        } else if !line.trim_start().starts_with("cmux machine ")
+            || line.trim_start().starts_with(&own)
+        {
+            notes.push(line);
+        }
+    }
+    let mut text = String::new();
+    for (index, form) in usage.iter().enumerate() {
+        text.push_str(if index == 0 { "usage: " } else { "\n       " });
+        text.push_str(form);
+    }
+    for note in notes {
+        text.push('\n');
+        text.push_str(note);
+    }
+    Some(text)
 }
 
 /// What `machine <words>` is: this module's verb, a usage error in one, or
@@ -424,15 +469,17 @@ pub(crate) fn read_credential(
     Ok(Some(credential))
 }
 
-/// `--platform`, else `CMUX_PLATFORM_URL`, else the production platform; https only.
+/// `--platform`, else `CMUX_PLATFORM_ORIGIN` (or its alias `CMUX_PLATFORM_URL`), else the
+/// production platform; https only. acpmux reads the same variables the same way
+/// (`cmux_cloud_client::backend::platform_origin_from`).
 pub(crate) fn platform_origin(
     flag: Option<&str>,
     env: &dyn Fn(&str) -> Option<String>,
 ) -> Result<String, String> {
     let raw = flag
         .map(str::to_owned)
-        .or_else(|| env(PLATFORM_ENV))
         .filter(|raw| !raw.trim().is_empty())
+        .or_else(|| cmux_cloud_client::backend::platform_origin_from(env))
         .unwrap_or_else(|| DEFAULT_ORIGIN.to_owned());
     super::cloud_client_session::secure_origin(raw.trim())
         .map_err(|message| message.replace("the cmux API", "the cmux platform"))
@@ -511,7 +558,10 @@ impl Platform {
             .enable_all()
             .build()
             .map_err(|e| internal(&e))?;
-        let client = reqwest::Client::builder()
+        let space =
+            cmux_build_space::headers().map_err(|e| Failure::new("build_space", e.to_string()))?;
+        let client = cmux_egress::client_builder("cmux_tui::cli::machine_join")
+            .default_headers(space)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
             .build()
@@ -699,8 +749,7 @@ pub(super) enum WaitEnd {
     Interrupted,
 }
 
-/// The list in a credentials answer: an array, or one under `credentials`,
-/// `machines` or `items`.
+/// The list in a credentials answer: an array, or one under `credentials`, `machines` or `items`.
 fn entries(body: Value) -> Option<Vec<Value>> {
     match body {
         Value::Array(rows) => Some(rows),
@@ -717,7 +766,7 @@ fn entries(body: Value) -> Option<Vec<Value>> {
 /// The platform's machine-join refusal codes. Errors print only these and the codes of the
 /// platform's Cloud refusal table ([`cmux_cloud_machine::refusals::PLATFORM`]: a cap, a rate
 /// limit, a machine's state), each from its own table.
-const KNOWN_CODES: [&str; 48] = [
+const KNOWN_CODES: [&str; 62] = [
     "lease.not_found",
     "reservation.expired",
     "reservation.terminal",
@@ -763,6 +812,23 @@ const KNOWN_CODES: [&str; 48] = [
     // The acting team has no Cloud plan (reserve, bind, a workspace's machine): the pane says so and
     // offers the person's own team or the plans (CloudStartView), never a retry or a wait.
     "cloud.plan.required",
+    // A workspace adopting a machine (`POST /v1/workspaces/{w}/machine/import`, `automation create
+    // --webhook --on cloud`).
+    "machine.turn_machine_conflict",
+    "machine.turn_generation_conflict",
+    "machine.turn_busy",
+    "workspace_machine.fleet_machine",
+    "cloud.carrier_unavailable",
+    "cloud.machine.not_found",
+    "cloud.carrier_mismatch",
+    // A Cloud trigger (`POST /v1/triggers`).
+    "trigger.invalid",
+    "trigger.unauthorized",
+    "trigger.forbidden",
+    "trigger.not_found",
+    "trigger.conflict",
+    "trigger.unavailable",
+    "trigger.workspace_mismatch",
     "bad_request",
     "unauthorized",
     "not_found",
@@ -978,6 +1044,7 @@ fn add_machine(
         "scriptUrl": format!("{}/v1/machines/join.sh", platform.origin),
         "joined": null,
     });
+    windows::add(&mut summary, &platform.origin, &minted.token);
     let now = now_ms();
     let io = |e: std::io::Error| Failure::new("io", e.to_string());
     match output {
@@ -985,6 +1052,7 @@ fn add_machine(
             let when = expiry_words(minted.expires_at_ms, now);
             writeln!(out, "Run this on the new machine. It works once and {when}:\n\n{line}\n")
                 .map_err(io)?;
+            windows::print(out, &summary).map_err(io)?;
         }
         OutputMode::JsonLines => {
             let mut event = summary.clone();
@@ -1268,8 +1336,7 @@ fn duration_words(seconds: u64) -> String {
     }
 }
 
-/// Rotates the machine's credential. The answer may carry the new credential;
-/// nothing of it is printed.
+/// Rotates the machine's credential. The answer may carry the new credential; none of it prints.
 fn rotate(
     platform: &Platform,
     key: &str,
@@ -1450,6 +1517,76 @@ pub(super) fn merge_rows(
     };
     listed.extend(rows);
     (result, None)
+}
+
+/// How long `machine list` waits for acpmux's own machines (`acp host ls`), a local read.
+const PEER_READ_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// `result` with the machines acpmux reaches itself added (`acpmux machine add HOST`), each a
+/// valid `cmux chat --on NAME` (hq#11835: such a machine was in `acpmux machine ls` and took
+/// chats from acpmux, but `machine list` and `--on` did not know it). Fails open with a note
+/// on stderr, as the joined rows do; quiet mode says nothing.
+pub(super) fn merge_peers(global: &GlobalArgs, result: Value) -> Value {
+    // No acpmux running here: it reaches no machine, and a list never starts one.
+    if !acpmux::config::socket_path().exists() {
+        return result;
+    }
+    match super::chat_start::joined::peers_within(PEER_READ_TIMEOUT) {
+        Ok(peers) => merge_peer_rows(result, &peers),
+        Err(reason) => {
+            if global.output != OutputMode::Quiet {
+                eprintln!("cmux: acpmux's machines are not in this list: {reason}");
+            }
+            result
+        }
+    }
+}
+
+/// `result` (an array of rows, or `{"items": [...]}`) with one `kind: "peer"` row per acpmux
+/// peer (a `host ls` row with no `via: "hub"`) that no row already names: a joined machine's
+/// hostname or a daemon row of the same name is that machine, listed once.
+pub(super) fn merge_peer_rows(mut result: Value, peers: &[Value]) -> Value {
+    let listed = match &mut result {
+        Value::Array(listed) => listed,
+        Value::Object(object) => match object.get_mut("items") {
+            Some(Value::Array(listed)) => listed,
+            _ => return result,
+        },
+        _ => return result,
+    };
+    for peer in peers {
+        if peer.get("via").and_then(Value::as_str) == Some("hub") {
+            continue;
+        }
+        let Some(name) = peer.get("name").and_then(Value::as_str).map(clean) else { continue };
+        if name.is_empty() {
+            continue;
+        }
+        let names = |row: &Value| {
+            ["id", "name", "hostname"].iter().any(|key| {
+                row.get(*key)
+                    .and_then(Value::as_str)
+                    .is_some_and(|it| it.eq_ignore_ascii_case(&name))
+            })
+        };
+        if listed.iter().any(names) {
+            continue;
+        }
+        let connected = peer.get("connected").and_then(Value::as_bool) == Some(true);
+        listed.push(json!({
+            "kind": "peer",
+            "id": name,
+            "name": name,
+            "hostname": name,
+            "origin": "acpmux",
+            "status": if connected { "connected" } else { "offline" },
+            "state": if connected { "online" } else { "offline" },
+            "connectable": connected,
+            "carrier": peer.get("carrier").and_then(Value::as_str),
+            "target": name,
+        }));
+    }
+    result
 }
 
 #[cfg(test)]

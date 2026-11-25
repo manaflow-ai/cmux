@@ -18,6 +18,12 @@ pub(crate) enum AppLine {
     Park,
     Stop,
     AccountEnded,
+    /// Dial the machine ahead of its session: hold one connection on the
+    /// serving socket for at most `keep` (ask `dial`, unique per process).
+    Ahead {
+        dial: u64,
+        keep: Duration,
+    },
     /// The answer to a `read_token` line.
     Token {
         read: ReadId,
@@ -40,6 +46,13 @@ pub(crate) fn app_line(text: &str) -> Option<AppLine> {
     }
     if value.get("account_ended").is_some() {
         return Some(AppLine::AccountEnded);
+    }
+    if let Some(dial) = value.get("ahead").and_then(Value::as_u64) {
+        let keep = value.get("keep_ms").and_then(Value::as_u64)?;
+        return Some(AppLine::Ahead {
+            dial,
+            keep: Duration::from_millis(keep.min(AHEAD_KEEP_MAX_MS)),
+        });
     }
     let read = value.get("token").and_then(Value::as_u64)?;
     let result = if value.get("fenced").and_then(Value::as_bool) == Some(true) {
@@ -76,6 +89,9 @@ pub(crate) fn error_json(error: &LinkError) -> Value {
         LinkError::Failed { code, message } => {
             json!({"kind": "failed", "code": code, "message": message})
         }
+        LinkError::HelperRefused { code, message } => {
+            json!({"kind": "helper_refused", "code": code, "message": message})
+        }
         LinkError::Unsupported => json!({"kind": "unsupported"}),
     }
 }
@@ -95,9 +111,74 @@ pub(crate) fn error_of(value: &Value) -> Option<LinkError> {
         "invalid_answer" => LinkError::InvalidAnswer(text("detail")),
         "not_up" => LinkError::NotUp { state: text("state") },
         "failed" => LinkError::Failed { code: text("code"), message: text("message") },
+        "helper_refused" => {
+            LinkError::HelperRefused { code: text("code"), message: text("message") }
+        }
         "unsupported" => LinkError::Unsupported,
         _ => return None,
     })
+}
+
+/// The longest `log` line text, in characters.
+pub(crate) const LOG_MAX: usize = 400;
+
+/// A run of token characters this long is taken for a credential and left
+/// out of a `log` line (a JWT or key is far longer; paths, ids and words are
+/// shorter).
+const SECRET_RUN: usize = 40;
+
+/// `{"log":TEXT}`: one link step (a connect, a child's start or exit, the
+/// socket ready, a refusal), which the app writes to its unified log as one
+/// persisted line (subsystem `com.cmuxterm.app.next`, category
+/// `cloud.carrier`), so a release build's link failure can be read with
+/// `log show`. Once per step, never per frame or byte; the text is one line,
+/// at most [`LOG_MAX`] characters, with any credential-shaped run replaced
+/// by `[redacted]`.
+pub(crate) fn log_line(text: &str) -> String {
+    json!({ "log": log_text(text) }).to_string()
+}
+
+/// `text` as a `log` line holds it: one line, bounded, no credential.
+pub(crate) fn log_text(text: &str) -> String {
+    // A run takes `/` too (standard base64), except at its start, so an
+    // absolute path stays readable.
+    fn flush(run: &mut String, out: &mut String) {
+        if run.chars().count() >= SECRET_RUN && !run.starts_with('/') {
+            out.push_str("[redacted]");
+        } else {
+            out.push_str(run);
+        }
+        run.clear();
+    }
+    let mut out = String::new();
+    let mut run = String::new();
+    for c in text.chars() {
+        if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '+' | '=' | '/') {
+            run.push(c);
+            continue;
+        }
+        flush(&mut run, &mut out);
+        out.push(if c.is_control() { ' ' } else { c });
+    }
+    flush(&mut run, &mut out);
+    if out.chars().count() > LOG_MAX {
+        out = out.chars().take(LOG_MAX - 1).collect();
+        out.push('…');
+    }
+    out
+}
+
+/// The longest an `ahead` line's connection is held, whatever it asks: an
+/// hour, the longest a serve keeps an idle session
+/// (`CMUX_CARRIER_SERVE_IDLE_MS`'s bound).
+pub(crate) const AHEAD_KEEP_MAX_MS: u64 = 3_600_000;
+
+/// `{"ahead":D,"held":false}`: ask `D` holds no connection (no serve is
+/// ready, one is held already, or the serving socket took none). An ask
+/// that does hold one gets no line of its own: the serve's answer to its
+/// dial comes as the `publish` or `state` line every connection gets.
+pub(crate) fn ahead_not_held_line(dial: u64) -> String {
+    json!({"ahead": dial, "held": false}).to_string()
 }
 
 /// `{"read_token":R}`: the app answers with a `token` line.

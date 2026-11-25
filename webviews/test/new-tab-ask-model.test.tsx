@@ -224,6 +224,8 @@ async function newTabPage(
   const { SignInContext } = await import("../src/agent-session/acpmux/signIn");
   const asks: unknown[][] = [];
   const queries: unknown[] = [];
+  const logIns: [string, string][] = [];
+  const opened: unknown[] = [];
   const readSessionAuth = (query: unknown) => {
     queries.push(query);
     return options.auth === undefined ? new Promise<unknown>(noop) : Promise.resolve(options.auth);
@@ -232,9 +234,16 @@ async function newTabPage(
   await act(async () =>
     root.render(
       <QueryClientProvider client={new QueryClient()}>
-        <SignInContext.Provider value={{ signedOut: options.signedOut ?? {}, logIn: noop, readSessionAuth }}>
+        <SignInContext.Provider
+          value={{
+            signedOut: options.signedOut ?? {},
+            logIn: (harness: string, login: string) => logIns.push([harness, login]),
+            readSessionAuth,
+          }}
+        >
           <NewTabScreen
             template="default"
+            onSetup={(...args: unknown[]) => opened.push(args)}
             {...options.launch}
             chips={options.chips}
             snapshot={noChat()}
@@ -282,6 +291,8 @@ async function newTabPage(
     },
     asks,
     queries,
+    logIns,
+    opened,
     type,
     pressReturn,
     status,
@@ -308,10 +319,12 @@ test("Return during a sign-in check that never answers asks at once", async () =
   }
 });
 
-test("an Ask row click and New chat during the sign-in check ask at once", async () => {
-  for (const selector of ['.nt-row[data-type="ask"]', '[data-create="chat"]']) {
+// The prompt for the chip's own agent is no row (David Beyer 2026-11-20): Send is its click.
+test("a Send click and New chat during the sign-in check ask at once", async () => {
+  for (const selector of [".nt-send", '.nt-row[data-type="create"]']) {
     const page = await newTabPage();
     try {
+      if (selector.includes("create")) await page.type("new chat");
       const target = window.document.querySelector(selector);
       expect(target).not.toBeNull();
       await act(async () => {
@@ -319,7 +332,10 @@ test("an Ask row click and New chat during the sign-in check ask at once", async
         target!.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
       });
       expect(page.asks).toHaveLength(1);
-      expect(page.asks[0]?.slice(0, 2)).toEqual(["codex", "fix the flaky upload test"]);
+      expect(page.asks[0]?.slice(0, 2)).toEqual([
+        "codex",
+        selector.includes("create") ? "" : "fix the flaky upload test",
+      ]);
     } finally {
       await act(async () => page.root.unmount());
     }
@@ -459,5 +475,29 @@ test("a tilde start folder does not become an invalid target auth cwd", async ()
     } finally {
       await act(async () => page.root.unmount());
     }
+  }
+});
+
+// First-run findings row 5: signed out, Return and Send did nothing (no message, no error). Return now
+// says why, and the note offers the two fixes: the agent's own sign-in, or another agent.
+test("Return with a signed-out agent says to sign in first and offers the sign-in or another agent", async () => {
+  const page = await newTabPage({
+    auth: { ...READY, state: "signedOut", login: { kind: "terminal", command: "codex login" } },
+    signedOut: { codex: "codex login" },
+  });
+  try {
+    await page.pressReturn();
+    expect(page.asks).toEqual([]);
+    expect(page.field.value).toBe("fix the flaky upload test");
+    expect(page.alert()).toContain("Sign in to Codex first");
+    const note = host.querySelector(".nt-composer .nt-signed-out")!;
+    const buttons = [...note.querySelectorAll("button")];
+    expect(buttons.map((button) => button.textContent)).toEqual(["Sign in to Codex", "Use Another Agent"]);
+    await act(async () => buttons[0]!.click());
+    expect(page.logIns).toEqual([["codex", "codex login"]]);
+    await act(async () => buttons[1]!.click());
+    expect(page.opened).toHaveLength(1);
+  } finally {
+    await act(async () => page.root.unmount());
   }
 });

@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import fnmatch
+import importlib.util
 import json
 import os
 import re
@@ -51,6 +52,9 @@ HEAVY_WORKFLOW = "cmux-next.yml"
 TUI_WORKFLOW = "cmux-tui-artifacts.yml"
 # A group's extra lanes (docs/ci/cmux-next-batch.md#groups), dispatched on its branch.
 WEB_WORKFLOW = "cmux-next-web.yml"
+# The base's own web verdict: since 2026-11-21 feat-cmux-next's ci-web.yml runs in the post-merge batch tier (suite
+# `web`, the same 'web / ...' job names), not on each push of WEB_WORKFLOW, which stays for the dispatch above.
+BASE_WEB_WORKFLOW = "cmux-next-post-merge.yml"
 MEDIA_WORKFLOW = "cmux-next-media.yml"
 TOUR_JOB = "Tour the app"
 STICKY_MARKER = "<!-- cmux-next-batch-queue -->"
@@ -155,6 +159,7 @@ def settings_exports() -> tuple[str, ...]:
 # Written by Swift tests under CMUX_UPDATE_*; only a mini can rebuild them.
 SWIFT_GENERATED = (
     "plans/cmux-next/action-surfaces.json",
+    "plans/cmux-next/action-catalog.json",
     "plans/cmux-next/actions.md",
     "plans/cmux-next/links.json",
     "plans/cmux-next/daemon-capabilities.json",
@@ -195,6 +200,26 @@ def touches_tree(changed: list[str], root: Path) -> bool:
 SECRET_ENV = re.compile(r"(TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL)", re.I)
 
 
+_GENERATED_CATALOG: list[Any] = []
+
+
+def generated_family(path: str) -> str | None:
+    """The family of every other generated file a merge keeps one side of and rebuilds
+    (scripts/cmux-next/generated_merge.py, which reads the generated-files check's rules from the
+    trusted tools checkout). None for a file it calls hand-written, or merges by line."""
+    if not _GENERATED_CATALOG:
+        spec = importlib.util.spec_from_file_location("generated_merge", TOOLS_ROOT / "scripts/cmux-next/generated_merge.py")
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        sys.modules[spec.name] = module  # dataclasses look their module up while the class is made
+        spec.loader.exec_module(module)
+        _GENERATED_CATALOG[:] = [module, module.Catalog(TOOLS_ROOT)]
+    module, catalog = _GENERATED_CATALOG
+    family = catalog.family(path)
+    entry = module.REGENERATE.get(family) if family else None
+    return family if entry is not None and entry.driver == module.GENERATED_DRIVER else None
+
+
 def classify(path: str) -> str:
     def matches(globs: tuple[str, ...]) -> bool:
         return any(fnmatch.fnmatchcase(path, glob) for glob in globs)
@@ -203,8 +228,12 @@ def classify(path: str) -> str:
         return "web"
     if matches(SWIFT_GENERATED):
         return "swift"
-    if matches(SDK_GENERATED):
+    # go/raw and the Java raw package mix hand-written files into generated ones; only the files
+    # their .cmux-sdk-manifest.json lists (generated_merge.py) are kept and rebuilt.
+    if matches(SDK_GENERATED) and generated_family(path):
         return "sdk"
+    if generated_family(path):
+        return "generated"
     if matches(SPEC_JSON):
         return "spec"
     if path.endswith(".xcstrings"):
@@ -262,7 +291,7 @@ class GitHub:
         if completed.returncode != 0 and re.search(
                 r"HTTP 5\d\d|unexpected end of JSON input|TLS handshake timeout|connection reset|i/o timeout",
                 completed.stderr):
-            time.sleep(10)  # a gateway or network timeout; once
+            time.sleep(10)  # sleep-ok: backoff before the one retry of a gateway or network timeout
             completed = self.gh(*args, check=False)
         if completed.returncode != 0:
             raise RuntimeError(f"gh api graphql failed: {completed.stderr.strip()[-500:]}")
@@ -369,20 +398,24 @@ GRAPHQL_TOKEN = re.compile(r"^[A-Za-z0-9_=+/-]+$")
 DETAILS: dict[tuple[str, str], tuple[list[str], list[tuple[str, str, str]]]] = {}
 
 
-def detail_query(items: list[tuple[str, bool, str | None]]) -> str:
-    """One query for up to DETAIL_PAGE PRs: (node id, want files, contexts cursor).
-    A cursor of "" asks for the first contexts page, None for none."""
+def detail_query(items: list[tuple[int, bool, str | None]]) -> str:
+    """One query for up to DETAIL_PAGE PRs: (PR number, want files, contexts cursor).
+    A cursor of "" asks for the first contexts page, None for none. Each PR is read
+    under the repository by number, not by a root node(id:): the lane broker refuses
+    a root node read (it can reach any repository), so `next_batch.py select` failed
+    on every lane VM."""
     parts = []
-    for index, (node_id, files, cursor) in enumerate(items):
-        if not GRAPHQL_TOKEN.match(node_id) or (cursor and not GRAPHQL_TOKEN.match(cursor)):
-            raise ValueError(f"unexpected GraphQL id or cursor {node_id!r} {cursor!r}")
+    for index, (number, files, cursor) in enumerate(items):
+        if type(number) is not int or number <= 0 or (cursor and not GRAPHQL_TOKEN.match(cursor)):
+            raise ValueError(f"unexpected PR number or cursor {number!r} {cursor!r}")
         fields = "files(first: 100) { nodes { path } }" if files else ""
         if cursor is not None:
             after = f', after: "{cursor}"' if cursor else ""
             fields += (" commits(last: 1) { nodes { commit { statusCheckRollup { "
                        + CONTEXTS.format(after=after) + " } } } }")
-        parts.append(f'p{index}: node(id: "{node_id}") {{ ... on PullRequest {{ {fields} }} }}')
-    return "query {\n" + "\n".join(parts) + "\n}"
+        parts.append(f"p{index}: pullRequest(number: {number}) {{ {fields} }}")
+    return ("query($owner: String!, $name: String!) {\nrepository(owner: $owner, name: $name) {\n"
+            + "\n".join(parts) + "\n}\n}")
 
 
 def parse_contexts(rollup: list[dict]) -> list[tuple[str, str, str, str, str]]:
@@ -431,33 +464,35 @@ def newest_checks(runs: list[tuple[str, str, str, str, str]]) -> list[tuple[str,
     return checks
 
 
-def fetch_details(gh: GitHub, wanted: list[tuple[str, bool, bool]]) -> dict[str, tuple[list[str], list]]:
-    """Files and every check context for (node id, want files, want checks)."""
-    files: dict[str, list[str]] = {node_id: [] for node_id, _, _ in wanted}
-    checks: dict[str, list] = {node_id: [] for node_id, _, _ in wanted}
-    # node id -> (want files still, contexts cursor or None when done)
-    todo = {node_id: (want_files, "" if want_checks else None) for node_id, want_files, want_checks in wanted
+def fetch_details(gh: GitHub, wanted: list[tuple[int, bool, bool]]) -> dict[int, tuple[list[str], list]]:
+    """Files and every check context for (PR number, want files, want checks)."""
+    files: dict[int, list[str]] = {number: [] for number, _, _ in wanted}
+    checks: dict[int, list] = {number: [] for number, _, _ in wanted}
+    # PR number -> (want files still, contexts cursor or None when done)
+    todo = {number: (want_files, "" if want_checks else None) for number, want_files, want_checks in wanted
             if want_files or want_checks}
     while todo:
         batch = list(todo.items())[:DETAIL_PAGE]
-        data = gh.graphql(detail_query([(node_id, want, cursor) for node_id, (want, cursor) in batch]))
-        for index, (node_id, (want_files, cursor)) in enumerate(batch):
+        owner, name = gh.repo.split("/")
+        data = gh.graphql(detail_query([(number, want, cursor) for number, (want, cursor) in batch]),
+                          owner=owner, name=name)["repository"] or {}
+        for index, (number, (want_files, cursor)) in enumerate(batch):
             node = data.get(f"p{index}") or {}
             if want_files:
-                files[node_id] = [item["path"] for item in (node.get("files") or {}).get("nodes") or []]
+                files[number] = [item["path"] for item in (node.get("files") or {}).get("nodes") or []]
             following = None
             if cursor is not None:
                 commit = ((node.get("commits") or {}).get("nodes") or [{}])[0].get("commit") or {}
                 connection = (commit.get("statusCheckRollup") or {}).get("contexts") or {}
-                checks[node_id] += parse_contexts(connection.get("nodes") or [])
+                checks[number] += parse_contexts(connection.get("nodes") or [])
                 info = connection.get("pageInfo") or {}
                 if info.get("hasNextPage") and info.get("endCursor"):
                     following = info["endCursor"]
             if following is None:
-                del todo[node_id]
+                del todo[number]
             else:
-                todo[node_id] = (False, following)
-    return {node_id: (files[node_id], newest_checks(checks[node_id])) for node_id, _, _ in wanted}
+                todo[number] = (False, following)
+    return {number: (files[number], newest_checks(checks[number])) for number, _, _ in wanted}
 
 
 def rollup_failing(rollup: dict) -> bool:
@@ -507,21 +542,21 @@ def open_prs(gh: GitHub, fresh: bool = False) -> list[PullRequest]:
         if ineligible_reason(pr, at) is not None:
             continue
         key = (pr.sha, json.dumps(rollup, sort_keys=True))
-        keys[node["id"]] = key
+        keys[node["number"]] = key
         cached = None if fresh else DETAILS.get(key)
         if cached is None:
-            wanted.append((node["id"], True, rollup_failing(rollup)))
+            wanted.append((node["number"], True, rollup_failing(rollup)))
         else:
             found[key] = cached
     if wanted:
-        fetched = {keys[node_id]: details for node_id, details in fetch_details(gh, wanted).items()}
+        fetched = {keys[number]: details for number, details in fetch_details(gh, wanted).items()}
         found.update(fetched)
         if len(DETAILS) > 5000:
             DETAILS.clear()
         DETAILS.update(fetched)
     for pr, node in prs:
-        if node["id"] in keys:
-            pr.files, pr.checks = found[keys[node["id"]]]
+        if node["number"] in keys:
+            pr.files, pr.checks = found[keys[node["number"]]]
     return [pr for pr, _ in prs]
 
 
@@ -802,7 +837,7 @@ def cmd_debounce(args: argparse.Namespace) -> int:
     first = first_trigger_since_dispatch(runs, at)
     wait = debounce_wait(at, first)
     log(f"first event since the last batch at {first.isoformat()}; waiting {wait}s for quiet")
-    time.sleep(wait)
+    time.sleep(wait)  # sleep-ok: the debounce window; quiet for this long is the condition
     if superseded(gh.runs(WORKFLOW, "per_page=60"), me, args.repo):
         log("an event arrived during the wait; its run dispatches instead")
         return 0
@@ -1040,9 +1075,9 @@ def merge_pr(repo: mmr.Repo, pr: PullRequest, tools_root: Path) -> Merge:
         unmerged = repo.unmerged()
         for path, stages in sorted(unmerged.items()):
             kind = classify(path)
-            if kind in {"web", "swift", "sdk"}:
+            if kind in {"web", "swift", "sdk", "generated"}:
                 take_side(repo, path, stages)
-                result.regen.add(kind)
+                result.regen.add(regen_kind(kind, path))
                 result.resolved.append({"path": path, "method": f"kept the stack's copy; {kind} regeneration"})
             elif stages != {1, 2, 3}:
                 side = "added on both sides" if 1 not in stages else "deleted on one side and changed on the other"
@@ -1078,8 +1113,8 @@ def merge_pr(repo: mmr.Repo, pr: PullRequest, tools_root: Path) -> Merge:
             theirs = set(repo.text("diff", "--name-only", bases[0], "MERGE_HEAD").splitlines())
             for path in ours & theirs:
                 kind = classify(path)
-                if kind in {"web", "swift", "sdk"}:
-                    result.regen.add(kind)
+                if kind in {"web", "swift", "sdk", "generated"}:
+                    result.regen.add(regen_kind(kind, path))
                 elif kind == "spec":
                     result.regen.add("sdk")
         message = f"next-batch: merge #{pr.number}\n\n{pr.title}\n"
@@ -1100,12 +1135,28 @@ def scrubbed_env() -> dict[str, str]:
             if not SECRET_ENV.search(key) and not key.startswith(("GITHUB_TOKEN", "ACTIONS_"))}
 
 
+GENERATED_KIND = "generated="
+
+
+def regen_kind(kind: str, path: str) -> str:
+    """The regen entry for a kept path: its kind, or `generated=FAMILY` for generated_merge.py's families."""
+    return GENERATED_KIND + (generated_family(path) or "") if kind == "generated" else kind
+
+
+def generated_families(regen: set[str]) -> list[str]:
+    """The generated_merge.py families a stack's regen entries name."""
+    return sorted(kind[len(GENERATED_KIND):] for kind in regen if kind.startswith(GENERATED_KIND))
+
+
 def regenerate(repo: mmr.Repo, stack: Stack) -> None:
     steps = []
     if "web" in stack.regen:
         steps.append(("web bundles", ["sh", "scripts/cmux-next/regenerate-web-bundles.sh"]))
     if "sdk" in stack.regen:
         steps.append(("cmux-tui SDK", [sys.executable, "cmux-tui/bindings/codegen/generate.py", "--write"]))
+    if families := generated_families(stack.regen):
+        steps.append(("generated files", [sys.executable, "scripts/cmux-next/generated_merge.py", "regenerate",
+                                          "--families", ",".join(families)]))
     for name, command in steps:
         log(f"regenerating {name}")
         completed = subprocess.run(command, cwd=repo.path, env=scrubbed_env(), capture_output=True, text=True)
@@ -1300,6 +1351,23 @@ class Controller:
                     return run
             if time.monotonic() > deadline:
                 raise RuntimeError(f"{workflow} never started on {branch}")
+
+    def wait_rerun_shown(self, run_id: int, before: dict, timeout: int = 300) -> bool:
+        """Until GitHub shows the rerun of RUN_ID: a newer attempt than BEFORE's, or the run no longer completed.
+        Until then wait_run would read the finished first attempt and return at once."""
+        attempt = before.get("run_attempt") or 1
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                run = self.gh.api(f"repos/{self.args.repo}/actions/runs/{run_id}")
+                if run.get("status") != "completed" or (run.get("run_attempt") or 1) > attempt:
+                    return True
+            except (RuntimeError, TypeError, AttributeError) as error:
+                log(f"run {run_id}: could not read the rerun ({error})")
+            if time.monotonic() > deadline:
+                log(f"run {run_id}: its rerun never showed (no new attempt, still completed) in {timeout} s")
+                return False
+            time.sleep(10)
 
     def wait_run(self, run_id: int, timeout: int) -> dict:
         deadline = time.monotonic() + timeout
@@ -1498,7 +1566,7 @@ class Controller:
                 return  # the batch ended and cancelled it: no rerun, no result
             if failed:
                 self.gh.gh("run", "rerun", str(heavy["id"]), "--failed", "-R", self.args.repo, check=False)
-                time.sleep(30)
+                self.wait_rerun_shown(heavy["id"], run)
                 if self.wait_run(heavy["id"], timeout=120 * 60)["status"] != "completed":
                     # The first attempt's list still holds its flakes: record nothing (push-run fallback).
                     log("base probe: its rerun did not finish; no result")
@@ -1624,7 +1692,10 @@ class Controller:
         lands on the stack here and is pushed before the next job.
         """
         steps = []
-        if linux := sorted(stack.regen & {"web", "sdk"}):
+        linux = sorted(stack.regen & {"web", "sdk"})
+        if families := generated_families(stack.regen):
+            linux.append(GENERATED_KIND + ",".join(families))  # family keys have no spaces or commas
+        if linux:
             steps.append(("regen-linux", " ".join(linux)))
         if "swift" in stack.regen:
             steps.append(("regen", "swift"))
@@ -1755,7 +1826,7 @@ class Controller:
             # One rerun of the failed jobs before blaming a PR: flakes are not culprits.
             validation.rerun = True
             self.gh.gh("run", "rerun", str(heavy["id"]), "--failed", "-R", self.args.repo, check=False)
-            time.sleep(30)
+            self.wait_rerun_shown(heavy["id"], run)
             run = self.wait_run(heavy["id"], timeout=120 * 60)
             failed = self.failed_jobs(heavy["id"], detail=True, base=False)
         inherited = self.failing_on_base(base_sha) if failed else set()
@@ -1825,23 +1896,22 @@ class Controller:
         def finished(items: list[dict]) -> list[dict]:
             return [item for item in items if item.get("head_branch") == BASE and item.get("status") == "completed"]
 
-        def coalesced(item: dict) -> bool:
-            """A push run cmux-next-web.yml's coalescing left without web checks (web_coalesce.py): replaced while
-            pending (cancelled), or yielded to a newer push after its wait (success, its checks skipped), and no job
-            but `coalesce` gave a verdict. Its jobs are read first: a run cancelled by hand after a job passed or
-            failed is still the base's verdict."""
-            if item.get("event") != "push" or item.get("conclusion") not in ("cancelled", "success"):
-                return False
+        def no_batch_verdict(item: dict) -> bool:
+            """A post-merge batch run with no web verdict for its head: a probe (one job of an older commit, its
+            head_sha the tip it was dispatched from), or a batch whose web suite gave no job a verdict."""
+            if (item.get("display_title") or "").startswith("probe "):
+                return True
             jobs = self.gh.api(f"repos/{self.args.repo}/actions/runs/{item['id']}/jobs?per_page=100&filter=latest")["jobs"]
-            return all(job.get("name") == "coalesce" or (job.get("conclusion") or "") in ("cancelled", "skipped")
-                       for job in jobs)
+            return not any(str(job.get("name") or "").startswith("web / ")
+                           and (job.get("conclusion") or "") in ("success", "failure") for job in jobs)
 
-        # A coalesced run is no verdict for its commit: the newest run on an ancestor stands in.
-        base = next(([item] for item in finished(self.gh.runs(WEB_WORKFLOW, f"head_sha={base_sha}&per_page=20"))
-                     if not coalesced(item)), [])
+        # A run with no web verdict (a probe, or a batch whose web jobs never ran) is none for its commit: the
+        # newest run on an ancestor stands in. A run cancelled after a web job passed or failed still counts.
+        base = next(([item] for item in finished(self.gh.runs(BASE_WEB_WORKFLOW, f"head_sha={base_sha}&per_page=20"))
+                     if not no_batch_verdict(item)), [])
         if not base:
-            base = next(([item] for item in finished(self.gh.runs(WEB_WORKFLOW, f"branch={BASE}&per_page=100"))
-                         if self.is_ancestor(item["head_sha"], base_sha) and not coalesced(item)), [])
+            base = next(([item] for item in finished(self.gh.runs(BASE_WEB_WORKFLOW, f"branch={BASE}&per_page=100"))
+                         if self.is_ancestor(item["head_sha"], base_sha) and not no_batch_verdict(item)), [])
         inherited = set(self.failed_jobs(base[0]["id"], detail=True, base=True)) if base else set()
         new = sorted(failed - inherited)
         return "passed" if not new else "failed: " + ", ".join(new)

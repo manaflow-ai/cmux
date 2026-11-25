@@ -5,23 +5,20 @@ import CmuxNextDesign
 import CmuxNextTestSupport
 import Testing
 
-/// Familiar first (Lawrence 2026-10-14): the default tab strip keeps the size people know, a
-/// 28 pt strip with 24 pt tabs, the icon as far in as from the pill's top and 6 pt from the title. The tighter strip of
-/// cx-ag5.12 (Leo 2026-10-12) is the Compact tabs toggle, off by default; there a tab is shorter
-/// than a sidebar row and starts closer to its icon, and the close and + buttons keep their size
-/// and still take a click.
+/// The tab strip follows the density's browser rows (Lawrence 2026-11-13, density thread, 4012bb9f9c935b): at Compact,
+/// the density these tests run at, Default's design scaled by 0.9 on 28 pt rows, a 33 pt strip, and a 6.5 pt title gap.
+/// The Compact tabs option (cx-ag5.12, Leo 2026-10-12; off by default) is
+/// tighter still and never taller: its icon sits closer to its title, and its close and + buttons keep their targets.
 @MainActor @Suite(.serialized, .closesItsWindows) struct CompactTabStripTests {
-    @Test func theDefaultStripKeepsItsFamiliarSize() throws {
+    @Test func theDefaultStripFollowsTheDensitysBrowserRows() throws {
         let (strip, window) = Self.strip()
         defer { window.closeAfterTest() }
         let cell = try #require(strip.cells[TabID("tab1")])
-        #expect(strip.bounds.height == 28, "the strip is \(strip.bounds.height) pt")
-        #expect(cell.frame.height == 24, "a tab is \(cell.frame.height) pt")
-        // As far in as the icon sits from the pill's top, plus the glyphs' optical room (TabIconEvenInsetTests).
-        let iconTop = (cell.frame.height - strip.metrics.iconSize) / 2
-        #expect(strip.metrics.contentLeadingInset > iconTop && strip.metrics.contentLeadingInset <= iconTop + Metrics.space1,
-                "a tab's icon sits \(strip.metrics.contentLeadingInset) pt in, \(iconTop) pt from the top")
-        #expect(strip.metrics.iconTitleSpacing == 6, "the title sits \(strip.metrics.iconTitleSpacing) pt after the icon")
+        #expect(Metrics.chromeRowHeight == 28, "Compact's browser row is \(Metrics.chromeRowHeight) pt")
+        #expect(cell.frame.height == Metrics.chromeRowHeight, "a tab is \(cell.frame.height) pt")
+        #expect(strip.bounds.height == 33, "the strip is \(strip.bounds.height) pt: the row and 2.5 pt above and under it")
+        #expect(strip.metrics.contentLeadingInset == 7.5)
+        #expect(strip.metrics.iconTitleSpacing == 6.5, "the title sits \(strip.metrics.iconTitleSpacing) pt after the icon")
     }
 
     static func strip() -> (TabStripView, NSWindow) {
@@ -37,7 +34,13 @@ import Testing
         return (strip, window)
     }
 
-    @Test func compactTabsAreTighterAndTheirButtonsKeepTheirSize() async throws {
+    @Test func compactTabsAreTighterNeverTallerAndTheirButtonsStillTakeAClick() async throws {
+        let (plain, plainWindow) = Self.strip()
+        let plainTab = try #require(plain.cells[TabID("tab1")]).frame.height
+        let plainStrip = plain.bounds.height
+        let plainInset = plain.metrics.contentLeadingInset
+        plainWindow.closeAfterTest()
+
         let key = ChromeTunables.compactTabs.descriptor.key
         // Debug Settings overrides apply once the store is active; no file, so nothing is written.
         TunableStore.shared.activate(file: nil)
@@ -49,25 +52,27 @@ import Testing
         var intents: [TabStripIntent] = []
         strip.model.intentHandler = { intents.append($0) }
 
-        let row = Metrics.sidebarRowHeight
         let cell = try #require(strip.cells[TabID("tab1")])
-        #expect(strip.bounds.height == 26 && cell.frame.height == 22, "the strip is \(strip.bounds.height) pt, a tab \(cell.frame.height) pt")
-        #expect(strip.metrics.iconTitleSpacing == 4, "the title sits \(strip.metrics.iconTitleSpacing) pt after the icon")
-        #expect(cell.frame.height < row, "a tab (\(cell.frame.height) pt) is as tall as a sidebar row (\(row) pt)")
-        #expect(strip.bounds.height <= row + Metrics.space1, "the strip (\(strip.bounds.height) pt) is taller than a sidebar row and a grid step")
-        #expect(strip.metrics.contentLeadingInset < Metrics.space4, "a tab's icon sits \(strip.metrics.contentLeadingInset) pt in")
+        #expect(cell.frame.height <= plainTab, "Compact tabs draw a \(cell.frame.height) pt tab, taller than the \(plainTab) pt default")
+        #expect(strip.bounds.height <= plainStrip, "Compact tabs draw a \(strip.bounds.height) pt strip, taller than the \(plainStrip) pt default")
+        #expect(cell.frame.height <= Metrics.sidebarRowHeight, "a tab (\(cell.frame.height) pt) is taller than a sidebar row")
+        #expect(strip.metrics.iconTitleSpacing == Metrics.space2, "the title sits \(strip.metrics.iconTitleSpacing) pt after the icon")
+        #expect(strip.metrics.iconTitleSpacing < plain.metrics.iconTitleSpacing)
+        #expect(strip.metrics.contentLeadingInset <= plainInset, "a tab's icon sits \(strip.metrics.contentLeadingInset) pt in")
 
-        // The close button keeps its size and closes the tab.
+        // The close button keeps Apple's 20 x 20 pt target (Helium's 14 pt square drawn) and closes the tab.
         let center = strip.convert(CGPoint(x: cell.frame.midX, y: cell.frame.midY), from: strip.tabsClip)
         TabStripDebug.pointerMoved(in: strip, to: center)
         let close = try #require(cell.closeButtonRect, "the hovered tab shows no close button")
-        #expect(close.width == Metrics.space6 && close.height == Metrics.space6, "the close button is \(close.size)")
+        let target = strip.metrics.closeHitRect(close)
+        #expect(target.width >= 20 && target.height >= 20, "the close button's target is \(target.size)")
         click(strip.convert(strip.convert(CGPoint(x: cell.frame.minX + close.midX, y: cell.frame.minY + close.midY), from: strip.tabsClip), to: nil), in: window)
         #expect(intents.contains { if case .close(TabID("tab1"), _) = $0 { true } else { false } }, "\(intents)")
 
-        // The + keeps its size and opens a tab.
+        // The + keeps its width and opens a tab; it is the pane ⋮'s height in every look (Lawrence 2026-11-20).
         let plus = strip.convert(strip.newTabButton.frame, from: strip.contentView)
-        #expect(plus.width == Metrics.space6 + Metrics.space4 && plus.height == Metrics.space6 + Metrics.space4, "the + is \(plus.size)")
+        #expect(plus.width == strip.metrics.newTabButtonWidth, "the + is \(plus.size)")
+        #expect(plus.height == NewTabButtonView.frameHeight, "the + is \(plus.size)")
         click(strip.convert(CGPoint(x: plus.midX, y: plus.midY), to: nil), in: window)
         #expect(intents.contains { if case .newTab = $0 { true } else { false } }, "\(intents)")
     }

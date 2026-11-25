@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The cmux_next_ daemon tests run on Blacksmith Linux, at the size .github/runners.json linux_sizes measured.
+"""The cmux_next_ daemon tests run on the shared Linux runner.
 
 Leo, 2026-10-26: "I THOUGHT THESE COULD JUST GO ON LINUX".
 
@@ -11,8 +11,7 @@ required it too; now the tree-commit marker follows the publish (Leo,
 owned Macs (the promote pool the Release compile also needs, then the side
 lane) and queued there for 20+ minutes while nightly-next waited. None of
 the cmux_next_ tests is gated to macOS, and cmux-tui.yml's Linux job runs the
-whole workspace, so the gate takes Blacksmith (8 vCPU since 2026-11-01: 5.5 min mean on 32) on every event and
-attempt, and its pass writes the marker.
+whole workspace, so the gate takes Linux and its pass writes the marker.
 
 Leo, 2026-10-27: "ok do NOT label stuff as os=linux...". The job name, its
 steps and the marker name no runner OS. Markers written before that carry an
@@ -39,12 +38,10 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
-from blacksmith_linux_sizes import size_label  # noqa: E402
 
 from test_ci_tui_routes_avoid_nightly_label import (  # noqa: E402
     DAEMON_LABEL,
     LIGHT_LABEL,
-    PIN_LABEL,
     PROMOTE_LABEL,
     SIDE_LABEL,
     contexts,
@@ -53,7 +50,6 @@ from test_ci_tui_routes_avoid_nightly_label import (  # noqa: E402
 
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
 SHADOW_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-next-daemon-macos-shadow.yml"
-GATE_LABEL = size_label("cmux-tui-artifacts.yml", "cmux-next-daemon-tests")
 JOB_NAME = "cmux_next_ daemon tests"
 SHADOW = "cmux-next-daemon-macos-shadow"
 MAC_ONLY_TESTS = ("no_keychain", "router_no_keychain", "remote_sandbox", "remote_sandbox_canary", "idle_wakeups")
@@ -83,17 +79,11 @@ def flat(text: str) -> str:
 
 
 class DaemonTestsGateTests(unittest.TestCase):
-    def test_the_gate_runs_on_its_blacksmith_size_whatever_the_pool_variables_say(self) -> None:
+    def test_the_gate_runs_on_the_shared_linux_label_on_every_attempt(self) -> None:
         runs_on = sole_runs_on(jobs()["cmux-next-daemon-tests"])
-        for overrides in ({}, {"CI_NEXT_DAEMON_POOL": DAEMON_LABEL}, {"CI_PIN_DAEMON_POOL": PIN_LABEL},
-                          {"CI_PR_POOL_OWNED": ""}, {"CI_NEXT_PROMOTE_POOL": ""}):
-            for context in contexts(**overrides):
-                context["inputs.macos_runner"] = "blacksmith-6vcpu-macos-26"
-                label = route(runs_on, context)
-                if context["github.repository_owner"] != "manaflow-ai":
-                    self.assertEqual(label, "ubuntu-24.04", context)
-                else:
-                    self.assertEqual(label, GATE_LABEL, (overrides, context))
+        for context in contexts():
+            expected = "cmux-linux" if context["github.repository_owner"] == "manaflow-ai" else "ubuntu-24.04"
+            self.assertEqual(route(runs_on, context), expected, context)
 
     def test_the_job_keeps_its_id_and_setup(self) -> None:
         daemon = jobs()["cmux-next-daemon-tests"]

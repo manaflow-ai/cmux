@@ -26,6 +26,9 @@ with an isolated HOME and Chief home under /tmp; it launches the app itself and 
 endAgents and the tag's acpmux daemon shutdown. Reads NX_APP, NX_APP_TAG, NX_APP_STOP, NX_ARTIFACTS, NX_CAPTURE.
 """
 import json, os, shutil, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_stable  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 APP, TAG = os.environ["NX_APP"], os.environ["NX_APP_TAG"]
 OUT, STOP = os.environ.get("NX_ARTIFACTS", "/tmp/home-channels-entry"), os.environ.get("NX_APP_STOP", "")
@@ -342,7 +345,9 @@ try:
     if cloud == "unavailable":
         check("Cloud unavailable shows its quiet note", dock().get("messages_note") == "Cloud conversations are not available right now.", dock())
     else:
-        time.sleep(1)  # test harness wait: let a late note draw before the negative check
+        # Negative check: wait until the dock's Cloud state and note have held still for 1.5 s (a late note would show).
+        wait_stable(lambda: (dock().get("messages_cloud"), dock().get("messages_note")), "the dock's Cloud note",
+                    timeout=10, interval=0.25, reads=6, raise_on_timeout=False)
         check("Cloud %s shows no note" % cloud, not dock().get("messages_note"), {"cloud": cloud, "note": dock().get("messages_note")})
 
     # This Mac's old Messages-list pins, for the move at the next launch.
@@ -397,7 +402,8 @@ try:
         main = main_window(pid)
         if main:
             cua("hotkey", {"pid": pid, "window_id": main["window_id"], "keys": ["ctrl", "option", "cmd", "h"]})
-        time.sleep(1.5)  # test harness wait: a removed shortcut has no event to wait for
+        # A removed shortcut has no event of its own: wait until the dock state has held still for 1.5 s.
+        wait_stable(dock, "the dock after Ctrl-Option-Cmd-H", timeout=10, interval=0.25, reads=6, raise_on_timeout=False)
         check("Ctrl-Option-Cmd-H changes nothing", dock().get("mode") == "messages", dock())
 
         # Disable Channels while Channels shows: the entry goes and Home is selected.
@@ -456,9 +462,14 @@ try:
         shot("8-pins-moved")
         owner.request("conversation-inbox-op", conversation=pins[0], op={"kind": "inbox.pin", "pinned": False})
         check("an unpin in the daemon shows in Messages", bool(poll(lambda: native_row(pins[0]) and not native_row(pins[0]).get("pinned"), 15)), native_row(pins[0]))
+        before = native_row(pins[1])
         owner.request("conversation-op", conversation=pins[1], idempotency_key="pin1-n-%s" % stamp,
                       op={"kind": "message.send", "client_msg_id": "pin1-n-%s" % stamp, "parts": [{"type": "text", "text": "another reply"}]})
-        time.sleep(3)  # test harness wait: the rows are read again after this change; a second move would pin pin0 again
+        # Wait until Messages read the rows again (pin1's row changed with the reply); a second move would pin pin0 again.
+        if not poll(lambda: native_row(pins[1]) != before, 15):
+            safe_print("note: pin1's Messages row did not change within 15 s of the reply", flush=True)
+        wait_stable(lambda: [native_row(c) for c in pins], "Messages' pin rows after the reply", timeout=10, interval=0.25,
+                    reads=4, raise_on_timeout=False)
         check("the move does not run again (pin0 stays unpinned)", not any(r["id"] == pins[0] and r.get("pinned") for r in inbox()),
               [r for r in inbox() if r["id"] in pins])
 finally:

@@ -24,16 +24,24 @@
 //!   delivered `machine.env`; the vault; the daemon's own environment; the
 //!   login shell's. Remote-origin launches never get them.
 //!
+//! Keys an agent made itself are kept on the machine, with no sign-in or
+//! click, and given out the same way (`acpmux machine vault keep`, `kept.rs`).
+//!
 //! The vault never carries a Claude or ChatGPT/Codex subscription login:
 //! `machine vault status` only says whether each harness is signed in here,
 //! so the person runs that harness's own sign-in on this machine.
 
 pub mod egress;
+pub mod kept;
 pub mod plan;
 pub mod pull;
+#[cfg(unix)]
+pub mod reach;
 pub mod store;
 pub mod wire;
 
+#[cfg(test)]
+mod kept_tests;
 #[cfg(test)]
 mod tests;
 
@@ -294,11 +302,26 @@ pub(crate) fn entries_now() -> Vec<Given> {
     if !ACTIVE.load(Ordering::SeqCst) {
         return Vec::new();
     }
-    // Before the store check has run (a machine not joined never runs it,
-    // and a launch never waits on it), there is nothing to give.
-    let Some(store) = store::for_daemon_known() else { return Vec::new() };
     let home = crate::config::home();
-    let deliver = || deliver_at(&home, &*store, &pull::current_credential, Instant::now());
+    let deliver = || {
+        // Before the store check has run (a machine not joined never runs
+        // it, and a launch never waits on it), no pulled entry is given.
+        let mut given = match store::for_daemon_known() {
+            Some(store) => deliver_at(&home, &*store, &pull::current_credential, Instant::now()),
+            None => Vec::new(),
+        };
+        // Kept keys live only in the OS store (`kept.rs`), read once the
+        // store check found it usable (started here when nothing else has).
+        // A pulled entry of the same name wins, and so does a value the
+        // launch already inherits: no agent's key replaces another's.
+        if kept::path(&home).exists() && kept_store_usable() {
+            let taken: Vec<String> = given.iter().map(|g| g.name.clone()).collect();
+            let at = Instant::now();
+            let kept = kept::given_at(&home, &store::OsStore, &taken, at, at + LOAD_BUDGET);
+            given.extend(kept.into_iter().filter(|g| egress::inherited(&g.name).is_none()));
+        }
+        given
+    };
     // A reload runs store commands (bounded by `LOAD_BUDGET`): on a Tokio
     // worker, the runtime moves its other tasks off this thread first.
     match tokio::runtime::Handle::try_current() {
@@ -307,6 +330,25 @@ pub(crate) fn entries_now() -> Vec<Given> {
         }
         _ => deliver(),
     }
+}
+
+/// Whether kept keys can be read: the OS store check said usable. Until it
+/// has run, this starts it once on its own thread (a machine that is not
+/// joined never runs it) and gives no kept key, so no launch waits on it.
+fn kept_store_usable() -> bool {
+    static STARTED: AtomicBool = AtomicBool::new(false);
+    static SCOPE: std::sync::OnceLock<cmux_scope::Scope> = std::sync::OnceLock::new();
+    if let Some(usable) = store::os_usable_known() {
+        return usable;
+    }
+    // Outside a runtime nothing starts it: the next spawn in one does.
+    if tokio::runtime::Handle::try_current().is_ok() && !STARTED.swap(true, Ordering::SeqCst) {
+        let scope = SCOPE.get_or_init(|| cmux_scope::Scope::new("vault kept store check"));
+        scope.spawn_named("vault-kept-store-check", async {
+            let _ = tokio::task::spawn_blocking(store::os_usable).await;
+        });
+    }
+    false
 }
 
 /// One entry a spawn gets: its value, and `Some(allowed hosts)` when agents
@@ -388,12 +430,26 @@ fn given(loaded: &Loaded, current: Option<(String, bool)>) -> Vec<Given> {
 /// What the vault env a spawn gets depends on, as metadata (never a value):
 /// the state file's identity, the hold, and a digest of the machine
 /// credential and its revoked flag. `None` outside a daemon. The agent pool
-/// keys on it (`login_env::machine_stamp`).
+/// keys on it ([`machine_stamp`]).
 pub fn stamp() -> Option<String> {
     if !ACTIVE.load(Ordering::SeqCst) {
         return None;
     }
     Some(stamp_in(&crate::config::home(), pull::current_credential()))
+}
+
+/// The machine files' metadata stamp (never a value), for keys that must
+/// change when a delivery or revocation does (the agent pool's). It covers
+/// the vault too (`vault::stamp`): a pooled agent started before a vault pull,
+/// a hold or a credential change is discarded at its claim.
+pub fn machine_stamp() -> Option<String> {
+    let vault = stamp();
+    match (crate::login_env::machine_files_stamp(), vault) {
+        (None, None) => None,
+        (files, vault) => {
+            Some(format!("{}|vault:{}", files.unwrap_or_default(), vault.unwrap_or_default()))
+        }
+    }
 }
 
 pub(crate) fn stamp_in(home: &std::path::Path, credential: Option<(String, bool)>) -> String {
@@ -405,7 +461,18 @@ pub(crate) fn stamp_in(home: &std::path::Path, credential: Option<(String, bool)
         h.update([u8::from(*revoked)]);
     }
     let credential: String = h.finalize().iter().take(8).map(|b| format!("{b:02x}")).collect();
-    let file = match file {
+    let file = stamp_text(file);
+    let kept = stamp_text(stamp_of(&kept::path(home)));
+    format!(
+        "{file};held={};cred={credential};kept={kept};egress={}",
+        pull::held(home),
+        egress::stamp()
+    )
+}
+
+/// A file's identity as text: its length, modified time and inode.
+fn stamp_text(file: Option<Stamp>) -> String {
+    match file {
         None => "none".to_owned(),
         Some(s) => {
             #[cfg(unix)]
@@ -418,8 +485,7 @@ pub(crate) fn stamp_in(home: &std::path::Path, credential: Option<(String, bool)
                 .map_or(0, |d| d.as_nanos());
             format!("{}:{at}:{ino}", s.len)
         }
-    };
-    format!("{file};held={};cred={credential};egress={}", pull::held(home), egress::stamp())
+    }
 }
 
 /// The longest the first agent spawn waits for the first pull of a joined
@@ -441,19 +507,25 @@ pub async fn bounded<T>(wait: Duration, first: impl std::future::Future<Output =
 /// pulls first, for at most [`INITIAL_WAIT`], before this returns (agent
 /// spawns wait for startup); then every [`EVERY`], with backoff after a failure.
 pub async fn start_worker() {
+    // Launches read the vault env through `login_env` (a lower module); it stays empty until
+    // `ACTIVE` is set below, as `env_for_children` does.
+    crate::login_env::set_vault_env(env_for_children);
     if ACTIVE.swap(true, Ordering::SeqCst) {
         return;
     }
     // A machine that is not joined never touches the store.
     let joined = matches!(crate::cli::cloud_join::machine_credential(), Ok(Some(_)));
     let mut failures = 0u32;
+    // The refusal last explained in the log: a standing one is said once, with its next step.
+    let mut said: Option<String> = None;
     let mut first_delay = Duration::ZERO;
     let started = tokio::time::Instant::now();
     // The store check runs store commands (each may wait up to a minute): off
     // the async workers, and within `INITIAL_WAIT` with the first pull. Past
     // it, launches give no vault env until the check is done (the loop's
     // first round waits for it).
-    let usable = if joined {
+    // A machine with kept keys checks too, so its first spawn gets them.
+    let usable = if joined || kept::path(&crate::config::home()).exists() {
         match bounded(INITIAL_WAIT, tokio::task::spawn_blocking(store::os_usable)).await {
             Some(Ok(usable)) => Some(usable),
             _ => {
@@ -476,7 +548,7 @@ pub async fn start_worker() {
             }
             Some(Err(code)) => {
                 failures = 1;
-                tracing::warn!(code = %code, failures, "vault pull failed");
+                log_pull_failure(&code, failures, &mut said);
                 first_delay = backoff(failures);
             }
             // Timed out: the pull was dropped; the loop's first round runs it again now.
@@ -489,6 +561,7 @@ pub async fn start_worker() {
             let delay = match run_once().await {
                 Ok(result) => {
                     failures = 0;
+                    said = None;
                     if result != "not_joined" {
                         tracing::info!(result, "vault pull");
                     }
@@ -496,13 +569,52 @@ pub async fn start_worker() {
                 }
                 Err(code) => {
                     failures = failures.saturating_add(1);
-                    tracing::warn!(code = %code, failures, "vault pull failed");
+                    log_pull_failure(&code, failures, &mut said);
                     backoff(failures)
                 }
             };
             tokio::time::sleep(delay).await;
         }
     });
+}
+
+/// Why the hub refuses this machine's vault, and the next step, for a refusal that stays until
+/// someone acts (cmux-platform `server/vault/Vault.ts`, `VaultMachineAuthLive`): retrying never
+/// clears it. None for a refusal that may pass by itself.
+pub fn standing_refusal(code: &str) -> Option<&'static str> {
+    match code {
+        "vault.forbidden" => Some(
+            "the hub gives a person's vault only to a machine joined in that person's personal \
+             team, and this join is in another team; `acpmux machine doctor --here` names the team \
+             and how to move the join",
+        ),
+        "vault.not_granted" => Some(
+            "this machine was never granted its owner's vault; its owner grants it from the cmux \
+             app (PUT /v1/machines/{id}/vault)",
+        ),
+        "vault.grant_expired" => {
+            Some("this machine's vault grant lapsed; its owner renews it from the cmux app")
+        }
+        _ => None,
+    }
+}
+
+/// A failed pull in the log: a standing refusal ([`standing_refusal`]) is a warning with its
+/// cause and next step the first time, then debug while it stays; any other failure warns.
+fn log_pull_failure(code: &str, failures: u32, said: &mut Option<String>) {
+    match standing_refusal(code) {
+        Some(_) if said.as_deref() == Some(code) => {
+            tracing::debug!(code = %code, failures, "vault pull failed")
+        }
+        Some(why) => {
+            *said = Some(code.to_owned());
+            tracing::warn!(code = %code, failures, next = why, "vault pull refused; retrying won't help until fixed");
+        }
+        None => {
+            *said = None;
+            tracing::warn!(code = %code, failures, "vault pull failed");
+        }
+    }
 }
 
 /// 30 s, 60 s, 2 min ... up to [`EVERY`].

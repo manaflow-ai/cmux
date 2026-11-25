@@ -22,10 +22,11 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { DEVBOX_WORK_HOME } from "../../services/vms/images/workUser";
+import { GRADUATED_REPO_PATH, graduatedKeyText, readGraduated, type Graduated } from "./graduate";
 import { CURRENT_BIN, STORE_DIR } from "./lock";
 
 /** Lock programs that belong to the app layer; every other program belongs to the agents layer. */
-export const APP_PROGRAMS = ["cmux-tui", "cmux-tui-hook"] as const;
+export const APP_PROGRAMS = ["cmux-tui", "cmux-tui-hook", "optchat-chief"] as const;
 
 export type LayerName = "system" | "agents";
 
@@ -58,6 +59,8 @@ const SCRIPTS_DIR = "web/scripts/cmux-vm-image";
  */
 export function isBaseInput(file: string, bakeScripts?: ReadonlySet<string>): boolean {
   if (file === "images/cmux-vm/inputs.lock.json") return false;
+  // The graduated names are the agents layer's input (layerKeys), not the system layer's.
+  if (file === GRADUATED_REPO_PATH) return false;
   if (file.startsWith("images/cmux-vm/channels/")) return false;
   if (file.endsWith(".md") || file.includes("/tests/") || /\.test\.ts$/.test(file)) return false;
   if (bakeScripts && isImageScript(file)) return bakeScripts.has(file);
@@ -124,9 +127,21 @@ const sha = (...parts: string[]) => {
 };
 
 /** Both cached layers' keys. The agents key folds in the system key, so a system rebuild rebuilds agents too. */
-export function layerKeys(lockText: string, flags: readonly string[], inputTree: string): Record<LayerName, string> {
+export function layerKeys(lockText: string, flags: readonly string[], inputTree: string, graduated: Graduated = readGraduated()): Record<LayerName, string> {
   const system = sha("cmux-vm-system-v1", systemLockText(lockText), `flags ${[...flags].sort().join(" ")}`, inputTree);
-  return { system, agents: sha("cmux-vm-agents-v1", system, agentProgramsText(lockText)) };
+  // Graduated names (graduate.ts) are part of the agents layer; none leaves the key as it was.
+  const names = graduatedKeyText(graduated);
+  return { system, agents: sha("cmux-vm-agents-v1", system, agentProgramsText(lockText), ...(names ? [names] : [])) };
+}
+
+/**
+ * The image's `inputs_sha256`: a digest of every input but the app layer's (cmux-tui and its hook), which is the
+ * agents key. Both bakes record it (bake.ts bakeInputsSha256), so one lock, flags and input tree give one value
+ * whichever bake made the image; cmux-platform compares it to tell a roll that changed only cmux-tui (a spare
+ * stays claimable) from one that changed the OS, packages or agent programs (a spare is stale).
+ */
+export function imageInputsSha256(lockText: string, flags: readonly string[], inputTree: string): string {
+  return layerKeys(lockText, flags, inputTree).agents;
 }
 
 /** Longest snapshot label kept (the provider's display name contract). */

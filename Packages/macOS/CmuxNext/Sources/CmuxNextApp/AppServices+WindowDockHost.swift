@@ -14,6 +14,8 @@ extension AppServices: WindowDockHost {
     func dockMovePane(_ invocation: ActionInvocation, into id: String) -> Bool { TabMoves.pane(AppActionContext(services: self).daemonPane(invocation), toWorkspace: id, services: self) }
     func dockMovePaneToNewWorkspace(_ invocation: ActionInvocation) async -> String? { await TabMoves.paneToNewWorkspace(AppActionContext(services: self).daemonPane(invocation), services: self) }
     var chiefDockEdge: DockEdge { DockEdge(rawValue: settings?.snapshot.chiefDockEdge ?? ChiefDockSetting.edgeDefault) ?? .left }
+    var chiefSidePanelOn: Bool { (settings?.snapshot.chiefDockSidePanel ?? ChiefDockSetting.sidePanelDefault) && !home.dock.isClassic && LayoutTunables.dockedWorkspaces.value }
+    var dockFrames: [any WindowDockFrame] { windows.controllers }
     var chiefDockOpensBeside: Bool { (settings?.snapshot.chiefDockOpenBeside ?? ChiefDockSetting.openBesideDefault) && !home.dock.isClassic }
     var chiefHomeIsClassic: Bool { home.dock.isClassic }
     func chiefHome(in windowID: String) -> String? { windowHomes.home(in: windowID)?.id }

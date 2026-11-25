@@ -15,7 +15,14 @@ optchat-chief memory import-from SOURCE dry-run|write   merge another memory int
 optchat-chief memory search [--mux-home DIR] [--limit N] [--json] QUERY  full-text search: messages and summaries holding every word
                                                           (--json: an array of hits, messages with id, kind, date, snippet and full text)
 optchat-chief memory stats [--mux-home DIR]               counts, schema version, migration record, file size
-optchat-chief memory check [--mux-home DIR]               opens the memory as the host does (host stopped): how it loaded and how long it took";
+optchat-chief memory check [--mux-home DIR]               opens the memory as the host does (host stopped): how it loaded and how long it took
+optchat-chief memory redescribe [--mux-home DIR] failed|ID...   the running host describes again the images these note lines
+                                                          name (failed: every \"no description\" note), rewrites each note
+                                                          and rebuilds the summaries above it (journaled, undoable)
+optchat-chief memory place [--daemon-socket S]            whether the memory can move over a projected folder (projection-v1) here
+optchat-chief memory hand-out --to MACHINE [--socket S --at REMOTE] DIR
+                                                          the memory for another machine to project (host stopped; marks this home moved)
+optchat-chief memory take-in                              copy a mounted hand-out to this machine's disk (the host does it at start)";
 
 /// Runs `memory <verb>`; returns what to print.
 pub fn run(flags: &Flags, home: &Path, json: bool) -> Result<String, String> {
@@ -94,6 +101,56 @@ pub fn run(flags: &Flags, home: &Path, json: bool) -> Result<String, String> {
                 counts.nodes
             ))
         }
+        Some("redescribe") => {
+            let notes = match words.as_slice() {
+                ["failed"] => failed_descriptions(&read_only(&paths)?)?,
+                [] => {
+                    return Err(format!(
+                        "memory redescribe needs failed or note ids\n{USAGE}"
+                    ));
+                }
+                ids => ids
+                    .iter()
+                    .map(|id| id.parse::<u64>().map_err(|e| format!("{id}: {e}")))
+                    .collect::<Result<Vec<_>, _>>()?,
+            };
+            if notes.is_empty() {
+                return Ok("no image note has a failed description".to_owned());
+            }
+            crate::tools::ask_redescribe(&paths.tools_socket, &notes)
+        }
+        Some("place") => {
+            let capability = flags
+                .value("daemon-socket")
+                .map(str::to_owned)
+                .or_else(|| crate::cli::env("CMUX_DAEMON_SOCKET"))
+                .and_then(|s| crate::memory_place::daemon_capability(Path::new(&s)));
+            Ok(crate::memory_place::status(&paths.root, capability))
+        }
+        Some("hand-out") => {
+            let [out] = words.as_slice() else {
+                return Err(format!("memory hand-out needs one directory\n{USAGE}"));
+            };
+            let to = flags.value("to").unwrap_or_default();
+            let _lock = stopped_host(&paths)?;
+            let writer = crate::memory_place::hand_out(home, to, Path::new(out))?;
+            let name = crate::memory_place::projection_name(&writer.home_id, writer.epoch);
+            let mut said = format!(
+                "handed out epoch {} of the memory to {} in {out}; this home is marked moved\n\
+                 project it at the target's optchat/{}: cmux link project serve --socket S --at REMOTE --name {name} {out}",
+                writer.epoch,
+                writer.to,
+                crate::memory_place::FOLDER
+            );
+            if let (Some(socket), Some(at)) = (flags.value("socket"), flags.value("at")) {
+                said.push_str(&format!("\n{}", serve(socket, at, &name, out)?));
+            }
+            Ok(said)
+        }
+        Some("take-in") => {
+            let _lock = stopped_host(&paths)?;
+            crate::memory_place::at_host_start(home, true)
+        }
         Some("check") => {
             let started = std::time::Instant::now();
             let chat = crate::browse::open_offline(&paths.chat, &paths.memory_db)?;
@@ -138,6 +195,67 @@ pub fn search_json(db: &ReadOnly, hits: &[Hit]) -> Result<String, String> {
     Ok(serde_json::Value::Array(out).to_string())
 }
 
+/// The image note lines whose description failed (`... "<name>": no
+/// description (<why>)`), oldest first.
+pub fn failed_descriptions(db: &ReadOnly) -> Result<Vec<u64>, String> {
+    let counts = db.counts().map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for id in 0..counts.messages {
+        let Some(row) = db
+            .message_row(id)
+            .map_err(|e| format!("reading message {id}: {e}"))?
+        else {
+            continue;
+        };
+        if row.kind == "note" && crate::brain::redescribe::is_failed_description(&row.text) {
+            out.push(id);
+        }
+    }
+    Ok(out)
+}
+
 fn read_only(paths: &Paths) -> Result<ReadOnly, String> {
     ReadOnly::open(&paths.memory_db).map_err(|e| format!("{}: {e}", paths.memory_db.display()))
+}
+
+/// The host lock, so no host writes the memory while a place verb runs.
+fn stopped_host(paths: &Paths) -> Result<crate::lock::HostLock, String> {
+    let started = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64);
+    crate::lock::HostLock::take(&paths.host_lock, started)
+        .map_err(|e| format!("{e}: stop the Chief's host first"))
+}
+
+/// Starts `cmux link project serve` for a hand-out (the merged projection-v1 dial); it runs on
+/// as the folder's server, in its own process group.
+fn serve(socket: &str, at: &str, name: &str, out: &str) -> Result<String, String> {
+    use std::io::BufRead as _;
+    let cmux = crate::cli::env("CMUX_CLI").unwrap_or_else(|| "cmux".to_owned());
+    let mut child = std::process::Command::new(&cmux)
+        .args([
+            "link", "project", "serve", "--socket", socket, "--at", at, "--name", name, out,
+        ])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("starting {cmux} link project serve: {e}"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or("no pipe from the folder's server")?;
+    let mut line = String::new();
+    std::io::BufReader::new(stdout)
+        .read_line(&mut line)
+        .map_err(|e| format!("reading the folder's server: {e}"))?;
+    let answer: serde_json::Value = serde_json::from_str(line.trim())
+        .map_err(|_| format!("the folder's server answered {line:?}"))?;
+    if answer.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+        let _ = child.wait();
+        return Err(format!(
+            "the target did not mount the memory: {}",
+            line.trim()
+        ));
+    }
+    Ok(format!("projected at {at} (server pid {})", child.id()))
 }

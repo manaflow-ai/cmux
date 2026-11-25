@@ -1,0 +1,210 @@
+# rotation_and_keyboard: portrait, keyboard up, keyboard down, landscape and back: local re-wraps, the Mac keeps 120x24
+# Mac pane 120x24, phone 54x38
+
+## portrait 54x38
+### Mac
+grid 120x24
+s   0|leo@cosmic-gray ~/Projects/cmux % claude|
+s   1|╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮|
+       ^ 0-119 fg=174
+s   2|│ ✻ Welcome to Claude Code!                                                                                            │|
+       ^ 0-0 fg=174; 2-2 fg=174; 15-20 bold; 22-25 bold; 119-119 fg=174
+s   3|│                                                                                                                      │|
+       ^ 0-0 fg=174; 119-119 fg=174
+s   4|│   /help for help, /status for your current setup                                                                     │|
+       ^ 0-0 fg=174; 119-119 fg=174
+s   5|│                                                                                                                      │|
+       ^ 0-0 fg=174; 119-119 fg=174
+s   6|│   cwd: /Users/leo/Projects/cmux                                                                                      │|
+       ^ 0-0 fg=174; 119-119 fg=174
+s   7|╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯|
+       ^ 0-119 fg=174
+s   8||
+s   9| Tips for getting started:|
+s  10||
+s  11| 1. Ask Claude to create a new app or clear the screen and start over with a longer prompt that wraps|
+s  12||
+s  13|╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮|
+       ^ 0-119 fg=244
+s  14|│ >                                                                                                                    │|
+       ^ 0-0 fg=244; 119-119 fg=244
+s  15|╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯|
+       ^ 0-119 fg=244
+s  16|  ? for shortcuts                                                                                    ◯ IDE disconnected|
+       ^ 2-2 fg=244; 4-6 fg=244; 8-16 fg=244; 101-101 fg=244; 103-105 fg=244; 107-118 fg=244
+s  17|$ echo a long line that soft-wraps on the phone in portrait and fits in landscape at one hundred sixteen|
+s  18|$|
+  (5 blank rows)
+cursor col 2 row 18
+### phone
+grid 54x38
+s   0|leo@cosmic-gray ~/Projects/cmux % claude|
+s   1|╭────────────────────────────────────────────────────╮|
+       ^ 0-53 fg=174
+s   2|│ ✻ Welcome to Claude Code!                          │|
+       ^ 0-0 fg=174; 2-2 fg=174; 15-20 bold; 22-25 bold; 53-53 fg=174
+s   3|│                                                    │|
+       ^ 0-0 fg=174; 53-53 fg=174
+s   4|│   /help for help, /status for your current setup   │|
+       ^ 0-0 fg=174; 53-53 fg=174
+s   5|│                                                    │|
+       ^ 0-0 fg=174; 53-53 fg=174
+s   6|│   cwd: /Users/leo/Projects/cmux                    │|
+       ^ 0-0 fg=174; 53-53 fg=174
+s   7|╰────────────────────────────────────────────────────╯|
+       ^ 0-53 fg=174
+s   8||
+s   9| Tips for getting started:|
+s  10||
+s  11| 1. Ask Claude to create a new app or clear the screen|↩
+s  12| and start over with a longer prompt that wraps|
+s  13||
+s  14|╭────────────────────────────────────────────────────╮|
+       ^ 0-53 fg=244
+s  15|│ >                                                  │|
+       ^ 0-0 fg=244; 53-53 fg=244
+s  16|╰────────────────────────────────────────────────────╯|
+       ^ 0-53 fg=244
+s  17|  ? for shortcuts                   ◯ IDE disconnected|
+       ^ 2-2 fg=244; 4-6 fg=244; 8-16 fg=244; 36-36 fg=244; 38-40 fg=244; 42-53 fg=244
+s  18|$ echo a long line that soft-wraps on the phone in por|↩
+s  19|trait and fits in landscape at one hundred sixteen|
+s  20|$|
+  (17 blank rows)
+cursor col 2 row 20
+
+## keyboard up: 54x20
+### Mac
+grid 120x24
+s   0|leo@cosmic-gray ~/Projects/cmux % claude|
+s   1|╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮|
+       ^ 0-119 fg=174
+s   2|│ ✻ Welcome to Claude Code!                                                                                            │|
+       ^ 0-0 fg=174; 2-2 fg=174; 15-20 bold; 22-25 bold; 119-119 fg=174
+s   3|│                                                                                                                      │|
+       ^ 0-0 fg=174; 119-119 fg=174
+s   4|│   /help for help, /status for your current setup                                                                     │|
+       ^ 0-0 fg=174; 119-119 fg=174
+s   5|│                                                                                                                      │|
+       ^ 0-0 fg=174; 119-119 fg=174
+s   6|│   cwd: /Users/leo/Projects/cmux                                                                                      │|
+       ^ 0-0 fg=174; 119-119 fg=174
+s   7|╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯|
+       ^ 0-119 fg=174
+s   8||
+s   9| Tips for getting started:|
+s  10||
+s  11| 1. Ask Claude to create a new app or clear the screen and start over with a longer prompt that wraps|
+s  12||
+s  13|╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮|
+       ^ 0-119 fg=244
+s  14|│ >                                                                                                                    │|
+       ^ 0-0 fg=244; 119-119 fg=244
+s  15|╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯|
+       ^ 0-119 fg=244
+s  16|  ? for shortcuts                                                                                    ◯ IDE disconnected|
+       ^ 2-2 fg=244; 4-6 fg=244; 8-16 fg=244; 101-101 fg=244; 103-105 fg=244; 107-118 fg=244
+s  17|$ echo a long line that soft-wraps on the phone in portrait and fits in landscape at one hundred sixteen|
+s  18|$|
+  (5 blank rows)
+cursor col 2 row 18
+### phone
+grid 54x20
+  (1 older scrollback rows not shown)
+s   0|╭────────────────────────────────────────────────────╮|
+       ^ 0-53 fg=174
+s   1|│ ✻ Welcome to Claude Code!                          │|
+       ^ 0-0 fg=174; 2-2 fg=174; 15-20 bold; 22-25 bold; 53-53 fg=174
+s   2|│                                                    │|
+       ^ 0-0 fg=174; 53-53 fg=174
+s   3|│   /help for help, /status for your current setup   │|
+       ^ 0-0 fg=174; 53-53 fg=174
+s   4|│                                                    │|
+       ^ 0-0 fg=174; 53-53 fg=174
+s   5|│   cwd: /Users/leo/Projects/cmux                    │|
+       ^ 0-0 fg=174; 53-53 fg=174
+s   6|╰────────────────────────────────────────────────────╯|
+       ^ 0-53 fg=174
+s   7||
+s   8| Tips for getting started:|
+s   9||
+s  10| 1. Ask Claude to create a new app or clear the screen|↩
+s  11| and start over with a longer prompt that wraps|
+s  12||
+s  13|╭────────────────────────────────────────────────────╮|
+       ^ 0-53 fg=244
+s  14|│ >                                                  │|
+       ^ 0-0 fg=244; 53-53 fg=244
+s  15|╰────────────────────────────────────────────────────╯|
+       ^ 0-53 fg=244
+s  16|  ? for shortcuts                   ◯ IDE disconnected|
+       ^ 2-2 fg=244; 4-6 fg=244; 8-16 fg=244; 36-36 fg=244; 38-40 fg=244; 42-53 fg=244
+s  17|$ echo a long line that soft-wraps on the phone in por|↩
+s  18|trait and fits in landscape at one hundred sixteen|
+s  19|$|
+cursor col 2 row 19
+
+## landscape 116x16
+### Mac
+grid 120x24
+s   0|leo@cosmic-gray ~/Projects/cmux % claude|
+s   1|╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮|
+       ^ 0-119 fg=174
+s   2|│ ✻ Welcome to Claude Code!                                                                                            │|
+       ^ 0-0 fg=174; 2-2 fg=174; 15-20 bold; 22-25 bold; 119-119 fg=174
+s   3|│                                                                                                                      │|
+       ^ 0-0 fg=174; 119-119 fg=174
+s   4|│   /help for help, /status for your current setup                                                                     │|
+       ^ 0-0 fg=174; 119-119 fg=174
+s   5|│                                                                                                                      │|
+       ^ 0-0 fg=174; 119-119 fg=174
+s   6|│   cwd: /Users/leo/Projects/cmux                                                                                      │|
+       ^ 0-0 fg=174; 119-119 fg=174
+s   7|╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯|
+       ^ 0-119 fg=174
+s   8||
+s   9| Tips for getting started:|
+s  10||
+s  11| 1. Ask Claude to create a new app or clear the screen and start over with a longer prompt that wraps|
+s  12||
+s  13|╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮|
+       ^ 0-119 fg=244
+s  14|│ >                                                                                                                    │|
+       ^ 0-0 fg=244; 119-119 fg=244
+s  15|╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯|
+       ^ 0-119 fg=244
+s  16|  ? for shortcuts                                                                                    ◯ IDE disconnected|
+       ^ 2-2 fg=244; 4-6 fg=244; 8-16 fg=244; 101-101 fg=244; 103-105 fg=244; 107-118 fg=244
+s  17|$ echo a long line that soft-wraps on the phone in portrait and fits in landscape at one hundred sixteen|
+s  18|$|
+  (5 blank rows)
+cursor col 2 row 18
+### phone
+grid 116x16
+  (3 older scrollback rows not shown)
+s   0|│                                                                                                                  │|
+       ^ 0-0 fg=174; 115-115 fg=174
+s   1|│   /help for help, /status for your current setup                                                                 │|
+       ^ 0-0 fg=174; 115-115 fg=174
+s   2|│                                                                                                                  │|
+       ^ 0-0 fg=174; 115-115 fg=174
+s   3|│   cwd: /Users/leo/Projects/cmux                                                                                  │|
+       ^ 0-0 fg=174; 115-115 fg=174
+s   4|╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯|
+       ^ 0-115 fg=174
+s   5||
+s   6| Tips for getting started:|
+s   7||
+s   8| 1. Ask Claude to create a new app or clear the screen and start over with a longer prompt that wraps|
+s   9||
+s  10|╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮|
+       ^ 0-115 fg=244
+s  11|│ >                                                                                                                │|
+       ^ 0-0 fg=244; 115-115 fg=244
+s  12|╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯|
+       ^ 0-115 fg=244
+s  13|  ? for shortcuts                                                                                 ◯ IDE disconnected|
+       ^ 2-2 fg=244; 4-6 fg=244; 8-16 fg=244; 98-98 fg=244; 100-102 fg=244; 104-115 fg=244
+s  14|$ echo a long line that soft-wraps on the phone in portrait and fits in landscape at one hundred sixteen|
+s  15|$|
+cursor col 2 row 15

@@ -55,12 +55,22 @@ public nonisolated final class AcpmuxPaneReplacements: Sendable {
     }
 
     /// Admits a Sandboxed send: false while a start or open is out or opened a chat, or one runs.
+    /// `replacingOpened`: a Cloud start that replaces the empty chat opened here (``AgentPaneCloudStart/replacesChat``):
+    /// that opened chat does not refuse it; one still out does.
     /// Until ``endSandbox()`` every start or open is refused.
-    func beginSandbox() -> Bool {
+    func beginSandbox(replacingOpened: Bool = false) -> Bool {
         state.withLock { state in
-            guard !state.sandbox, !state.opened, !state.waiting.values.contains(where: { $0 > 0 }) else { return false }
+            guard !state.sandbox, replacingOpened || !state.opened, !state.waiting.values.contains(where: { $0 > 0 }) else { return false }
             state.sandbox = true
             return true
+        }
+    }
+
+    /// Whether ``beginSandbox(replacingOpened:)`` would admit a hand-off now, taking nothing: a Cloud
+    /// reserve for the empty chat a start would replace is held to the same rule as that start.
+    func admits(replacingOpened: Bool = false) -> Bool {
+        state.withLock { state in
+            !state.sandbox && (replacingOpened || !state.opened) && !state.waiting.values.contains(where: { $0 > 0 })
         }
     }
 

@@ -18,8 +18,17 @@ final class CmuxDialogCardSurface: NSView {
     private let shadowCutout = CAShapeLayer()
 
     /// A card drawing `content` on its glass; `activeLook` keeps the key-window glass while the card fades out.
-    init(content: NSView, activeLook: ActiveLookScope?) {
-        glass = Glass.makeSurface(.sheet, content: content, activeLook: activeLook)
+    /// `cornerRadius` is the card's corner: concentric with its buttons (``CmuxDialogMetrics/card``) by default.
+    /// `overApps` is a prompt floating over every app (``CmuxFloatingDialogPanel``): the ``SurfaceRole/prompt``
+    /// glass, the theme's tint at a veil dense enough for any app's pixels under it.
+    init(content: NSView, activeLook: ActiveLookScope?, usesTransientMaterial: Bool = false, overApps: Bool = false,
+         cornerRadius: CGFloat = CmuxDialogMetrics.card.outerRadius) {
+        glass = overApps
+            ? Glass.makeSurface(.prompt, content: content, activeLook: activeLook)
+            : usesTransientMaterial
+            ? Glass.makeOverlayPanel(content: content, tone: .neutralGlass(.transient), activeLook: activeLook)
+            : Glass.makeSurface(.sheet, content: content, activeLook: activeLook)
+        glass.cornerRadius = cornerRadius
         glass.samplesBehindWindow = true
         super.init(frame: .zero)
         wantsLayer = true

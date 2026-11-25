@@ -179,19 +179,13 @@ struct ChiefPanelStyleWindowTests {
         @available(*, unavailable) required init?(coder: NSCoder) { nil }
     }
 
-    /// "Sees your screen" (user 2026-11-07): an eye in the panel says the Chief gets a look at the screen when it
-    /// opens, on by default; a click on it turns it off (and on), through the setting.
-    @Test func theEyeShowsWhetherTheChiefSeesTheScreenAndTogglesIt() async throws {
+    /// Share Screen with Chief is gone (user 2026-11-20): the floating Chief's bar has no "sees your screen" eye,
+    /// only Dock and Hide.
+    @Test func theBarHasNoScreenEye() async throws {
         let (f, view, _) = try await Self.openPanel(.card)
         defer { f.close() }
-        var toggles = 0
-        view.actions.toggleSeesScreen = { toggles += 1 }
-        let eye = try #require(Self.find("window.chiefPanel.seesScreen", in: view) as? NSButton, "no eye in the panel")
-        #expect(!eye.isHidden && view.seesScreen, "the eye is hidden or off by default")
-        eye.performClick(nil)
-        #expect(toggles == 1)
-        view.seesScreen = false
-        #expect(eye.themedToolTip != nil && eye.image?.accessibilityDescription != nil)
+        #expect(Self.find("window.chiefPanel.seesScreen", in: view) == nil, "the eye is still in the panel")
+        #expect(Self.find("window.chiefPanel.dock", in: view) != nil && Self.find("window.chiefPanel.hide", in: view) != nil)
     }
 
     static func find(_ id: String, in view: NSView) -> NSView? {

@@ -1573,137 +1573,6 @@
         }
       }
     },
-    "stats.page.private": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "From this computer's agent logs. Nothing leaves this computer."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "من سجلات الوكلاء على هذا الكمبيوتر. لا يغادر شيء هذا الكمبيوتر."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Iz zapisnika agenata na ovom računaru. Ništa ne napušta ovaj računar."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fra agentlogfilerne på denne computer. Intet forlader denne computer."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aus den Agent-Protokollen dieses Computers. Nichts verlässt diesen Computer."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A partir de los registros de agentes de este ordenador. Nada sale de este ordenador."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "D'après les journaux des agents de cet ordinateur. Rien ne quitte cet ordinateur."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dai log degli agenti di questo computer. Nulla lascia questo computer."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このコンピュータのエージェントログから集計。データはこのコンピュータの外に出ません。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ពីកំណត់ហេតុភ្នាក់ងារនៅលើកុំព្យូទ័រនេះ។ គ្មានអ្វីចេញពីកុំព្យូទ័រនេះទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 컴퓨터의 에이전트 로그에서 집계합니다. 어떤 데이터도 이 컴퓨터를 떠나지 않습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fra agentloggene på denne datamaskinen. Ingenting forlater denne datamaskinen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Na podstawie dzienników agentów na tym komputerze. Nic nie opuszcza tego komputera."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dos registros de agentes deste computador. Nada sai deste computador."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "По журналам агентов на этом компьютере. Ничего не покидает этот компьютер."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "จากบันทึกของเอเจนต์บนคอมพิวเตอร์เครื่องนี้ ไม่มีข้อมูลใดออกจากคอมพิวเตอร์เครื่องนี้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu bilgisayardaki ajan günlüklerinden. Hiçbir şey bu bilgisayardan çıkmaz."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "За журналами агентів на цьому комп'ютері. Ніщо не залишає цей комп'ютер."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Từ nhật ký tác tử trên máy tính này. Không có gì rời khỏi máy tính này."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "来自这台电脑上的智能体日志。任何数据都不会离开这台电脑。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "來自這台電腦上的代理程式記錄。任何資料都不會離開這台電腦。"
-          }
-        }
-      }
-    },
     "stats.page.title": {
       "extractionState": "manual",
       "localizations": {
@@ -1962,6 +1831,399 @@
           "stringUnit": {
             "state": "translated",
             "value": "統計可在 cmux App 中查看。"
+          }
+        }
+      }
+    },
+    "stats.payoff.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ of agent work in %2$@ on the clock"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ من عمل الوكلاء خلال %2$@ من الوقت الفعلي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ rada agenata za %2$@ stvarnog vremena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ agentarbejde på %2$@ på uret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ Agentenarbeit in %2$@ auf der Uhr"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ de trabajo de agentes en %2$@ de reloj"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ de travail d’agents en %2$@ d’horloge"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ di lavoro degli agenti in %2$@ di orologio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実時間 %2$@ でエージェント作業 %1$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការងារភ្នាក់ងារ %1$@ ក្នុងពេលពិត %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실제 시간 %2$@ 동안 에이전트 작업 %1$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ agentarbeid på %2$@ på klokken"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ pracy agentów w %2$@ czasu zegarowego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ de trabalho dos agentes em %2$@ de relógio"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ работы агентов за %2$@ по часам"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "งานของเอเจนต์ %1$@ ในเวลาจริง %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saatte %2$@ içinde %1$@ ajan çalışması"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ роботи агентів за %2$@ за годинником"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ công việc của agent trong %2$@ thời gian thực"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实际 %2$@ 内完成 %1$@ 的智能体工作"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "實際 %2$@ 內完成 %1$@ 的代理工作"
+          }
+        }
+      }
+    },
+    "stats.payoff.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parallel payoff"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عائد التوازي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dobit od paralelnog rada"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gevinst ved parallelt arbejde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gewinn durch Parallelität"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rendimiento en paralelo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gain du parallèle"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guadagno in parallelo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "並列の効果"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផលចំណេញពីការងារស្របគ្នា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "병렬 효과"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gevinst av parallelt arbeid"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zysk z równoległości"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ganho em paralelo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выигрыш от параллельности"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ผลตอบแทนจากการทำงานคู่ขนาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paralel kazanç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виграш від паралельності"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lợi ích song song"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "并行收益"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "並行效益"
+          }
+        }
+      }
+    },
+    "stats.payoff.multiple": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@× your time"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@× وقتك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@× vašeg vremena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@× din tid"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@× deine Zeit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@× tu tiempo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@× votre temps"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@× il tuo tempo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたの時間の %@ 倍"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@× នៃពេលវេលារបស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 시간의 %@배"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@× din tid"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@× Twojego czasu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@× o seu tempo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@× вашего времени"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@× ของเวลาคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zamanınızın %@ katı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@× вашого часу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@× thời gian của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的时间的 %@ 倍"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的時間的 %@ 倍"
           }
         }
       }
@@ -4484,27 +4746,27 @@
     "stats.usage.off": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Off. Turn on Record Usage Patterns in Settings > Privacy and Security to count which commands, layouts and agents you use most. Counts only, and they stay on this computer."}},
-        "ar": {"stringUnit": {"state": "translated", "value": "متوقف. فعّل «تسجيل أنماط الاستخدام» في الإعدادات > الخصوصية والأمان لإحصاء الأوامر والتخطيطات والوكلاء التي تستخدمها أكثر. أعداد فقط، وتبقى على هذا الكمبيوتر."}},
-        "bs": {"stringUnit": {"state": "translated", "value": "Isključeno. Uključite Bilježi obrasce korištenja u Postavke > Privatnost i sigurnost kako biste brojali koje naredbe, rasporede i agente najviše koristite. Samo brojevi, i ostaju na ovom računaru."}},
-        "da": {"stringUnit": {"state": "translated", "value": "Slået fra. Slå Registrer brugsmønstre til i Indstillinger > Anonymitet og sikkerhed for at tælle, hvilke kommandoer, layouts og agenter du bruger mest. Kun tællinger, og de bliver på denne computer."}},
-        "de": {"stringUnit": {"state": "translated", "value": "Aus. Aktiviere Nutzungsmuster aufzeichnen unter Einstellungen > Datenschutz & Sicherheit, um zu zählen, welche Befehle, Layouts und Agenten du am meisten nutzt. Nur Zählwerte, und sie bleiben auf diesem Computer."}},
-        "es": {"stringUnit": {"state": "translated", "value": "Desactivado. Activa Registrar patrones de uso en Ajustes > Privacidad y seguridad para contar qué comandos, diseños y agentes usas más. Solo recuentos, y se quedan en este ordenador."}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Désactivé. Activez Enregistrer les habitudes d’utilisation dans Réglages > Confidentialité et sécurité pour compter les commandes, dispositions et agents que vous utilisez le plus. Seulement des compteurs, qui restent sur cet ordinateur."}},
-        "it": {"stringUnit": {"state": "translated", "value": "Disattivato. Attiva Registra schemi di utilizzo in Impostazioni > Privacy e sicurezza per contare quali comandi, layout e agenti usi di più. Solo conteggi, che restano su questo computer."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "オフ。設定 > プライバシーとセキュリティで「使用パターンを記録」をオンにすると、よく使うコマンド、レイアウト、エージェントを集計します。集計のみで、このコンピュータ内に保存されます。"}},
-        "km": {"stringUnit": {"state": "translated", "value": "បិទ។ បើក កត់ត្រាលំនាំនៃការប្រើប្រាស់ នៅក្នុង ការកំណត់ > ឯកជនភាព និងសុវត្ថិភាព ដើម្បីរាប់ពាក្យបញ្ជា ប្លង់ និងភ្នាក់ងារដែលអ្នកប្រើច្រើនបំផុត។ រាប់តែចំនួនប៉ុណ្ណោះ ហើយវានៅលើកុំព្យូទ័រនេះ។"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "꺼짐. 설정 > 개인정보 보호 및 보안에서 '사용 패턴 기록'을 켜면 가장 많이 사용하는 명령, 레이아웃, 에이전트를 집계합니다. 횟수만 집계되며 이 컴퓨터에만 저장됩니다."}},
-        "nb": {"stringUnit": {"state": "translated", "value": "Av. Slå på Registrer bruksmønstre i Innstillinger > Personvern og sikkerhet for å telle hvilke kommandoer, oppsett og agenter du bruker mest. Kun tellinger, og de blir på denne datamaskinen."}},
-        "pl": {"stringUnit": {"state": "translated", "value": "Wyłączone. Włącz Rejestruj wzorce użycia w Ustawienia > Prywatność i ochrona, aby zliczać, których poleceń, układów i agentów używasz najczęściej. Tylko liczniki, które zostają na tym komputerze."}},
-        "pt-BR": {"stringUnit": {"state": "translated", "value": "Desativado. Ative Registrar padrões de uso em Ajustes > Privacidade e Segurança para contar quais comandos, layouts e agentes você mais usa. Apenas contagens, que ficam neste computador."}},
-        "ru": {"stringUnit": {"state": "translated", "value": "Выключено. Включите «Записывать модели использования» в Настройки > Конфиденциальность и безопасность, чтобы считать, какие команды, раскладки и агенты вы используете чаще всего. Только счётчики, они остаются на этом компьютере."}},
-        "th": {"stringUnit": {"state": "translated", "value": "ปิดอยู่ เปิด บันทึกรูปแบบการใช้งาน ใน การตั้งค่า > ความเป็นส่วนตัวและความปลอดภัย เพื่อนับว่าคุณใช้คำสั่ง เลย์เอาต์ และเอเจนต์ใดบ่อยที่สุด นับเฉพาะจำนวน และจะอยู่บนคอมพิวเตอร์เครื่องนี้เท่านั้น"}},
-        "tr": {"stringUnit": {"state": "translated", "value": "Kapalı. En çok hangi komutları, düzenleri ve ajanları kullandığınızı saymak için Ayarlar > Gizlilik ve Güvenlik içinde Kullanım düzenlerini kaydet seçeneğini açın. Yalnızca sayılar tutulur ve bu bilgisayarda kalır."}},
-        "uk": {"stringUnit": {"state": "translated", "value": "Вимкнено. Увімкніть «Записувати шаблони використання» в Параметри > Конфіденційність і безпека, щоб рахувати, які команди, розкладки й агенти ви використовуєте найчастіше. Лише лічильники, і вони залишаються на цьому комп’ютері."}},
-        "vi": {"stringUnit": {"state": "translated", "value": "Đang tắt. Bật Ghi lại mẫu sử dụng trong Cài đặt > Quyền riêng tư & Bảo mật để đếm các lệnh, bố cục và tác nhân bạn dùng nhiều nhất. Chỉ đếm số lượng và dữ liệu ở lại trên máy tính này."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "已关闭。在“设置 > 隐私与安全性”中开启“记录使用模式”，即可统计你最常用的命令、布局和智能体。仅统计次数，且保留在这台电脑上。"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "已關閉。在「設定 > 隱私權與安全性」中開啟「記錄使用模式」，即可統計你最常用的指令、版面和代理程式。僅統計次數，且保留在這台電腦上。"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Off. Turn on Record Usage Patterns in Settings > Privacy and Security."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "متوقف. فعّل «تسجيل أنماط الاستخدام» في الإعدادات > الخصوصية والأمان لإحصاء الأوامر والتخطيطات والوكلاء التي تستخدمها أكثر."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Isključeno. Uključite Bilježi obrasce korištenja u Postavke > Privatnost i sigurnost kako biste brojali koje naredbe, rasporede i agente najviše koristite."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Slået fra. Slå Registrer brugsmønstre til i Indstillinger > Anonymitet og sikkerhed for at tælle, hvilke kommandoer, layouts og agenter du bruger mest."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Aus. Aktiviere Nutzungsmuster aufzeichnen unter Einstellungen > Datenschutz & Sicherheit, um zu zählen, welche Befehle, Layouts und Agenten du am meisten nutzt."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Desactivado. Activa Registrar patrones de uso en Ajustes > Privacidad y seguridad para contar qué comandos, diseños y agentes usas más."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Désactivé. Activez Enregistrer les habitudes d’utilisation dans Réglages > Confidentialité et sécurité pour compter les commandes, dispositions et agents que vous utilisez le plus."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Disattivato. Attiva Registra schemi di utilizzo in Impostazioni > Privacy e sicurezza per contare quali comandi, layout e agenti usi di più."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "オフ。設定 > プライバシーとセキュリティで「使用パターンを記録」をオンにすると、よく使うコマンド、レイアウト、エージェントを集計します。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បិទ។ បើក កត់ត្រាលំនាំនៃការប្រើប្រាស់ នៅក្នុង ការកំណត់ > ឯកជនភាព និងសុវត្ថិភាព ដើម្បីរាប់ពាក្យបញ្ជា ប្លង់ និងភ្នាក់ងារដែលអ្នកប្រើច្រើនបំផុត។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "꺼짐. 설정 > 개인정보 보호 및 보안에서 '사용 패턴 기록'을 켜면 가장 많이 사용하는 명령, 레이아웃, 에이전트를 집계합니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Av. Slå på Registrer bruksmønstre i Innstillinger > Personvern og sikkerhet for å telle hvilke kommandoer, oppsett og agenter du bruker mest."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Wyłączone. Włącz Rejestruj wzorce użycia w Ustawienia > Prywatność i ochrona, aby zliczać, których poleceń, układów i agentów używasz najczęściej."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Desativado. Ative Registrar padrões de uso em Ajustes > Privacidade e Segurança para contar quais comandos, layouts e agentes você mais usa."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Выключено. Включите «Записывать модели использования» в Настройки > Конфиденциальность и безопасность, чтобы считать, какие команды, раскладки и агенты вы используете чаще всего."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ปิดอยู่ เปิด บันทึกรูปแบบการใช้งาน ใน การตั้งค่า > ความเป็นส่วนตัวและความปลอดภัย เพื่อนับว่าคุณใช้คำสั่ง เลย์เอาต์ และเอเจนต์ใดบ่อยที่สุด นับเฉพาะจำนวน และจะอยู่บนคอมพิวเตอร์เครื่องนี้เท่านั้น"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kapalı. En çok hangi komutları, düzenleri ve ajanları kullandığınızı saymak için Ayarlar > Gizlilik ve Güvenlik içinde Kullanım düzenlerini kaydet seçeneğini açın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Вимкнено. Увімкніть «Записувати шаблони використання» в Параметри > Конфіденційність і безпека, щоб рахувати, які команди, розкладки й агенти ви використовуєте найчастіше."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Đang tắt. Bật Ghi lại mẫu sử dụng trong Cài đặt > Quyền riêng tư & Bảo mật để đếm các lệnh, bố cục và tác nhân bạn dùng nhiều nhất."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "已关闭。在“设置 > 隐私与安全性”中开启“记录使用模式”，即可统计你最常用的命令、布局和智能体。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "已關閉。在「設定 > 隱私權與安全性」中開啟「記錄使用模式」，即可統計你最常用的指令、版面和代理程式。"}}
       }
     },
     "stats.usage.empty": {

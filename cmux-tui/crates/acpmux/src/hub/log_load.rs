@@ -20,14 +20,21 @@
 
 use super::*;
 
+/// Auto mode's import of a chat's Cloud copy: it settles an open turn as this file does.
+#[path = "auto_import.rs"]
+mod auto_import;
+
 /// What a deferred start read before its ready line, for the chat logs read after it.
 #[derive(Default)]
 pub(crate) struct LoadPlan {
     /// Chats whose agent host still ran at the start: adopted, never marked lost.
     pub(super) hosted: std::collections::HashSet<String>,
-    /// `hosted` as the start read it, never changed: prompts to these chats wait until adoption
-    /// and its settling end (`wait_adopted`).
+    /// `hosted` as the start read it, never changed: prompts to these chats wait until their own
+    /// adoption, or adoption and its settling end (`wait_adopted`).
     pub(super) adopting: std::collections::HashSet<String>,
+    /// Chats of `adopting` whose own adoption ended, its recovery too (`hosts.rs` `adopt_one`):
+    /// their prompts wait for no other host (`Hub::chat_adopted`).
+    pub(super) adopted: std::collections::HashSet<String>,
     /// Chats the previous daemon left waiting on a permission (`mark_lost_wait`).
     pub(super) waiting: std::collections::HashSet<String>,
     /// The start's store list read every chat folder: only then does a host whose chat it did
@@ -91,7 +98,7 @@ impl Hub {
         }
         // The list's kept order is sorted here, once, off any request: the first page a client
         // reads after a start then reads a window of it, not a sort of every chat (`list_order.rs`).
-        let _ = self.own_rows_from(None, 0);
+        self.sort_list_order();
         // Deferred startup must restore ownership epochs before the move watchdog can issue an
         // automatic commit/abort. Starting it earlier could fence a valid in-flight move.
         self.watch_transfers();
@@ -125,14 +132,45 @@ impl Hub {
         });
     }
 
-    /// Wait until adoption has ended, when `session`'s agent host ran at the start (immediate
-    /// otherwise): a prompt that went first would take the turn ahead of the turn adoption
-    /// recovers (`hosts.rs`).
+    /// Wait until `session`'s own adoption has ended, its recovery too, when its agent host ran at
+    /// the start (immediate otherwise): a prompt that went first would take the turn ahead of the
+    /// turn adoption recovers (`hosts.rs`). A chat whose host this pass did not adopt (it missed
+    /// its hello, or could not be adopted) waits for adoption and its settling to end, as before.
+    /// Never for every other host: a person's message to a chat adopted at once waited for the
+    /// slowest host's replay (up to `REPLAY_CEILING`), shown as queued meanwhile (Leo,
+    /// 2026-11-15, after a restart: "idk why it sent this tho?"; 2026-11-12: "everything waits on
+    /// everything").
     pub(crate) async fn wait_adopted(&self, session: &Session) {
-        if self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).adopting.contains(&session.id) {
-            let mut adopted = self.adoption_ready.subscribe();
-            let _ = adopted.wait_for(|ready| *ready).await;
+        self.wait_chat_adopted(&session.id).await;
+    }
+
+    pub(crate) async fn wait_chat_adopted(&self, id: &str) {
+        let mut ready = self.adoption_ready.subscribe();
+        loop {
+            // Enabled before the plan is read, so an adoption that ends in between is not missed.
+            let adopted = self.chat_adopted_wake.notified();
+            tokio::pin!(adopted);
+            adopted.as_mut().enable();
+            {
+                let plan = self.load_plan.lock().unwrap_or_else(|e| e.into_inner());
+                if !plan.adopting.contains(id) || plan.adopted.contains(id) {
+                    return;
+                }
+            }
+            if *ready.borrow_and_update() {
+                return;
+            }
+            tokio::select! {
+                () = &mut adopted => {}
+                _ = ready.wait_for(|ready| *ready) => return,
+            }
         }
+    }
+
+    /// `id`'s own adoption ended, its recovery too: its prompts go on (`wait_adopted`).
+    pub(crate) fn chat_adopted(&self, id: &str) {
+        self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).adopted.insert(id.to_owned());
+        self.chat_adopted_wake.notify_waiters();
     }
 
     /// Wait until `session`'s log is read, reading it now when the background pass has not
@@ -256,6 +294,15 @@ impl Hub {
         let hosted =
             self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).hosted.contains(&session.id);
         let quiet = self.recover_log(session, None, point.as_ref());
+        // Read here, off the first prompt's start (`seed_prompt_stops`). Records kept apart from
+        // the journal are left to that prompt's read, which reads them too.
+        if !Self::keeps_unstored(session) {
+            self.seed_prompt_stops(
+                session,
+                point.as_ref().map_or(0, |p| p.seq),
+                point.as_ref().and_then(|p| p.prompt_stops.as_deref()),
+            );
+        }
         // Quiet: every fold read through `read_to` and ended with nothing waiting, nothing was
         // appended meanwhile, and nothing is kept apart from the journal. The next load begins
         // there.
@@ -274,6 +321,7 @@ impl Hub {
                     ownership_epoch,
                     transfer_authority,
                     queue,
+                    prompt_stops: self.prompt_stops_carry(session),
                     ..Default::default()
                 },
             );
@@ -604,7 +652,7 @@ impl Hub {
                 self.save_meta(session);
             }
         } else if kept {
-            self.set_status(session, SessionStatus::Idle);
+            self.set_status(session, NotWaiting::Idle);
             self.save_meta(session);
         }
         // A log read before adoption kept its cut turn for the host: settle it now, and queue

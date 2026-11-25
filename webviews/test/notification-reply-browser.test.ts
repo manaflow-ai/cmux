@@ -14,6 +14,7 @@ import { AGENT, COMMAND_REPLY, REPLY } from "../src/agent-session/acpmux/convers
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { pinArms } from "./support/pinArms";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("notification-reply-browser.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -105,12 +106,12 @@ await requireBrowserLane("notification-reply-browser.test.ts", async () => {
   /** Where `words` draw: in which transcript row, whether inside the row of `notification`. */
   const placed = (page: Page, words: string, notification: string) =>
     page.evaluate(
-      ({ words, notification }) => {
+      ({ words, notification, TRANSCRIPT_ROW }) => {
         const holder = document.querySelector(notification);
         const node = [...document.querySelectorAll<HTMLElement>(".acpmux-row p, .acpmux-row .cv-reaction-reply")].find(
           (each) => each.textContent?.trim().startsWith(words),
         );
-        const row = node?.closest<HTMLElement>(".acpmux-row[data-row-id]");
+        const row = node?.closest<HTMLElement>(TRANSCRIPT_ROW);
         const holderBox = holder?.closest(".acpmux-row")?.getBoundingClientRect();
         const box = node?.getBoundingClientRect();
         return {
@@ -121,7 +122,7 @@ await requireBrowserLane("notification-reply-browser.test.ts", async () => {
           below: !!box && !!holderBox && box.top >= holderBox.bottom - 0.5,
         };
       },
-      { words, notification },
+      { words, notification, TRANSCRIPT_ROW },
     );
 
   const expectFields = (state: string, result: Awaited<ReturnType<typeof fields>>) => {

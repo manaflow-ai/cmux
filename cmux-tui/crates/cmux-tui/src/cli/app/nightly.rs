@@ -1,5 +1,11 @@
-//! `cmux nightly list|install`: go back (or forward) to another recent nightly
-//! build of the app behind the socket.
+//! `cmux nightly list|install` (and its app spelling, `cmux app versions` and
+//! `cmux app use previous|next|latest|<build>`): go back (or forward) to another
+//! recent nightly build of the app behind the socket.
+//!
+//! Leo (2026-11-21): "agents being able to just say "actually let's go back to
+//! this other version :)"". `cmux app use previous` goes back one build and
+//! `cmux app use next` comes forward again: the switch keeps the build it leaves,
+//! so the step back is undone the same way, with every session kept.
 //!
 //! Leo (2026-11-02): "austin and aziz hit it for some reason so idk if i
 //! should go without a way to revert nightlies to an older version
@@ -45,6 +51,11 @@ pub(crate) enum Command {
 pub(crate) enum Target {
     /// The newest installable build below the running one.
     Previous,
+    /// The oldest installable build above the running one: forward one step, the undo of
+    /// `previous`.
+    Next,
+    /// The newest installable build.
+    Latest,
     Build(String),
 }
 
@@ -85,6 +96,8 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
         Some("install") => {
             let target = match rest.get(1).map(String::as_str) {
                 Some("previous") => Target::Previous,
+                Some("next") => Target::Next,
+                Some("latest") => Target::Latest,
                 Some(build)
                     if !build.is_empty() && build.bytes().all(|byte| byte.is_ascii_digit()) =>
                 {
@@ -101,6 +114,18 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
         }
         _ => Err(usage()),
     }
+}
+
+/// Parses `cmux app versions ...` and `cmux app use ...`, the app spelling of
+/// `cmux nightly list ...` and `cmux nightly install ...`.
+pub(super) fn parse_app(verb: &str, rest: &[String]) -> Result<Command, UsageError> {
+    let nightly_verb = match verb {
+        "versions" => "list",
+        _ => "install",
+    };
+    let words: Vec<String> =
+        std::iter::once(nightly_verb.to_owned()).chain(rest.iter().cloned()).collect();
+    parse(&words)
 }
 
 /// Runs `command` against the app behind the socket.
@@ -189,7 +214,7 @@ pub(super) enum Switched {
     Failed(String),
 }
 
-fn switch_build(stream: &mut std::os::unix::net::UnixStream, params: Value) -> Switched {
+pub(super) fn switch_build(stream: &mut std::os::unix::net::UnixStream, params: Value) -> Switched {
     use std::io::{BufRead, BufReader, Read};
     let line = json!({ "id": 1, "method": "updates.switch_build", "params": params });
     if let Err(message) = super::send_line(stream, &line) {
@@ -238,21 +263,26 @@ pub(super) fn pick<'a>(
     let builds = listing.get_array("builds");
     let installed = listing.get_str("installed").unwrap_or_default();
     match target {
-        Target::Previous => builds
-            .iter()
-            .filter(|build| build.get_bool("switchable") == Some(true))
+        Target::Previous => switchable(builds)
             .filter(|build| {
                 build.get_nonempty_str("build").is_some_and(|number| older(number, installed))
             })
-            .max_by(|left, right| {
-                order(
-                    left.get_str("build").unwrap_or_default(),
-                    right.get_str("build").unwrap_or_default(),
-                )
-            })
+            .max_by(by_build)
             .ok_or_else(|| {
                 ("nightly.no_previous", messages.no_previous.replace("{build}", installed))
             }),
+        Target::Next => switchable(builds)
+            .filter(|build| {
+                build.get_nonempty_str("build").is_some_and(|number| older(installed, number))
+            })
+            .min_by(by_build)
+            .ok_or_else(|| ("nightly.no_next", messages.no_next.replace("{build}", installed))),
+        Target::Latest => switchable(builds)
+            .max_by(by_build)
+            .filter(|build| {
+                build.get_nonempty_str("build").is_some_and(|number| older(installed, number))
+            })
+            .ok_or_else(|| ("nightly.no_next", messages.no_next.replace("{build}", installed))),
         Target::Build(number) => {
             let Some(build) =
                 builds.iter().find(|build| build.get_nonempty_str("build") == Some(number))
@@ -283,13 +313,22 @@ pub(super) fn pick<'a>(
     }
 }
 
+/// The builds the app would switch to (not the running one, not a pulled one).
+fn switchable(builds: &[Value]) -> impl Iterator<Item = &Value> {
+    builds.iter().filter(|build| build.get_bool("switchable") == Some(true))
+}
+
+fn by_build(left: &&Value, right: &&Value) -> std::cmp::Ordering {
+    order(left.get_str("build").unwrap_or_default(), right.get_str("build").unwrap_or_default())
+}
+
 /// Numeric build order (CFBundleVersion is a monotonic number).
-fn order(left: &str, right: &str) -> std::cmp::Ordering {
+pub(super) fn order(left: &str, right: &str) -> std::cmp::Ordering {
     let (left, right) = (left.trim_start_matches('0'), right.trim_start_matches('0'));
     left.len().cmp(&right.len()).then_with(|| left.cmp(right))
 }
 
-fn older(build: &str, than: &str) -> bool {
+pub(super) fn older(build: &str, than: &str) -> bool {
     order(build, than) == std::cmp::Ordering::Less
 }
 

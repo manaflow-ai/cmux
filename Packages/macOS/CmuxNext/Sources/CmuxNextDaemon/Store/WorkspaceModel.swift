@@ -51,6 +51,9 @@ public final class WorkspaceModel: Identifiable {
     /// The task lane the person pinned (Mark as Done, Set Workspace Status,
     /// `workspace-status-v1`); nil is automatic. From the daemon's state resources.
     public internal(set) var taskStatus: WorkspaceTaskStatus?
+    /// Who made the workspace and why (`extra.created_by`): the person, an agent session or a
+    /// script; nil on a daemon that does not say. From the daemon's state resources.
+    public internal(set) var createdBy: WorkspaceCreator?
     /// Status line, progress, and newest log line hooks and the CLI report
     /// (`workspace_status.*`); from the daemon's state resources.
     public internal(set) var status: WorkspaceStatus?
@@ -74,6 +77,8 @@ public final class WorkspaceModel: Identifiable {
     /// The app of an app workspace (`app-screens-v1`): its one pane shows the
     /// app without a tab strip.
     public internal(set) var app: String?
+    /// The daemon's recovery workspace (`workspace-recovered-v1`); nil on older daemons.
+    public internal(set) var recovered: Bool?
     /// Daemon rollup (`notification-ack-v1`); nil on older daemons.
     public internal(set) var daemonUnreadCount: Int? { didSet { noteUnreadChange() } }
 
@@ -188,6 +193,7 @@ public final class WorkspaceModel: Identifiable {
         markedUnread = s.markedUnread
         kind = s.kind
         app = s.app
+        recovered = s.recovered
         daemonUnreadCount = s.unreadCount
         adoptUnread()
     }
@@ -211,6 +217,7 @@ public final class WorkspaceModel: Identifiable {
         if markedUnread != s.markedUnread { markedUnread = s.markedUnread }
         if kind != s.kind { kind = s.kind }
         if app != s.app { app = s.app }
+        if recovered != s.recovered { recovered = s.recovered }
         if daemonUnreadCount != s.unreadCount { daemonUnreadCount = s.unreadCount }
         if !screenGroupsFromState, screenGroups != s.screenGroups { screenGroups = s.screenGroups }
         if let reordered = reconcile(screens, with: s.screens, id: ScreenModel.identity, make: ScreenModel.init, update: { $0.update($1) }) {
@@ -226,6 +233,7 @@ public final class WorkspaceModel: Identifiable {
         if self.agentFolder != agentFolder { self.agentFolder = agentFolder }
         if workspaceDescription != notes.description { workspaceDescription = notes.description }
         if taskStatus != notes.taskStatus { taskStatus = notes.taskStatus }
+        if createdBy != notes.createdBy { createdBy = notes.createdBy }
         if self.status != status { self.status = status }
         if self.checklist != checklist { self.checklist = checklist }
         screenGroupsFromState = groups != nil
