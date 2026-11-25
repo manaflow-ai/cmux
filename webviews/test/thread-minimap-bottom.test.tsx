@@ -413,7 +413,7 @@ test("the rail keeps clear of the transcript's widest fades (the model reads the
   expect(TRANSCRIPT_FADE_BOTTOM).toBe(fades.jump);
 });
 
-// The rail is inside the transcript, so the transcript's mask fades it too: 18 px under the top once
+// The rail is inside the transcript, so the transcript's mask fades it too: 24 px under the top once
 // scrolled from the start. The foot has no band; the mask only cuts the rows under the stack.
 // In a short pane the rail filled the view less 8 px each end, so the first and last lit ticks drew
 // in those fades at every offset short of the chat's two ends.

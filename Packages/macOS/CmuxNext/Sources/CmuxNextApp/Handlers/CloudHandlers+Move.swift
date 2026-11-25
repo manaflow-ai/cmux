@@ -70,7 +70,7 @@ extension CloudHandlers {
         // (the page's gesture-gated `action.run`, the palette) runs them; Auto's own moves run Move to Cloud and Bring Back directly.
         let place = services.cloud.placeDriver ?? CloudPlaceDriver(place: services.cloud.place, host: services)
         if services.cloud.placeDriver == nil { services.cloud.placeDriver = place; place.start() }
-        for id in [AppServices.placeSet, AppServices.placeRetry, AppServices.placeEvacuate, AppServices.placeCancel, AppServices.placeEvacuateCancel, AppServices.placeBringBackAll] {
+        for id in [AppServices.placeSet, AppServices.prioritySet, AppServices.placeRetry, AppServices.placeEvacuate, AppServices.placeCancel, AppServices.placeEvacuateCancel, AppServices.placeBringBackAll] {
             let cancels = id == AppServices.placeCancel || id == AppServices.placeEvacuateCancel
             // A cancel is never refused.
             let allowed: @MainActor () -> String? = { nil }
@@ -82,6 +82,7 @@ extension CloudHandlers {
                     guard let mode = invocation["mode"]?.stringValue, ["local", "cloud", "auto"].contains(mode) else { throw ActionFailure(message: "mode must be local, cloud or auto") }
                     // A move refused at once fails in the chat's flow (with Retry) and answers the page with why.
                     if let refusal = place.setMode(mode, tab: tab, session: row, claims: CloudPlaceClaims(invocation)) { throw ActionFailure(message: refusal.message) }
+                case AppServices.prioritySet: if let refusal = place.setPriority(invocation["priority"]?.stringValue, tab: tab, session: row) { throw ActionFailure(message: refusal.message) }
                 case AppServices.placeRetry:
                     if let refusal = place.retry(tab: tab, session: row, claims: CloudPlaceClaims(invocation)) { throw ActionFailure(message: refusal.message) }
                 case AppServices.placeCancel: place.cancel(tab: tab, session: row ?? invocation["session"]?.stringValue)
@@ -178,14 +179,6 @@ extension CloudHandlers {
     }
 }
 
-extension CloudPlaceClaims {
-    /// The cargo the page sent with its action (strings, as every page argument is); none when it sent none.
-    init(_ invocation: ActionInvocation) {
-        self.init(queued: invocation["queued"].flatMap { $0.intValue ?? $0.stringValue.flatMap(Int.init) },
-                  hasDraft: invocation["hasDraft"].flatMap { $0.boolValue ?? $0.stringValue.map { $0 == "true" } })
-    }
-}
-
 extension CloudPlaceRefusal {
     /// What the page and the person read.
     @MainActor var message: String {
@@ -222,6 +215,7 @@ extension CloudPlaceFlows.Cargo {
 /// The app's side of the chat place controls (``CloudPlaceDriver``): its chats, how it runs a move, what its ledger knows.
 extension AppServices: CloudPlaceHost {
     static let placeSet: ActionID = "chatPlace.set"
+    static let prioritySet: ActionID = "chatPriority.set"
     static let placeCancel: ActionID = "chatMove.cancel"
     static let placeRetry: ActionID = "chatMove.retry"
     static let placeEvacuate: ActionID = "cloudEvacuate"
@@ -257,15 +251,7 @@ extension AppServices: CloudPlaceHost {
     }
 
     func placeRun(_ chat: CloudPlaceChat, toCloud: Bool, machine: CloudPlaceMachine?, trigger: CloudPlaceFlows.Trigger, claims: CloudPlaceClaims) -> CloudPlaceRun {
-        var arguments: [String: ActionValue] = ["trigger": .string(trigger.argument)]
-        if let queued = claims.queued { arguments["queued"] = .int(queued) }
-        if let hasDraft = claims.hasDraft { arguments["hasDraft"] = .bool(hasDraft) }
-        switch machine {
-        case .reuse(let id): arguments["machine"] = .string(id)
-        case .create: arguments["newMachine"] = .bool(true)
-        case nil: break
-        }
-        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: chat.id), arguments: arguments, origin: .user)
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: chat.id), arguments: claims.arguments(trigger: trigger, machine: machine), origin: .user)
         let registry = self.registry
         let action = toCloud ? CloudMove.action : CloudBringBack.action
         var ran = false, work: [ActionWork] = []

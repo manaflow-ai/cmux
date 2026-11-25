@@ -75,11 +75,6 @@ export class OfflineSends {
     return this.flushing || this.in(chat).length > 0;
   }
 
-  /// When the oldest prompt of `chat` was sent, while any waits.
-  waitingSince(chat: string | undefined): number | undefined {
-    return this.in(chat)[0]?.at;
-  }
-
   /// Takes a prompt sent now: kept on disk first, then drawn.
   add(chat: string, text: string, attachments: ComposerAttachment[], id: string = crypto.randomUUID()): OfflineSend {
     const send: OfflineSend = { id, chat, text, attachments, at: Date.now() };
