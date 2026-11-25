@@ -44,6 +44,11 @@ export type AgentNotice = {
   /// How many more notices went in with this one (a digest of notices, incomingMessage.ts): the
   /// line names this one, the most severe, and counts the rest.
   more?: number;
+  /// How many times its condition came (acpmux notice_read.rs `condition_key`, hub/inbox.rs
+  /// `notice`), when more than once: the line reads "×3, last 09:40Z", one row for them all.
+  repeats?: number;
+  /// When the newest of those came (ms).
+  lastAt?: number;
 };
 
 const SEVERITIES: readonly string[] = ["info", "warn", "fire"];
