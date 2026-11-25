@@ -2828,6 +2828,7 @@ pub(super) fn dial_wireguard<'a>(
             None
         };
         options.timeline.mark("wg_liveness");
+        let overlay = super::Overlay { net: Arc::clone(&net), peer_ip: IpAddr::V4(peer_ip) };
         let link_addr = SocketAddr::new(IpAddr::V4(peer_ip), LINK_PORT);
         let stream = net.connect(link_addr).await.map_err(transport_error)?;
         options.timeline.mark("tunnel_tcp_connected");
@@ -2861,6 +2862,7 @@ pub(super) fn dial_wireguard<'a>(
             media,
             webrtc_media,
             liveness,
+            overlay: Some(overlay),
             reliable,
         })
     })
@@ -3017,6 +3019,7 @@ impl Dialer for WireGuardDialer {
             } else {
                 None
             };
+            let overlay = super::Overlay { net: Arc::clone(&net), peer_ip: IpAddr::V4(peer_ip) };
             drop(net);
             signaling
                 .send_signal(
@@ -3079,6 +3082,7 @@ impl Dialer for WireGuardDialer {
                 lane,
                 webrtc_media,
                 liveness,
+                overlay: Some(overlay),
                 reliable,
                 media: media.map(|carrier| {
                     options.timeline.mark("video_lane");
