@@ -82,6 +82,9 @@ public protocol MacLink: AnyObject, Sendable {
     var states: AsyncStream<LinkState> { get }
     /// Opens a named service channel (`daemon`, `acpmux`, `file`, `echo`).
     func openChannel(service: String, args: [String: String]) async throws -> any LinkChannel
+    /// Opens a service channel whose open args are any JSON object (`catch-up` takes nested
+    /// cursors). A link without its own sends flat string args only.
+    func openChannel(service: String, argsJSON: String) async throws -> any LinkChannel
     /// Opens a channel on the input lane (PROTOCOL.md "Lanes"): terminal
     /// keystrokes and their replies, which then never wait behind bulk
     /// output. A link without one opens an ordinary channel.
@@ -99,6 +102,11 @@ public protocol MacLink: AnyObject, Sendable {
     /// not. The Rust link probes more often while it is (every 3 s on its
     /// datagram lane); a link without one ignores it.
     func setForegroundProbe(_ on: Bool)
+    /// The person is about to type (the keyboard is coming up): wake the
+    /// phone's radio with one tiny datagram so the first key does not pay
+    /// the LTE/5G idle-to-connected promotion (RFD 0142 hypothesis 2). The
+    /// Rust link sends at most one per second, and only on a quiet link.
+    func prewake()
     func close() async
     /// The path of a link that is already up when the dial returns (nil:
     /// unknown until its first `states` element). The controller then adopts
@@ -141,6 +149,13 @@ public struct TunnelKeys: Sendable, Equatable {
 }
 
 extension MacLink {
+    public func openChannel(service: String, argsJSON: String) async throws -> any LinkChannel {
+        let object = try? JSONSerialization.jsonObject(with: Data(argsJSON.utf8))
+        guard let args = object as? [String: String] else {
+            throw LinkError(code: "bad_request", message: "this link sends flat string args only")
+        }
+        return try await openChannel(service: service, args: args)
+    }
     public var connectedPath: LinkPathKind? { nil }
     public var peerScope: String { "" }
     public var receivedAgo: Duration? { nil }
@@ -148,6 +163,7 @@ extension MacLink {
     public var tunnelKeys: TunnelKeys? { nil }
     public func probeTimeout(floor: Duration) -> Duration { floor }
     public func setForegroundProbe(_ on: Bool) {}
+    public func prewake() {}
 
     /// A link that only pings: the pong or nothing.
     public func probe(timeout: Duration) async throws -> UInt32? {

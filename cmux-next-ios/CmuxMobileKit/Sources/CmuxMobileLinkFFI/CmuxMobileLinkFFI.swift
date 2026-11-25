@@ -2112,10 +2112,24 @@ public protocol ChatPromptOutboxProtocol: AnyObject, Sendable {
     func pending()  -> UInt32
     
     /**
+     * The link made progress at `now_ms` (bytes heard from the Mac, a channel bound, a write
+     * taken): prompts waiting their turn keep going; the hold bounds a stall, not a send.
+     */
+    func progressed(nowMs: UInt64) 
+    
+    /**
      * A tap on Send with its attachments' upload ids (started at pick time). Never waits. False
      * when this `promptId` is already here.
      */
     func push(promptId: String, text: String, uploadIds: [String], resend: Bool, tappedMs: UInt64, nowMs: UInt64)  -> Bool
+    
+    /**
+     * The Mac answered it with an error (`origin`, `code`, `reason`: `error.data`'s). A "not now"
+     * (Rust tells: starting, busy, restarting, timed out, native origin ...) is retried after a
+     * backoff of 1 s doubling to 30 s and is not final; only a real refusal gives the prompt
+     * back. `None` when the prompt is not here.
+     */
+    func refusal(promptId: String, origin: String?, code: String?, reason: String?, nowMs: UInt64)  -> ChatRefusal?
     
     /**
      * The Mac refused it.
@@ -2126,6 +2140,18 @@ public protocol ChatPromptOutboxProtocol: AnyObject, Sendable {
      * The Mac's answer to `_acpmux/queue_remove`: `removed` from its queue, or not.
      */
     func removeAnswered(promptId: String, removed: Bool)  -> ChatPromptDone?
+    
+    /**
+     * The Mac's `_cmux/prompt_resend` notice for this prompt: `state` is `sent`, `accepted`,
+     * `retrying` (with `retry_in_ms`) or `refused`. A refusal gives the prompt back (`Some`); the
+     * others only change its look. An unknown state is ignored.
+     */
+    func resendNotice(promptId: String, state: String, retryInMs: UInt64?, nowMs: UInt64)  -> ChatPromptDone?
+    
+    /**
+     * How long until the prompt goes again after a "not now", or none.
+     */
+    func retryInMs(promptId: String, nowMs: UInt64)  -> UInt64?
     
     /**
      * The person asks it to go now. False when it is not an unwritten prompt here.
@@ -2149,6 +2175,11 @@ public protocol ChatPromptOutboxProtocol: AnyObject, Sendable {
      * with its other uploads to cancel.
      */
     func uploadFailed(uploadId: String, reason: String)  -> ChatPromptDone?
+    
+    /**
+     * The upload `upload_id` took a chunk at `now_ms`: its prompt keeps going.
+     */
+    func uploadProgressed(uploadId: String, nowMs: UInt64) 
     
     /**
      * The upload `upload_id` ended on the Mac at `mac_path`. Unknown ids are ignored.
@@ -2206,7 +2237,7 @@ open class ChatPromptOutbox: ChatPromptOutboxProtocol, @unchecked Sendable {
         return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_chatpromptoutbox(self.handle, $0) }
     }
     /**
-     * `hold_ms`: how long a prompt waits for the link before it comes back. `seed`: the retry
+     * `hold_ms`: how long a prompt may go with no progress (see `progressed`) before it comes back. `seed`: the retry
      * jitter's (any value; a random one per source).
      */
 public convenience init(holdMs: UInt64, seed: UInt64) {
@@ -2415,6 +2446,18 @@ open func pending() -> UInt32  {
 }
     
     /**
+     * The link made progress at `now_ms` (bytes heard from the Mac, a channel bound, a write
+     * taken): prompts waiting their turn keep going; the hold bounds a stall, not a send.
+     */
+open func progressed(nowMs: UInt64)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_progressed(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+}
+}
+    
+    /**
      * A tap on Send with its attachments' upload ids (started at pick time). Never waits. False
      * when this `promptId` is already here.
      */
@@ -2427,6 +2470,25 @@ open func push(promptId: String, text: String, uploadIds: [String], resend: Bool
         FfiConverterSequenceString.lower(uploadIds),
         FfiConverterBool.lower(resend),
         FfiConverterUInt64.lower(tappedMs),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+})
+}
+    
+    /**
+     * The Mac answered it with an error (`origin`, `code`, `reason`: `error.data`'s). A "not now"
+     * (Rust tells: starting, busy, restarting, timed out, native origin ...) is retried after a
+     * backoff of 1 s doubling to 30 s and is not final; only a real refusal gives the prompt
+     * back. `None` when the prompt is not here.
+     */
+open func refusal(promptId: String, origin: String?, code: String?, reason: String?, nowMs: UInt64) -> ChatRefusal?  {
+    return try!  FfiConverterOptionTypeChatRefusal.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_refusal(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(promptId),
+        FfiConverterOptionString.lower(origin),
+        FfiConverterOptionString.lower(code),
+        FfiConverterOptionString.lower(reason),
         FfiConverterUInt64.lower(nowMs),$0
     )
 })
@@ -2453,6 +2515,36 @@ open func removeAnswered(promptId: String, removed: Bool) -> ChatPromptDone?  {
             self.uniffiCloneHandle(),
         FfiConverterString.lower(promptId),
         FfiConverterBool.lower(removed),$0
+    )
+})
+}
+    
+    /**
+     * The Mac's `_cmux/prompt_resend` notice for this prompt: `state` is `sent`, `accepted`,
+     * `retrying` (with `retry_in_ms`) or `refused`. A refusal gives the prompt back (`Some`); the
+     * others only change its look. An unknown state is ignored.
+     */
+open func resendNotice(promptId: String, state: String, retryInMs: UInt64?, nowMs: UInt64) -> ChatPromptDone?  {
+    return try!  FfiConverterOptionTypeChatPromptDone.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_resend_notice(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(promptId),
+        FfiConverterString.lower(state),
+        FfiConverterOptionUInt64.lower(retryInMs),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+})
+}
+    
+    /**
+     * How long until the prompt goes again after a "not now", or none.
+     */
+open func retryInMs(promptId: String, nowMs: UInt64) -> UInt64?  {
+    return try!  FfiConverterOptionUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_retry_in_ms(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(promptId),
+        FfiConverterUInt64.lower(nowMs),$0
     )
 })
 }
@@ -2513,6 +2605,18 @@ open func uploadFailed(uploadId: String, reason: String) -> ChatPromptDone?  {
         FfiConverterString.lower(reason),$0
     )
 })
+}
+    
+    /**
+     * The upload `upload_id` took a chunk at `now_ms`: its prompt keeps going.
+     */
+open func uploadProgressed(uploadId: String, nowMs: UInt64)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_upload_progressed(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(uploadId),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+}
 }
     
     /**
@@ -3547,6 +3651,13 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
     func ping() async throws  -> UInt32
     
     /**
+     * Wake the radio before a keystroke (the terminal's keyboard took focus
+     * or a finger touched it): one datagram ping on a link quiet for a
+     * second. Free when the link is busy, parked or closed. `true` when sent.
+     */
+    func prewake()  -> Bool
+    
+    /**
      * Whether the link is alive within `timeout_ms`: the round trip in
      * milliseconds on the pong, `None` when other frames from the Mac came
      * first (a slow relay's queue; the link is alive), an error only when
@@ -3932,6 +4043,19 @@ open func ping()async throws  -> UInt32  {
             liftFunc: FfiConverterUInt32.lift,
             errorHandler: FfiConverterTypeCmuxMobileError_lift
         )
+}
+    
+    /**
+     * Wake the radio before a keystroke (the terminal's keyboard took focus
+     * or a finger touched it): one datagram ping on a link quiet for a
+     * second. Free when the link is busy, parked or closed. `true` when sent.
+     */
+open func prewake() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_prewake(
+            self.uniffiCloneHandle(),$0
+    )
+})
 }
     
     /**
@@ -4366,6 +4490,172 @@ public func FfiConverterTypeLinkObserver_lift(_ handle: UInt64) throws -> LinkOb
 #endif
 public func FfiConverterTypeLinkObserver_lower(_ value: LinkObserver) -> UInt64 {
     return FfiConverterTypeLinkObserver.lower(value)
+}
+
+
+
+
+
+
+public protocol LinkProgressClockProtocol: AnyObject, Sendable {
+    
+    /**
+     * When the link last made progress, if it has.
+     */
+    func lastProgressMs()  -> UInt64?
+    
+    /**
+     * The link made progress at `now_ms`.
+     */
+    func progressed(nowMs: UInt64) 
+    
+    /**
+     * A wait begun at `started_ms`, bounded by `stall_ms` of silence, at `now_ms`: how many more
+     * milliseconds of silence it may take (look again then), or none once it stalled.
+     */
+    func stallLeftMs(startedMs: UInt64, stallMs: UInt64, nowMs: UInt64)  -> UInt64?
+    
+}
+open class LinkProgressClock: LinkProgressClockProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_linkprogressclock(self.handle, $0) }
+    }
+public convenience init() {
+    let handle =
+        try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_linkprogressclock_new($0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_linkprogressclock(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * When the link last made progress, if it has.
+     */
+open func lastProgressMs() -> UInt64?  {
+    return try!  FfiConverterOptionUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkprogressclock_last_progress_ms(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The link made progress at `now_ms`.
+     */
+open func progressed(nowMs: UInt64)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkprogressclock_progressed(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+}
+}
+    
+    /**
+     * A wait begun at `started_ms`, bounded by `stall_ms` of silence, at `now_ms`: how many more
+     * milliseconds of silence it may take (look again then), or none once it stalled.
+     */
+open func stallLeftMs(startedMs: UInt64, stallMs: UInt64, nowMs: UInt64) -> UInt64?  {
+    return try!  FfiConverterOptionUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkprogressclock_stall_left_ms(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(startedMs),
+        FfiConverterUInt64.lower(stallMs),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLinkProgressClock: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = LinkProgressClock
+
+    public static func lift(_ handle: UInt64) throws -> LinkProgressClock {
+        return LinkProgressClock(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: LinkProgressClock) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LinkProgressClock {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: LinkProgressClock, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLinkProgressClock_lift(_ handle: UInt64) throws -> LinkProgressClock {
+    return try FfiConverterTypeLinkProgressClock.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLinkProgressClock_lower(_ value: LinkProgressClock) -> UInt64 {
+    return FfiConverterTypeLinkProgressClock.lower(value)
 }
 
 
@@ -5161,225 +5451,6 @@ public func FfiConverterTypeMacScreenRd_lower(_ value: MacScreenRd) -> UInt64 {
 
 
 
-public protocol RowLayoutMemoryProtocol: AnyObject, Sendable {
-    
-    /**
-     * The keyed diff of a page's rows in `scope` (a chat, at a text size) at column `width`
-     * against the heights kept: one answer per key, in order.
-     */
-    func diff(scope: String, width: Double, keys: [RowLayoutKey])  -> [RowLayoutDiff]
-    
-    /**
-     * Drops every height kept in `scope`.
-     */
-    func forget(scope: String) 
-    
-    /**
-     * Adds the heights written by `save` at `path`; rows measured since are kept over them.
-     * How many rows it read.
-     */
-    func load(path: String)  -> UInt32
-    
-    /**
-     * A cell measured row `key` at `height` in a column `width` wide.
-     */
-    func record(scope: String, width: Double, key: RowLayoutKey, height: Double) 
-    
-    /**
-     * Writes the heights to `path` (one row per line), for the next launch. Whether it was written.
-     */
-    func save(path: String)  -> Bool
-    
-    func stats()  -> RowLayoutStats
-    
-}
-open class RowLayoutMemory: RowLayoutMemoryProtocol, @unchecked Sendable {
-    fileprivate let handle: UInt64
-
-    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public struct NoHandle {
-        public init() {}
-    }
-
-    // TODO: We'd like this to be `private` but for Swifty reasons,
-    // we can't implement `FfiConverter` without making this `required` and we can't
-    // make it `required` without making it `public`.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    required public init(unsafeFromHandle handle: UInt64) {
-        self.handle = handle
-    }
-
-    // This constructor can be used to instantiate a fake object.
-    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
-    //
-    // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public init(noHandle: NoHandle) {
-        self.handle = 0
-    }
-
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public func uniffiCloneHandle() -> UInt64 {
-        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_rowlayoutmemory(self.handle, $0) }
-    }
-    /**
-     * Keeps at most `capacity` rows (at least 64).
-     */
-public convenience init(capacity: UInt32) {
-    let handle =
-        try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_constructor_rowlayoutmemory_new(
-        FfiConverterUInt32.lower(capacity),$0
-    )
-}
-    self.init(unsafeFromHandle: handle)
-}
-
-    deinit {
-        if handle == 0 {
-            // Mock objects have handle=0 don't try to free them
-            return
-        }
-
-        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_rowlayoutmemory(handle, $0) }
-    }
-
-    
-
-    
-    /**
-     * The keyed diff of a page's rows in `scope` (a chat, at a text size) at column `width`
-     * against the heights kept: one answer per key, in order.
-     */
-open func diff(scope: String, width: Double, keys: [RowLayoutKey]) -> [RowLayoutDiff]  {
-    return try!  FfiConverterSequenceTypeRowLayoutDiff.lift(try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_diff(
-            self.uniffiCloneHandle(),
-        FfiConverterString.lower(scope),
-        FfiConverterDouble.lower(width),
-        FfiConverterSequenceTypeRowLayoutKey.lower(keys),$0
-    )
-})
-}
-    
-    /**
-     * Drops every height kept in `scope`.
-     */
-open func forget(scope: String)  {try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_forget(
-            self.uniffiCloneHandle(),
-        FfiConverterString.lower(scope),$0
-    )
-}
-}
-    
-    /**
-     * Adds the heights written by `save` at `path`; rows measured since are kept over them.
-     * How many rows it read.
-     */
-open func load(path: String) -> UInt32  {
-    return try!  FfiConverterUInt32.lift(try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_load(
-            self.uniffiCloneHandle(),
-        FfiConverterString.lower(path),$0
-    )
-})
-}
-    
-    /**
-     * A cell measured row `key` at `height` in a column `width` wide.
-     */
-open func record(scope: String, width: Double, key: RowLayoutKey, height: Double)  {try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_record(
-            self.uniffiCloneHandle(),
-        FfiConverterString.lower(scope),
-        FfiConverterDouble.lower(width),
-        FfiConverterTypeRowLayoutKey_lower(key),
-        FfiConverterDouble.lower(height),$0
-    )
-}
-}
-    
-    /**
-     * Writes the heights to `path` (one row per line), for the next launch. Whether it was written.
-     */
-open func save(path: String) -> Bool  {
-    return try!  FfiConverterBool.lift(try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_save(
-            self.uniffiCloneHandle(),
-        FfiConverterString.lower(path),$0
-    )
-})
-}
-    
-open func stats() -> RowLayoutStats  {
-    return try!  FfiConverterTypeRowLayoutStats_lift(try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_stats(
-            self.uniffiCloneHandle(),$0
-    )
-})
-}
-    
-
-    
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeRowLayoutMemory: FfiConverter {
-    typealias FfiType = UInt64
-    typealias SwiftType = RowLayoutMemory
-
-    public static func lift(_ handle: UInt64) throws -> RowLayoutMemory {
-        return RowLayoutMemory(unsafeFromHandle: handle)
-    }
-
-    public static func lower(_ value: RowLayoutMemory) -> UInt64 {
-        return value.uniffiCloneHandle()
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RowLayoutMemory {
-        let handle: UInt64 = try readInt(&buf)
-        return try lift(handle)
-    }
-
-    public static func write(_ value: RowLayoutMemory, into buf: inout [UInt8]) {
-        writeInt(&buf, lower(value))
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeRowLayoutMemory_lift(_ handle: UInt64) throws -> RowLayoutMemory {
-    return try FfiConverterTypeRowLayoutMemory.lift(handle)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeRowLayoutMemory_lower(_ value: RowLayoutMemory) -> UInt64 {
-    return FfiConverterTypeRowLayoutMemory.lower(value)
-}
-
-
-
-
-
-
 /**
  * The phone identity key (a Secure Enclave key in the app).
  */
@@ -5477,14 +5548,14 @@ fileprivate struct UniffiCallbackInterfaceMailboxSigner {
             do {
                 try FfiConverterTypeMailboxSigner.handleMap.remove(handle: uniffiHandle)
             } catch {
-                print(
+                print("Uniffi callback interface MailboxSigner: handle missing in uniffiFree")
             }
         },
         uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
             do {
                 return try FfiConverterTypeMailboxSigner.handleMap.clone(handle: uniffiHandle)
             } catch {
-                fatalError(
+                fatalError("Uniffi callback interface MailboxSigner: handle missing in uniffiClone")
             }
         },
         sign: { (
@@ -5848,6 +5919,200 @@ public func FfiConverterTypeMailboxTracker_lower(_ value: MailboxTracker) -> UIn
 
 
 /**
+ * One Mac's catch-up cursors.
+ */
+public protocol PhoneCatchUpProtocol: AnyObject, Sendable {
+    
+    /**
+     * Reads the reply frame and moves the cursors of what it answered; a cut surface keeps
+     * its cursor.
+     */
+    func apply(reply: Data, now: UInt64) throws  -> CatchUpAnswer
+    
+    /**
+     * The bytes to keep.
+     */
+    func encode()  -> Data
+    
+    /**
+     * The `catch-up` channel's open args (a JSON object) for a foreground wake.
+     */
+    func foregroundRequest(ask: CatchUpAsk)  -> String
+    
+    /**
+     * The person opened a chat: it ranks first among the recent ones.
+     */
+    func openedChat(sessionId: String, now: UInt64) 
+    
+}
+/**
+ * One Mac's catch-up cursors.
+ */
+open class PhoneCatchUp: PhoneCatchUpProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_phonecatchup(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_phonecatchup(handle, $0) }
+    }
+
+    
+    /**
+     * The cursors `kept` holds ([`PhoneCatchUp::encode`]'s bytes); nothing readable starts
+     * from none, which asks for every surface whole.
+     */
+public static func `open`(kept: Data?) -> PhoneCatchUp  {
+    return try!  FfiConverterTypePhoneCatchUp_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_phonecatchup_open(
+        FfiConverterOptionData.lower(kept),$0
+    )
+})
+}
+    
+
+    
+    /**
+     * Reads the reply frame and moves the cursors of what it answered; a cut surface keeps
+     * its cursor.
+     */
+open func apply(reply: Data, now: UInt64)throws  -> CatchUpAnswer  {
+    return try  FfiConverterTypeCatchUpAnswer_lift(try rustCallWithError(FfiConverterTypeCatchUpError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_method_phonecatchup_apply(
+            self.uniffiCloneHandle(),
+        FfiConverterData.lower(reply),
+        FfiConverterUInt64.lower(now),$0
+    )
+})
+}
+    
+    /**
+     * The bytes to keep.
+     */
+open func encode() -> Data  {
+    return try!  FfiConverterData.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_phonecatchup_encode(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The `catch-up` channel's open args (a JSON object) for a foreground wake.
+     */
+open func foregroundRequest(ask: CatchUpAsk) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_phonecatchup_foreground_request(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeCatchUpAsk_lower(ask),$0
+    )
+})
+}
+    
+    /**
+     * The person opened a chat: it ranks first among the recent ones.
+     */
+open func openedChat(sessionId: String, now: UInt64)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_phonecatchup_opened_chat(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(sessionId),
+        FfiConverterUInt64.lower(now),$0
+    )
+}
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePhoneCatchUp: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = PhoneCatchUp
+
+    public static func lift(_ handle: UInt64) throws -> PhoneCatchUp {
+        return PhoneCatchUp(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: PhoneCatchUp) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PhoneCatchUp {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: PhoneCatchUp, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePhoneCatchUp_lift(_ handle: UInt64) throws -> PhoneCatchUp {
+    return try FfiConverterTypePhoneCatchUp.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePhoneCatchUp_lower(_ value: PhoneCatchUp) -> UInt64 {
+    return FfiConverterTypePhoneCatchUp.lower(value)
+}
+
+
+
+
+
+
+/**
  * The store on one directory. Safe to call from any thread; calls are plain file I/O, so the
  * app calls writes off the main thread.
  */
@@ -6049,6 +6314,225 @@ public func FfiConverterTypePhoneReadStore_lift(_ handle: UInt64) throws -> Phon
 #endif
 public func FfiConverterTypePhoneReadStore_lower(_ value: PhoneReadStore) -> UInt64 {
     return FfiConverterTypePhoneReadStore.lower(value)
+}
+
+
+
+
+
+
+public protocol RowLayoutMemoryProtocol: AnyObject, Sendable {
+    
+    /**
+     * The keyed diff of a page's rows in `scope` (a chat, at a text size) at column `width`
+     * against the heights kept: one answer per key, in order.
+     */
+    func diff(scope: String, width: Double, keys: [RowLayoutKey])  -> [RowLayoutDiff]
+    
+    /**
+     * Drops every height kept in `scope`.
+     */
+    func forget(scope: String) 
+    
+    /**
+     * Adds the heights written by `save` at `path`; rows measured since are kept over them.
+     * How many rows it read.
+     */
+    func load(path: String)  -> UInt32
+    
+    /**
+     * A cell measured row `key` at `height` in a column `width` wide.
+     */
+    func record(scope: String, width: Double, key: RowLayoutKey, height: Double) 
+    
+    /**
+     * Writes the heights to `path` (one row per line), for the next launch. Whether it was written.
+     */
+    func save(path: String)  -> Bool
+    
+    func stats()  -> RowLayoutStats
+    
+}
+open class RowLayoutMemory: RowLayoutMemoryProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_rowlayoutmemory(self.handle, $0) }
+    }
+    /**
+     * Keeps at most `capacity` rows (at least 64).
+     */
+public convenience init(capacity: UInt32) {
+    let handle =
+        try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_rowlayoutmemory_new(
+        FfiConverterUInt32.lower(capacity),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_rowlayoutmemory(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * The keyed diff of a page's rows in `scope` (a chat, at a text size) at column `width`
+     * against the heights kept: one answer per key, in order.
+     */
+open func diff(scope: String, width: Double, keys: [RowLayoutKey]) -> [RowLayoutDiff]  {
+    return try!  FfiConverterSequenceTypeRowLayoutDiff.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_diff(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(scope),
+        FfiConverterDouble.lower(width),
+        FfiConverterSequenceTypeRowLayoutKey.lower(keys),$0
+    )
+})
+}
+    
+    /**
+     * Drops every height kept in `scope`.
+     */
+open func forget(scope: String)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_forget(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(scope),$0
+    )
+}
+}
+    
+    /**
+     * Adds the heights written by `save` at `path`; rows measured since are kept over them.
+     * How many rows it read.
+     */
+open func load(path: String) -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_load(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+    
+    /**
+     * A cell measured row `key` at `height` in a column `width` wide.
+     */
+open func record(scope: String, width: Double, key: RowLayoutKey, height: Double)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_record(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(scope),
+        FfiConverterDouble.lower(width),
+        FfiConverterTypeRowLayoutKey_lower(key),
+        FfiConverterDouble.lower(height),$0
+    )
+}
+}
+    
+    /**
+     * Writes the heights to `path` (one row per line), for the next launch. Whether it was written.
+     */
+open func save(path: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_save(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+    
+open func stats() -> RowLayoutStats  {
+    return try!  FfiConverterTypeRowLayoutStats_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_rowlayoutmemory_stats(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRowLayoutMemory: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = RowLayoutMemory
+
+    public static func lift(_ handle: UInt64) throws -> RowLayoutMemory {
+        return RowLayoutMemory(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: RowLayoutMemory) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RowLayoutMemory {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: RowLayoutMemory, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRowLayoutMemory_lift(_ handle: UInt64) throws -> RowLayoutMemory {
+    return try FfiConverterTypeRowLayoutMemory.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRowLayoutMemory_lower(_ value: RowLayoutMemory) -> UInt64 {
+    return FfiConverterTypeRowLayoutMemory.lower(value)
 }
 
 
@@ -6977,6 +7461,13 @@ public protocol TerminalProjectionProtocol: AnyObject, Sendable {
     func loadOlder(hostRows: UInt32)  -> [ProjectionSegment]
     
     /**
+     * Where a daemon `terminal-find` cell (`host_from_bottom`: 1 is the
+     * Mac's last row; its column in Mac cells) lands on the phone's rows.
+     * None: the projection does not hold that row (older than the replay).
+     */
+    func locate(hostFromBottom: UInt64, hostColumn: UInt32)  -> ProjectionLocation?
+    
+    /**
      * Mac scrollback rows older than what the surface holds (a viewport
      * change paints a window: the screen and two phone screens above it).
      */
@@ -7182,6 +7673,21 @@ open func loadOlder(hostRows: UInt32) -> [ProjectionSegment]  {
     uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_load_older(
             self.uniffiCloneHandle(),
         FfiConverterUInt32.lower(hostRows),$0
+    )
+})
+}
+    
+    /**
+     * Where a daemon `terminal-find` cell (`host_from_bottom`: 1 is the
+     * Mac's last row; its column in Mac cells) lands on the phone's rows.
+     * None: the projection does not hold that row (older than the replay).
+     */
+open func locate(hostFromBottom: UInt64, hostColumn: UInt32) -> ProjectionLocation?  {
+    return try!  FfiConverterOptionTypeProjectionLocation.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_locate(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(hostFromBottom),
+        FfiConverterUInt32.lower(hostColumn),$0
     )
 })
 }
@@ -7711,6 +8217,375 @@ public func FfiConverterTypeBrowserStats_lift(_ buf: RustBuffer) throws -> Brows
 #endif
 public func FfiConverterTypeBrowserStats_lower(_ value: BrowserStats) -> RustBuffer {
     return FfiConverterTypeBrowserStats.lower(value)
+}
+
+
+/**
+ * The reply, after the kept cursors moved past what it answered.
+ */
+public struct CatchUpAnswer: Equatable, Hashable {
+    public var tree: CatchUpTree?
+    public var workspacesJson: String?
+    /**
+     * The `_acpmux/watch` result as JSON.
+     */
+    public var chatListJson: String?
+    public var chats: [CatchUpChatPage]
+    public var cut: [CatchUpCut]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(tree: CatchUpTree?, workspacesJson: String?, 
+        /**
+         * The `_acpmux/watch` result as JSON.
+         */chatListJson: String?, chats: [CatchUpChatPage], cut: [CatchUpCut]) {
+        self.tree = tree
+        self.workspacesJson = workspacesJson
+        self.chatListJson = chatListJson
+        self.chats = chats
+        self.cut = cut
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension CatchUpAnswer: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCatchUpAnswer: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CatchUpAnswer {
+        return
+            try CatchUpAnswer(
+                tree: FfiConverterOptionTypeCatchUpTree.read(from: &buf), 
+                workspacesJson: FfiConverterOptionString.read(from: &buf), 
+                chatListJson: FfiConverterOptionString.read(from: &buf), 
+                chats: FfiConverterSequenceTypeCatchUpChatPage.read(from: &buf), 
+                cut: FfiConverterSequenceTypeCatchUpCut.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CatchUpAnswer, into buf: inout [UInt8]) {
+        FfiConverterOptionTypeCatchUpTree.write(value.tree, into: &buf)
+        FfiConverterOptionString.write(value.workspacesJson, into: &buf)
+        FfiConverterOptionString.write(value.chatListJson, into: &buf)
+        FfiConverterSequenceTypeCatchUpChatPage.write(value.chats, into: &buf)
+        FfiConverterSequenceTypeCatchUpCut.write(value.cut, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCatchUpAnswer_lift(_ buf: RustBuffer) throws -> CatchUpAnswer {
+    return try FfiConverterTypeCatchUpAnswer.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCatchUpAnswer_lower(_ value: CatchUpAnswer) -> RustBuffer {
+    return FfiConverterTypeCatchUpAnswer.lower(value)
+}
+
+
+/**
+ * What a foreground catch-up asks for besides the kept cursors.
+ */
+public struct CatchUpAsk: Equatable, Hashable {
+    /**
+     * The chat on screen, if any.
+     */
+    public var onScreenChat: String?
+    /**
+     * The `known` object (JSON) of the tree the phone draws; nil when it draws none.
+     */
+    public var knownJson: String?
+    /**
+     * What the phone's `daemon` line lists in `set-client-info`.
+     */
+    public var capabilities: [String]
+    /**
+     * Chats newest screenful first: the one on screen, then the recently opened ones.
+     */
+    public var chats: [CatchUpChatAsk]
+    /**
+     * Bytes the chats may answer with; 0 for the default (64 KiB).
+     */
+    public var budgetBytes: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The chat on screen, if any.
+         */onScreenChat: String?, 
+        /**
+         * The `known` object (JSON) of the tree the phone draws; nil when it draws none.
+         */knownJson: String?, 
+        /**
+         * What the phone's `daemon` line lists in `set-client-info`.
+         */capabilities: [String], 
+        /**
+         * Chats newest screenful first: the one on screen, then the recently opened ones.
+         */chats: [CatchUpChatAsk], 
+        /**
+         * Bytes the chats may answer with; 0 for the default (64 KiB).
+         */budgetBytes: UInt64) {
+        self.onScreenChat = onScreenChat
+        self.knownJson = knownJson
+        self.capabilities = capabilities
+        self.chats = chats
+        self.budgetBytes = budgetBytes
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension CatchUpAsk: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCatchUpAsk: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CatchUpAsk {
+        return
+            try CatchUpAsk(
+                onScreenChat: FfiConverterOptionString.read(from: &buf), 
+                knownJson: FfiConverterOptionString.read(from: &buf), 
+                capabilities: FfiConverterSequenceString.read(from: &buf), 
+                chats: FfiConverterSequenceTypeCatchUpChatAsk.read(from: &buf), 
+                budgetBytes: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CatchUpAsk, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.onScreenChat, into: &buf)
+        FfiConverterOptionString.write(value.knownJson, into: &buf)
+        FfiConverterSequenceString.write(value.capabilities, into: &buf)
+        FfiConverterSequenceTypeCatchUpChatAsk.write(value.chats, into: &buf)
+        FfiConverterUInt64.write(value.budgetBytes, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCatchUpAsk_lift(_ buf: RustBuffer) throws -> CatchUpAsk {
+    return try FfiConverterTypeCatchUpAsk.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCatchUpAsk_lower(_ value: CatchUpAsk) -> RustBuffer {
+    return FfiConverterTypeCatchUpAsk.lower(value)
+}
+
+
+/**
+ * A chat to bring up and the last event the phone holds of it (nil: the kept cursor's).
+ */
+public struct CatchUpChatAsk: Equatable, Hashable {
+    public var sessionId: String
+    public var lastSeq: UInt64?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(sessionId: String, lastSeq: UInt64?) {
+        self.sessionId = sessionId
+        self.lastSeq = lastSeq
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension CatchUpChatAsk: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCatchUpChatAsk: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CatchUpChatAsk {
+        return
+            try CatchUpChatAsk(
+                sessionId: FfiConverterString.read(from: &buf), 
+                lastSeq: FfiConverterOptionUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CatchUpChatAsk, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.sessionId, into: &buf)
+        FfiConverterOptionUInt64.write(value.lastSeq, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCatchUpChatAsk_lift(_ buf: RustBuffer) throws -> CatchUpChatAsk {
+    return try FfiConverterTypeCatchUpChatAsk.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCatchUpChatAsk_lower(_ value: CatchUpChatAsk) -> RustBuffer {
+    return FfiConverterTypeCatchUpChatAsk.lower(value)
+}
+
+
+/**
+ * One chat's page.
+ */
+public struct CatchUpChatPage: Equatable, Hashable {
+    public var sessionId: String
+    /**
+     * The `_acpmux/attach` result as JSON.
+     */
+    public var pageJson: String
+    public var throughSeq: UInt64?
+    public var hasMore: Bool
+    public var olderBefore: UInt64?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(sessionId: String, 
+        /**
+         * The `_acpmux/attach` result as JSON.
+         */pageJson: String, throughSeq: UInt64?, hasMore: Bool, olderBefore: UInt64?) {
+        self.sessionId = sessionId
+        self.pageJson = pageJson
+        self.throughSeq = throughSeq
+        self.hasMore = hasMore
+        self.olderBefore = olderBefore
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension CatchUpChatPage: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCatchUpChatPage: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CatchUpChatPage {
+        return
+            try CatchUpChatPage(
+                sessionId: FfiConverterString.read(from: &buf), 
+                pageJson: FfiConverterString.read(from: &buf), 
+                throughSeq: FfiConverterOptionUInt64.read(from: &buf), 
+                hasMore: FfiConverterBool.read(from: &buf), 
+                olderBefore: FfiConverterOptionUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CatchUpChatPage, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.sessionId, into: &buf)
+        FfiConverterString.write(value.pageJson, into: &buf)
+        FfiConverterOptionUInt64.write(value.throughSeq, into: &buf)
+        FfiConverterBool.write(value.hasMore, into: &buf)
+        FfiConverterOptionUInt64.write(value.olderBefore, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCatchUpChatPage_lift(_ buf: RustBuffer) throws -> CatchUpChatPage {
+    return try FfiConverterTypeCatchUpChatPage.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCatchUpChatPage_lower(_ value: CatchUpChatPage) -> RustBuffer {
+    return FfiConverterTypeCatchUpChatPage.lower(value)
+}
+
+
+/**
+ * Why a surface was not answered.
+ */
+public struct CatchUpCut: Equatable, Hashable {
+    /**
+     * `workspaces`, `chatList` or `chats:<id>`.
+     */
+    public var name: String
+    public var reason: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * `workspaces`, `chatList` or `chats:<id>`.
+         */name: String, reason: String) {
+        self.name = name
+        self.reason = reason
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension CatchUpCut: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCatchUpCut: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CatchUpCut {
+        return
+            try CatchUpCut(
+                name: FfiConverterString.read(from: &buf), 
+                reason: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CatchUpCut, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterString.write(value.reason, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCatchUpCut_lift(_ buf: RustBuffer) throws -> CatchUpCut {
+    return try FfiConverterTypeCatchUpCut.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCatchUpCut_lower(_ value: CatchUpCut) -> RustBuffer {
+    return FfiConverterTypeCatchUpCut.lower(value)
 }
 
 
@@ -9752,6 +10627,69 @@ public func FfiConverterTypeProjectionHeld_lower(_ value: ProjectionHeld) -> Rus
 
 
 /**
+ * A `terminal-find` cell on the phone's re-wrapped rows.
+ */
+public struct ProjectionLocation: Equatable, Hashable {
+    /**
+     * Rows from the bottom of the re-wrapped content (1: its last row).
+     */
+    public var fromBottom: UInt64
+    public var column: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Rows from the bottom of the re-wrapped content (1: its last row).
+         */fromBottom: UInt64, column: UInt32) {
+        self.fromBottom = fromBottom
+        self.column = column
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ProjectionLocation: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProjectionLocation: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProjectionLocation {
+        return
+            try ProjectionLocation(
+                fromBottom: FfiConverterUInt64.read(from: &buf), 
+                column: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ProjectionLocation, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.fromBottom, into: &buf)
+        FfiConverterUInt32.write(value.column, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionLocation_lift(_ buf: RustBuffer) throws -> ProjectionLocation {
+    return try FfiConverterTypeProjectionLocation.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionLocation_lower(_ value: ProjectionLocation) -> RustBuffer {
+    return FfiConverterTypeProjectionLocation.lower(value)
+}
+
+
+/**
  * Bytes painted and surface resets, for the sizing log and benches.
  */
 public struct ProjectionStats: Equatable, Hashable {
@@ -11367,6 +12305,166 @@ public func FfiConverterTypeAutoHttpError_lower(_ value: AutoHttpError) -> RustB
     return FfiConverterTypeAutoHttpError.lower(value)
 }
 
+
+public enum CatchUpError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+    
+    
+    case Reply(message: String
+    )
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
+}
+
+#if compiler(>=6)
+extension CatchUpError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCatchUpError: FfiConverterRustBuffer {
+    typealias SwiftType = CatchUpError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CatchUpError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .Reply(
+            message: try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: CatchUpError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .Reply(message):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(message, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCatchUpError_lift(_ buf: RustBuffer) throws -> CatchUpError {
+    return try FfiConverterTypeCatchUpError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCatchUpError_lower(_ value: CatchUpError) -> RustBuffer {
+    return FfiConverterTypeCatchUpError.lower(value)
+}
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * What the reply said of the workspace tree.
+ */
+
+public enum CatchUpTree: Equatable, Hashable {
+    
+    /**
+     * The whole tree: `workspaces_json` is the `list-workspaces` reply's `data`.
+     */
+    case whole
+    /**
+     * The tree the phone draws stands.
+     */
+    case unchanged
+    /**
+     * Only the entries changed since a `since` cursor.
+     */
+    case delta
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension CatchUpTree: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCatchUpTree: FfiConverterRustBuffer {
+    typealias SwiftType = CatchUpTree
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CatchUpTree {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .whole
+        
+        case 2: return .unchanged
+        
+        case 3: return .delta
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: CatchUpTree, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .whole:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .unchanged:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .delta:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCatchUpTree_lift(_ buf: RustBuffer) throws -> CatchUpTree {
+    return try FfiConverterTypeCatchUpTree.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCatchUpTree_lower(_ value: CatchUpTree) -> RustBuffer {
+    return FfiConverterTypeCatchUpTree.lower(value)
+}
+
+
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
@@ -11816,6 +12914,90 @@ public func FfiConverterTypeChatPromptOutcome_lift(_ buf: RustBuffer) throws -> 
 #endif
 public func FfiConverterTypeChatPromptOutcome_lower(_ value: ChatPromptOutcome) -> RustBuffer {
     return FfiConverterTypeChatPromptOutcome.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * What to do after the Mac answered a prompt with an error.
+ */
+
+public enum ChatRefusal: Equatable, Hashable {
+    
+    /**
+     * The Mac said "not now" (starting, busy, restarting, ...): the prompt goes again after
+     * `retry_in_ms` (attempt `attempt` of the retries) and keeps looking sent or retrying.
+     */
+    case retry(attempt: UInt32, retryInMs: UInt64
+    )
+    /**
+     * A real refusal: the prompt is given back; its error text is the Mac's own.
+     */
+    case final(done: ChatPromptDone
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension ChatRefusal: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeChatRefusal: FfiConverterRustBuffer {
+    typealias SwiftType = ChatRefusal
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ChatRefusal {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .retry(attempt: try FfiConverterUInt32.read(from: &buf), retryInMs: try FfiConverterUInt64.read(from: &buf)
+        )
+        
+        case 2: return .final(done: try FfiConverterTypeChatPromptDone.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ChatRefusal, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .retry(attempt,retryInMs):
+            writeInt(&buf, Int32(1))
+            FfiConverterUInt32.write(attempt, into: &buf)
+            FfiConverterUInt64.write(retryInMs, into: &buf)
+            
+        
+        case let .final(done):
+            writeInt(&buf, Int32(2))
+            FfiConverterTypeChatPromptDone.write(done, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeChatRefusal_lift(_ buf: RustBuffer) throws -> ChatRefusal {
+    return try FfiConverterTypeChatRefusal.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeChatRefusal_lower(_ value: ChatRefusal) -> RustBuffer {
+    return FfiConverterTypeChatRefusal.lower(value)
 }
 
 
@@ -12280,6 +13462,92 @@ public func FfiConverterTypeFollowCameraMode_lift(_ buf: RustBuffer) throws -> F
 #endif
 public func FfiConverterTypeFollowCameraMode_lower(_ value: FollowCameraMode) -> RustBuffer {
     return FfiConverterTypeFollowCameraMode.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Why keys held for a detached terminal are dropped.
+ */
+
+public enum HeldKeysExpiryReason: Equatable, Hashable {
+    
+    /**
+     * The terminal's reconnect gave up.
+     */
+    case gaveUp
+    /**
+     * The Mac was offline and the link made no progress for the hold.
+     */
+    case offline
+    /**
+     * A key waited past the ceiling.
+     */
+    case ceiling
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension HeldKeysExpiryReason: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHeldKeysExpiryReason: FfiConverterRustBuffer {
+    typealias SwiftType = HeldKeysExpiryReason
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HeldKeysExpiryReason {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .gaveUp
+        
+        case 2: return .offline
+        
+        case 3: return .ceiling
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: HeldKeysExpiryReason, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .gaveUp:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .offline:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .ceiling:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHeldKeysExpiryReason_lift(_ buf: RustBuffer) throws -> HeldKeysExpiryReason {
+    return try FfiConverterTypeHeldKeysExpiryReason.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHeldKeysExpiryReason_lower(_ value: HeldKeysExpiryReason) -> RustBuffer {
+    return FfiConverterTypeHeldKeysExpiryReason.lower(value)
 }
 
 
@@ -13205,7 +14473,7 @@ public enum MailboxState: Equatable, Hashable {
     )
     case expired
     /**
-     * 
+     * "Not confirmed by <Mac>": the outcome came without the Mac's valid signature.
      */
     case notConfirmed
     /**
@@ -14637,6 +15905,30 @@ fileprivate struct FfiConverterOptionTypePredictionLayout: FfiConverterRustBuffe
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeProjectionLocation: FfiConverterRustBuffer {
+    typealias SwiftType = ProjectionLocation?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeProjectionLocation.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeProjectionLocation.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeTranscriptPaint: FfiConverterRustBuffer {
     typealias SwiftType = TranscriptPaint?
 
@@ -14653,6 +15945,30 @@ fileprivate struct FfiConverterOptionTypeTranscriptPaint: FfiConverterRustBuffer
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeTranscriptPaint.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeCatchUpTree: FfiConverterRustBuffer {
+    typealias SwiftType = CatchUpTree?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeCatchUpTree.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeCatchUpTree.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -14701,6 +16017,54 @@ fileprivate struct FfiConverterOptionTypeChatEditStep: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeChatEditStep.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeChatRefusal: FfiConverterRustBuffer {
+    typealias SwiftType = ChatRefusal?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeChatRefusal.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeChatRefusal.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeHeldKeysExpiryReason: FfiConverterRustBuffer {
+    typealias SwiftType = HeldKeysExpiryReason?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeHeldKeysExpiryReason.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeHeldKeysExpiryReason.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -14805,6 +16169,31 @@ fileprivate struct FfiConverterOptionSequenceTypeKeychainLeftover: FfiConverterR
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceUInt64: FfiConverterRustBuffer {
+    typealias SwiftType = [UInt64]
+
+    public static func write(_ value: [UInt64], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterUInt64.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [UInt64] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [UInt64]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterUInt64.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
     typealias SwiftType = [String]
 
@@ -14847,6 +16236,81 @@ fileprivate struct FfiConverterSequenceData: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterData.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeCatchUpChatAsk: FfiConverterRustBuffer {
+    typealias SwiftType = [CatchUpChatAsk]
+
+    public static func write(_ value: [CatchUpChatAsk], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeCatchUpChatAsk.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [CatchUpChatAsk] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [CatchUpChatAsk]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeCatchUpChatAsk.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeCatchUpChatPage: FfiConverterRustBuffer {
+    typealias SwiftType = [CatchUpChatPage]
+
+    public static func write(_ value: [CatchUpChatPage], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeCatchUpChatPage.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [CatchUpChatPage] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [CatchUpChatPage]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeCatchUpChatPage.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeCatchUpCut: FfiConverterRustBuffer {
+    typealias SwiftType = [CatchUpCut]
+
+    public static func write(_ value: [CatchUpCut], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeCatchUpCut.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [CatchUpCut] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [CatchUpCut]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeCatchUpCut.read(from: &buf))
         }
         return seq
     }
@@ -15706,6 +17170,36 @@ public func terminalLeanStreamCapabilities() -> [String]  {
 })
 }
 /**
+ * Whether a refused `catch-up` open (its close code) means the Mac has no such service, so
+ * the app asks by today's separate calls.
+ */
+public func catchUpFallsBack(code: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_catch_up_falls_back(
+        FfiConverterString.lower(code),$0
+    )
+})
+}
+/**
+ * The link service to open.
+ */
+public func catchUpService() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_catch_up_service($0
+    )
+})
+}
+/**
+ * The quiet window a chat's outbox starts with, in milliseconds: how long a prompt may go with
+ * no progress at all before it comes back (one place for every source's default).
+ */
+public func chatPromptDefaultHoldMs() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_chat_prompt_default_hold_ms($0
+    )
+})
+}
+/**
  * Whether this launch should run the cleanup: the marker is missing, not a
  * number, or from an older version of the rules.
  */
@@ -15746,6 +17240,36 @@ public func classicCleanupPlan(bundleId: String, keychain: [KeychainLeftover]?, 
 public func classicCleanupVersion() -> Int64  {
     return try!  FfiConverterInt64.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_func_classic_cleanup_version($0
+    )
+})
+}
+/**
+ * The folder (in the app's own container) where the LAN direct path keeps
+ * this phone's key and what each Mac told it; `None` turns the path off.
+ * Call once at launch, before `connect`.
+ */
+public func setLanMemoryDir(dir: String?)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_set_lan_memory_dir(
+        FfiConverterOptionString.lower(dir),$0
+    )
+}
+}
+/**
+ * Keys held for a detached terminal, typed `typed_ages_ms` ago: why they go now, or none while
+ * they wait. `offline_age_ms`: how long the Mac has been called offline, while it is;
+ * `progress_age_ms`: how long since the link's last progress (`LinkProgressClock`), if it made
+ * any. `hold_ms` bounds silence on the link while offline; `ceiling_ms` a key's age. Ages, not
+ * instants, so the terminal's own clock and the link's need not share an origin.
+ */
+public func heldKeysExpiry(typedAgesMs: [UInt64], gaveUp: Bool, offlineAgeMs: UInt64?, progressAgeMs: UInt64?, holdMs: UInt64, ceilingMs: UInt64) -> HeldKeysExpiryReason?  {
+    return try!  FfiConverterOptionTypeHeldKeysExpiryReason.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_held_keys_expiry(
+        FfiConverterSequenceUInt64.lower(typedAgesMs),
+        FfiConverterBool.lower(gaveUp),
+        FfiConverterOptionUInt64.lower(offlineAgeMs),
+        FfiConverterOptionUInt64.lower(progressAgeMs),
+        FfiConverterUInt64.lower(holdMs),
+        FfiConverterUInt64.lower(ceilingMs),$0
     )
 })
 }
@@ -16257,6 +17781,15 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_lean_stream_capabilities() != 31447) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_catch_up_falls_back() != 45409) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_catch_up_service() != 29923) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_chat_prompt_default_hold_ms() != 62257) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_due() != 41191) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -16267,6 +17800,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_version() != 33020) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_lan_memory_dir() != 45946) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_held_keys_expiry() != 25051) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_link_open_side() != 2441) {
@@ -16437,6 +17976,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_ping() != 22934) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_prewake() != 45304) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_probe() != 33821) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -16545,6 +18087,18 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_browserstream_stats() != 19072) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonecatchup_apply() != 48986) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonecatchup_encode() != 59540) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonecatchup_foreground_request() != 11595) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonecatchup_opened_chat() != 40317) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_answered() != 15608) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -16590,13 +18144,25 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_pending() != 54210) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_progressed() != 31423) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_push() != 17318) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_refusal() != 43521) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_refused() != 29414) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_remove_answered() != 16820) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_resend_notice() != 24209) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_retry_in_ms() != 54953) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_retry_now() != 65206) {
@@ -16612,6 +18178,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_upload_failed() != 33281) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_upload_progressed() != 53726) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_uploaded() != 45828) {
@@ -16702,6 +18271,15 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_lastplacestore_tick() != 16119) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkprogressclock_last_progress_ms() != 56760) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkprogressclock_progressed() != 37804) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkprogressclock_stall_left_ms() != 48741) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_macscreenobserver_on_candidate() != 24716) {
@@ -16944,6 +18522,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_load_older() != 3182) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_locate() != 7181) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_older_rows() != 21444) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -16968,16 +18549,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_take_replies() != 21867) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_autochats_new() != 34463) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_transcript_paint() != 19776) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_transcript_rows_above() != 55469) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_chatpromptoutbox_new() != 32253) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_autochats_new() != 34463) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_phonecatchup_open() != 21440) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_chatpromptoutbox_new() != 37424) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_composeroutbox_new() != 19978) {
@@ -16987,6 +18571,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_lastplacestore_open() != 12350) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_linkprogressclock_new() != 49746) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_macscreenrd_new() != 49279) {
