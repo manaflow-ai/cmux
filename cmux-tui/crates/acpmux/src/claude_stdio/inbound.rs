@@ -84,6 +84,10 @@ impl Translator {
                 .get("compact_result")
                 .and_then(Value::as_str)
                 .is_some_and(|result| result != "success");
+        // The turn's last assistant line on the main loop: Claude Code's own API error or not.
+        if kind == "assistant" && parent.is_none() {
+            *self.api_error.lock().await = super::api_error::text(line);
+        }
         if kind == "assistant"
             || (kind == "system" && (sub == "conversation_reset" || sub == "compact_boundary"))
             || compaction_failed
@@ -593,10 +597,10 @@ impl Translator {
                         if req.get("callback_id").and_then(Value::as_str)
                             == Some(dedupe::DEDUPE_CALLBACK) =>
                     {
-                        self.dedupe_hook(&rid, &req).await;
+                        self.dedupe_hook(&rid, req).await;
                     }
                     // A registered hook fired: answered with no decision (hook_callback.rs).
-                    Some("hook_callback") => self.answer_hook_callback(&rid, &req).await,
+                    Some("hook_callback") => self.answer_hook_callback(&rid, req).await,
                     // Anything else (mcp_message) is declined with an error
                     // response, so claude does not wait on it.
                     other => self.decline_control(&rid, other.unwrap_or("?")).await,
@@ -748,7 +752,11 @@ impl Translator {
                 }
                 // `is_error` with a success subtype is how Claude reports a
                 // usage limit or an API refusal: a failed turn, not a reply.
-                let is_error = line.get("is_error").and_then(Value::as_bool).unwrap_or(false);
+                // So is a "success" right after Claude Code's own API error line (`api_error.rs`).
+                let api_failure =
+                    super::api_error::failure(line, self.api_error.lock().await.take());
+                let is_error = line.get("is_error").and_then(Value::as_bool).unwrap_or(false)
+                    || api_failure.is_some();
                 // A resumed process emits one empty result (num_turns 0, no
                 // API time) right after its system/init, before the real
                 // turn. That is startup noise, not the end of our prompt; a
@@ -932,7 +940,10 @@ impl Translator {
                     && stop != "max_turn_requests"
                 {
                     Err(RpcError::internal(
-                        line.get("result").and_then(Value::as_str).unwrap_or(sub),
+                        api_failure
+                            .as_deref()
+                            .or_else(|| line.get("result").and_then(Value::as_str))
+                            .unwrap_or(sub),
                     ))
                 } else {
                     let mut claude = json!({"subtype": sub, "cost_usd": line.get("total_cost_usd"), "usage": line.get("usage"), "num_turns": line.get("num_turns")});

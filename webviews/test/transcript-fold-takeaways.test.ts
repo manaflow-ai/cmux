@@ -2,9 +2,21 @@
 // narration folds with it. The arms that keep every reply in sight (Leo, 2026-11-06) are tested in
 // turn-fold-keeps-replies.test.ts.
 // Short narration between steps folds with them. While running, intermediate dialogue remains visible.
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, test, beforeEach } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { isTakeaway, turnFoldFor, turnView, toggleTurnFold } from "../src/agent-session/acpmux/conversation/turns";
+
+// These pin how a running turn's calls draw in sight, the `open` live arm they were written for;
+// the shipped `folded` keeps them under a closed "Working for" (#50987, live-turn-folds-to-line.test.ts).
+let armsBefore: typeof globalThis.cmuxExperiments;
+beforeEach(() => {
+  armsBefore = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { ...armsBefore, "live-turn-work": "open" };
+});
+afterEach(() => {
+  if (armsBefore === undefined) delete globalThis.cmuxExperiments;
+  else globalThis.cmuxExperiments = armsBefore;
+});
 
 /// These cases read a steered turn as one fold (turnFoldSteered `nested-open`); its in-order default,
 /// each message that came in mid-turn ending a fold, is turn-fold-in-order.test.ts's.
