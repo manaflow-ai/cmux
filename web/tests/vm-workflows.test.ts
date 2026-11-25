@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import postgres, { type Sql } from "postgres";
@@ -9278,6 +9279,40 @@ describe("private SCP workflow", () => {
     expect(error?._tag).toBe("VmProviderOperationError");
     const cause = error && "cause" in error ? error.cause as { name?: string } : null;
     expect(cause?.name).toBe("ProviderGuestUnresponsiveError");
+  });
+
+  // Production (https://github.com/manaflow-ai/cmux/issues/44823): a paused
+  // machine's resume takes ~107 s at the median, longer than the 45 s answer.
+  // The route answered vm_guest_unresponsive at 45 s and stopped the resume
+  // 60 s later, so every retry started the resume over.
+  test("answers in progress while a slow resume runs, and lets the resume and setup finish", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-scp-slow-resume", status: "paused", billingPlanId: "pro" });
+    let probes = 0;
+    let resumed = false;
+    let setups = 0;
+    const endpoint = { host: "10.1.2.3", port: 22, username: "cmux", hostPublicKey: "guest-key", expiresAtUnix: 123 };
+    const layer = workflowLayer(testWorkflowRepo({ vm }), {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed(probes++ === 0 ? "paused" as const : "running" as const),
+      resume: () => Effect.sleep(110_000).pipe(
+        Effect.map(() => { resumed = true; return testVmHandle({ providerVmId: "vm-scp-slow-resume" }); }),
+      ),
+      prepareSCP: () => Effect.sync(() => { setups++; return endpoint; }),
+    });
+    const { exit } = await settleOnTestClock(Effect.gen(function* () {
+      const error = yield* prepareScpEndpoint({ userId: vm.userId, providerVmId: "vm-scp-slow-resume", publicKey: "client-key", callerPlanId: "pro" }).pipe(Effect.flip);
+      const answeredAtMs = yield* Clock.currentTimeMillis;
+      // Keep the clock running past the resume, inside the route's 300 s maxDuration.
+      yield* Effect.sleep(250_000);
+      return { error, answeredAtMs };
+    }).pipe(Effect.provide(layer)), { giveUpAtMs: 300_000 });
+    expect(exit).not.toBeNull();
+    const { error, answeredAtMs } = await Effect.runPromise(exit!);
+    expect(answeredAtMs).toBeLessThan(60_000);
+    // Retryable "in progress" (503 vm_operation_in_progress), not a stuck guest.
+    expect(error).toMatchObject({ _tag: "VmOperationDeadlineError", mutating: true });
+    expect(resumed).toBe(true);
+    expect(setups).toBe(1);
   });
 
   test("the answer bound covers a slow status probe after a failed setup", async () => {
