@@ -525,8 +525,17 @@ fn direct_refusal(direct: &[String], why: impl Fn(&str) -> String) -> String {
 }
 
 fn starting_status(plan: &SpawnPlan) -> String {
+    let queued = if plan.queued.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " Queued {} (#{} in line) for a free slot.",
+            plan.queued.join(", "),
+            plan.queued_ahead + 1
+        )
+    };
     format!(
-        "Starting {}. The host will report each subagent start or failure.",
+        "Starting {}.{queued} The host will report each subagent start or failure; the start lines (machine, directory) follow as a note. Each one's report reaches you as a message, \"[id] report\", when it finishes; never wait or poll for them.",
         plan.ids.join(", ")
     )
 }
@@ -584,6 +593,11 @@ pub struct Spawner {
     /// A Claude subagent here works under `/goal` until its task is done
     /// (goal.rs), unless the person turned it off; off in a bare Spawner.
     goal: bool,
+    /// `OPTCHAT_SPAWN_BACKGROUND=1` (Lucas's latency item 4, default off):
+    /// `spawn` answers once its ids are registered and starts the sessions
+    /// on a thread; the detailed start lines reach the turn as a note.
+    /// Off: `spawn` answers after the sessions start, with those lines.
+    background_start: bool,
 }
 
 impl Clone for Spawner {
@@ -612,6 +626,7 @@ impl Clone for Spawner {
             families: self.families.clone(),
             user_settings: self.user_settings.clone(),
             goal: self.goal,
+            background_start: self.background_start,
         }
     }
 }
@@ -648,7 +663,14 @@ impl Spawner {
             families: BTreeMap::new(),
             user_settings: None,
             goal: false,
+            background_start: false,
         }
+    }
+
+    /// `spawn` answers before its sessions start (see `background_start`).
+    pub fn with_background_start(mut self, on: bool) -> Spawner {
+        self.background_start = on;
+        self
     }
 
     /// Claude subagents here start under `/goal` (goal.rs) and on Opus 5.5
@@ -2384,6 +2406,21 @@ impl Orchestrator for Spawner {
         let plan = answer
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())??;
+        if !self.background_start {
+            return self
+                .finish_spawn(
+                    tasks,
+                    cwd,
+                    effort,
+                    harness,
+                    model,
+                    routed_note,
+                    default_harness,
+                    plan.clone(),
+                    began,
+                )
+                .inspect_err(|error| self.fail_starting(&plan, error.clone()));
+        }
         let status = starting_status(&plan);
         let worker = self.clone();
         let plan_for_failure = plan.clone();
@@ -2403,7 +2440,12 @@ impl Orchestrator for Spawner {
                     began,
                 );
                 match result {
-                    Ok(note) => (worker.log)(&format!("spawn completed: {note}")),
+                    Ok(note) => {
+                        (worker.log)(&format!("spawn completed: {note}"));
+                        let _ = worker.to_brain(Input::SpawnStartNote {
+                            text: format!("[spawn {}] {note}", plan_for_failure.spawn),
+                        });
+                    }
                     Err(error) => {
                         (worker.log)(&format!("spawn worker failed: {error}"));
                         worker.fail_starting(&plan_for_failure, error);
@@ -2848,10 +2890,11 @@ mod tests {
             placements: Vec::new(),
         };
         let started = starting_status(&plan);
-        assert_eq!(
-            started,
-            "Starting a1, a2. The host will report each subagent start or failure."
+        assert!(
+            started.starts_with("Starting a1, a2. Queued a2 (#1 in line)"),
+            "{started}"
         );
+        assert!(started.contains("never wait or poll"), "{started}");
         assert!(!started.contains("Started"));
     }
 }
