@@ -553,6 +553,9 @@ type Props = {
   authChecking?: boolean;
   /// Opens Session Info at its Context section: the context ring's card links to it (Details ›).
   onOpenContext?(): void;
+  /// Sends the agent's /compact: the context ring's card shows Compact conversation above Details
+  /// only with it (Leo 2026-11-25: "honestly do we want a compact button here or...").
+  onCompact?(): void;
   /// Reconnects the acpmux peer a chat on another machine runs on, from the quiet row's link
   /// (MachineLinkStatus.tsx).
   onReconnectMachine?(link: PeerLink): Promise<unknown> | void;
@@ -825,6 +828,7 @@ function ComposerFrame({
   authChecking = false,
   placeholder,
   onOpenContext,
+  onCompact,
   onReconnectMachine,
   onDraftChange,
   attachRefusal,
@@ -3787,6 +3791,9 @@ function ComposerFrame({
                 cacheExpiresAt={usage?.cacheExpiresAt}
                 breakdown={snapshot.summary?.contextBreakdown}
                 onOpenDetails={onOpenContext}
+                onCompact={onCompact}
+                // A turn or a compaction running (a compaction is a turn): the row stays, inert.
+                compactDisabled={running}
                 {...(composerRing === "planUsage"
                   ? {
                       plan: {
