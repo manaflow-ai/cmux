@@ -50,6 +50,23 @@ fn a_prompt_that_cannot_be_rebuilt_is_not_resent() {
 
 #[test]
 fn a_continuation_names_the_error_it_continues_after() {
-    assert!(continue_text("x", "transport").contains("a connection error (x)"));
-    assert!(continue_text("simulated internal error", "error").contains("cut off by an error"));
+    assert!(
+        super::super::continue_text_at("x", "transport", None, 0)
+            .contains("a connection error (x)")
+    );
+    assert!(
+        super::super::continue_text_at("simulated internal error", "error", None, 0)
+            .contains("cut off by an error")
+    );
+    // 2026-11-24T22:41:00Z cut, 23:02:00Z resumed.
+    let timed = super::super::continue_text_at(
+        "529",
+        "capacity",
+        Some(1_795_560_060_000),
+        1_795_561_320_000,
+    );
+    assert!(
+        timed.starts_with("Your previous turn was cut off by a capacity error upstream (the provider or the gateway was full) (529) at 22:41Z; acpmux paused the chat until now (23:02Z). Check"),
+        "{timed}"
+    );
 }
