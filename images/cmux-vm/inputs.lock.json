@@ -716,6 +716,7 @@
       "size": 160727443,
       "format": "tar.gz",
       "bin": { "codex": "bin/codex" },
+      "companions": ["bin/codex-code-mode-host"],
       "versionArgs": ["--version"],
       "expect": "0.160.0"
     },
