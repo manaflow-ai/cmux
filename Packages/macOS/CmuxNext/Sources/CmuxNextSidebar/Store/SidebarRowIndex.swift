@@ -171,6 +171,12 @@ extension SidebarListView {
                 }
             }
             if cardChanged, shownCard == ws.id { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(ws.id)) }
+            // An agent-started session that began or stopped waiting on the person shows or hides again
+            // (`SidebarSessionTreeState.hidesStarted`): the list lays out, whether it draws the row now or not.
+            if SidebarSessionTree.shared.drawn(keeping: model.selection)?.patchChangesHidden(from: previous, to: ws) == true {
+                heightChanged = true
+                continue
+            }
             guard let row = displayed.row(for: .workspace(ws.id)), let section = sections[row.section] else {
                 // A session a folded parent hides: the parent's roll-up counts its state, so the list lays out
                 // again when that state moves, not on each step or title it reports.
@@ -240,7 +246,7 @@ nonisolated extension SidebarLayout {
     /// group (``SidebarSection/drawsAsGroup``) has its group bar instead. The one rule for every header kind.
     static func keepsHeaderInOneList(_ section: SidebarSection) -> Bool {
         // A Cloud machine has no header of its own (2026-11-10: a Cloud chat's workspace is an ordinary row
-        // with a cloud mark by its name; the machine's name is never shown): only a remote group a person made.
+        // with no cloud mark, cmux#55668; the machine's name is never shown): only a remote group a person made.
         section.isHostGroup && !section.drawsAsGroup
     }
 
@@ -251,7 +257,7 @@ nonisolated extension SidebarLayout {
     static func machineLabel(_ section: SidebarSection, options o: SidebarLayoutOptions) -> String? {
         guard o.flattensMachines, let machine = section.machine, machine.kind != .local
         else { return nil }
-        // A Cloud row never names its machine: its cloud mark says where it runs, and only a status the person must act on is said.
+        // A Cloud row never names its machine (its chat's tab wears the cloud): only a status the person must act on is said.
         if machine.kind == .cloud { return o.machineStatusLabels[machine.id] }
         return o.machineStatusLabels[machine.id].map { machine.name + WorkspaceRowContent.separator + $0 } ?? machine.name
     }

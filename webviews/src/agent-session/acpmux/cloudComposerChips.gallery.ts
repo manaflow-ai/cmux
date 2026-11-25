@@ -11,7 +11,7 @@
 import { agentPaneEntry, type AgentPaneVariant } from "../../gallery/format";
 import { noChat } from "../../gallery/fixtures/acpmux";
 import type { Play, PlayContext } from "../../gallery/play";
-import { COMPOSER_EDITOR } from "./composerSelectors";
+import { COMPOSER_EDITOR, MODEL_PICKER } from "./composerSelectors";
 
 const FIELD = COMPOSER_EDITOR;
 const STRIP = ".acpmux-composer-context";
@@ -68,22 +68,9 @@ async function pickCloud(ctx: PlayContext) {
   await environmentSettled(ctx);
 }
 
-/// The Environment chip's column has finished opening (cloudEnvironmentChip.css: it opens from 0 to
-/// its width as Cloud is picked), so each label is measured at rest, not part way through.
+/// The strip has settled after Cloud was picked, so each label is measured at rest.
 async function environmentSettled(ctx: PlayContext) {
-  const view = ctx.document.defaultView!;
-  await ctx.waitFor(
-    () => {
-      const slot = ctx.document.querySelector(`${STRIP} .acpmux-cloud-env-slot[data-shown="true"]`);
-      const chip = slot?.querySelector(".acpmux-cloud-env");
-      if (!slot || !chip) return false;
-      return (
-        view.getComputedStyle(slot).opacity === "1" && slot.getBoundingClientRect().width >= chip.scrollWidth - 0.5
-      );
-    },
-    { capMs: 5_000 },
-  );
-  await frames(view);
+  await frames(ctx.document.defaultView!);
 }
 
 /// Each chip's label text that is cut, ends in "…", or reads the bare placeholder.
@@ -122,36 +109,18 @@ function chipProblems(document: Document): string[] {
   return problems;
 }
 
-/// The Environment chip gives way first (cmux#39001, the coordinator's decision on Leo's authority:
-/// "at narrow composer widths, the Environment chip collapses to its icon first, with its label
-/// moving into its tooltip, before anything else gives way. Nothing changes at full width."): from
-/// the 760 px stage up it reads “Environment: Auto”; at 400 px it is its icon alone, still named
-/// “Cloud environment: Auto” by its accessible name and its tooltip.
+/// Cloud's environment is a Settings choice (Settings > Cloud, Default image; cmux#51731), not a
+/// composer chip: with Cloud picked the strip shows no Environment chip at any width.
 function environmentProblems(document: Document): string[] {
   const width = document.defaultView!.innerWidth;
-  const chip = document.querySelector(`${STRIP} .acpmux-cloud-env-slot[data-shown="true"] .acpmux-cloud-env`);
-  if (!chip) return [`the Environment chip is not shown with Cloud picked at ${width}px`];
-  const label = chip.querySelector(".acpmux-location-label");
-  const named = !!label && visible(label);
-  const problems: string[] = [];
-  if (width >= WIDE_ENOUGH && !named)
-    problems.push(`the Environment chip drops its name at ${width}px; nothing changes at full width`);
-  if (width <= NARROW && named)
-    problems.push(`the Environment chip keeps its name “${textOf(label!)}” at ${width}px; it gives way first`);
-  const button = chip.querySelector(".acpmux-location-button");
-  const tooltip = chip.getAttribute("data-tooltip") ?? chip.getAttribute("title") ?? "";
-  for (const [what, text] of [
-    ["accessible name", button?.getAttribute("aria-label") ?? ""],
-    ["tooltip", tooltip],
-  ] as const)
-    if (!/environment: \S/i.test(text)) problems.push(`the Environment chip's ${what} reads “${text}” at ${width}px`);
-  return problems;
+  const chip = document.querySelector(`${STRIP} .acpmux-cloud-env, ${STRIP} [aria-label^="Cloud environment"]`);
+  return chip ? [`the composer shows an Environment chip with Cloud picked at ${width}px`] : [];
 }
 
 /// The chips at the stage's width, then at the narrow 400 px a split leaves (the health check renders
 /// the normal width only, so the play narrows the pane itself).
 const NARROW = 400;
-/// The entry's normal stage, where every chip, the Environment chip's name too, shows whole.
+/// The entry's normal stage, where every chip shows whole.
 const WIDE_ENOUGH = 760;
 /// The full width a wide pane gives the composer.
 const FULL = 1100;
@@ -266,10 +235,7 @@ const atStage = (state: State) =>
 const WIDTHS = { full: FULL, "760": WIDE_ENOUGH, "400": NARROW } as const;
 const atWidth = (name: string, state: State, label: keyof typeof WIDTHS) => {
   const width = WIDTHS[label];
-  const shows =
-    width <= NARROW
-      ? "the Environment chip is its icon alone (its name in its tooltip) and every other chip shows whole"
-      : "every chip shows whole, the Environment chip with its name";
+  const shows = "no Environment chip, and every chip shows whole";
   return variant(
     `${name} at ${label === "full" ? "full width" : `${width} px`}: ${shows}.`,
     state.team,
@@ -292,6 +258,105 @@ const widthVariants = Object.fromEntries(
   ),
 );
 
+/// The model chip holds still (cmux#53226, the person: "we need to make sure that the model picker doesn't move
+/// around and stuff when i select cloud, change modes and stuff"). Every frame from This Mac at rest through Cloud,
+/// a Mode pick and back to This Mac, the model chip's box is where it was at rest (within rounding), and the
+/// location strip's chips keep their row. A frame with no model chip is a move too.
+const MODEL = MODEL_PICKER;
+const SHIFT_PX = 1;
+type Box = { x: number; y: number; width: number; height: number };
+const boxOf = (element: Element | null): Box | null => {
+  if (!element) return null;
+  const rect = element.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0
+    ? { x: rect.left, y: rect.top, width: rect.width, height: rect.height }
+    : null;
+};
+const moved = (box: Box | null, rest: Box) =>
+  !box ||
+  Math.abs(box.x - rest.x) > SHIFT_PX ||
+  Math.abs(box.y - rest.y) > SHIFT_PX ||
+  Math.abs(box.width - rest.width) > SHIFT_PX ||
+  Math.abs(box.height - rest.height) > SHIFT_PX;
+const shown = (box: Box | null) =>
+  box ? `${Math.round(box.x)},${Math.round(box.y)} ${Math.round(box.width)}x${Math.round(box.height)}` : "gone";
+
+const modelHoldsStill: Play = async (ctx) => {
+  const view = ctx.document.defaultView as Frame;
+  await ctx.waitFor(() => ctx.document.querySelector(FIELD), { capMs: 10_000 });
+  await ctx
+    .waitFor(() => boxOf(ctx.document.querySelector(MODEL)) && ctx.document.querySelector(".acpmux-mode-text"), {
+      capMs: 10_000,
+    })
+    .catch((error: Error) => {
+      const has = (selector: string) => (ctx.document.querySelector(selector) ? "shown" : "missing");
+      throw new Error(`at rest: model chip ${has(MODEL)}, Mode text ${has(".acpmux-mode-text")}: ${error.message}`);
+    });
+  // At rest: the model chip's box unchanged for 5 frames running (its label can arrive after the chip shows).
+  let rest = boxOf(ctx.document.querySelector(MODEL))!;
+  for (let still = 0, frame = 0; still < 5 && frame < 120; frame++) {
+    await frames(view);
+    const now = boxOf(ctx.document.querySelector(MODEL));
+    if (now && !moved(now, rest)) still++;
+    else {
+      still = 0;
+      if (now) rest = now;
+    }
+  }
+  const stripTop = () => boxOf(ctx.document.querySelector(STRIP))?.y;
+  const restStrip = stripTop();
+  // Each frame's model box, by the step it belongs to.
+  let step = "This Mac";
+  const problems: string[] = [];
+  let sampling = true;
+  const sample = () => {
+    if (!sampling) return;
+    const box = boxOf(ctx.document.querySelector(MODEL));
+    if (moved(box, rest) && problems.length < 6)
+      problems.push(`${step}: the model chip is at ${shown(box)}, it rested at ${shown(rest)}`);
+    const top = stripTop();
+    if (restStrip !== undefined && top !== undefined && Math.abs(top - restStrip) > SHIFT_PX && problems.length < 6)
+      problems.push(`${step}: the location strip's row moved from y ${Math.round(restStrip)} to ${Math.round(top)}`);
+    view.requestAnimationFrame(sample);
+  };
+  view.requestAnimationFrame(sample);
+  try {
+    step = "Cloud picked";
+    await pickCloud(ctx);
+    await frames(view);
+    step = "a Mode picked with Cloud";
+    await pickBypass(ctx);
+    await frames(view);
+    step = "This Mac picked again";
+    await ctx.waitFor(() => view.cmuxAcpmuxDebug?.runMode("persistent").runMode === "persistent", { capMs: 10_000 });
+    // The Environment chip stays mounted as it closes (its slot's data-shown turns false), so wait on the slot.
+    await ctx.waitFor(() => !ctx.document.querySelector(`${STRIP} .acpmux-cloud-env-slot[data-shown="true"]`), {
+      capMs: 10_000,
+    });
+    await frames(view);
+    await frames(view);
+  } catch (error) {
+    // Name the step a wait stalled in, and where the composer was then.
+    const mode = String(view.cmuxAcpmuxDebug?.runMode().runMode ?? "unknown");
+    throw new Error(`${step} (run mode ${mode}): ${(error as Error).message}`);
+  } finally {
+    sampling = false;
+  }
+  if (problems.length) throw new Error(problems.join("; "));
+};
+
+const holdsStill = (width: number): AgentPaneVariant => ({
+  ...variant(
+    `The model chip holds still at ${width} px: This Mac, Cloud, a Mode pick and This Mac again move it by no pixel (cmux#53226).`,
+    STATES["personal-default"].team,
+    STATES["personal-default"].teams,
+    async (ctx) => {
+      if (ctx.document.defaultView!.innerWidth !== width) await ctx.resize(width);
+      await modelHoldsStill(ctx);
+    },
+  ),
+});
+
 export default agentPaneEntry({
   id: "agent-pane.cloud-composer-chips",
   title: "Cloud composer chips",
@@ -303,7 +368,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "agent-session/acpmux/ComposerPickers.tsx",
     "agent-session/acpmux/EnvironmentPicker.tsx",
-    "agent-session/acpmux/CloudEnvironmentChip.tsx#CloudEnvironmentChip",
     "agent-session/acpmux/cloudMachines.ts",
   ],
   keywords: [
@@ -323,5 +387,8 @@ export default agentPaneEntry({
     "team-bypass": atStage(STATES["team-bypass"]),
     "removed-team": atStage(STATES["removed-team"]),
     ...widthVariants,
+    "model-holds-still-full": holdsStill(FULL),
+    "model-holds-still-760": holdsStill(WIDE_ENOUGH),
+    "model-holds-still-400": holdsStill(NARROW),
   },
 });

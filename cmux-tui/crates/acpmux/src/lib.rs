@@ -59,6 +59,7 @@ mod claude_cloud_auth;
 pub mod claude_inbox_relay;
 pub mod claude_peers;
 pub mod claude_stdio;
+pub mod claude_token;
 pub mod cli;
 pub mod cli_caller;
 pub mod client;
@@ -68,6 +69,7 @@ pub mod close_why;
 pub mod cloud_folder;
 pub mod cloud_host;
 pub mod cloud_model_plane;
+pub mod cloud_readme;
 pub mod cloud_repo_mcp;
 pub mod cloud_rewind;
 /// The cmux-tui remote daemon this machine serves to its other machines (`cmux_tui_service.rs`).
@@ -108,6 +110,7 @@ pub mod disk_usage;
 pub(crate) mod disk_writer;
 pub mod folder_instructions;
 pub mod fork_place;
+pub mod fork_risky;
 #[cfg(all(test, unix))]
 mod fork_tests;
 pub mod forum;
@@ -128,7 +131,9 @@ pub mod github_rest_op;
 #[cfg(unix)]
 pub mod github_session_env;
 pub mod god_fixture;
+pub mod hypervisor;
 pub mod install_share;
+pub mod key_check;
 pub mod memory_follow;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
 /// never offered, and the command says so.
@@ -246,6 +251,7 @@ pub mod name_match;
 mod named_files_watch;
 pub mod native;
 pub mod no_panic;
+pub mod notice_read;
 pub mod offer_mcp;
 pub mod oom_rank;
 pub mod opaque_agent_id;
@@ -331,6 +337,7 @@ pub mod secret_mcp;
 pub mod secret_scan;
 pub mod self_command;
 pub mod send_fanout;
+pub mod send_trace;
 pub(crate) mod sender_env;
 pub mod sender_harness;
 pub mod sender_program;
@@ -353,6 +360,7 @@ pub mod session_search;
 pub mod session_service;
 pub mod session_status;
 mod session_store;
+mod session_total;
 pub mod sha256;
 /// The approval behind Share This Mac confirmed on the owner's other device (`share_approval.rs`).
 pub mod share_approval;
