@@ -511,6 +511,14 @@ name = "cmux-braid-carrier"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-braid-path"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-build-space"
 version = "0.1.0"
 dependencies = [
@@ -594,6 +602,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-mobile-last-place"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-mobile-link"
 version = "0.1.0"
 dependencies = [
@@ -602,6 +618,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-braid-carrier",
+ "cmux-braid-path",
  "cmux-build-space",
  "cmux-fault",
  "cmux-mobile-link",
@@ -641,6 +658,7 @@ dependencies = [
  "cmux-composer-send",
  "cmux-follow-cam",
  "cmux-mobile-host",
+ "cmux-mobile-last-place",
  "cmux-mobile-link",
  "cmux-rd-core",
  "cmux-rd-engine",

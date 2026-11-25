@@ -28,19 +28,6 @@ public struct KeyBarClipping: Sendable {
     }
 }
 
-/// The key row's leading fade (classic cmux iOS's edge fade): keys dissolve
-/// over `width` points as they reach the pinned keys. At rest nothing fades;
-/// the edge's alpha falls to 0 as the row scrolls its first `width` points.
-public struct KeyRowFade: Sendable {
-    public static let width: CGFloat = 24
-
-    public init() {}
-
-    public func leadingEdgeAlpha(scrolled: CGFloat) -> Double {
-        Double(1 - min(1, max(0, scrolled / Self.width)))
-    }
-}
-
 /// What the bottom dock shows. The key row is on demand: it rides the soft
 /// keyboard, as an iOS input accessory row does (Blink, Termius, the system
 /// keyboard's own bars), and is gone while the keyboard is down or a hardware

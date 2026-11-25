@@ -1,6 +1,138 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.category.automations": {
+      "comment": "Settings sidebar: the category for Cloud automations (when cmux Cloud starts an agent on its own: a GitHub event, a webhook or a schedule).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automations"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الأتمتة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatizacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatiseringer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automationen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatizaciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatisations"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automazioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "オートメーション"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្វ័យប្រវត្តិកម្ម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "자동화"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatiseringer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatyzacje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Автоматизации"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระบบอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otomasyonlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Автоматизації"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tự động hóa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自动化"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自動化"
+          }
+        }
+      }
+    },
     "settings.agentPane.followUpMode": {
       "comment": "Settings > Agent Chat: title of the row that picks what Return does with a message sent while the agent is working (steer it into the running turn or queue it for after)",
       "extractionState": "manual",
@@ -2379,6 +2511,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "1 小時可讓暫停後的回覆依然便宜，但寫入快取的費用稍高。"
+          }
+        }
+      }
+    },
+    "settings.agents.claudeCodeInboxRelay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Message Relay to Claude Code"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إضافة مُرحِّل الرسائل إلى Claude Code"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaj relej poruka u Claude Code"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilføj beskedrelæ til Claude Code"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nachrichten-Relay zu Claude Code hinzufügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Añadir relé de mensajes a Claude Code"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajouter le relais de messages à Claude Code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aggiungi relay dei messaggi a Claude Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code にメッセージリレーを追加"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ថែមកម្មវិធីបញ្ជូនសារទៅ Claude Code"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code에 메시지 릴레이 추가"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legg til meldingsrelé i Claude Code"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaj przekaźnik wiadomości do Claude Code"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adicionar retransmissor de mensagens ao Claude Code"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Добавить ретранслятор сообщений в Claude Code"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เพิ่มตัวส่งต่อข้อความให้ Claude Code"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code'a mesaj aktarıcısı ekle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Додати ретранслятор повідомлень до Claude Code"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thêm bộ chuyển tiếp tin nhắn vào Claude Code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "为 Claude Code 添加消息中继"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "為 Claude Code 新增訊息中繼"
+          }
+        }
+      }
+    },
+    "settings.agents.claudeCodeInboxRelay.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adds a small server to Claude Code's settings so messages from other agents arrive without being held. Applies to Claude Code chats started afterwards."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يضيف خادمًا صغيرًا إلى إعدادات Claude Code كي تصل رسائل الوكلاء الآخرين دون أن تُحتجز. ينطبق على محادثات Claude Code التي تبدأ بعد ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaje mali server u postavke Claude Codea kako bi poruke drugih agenata stizale bez zadržavanja. Važi za Claude Code razgovore pokrenute nakon toga."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilføjer en lille server til Claude Codes indstillinger, så beskeder fra andre agenter kommer frem uden at blive holdt tilbage. Gælder Claude Code-chats, der startes bagefter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fügt den Einstellungen von Claude Code einen kleinen Server hinzu, damit Nachrichten anderer Agenten ankommen, ohne zurückgehalten zu werden. Gilt für danach gestartete Claude-Code-Chats."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Añade un pequeño servidor a los ajustes de Claude Code para que los mensajes de otros agentes lleguen sin quedar retenidos. Se aplica a los chats de Claude Code iniciados después."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajoute un petit serveur aux réglages de Claude Code pour que les messages des autres agents arrivent sans être retenus. S'applique aux discussions Claude Code lancées ensuite."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aggiunge un piccolo server alle impostazioni di Claude Code così i messaggi degli altri agenti arrivano senza essere trattenuti. Vale per le chat di Claude Code avviate dopo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code の設定に小さなサーバーを追加し、他のエージェントからのメッセージが保留されずに届くようにします。この後に開始した Claude Code チャットに適用されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ថែមម៉ាស៊ីនមេតូចមួយទៅការកំណត់របស់ Claude Code ដើម្បីឱ្យសារពីភ្នាក់ងារផ្សេងទៀតមកដល់ដោយមិនត្រូវបានរក្សាទុក។ អនុវត្តចំពោះការជជែក Claude Code ដែលចាប់ផ្ដើមបន្ទាប់ពីនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code 설정에 작은 서버를 추가해 다른 에이전트의 메시지가 보류되지 않고 도착하게 합니다. 이후에 시작한 Claude Code 채팅에 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legger til en liten server i Claude Codes innstillinger slik at meldinger fra andre agenter kommer frem uten å bli holdt tilbake. Gjelder Claude Code-chatter som startes etterpå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaje mały serwer do ustawień Claude Code, aby wiadomości od innych agentów docierały bez wstrzymywania. Dotyczy czatów Claude Code uruchomionych później."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adiciona um pequeno servidor às configurações do Claude Code para que mensagens de outros agentes cheguem sem ficar retidas. Vale para chats do Claude Code iniciados depois."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Добавляет небольшой сервер в настройки Claude Code, чтобы сообщения от других агентов приходили без задержки. Действует для чатов Claude Code, начатых после этого."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เพิ่มเซิร์ฟเวอร์ขนาดเล็กในการตั้งค่าของ Claude Code เพื่อให้ข้อความจากเอเจนต์อื่นมาถึงโดยไม่ถูกพักไว้ ใช้กับแชต Claude Code ที่เริ่มหลังจากนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code ayarlarına küçük bir sunucu ekler; böylece diğer ajanlardan gelen mesajlar bekletilmeden ulaşır. Sonradan başlatılan Claude Code sohbetlerine uygulanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Додає невеликий сервер до налаштувань Claude Code, щоб повідомлення від інших агентів надходили без затримання. Діє для чатів Claude Code, розпочатих після цього."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thêm một máy chủ nhỏ vào cài đặt của Claude Code để tin nhắn từ các tác tử khác đến mà không bị giữ lại. Áp dụng cho các cuộc trò chuyện Claude Code bắt đầu sau đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 Claude Code 的设置中添加一个小型服务器，使其他智能体的消息不再被搁置。适用于之后开始的 Claude Code 对话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 Claude Code 的設定中新增一個小型伺服器，讓其他代理的訊息不再被擱置。適用於之後開始的 Claude Code 對話。"
           }
         }
       }
@@ -245701,6 +246095,114 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "帶載入指示的提示條會在原處變成結果；關閉分頁或工作區、封存聊天後會出現「還原」。"}}
       }
     },
+    "settings.experiments.terminalHistory": {
+      "comment": "Settings > Experimental row title: a button on Claude Code and Codex terminal panes that opens the agent's earlier history as a read-only chat.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "سجل الوكيل في الطرفية"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Historija agenta u terminalu"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Agenthistorik i terminal"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Agentenverlauf im Terminal"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Terminal Agent History"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Historial del agente en la terminal"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Historique de l’agent du terminal"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Cronologia dell’agente nel terminale"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ターミナルのエージェント履歴"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប្រវត្តិភ្នាក់ងារក្នុងទែមីណាល់"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "터미널 에이전트 기록"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Agentlogg i terminal"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Historia agenta w terminalu"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Histórico do agente no terminal"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "История агента в терминале"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ประวัติเอเจนต์ในเทอร์มินัล"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Terminal Ajan Geçmişi"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Історія агента в терміналі"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Lịch sử tác tử trong terminal"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "终端代理历史记录"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "終端機代理歷史記錄"}}
+      }
+    },
+    "settings.experiments.terminalHistory.help": {
+      "comment": "Settings > Experimental > Terminal Agent History help: what the switch adds to a terminal pane.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "تحصل طرفيات Claude Code وCodex على زر يفتح سجلها السابق كمحادثة للقراءة فقط."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Terminali Claude Code i Codex dobijaju dugme koje otvara njihovu raniju historiju kao chat samo za čitanje."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Claude Code- og Codex-terminaler får en knap, der åbner deres tidligere historik som en skrivebeskyttet chat."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Claude Code- und Codex-Terminals erhalten eine Taste, die ihren früheren Verlauf als schreibgeschützten Chat öffnet."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Claude Code and Codex terminals get a button that opens their earlier history as a read-only chat."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Las terminales de Claude Code y Codex tienen un botón que abre su historial anterior como un chat de solo lectura."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Les terminaux Claude Code et Codex ont un bouton qui ouvre leur historique antérieur comme une discussion en lecture seule."}},
+        "it": {"stringUnit": {"state": "translated", "value": "I terminali Claude Code e Codex hanno un pulsante che apre la loro cronologia precedente come chat di sola lettura."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Claude Code と Codex のターミナルに、以前の履歴を読み取り専用のチャットとして開くボタンが表示されます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ទែមីណាល់ Claude Code និង Codex មានប៊ូតុងដែលបើកប្រវត្តិមុនៗរបស់វាជាការជជែកសម្រាប់តែអាន។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Claude Code 및 Codex 터미널에 이전 기록을 읽기 전용 채팅으로 여는 버튼이 생깁니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Claude Code- og Codex-terminaler får en knapp som åpner den tidligere loggen som en skrivebeskyttet chat."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Terminale Claude Code i Codex dostają przycisk, który otwiera ich wcześniejszą historię jako czat tylko do odczytu."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Os terminais do Claude Code e do Codex ganham um botão que abre o histórico anterior como um chat somente leitura."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "В терминалах Claude Code и Codex появляется кнопка, открывающая их прежнюю историю как чат только для чтения."}},
+        "th": {"stringUnit": {"state": "translated", "value": "เทอร์มินัล Claude Code และ Codex จะมีปุ่มที่เปิดประวัติก่อนหน้าเป็นแชทแบบอ่านอย่างเดียว"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Claude Code ve Codex terminallerinde önceki geçmişi salt okunur bir sohbet olarak açan bir düğme bulunur."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Термінали Claude Code і Codex отримують кнопку, що відкриває їхню попередню історію як чат лише для читання."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Terminal Claude Code và Codex có một nút mở lịch sử trước đó dưới dạng cuộc trò chuyện chỉ đọc."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Claude Code 和 Codex 终端会多出一个按钮，可将其早前的历史记录作为只读聊天打开。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Claude Code 與 Codex 終端機會多一個按鈕，可將先前的歷史記錄以唯讀聊天開啟。"}}
+      }
+    },
+    "settings.experiments.terminalHistoryFind": {
+      "comment": "Settings > Experimental row title: Cmd-F in a terminal searches its whole history, not only the screen.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "البحث في سجل الطرفية"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Pretraga historije terminala"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Søgning i terminalhistorik"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Suche im Terminalverlauf"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Terminal History Find"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Búsqueda en el historial de la terminal"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Recherche dans l’historique du terminal"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Ricerca nella cronologia del terminale"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ターミナル履歴の検索"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ស្វែងរកក្នុងប្រវត្តិទែមីណាល់"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "터미널 기록 찾기"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Søk i terminalhistorikk"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wyszukiwanie w historii terminala"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Busca no histórico do terminal"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Поиск по истории терминала"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ค้นหาในประวัติเทอร์มินัล"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Terminal geçmişinde bul"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Пошук в історії термінала"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Tìm trong lịch sử terminal"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "终端历史查找"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "終端機歷史尋找"}}
+      }
+    },
+    "settings.experiments.terminalHistoryFind.help": {
+      "comment": "Settings > Experimental > Terminal History Find help: Cmd-F searches the terminal's whole history with case, whole-word and regex options.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "يبحث Cmd-F في الطرفية في سجلها بالكامل، مع خيارات حالة الأحرف والكلمة الكاملة والتعبير النمطي."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Cmd-F u terminalu pretražuje cijelu njegovu historiju, s opcijama za velika slova, cijelu riječ i regex."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Cmd-F i en terminal søger i hele dens historik med valg for store/små bogstaver, hele ord og regex."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Cmd-F in einem Terminal durchsucht seinen gesamten Verlauf, mit Optionen für Groß-/Kleinschreibung, ganze Wörter und Regex."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Cmd-F in a terminal searches its whole history, with case, whole-word and regex options."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cmd-F en una terminal busca en todo su historial, con opciones de mayúsculas, palabra completa y regex."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Cmd-F dans un terminal cherche dans tout son historique, avec les options casse, mot entier et regex."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Cmd-F in un terminale cerca in tutta la sua cronologia, con opzioni per maiuscole, parola intera e regex."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ターミナルで Cmd-F を押すと履歴全体を検索します。大文字小文字、単語単位、正規表現を選べます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "Cmd-F ក្នុងទែមីណាល់ស្វែងរកប្រវត្តិទាំងមូលរបស់វា ជាមួយជម្រើសអក្សរធំតូច ពាក្យពេញ និង regex។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "터미널에서 Cmd-F를 누르면 전체 기록을 검색합니다. 대소문자, 전체 단어, 정규식 옵션을 쓸 수 있습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Cmd-F i en terminal søker i hele historikken, med valg for store/små bokstaver, hele ord og regex."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Cmd-F w terminalu przeszukuje całą jego historię, z opcjami wielkości liter, całego słowa i regex."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Cmd-F em um terminal busca em todo o histórico, com opções de maiúsculas, palavra inteira e regex."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Cmd-F в терминале ищет по всей его истории, с учётом регистра, целых слов и регулярных выражений."}},
+        "th": {"stringUnit": {"state": "translated", "value": "Cmd-F ในเทอร์มินัลจะค้นหาทั้งประวัติ พร้อมตัวเลือกตัวพิมพ์ใหญ่เล็ก ทั้งคำ และ regex"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Terminalde Cmd-F tüm geçmişi arar; büyük/küçük harf, tam sözcük ve regex seçenekleriyle."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Cmd-F у терміналі шукає по всій його історії, з урахуванням регістру, цілих слів і регулярних виразів."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Cmd-F trong terminal tìm trong toàn bộ lịch sử, với tùy chọn chữ hoa/thường, nguyên từ và regex."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在终端中按 Cmd-F 会搜索其全部历史，可选区分大小写、全词匹配和正则表达式。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在終端機按 Cmd-F 會搜尋其全部歷史，可選區分大小寫、全字比對和正規表示式。"}}
+      }
+    },
     "settings.experiments.composerButtonsVisible": {
       "comment": "Settings > Advanced > Experiments: the Always Show Composer Buttons taste prototype row",
       "extractionState": "manual",
@@ -253896,6 +254398,110 @@
         "tr": {"stringUnit": {"state": "translated", "value": "Yalnızca paket adları ve sayılar."}},
         "uk": {"stringUnit": {"state": "translated", "value": "Лише назви пакетів і лічильники."}},
         "vi": {"stringUnit": {"state": "translated", "value": "Chỉ tên gói và số lần."}}
+      }
+    },
+    "settings.group.anonymousTelemetry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Crash Reports and Analytics"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تقارير الأعطال والتحليلات"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Absturzberichte und Analysen"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Informes de errores y analíticas"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Rapports de plantage et statistiques"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "クラッシュレポートと分析"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "충돌 보고서 및 분석"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "崩溃报告和分析"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "當機報告與分析"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Izvještaji o padovima i analitika"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Nedbrudsrapporter og analyser"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Report sugli arresti anomali e analisi"}},
+        "km": {"stringUnit": {"state": "translated", "value": "របាយការណ៍គាំង និងការវិភាគ"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Krasjrapporter og analyse"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Raporty o awariach i analityka"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Relatórios de falhas e análises"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Отчёты о сбоях и аналитика"}},
+        "th": {"stringUnit": {"state": "translated", "value": "รายงานข้อขัดข้องและการวิเคราะห์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Çökme raporları ve analiz"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Звіти про збої та аналітика"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Báo cáo sự cố và phân tích"}}
+      }
+    },
+    "settings.app.sendAnonymousTelemetry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Send Crash Reports and Analytics"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إرسال تقارير الأعطال والتحليلات"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Absturzberichte und Analysen senden"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Enviar informes de errores y analíticas"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Envoyer les rapports de plantage et les statistiques"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "クラッシュレポートと分析を送信"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "충돌 보고서 및 분석 보내기"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "发送崩溃报告和分析"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "傳送當機報告與分析"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Šalji izvještaje o padovima i analitiku"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Send nedbrudsrapporter og analyser"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Invia report sugli arresti anomali e analisi"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ផ្ញើរបាយការណ៍គាំង និងការវិភាគ"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Send krasjrapporter og analyse"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wysyłaj raporty o awariach i analitykę"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Enviar relatórios de falhas e análises"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Отправлять отчёты о сбоях и аналитику"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ส่งรายงานข้อขัดข้องและการวิเคราะห์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Çökme raporlarını ve analizi gönder"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Надсилати звіти про збої та аналітику"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Gửi báo cáo sự cố và phân tích"}}
+      }
+    },
+    "settings.app.sendAnonymousTelemetry.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Off until you turn it on. No prompts, files or paths."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "متوقف حتى تشغّله. لا مطالبات ولا ملفات ولا مسارات."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Aus, bis du es einschaltest. Keine Prompts, Dateien oder Pfade."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Desactivado hasta que lo actives. Sin prompts, archivos ni rutas."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Désactivé jusqu'à ce que vous l'activiez. Aucun prompt, fichier ni chemin."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "オンにするまでオフ。プロンプト、ファイル、パスは送信しません。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "켜기 전까지 꺼져 있습니다. 프롬프트, 파일, 경로는 보내지 않습니다."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在你打开前保持关闭。不含提示词、文件或路径。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在你開啟前保持關閉。不含提示詞、檔案或路徑。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Isključeno dok ga ne uključiš. Bez promptova, datoteka ili putanja."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Slået fra, indtil du slår det til. Ingen prompts, filer eller stier."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Disattivato finché non lo attivi. Nessun prompt, file o percorso."}},
+        "km": {"stringUnit": {"state": "translated", "value": "បិទរហូតដល់អ្នកបើក។ គ្មានប្រអប់បញ្ចូល ឯកសារ ឬផ្លូវទេ។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Av til du slår det på. Ingen ledetekster, filer eller stier."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wyłączone, dopóki go nie włączysz. Bez promptów, plików i ścieżek."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Desativado até você ativar. Sem prompts, arquivos ou caminhos."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Выключено, пока вы не включите. Без промптов, файлов и путей."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ปิดอยู่จนกว่าคุณจะเปิด ไม่มีพรอมต์ ไฟล์ หรือพาธ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Sen açana kadar kapalı. İstem, dosya veya yol yok."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Вимкнено, доки ви не ввімкнете. Без промптів, файлів і шляхів."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Tắt cho đến khi bạn bật. Không có prompt, tệp hay đường dẫn."}}
+      }
+    },
+    "settings.app.sendAnonymousTelemetry.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Sends cmux crash reports and anonymous usage events, so we can fix crashes and see which features are used. Stacks, app and macOS versions and event names only, never your prompts, files, paths, branches or text. Crash reports start at the next launch."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يرسل إلى cmux تقارير الأعطال وأحداث استخدام مجهولة الهوية، لنصلح الأعطال ونعرف الميزات المستخدمة. مكدسات الاستدعاء وإصدارات التطبيق وmacOS وأسماء الأحداث فقط، ولا يرسل أبدًا مطالباتك أو ملفاتك أو مساراتك أو فروعك أو نصوصك. تبدأ تقارير الأعطال عند التشغيل التالي."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Sendet cmux Absturzberichte und anonyme Nutzungsereignisse, damit wir Abstürze beheben und sehen, welche Funktionen genutzt werden. Nur Stacks, App- und macOS-Versionen und Ereignisnamen, nie deine Prompts, Dateien, Pfade, Branches oder Texte. Absturzberichte beginnen beim nächsten Start."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Envía a cmux informes de errores y eventos de uso anónimos, para corregir fallos y ver qué funciones se usan. Solo pilas, versiones de la app y de macOS y nombres de eventos, nunca tus prompts, archivos, rutas, ramas ni texto. Los informes de errores empiezan en el siguiente inicio."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Envoie à cmux des rapports de plantage et des événements d'utilisation anonymes, pour corriger les plantages et voir quelles fonctions servent. Uniquement des piles, les versions de l'app et de macOS et des noms d'événements, jamais vos prompts, fichiers, chemins, branches ou textes. Les rapports de plantage commencent au prochain lancement."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "クラッシュレポートと匿名の利用イベントを cmux に送信し、クラッシュの修正と使われている機能の把握に役立てます。送るのはスタック、アプリと macOS のバージョン、イベント名だけで、プロンプト、ファイル、パス、ブランチ、テキストは送りません。クラッシュレポートは次回の起動から始まります。"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "충돌 보고서와 익명 사용 이벤트를 cmux에 보내 충돌을 고치고 어떤 기능이 쓰이는지 파악합니다. 스택, 앱 및 macOS 버전, 이벤트 이름만 보내며 프롬프트, 파일, 경로, 브랜치, 텍스트는 절대 보내지 않습니다. 충돌 보고서는 다음 실행부터 시작됩니다."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "向 cmux 发送崩溃报告和匿名使用事件，帮助我们修复崩溃并了解哪些功能被使用。只发送调用栈、应用和 macOS 版本以及事件名称，绝不发送你的提示词、文件、路径、分支或文本。崩溃报告从下次启动开始。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "向 cmux 傳送當機報告和匿名使用事件，幫助我們修正當機並了解哪些功能被使用。只傳送呼叫堆疊、App 和 macOS 版本以及事件名稱，絕不傳送你的提示詞、檔案、路徑、分支或文字。當機報告從下次啟動開始。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Šalje cmuxu izvještaje o padovima i anonimne događaje korištenja, da popravimo padove i vidimo koje se funkcije koriste. Samo stekovi, verzije aplikacije i macOS-a i nazivi događaja, nikad tvoji promptovi, datoteke, putanje, grane ili tekst. Izvještaji o padovima počinju pri sljedećem pokretanju."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Sender cmux nedbrudsrapporter og anonyme brugshændelser, så vi kan rette nedbrud og se, hvilke funktioner der bruges. Kun stakke, app- og macOS-versioner og hændelsesnavne, aldrig dine prompts, filer, stier, branches eller tekst. Nedbrudsrapporter starter ved næste opstart."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Invia a cmux report sugli arresti anomali ed eventi d'uso anonimi, per correggere gli arresti e capire quali funzioni si usano. Solo stack, versioni dell'app e di macOS e nomi degli eventi, mai i tuoi prompt, file, percorsi, branch o testi. I report sugli arresti iniziano al prossimo avvio."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ផ្ញើរបាយការណ៍គាំង និងព្រឹត្តិការណ៍ប្រើប្រាស់អនាមិកទៅ cmux ដើម្បីជួសជុលការគាំង និងដឹងថាមុខងារណាត្រូវបានប្រើ។ មានតែ stack កំណែកម្មវិធី និង macOS និងឈ្មោះព្រឹត្តិការណ៍ប៉ុណ្ណោះ មិនដែលផ្ញើប្រអប់បញ្ចូល ឯកសារ ផ្លូវ branch ឬអត្ថបទរបស់អ្នកទេ។ របាយការណ៍គាំងចាប់ផ្តើមនៅពេលបើកលើកក្រោយ។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Sender cmux krasjrapporter og anonyme brukshendelser, så vi kan rette krasj og se hvilke funksjoner som brukes. Bare stakker, app- og macOS-versjoner og hendelsesnavn, aldri ledetekstene, filene, stiene, grenene eller teksten din. Krasjrapporter starter ved neste oppstart."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Wysyła do cmux raporty o awariach i anonimowe zdarzenia użycia, abyśmy mogli naprawiać awarie i widzieć, których funkcji się używa. Tylko stosy wywołań, wersje aplikacji i macOS oraz nazwy zdarzeń, nigdy Twoje prompty, pliki, ścieżki, gałęzie ani tekst. Raporty o awariach zaczynają się przy następnym uruchomieniu."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Envia ao cmux relatórios de falhas e eventos de uso anônimos, para corrigirmos falhas e vermos quais recursos são usados. Somente pilhas, versões do app e do macOS e nomes de eventos, nunca seus prompts, arquivos, caminhos, branches ou textos. Os relatórios de falhas começam na próxima abertura."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Отправляет в cmux отчёты о сбоях и анонимные события использования, чтобы мы исправляли сбои и видели, какие функции используются. Только стеки, версии приложения и macOS и названия событий, никогда ваши промпты, файлы, пути, ветки или текст. Отчёты о сбоях начнутся при следующем запуске."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ส่งรายงานข้อขัดข้องและเหตุการณ์การใช้งานแบบไม่ระบุตัวตนให้ cmux เพื่อให้เราแก้ข้อขัดข้องและรู้ว่าฟีเจอร์ใดถูกใช้ ส่งเฉพาะสแต็ก เวอร์ชันแอปและ macOS และชื่อเหตุการณ์ ไม่ส่งพรอมต์ ไฟล์ พาธ บรานช์ หรือข้อความของคุณ รายงานข้อขัดข้องเริ่มในการเปิดครั้งถัดไป"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Çökmeleri düzeltebilmemiz ve hangi özelliklerin kullanıldığını görebilmemiz için cmux'a çökme raporları ve anonim kullanım olayları gönderir. Yalnızca yığınlar, uygulama ve macOS sürümleri ve olay adları; istemlerin, dosyaların, yolların, dalların veya metnin asla gönderilmez. Çökme raporları bir sonraki açılışta başlar."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Надсилає cmux звіти про збої та анонімні події використання, щоб ми виправляли збої й бачили, якими функціями користуються. Лише стеки, версії застосунку та macOS і назви подій, ніколи ваші промпти, файли, шляхи, гілки чи текст. Звіти про збої почнуться з наступного запуску."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Gửi cho cmux báo cáo sự cố và sự kiện sử dụng ẩn danh, để chúng tôi sửa sự cố và biết tính năng nào được dùng. Chỉ stack, phiên bản ứng dụng và macOS và tên sự kiện, không bao giờ gửi prompt, tệp, đường dẫn, nhánh hay văn bản của bạn. Báo cáo sự cố bắt đầu từ lần mở tiếp theo."}}
       }
     },
     "settings.tabs.newTabClock.show": {
@@ -263113,6 +263719,3306 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "你透過 ssh 連線的電腦，每台都有一個標籤和依序嘗試的位址。cmux hosts check 會顯示哪些有回應。"
+          }
+        }
+      }
+    },
+    "settings.group.tailnet": {
+      "comment": "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale"
+          }
+        }
+      }
+    },
+    "settings.tailnet.join.enabled": {
+      "comment": "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Cloud Machines to Your Tailnet"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Add Cloud Machines to Your Tailnet"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Add Cloud Machines to Your Tailnet"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Add Cloud Machines to Your Tailnet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Add Cloud Machines to Your Tailnet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Add Cloud Machines to Your Tailnet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Add Cloud Machines to Your Tailnet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Add Cloud Machines to Your Tailnet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Add Cloud Machines to Your Tailnet"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Add Cloud Machines to Your Tailnet"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Add Cloud Machines to Your Tailnet"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Add Cloud Machines to Your Tailnet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Add Cloud Machines to Your Tailnet"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Add Cloud Machines to Your Tailnet"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Add Cloud Machines to Your Tailnet"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Add Cloud Machines to Your Tailnet"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Add Cloud Machines to Your Tailnet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Add Cloud Machines to Your Tailnet"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Add Cloud Machines to Your Tailnet"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Add Cloud Machines to Your Tailnet"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Add Cloud Machines to Your Tailnet"
+          }
+        }
+      }
+    },
+    "settings.tailnet.join.enabled.help": {
+      "comment": "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make Tailscale or Headscale available when you join a Cloud machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Make Tailscale or Headscale available when you join a Cloud machine."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Make Tailscale or Headscale available when you join a Cloud machine."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Make Tailscale or Headscale available when you join a Cloud machine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Make Tailscale or Headscale available when you join a Cloud machine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Make Tailscale or Headscale available when you join a Cloud machine."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Make Tailscale or Headscale available when you join a Cloud machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Make Tailscale or Headscale available when you join a Cloud machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Make Tailscale or Headscale available when you join a Cloud machine."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Make Tailscale or Headscale available when you join a Cloud machine."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Make Tailscale or Headscale available when you join a Cloud machine."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Make Tailscale or Headscale available when you join a Cloud machine."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Make Tailscale or Headscale available when you join a Cloud machine."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Make Tailscale or Headscale available when you join a Cloud machine."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Make Tailscale or Headscale available when you join a Cloud machine."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Make Tailscale or Headscale available when you join a Cloud machine."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Make Tailscale or Headscale available when you join a Cloud machine."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Make Tailscale or Headscale available when you join a Cloud machine."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Make Tailscale or Headscale available when you join a Cloud machine."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Make Tailscale or Headscale available when you join a Cloud machine."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Make Tailscale or Headscale available when you join a Cloud machine."
+          }
+        }
+      }
+    },
+    "settings.tailnet.join.enabled.summary": {
+      "comment": "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud machines can join your tailnet"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud machines can join your tailnet"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud machines can join your tailnet"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud machines can join your tailnet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud machines can join your tailnet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud machines can join your tailnet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud machines can join your tailnet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud machines can join your tailnet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud machines can join your tailnet"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud machines can join your tailnet"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud machines can join your tailnet"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud machines can join your tailnet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud machines can join your tailnet"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud machines can join your tailnet"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud machines can join your tailnet"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud machines can join your tailnet"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud machines can join your tailnet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud machines can join your tailnet"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud machines can join your tailnet"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud machines can join your tailnet"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud machines can join your tailnet"
+          }
+        }
+      }
+    },
+    "settings.tailnet.join.loginServer": {
+      "comment": "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Login Server"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login Server"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login Server"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login Server"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login Server"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login Server"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login Server"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login Server"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login Server"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login Server"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login Server"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login Server"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login Server"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login Server"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login Server"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login Server"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login Server"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login Server"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login Server"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login Server"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login Server"
+          }
+        }
+      }
+    },
+    "settings.tailnet.join.loginServer.help": {
+      "comment": "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leave empty for Tailscale, or enter your Headscale control server URL."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Leave empty for Tailscale, or enter your Headscale control server URL."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Leave empty for Tailscale, or enter your Headscale control server URL."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Leave empty for Tailscale, or enter your Headscale control server URL."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Leave empty for Tailscale, or enter your Headscale control server URL."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Leave empty for Tailscale, or enter your Headscale control server URL."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Leave empty for Tailscale, or enter your Headscale control server URL."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Leave empty for Tailscale, or enter your Headscale control server URL."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Leave empty for Tailscale, or enter your Headscale control server URL."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Leave empty for Tailscale, or enter your Headscale control server URL."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Leave empty for Tailscale, or enter your Headscale control server URL."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Leave empty for Tailscale, or enter your Headscale control server URL."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Leave empty for Tailscale, or enter your Headscale control server URL."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Leave empty for Tailscale, or enter your Headscale control server URL."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Leave empty for Tailscale, or enter your Headscale control server URL."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Leave empty for Tailscale, or enter your Headscale control server URL."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Leave empty for Tailscale, or enter your Headscale control server URL."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Leave empty for Tailscale, or enter your Headscale control server URL."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Leave empty for Tailscale, or enter your Headscale control server URL."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Leave empty for Tailscale, or enter your Headscale control server URL."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Leave empty for Tailscale, or enter your Headscale control server URL."
+          }
+        }
+      }
+    },
+    "settings.tailnet.join.loginServer.summary": {
+      "comment": "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale or Headscale control server"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale or Headscale control server"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale or Headscale control server"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale or Headscale control server"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale or Headscale control server"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale or Headscale control server"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale or Headscale control server"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale or Headscale control server"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale or Headscale control server"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale or Headscale control server"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale or Headscale control server"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale or Headscale control server"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale or Headscale control server"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale or Headscale control server"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale or Headscale control server"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale or Headscale control server"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale or Headscale control server"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale or Headscale control server"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale or Headscale control server"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale or Headscale control server"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale or Headscale control server"
+          }
+        }
+      }
+    },
+    "settings.tailnet.join.hostname": {
+      "comment": "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hostname Template"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hostname Template"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hostname Template"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hostname Template"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hostname Template"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hostname Template"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hostname Template"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hostname Template"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hostname Template"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hostname Template"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hostname Template"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hostname Template"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hostname Template"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hostname Template"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hostname Template"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hostname Template"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hostname Template"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hostname Template"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hostname Template"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hostname Template"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hostname Template"
+          }
+        }
+      }
+    },
+    "settings.tailnet.join.hostname.help": {
+      "comment": "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        }
+      }
+    },
+    "settings.tailnet.join.hostname.summary": {
+      "comment": "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name new tailnet devices"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Name new tailnet devices"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Name new tailnet devices"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Name new tailnet devices"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Name new tailnet devices"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Name new tailnet devices"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Name new tailnet devices"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Name new tailnet devices"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Name new tailnet devices"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Name new tailnet devices"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Name new tailnet devices"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Name new tailnet devices"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Name new tailnet devices"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Name new tailnet devices"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Name new tailnet devices"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Name new tailnet devices"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Name new tailnet devices"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Name new tailnet devices"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Name new tailnet devices"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Name new tailnet devices"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Name new tailnet devices"
+          }
+        }
+      }
+    },
+    "settings.tailnet.join.tags": {
+      "comment": "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tags"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tags"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tags"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tags"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tags"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tags"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tags"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tags"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tags"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tags"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tags"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tags"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tags"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tags"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tags"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tags"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tags"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tags"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tags"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tags"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tags"
+          }
+        }
+      }
+    },
+    "settings.tailnet.join.tags.help": {
+      "comment": "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ACL tags to request for each joined Cloud machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags to request for each joined Cloud machine."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags to request for each joined Cloud machine."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags to request for each joined Cloud machine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags to request for each joined Cloud machine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags to request for each joined Cloud machine."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags to request for each joined Cloud machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags to request for each joined Cloud machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags to request for each joined Cloud machine."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags to request for each joined Cloud machine."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags to request for each joined Cloud machine."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags to request for each joined Cloud machine."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags to request for each joined Cloud machine."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags to request for each joined Cloud machine."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags to request for each joined Cloud machine."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags to request for each joined Cloud machine."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags to request for each joined Cloud machine."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags to request for each joined Cloud machine."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags to request for each joined Cloud machine."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags to request for each joined Cloud machine."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags to request for each joined Cloud machine."
+          }
+        }
+      }
+    },
+    "settings.tailnet.join.tags.summary": {
+      "comment": "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ACL tags for joined machines"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags for joined machines"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags for joined machines"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags for joined machines"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags for joined machines"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags for joined machines"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags for joined machines"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags for joined machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags for joined machines"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags for joined machines"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags for joined machines"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags for joined machines"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags for joined machines"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags for joined machines"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags for joined machines"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags for joined machines"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags for joined machines"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags for joined machines"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags for joined machines"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags for joined machines"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ACL tags for joined machines"
+          }
+        }
+      }
+    },
+    "settings.tailnet.join.ssh": {
+      "comment": "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale SSH"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale SSH"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale SSH"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale SSH"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale SSH"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale SSH"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale SSH"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale SSH"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale SSH"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale SSH"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale SSH"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale SSH"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale SSH"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale SSH"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale SSH"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale SSH"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale SSH"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale SSH"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale SSH"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale SSH"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale SSH"
+          }
+        }
+      }
+    },
+    "settings.tailnet.join.ssh.help": {
+      "comment": "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Tailscale SSH on joined Cloud machines, subject to your ACL."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH on joined Cloud machines, subject to your ACL."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH on joined Cloud machines, subject to your ACL."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH on joined Cloud machines, subject to your ACL."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH on joined Cloud machines, subject to your ACL."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH on joined Cloud machines, subject to your ACL."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH on joined Cloud machines, subject to your ACL."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH on joined Cloud machines, subject to your ACL."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH on joined Cloud machines, subject to your ACL."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH on joined Cloud machines, subject to your ACL."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH on joined Cloud machines, subject to your ACL."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH on joined Cloud machines, subject to your ACL."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH on joined Cloud machines, subject to your ACL."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH on joined Cloud machines, subject to your ACL."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH on joined Cloud machines, subject to your ACL."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH on joined Cloud machines, subject to your ACL."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH on joined Cloud machines, subject to your ACL."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH on joined Cloud machines, subject to your ACL."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH on joined Cloud machines, subject to your ACL."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH on joined Cloud machines, subject to your ACL."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH on joined Cloud machines, subject to your ACL."
+          }
+        }
+      }
+    },
+    "settings.tailnet.join.ssh.summary": {
+      "comment": "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Tailscale SSH"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enable Tailscale SSH"
+          }
+        }
+      }
+    },
+    "settings.tailnet.join.ephemeral": {
+      "comment": "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ephemeral Devices"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ephemeral Devices"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ephemeral Devices"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ephemeral Devices"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ephemeral Devices"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ephemeral Devices"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ephemeral Devices"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ephemeral Devices"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ephemeral Devices"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ephemeral Devices"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ephemeral Devices"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ephemeral Devices"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ephemeral Devices"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ephemeral Devices"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ephemeral Devices"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ephemeral Devices"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ephemeral Devices"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ephemeral Devices"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ephemeral Devices"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ephemeral Devices"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ephemeral Devices"
+          }
+        }
+      }
+    },
+    "settings.tailnet.join.ephemeral.help": {
+      "comment": "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove a joined machine from the tailnet when it goes offline."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove a joined machine from the tailnet when it goes offline."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove a joined machine from the tailnet when it goes offline."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove a joined machine from the tailnet when it goes offline."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove a joined machine from the tailnet when it goes offline."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove a joined machine from the tailnet when it goes offline."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove a joined machine from the tailnet when it goes offline."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove a joined machine from the tailnet when it goes offline."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove a joined machine from the tailnet when it goes offline."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove a joined machine from the tailnet when it goes offline."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove a joined machine from the tailnet when it goes offline."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove a joined machine from the tailnet when it goes offline."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove a joined machine from the tailnet when it goes offline."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove a joined machine from the tailnet when it goes offline."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove a joined machine from the tailnet when it goes offline."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove a joined machine from the tailnet when it goes offline."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove a joined machine from the tailnet when it goes offline."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove a joined machine from the tailnet when it goes offline."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove a joined machine from the tailnet when it goes offline."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove a joined machine from the tailnet when it goes offline."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove a joined machine from the tailnet when it goes offline."
+          }
+        }
+      }
+    },
+    "settings.tailnet.join.ephemeral.summary": {
+      "comment": "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove offline machines automatically"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove offline machines automatically"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove offline machines automatically"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove offline machines automatically"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove offline machines automatically"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove offline machines automatically"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove offline machines automatically"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove offline machines automatically"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove offline machines automatically"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove offline machines automatically"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove offline machines automatically"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove offline machines automatically"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove offline machines automatically"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove offline machines automatically"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove offline machines automatically"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove offline machines automatically"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove offline machines automatically"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove offline machines automatically"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove offline machines automatically"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove offline machines automatically"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove offline machines automatically"
+          }
+        }
+      }
+    },
+    "settings.tailnet.join.servePorts": {
+      "comment": "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serve Ports"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serve Ports"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serve Ports"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serve Ports"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serve Ports"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serve Ports"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serve Ports"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serve Ports"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serve Ports"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serve Ports"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serve Ports"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serve Ports"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serve Ports"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serve Ports"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serve Ports"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serve Ports"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serve Ports"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serve Ports"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serve Ports"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serve Ports"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serve Ports"
+          }
+        }
+      }
+    },
+    "settings.tailnet.join.servePorts.help": {
+      "comment": "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        }
+      }
+    },
+    "settings.tailnet.join.servePorts.summary": {
+      "comment": "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ports published through Tailscale Serve"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ports published through Tailscale Serve"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ports published through Tailscale Serve"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ports published through Tailscale Serve"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ports published through Tailscale Serve"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ports published through Tailscale Serve"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ports published through Tailscale Serve"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ports published through Tailscale Serve"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ports published through Tailscale Serve"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ports published through Tailscale Serve"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ports published through Tailscale Serve"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ports published through Tailscale Serve"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ports published through Tailscale Serve"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ports published through Tailscale Serve"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ports published through Tailscale Serve"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ports published through Tailscale Serve"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ports published through Tailscale Serve"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ports published through Tailscale Serve"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ports published through Tailscale Serve"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ports published through Tailscale Serve"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ports published through Tailscale Serve"
+          }
+        }
+      }
+    },
+    "settings.tailnet.join.autoJoinNewVMs": {
+      "comment": "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Join New Cloud Machines Automatically"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join New Cloud Machines Automatically"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join New Cloud Machines Automatically"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join New Cloud Machines Automatically"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join New Cloud Machines Automatically"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join New Cloud Machines Automatically"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join New Cloud Machines Automatically"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join New Cloud Machines Automatically"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join New Cloud Machines Automatically"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join New Cloud Machines Automatically"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join New Cloud Machines Automatically"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join New Cloud Machines Automatically"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join New Cloud Machines Automatically"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join New Cloud Machines Automatically"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join New Cloud Machines Automatically"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join New Cloud Machines Automatically"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join New Cloud Machines Automatically"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join New Cloud Machines Automatically"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join New Cloud Machines Automatically"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join New Cloud Machines Automatically"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join New Cloud Machines Automatically"
+          }
+        }
+      }
+    },
+    "settings.tailnet.join.autoJoinNewVMs.help": {
+      "comment": "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask for a key when a new Cloud machine is created and add it to your tailnet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ask for a key when a new Cloud machine is created and add it to your tailnet."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ask for a key when a new Cloud machine is created and add it to your tailnet."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ask for a key when a new Cloud machine is created and add it to your tailnet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ask for a key when a new Cloud machine is created and add it to your tailnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ask for a key when a new Cloud machine is created and add it to your tailnet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ask for a key when a new Cloud machine is created and add it to your tailnet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ask for a key when a new Cloud machine is created and add it to your tailnet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ask for a key when a new Cloud machine is created and add it to your tailnet."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ask for a key when a new Cloud machine is created and add it to your tailnet."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ask for a key when a new Cloud machine is created and add it to your tailnet."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ask for a key when a new Cloud machine is created and add it to your tailnet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ask for a key when a new Cloud machine is created and add it to your tailnet."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ask for a key when a new Cloud machine is created and add it to your tailnet."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ask for a key when a new Cloud machine is created and add it to your tailnet."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ask for a key when a new Cloud machine is created and add it to your tailnet."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ask for a key when a new Cloud machine is created and add it to your tailnet."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ask for a key when a new Cloud machine is created and add it to your tailnet."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ask for a key when a new Cloud machine is created and add it to your tailnet."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ask for a key when a new Cloud machine is created and add it to your tailnet."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ask for a key when a new Cloud machine is created and add it to your tailnet."
+          }
+        }
+      }
+    },
+    "settings.tailnet.join.autoJoinNewVMs.summary": {
+      "comment": "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Join new Cloud machines automatically"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join new Cloud machines automatically"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join new Cloud machines automatically"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join new Cloud machines automatically"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join new Cloud machines automatically"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join new Cloud machines automatically"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join new Cloud machines automatically"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join new Cloud machines automatically"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join new Cloud machines automatically"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join new Cloud machines automatically"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join new Cloud machines automatically"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join new Cloud machines automatically"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join new Cloud machines automatically"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join new Cloud machines automatically"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join new Cloud machines automatically"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join new Cloud machines automatically"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join new Cloud machines automatically"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join new Cloud machines automatically"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join new Cloud machines automatically"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join new Cloud machines automatically"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Join new Cloud machines automatically"
           }
         }
       }
