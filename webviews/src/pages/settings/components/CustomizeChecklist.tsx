@@ -30,6 +30,7 @@ import { LIBRARY_KEY, libraryQuery, STANDUP_KEY, standupQuery, type LibraryRead 
 import { Button } from "../../../ui/Button";
 import { managedOf, managedText, valueOf } from "../store";
 import { t } from "../strings";
+import { copyTextResult } from "../../../agent-session/acpmux/conversation/clipboard";
 
 /** How the checklist draws (gallery `settings.customize-checklist`). `rows`, the shipped one, is a
  * dense list: switch, title, one help line. `chips` is a wrap of pill toggles (title only); `menu`
@@ -236,6 +237,7 @@ export function CustomizeChecklistView({
  * CLI's lines as they read out loud, each with its link, and Copy for the whole Markdown. */
 export function StandupPanel({ standup }: { standup: Standup }) {
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
   return (
     <div className="checklist-standup" data-checklist-standup="">
       <div className="checklist-head">
@@ -249,10 +251,20 @@ export function StandupPanel({ standup }: { standup: Standup }) {
           className="button"
           data-checklist-action="copyStandup"
           onClick={() => {
-            void navigator.clipboard?.writeText(standup.text).then(() => setCopied(true));
+            setCopyFailed(false);
+            void copyTextResult(standup.text).then((ok) => {
+              setCopied(ok);
+              setCopyFailed(!ok);
+            });
           }}
         >
-          {t(copied ? "settingsPage.customizeChecklist.copied" : "settingsPage.customizeChecklist.copy")}
+          {t(
+            copyFailed
+              ? "inspector.copyFailed"
+              : copied
+                ? "settingsPage.customizeChecklist.copied"
+                : "settingsPage.customizeChecklist.copy",
+          )}
         </Button>
       </div>
       <ul className="checklist-standup-lines selectable">
