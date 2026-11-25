@@ -109,6 +109,7 @@ on:
       - "web/public/tui/install-static.sh"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json"
       - "web/services/vms/drivers/linuxRelease.ts"
+      - "web/app/globals.css"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_call:
@@ -425,7 +426,7 @@ jobs:
         with:
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-acpmux-lib-test
+          shared-key: cmux-tui-acpmux-lib-test-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true
@@ -860,7 +861,7 @@ jobs:
         with:
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-acpmux-sim
+          shared-key: cmux-tui-acpmux-sim-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true
@@ -955,7 +956,7 @@ jobs:
         with:
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-carrier-sim
+          shared-key: cmux-tui-carrier-sim-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true
@@ -1191,7 +1192,7 @@ jobs:
         with:
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-pr-clippy
+          shared-key: cmux-tui-pr-clippy-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true

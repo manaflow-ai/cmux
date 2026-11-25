@@ -691,20 +691,15 @@ async fn cold_and_warm(
         .await;
     let mut shown = None;
     if sent.is_ok() {
-        loop {
-            match link.notification(deadline).await {
-                Next::Frame(at, v) => {
-                    last = last.max(event_seq(&v).unwrap_or(0));
-                    let p = v["params"].to_string();
-                    if v["method"] == method::MUX_EVENT
-                        && p.contains("user_message")
-                        && p.contains(&prompt_id)
-                    {
-                        shown = Some(at);
-                        break;
-                    }
-                }
-                _ => break,
+        while let Next::Frame(at, v) = link.notification(deadline).await {
+            last = last.max(event_seq(&v).unwrap_or(0));
+            let p = v["params"].to_string();
+            if v["method"] == method::MUX_EVENT
+                && p.contains("user_message")
+                && p.contains(&prompt_id)
+            {
+                shown = Some(at);
+                break;
             }
         }
     }
@@ -2322,7 +2317,7 @@ async fn bg_chat_once(
                 .as_object()
                 .map(|m| m.iter().map(|(k, x)| (k.clone(), x.to_string().len())).collect())
                 .unwrap_or_default();
-            fields.sort_by(|a, b| b.1.cmp(&a.1));
+            fields.sort_by_key(|f| std::cmp::Reverse(f.1));
             fields.truncate(6);
             eprintln!(
                 "netcond-debug {phase} {when} {} kind {} recordKind {} seq {} bytes {} top {:?}",
