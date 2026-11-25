@@ -21,6 +21,7 @@ const strings: Strings = {
 test("the toolbar has a Features tab between Discover and Installed", async () => {
   const store = new AppsStore(new MockAppsProvider(storeApps()), "#/features");
   await store.start();
+  await store.loadFeatures();
   const html = renderToStaticMarkup(<AppsPage store={store} strings={strings} />);
   store.stop();
   const discover = html.indexOf(`>${en["store.tab.discover"]}</button>`);
@@ -49,6 +50,24 @@ test("a switch writes the feature through apps.features.set and reads the list a
   expect(typeof set?.key).toBe("string");
   expect(store.getSnapshot().features.find((row) => row.id === "chief.channels")?.on).toBe(true);
   expect(provider.calls.filter((call) => call.op === AppsOps.featuresList).length).toBe(2);
+});
+
+test("experiments.appStoreFeatures off (the default) lists nothing and hides the tab", async () => {
+  const provider = new MockAppsProvider(storeApps());
+  provider.featuresEnabled = false;
+  const store = new AppsStore(provider, "#/features");
+  await store.start();
+  await store.loadFeatures();
+  expect(store.getSnapshot().featuresEnabled).toBe(false);
+  expect(store.getSnapshot().features).toEqual([]);
+  const html = renderToStaticMarkup(<AppsPage store={store} strings={strings} />);
+  store.stop();
+  expect(html).not.toContain(`>${en["store.tab.features"]}</button>`);
+  expect(html).toContain(`>${en["store.tab.discover"]}</button>`);
+  provider.featuresEnabled = true;
+  await store.loadFeatures();
+  expect(store.getSnapshot().featuresEnabled).toBe(true);
+  expect(store.getSnapshot().features.length).toBeGreaterThan(0);
 });
 
 test("a refused switch goes back to the setting's value", async () => {

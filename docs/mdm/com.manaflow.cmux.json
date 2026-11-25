@@ -3996,6 +3996,12 @@
       "title" : "Agent Badges: Running Beam",
       "type" : "boolean"
     },
+    "experiments.appStoreFeatures" : {
+      "default" : false,
+      "description" : "The App Store gets a Features tab where built-in features turn on and off.",
+      "title" : "App Store Features",
+      "type" : "boolean"
+    },
     "experiments.attachmentTypeIcons" : {
       "default" : false,
       "description" : "While an attachment loads, its chip shows a file or image icon instead of the loading mark.",

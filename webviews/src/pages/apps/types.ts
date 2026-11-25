@@ -275,5 +275,8 @@ export interface FeatureRow {
 
 export interface FeaturesList {
   revision: number;
+  /** Whether `experiments.appStoreFeatures` is on (off by default): off lists no features and the
+   * page draws no Features tab. */
+  enabled?: boolean;
   features: FeatureRow[];
 }

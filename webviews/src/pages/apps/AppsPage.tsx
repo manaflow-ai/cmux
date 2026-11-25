@@ -58,12 +58,21 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
   // The `tab` placement of Examples (DEV, examples=tab) is a third toolbar tab: Discover on the
   // Examples shelf. Every other placement keeps two tabs.
   const examplesTab = snap.examplesOffered && snap.examplesStyle === "tab";
-  // Features (Leo, 10-21): every built-in feature as a switch, between Discover and Installed.
-  const tabs: ToolbarTab[] = examplesTab
-    ? ["discover", "examples", "features", "installed"]
-    : ["discover", "features", "installed"];
+  // Features (Leo, 10-21): every built-in feature as a switch, between Discover and Installed, only
+  // while Settings > Advanced > Experiments > App Store Features is on (off by default). A
+  // `#/features` route waits on the first read before it falls back to Discover.
+  const featuresShown =
+    snap.featuresEnabled ||
+    (snap.tab === "features" && (snap.featuresStatus === "idle" || snap.featuresStatus === "loading"));
+  const tabs: ToolbarTab[] = [
+    "discover",
+    ...(examplesTab ? (["examples"] as const) : []),
+    ...(snap.featuresEnabled ? (["features"] as const) : []),
+    "installed",
+  ];
+  const onFeatures = snap.tab === "features" && featuresShown;
   const current: ToolbarTab =
-    snap.tab === "installed" || snap.tab === "features"
+    snap.tab === "installed" || onFeatures
       ? snap.tab
       : examplesTab && snap.shelf === "example"
         ? "examples"
@@ -143,7 +152,7 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
       {down && snap.catalog.length === 0 && snap.installed.length === 0 ? (
         // Nothing read yet and the link is down: blank, and no false empty shelf either.
         <div className="apps-state" />
-      ) : snap.tab === "features" ? (
+      ) : onFeatures ? (
         <FeaturesView snap={snap} store={store} strings={strings} />
       ) : snap.tab === "installed" ? (
         <InstalledView snap={snap} store={store} strings={strings} />

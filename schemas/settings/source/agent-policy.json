@@ -573,7 +573,8 @@
         "experiments.quietConnect",
         "experiments.threadMinimapRestReveal",
         "experiments.forum",
-        "experiments.browserProfileCard"
+        "experiments.browserProfileCard",
+        "experiments.appStoreFeatures"
       ]
     },
     {

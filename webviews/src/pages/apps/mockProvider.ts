@@ -41,6 +41,8 @@ export class MockAppsProvider implements PageClient {
   offline = false;
   /** The daemon's built-in features (`apps.features.list`), each an existing setting. */
   features: FeatureRow[] = sampleFeatures();
+  /** `experiments.appStoreFeatures`: on here so the dev loop and the gallery draw the tab. */
+  featuresEnabled = true;
   /** `tabs.newTabApp`: the app New Tab shows. */
   newTabApp?: string;
   private readonly newTabWatchers = new Map<number, (data: unknown, seq: number) => void>();
@@ -190,7 +192,9 @@ export class MockAppsProvider implements PageClient {
         return this.changed(app) as R;
       }
       case AppsOps.featuresList:
-        return { revision: this.revision, features: structuredClone(this.features) } as R;
+        return this.featuresEnabled
+          ? ({ revision: this.revision, enabled: true, features: structuredClone(this.features) } as R)
+          : ({ revision: this.revision, enabled: false, features: [] } as R);
       case AppsOps.featuresSet: {
         const row = this.features.find((feature) => feature.id === params.id);
         if (!row) throw pageError("cmux.resource.validation_invalid", `no feature ${String(params.id)}`);
