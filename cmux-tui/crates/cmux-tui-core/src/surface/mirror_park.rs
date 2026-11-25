@@ -98,6 +98,14 @@ impl TerminalMirror {
         }
     }
 
+    /// Locks the mirror only while it is not parked; a parked one stays
+    /// parked and gives `None`. Parking happens under this lock, so the
+    /// answer cannot go stale before the caller reads the terminal.
+    pub(crate) fn lock_unparked(&self) -> Option<RankedGuard<'_, Box<Terminal>>> {
+        let guard = self.term.lock().unwrap_or_else(PoisonError::into_inner);
+        (!self.is_parked()).then_some(guard)
+    }
+
     /// Whether the mirror is parked now. A lock rebuilds it.
     pub(crate) fn is_parked(&self) -> bool {
         self.is_parked.load(Ordering::Acquire)
@@ -282,7 +290,19 @@ impl Surface {
         self.as_pty().is_some_and(PtySurface::park_exited_mirror)
     }
 
+    /// Runs `f` on the terminal unless its mirror is parked, which it leaves
+    /// parked. For upkeep that must not rebuild what nobody views (the
+    /// scrollback budget); `None` for a parked mirror or a browser.
+    pub(crate) fn try_with_live_terminal<R>(
+        &self,
+        f: impl FnOnce(&mut Terminal) -> R,
+    ) -> Option<R> {
+        let mut term = self.as_pty()?.term.lock_unparked()?;
+        Some(f(&mut term))
+    }
+
     /// The terminal's daemon mirror is parked (rebuilt by the next lock).
+    #[cfg(test)]
     pub(crate) fn mirror_parked(&self) -> bool {
         self.as_pty().is_some_and(|pty| pty.term.is_parked())
     }
