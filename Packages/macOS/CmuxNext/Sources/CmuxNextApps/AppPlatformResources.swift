@@ -2,7 +2,7 @@ public import Foundation
 
 /// Files synced from `cmux-tui/crates/cmux-app-host`, `first-party-apps` and
 /// `samples/apps` by `scripts/cmux-next/sync-app-runtime.sh` (never edit the
-/// copies): the scope tables the permission prototype reads, the
+/// copies): the
 /// first-party app packages the local daemon serves (the App points the
 /// daemon at ``firstParty``), and the sample manifests and assets the demo
 /// transport and the store icons use. The app supervisor in the daemon runs
@@ -14,11 +14,6 @@ public nonisolated enum AppPlatformResources {
             ?? Bundle.module.bundleURL.appending(path: "AppPlatform", directoryHint: .isDirectory)
     }
 
-    /// `generated/scopes.json`: op name -> scope and class.
-    public static var scopesFile: URL { root.appending(path: "scopes.json") }
-    /// `schema/v2/scope-classes.json`: the risk class of every scope, shared
-    /// with the Rust validator (`cmux-app-manifest`).
-    public static var scopeClassesFile: URL { root.appending(path: "scope-classes.json") }
     /// The sample apps' manifests and assets, one directory per app.
     public static var samples: URL { root.appending(path: "samples", directoryHint: .isDirectory) }
     /// First-party apps shipped inside cmux (`first-party-apps/<name>` with a
