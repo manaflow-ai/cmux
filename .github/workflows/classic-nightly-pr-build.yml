@@ -111,7 +111,7 @@ jobs:
             exit 0
           fi
           status=0
-          "$client" run --class isolated --script scripts/ci/classic-nightly-release-compile.sh --ref "$SHA" \
+          "$client" run --class light --script scripts/ci/classic-nightly-release-compile.sh --ref "$SHA" \
             --repo "$GITHUB_REPOSITORY" --arg=--archs --arg="$ARCH" --key "$KEY" \
             --reason "classic nightly pr build #$PR $ARCH" --timeout 3600 --queue-timeout 3600 || status=$?
           case "$status" in
