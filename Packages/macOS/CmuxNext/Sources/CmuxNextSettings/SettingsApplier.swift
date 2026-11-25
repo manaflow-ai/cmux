@@ -82,6 +82,7 @@ public final class SettingsApplier {
         if design.colorTransition != snapshot.colorTransition.transition { design.colorTransition = snapshot.colorTransition.transition }
         if design.inactiveWindowDim != snapshot.inactiveWindowDim { design.inactiveWindowDim = snapshot.inactiveWindowDim }
         if design.wallpaperTint != snapshot.wallpaperTint { design.wallpaperTint = snapshot.wallpaperTint }
+        if design.wallpaperLighting != snapshot.wallpaperLighting { design.wallpaperLighting = snapshot.wallpaperLighting }
         if design.liveWallpaperFrameRate != snapshot.liveWallpaperFrameRate {
             design.liveWallpaperFrameRate = snapshot.liveWallpaperFrameRate
         }

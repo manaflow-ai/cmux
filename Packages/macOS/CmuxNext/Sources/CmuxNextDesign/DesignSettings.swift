@@ -163,6 +163,16 @@ public final class DesignSettings {
             BackdropImageStore.shared.desktop.tintEnabled = wallpaperTint
         }
     }
+    /// `appearance.wallpaperLighting`: treats the desktop wallpaper as a light source (glass edges
+    /// facing its brightest part catch its color, the composer glows with it, the glass leans toward
+    /// its hue). Off by default and until the setting reaches it (``SettingsApplier``).
+    public var wallpaperLighting = false {
+        didSet {
+            guard wallpaperLighting != oldValue else { return }
+            BackdropImageStore.shared.light.enabled = wallpaperLighting
+            BackdropImageStore.shared.desktop.lightingEnabled = wallpaperLighting
+        }
+    }
     /// `appearance.liveWallpaperFrameRate`: the most frames per second a live wallpaper draws (15, 30 or
     /// 60; ``BackdropLiveView``). A running wallpaper reads it on its next frame; a held one when it runs again.
     public var liveWallpaperFrameRate = 30
