@@ -408,6 +408,26 @@
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/ParityViews.swift",
       "text": "Text(\"Preparing the summary…\").font(.footnote).foregroundStyle(.secondary)",
       "reason": "work the person asked for (an agent writing a continuation summary), not content on its way: progress, not a placeholder"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "case \"b\": SkeletonList(rows: 3, delay: .zero, caption: caption, style: .plainList, captionPlacement: .below)",
+      "reason": "design gallery: draws the state for review, not in a flow"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "case \"c\": SkeletonList(rows: 3, delay: .zero, caption: caption, style: .plainList, captionPlacement: .above)",
+      "reason": "design gallery: draws the state for review, not in a flow"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "case \"before\": SkeletonList(rows: 3, delay: .zero, caption: caption)",
+      "reason": "design gallery: draws the state for review, not in a flow"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "default: SkeletonList(rows: 3, delay: .zero, caption: caption, style: .plainList, captionPlacement: .spoken)",
+      "reason": "design gallery: draws the state for review, not in a flow"
     }
   ]
 }
