@@ -11,9 +11,11 @@ import {
   type CloudStartAsk as Ask,
   type CloudStartProgress,
 } from "./cloudStartProgress";
-import { AlertCircle, Check, ChevronDown, ChevronRight, Folder, Spinner } from "./conversation/icons";
+import { AlertCircle, Check, ChevronDown, ChevronRight, Folder } from "./conversation/icons";
 
+import { DelayedSpinner, SPINNER_DELAY_MS } from "./conversation/DelayedSpinner";
 import { ShimmerText } from "./conversation/ShimmerText";
+import { cloudStartGoes } from "./cloudStartJustGo.experiment";
 import { Thinking } from "./conversation/Thinking";
 import { formatDuration } from "./conversation/turns";
 import { CloudSetupCard } from "./conversation/CloudSetupCard";
@@ -79,6 +81,10 @@ function StageLine({ stage, look, now }: { stage: QuietStage; look: Exclude<Quie
     </div>
   );
 }
+/// A start's spinners wait 300 ms (Leo, 2026-11-25, "just go"); the `hold` arm shows them at once.
+function spinnerDelay(): number {
+  return cloudStartGoes() ? SPINNER_DELAY_MS : 0;
+}
 function mark(step: ChecklistStep, t: Translate) {
   if (step.status === "done")
     return (
@@ -90,7 +96,7 @@ function mark(step: ChecklistStep, t: Translate) {
   if (step.status === "running")
     return (
       <>
-        <Spinner size={16} loading />
+        <DelayedSpinner size={16} delayMs={spinnerDelay()} />
         <span className="visually-hidden">{t("cloudStartup.state.running")}</span>
       </>
     );
@@ -716,7 +722,7 @@ export function CloudStartView({
   const waitingForSignIn = !failed && start.signingIn === true;
   const signInStatus = (
     <output className="acpmux-cloud-start__status" data-signing-in="true" aria-busy="true">
-      <Spinner size={14} loading />
+      <DelayedSpinner size={14} delayMs={spinnerDelay()} />
       <span>{t("cloudStart.waitingForSignIn")}</span>
     </output>
   );
@@ -869,6 +875,13 @@ export function CloudStartView({
           <div className="ui-glass cv-user__bubble selectable">{start.task}</div>
         </div>
       )}
+      {/* What Return queued during the start: it goes with the started chat's first prompt. */}
+      {bubble &&
+        start.queued?.map((text, index) => (
+          <div className="cv-user" key={index} data-queued="true">
+            <div className="ui-glass cv-user__bubble selectable">{text}</div>
+          </div>
+        ))}
       {waitingForSignIn && signInStatus}
       {stalled && !start.ask && (
         <output className="acpmux-cloud-start__status" data-stalled="true">
@@ -882,7 +895,7 @@ export function CloudStartView({
       )}
       {!failed && !stalled && !waitingForSignIn && !start.initialized && (
         <output className="acpmux-cloud-start__status">
-          <Spinner size={14} loading />
+          <DelayedSpinner size={14} delayMs={spinnerDelay()} />
           <span>{t("cloudStart.preparing")}</span>
         </output>
       )}
