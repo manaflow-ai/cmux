@@ -22,6 +22,13 @@ extension FeedStore {
                  workspaceTitle: "cmux-next-ios", markdown: markdown, quote: quote, createdAt: now.addingTimeInterval(-ago))
     }
 
+    /// An event already read (the older days' samples add nothing to the unread count).
+    static func read(_ item: FeedItem) -> FeedItem {
+        var item = item
+        item.isRead = true
+        return item
+    }
+
     public static func mockItems(now: Date) -> [FeedItem] {
         let question = AgentQuestion(
             id: "feed-q-release",
@@ -142,6 +149,17 @@ extension FeedStore {
             codex("f-agent-quote", .response, """
             Done. I kept the old `/v1/pricing` route as a redirect so cached links still work.
             """, quote: .init("Should I keep the old route as a redirect?", author: .agent), ago: 5400, now: now),
+            // Earlier days: the day labels between events ("Yesterday", a weekday, a date).
+            read(claude("f-day-yesterday", .finished, """
+            **Finished:** the relay reconnects after sleep in under a second. `ReconnectTests` cover wake, airplane mode and a changed network.
+            """, quote: .init("make reconnect after sleep instant"), ago: 26 * 3600, now: now)),
+            read(codex("f-day-yesterday-lint", .response, "Lint is clean on `web/` after the import sort. Nothing else changed.", quote: nil, ago: 30 * 3600, now: now)),
+            read(claudeIOS("f-day-weekday", .response, """
+            The docs site builds again: the broken link in `getting-started.mdx` pointed at a page that moved.
+            """, quote: .init("why is the docs build red?"), ago: 3 * 86_400 + 2 * 3600, now: now)),
+            read(claude("f-day-date", .finished, """
+            **Finished:** archived last sprint's branches. 14 merged branches deleted, 2 kept with open work.
+            """, quote: .init("clean up the old branches"), ago: 9 * 86_400, now: now)),
         ]
     }
 
