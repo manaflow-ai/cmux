@@ -276,6 +276,9 @@ struct TabsScreen<Source: TabsDataSource>: View {
 
     private var screen: some View {
         let layout = toolbarLayout
+        #if DEBUG
+        ZoomWorkProbe.note(.screen)
+        #endif
         return ZStack(alignment: .topLeading) {
             overview
                 // Close All Tabs asks first, as Safari does: every tab closes with no way back.

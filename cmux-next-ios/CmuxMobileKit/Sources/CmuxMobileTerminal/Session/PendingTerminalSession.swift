@@ -72,6 +72,12 @@ public enum TerminalSessionChoice {
             // A Codex-like inline TUI streaming history (reproduction harness).
             if ProcessInfo.processInfo.arguments.contains("-cmux-mobile-term-fake-codex") { return FakeCodexSession() }
             if ProcessInfo.processInfo.arguments.contains("-cmux-mobile-term-fake-codex-idle") { return FakeCodexSession(idleRedraw: true) }
+            // `CMUX_MOBILE_MOCK_TERMINAL_STREAM=1`: every mock terminal is a busy one, a long
+            // scrollback (2,000 lines) and then a line every 70 ms with no end (the tab
+            // grid zoom bench's live cards, with CMUX_MOBILE_MOCK_TABS).
+            if ProcessInfo.processInfo.environment["CMUX_MOBILE_MOCK_TERMINAL_STREAM"] == "1" {
+                return FakeCodexSession(prefill: 2_000, endless: true)
+            }
             // `-CmuxMobileColdFrameDemo`: a tab that never attaches, over its cached frame
             // (`TerminalColdFrameDemo`, PaneLayersUITests).
             if ProcessInfo.processInfo.arguments.contains("-CmuxMobileColdFrameDemo") {

@@ -26,9 +26,16 @@ public final class FakeCodexSession: TerminalSession {
     /// a later write (user report 2026-10-14, "blinking and oscillating").
     private let idleRedraw: Bool
 
-    public init(rate: Double = 14, idleRedraw: Bool = false) {
+    /// History lines written before the stream starts (a long scrollback).
+    private let prefill: Int
+    /// Streams with no end (the reply otherwise stops at line 400).
+    private let endless: Bool
+
+    public init(rate: Double = 14, idleRedraw: Bool = false, prefill: Int = 0, endless: Bool = false) {
         self.rate = rate
         self.idleRedraw = idleRedraw
+        self.prefill = prefill
+        self.endless = endless
     }
 
     public func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void) {
@@ -37,6 +44,12 @@ public final class FakeCodexSession: TerminalSession {
         emit("\u{1B}c\u{1B}[H\u{1B}[2J")
         for index in 1...6 { emit("shell line \(index)\r\n") }
         emit("> codex\r\n")
+        if prefill > 0 {
+            // One write, as a reattach's replay arrives.
+            let liveTop = rows - 4
+            let lines = (1...prefill).map { "scrollback line \($0): \(String(repeating: "lorem ipsum ", count: 3))" }
+            emit("\u{1B}[1;\(liveTop - 1)r\u{1B}[\(liveTop - 1);1H" + lines.map { "\r\n" + $0 }.joined() + "\u{1B}[r")
+        }
         drawLive(timer: 0)
         if idleRedraw {
             for index in 1...300 { insertHistory("transcript line \(index)") }
@@ -61,7 +74,7 @@ public final class FakeCodexSession: TerminalSession {
             var tick = 0
             // A pause first, then a long reply streams in.
             try? await Task.sleep(for: .seconds(3))
-            while let self, !Task.isCancelled, self.line < 400 {
+            while let self, !Task.isCancelled, self.endless || self.line < 400 {
                 self.line += 1
                 tick += 1
                 self.insertHistory("reply line \(self.line)")

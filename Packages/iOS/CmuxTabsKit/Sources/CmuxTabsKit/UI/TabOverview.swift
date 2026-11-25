@@ -93,6 +93,9 @@ struct TabCard<Content: View>: View {
 
     var body: some View {
         let m = theme.metrics
+        #if DEBUG
+        let _ = ZoomWorkProbe.note(.card)
+        #endif
         VStack(spacing: 0) {
             // A hidden card's content is not built: the zooming page (or the
             // live page on its card) draws it, and a hidden chat card kept
@@ -209,6 +212,9 @@ struct TabOverview<Source: TabsDataSource>: View {
 
     var body: some View {
         let tabs = source.tabs
+        #if DEBUG
+        let _ = ZoomWorkProbe.note(.grid)
+        #endif
         ZStack(alignment: .topLeading) {
             LinearGradient(colors: [theme.colors.overviewTop, theme.colors.overviewBottom], startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()

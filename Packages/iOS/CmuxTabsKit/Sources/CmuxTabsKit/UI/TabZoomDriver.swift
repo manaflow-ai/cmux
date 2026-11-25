@@ -72,9 +72,11 @@ final class TabZoomDriver {
             if state.phase == .animating, before == .page || before == .overview {
                 frameLog.begin(at: CACurrentMediaTime(), toOverview: state.target == 1)
                 AccessoryProbe.trace.reset()
+                ZoomWorkProbe.begin()
             } else if state.phase != .animating, frameLog.isRunning {
                 // A pinch grabbed it or it jumped: not a tap-to-settled zoom.
                 _ = frameLog.end(maxFPS: 0)
+                ZoomWorkProbe.end()
             }
         }
         #endif
@@ -132,6 +134,7 @@ final class TabZoomDriver {
             #if DEBUG
             if var summary = frameLog.end(maxFPS: Int((1 / max(0.001, link.targetTimestamp - link.timestamp)).rounded())) {
                 summary.row = AccessoryProbe.trace.summary(toOverview: summary.toOverview)
+                summary.work = ZoomWorkProbe.end()
                 Self.write(summary)
             }
             #endif
@@ -153,6 +156,32 @@ enum AccessoryProbe {
     static func note(_ z: AccessoryZoom, moving: Bool, bottom: CGFloat? = nil) {
         guard on, moving else { return }
         trace.note(opacity: z.opacity, scale: Double(z.scale), bottom: bottom.map { Double(z.origin.y + z.scale * $0) })
+    }
+}
+
+/// Counts the views that re-run while a logged zoom moves (`ZoomWork`,
+/// `CMUX_TABS_FRAME_LOG=1` only): their bodies call `note` once each.
+@MainActor
+enum ZoomWorkProbe {
+    private static var work = ZoomWork()
+    private static var running = false
+
+    static func begin() {
+        guard AccessoryProbe.on else { return }
+        work.reset()
+        running = true
+    }
+
+    @discardableResult
+    static func end() -> ZoomWork.Counts? {
+        guard running else { return nil }
+        running = false
+        return work.counts
+    }
+
+    static func note(_ view: ZoomWork.View) {
+        guard running else { return }
+        work.note(view)
     }
 }
 
