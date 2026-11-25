@@ -239,6 +239,7 @@ pub fn fixture(cell: &str) -> Result<Fixture, String> {
             checked_at: 1,
             auto_update: false,
             last_auto_update: None,
+            codex_bundle: None,
         });
     }
     Ok(fixture)

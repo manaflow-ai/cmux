@@ -145,6 +145,8 @@ impl NewArgs {
     pub fn apply_compat(&mut self) -> Vec<&'static str> {
         let mut notices = Vec::new();
         // Only a word that reads as a session name: a quoted prompt with spaces stays a prompt.
+        // `-d` included: `acpmux new NAME -d` is how agents start a lane, and a lone word taken
+        // as its prompt left the session named after its agent ("codex"; Leo, 2026-11-21).
         if self.name.is_none()
             && self.prompt.len() == 1
             && self.prompt.first().is_some_and(|word| looks_like_session_name(word))
@@ -153,14 +155,13 @@ impl NewArgs {
             && self.report_to.is_none()
             && self.group.is_none()
             && !self.reuse
-            && !self.detach
             && !self.quiet
             && !self.ephemeral
             && self.parent.is_none()
         {
             self.name = self.prompt.pop();
             notices
-                .push("acpmux new: the lone positional is the session name, equivalent to --name");
+                .push("acpmux new: the lone positional is the session name, equivalent to --name (give -n NAME to send it as the first prompt)");
         }
         if self.stay {
             self.host = Some("local".to_owned());
@@ -201,6 +202,30 @@ mod tests {
         assert_eq!(args.prompt, ["fix the bug"]);
         assert!(args.name.is_none());
         assert!(notices.is_empty());
+    }
+
+    #[test]
+    fn a_detached_lone_name_is_the_name_not_the_prompt() {
+        // `acpmux new codex-nightly-check -m codex -d` named the session "codex" and sent
+        // the name as its first prompt (Leo, 2026-11-21: "under the name \"codex\" instead of
+        // the one I gave it"). Placed or local, the word is the name.
+        for argv in [
+            &["new", "codex-nightly-check", "-m", "codex", "-d"][..],
+            &["new", "-d", "codex-nightly-check", "--machine", "auto"][..],
+            &["new", "--detach", "codex-nightly-check", "--machine", "far-host"][..],
+        ] {
+            let mut args = New::try_parse_from(argv).unwrap().args;
+            let notices = args.apply_compat();
+            assert_eq!(args.name.as_deref(), Some("codex-nightly-check"), "{argv:?}");
+            assert!(args.prompt.is_empty(), "{argv:?}");
+            assert!(args.detach, "{argv:?}");
+            assert_eq!(notices.len(), 1, "{argv:?}");
+        }
+        // With -n given, the lone word is the prompt, as asked.
+        let mut args = New::try_parse_from(["new", "-n", "probe", "-d", "continue"]).unwrap().args;
+        args.apply_compat();
+        assert_eq!(args.name.as_deref(), Some("probe"));
+        assert_eq!(args.prompt, ["continue"]);
     }
 
     #[derive(Parser)]

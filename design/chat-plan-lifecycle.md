@@ -40,6 +40,40 @@ lifecycle is for claude code but this may not be that great right now".
    done when done, delete what you drop, and when the person's message changes the work, rewrite or
    clear the list; it is this task's plan, never a standing list of a coordinator's duties.
 
+## 2026-11-22: the chat's kept list expires too
+
+Leo, 2026-11-22, on "Earlier plan · 0 of 1" over a coordinator's hours-old ops note in the hat and
+"limit 0/1 •" in its sidebar row: "we need to figure out how to do better plans and have them expired,
+etc. all that shit." / "if we ever EVER FUCKING WANT SOME BULLSHIT LIKE THIS, WE FUCKING DO IT
+PROPERLY."
+
+The rules above covered the transcript's plan rows, but the chat's kept list (`task_list.rs`, the
+summary's `taskList`, added for David Beyer's long-chat ask) was never expired: the hat showed it as
+"Earlier plan" through any number of turns and the sidebar row counted it. Now, in Rust:
+
+5. **The kept list belongs to the turn that last wrote it** (`TaskList::turn`, the chat's
+   `turn_count` then). It is current through that turn, the gap after it and the next turn while it
+   runs; once a turn that never touched it ends, `TaskList::current` is false and no summary,
+   session row or `_acpmux/task_list/get` carries it. The hat and the sidebar row read only the
+   summary, so both drop it with no client logic. A list saved before this reads as turn 0 and has
+   expired in any chat past its second turn. A list the Chief set never expires by turns.
+6. **Claude Code's tasks age out one by one** (`claude_stdio/task_plan.rs`). Claude keeps every task
+   for the session, so its drawn plan used to carry every old pending task into each new one. Each
+   task now remembers the turn that last created or changed it, and the plan draws only the tasks
+   touched in this turn or the one before; an update to an old task brings it back. A finished
+   drawn list clears though aged-out tasks were left pending. Codex's update_plan already sends a
+   whole plan per turn; rule 5 ends it the same way.
+7. **A long step is styled, not dumped** (`PlanList.tsx` `PlanStep`): its first line is the step,
+   drawn with the transcript's inline marks (a GitHub reference is its chip) and clamped to two
+   lines in a card and one in the hat; the lines after it are its muted detail, clamped to two (one
+   in the hat). The whole text is its tooltip.
+
+Tests: `task_list.rs` `a_list_expires_once_a_turn_that_never_touched_it_ends`,
+`task_plan_tests.rs` `tasks_untouched_for_a_whole_turn_age_out_of_the_drawn_plan` (120 tasks),
+`tests/hub_integration/task_list.rs` `a_stale_120_step_list_expires_from_every_view_after_an_untouched_turn`
+(a replayed coordinator through the hub, no real agent), `PlanStep.test.tsx`; gallery
+`agent-pane.plan-list` `long-steps`, `long-steps-hat`.
+
 Not done here: a time-based expiry. Claude Code has none, and a person coming back to "continue" after a
 night wants the list; the one-message rule already ends the stale case.
 

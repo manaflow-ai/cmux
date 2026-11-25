@@ -52,11 +52,19 @@ public struct SessionTicket: Codable, Sendable, Equatable {
     public var peer: Peer
     public var role: Role
     public var scope: SessionScope
+    /// Whose devices the session joins, as the hub authenticated them (PROTOCOL.md): `user` is one account,
+    /// both devices signed in to it. Nil from a hub that does not say, which counts as not shown to be own.
+    public var ownerKind: String?
 
-    public init(sessionId: String, ticket: String, signalURL: URL, ice: [DeviceHubICEServer], peer: Peer, role: Role, scope: SessionScope) {
+    public init(sessionId: String, ticket: String, signalURL: URL, ice: [DeviceHubICEServer], peer: Peer, role: Role, scope: SessionScope,
+                ownerKind: String? = nil) {
         self.sessionId = sessionId; self.ticket = ticket; self.signalURL = signalURL; self.ice = ice
-        self.peer = peer; self.role = role; self.scope = scope
+        self.peer = peer; self.role = role; self.scope = scope; self.ownerKind = ownerKind
     }
+
+    /// The hub says both devices are signed in to one account: the person reaching their own machine.
+    /// Read from the hub's own push, never from anything the viewer sends.
+    public var isOwnAccount: Bool { ownerKind == "user" }
 
     /// `signalURL` with `?ticket=<jws>`, the URL the device opens.
     public var signalSocketURL: URL {

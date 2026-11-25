@@ -10,9 +10,11 @@ a reviewer or a customer for the app lives here, beside the app it describes.
 | Path | What it is | How it reaches App Store Connect |
 |---|---|---|
 | `review-notes-asc.txt` | App Review notes template | `cmux-next-ios/scripts/asc_review_package.py sync-notes` |
+| `review-notes-asc-internal.txt` | App Review notes template for cmux INTERNAL (`dev.cmux.app.internal`, app 6791408425), which sells nothing | `asc_review_package.py --config TestFlight --app 6791408425 sync-notes`, and `asc_submit_review.sh submit --config TestFlight` before it submits |
 | `metadata/app-info/<locale>.json` | name, subtitle, privacy policy URL | `asc metadata apply --dir cmux-next-ios/AppStoreReview/metadata` |
 | `metadata/version/<version>/<locale>.json` | description, keywords, promotional text, marketing and support URLs | the same `asc metadata apply`; `asc_review_package.py sync-listing` then sets and reads back every locale's Support URL |
 | `reviewer-setup.md` | the review path, where each live value lives, what must be true before a submission | read by people |
+| `common-rejections.json` | the common rejections public repos list, each mapped to what the app does and the gate check that catches it (or why none can) | read by `app_review_gate.py lint`, which fails on a detector that does not exist |
 
 ## Script
 

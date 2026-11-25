@@ -9,7 +9,7 @@
 #     --artifact .build/helper-fresh-grant/report.tgz --timeout 5400 [--arg=ref=<sha to build>] [--arg=share=0]
 #   --arg=ref=SHA  the commit whose app to build (40 hex; default: this checkout), in its own worktree, so a PR
 #                  head is proven with this script from a reviewed commit (as fresh-home-launch.sh's ref=).
-#   --arg=share=0  skip part c.
+#   --arg=share=0  skip parts c and d.
 #
 # It builds the tagged app (scripts/reload.sh, as fresh-home-launch.sh does), whose Screen Sharing
 # helper (`<app> Screen Sharing.app`, `cmux-screen-sharing`) runs the Computer Use worker, then
@@ -20,8 +20,11 @@
 #   b  Computer Use lists apps, screenshots TextEdit and clicks and types into it, read back by its UI tree.
 #   c  the helper's own `host` (the cmux.rd/1 share host), started as its own responsible process, streams to a
 #      `cmux-rd bench` viewer on this Mac (the loopback-bench.sh shape) that decodes its frames.
+#   d  the iPhone viewer's WebRTC host (the app's executable as the helper's `__webrtc-host` child) reads the
+#      helper's grants: denied with its rows removed, granted with them written, then serves a setup to `done`.
+#      A build whose helper has no `__webrtc-host` (before cmux#51431) skips d.
 # It refuses (exit 3) on a Mac with SIP on: agents write TCC.db only on a SIP-off CI fixture (cmuxterm-hq
-# docs/handbook/screen-share-grant-lost-on-a-fleet-mac.md). Exit 0 when a, b and c pass, 1 when one failed,
+# docs/handbook/screen-share-grant-lost-on-a-fleet-mac.md). Exit 0 when a, b, c and d pass, 1 when one failed,
 # 3 when it could not run. Prints HFG lines; report.tgz holds report.json and the screenshots.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"

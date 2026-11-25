@@ -218,6 +218,12 @@ public struct ScreenHostMessage: Codable, Sendable {
     /// absent when it is off that display or hidden.
     public var person: Pointer?
     public var agent: Pointer?
+    /// For `telepointers`: the id of the person's cursor shape, sent before
+    /// as a ``cursorShapeType`` message (only to a viewer that said
+    /// ``cursorShapeCapability``).
+    public var shape: String?
+    /// For `cursor` (``cursorShapeType``): the Mac's cursor image.
+    public var cursor: ScreenCursorShape?
     /// For `paste-image`: the image the answer is about.
     public var id: String?
 
@@ -245,6 +251,12 @@ public struct ScreenHostMessage: Codable, Sendable {
     /// the picture (Petal's telepointers: cursors as metadata, never pixels).
     /// An older viewer never says it and keeps the cursor in the picture.
     public static let telepointersCapability = "telepointers"
+    /// `t` of the host's cursor image (``cursor``), once per shape.
+    public static let cursorShapeType = "cursor"
+    /// What a viewer that draws the Mac's own cursor image says in its `caps`
+    /// message, with ``telepointersCapability``: the host then sends each
+    /// shape (``cursorShapeType``) and names it in ``shape``.
+    public static let cursorShapeCapability = "cursor-shape"
 }
 
 // In an extension: an init in the struct's body would replace its memberwise init.
@@ -434,6 +446,8 @@ public final class ScreenStreamHost: @unchecked Sendable {
         var opened = false
         /// The viewer draws pointers itself (it said ``ScreenHostMessage/telepointersCapability``).
         var telepointers = false
+        /// The viewer draws the Mac's cursor image (it said ``ScreenHostMessage/cursorShapeCapability``).
+        var cursorShapes = false
         /// The image the viewer is pasting, chunk by chunk.
         var images = ScreenImageAssembler()
         /// The source state the viewer last heard (live until the host says otherwise).
@@ -607,7 +621,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
                     if signaling.endsSessionOnClose { signaling.close() }
                 case let .path(local, remote):
                     self?.log("path: this Mac \(local) ↔ viewer \(remote)\(local == "relay" || remote == "relay" ? " (TURN relay)" : " (direct)")")
-                case .video: break
+                case .video, .focus: break
                 }
             }
         })
@@ -621,6 +635,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
         log("channel open; starting \(type(of: session.backend))")
         emit(.viewerConnected)
         sendCapabilities(session)
+        startFocusSignals(session)
         // Locked or display asleep: the picture is black, so the viewer hears why (and when it ends).
         session.backend.observeSourceState { [weak self] state in self?.sendSource(state, session: session) }
         session.add(Task { [weak self] in
@@ -713,8 +728,41 @@ public final class ScreenStreamHost: @unchecked Sendable {
 
     /// Whether a viewer's `caps` message says it draws pointers itself.
     static func viewerDrawsPointers(_ input: ScreenInput) -> Bool {
-        input.t == ScreenHostMessage.capabilitiesType
-            && (input.s ?? "").split(separator: ",").contains { $0.trimmingCharacters(in: .whitespaces) == ScreenHostMessage.telepointersCapability }
+        viewerCapabilities(input).contains(ScreenHostMessage.telepointersCapability)
+    }
+
+    /// Whether a viewer's `caps` message says it draws the Mac's cursor image.
+    static func viewerDrawsCursorShapes(_ input: ScreenInput) -> Bool {
+        let capabilities = viewerCapabilities(input)
+        return capabilities.contains(ScreenHostMessage.telepointersCapability)
+            && capabilities.contains(ScreenHostMessage.cursorShapeCapability)
+    }
+
+    private static func viewerCapabilities(_ input: ScreenInput) -> [String] {
+        guard input.t == ScreenHostMessage.capabilitiesType else { return [] }
+        return (input.s ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    /// The shape ids a host remembers sending, newest last: a shape that
+    /// left it is sent again. The viewer keeps more (``ScreenStreamCursorCache``),
+    /// so every shape the host remembers is still one the viewer has.
+    struct SentCursorShapes {
+        static let capacity = 64
+        private(set) var ids: [String] = []
+
+        /// Records `id`; true when the viewer needs it sent first.
+        mutating func needsSend(_ id: String) -> Bool {
+            if let index = ids.firstIndex(of: id) {
+                ids.remove(at: index)
+                ids.append(id)
+                return false
+            }
+            ids.append(id)
+            if ids.count > Self.capacity { ids.removeFirst(ids.count - Self.capacity) }
+            return true
+        }
+
+        mutating func reset() { ids = [] }
     }
 
     /// `point` (global display coordinates) as a fraction of `display`;
@@ -738,22 +786,26 @@ public final class ScreenStreamHost: @unchecked Sendable {
     /// (latest wins; the ordered channel for a viewer without one).
     private func startTelepointers(_ session: Session) {
         let task = Task { [weak self] in
-            var last: (ScreenHostMessage.Pointer?, ScreenHostMessage.Pointer?)?
+            var last: (ScreenHostMessage.Pointer?, ScreenHostMessage.Pointer?, String?)?
             var lastSent = DispatchTime.now()
+            // The Mac's cursor image, for a viewer that draws it (cursor-shape).
+            var shapes = ShapeSender()
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(16)) // telepointer sampling period (60 Hz)
                 guard let self else { return }
                 let display = session.backend.displayFrame
                 let person = Self.fraction(of: Self.pointerLocation(), in: display)
                 let agent = Self.fraction(of: agentPointer?(), in: display)
+                let shape = await shapes.current(session: session, display: display)
                 // Unchanged: nothing to send, but once a second anyway (an unordered message may be lost).
                 let stale = DispatchTime.now().uptimeNanoseconds - lastSent.uptimeNanoseconds > 1_000_000_000
-                if let last, last.0 == person, last.1 == agent, !stale { continue }
-                last = (person, agent)
+                if let last, last.0 == person, last.1 == agent, last.2 == shape, !stale { continue }
+                last = (person, agent, shape)
                 lastSent = .now()
                 var message = ScreenHostMessage(t: ScreenHostMessage.telepointersType)
                 message.person = person
                 message.agent = agent
+                message.shape = shape
                 if let data = try? JSONEncoder().encode(message) {
                     let text = String(decoding: data, as: UTF8.self)
                     if !session.link.sendText(text, on: "pointer") { _ = session.link.sendText(text) }
@@ -761,6 +813,82 @@ public final class ScreenStreamHost: @unchecked Sendable {
             }
         }
         session.add(task)
+    }
+
+    /// Follow mode (FocusSignals.swift): the pointer, caret, focused window
+    /// and screen damage in the streamed display's pixels, only on a `focus`
+    /// channel the viewer opened (an older viewer gets none).
+    private func startFocusSignals(_ session: Session) {
+        let link = session.link
+        let producer = FocusSignalProducer(probe: FocusSignalProducer.systemProbe(), geometry: { [weak session] in
+            guard let session, let display = session.backend.displayFrame else { return nil }
+            let pixels = session.lock.withLock { session.displays.indices.contains(session.current) ? session.displays[session.current] : nil }
+            return pixels.map { FocusGeometry(display: display, pixels: $0) }
+        }, send: { link.sendText($0, onlyOn: VNCPeerLink.focusLabel) })
+        (session.backend as? any ScreenDamageSource)?.onDamage = { rects, size in producer.damage(rects, captured: size) }
+        session.add(Task { await producer.run { link.hasOpenChannel(VNCPeerLink.focusLabel) } })
+    }
+
+    /// Sends the Mac's cursor image to a viewer that draws it: each new
+    /// shape once, on the ordered channel, before the telepointers that name it.
+    private struct ShapeSender {
+        #if os(macOS)
+        private let reader = ScreenCursorReader()
+        #endif
+        private var delivery = CursorShapeDelivery()
+
+        /// The id of the cursor's shape now (nil: the viewer draws no shapes, or none is known yet).
+        mutating func current(session: Session, display: CGRect?) async -> String? {
+            guard session.lock.withLock({ session.cursorShapes }), let display else { return nil }
+            #if os(macOS)
+            let read = await reader.read(display: display)
+            #else
+            let read: ScreenCursorShape? = nil
+            #endif
+            return delivery.current(read: read, display: display) { session.link.sendText($0) }
+        }
+    }
+
+    /// The ordered cursor messages and the last shape accepted by the link.
+    /// Sampling and delivery are separate: an unchanged seed produces no new image.
+    struct CursorShapeDelivery {
+        private var sent = SentCursorShapes()
+        private var shape: String?
+        private var display: CGRect?
+        /// One encoded replacement, retried by the existing sampling tick without reading or rendering again.
+        private var pending: (id: String, text: String)?
+
+        mutating func current(read: ScreenCursorShape?, display: CGRect, sendText: (String) -> Bool) -> String? {
+            if display != self.display {
+                // Sizes are fractions of the display: another display's shapes are new ones.
+                self.display = display
+                sent.reset()
+                shape = nil
+                pending = nil
+            }
+            if let read {
+                if sent.ids.contains(read.id) {
+                    _ = sent.needsSend(read.id)
+                    pending = nil
+                    shape = read.id
+                } else {
+                    var message = ScreenHostMessage(t: ScreenHostMessage.cursorShapeType)
+                    message.cursor = read
+                    // A fresh shape supersedes an unsent one, even if encoding fails.
+                    pending = nil
+                    if let data = try? JSONEncoder().encode(message) {
+                        pending = (read.id, String(decoding: data, as: UTF8.self))
+                    }
+                }
+            }
+            if let pending, sendText(pending.text) {
+                // A refused send must neither forget the payload nor record it as delivered.
+                _ = sent.needsSend(pending.id)
+                shape = pending.id
+                self.pending = nil
+            }
+            return shape
+        }
     }
 
     /// Whether a viewer message ends its session (the viewer left: `bye`).
@@ -783,8 +911,12 @@ public final class ScreenStreamHost: @unchecked Sendable {
         if input.t == ScreenHostMessage.capabilitiesType {
             // The viewer's own capabilities, not input: view-only sessions too.
             let draws = Self.viewerDrawsPointers(input)
+            let shapes = Self.viewerDrawsCursorShapes(input)
             guard draws, !session.lock.withLock({ session.telepointers }) else { return }
-            session.lock.withLock { session.telepointers = true }
+            session.lock.withLock {
+                session.telepointers = true
+                session.cursorShapes = shapes
+            }
             log("viewer draws pointers: cursor left out of the picture")
             session.backend.setDrawsCursor(false)
             startTelepointers(session)
@@ -1035,9 +1167,19 @@ public final class VNCLoopbackBackend: ScreenBackend, @unchecked Sendable {
         inputSink.yield(input)
     }
 
+    /// A viewer's pointer fraction as a pixel on the display: kept on the display, and the display's origin for a
+    /// fraction that is no number. The fraction comes off the wire; `Int(_:)` of a huge or non-finite product traps
+    /// (the class of the screen-share host SIGTRAP, hq#22239).
+    static func pixel(_ fraction: Double?, from origin: CGFloat, across length: CGFloat) -> Int {
+        guard let fraction, fraction.isFinite else { return Int(exactly: origin.rounded(.down)) ?? 0 }
+        let value = origin + CGFloat(min(max(fraction, 0), 1)) * length
+        return Int(exactly: value.rounded(.towardZero)) ?? 0
+    }
+
     private func apply(_ input: ScreenInput, client: VNCClient) async {
         let display = lock.withLock { displays.indices.contains(current) ? displays[current] : .zero }
-        let x = Int(display.minX + (input.x ?? 0) * display.width), y = Int(display.minY + (input.y ?? 0) * display.height)
+        let x = Self.pixel(input.x, from: display.minX, across: display.width)
+        let y = Self.pixel(input.y, from: display.minY, across: display.height)
         switch input.t {
         case "move": await client.pointer(x: x, y: y, buttons: VNCButtons(rawValue: input.b ?? 0))
         case "scroll":
@@ -1073,6 +1215,9 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     /// The host's pointer positions (``ScreenHostMessage/person``,
     /// ``ScreenHostMessage/agent``), after ``drawPointers()``; any thread.
     public var onTelepointers: (@Sendable (ScreenHostMessage) -> Void)?
+    /// The Mac's cursor image (``ScreenHostMessage/cursor``), once per shape,
+    /// before the telepointers that name it; any thread.
+    public var onCursorShape: (@Sendable (ScreenCursorShape) -> Void)?
     /// The host's answer to ``pasteImage(_:type:id:)`` and the image id it names; any thread.
     public var onPasteImage: (@Sendable (ScreenHostMessage.PasteImageOutcome, String?) -> Void)?
     /// The Mac's ``ScreenSourceState`` when it changes; an older host never sends it (live). Any thread.
@@ -1083,6 +1228,10 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     public var onICEError: (@Sendable (ICECandidateError) -> Void)?
     /// The connection stalled (true: no picture coming) or recovered (false).
     public var onStall: (@Sendable (Bool) -> Void)?
+    /// Follow mode: each message on the host's `focus` channel, the UTF-8
+    /// JSON of one focus event (cmux-follow-cam's `Event`); any thread. An
+    /// older host sends none.
+    public var onFocus: (@Sendable (Data) -> Void)?
     /// How long `connect()` waits for the input channel to open (a reconnect's
     /// last try gets only what is left of its deadline).
     public var openTimeout: TimeInterval = 30
@@ -1142,6 +1291,8 @@ public final class ScreenStreamViewer: @unchecked Sendable {
                 case let .video(track):
                     self?.lock.withLock { self?.track = track }
                     self?.onVideo?(track)
+                case let .focus(data):
+                    self?.onFocus?(data)
                 case let .message(data):
                     guard let message = try? JSONDecoder().decode(ScreenHostMessage.self, from: data) else { break }
                     if let capabilities = Self.capabilities(in: message) {
@@ -1150,6 +1301,8 @@ public final class ScreenStreamViewer: @unchecked Sendable {
                         self?.onDisplays?(message)
                     } else if message.t == ScreenHostMessage.telepointersType {
                         self?.onTelepointers?(message)
+                    } else if message.t == ScreenHostMessage.cursorShapeType, let shape = message.cursor {
+                        self?.onCursorShape?(shape)
                     } else if let outcome = message.pasteImageOutcome {
                         self?.onPasteImage?(outcome, message.id)
                     } else if let state = message.sourceState {
@@ -1218,7 +1371,8 @@ public final class ScreenStreamViewer: @unchecked Sendable {
                 defer { offered = true }
                 return !offered
             }) else { return }
-            let sdp = try await link.offer(label: "input", receiveVideo: true, unorderedLabel: "pointer")
+            let sdp = try await link.offer(label: "input", receiveVideo: true, unorderedLabel: "pointer",
+                                           focusLabel: VNCPeerLink.focusLabel)
             try await lock.withLock({ socket })?.send(.offer(sdp))
         case let .answer(sdp):
             try await link.accept(answer: sdp)
@@ -1281,8 +1435,14 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     /// picture and sends ``onTelepointers`` instead. An older Mac ignores it
     /// and keeps the cursor in the picture.
     public func drawPointers() {
-        send(ScreenInput(t: ScreenHostMessage.capabilitiesType, s: ScreenHostMessage.telepointersCapability))
+        send(Self.drawPointersInput)
     }
+
+    /// The `caps` report of a viewer that draws pointers and the Mac's own
+    /// cursor image (an older Mac reads only `telepointers` from it).
+    static let drawPointersInput = ScreenInput(
+        t: ScreenHostMessage.capabilitiesType,
+        s: [ScreenHostMessage.telepointersCapability, ScreenHostMessage.cursorShapeCapability].joined(separator: ","))
 
     /// Asks the Mac for `quality` (sent again by the app after a reconnect).
     public func setQuality(_ quality: ScreenQuality) {

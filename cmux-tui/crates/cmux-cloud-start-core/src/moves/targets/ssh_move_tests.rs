@@ -132,3 +132,55 @@ fn dry_run_success_and_failed_execution_never_report_a_move() {
     let error = ssh_move_result("", r#"{"error":{"message":"unknown peer"}}"#, 1);
     assert_eq!(error.error.as_deref(), Some("unknown peer"));
 }
+
+#[test]
+fn a_run_opens_the_session_the_move_reported() {
+    let moved = |session: &str| SshMoveRun::Moved { session: session.to_owned() };
+    let done = outcome(json!({"moved": true, "host": "mini", "targetSessionId": "new"}), 0);
+    assert_eq!(ssh_move_run("box/chat-1", "box", false, &done), moved("mini/new"));
+    assert_eq!(ssh_move_run("", "auto", false, &done), moved("mini/new"));
+    assert_eq!(ssh_move_run("chat-1", "local", false, &done), moved("new"));
+    let bare = outcome(json!({"moved": true, "targetSessionId": "new"}), 0);
+    assert_eq!(ssh_move_run("box/chat-1", "box", false, &bare), moved("new"));
+    let old = outcome(json!({"moved": true, "host": "mini", "targetSessionId": ""}), 0);
+    assert_eq!(ssh_move_run("box/chat-1", "box", false, &old), moved("box/chat-1"));
+    let lost = SshMoveRun::Failed { message: "Move did not report its destination.".to_owned() };
+    assert_eq!(ssh_move_run("", "auto", false, &bare), lost);
+    assert_eq!(ssh_move_run("", "auto", false, &old), lost);
+}
+
+#[test]
+fn a_run_asks_once_fails_with_the_moves_words_and_a_dry_run_moves_nothing() {
+    let running = outcome(
+        json!({"error": "its turn is running", "errorCode": "running_turn",
+        "preflight": {"running": true, "dirty": false}}),
+        1,
+    );
+    assert_eq!(
+        ssh_move_run("box/chat-1", "box", false, &running),
+        SshMoveRun::NeedsConfirmation { code: "running_turn".to_owned(), dirty: Some(false) }
+    );
+    let failed = ssh_move_result("", r#"{"error":{"message":"unknown peer"}}"#, 1);
+    assert_eq!(
+        ssh_move_run("box/chat-1", "box", false, &failed),
+        SshMoveRun::Failed { message: "unknown peer".to_owned() }
+    );
+    let ready = outcome(json!({"dryRun": true, "moved": false}), 0);
+    assert_eq!(
+        ssh_move_run("box/chat-1", "box", true, &ready),
+        SshMoveRun::Moved { session: "box/chat-1".to_owned() }
+    );
+    assert_eq!(
+        ssh_move_run("", "auto", true, &ready),
+        SshMoveRun::Moved { session: String::new() }
+    );
+    assert_eq!(
+        ssh_move_run("box/chat-1", "box", false, &ready),
+        SshMoveRun::Failed { message: String::new() },
+        "a dry run's answer is no move unless the request was one"
+    );
+    let json =
+        serde_json::to_value(SshMoveRun::NeedsConfirmation { code: "x".into(), dirty: None })
+            .unwrap();
+    assert_eq!(json, json!({"kind": "needs_confirmation", "code": "x", "dirty": null}));
+}

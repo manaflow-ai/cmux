@@ -131,16 +131,16 @@ run > "$tmp/out" 2>&1 || fail "the capability export was not made again on the m
 grep -qvx unset "$tmp/tokens" && fail "a repair ran with the push token in its environment"
 
 # 4. The inputs move under every repair: it stops after CMUX_BASE_AUTOFIX_ROUNDS rounds, lands no
-#    graph that is wrong for the tip it lands on, fails, and leaves it to the next run.
+#    graph that is wrong for the tip it lands on, and passes with a warning: the run the newest of
+#    those pushes started repairs it, so a busy base is no red.
 setup
 first_repair
 lane_commit "lane edits the manifest" "$manifest" "manifest v2"
-if run FAKE_MOVE=always CMUX_BASE_AUTOFIX_ROUNDS=3 > "$tmp/out" 2>&1; then
-  fail "a repair whose inputs never held still passed: $(cat "$tmp/out")"
-fi
+run FAKE_MOVE=always CMUX_BASE_AUTOFIX_ROUNDS=3 > "$tmp/out" 2>&1 \
+  || fail "a base that kept moving failed the run: $(cat "$tmp/out")"
 [[ "$(wc -l < "$tmp/again" | tr -d ' ')" == 2 ]] || fail "the repair was made again $(wc -l < "$tmp/again" | tr -d ' ') times, not 2 (3 rounds)"
 [[ "$(remote_show "$graph")" == "graph old" ]] || fail "a graph made for an older manifest landed: $(remote_show "$graph")"
-grep -q "::error::.*next run" "$tmp/out" || fail "the run does not say the next run repairs it: $(cat "$tmp/out")"
+grep -q "::warning.*next run" "$tmp/out" || fail "the run does not say the next run repairs it: $(cat "$tmp/out")"
 
 # 5. Someone else already put the tip's own graph on the branch: the push holds this run's copy
 #    (a newer commit wrote it), the repair on the tip changes nothing, and the run passes.

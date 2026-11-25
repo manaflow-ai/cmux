@@ -19,6 +19,8 @@
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array>
 				<string>CA92.1</string>
+				<!-- 1C8F.1: reads the push preferences the app writes to the App Group defaults. -->
+				<string>1C8F.1</string>
 			</array>
 		</dict>
 		<dict>

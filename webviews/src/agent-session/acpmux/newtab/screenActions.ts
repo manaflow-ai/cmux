@@ -36,6 +36,10 @@ export function newTabScreenActions(deps: {
   requestFolder?(cwd: string, start: (folder: string) => void, cancel?: (refusal?: unknown) => void): void;
   /// false: the page's chats run on another machine, whose folders are never this Mac's default.
   startsHere?(): boolean;
+  /// true: the chat may not take `text` now (`@computer-use` while Computer Use is not ready on this
+  /// Mac, toolMentions.ts, or for a chat on another machine, `here` false, which has no Computer Use
+  /// tools, #48541); the pane opened its setup or said why, and the page keeps the prompt.
+  holdsSend?(text: string, here: boolean): boolean;
   /// Captures the page/selection owning this attempt, before any asynchronous work.
   startScope?(allowReconnect: boolean): () => boolean;
   clearError?(): void;
@@ -50,6 +54,8 @@ export function newTabScreenActions(deps: {
   return {
     onAsk(harness, text, picked, model, noProject, attachments, saved) {
       const peer = saved?.peer;
+      // Held for Computer Use (decided at once): the page keeps the prompt, nothing starts.
+      if (deps.holdsSend?.(text, !peer && deps.startsHere?.() !== false)) return Promise.reject(startCancelled());
       const queuedStart = !!harness && !peer && !noProject;
       const current = deps.startScope?.(queuedStart) ?? (() => true);
       // The prompt goes in the same turn as the switch: the switch queues it, and a folder trust
@@ -63,6 +69,9 @@ export function newTabScreenActions(deps: {
           settleFailed(isStartCancelled(error) || !current() ? startCancelled() : error);
         const start = (folder?: string) => {
           if (!current()) return reject(startCancelled());
+          // Asked again when the chat starts: a folder question or a new worktree can take long enough for
+          // Computer Use to change, so the page keeps the prompt and says why (CMUX-682).
+          if (text && deps.holdsSend?.(text, !peer && deps.startsHere?.() !== false)) return reject(startCancelled());
           // In the folder the chat starts in, which the next New Tab there reads; a chat on another
           // machine names that machine's agents, so this Mac's new chats keep theirs.
           if (!peer) remember(harness, model, folder);

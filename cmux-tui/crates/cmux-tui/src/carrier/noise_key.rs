@@ -98,11 +98,9 @@ fn store_for(team_signed: bool, exe: Option<&Path>, home: Option<&Path>) -> Resu
         return Ok(Store::Keychain);
     }
     let home = home.ok_or("no home folder for this build's carrier key")?;
-    // A link to the bundled `cmux` from outside the bundle (a PATH shim) is that bundle's build.
-    let identity = crate::app_identity::AppIdentity::from_bundle(exe).or_else(|| {
-        let real = std::fs::canonicalize(exe?).ok()?;
-        crate::app_identity::AppIdentity::from_bundle(Some(&real))
-    });
+    // A link to the bundled `cmux` from outside the bundle (a PATH shim) is that bundle's build
+    // (`containing_app_bundle` follows the link).
+    let identity = crate::app_identity::AppIdentity::from_bundle(exe);
     let build = identity.map_or_else(
         || cmux_agent_pane_policy::build_identity::BuildIdentity::new(None, None),
         |identity| identity.build(),
