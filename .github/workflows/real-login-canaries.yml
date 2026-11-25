@@ -36,7 +36,7 @@ jobs:
   dispatch:
     # main only: a dispatch from any other branch would run that branch's copy with actions: write.
     if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read # check out the GitHub API wait

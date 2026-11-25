@@ -44,7 +44,7 @@ jobs:
   decide:
     name: Check for new main revision
     if: github.ref == 'refs/heads/main'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     outputs:
       # The batch step, when it runs, has the last word on scheduled polls.
       upload: ${{ steps.batch.outputs.upload || steps.decide.outputs.upload }}

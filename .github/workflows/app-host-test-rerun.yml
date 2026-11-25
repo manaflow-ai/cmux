@@ -68,7 +68,7 @@ jobs:
   plan:
     # A requested ref that is not a branch head of this repository (a fork commit) runs off the persistent pool.
     needs: resolve-ref
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.resolve-ref.outputs.trusted_ref != 'true' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.resolve-ref.outputs.trusted_ref != 'true' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 10
     outputs:
       sha: ${{ steps.plan.outputs.sha }}
