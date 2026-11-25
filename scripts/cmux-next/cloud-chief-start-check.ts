@@ -261,7 +261,8 @@ async function main(): Promise<number> {
       const reply = await chiefReply(api, conversation, chief, seen, REPLY_DEADLINE_MS);
       if (!reply) throw new Error(`no reply from ${chief} in ${REPLY_DEADLINE_MS / 1000} s; newest rows ${await rowsSeen(api, conversation)}\n${await journal(exec)}`);
       if (/not signed in|not logged in/i.test(reply.text)) throw new Error(`the Chief answered without a model: ${reply.text.slice(0, 300)}`);
-      return { value: null, detail: `reply in ${Math.round((Date.now() - sentAt) / 1000)} s: ${JSON.stringify(reply.text.slice(0, 200))}${reply.text.includes(word) ? "" : " (did not echo the word)"}` };
+      if (!reply.text.includes(word)) throw new Error(`the Chief reply did not echo ${word}: ${reply.text.slice(0, 300)}`);
+      return { value: null, detail: `reply in ${Math.round((Date.now() - sentAt) / 1000)} s: ${JSON.stringify(reply.text.slice(0, 200))}` };
     });
     await J.step("a message from the phone's web page gets the reply (POST /v1/chief/messages with chiefId)", async () => {
       await seedChiefRows(api, conversation, chief, seen);
@@ -269,7 +270,7 @@ async function main(): Promise<number> {
       const r = await api.raw("POST", "/v1/chief/messages", { chiefId: chief, text: "Reply with only the word again", clientMessageId: `chief-start-${run}-web` }, 30_000);
       // The platform's /c/ surface (cmux-platform#1637) signs in with its page cookie; where this Worker does not
       // serve it to a bearer, the step says so and the reply check above stands.
-      if (r.status === 404 || r.status === 401 || r.status === 403) return { value: null, detail: `POST /v1/chief/messages answered HTTP ${r.status} to a bearer on ${backend.api}; not read here` };
+      if (r.status === 404) return { value: null, detail: `POST /v1/chief/messages is not deployed on ${backend.api} (404)` };
       if (r.status !== 200 || r.body?.ok !== true) throw new Error(`POST /v1/chief/messages: HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 400)}`);
       const reply = await chiefReply(api, conversation, chief, seen, REPLY_DEADLINE_MS);
       if (!reply) throw new Error(`no reply from ${chief} in ${REPLY_DEADLINE_MS / 1000} s`);
