@@ -1,6 +1,7 @@
 //! The channel watch: when it starts the update service, which build it reads,
 //! and which hosts it runs on.
 
+use super::super::Fetch;
 use super::*;
 use futures::future::BoxFuture;
 use std::collections::HashMap;
