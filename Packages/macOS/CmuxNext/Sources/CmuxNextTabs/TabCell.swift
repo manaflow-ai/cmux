@@ -185,6 +185,7 @@ final class TabCell {
     var audioBackgroundLayer: CALayer? // the speaker button's hover and press fill
     var hibernationRingLayer: CAShapeLayer? // dotted ring of a hibernated tab (TabCell+HibernationRing)
     var needsYouGlowLayer: CALayer? // the waiting tab's halo in place of its mark (TabCell+NeedsYouGlow)
+    var countPillLayer: CALayer? // an agent chat's count pill, `experiments.agentBadges` (TabCell+CountPill)
 
     var hasCloseLayers: Bool { closeBackgroundLayer != nil || closeGlyphLayer != nil }
 
@@ -262,11 +263,12 @@ final class TabCell {
             updateSpinner()
         }
         if previous?.status != item.status || previous?.blockedKind != item.blockedKind { updateStatusGlyph() }
-        if previous?.machineBadge != item.machineBadge || previous?.machineBadgeIcon != item.machineBadgeIcon { updateMachineBadge() }
+        if previous?.machineBadge != item.machineBadge || previous?.machineBadgeIcon != item.machineBadgeIcon || previous?.machineName != item.machineName { updateMachineBadge() } // its color follows the machine's pick
         if previous?.themeBadge != item.themeBadge { updateThemeBadge() }
         if previous?.profileBadge != item.profileBadge { updateProfileBadge() }
         if previous?.presence != item.presence { updatePresenceDot() }
         if previous?.audio != item.audio { updateAudioBadge() }
+        if previous?.agentBadgeCount != item.agentBadgeCount { updateCountPill(from: previous?.agentBadgeCount, animated: previous != nil) }
         // Animated only for a tab that hibernates or wakes while it is in the strip.
         if (previous?.isDormant ?? false) != item.isDormant { updateHibernationRing(animated: previous != nil) }
         updateColors(animated: false)
@@ -384,6 +386,7 @@ final class TabCell {
             applyProfileDotColors()
             applyPresenceDotColor()
             applyAudioIcon()
+            applyCountPillColors()
             let indicatorColors = StatusIndicatorLayer.Colors.current(loading: StatusIndicatorAppearance.shared.config.settings.color)
             var spinnerColors = indicatorColors
             if combinedBusyUnread == .tintedSpinner {
@@ -407,7 +410,7 @@ final class TabCell {
     }
 
     /// The tab draws its unread or status mark (`badgeColor`, or a status icon set's glyph).
-    var hasStateMark: Bool { item.status != .none || item.isUnread }
+    var hasStateMark: Bool { item.status != .none || showsUnreadDot }
 
     /// How a busy tab with unread output draws (`TabStripMetrics.busyUnreadMark`, else the Debug tunable).
     var busyUnreadLook: TabBusyUnreadMark { metrics.busyUnreadMark ?? TabTunables.busyUnreadMark.value }
@@ -415,7 +418,7 @@ final class TabCell {
     /// The look the unread dot and the busy indicator share as one mark in the status slot, nil while they draw
     /// apart (the `pair` look, no spinner showing, or a status, which keeps its own mark).
     var combinedBusyUnread: TabBusyUnreadMark? {
-        guard item.status == .none, item.isUnread, let spinnerLayer, !isSpinnerExiting, spinnerLayer.plan.glyph != .none else { return nil }
+        guard item.status == .none, showsUnreadDot, let spinnerLayer, !isSpinnerExiting, spinnerLayer.plan.glyph != .none else { return nil }
         let look = busyUnreadLook
         return look == .pair ? nil : look
     }
@@ -426,7 +429,7 @@ final class TabCell {
         case .needsInput: return Palette.statusAttention // the sidebar's needs-input dot too
         case .success: return Palette.success
         case .failure: return Palette.danger
-        case .none: return item.isUnread ? Palette.notificationBlue : nil
+        case .none: return showsUnreadDot ? Palette.notificationBlue : nil
         }
     }
 
@@ -489,7 +492,8 @@ final class TabCell {
         backgroundLayer.frame = bounds
         layoutNeedsYouGlow(pill: bounds, onPath: onPath)
         layoutSeparator(slot: slot, pill: bounds)
-        backgroundLayer.cornerRadius = m.cornerRadius
+        // At most half the pill's height: a capsule (`appearance.tabShape` rounded) on a pill shorter than the tab.
+        backgroundLayer.cornerRadius = min(m.cornerRadius, bounds.height / 2)
         // A folder tab takes the circular curve of its shade cut-out and fillets (``folderPath()``, ``feetPath``), so a
         // squircle `tabs.cornerCurve` leaves no halo of shade at its top corners.
         backgroundLayer.cornerCurve = runsIntoCard ? .circular : Metrics.tabCornerCurve
@@ -531,7 +535,7 @@ final class TabCell {
         // Agent identity can be a custom image or symbol as well as a brand mark. Working keeps
         // that artwork under a small spinner badge; browser loading still replaces its favicon.
         let spinnerOnIcon = marksOnIcon && spinnerLayer != nil
-        let spinnerBadgesMark = spinnerOnIcon && (item.indicator.isWorking || { if case .agentMark = item.icon { true } else { false } }())
+        let spinnerBadgesMark = spinnerOnIcon && (item.indicator.isWorking || { switch item.icon { case .agentMark, .terminalAgentMark: true; default: false } }())
         let showsIconArt = visibility.showsIcon && (!spinnerOnIcon || spinnerBadgesMark)
         // Bounds and position, not frame: a hibernated tab's icon is scaled (TabCell+HibernationRing).
         iconLayer.bounds = CGRect(origin: .zero, size: iconFrame.size)
@@ -643,6 +647,10 @@ final class TabCell {
         } else {
             titleLayer.opacity = 0
             for badge in [machineLayer, machineIconLayer, profileLayer, presenceLayer, audioLayer, audioBackgroundLayer] { badge?.opacity = 0 }
+            if let countPillLayer {
+                countPillLayer.removeAnimation(forKey: "opacity")
+                countPillLayer.opacity = 0
+            }
             if onPath {
                 pathTitle = nil
             } else {

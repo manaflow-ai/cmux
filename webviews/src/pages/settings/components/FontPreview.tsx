@@ -11,7 +11,9 @@ import { t, text } from "../strings";
 import {
   CODE_SPECIMEN,
   FONT_PREVIEWS,
+  PREVIEW_INPUTS,
   TEXT_SPECIMEN,
+  UI_SPECIMEN,
   familyStack,
   numberOr,
   type ChoicePreview,
@@ -53,8 +55,20 @@ function FontTiles({
   const store = useStore();
   const size = useNumber(preview.size, 14);
   const lineHeight = useNumber(preview.lineHeight, 1.5);
-  const markdownPreset = useRowState("markdown.font.preset").value;
-  const values = (key: string) => (key === "markdown.font.preset" ? markdownPreset : undefined);
+  // The other keys a picture reads (PREVIEW_INPUTS): the Chat Font's System tile follows the Interface
+  // Font, its Monospaced tile the configured code family, as the chat resolves them. One hook per key,
+  // over a fixed list, so a change to any of them redraws the tiles.
+  const inputs = [
+    useRowState(PREVIEW_INPUTS[0]).value,
+    useRowState(PREVIEW_INPUTS[1]).value,
+    useRowState(PREVIEW_INPUTS[2]).value,
+    useRowState(PREVIEW_INPUTS[3]).value,
+    useRowState(PREVIEW_INPUTS[4]).value,
+  ];
+  const values = (key: string) => {
+    const at = (PREVIEW_INPUTS as readonly string[]).indexOf(key);
+    return at === -1 ? undefined : (inputs[at] ?? rowsByKey.get(key)?.default);
+  };
   const current = value ?? row.default;
   // The schema row's own list: the same array every render, so the load below runs once per row.
   const choices = row.choices ?? NO_CHOICES;
@@ -112,9 +126,12 @@ function FamilySample({ preview, value }: { preview: FamilyPreview; value: unkno
   const size = useNumber(preview.size, 13);
   const name =
     typeof value === "string" && value ? value : preview.fallback && typeof fallback === "string" ? fallback : null;
+  const specimen = preview.specimen ?? "code";
   return (
-    <div className="font-sample" data-font-sample={name ?? ""} data-size={size}>
-      <span style={{ fontFamily: familyStack(name), fontSize: `${size}px` }}>{CODE_SPECIMEN}</span>
+    <div className="font-sample" data-font-sample={name ?? ""} data-size={size} data-specimen={specimen}>
+      <span style={{ fontFamily: familyStack(name, specimen), fontSize: `${size}px` }}>
+        {specimen === "text" ? UI_SPECIMEN : CODE_SPECIMEN}
+      </span>
     </div>
   );
 }

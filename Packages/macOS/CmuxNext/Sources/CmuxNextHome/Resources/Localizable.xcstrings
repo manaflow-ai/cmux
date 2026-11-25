@@ -16694,6 +16694,137 @@
         }
       }
     },
+    "home.chief.emptyPreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask Chief anything"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اسأل Chief أي شيء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pitajte Chiefa bilo šta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spørg Chief om hvad som helst"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frag Chief, was du willst"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pregúntale a Chief lo que quieras"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demandez ce que vous voulez à Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiedi a Chief qualsiasi cosa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief に何でも聞いてください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សួរ Chief អ្វីក៏បាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief에게 무엇이든 물어보세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spør Chief om hva som helst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zapytaj Chiefa o cokolwiek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pergunte qualquer coisa ao Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спросите Chief о чём угодно"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถาม Chief ได้ทุกเรื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief'e istediğini sor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запитайте Chief про що завгодно"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hỏi Chief bất cứ điều gì"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向 Chief 提任何问题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向 Chief 提出任何問題"
+          }
+        }
+      }
+    },
     "home.chief.new.body": {
       "extractionState": "manual",
       "localizations": {
@@ -16952,6 +17083,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "名稱"
+          }
+        }
+      }
+    },
+    "home.chief.new.thisMac": {
+      "comment": "Checkbox in the New Chief sheet: a Claude Chief is made on this Mac's Chief owner instead of the cloud.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make it on this Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أنشئه على هذا الـ Mac"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Napravi ga na ovom Macu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opret den på denne Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Mac erstellen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crearlo en este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le créer sur ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crealo su questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac で作成"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្កើតវានៅលើ Mac នេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 만들기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opprett den på denne Macen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utwórz na tym Macu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Criar neste Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Создать на этом Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สร้างบน Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac'te oluştur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Створити на цьому Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tạo trên máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在这台 Mac 上创建"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在這台 Mac 上建立"
           }
         }
       }
@@ -20621,6 +20884,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "後端"
+          }
+        }
+      }
+    },
+    "home.chief.new.ownMachine": {
+      "comment": "Checkbox in the New Chief sheet: the Chief runs on a Cloud machine of its own instead of the hosted Cloud.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On its own Cloud machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "على جهاز سحابي خاص به"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na vlastitoj Cloud mašini"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "På sin egen Cloud-maskine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf einer eigenen Cloud-Maschine"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En su propia máquina en la nube"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur sa propre machine Cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Su una propria macchina Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "専用の Cloud マシンで"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅលើម៉ាស៊ីន Cloud ផ្ទាល់ខ្លួន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전용 Cloud 머신에서"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "På sin egen Cloud-maskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na własnej maszynie w chmurze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Em sua própria máquina na nuvem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На собственной облачной машине"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บนเครื่อง Cloud ของตัวเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kendi Cloud makinesinde"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На власній хмарній машині"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trên máy Cloud riêng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在专属的 Cloud 机器上"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在專屬的 Cloud 機器上"
           }
         }
       }
@@ -29019,133 +29414,133 @@
         }
       }
     },
-    "home.chiefOnboarding.alwaysAsks": {
+    "home.chiefOnboarding.toldToAsk": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "In every mode, Chief asks you before it spends money, deletes data or signs in, and leaves passwords to you."
+            "value": "Chief is told to ask before spending money, deleting data or signing in, and never to type passwords. A rule, not a lock."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "في كل الأوضاع، يسألك Chief قبل أن ينفق مالًا أو يحذف بيانات أو يسجّل الدخول، ويترك كلمات المرور لك."
+            "value": "يُطلب من Chief أن يسألك قبل إنفاق المال أو حذف البيانات أو تسجيل الدخول، وألا يكتب كلمات المرور أبدًا. هذه قاعدة، وليست قفلًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "U svakom načinu rada Chief vas pita prije nego što potroši novac, izbriše podatke ili se prijavi, a lozinke prepušta vama."
+            "value": "Chief ima uputu da vas pita prije trošenja novca, brisanja podataka ili prijave i da nikad ne upisuje lozinke. To je pravilo, a ne brava."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "I alle tilstande spørger Chief dig, før den bruger penge, sletter data eller logger ind, og adgangskoder overlader den til dig."
+            "value": "Chief er bedt om at spørge dig før penge, sletning af data eller et login og aldrig at skrive adgangskoder. Det er en regel, ikke en lås."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "In jedem Modus fragt Chief dich, bevor Geld ausgegeben, Daten gelöscht oder Anmeldungen durchgeführt werden, und Passwörter überlässt Chief dir."
+            "value": "Chief soll dich vor Geldausgaben, dem Löschen von Daten oder einer Anmeldung fragen und nie Passwörter eingeben. Das ist eine Regel, keine Sperre."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "En todos los modos, Chief te pregunta antes de gastar dinero, borrar datos o iniciar sesión, y deja las contraseñas en tus manos."
+            "value": "Chief tiene la instrucción de preguntarte antes de gastar dinero, borrar datos o iniciar sesión, y de no escribir nunca contraseñas. Es una regla, no un bloqueo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dans tous les modes, Chief vous demande avant de dépenser de l’argent, de supprimer des données ou de se connecter, et vous laisse les mots de passe."
+            "value": "Chief a pour consigne de vous demander avant toute dépense, suppression de données ou connexion, et de ne jamais saisir de mot de passe. C’est une règle, pas un verrou."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "In ogni modalità, Chief ti chiede prima di spendere denaro, eliminare dati o accedere a un account, e lascia a te le password."
+            "value": "Chief ha l’istruzione di chiederti prima di spendere denaro, eliminare dati o accedere, e di non digitare mai password. È una regola, non un blocco."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "どのモードでも、Chiefはお金を使う前、データを削除する前、サインインする前にあなたに確認し、パスワードはあなたに任せます。"
+            "value": "Chief は、お金を使う前、データを削除する前、サインインする前にあなたに確認し、パスワードは決して入力しないよう指示されています。これはルールであり、ロックではありません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "នៅគ្រប់របៀប Chief សួរអ្នកមុនពេលចំណាយលុយ លុបទិន្នន័យ ឬចូលគណនី ហើយទុកពាក្យសម្ងាត់ឱ្យអ្នក។"
+            "value": "Chief ត្រូវបានណែនាំឱ្យសួរអ្នកមុនពេលចំណាយលុយ លុបទិន្នន័យ ឬចូលគណនី ហើយមិនដែលវាយពាក្យសម្ងាត់ទេ។ នេះជាច្បាប់ មិនមែនជាសោទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "어떤 모드에서든 Chief는 돈을 쓰거나, 데이터를 삭제하거나, 로그인하기 전에 사용자에게 묻고, 암호는 사용자에게 맡깁니다."
+            "value": "Chief는 결제, 데이터 삭제, 로그인 전에 먼저 묻고 비밀번호는 절대 입력하지 않도록 지시받습니다. 이것은 규칙이지 잠금이 아닙니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "I alle moduser spør Chief deg før den bruker penger, sletter data eller logger på, og passord overlater den til deg."
+            "value": "Chief er bedt om å spørre deg før penger, sletting av data eller en pålogging, og aldri skrive passord. Det er en regel, ikke en lås."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "W każdym trybie Chief pyta Cię, zanim wyda pieniądze, usunie dane lub się zaloguje, a hasła zostawia Tobie."
+            "value": "Chief ma polecenie pytać cię przed wydaniem pieniędzy, usunięciem danych lub logowaniem i nigdy nie wpisywać haseł. To zasada, a nie blokada."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Em todos os modos, o Chief pergunta a você antes de gastar dinheiro, apagar dados ou iniciar sessão, e deixa as senhas com você."
+            "value": "O Chief é instruído a perguntar antes de gastar dinheiro, apagar dados ou fazer login, e a nunca digitar senhas. É uma regra, não um bloqueio."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "В любом режиме Chief спрашивает вас, прежде чем тратить деньги, удалять данные или входить в аккаунты, а пароли оставляет вам."
+            "value": "Chief должен спрашивать вас перед тратой денег, удалением данных или входом и никогда не вводить пароли. Это правило, а не замок."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ในทุกโหมด Chief จะถามคุณก่อนใช้เงิน ลบข้อมูล หรือลงชื่อเข้าใช้ และให้คุณจัดการรหัสผ่านเอง"
+            "value": "Chief ได้รับคำสั่งให้ถามคุณก่อนใช้เงิน ลบข้อมูล หรือลงชื่อเข้าใช้ และห้ามพิมพ์รหัสผ่านเด็ดขาด นี่คือกฎ ไม่ใช่ตัวล็อก"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Her modda Chief para harcamadan, veri silmeden veya oturum açmadan önce size sorar; parolaları size bırakır."
+            "value": "Chief’e para harcamadan, veri silmeden veya oturum açmadan önce size sorması ve asla parola yazmaması söylenir. Bu bir kural, kilit değil."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "У будь-якому режимі Chief питає вас, перш ніж витрачати гроші, видаляти дані чи входити в облікові записи, а паролі залишає вам."
+            "value": "Chief має питати вас перед витратою грошей, видаленням даних чи входом і ніколи не вводити паролі. Це правило, а не замок."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ở mọi chế độ, Chief hỏi bạn trước khi tiêu tiền, xóa dữ liệu hoặc đăng nhập, và để mật khẩu cho bạn."
+            "value": "Chief được dặn hỏi bạn trước khi tiêu tiền, xóa dữ liệu hoặc đăng nhập, và không bao giờ gõ mật khẩu. Đây là quy tắc, không phải khóa."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无论哪种模式，Chief 在花钱、删除数据或登录前都会先问你，密码也始终由你来处理。"
+            "value": "Chief 被要求在花钱、删除数据或登录前先问你，并且绝不输入密码。这是规则，不是锁。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無論哪種模式，Chief 在花錢、刪除資料或登入前都會先問你，密碼也始終由你來處理。"
+            "value": "Chief 被要求在花錢、刪除資料或登入前先問你，並且絕不輸入密碼。這是規則，不是鎖。"
           }
         }
       }
@@ -32421,6 +32816,402 @@
           "stringUnit": {
             "state": "translated",
             "value": "未能儲存。請重試，或在設定中更改。"
+          }
+        }
+      }
+    },
+    "home.plusMenu.attachFiles": {
+      "comment": "Chief composer + menu row: opens the file picker to attach files or images (the agent chat's + menu says the same).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attach Files or Images…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dateien oder Bilder anhängen…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Joindre des fichiers ou des images…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إرفاق ملفات أو صور…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adjuntar archivos o imágenes…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "附加檔案或圖片…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "附加文件或图片…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "파일 또는 이미지 첨부…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ファイルまたは画像を添付…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Priloži datoteke ili slike…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vedhæft filer eller billeder…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Allega file o immagini…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្ជាប់ឯកសារ ឬរូបភាព…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legg ved filer eller bilder…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Załącz pliki lub obrazy…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anexar arquivos ou imagens…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прикрепить файлы или изображения…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แนบไฟล์หรือรูปภาพ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dosya veya Görüntü Ekle…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прикріпити файли або зображення…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đính kèm tệp hoặc hình ảnh…"
+          }
+        }
+      }
+    },
+    "home.plusMenu.clipboard": {
+      "comment": "Chief composer + menu: section header over the recently copied text and images.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clipboard"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zwischenablage"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Presse-papiers"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الحافظة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portapapeles"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "剪貼板"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "剪贴板"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "클립보드"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "クリップボード"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Međuspremnik"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Udklipsholder"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Appunti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឃ្លីបបត"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utklippstavle"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schowek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Área de transferência"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Буфер обмена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คลิปบอร์ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pano"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Буфер обміну"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bảng nhớ tạm"
+          }
+        }
+      }
+    },
+    "home.plusMenu.image": {
+      "comment": "Chief composer + menu: title of a copied picture's row when its type has no name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Image"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bild"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Image"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "صورة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Imagen"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "影像"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "图像"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이미지"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "画像"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slika"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Billede"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Immagine"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រូបភាព"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bilde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obraz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Imagem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Изображение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ภาพ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Görüntü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зображення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hình ảnh"
           }
         }
       }

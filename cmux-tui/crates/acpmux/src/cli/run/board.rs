@@ -80,16 +80,15 @@ fn eligible(row: &Value) -> bool {
 /// uses its latest record, and idle/disconnected sessions use their actual turn timestamps.
 fn activity_at(row: &Value) -> Option<u64> {
     let time = |v: &Value| v.as_u64().filter(|t| *t > 0);
-    if let Some(waiting) = time(&row["inputSince"]) {
+    let at = |pointer: &str| row.pointer(pointer).and_then(time);
+    if let Some(waiting) = at("/inputSince") {
         return Some(waiting);
     }
-    if row["status"] == "running" || row["status"] == "waiting" {
-        return time(&row["updatedAt"]);
+    let status = row.get("status").and_then(Value::as_str);
+    if status == Some("running") || status == Some("waiting") {
+        return at("/updatedAt");
     }
-    [time(&row["turn"]["startedAt"]), time(&row["lastTurn"]["endedAt"]), time(&row["createdAt"])]
-        .into_iter()
-        .flatten()
-        .max()
+    [at("/turn/startedAt"), at("/lastTurn/endedAt"), at("/createdAt")].into_iter().flatten().max()
 }
 
 #[derive(Default)]
@@ -193,7 +192,7 @@ mod tests {
     fn organizer_board_staleness_uses_activity_and_latest_claimant() {
         let now = STALE_AFTER_MS + 100;
         let old = session("old", "/one", "fix", 100);
-        assert_eq!(project(&[old.clone()], now)["cards"][0]["column"], "stale");
+        assert_eq!(project(std::slice::from_ref(&old), now)["cards"][0]["column"], "stale");
         let recent = session("recent", "/one", "fix", 101);
         assert_eq!(project(&[old, recent], now)["cards"][0]["column"], "claimed");
         let mut waiting = session("wait", "/one", "fix", 200);

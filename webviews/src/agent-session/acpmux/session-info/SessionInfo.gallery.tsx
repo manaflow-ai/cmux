@@ -13,7 +13,7 @@
 // worktree of its own, its environment, tokens, background test run and diffs its own, under three
 // ways to say whose panel it is (the head's title, the one drawn; a path; a card); one sharing the
 // chat's checkout; and the chat's panel beside them, its Subagents listing it.
-import { useState, type ComponentProps, type CSSProperties } from "react";
+import { useState, type ComponentProps } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
 import { WAVE_CLASS } from "../../../ui/wave";
@@ -44,8 +44,6 @@ type Props = ComponentProps<typeof SessionInfo> & {
   /// A subagent's panel: whose it is, said the `header` way.
   scope?: Pick<SubagentScope, "agent" | "parent" | "onBack">;
   header?: SubagentHeaderVariant;
-  /// A gallery-only palette for the Context breakdown's categories (ContextSection.css tones).
-  tones?: CSSProperties;
   /// Gallery-only: a different height ceiling, for comparison with the shipped full-room one.
   ceiling?: string;
   /// Gallery-only: a different edge look, for comparison with the shipped hairline (sessionInfo.css).
@@ -136,7 +134,6 @@ function GallerySessionInfo({
   chrome = "close",
   scope,
   header = "title",
-  tones,
   ceiling,
   edge,
   grip,
@@ -149,7 +146,7 @@ function GallerySessionInfo({
   // The panel's Show more, held here so a variant starts where it says and a play can open it.
   const [more, setMore] = useState(moreAtFirst);
   return (
-    <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%", ...tones }}>
+    <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%" }}>
       {ceiling ? <style>{`.acpmux-session-info[data-placement]{max-height:${ceiling}}`}</style> : null}
       {edge ? <style>{`.acpmux-session-info[data-placement]{${edge}}`}</style> : null}
       {grip ? <style>{GRIP_LOOKS[grip]}</style> : null}
@@ -549,6 +546,39 @@ const hairlineEdge: Play = async (ctx) => {
     throw new Error(`The edge is ${look.borderTopColor}, not 22% of the pane's text (${border})`);
   if (Number.parseFloat(look.borderTopLeftRadius) <= 0) throw new Error("The edge has square corners");
   if (!panel.hasAttribute("data-over-chat")) await noCardBehind(ctx);
+};
+
+// A faint hairline between each two sections, in the gap's middle, in the theme's separator color
+// (sessionInfo.css --acpmux-session-info-divider): none beside the Show more line, none doubled.
+const sectionDividers: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-session-info-slot").length > 2);
+  const slots = [
+    ...ctx.document.querySelectorAll<HTMLElement>(".acpmux-session-info-sections > .acpmux-session-info-slot"),
+  ];
+  const probe = ctx.document.createElement("div");
+  probe.style.color = "var(--acpmux-session-info-divider, var(--agent-border))"; // the line's own fallback
+  slots[0]!.append(probe);
+  const color = style(ctx, probe).color;
+  probe.remove();
+  let drawn = 0;
+  slots.forEach((slot, at) => {
+    const line = ctx.document.defaultView!.getComputedStyle(slot, "::before");
+    const between =
+      at > 0 &&
+      slot.dataset.slot !== "more" &&
+      slots[at - 1]!.dataset.slot !== "more" &&
+      slots[at - 1]!.childElementCount > 0;
+    const draws = line.content !== "none" && Number.parseFloat(line.borderTopWidth) > 0;
+    if (between && slot.childElementCount > 0 && !draws) throw new Error(`No divider above ${slot.dataset.slot}`);
+    if (!between && draws) throw new Error(`A divider above ${slot.dataset.slot ?? "the first section"}`);
+    if (draws) {
+      drawn += 1;
+      if (line.borderTopColor !== color) throw new Error(`${slot.dataset.slot}'s divider is ${line.borderTopColor}`);
+      if (Number.parseFloat(line.borderTopWidth) > 1)
+        throw new Error(`${slot.dataset.slot}'s divider is not a hairline`);
+    }
+  });
+  if (drawn === 0) throw new Error("No divider between the sections");
 };
 
 // Every section title sits on the Environment rows' icon column: heads have no icon of their own
@@ -1135,9 +1165,6 @@ const breakdownProps: Props = {
   },
   sections: { ...DEFAULT_SECTIONS, environment: false, context: true, changes: false, subagents: false, tasks: false },
 };
-/// A gallery-only palette for the breakdown's used categories, largest first.
-const palette = (colors: string[]) =>
-  Object.fromEntries(colors.map((color, index) => [`--acpmux-context-tone-${index}`, color])) as CSSProperties;
 const openMcpTools: Play = async (ctx) => {
   await ctx.click({ selector: '[data-list="mcpTools"] button' });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-breakdown__items") !== null);
@@ -1654,7 +1681,7 @@ export default componentEntry<Props>({
       props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true } },
     },
     "context-breakdown": {
-      note: "Shipped: a Claude Code chat's /context in Context, open: 43% used with 171.4k / 400k, the bar split by category in steps of the theme accent (largest first; the autocompact buffer grey; free space the track), a row per category with its tokens and share, the deferred ones dimmed with no share, then the MCP tools, Memory files and Skills folds, MCP tools open.",
+      note: "Shipped (Lucas, 2026-11-23: \"make it more identical to claude\"): a Claude Code chat's /context in Context, open, colored as Claude Code desktop's card: a 4px bar split by category (Messages blue, MCP tools orange, System prompt green, Skills yellow, the rest one grey; the autocompact buffer a darker grey; free space the track), a row per category with its tokens and share in one ink, the buffer and free space a row's height below, the deferred ones after with no share, then the MCP tools, Memory files and Skills folds with the chevron of every other Session Info fold, MCP tools open with its tools on the label column.",
       props: breakdownProps,
       play: openMcpTools,
     },
@@ -1673,24 +1700,6 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => /171\.4K\s*\/\s*400K/.test(text(ctx)));
         if (/\/\s*1M/.test(text(ctx))) throw new Error("Context still reads the model's 1M window");
       },
-    },
-    "context-breakdown-hues": {
-      note: "Alternative (not shipped): each category a different hue turned from the theme accent, as Claude Code desktop colors them. Reads faster, but brings colors the theme does not have.",
-      props: {
-        ...breakdownProps,
-        tones: palette(
-          [0, 60, 150, 210, 280, 320].map((turn) => `oklch(from var(--agent-accent) l c calc(h + ${turn}))`),
-        ),
-      },
-      play: openMcpTools,
-    },
-    "context-breakdown-mono": {
-      note: "Alternative (not shipped): every used category in the full accent, told apart only by the bar's gaps and the row order. Quietest, but the bar no longer says which part is which.",
-      props: {
-        ...breakdownProps,
-        tones: palette(Array.from({ length: 6 }, () => "var(--agent-accent)")),
-      },
-      play: openMcpTools,
     },
     "changes-breakdown": {
       note: "Changes: hovering a pull request's line counts splits them into Code, Tests, Generated and Docs; its 3 failing checks dim the 2 already on base.",
@@ -1813,7 +1822,7 @@ export default componentEntry<Props>({
       },
     },
     "subagents-idle": {
-      note: 'Subagents that stopped and wait on background work of their own read Idle, not Running for two hours, and the head counts them as idle ("3 running · 2 idle · 1 done"). Every line is named by its task, never its id. With no started chat running or waiting, no limit line shows.',
+      note: 'Subagents that stopped and wait on background work of their own read Idle, not Running for two hours, and the head counts them as idle (the subagents’ mark and 3, no word for what runs (Leo, 2026-11-23: “running” doesn’t need text), then "2 idle · 1 done"). Every line is named by its task, never its id. With no started chat running or waiting, no limit line shows.',
       props: {
         ...full,
         agents: idleAgents,
@@ -1827,6 +1836,9 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.waitFor(() => /2 idle/.test(text(ctx)));
         if (/Started chats:/.test(text(ctx))) throw new Error("A limit line shows with no started chat running");
+        const head = ctx.document.querySelector(".acpmux-session-info-section__value .acpmux-live-count");
+        if (!head || head.textContent !== "3") throw new Error(`the head's live count reads ${head?.textContent}`);
+        if (/\brunning\b/.test(head.parentElement?.textContent ?? "")) throw new Error("the head still says running");
       },
     },
     "subagents-wave": {
@@ -1993,6 +2005,20 @@ export default componentEntry<Props>({
       note: "Chosen, over the chat's column: the same hairline over the glass. Without the glass the transcript's text would read through the panel's own, so it keeps the blur and tint there.",
       props: { ...full, transcript: true },
       play: hairlineEdge,
+    },
+    "section-dividers": {
+      note: "Chosen. A faint hairline between sections in the theme's separator color, as the reference app's session info draws them (Leo, 2026-11-19: \"there should be a faint divider between the sections there on session info idk why it doesnt show up there\").",
+      props: { ...full },
+      play: sectionDividers,
+    },
+    "section-dividers-edge": {
+      note: "Alternative: the dividers at the panel edge's 22% of the pane's text, which reads as a ruled list rather than a faint pause.",
+      props: { ...full, edge: "--acpmux-session-info-divider:color-mix(in srgb, var(--agent-text) 22%, transparent)" },
+      play: sectionDividers,
+    },
+    "section-dividers-none": {
+      note: "Before, for comparison: the sections one gap apart with no divider (the glance layout's rule matched no element).",
+      props: { ...full, edge: "--acpmux-session-info-divider:transparent" },
     },
     "edge-none": {
       note: "Before, for comparison: no fill and no edge, so the panel's sections float on the pane with nothing marking where it ends.",

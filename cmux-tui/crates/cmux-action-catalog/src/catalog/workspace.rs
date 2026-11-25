@@ -281,6 +281,21 @@ pub static ACTIONS: &[Action] = &[
         main_menu: Some("file"),
         ..Action::DEFAULT
     },
+    // Hands every pinned workspace name back to the automatic namer (daemon command
+    // `release-workspace-names`). Leo, 2026-11-24: "should it be auto by default? i kinda like it...
+    // unless it was force renamed as a thing". Names stay as they are until the next automatic name.
+    Action {
+        id: "workspace.releaseNames",
+        group: GROUP,
+        title: t("ActionCatalog", "action.workspace.releaseNames", "Release All Workspace Names to Automatic"),
+        keywords: &["title", "name", "auto", "automatic", "release", "unpin", "reset", "all"],
+        category: "workspace",
+        symbol: "sparkles",
+        surfaces: PALETTE,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "workspace release-names",
+        ..Action::DEFAULT
+    },
     Action {
         id: "workspace.nameFromActivity",
         group: GROUP,
@@ -672,6 +687,49 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         targets: &["workspace"],
         cli_name: "workspace show-in-finder",
+        ..Action::DEFAULT
+    },
+    // Open in Editor on a workspace's folder (its focused tab's, else its first tab's that reports one). The
+    // editors and the default are the App's (cmux-window-rules `editors`); a remote workspace refuses.
+    Action {
+        id: "workspace.openInEditor",
+        group: GROUP,
+        title: Text::raw("Open Workspace in Editor"),
+        keywords: &["editor", "ide", "code", "vscode", "cursor", "zed", "folder", "directory", "open"],
+        category: "workspace",
+        symbol: "chevron.left.forwardslash.chevron.right",
+        surfaces: PALETTE | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("workspaceRow", "reopen", 100).label(Text::raw("Open in Editor"))], ..SurfacePlan::DEFAULT },
+        arguments: &[args::EDITOR.optional()],
+        targets: &["workspace"],
+        cli_name: "workspace open-in-editor",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "workspace.openInApp",
+        group: GROUP,
+        title: Text::raw("Open Workspace In…"),
+        keywords: &["editor", "ide", "app", "folder", "directory", "open in", "open with"],
+        category: "workspace",
+        symbol: "arrow.up.forward.app",
+        surfaces: PALETTE | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("workspaceRow", "reopen", 101).style("choices").label(Text::raw("Open In"))], ..SurfacePlan::DEFAULT },
+        arguments: &[args::EDITOR],
+        targets: &["workspace"],
+        cli_name: "workspace open-in",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "workspace.openTerminalHere",
+        group: GROUP,
+        title: Text::raw("Open Terminal in Workspace Folder"),
+        keywords: &["terminal", "shell", "folder", "directory", "cwd", "open", "here"],
+        category: "workspace",
+        symbol: "terminal",
+        surfaces: PALETTE | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("workspaceRow", "reopen", 102).label(Text::raw("Open Terminal Here"))], ..SurfacePlan::DEFAULT },
+        targets: &["workspace"],
+        cli_name: "workspace open-terminal-here",
         ..Action::DEFAULT
     },
     Action {

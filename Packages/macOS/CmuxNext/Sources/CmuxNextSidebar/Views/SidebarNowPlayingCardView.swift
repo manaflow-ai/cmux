@@ -7,7 +7,8 @@ import CmuxNextWakeups
 /// macOS's own Now Playing card: the site, the title and the artist, the
 /// artwork filling the top right and fading into the card, a scrubber that
 /// seeks, then Previous, Play or Pause (the one filled control, in the theme's
-/// accent) and Next, and past a divider Picture in Picture for a tab's video.
+/// accent) and Next, centered on the card, and past a divider Picture in
+/// Picture for a tab's video.
 /// Small level bars sway at the end of the controls while it plays. It sits
 /// on the sidebar cards' glass (``CardSurfaceView``), in the sidebar's theme.
 /// The bars and the scrubber move only when motion is allowed (`Motion`), as
@@ -128,7 +129,7 @@ final class SidebarNowPlayingCardView: NSView {
     }
 
     static var closeLabel: String {
-        String(localized: "sidebar.nowPlaying.close", defaultValue: "Hide Media Card", bundle: .module)
+        String(localized: "sidebar.nowPlaying.close", defaultValue: "Hide Media Card", bundle: .localizedModule)
     }
 
     /// Shows the x while the pointer is on the card, with the hover-reveal fade (instant under Reduce Motion).
@@ -157,10 +158,11 @@ final class SidebarNowPlayingCardView: NSView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        menuProvider?() ?? super.menu(for: event)
+        NSMenu.withoutSystemItems(menuProvider?() ?? super.menu(for: event))
     }
 
-    private static var padding: CGFloat { Metrics.space3 }
+    /// Every card's padding and corner (``Metrics/cardPadding``, ``Metrics/cardCornerRadius``; #49579).
+    private static var padding: CGFloat { Metrics.cardPadding }
     /// The header's height at least: the artwork never shrinks below it.
     private static let headerMinimum: CGFloat = 44
     private static let controlSide: CGFloat = 24
@@ -168,8 +170,8 @@ final class SidebarNowPlayingCardView: NSView {
 
     /// The site, title and artist lines' height for `nowPlaying`.
     private static func textHeight(site: Bool, artist: Bool) -> CGFloat {
-        let caption = ceil(Typography.caption.boundingRectForFont.height)
-        let title = ceil(Typography.bodyEmphasized.boundingRectForFont.height)
+        let caption = ceil(Typography.cardBody.boundingRectForFont.height)
+        let title = ceil(Typography.cardTitle.boundingRectForFont.height)
         return (site ? caption + Metrics.space1 : 0) + title + (artist ? caption : 0)
     }
 
@@ -184,10 +186,10 @@ final class SidebarNowPlayingCardView: NSView {
         super.layout()
         let b = bounds, pad = Self.padding
         surface.frame = b
-        surface.cornerRadius = Metrics.surfaceCornerRadius
-        siteLabel.font = Typography.caption
-        titleLabel.font = Typography.bodyEmphasized
-        artistLabel.font = Typography.caption
+        surface.cornerRadius = Metrics.cardCornerRadius
+        siteLabel.font = Typography.cardBody
+        titleLabel.font = Typography.cardTitle
+        artistLabel.font = Typography.cardBody
         let site = !siteLabel.isHidden, artist = !artistLabel.isHidden
         let header = max(Self.headerMinimum, Self.textHeight(site: site, artist: artist))
         // The artwork fills the top right corner, as tall as the header with its padding, and
@@ -200,8 +202,8 @@ final class SidebarNowPlayingCardView: NSView {
         artworkFade.frame = artworkView.bounds
         CATransaction.commit()
         let textWidth = max(0, b.width - 2 * pad - art / 2)
-        let caption = ceil(Typography.caption.boundingRectForFont.height)
-        let title = ceil(Typography.bodyEmphasized.boundingRectForFont.height)
+        let caption = ceil(Typography.cardBody.boundingRectForFont.height)
+        let title = ceil(Typography.cardTitle.boundingRectForFont.height)
         var y = pad + max(0, (header - Self.textHeight(site: site, artist: artist)) / 2)
         if site {
             siteLabel.frame = NSRect(x: pad, y: y, width: textWidth, height: caption)
@@ -216,18 +218,18 @@ final class SidebarNowPlayingCardView: NSView {
         } else {
             scrubber.frame = .zero
         }
-        // Previous, Play or Pause and Next from the leading edge (macOS's card), then the divider
-        // and Picture in Picture; the level bars close the row.
+        // Previous, Play or Pause and Next centered on the card, so Play keeps its place for every
+        // source; the divider and Picture in Picture follow Next, and the level bars close the row.
         let control = Self.controlSide, play = Self.playSide, gap = Metrics.space2
+        let line = Metrics.lineWidth(1)
         let controlY = y + (play - control) / 2
-        var x = max(0, pad - (control - Metrics.smallIconSize) / 2)
+        var x = max(0, ((b.width - (control + gap + play + gap + control)) / 2).rounded())
         previousButton.frame = NSRect(x: x, y: controlY, width: control, height: control).integral
         x += control + gap
         playPauseButton.frame = NSRect(x: x, y: y, width: play, height: play).integral
         x += play + gap
         nextButton.frame = NSRect(x: x, y: controlY, width: control, height: control).integral
         x += control + Metrics.space3
-        let line = Metrics.lineWidth(1)
         controlsDivider.frame = NSRect(x: x, y: y + Metrics.space2, width: line, height: max(0, play - 2 * Metrics.space2))
         x += line + Metrics.space3
         pictureInPictureButton.frame = NSRect(x: x, y: controlY, width: control, height: control).integral
