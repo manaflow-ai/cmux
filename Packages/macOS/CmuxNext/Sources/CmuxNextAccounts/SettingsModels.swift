@@ -40,10 +40,12 @@ public final class SettingsModels {
     private(set) var chatgptAttempt: String?
     private(set) var chatgptError: String?
     /// The one-click Claude connection (`claude_token.begin`): its attempt, phase (`starting`,
-    /// `signing_in`, `saving`) and the last attempt's error.
+    /// `signing_in`, `saving`), the last attempt's error, and whether the last attempt saved a token
+    /// (a Cancel, or a run the daemon cancelled, ends with neither an error nor `saved`).
     private(set) var claudeTokenAttempt: String?
     private(set) var claudeTokenPhase: String?
     private(set) var claudeTokenError: String?
+    private(set) var claudeTokenSaved = false
 
     @ObservationIgnored let environment: @MainActor () -> AcpmuxEnvironment?
     @ObservationIgnored private let call: (@Sendable (AcpmuxEnvironment, AcpmuxHarnessMethod, [String: any Sendable]) async throws -> Data)?
@@ -115,7 +117,8 @@ public final class SettingsModels {
             "chatgpt": ["attempt": chatgptAttempt.map(JSONValue.string) ?? .null, "error": chatgptError.map(JSONValue.string) ?? .null],
             "claudeToken": ["attempt": claudeTokenAttempt.map(JSONValue.string) ?? .null,
                             "phase": claudeTokenPhase.map(JSONValue.string) ?? .null,
-                            "error": claudeTokenError.map(JSONValue.string) ?? .null],
+                            "error": claudeTokenError.map(JSONValue.string) ?? .null,
+                            "saved": .bool(claudeTokenSaved)],
         ]
     }
 
@@ -316,8 +319,6 @@ public final class SettingsModels {
         chatgptError = error
     }
 
-    func openSignIn(_ url: URL) { openURL(url) }
-
     /// A sign-in page in the app's own browser (``SettingsHarnesses/openSignInPage``), so the person
     /// never leaves cmux; the person's browser when there is none.
     func openInAppSignIn(_ url: URL) async {
@@ -325,10 +326,11 @@ public final class SettingsModels {
         openURL(url)
     }
 
-    func setClaudeToken(attempt: String?, phase: String?, error: String?) {
+    func setClaudeToken(attempt: String?, phase: String?, error: String?, saved: Bool = false) {
         claudeTokenAttempt = attempt
         claudeTokenPhase = phase
         claudeTokenError = error
+        claudeTokenSaved = saved
     }
 
     func replaceClaudeTokenTask(_ task: Task<Void, Never>?) {
