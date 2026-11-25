@@ -112,6 +112,21 @@ import Testing
         #expect(harness.captures == 2)
     }
 
+    /// The user, 2026-11-24 (hover cards blank on hibernated tabs): a tab whose capture gives nothing now (hibernated,
+    /// its surface gone, its frame purged) keeps drawing its kept picture, never an empty tile.
+    @Test func aCaptureThatGivesNothingKeepsTheKeptPicture() async {
+        let harness = Harness()
+        let kept = await harness.ask(stamp: 1)
+        #expect(kept != nil)
+        harness.nothing = true
+        harness.clock += 1_000
+        let shown = await harness.ask(stamp: 2)  // it changed, then hibernated: the new capture has nothing
+        #expect(harness.captures == 2)
+        #expect(shown === kept)
+        harness.clock += 5_000
+        #expect(await harness.ask(stamp: 2) === kept, "a card opened again lost the picture")
+    }
+
     @Test func eachSizeAndTabHasItsOwnPicture() async {
         let harness = Harness()
         _ = await harness.ask(stamp: 1, size: 320)
