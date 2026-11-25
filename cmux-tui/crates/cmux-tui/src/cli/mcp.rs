@@ -1287,10 +1287,10 @@ impl<B: Backend> Server<B> {
         if let Some(result) = automation_tools::call(&self.backend, name, &arguments) {
             return Ok(result);
         }
-        if let Some(result) = customize_kit_tools::call(name, &arguments) {
+        if let Some(result) = customize_library_tool::call(&self.backend, name, &arguments) {
             return Ok(result);
         }
-        if let Some(result) = customize_library_tool::call(&self.backend, name, &arguments) {
+        if let Some(result) = customize_kit_tools::call(&self.backend, name, &arguments) {
             return Ok(result);
         }
         if let Some(result) = customize_tools::call(&self.backend, name, &arguments) {

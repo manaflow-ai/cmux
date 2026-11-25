@@ -1,59 +1,59 @@
-use serde_json::{Map, Value, json};
+use super::*;
 
-use super::super::tool_list;
-use super::{COMPONENTS, TOKENS, call};
-
-fn args(value: Value) -> Map<String, Value> {
-    value.as_object().cloned().unwrap_or_default()
+fn w(tool: &str, args: Value) -> Result<Vec<String>, String> {
+    words(tool, args.as_object().unwrap())
 }
 
 #[test]
-fn both_tools_are_listed_read_only() {
-    let tools = tool_list::first_party();
-    for name in [COMPONENTS, TOKENS] {
-        let tool = tools.iter().find(|t| t["name"] == name).unwrap_or_else(|| panic!("{name}"));
-        assert_eq!(tool["annotations"]["readOnlyHint"], true, "{tool}");
-    }
-    let groups = tools
-        .iter()
-        .find(|t| t["name"] == TOKENS)
-        .map(|t| t["inputSchema"]["properties"]["group"]["enum"].clone());
-    assert_eq!(groups, Some(json!(cmux_customize::kit::TOKEN_GROUPS)));
-}
-
-#[test]
-fn components_answers_one_component_with_an_example() {
-    let answer = call(COMPONENTS, &args(json!({"name": "Pill"}))).expect("a kit tool");
-    assert_eq!(answer["isError"], false, "{answer}");
-    let pill = &answer["structuredContent"]["components"][0];
-    assert_eq!(pill["name"], "Pill");
-    assert!(pill["example"].as_str().unwrap_or_default().starts_with("<Pill"), "{pill}");
-}
-
-#[test]
-fn tokens_answers_a_group() {
-    let answer = call(TOKENS, &args(json!({"group": "radius"}))).expect("a kit tool");
-    assert_eq!(answer["isError"], false, "{answer}");
-    assert!(
-        answer["structuredContent"]["radius"].as_array().is_some_and(|r| !r.is_empty()),
-        "{answer}"
+fn kit_tool_arguments_become_the_cli_words() {
+    assert_eq!(w(TOKENS, json!({"action": "list"})).unwrap(), ["tokens", "list"]);
+    assert_eq!(
+        w(TOKENS, json!({"action": "list", "group": "ink"})).unwrap(),
+        ["tokens", "list", "ink"]
     );
-    let all = call(TOKENS, &Map::new()).expect("a kit tool");
-    assert_eq!(all["isError"], false, "{all}");
+    assert_eq!(
+        w(TOKENS, json!({"action": "show", "name": "--instrument-seed-grid"})).unwrap(),
+        ["tokens", "show", "--instrument-seed-grid"]
+    );
+    assert_eq!(
+        w(TOKENS, json!({"action": "test", "value": 14, "family": "spacing"})).unwrap(),
+        ["tokens", "test", "14", "--as", "spacing"]
+    );
+    assert_eq!(
+        w(TOKENS, json!({"action": "test", "value": "180ms"})).unwrap(),
+        ["tokens", "test", "180ms"]
+    );
+    assert_eq!(
+        w(COMPONENTS, json!({"action": "list", "filter": "kit"})).unwrap(),
+        ["components", "list", "kit"]
+    );
+    assert_eq!(
+        w(COMPONENTS, json!({"action": "test", "name": "Pill", "props": {"label": "x"}})).unwrap(),
+        ["components", "test", "Pill", r#"{"label":"x"}"#]
+    );
+    for (tool, bad) in [
+        (TOKENS, json!({})),
+        (TOKENS, json!({"action": "frob"})),
+        (TOKENS, json!({"action": "show"})),
+        (TOKENS, json!({"action": "test"})),
+        (TOKENS, json!({"action": "list", "name": "x"})),
+        (COMPONENTS, json!({"action": "test", "name": "Pill", "props": [1]})),
+        (COMPONENTS, json!({"action": "show", "props": {}})),
+    ] {
+        assert!(w(tool, bad.clone()).is_err(), "{tool} {bad}");
+    }
+    let names: Vec<Value> = descriptors().into_iter().map(|d| d["name"].clone()).collect();
+    assert_eq!(names, [json!(TOKENS), json!(COMPONENTS)]);
 }
 
 #[test]
-fn bad_arguments_are_errors_and_other_tools_pass() {
-    for (name, arguments) in [
-        (COMPONENTS, json!({"name": "NoSuchThing"})),
-        (COMPONENTS, json!({"name": 3})),
-        (TOKENS, json!({"group": "nope"})),
+fn kit_tool_words_parse_as_the_cli_verbs() {
+    for (tool, args) in [
+        (TOKENS, json!({"action": "test", "value": 14, "family": "spacing"})),
+        (TOKENS, json!({"action": "show", "name": "--instrument-seed-grid"})),
+        (COMPONENTS, json!({"action": "test", "name": "Pill", "props": {"label": "x"}})),
     ] {
-        let answer = call(name, &args(arguments.clone())).expect("a kit tool");
-        assert_eq!(answer["isError"], true, "{name} {arguments}: {answer}");
+        let words = w(tool, args).unwrap();
+        assert!(crate::cli::customize::parse(&words).is_ok(), "{words:?}");
     }
-    // An argument a newer or older peer sends is ignored, not refused.
-    let answer = call(COMPONENTS, &args(json!({"name": "Pill", "extra": 1}))).expect("a kit tool");
-    assert_ne!(answer["isError"], true, "{answer}");
-    assert!(call("customize_status", &Map::new()).is_none());
 }
