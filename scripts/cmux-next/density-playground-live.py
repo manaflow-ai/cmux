@@ -14,7 +14,10 @@ Chief, then:
   5. quits, launches again on the same config and shoots the main window: the custom density is still in use.
 Window images come from `debug.window_snapshot` (the window server's composite; no Screen Recording grant).
 """
-import argparse, json, os, plistlib, shutil, socket, subprocess, sys, tempfile, time
+import argparse, hashlib, json, os, plistlib, shutil, socket, subprocess, sys, tempfile, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import StateWaitTimeout, wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -90,7 +93,12 @@ def keys(*strokes, gap=30):
         if not wait(lambda: any(w.get("key") for w in windows()), 5):
             print("the app did not become active", flush=True)
     reply = rpc("debug.key", {"sequence": steps, "key_window": "cmux.densityPlayground"})
-    time.sleep(len(steps) * gap / 1000 + 0.6)  # capture harness: the sequence plays, then the change draws
+    played = (reply or {}).get("duration_ms")
+    # sleep-ok: the app plays the sequence by its own clock for duration_ms; reading while it plays adds work to it
+    time.sleep((played if played is not None else len(steps) * gap) / 1000)
+    # Then the change draws: both windows the frames shoot stop changing.
+    settle("the main window after the keys")
+    settle("the playground after the keys", playground())
     return reply
 
 
@@ -120,6 +128,28 @@ def snapshot(path, window=None):
     return rpc("debug.window_snapshot", params, timeout=40)
 
 
+def shot_hash(window=None):
+    path = os.path.join(SCRATCH, "settle.png")
+    reply = snapshot(path, window) or {}
+    if reply.get("error"):
+        raise RuntimeError(reply["error"])
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def settle(what, window=None, timeout=8):
+    """Until two window snapshots in a row are the same picture (the repaint landed). Best effort: logs on timeout."""
+    try:
+        wait_stable(lambda: shot_hash(window), what, timeout=timeout, interval=0.1, reads=2)
+    except StateWaitTimeout as error:
+        print(error, flush=True)
+
+
+def palette_report():
+    """The palette's own report for a no-op key (forward delete with the caret at the end of the query)."""
+    return rpc("debug.key", {"key": "forwarddelete", "modifiers": [], "target": "palette"}) or {}
+
+
 def pair(name):
     """The main window and the playground, light and dark."""
     for mode in ("light", "dark"):
@@ -129,7 +159,7 @@ def pair(name):
         if playground() is not None:
             snapshot(os.path.join(opts.out, f"{name}-playground-{mode}.png"), playground())
     rpc("debug.appearance", {"mode": "light"})
-    time.sleep(0.8)  # capture harness: back to light for the frames
+    settle("the main window back in light")  # back to light for the frames
 
 
 FRAME = [0]
@@ -161,10 +191,13 @@ def launch(log):
         stdout=open(os.path.join(opts.out, log), "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
     if not wait(lambda: os.path.exists(SOCKET) and not (rpc("debug.window_frame") or {}).get("error"), 180):
         sys.exit("the tagged app did not come up")
-    time.sleep(3)  # capture harness: the first window settles
+    settle("the first window", timeout=15)
     subprocess.run(["/usr/bin/open", "-b", INFO["CFBundleIdentifier"]], check=False)  # the running copy
     print("frame", rpc("debug.window_frame", {"frame": [16, 120, 860, 700]}), flush=True)  # AppKit points
-    time.sleep(1.5)  # capture harness: activation and the move land
+    # Activation lands when one of its windows is key; the move when the window stops changing.
+    if not wait(lambda: any(w.get("key") for w in windows()), 10):
+        print("the app did not become active", flush=True)
+    settle("the moved main window")
     return process
 
 
@@ -187,15 +220,19 @@ try:
         print(stroke, rpc("debug.key", {"key": stroke, "modifiers": ["cmd"]}), flush=True)
         time.sleep(1.0)  # capture harness: the new workspace or tab draws
     print("palette", rpc("debug.key", {"key": "p", "modifiers": ["cmd", "shift"]}), flush=True)
-    time.sleep(1.0)  # capture harness: the palette opens
+    if not wait(lambda: palette_report().get("palette_open"), 10):
+        print("the palette did not open", flush=True)
     for character in "Density Playground":
         rpc("debug.key", {"key": "space" if character == " " else character, "target": "palette"})
-    time.sleep(1.0)  # capture harness: the palette ranks
+    try:  # the palette's ranked listing stops changing
+        wait_stable(palette_report, "the palette's listing", timeout=8, interval=0.05)
+    except StateWaitTimeout as error:
+        print(error, flush=True)
     print("palette shot", rpc("debug.palette.capture", {"path": os.path.join(opts.out, "palette.png")}), flush=True)
     print("open", rpc("debug.key", {"key": "return", "target": "palette"}), flush=True)
     result["opened"] = wait(playground, 10) is not None
     print("playground window", result["opened"], json.dumps(windows())[:400], flush=True)
-    time.sleep(1.5)  # capture harness: the panel draws
+    settle("the playground panel", playground())
     pair("before")
     frame("Default")
     # The name first: a built-in stays as it is, so naming it makes the copy that every later change goes into.
@@ -214,7 +251,17 @@ try:
     frame("tab height 36")
     field("6")
     frame("strip padding 6")
-    time.sleep(1.5)  # the playground's save (600 ms after the last change)
+    # The playground saves 600 ms after the last change: the config names Roomy and then holds still for longer
+    # than that (four reads 0.25 s apart).
+    def saved_config():
+        text = open(CONFIG).read()
+        return text if "Roomy" in text else None
+    if not wait(saved_config, 15):
+        print("the config never named Roomy", flush=True)
+    try:
+        wait_stable(lambda: open(CONFIG).read(), "the saved config", timeout=10, interval=0.25, reads=4)
+    except StateWaitTimeout as error:
+        print(error, flush=True)
     pair("after")
     shutil.copy(CONFIG, os.path.join(opts.out, "config-after.json"))
     config = json.load(open(CONFIG))
@@ -229,7 +276,7 @@ finally:
 app = launch("app-relaunch.log")
 try:
     rpc("debug.appearance", {"mode": "light"})
-    time.sleep(1.2)  # capture harness: the theme repaints
+    settle("the relaunched main window in light")  # the theme repaints
     print("relaunch", snapshot(os.path.join(opts.out, "relaunch-main-light.png")), flush=True)
 finally:
     quit_app(app)

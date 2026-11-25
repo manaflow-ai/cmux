@@ -184,3 +184,130 @@ fn sidebar_customization_stress() {
         assert!(*ns <= base * 4, "{sections}x{workspaces}: {ns} ns per workspace vs {base} at 1x");
     }
 }
+
+use crate::sidebar_row_layout::MAX_QUOTED;
+
+#[test]
+fn a_huge_or_unicode_workspace_key_is_quoted_short() {
+    // A hand-edited file with one pasted blob as a workspace key: the problem says where, without
+    // carrying the blob into every reply and every Settings diagnostic.
+    let huge = "w".repeat(1 << 20);
+    let unicode_ok = "名".repeat(128);
+    let unicode_long = "名".repeat(129);
+    let request: Request = serde_json::from_value(json!({
+        "workspaces": {huge: {"hidden": true}, unicode_ok.as_str(): {"hidden": true},
+                       unicode_long: {"hidden": true}},
+        "input": [{"id": "projects", "region": "middle", "nodes": [
+            {"id": unicode_ok, "kind": "workspace", "workspace_ids": [unicode_ok]}
+        ]}]
+    }))
+    .unwrap();
+    let reply = respond(&request);
+    // 128 characters is an id, whatever their bytes; 129 is not.
+    assert_eq!(reply.hidden_workspaces, [unicode_ok]);
+    let bytes = serde_json::to_vec(&reply.problems).unwrap().len();
+    assert!(bytes < 4 * 1024, "problems are {bytes} bytes");
+    assert_eq!(reply.problems.len(), 2, "{bytes}");
+    for problem in &reply.problems {
+        let key = problem.path.strip_prefix("sidebar.workspaces.").unwrap();
+        assert!(key.chars().count() <= MAX_QUOTED + 1, "path quotes {} chars", key.chars().count());
+    }
+}
+
+#[test]
+fn conflicting_rules_resolve_the_same_way_every_time() {
+    // The selected workspace is hidden by its own rule and by its section; the order lists a hidden
+    // section, twice, and a regroup points at a group in another section.
+    let request: Request = serde_json::from_value(json!({
+        "sections": {"hidden": ["a", "b"], "order": ["b", "b", "a", "missing"]},
+        "workspaces": {"ws_a": {"hidden": true, "group": "gb", "order": 0}, "ws_b": {"hidden": true}},
+        "selected": "ws_a",
+        "input": [
+            {"id": "a", "region": "middle", "nodes": [{"id": "ws_a", "kind": "workspace", "workspace_ids": ["ws_a"]}]},
+            {"id": "b", "region": "middle", "nodes": [
+                {"id": "gb", "kind": "group", "name": "gb", "workspace_ids": []},
+                {"id": "ws_b", "kind": "workspace", "workspace_ids": ["ws_b"]}
+            ]}
+        ]
+    }))
+    .unwrap();
+    let reply = respond(&request);
+    // The selected row and its section stay; the other hidden section goes, with its rows.
+    assert_eq!(reply.hidden_sections, ["b"]);
+    assert!(reply.hidden_workspaces.is_empty(), "{:?}", reply.hidden_workspaces);
+    assert!(reply.workspace_groups.is_empty());
+    assert_eq!(reply.section_order, ["b", "a"]);
+    let again = respond(&request);
+    assert_eq!(serde_json::to_value(&reply).unwrap(), serde_json::to_value(&again).unwrap());
+    // Only the selection keeps ws_a and section a: the next selection change must plan again.
+    assert!(reply.selection_spared);
+}
+
+#[test]
+fn the_plan_says_when_only_the_selection_keeps_a_row_shown() {
+    // The app re-plans on a selection change only when this is true (or the new selection is
+    // hidden), so a click on a shown row costs the same at 50 workspaces and 20,000.
+    let with = |selected: Option<&str>| {
+        let request: Request = serde_json::from_value(json!({
+            "sections": {"hidden": ["recents"]},
+            "workspaces": {"ws_h": {"hidden": true}, "ws_v": {"order": 1}},
+            "selected": selected,
+            "input": [
+                {"id": "projects", "region": "middle", "nodes": [
+                    {"id": "ws_h", "kind": "workspace", "workspace_ids": ["ws_h"]},
+                    {"id": "ws_v", "kind": "workspace", "workspace_ids": ["ws_v"]}
+                ]},
+                {"id": "recents", "region": "bottom", "nodes": [
+                    {"id": "ws_r", "kind": "workspace", "workspace_ids": ["ws_r"]}
+                ]}
+            ]
+        }))
+        .unwrap();
+        respond(&request).selection_spared
+    };
+    assert!(with(Some("ws_h")), "a hidden row kept for its selection");
+    assert!(with(Some("ws_r")), "a row of a hidden section kept for its selection");
+    assert!(!with(Some("ws_v")), "a shown row");
+    assert!(!with(Some("unknown")), "a selection the sidebar does not list");
+    assert!(!with(None));
+}
+
+#[test]
+fn sidebar_customization_stress_a_rule_for_every_workspace() {
+    // The heavy end of "tons of customization": every workspace carries a rule (hide, regroup into
+    // its section's group by name, or an explicit order), up to the document's ceiling.
+    let sizes = [(8, 50), (50, 500), (MAX_SECTIONS, 5_000), (MAX_SECTIONS, MAX_ITEMS)];
+    println!("sections | workspaces = rules | p50 us | p95 us | p50 ns/workspace");
+    let mut per_workspace = Vec::new();
+    for (sections, workspaces) in sizes {
+        let per = workspaces.div_ceil(sections);
+        let rules: serde_json::Map<String, Value> = (0..workspaces)
+            .map(|w| {
+                let rule = match w % 3 {
+                    0 => json!({"hidden": true}),
+                    1 => json!({"group": format!("Group {}", w / per)}),
+                    _ => json!({"order": w}),
+                };
+                (format!("ws_{w}"), rule)
+            })
+            .collect();
+        let request = Request {
+            sections: json!({"order": (0..sections).rev().map(|s| format!("key_{s}")).collect::<Vec<_>>()}),
+            workspaces: Value::Object(rules),
+            input: sidebar(sections, workspaces),
+            selected: Some("ws_0".into()),
+        };
+        let reply = respond(&request);
+        assert!(reply.problems.is_empty(), "{:?}", &reply.problems[..reply.problems.len().min(3)]);
+        assert_eq!(reply.hidden_workspaces.len(), workspaces.div_ceil(3) - 1);
+        let runs = if workspaces > 5_000 { 20 } else { 100 };
+        let (p50, p95) = percentiles(&request, runs);
+        let ns = p50 / workspaces as u128;
+        per_workspace.push(ns);
+        println!("{sections} | {workspaces} | {} | {} | {ns}", p50 / 1_000, p95 / 1_000);
+    }
+    let base = per_workspace[0].max(100);
+    for (ns, (sections, workspaces)) in per_workspace.iter().zip(sizes) {
+        assert!(*ns <= base * 4, "{sections}x{workspaces}: {ns} ns per workspace vs {base} at 1x");
+    }
+}

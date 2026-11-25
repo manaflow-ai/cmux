@@ -28,12 +28,13 @@ nonisolated enum CEFLinkClicks {
     /// Option-click, and NEW_FOREGROUND_TAB for both Shift-Cmd-click and a
     /// plain `target=_blank` link. `click`, the last mouse-up on the
     /// requesting page when it is at most `clickLifetime` old at `now`, is
-    /// read only to tell those two apart; a stale or missing click means a
-    /// plain target=_blank (a selected tab). Every other disposition keeps
-    /// Chromium's meaning, so NEW_BACKGROUND_TAB is `cmdClick` (Chromium
-    /// does not tell a middle click from Cmd-click). A request without a
-    /// user gesture (a script) never follows a modified-click setting: it
-    /// gets Chrome's default for its disposition.
+    /// read only to tell those two apart; a stale or missing click falls back
+    /// to `cmdClick` for compatibility. Every other disposition keeps
+    /// Chromium's meaning, so NEW_BACKGROUND_TAB is `cmdClick` when the
+    /// click record cannot identify a middle click (Chromium does not tell a
+    /// middle click from Cmd-click). A request without a user gesture (a
+    /// script) never follows a modified-click setting: it gets Chrome's
+    /// default for its disposition.
     static func placement(for disposition: CEFDisposition, userGesture: Bool, click: CEFLinkClickRecord?,
                           now: TimeInterval, mapping: BrowserLinkClickMapping) -> CEFLinkPlacement {
         let mapping = userGesture ? mapping : .chrome
@@ -44,7 +45,11 @@ nonisolated enum CEFLinkClicks {
         let gesture: BrowserLinkGesture?
         switch disposition {
         case .newBackgroundTab:
-            gesture = .cmd
+            // CEF reports Cmd-click and middle-click with the same disposition.
+            // The app's recent mouse-up is the only way to preserve their
+            // separate settings (`cmdClick` versus `middleClick`). A missing
+            // or stale click falls back to `cmdClick`.
+            gesture = recent == .middle ? .middle : .cmd
         case .newForegroundTab:
             // Plain target=_blank is not configurable: a selected tab.
             gesture = recent == .cmdShift || recent == .middleShift ? recent : nil

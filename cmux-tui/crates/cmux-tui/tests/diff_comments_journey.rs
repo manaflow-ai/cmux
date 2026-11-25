@@ -13,10 +13,11 @@
 //! refused and keeps the comments.
 #![cfg(unix)]
 
-mod journey_support;
+use crate::journey_support;
 
-/// One module, so `cargo test diff_comments_journey` selects these tests.
-mod diff_comments_journey {
+/// One module, so `cargo test diff_comments_journey` selects these tests. Its `cmux_next_` prefix puts them in
+/// every push's `cmux_next_ daemon tests` (cmux-tui-artifacts.yml), not only the daily probe.
+mod cmux_next_diff_comments_journey {
     use std::fs;
     use std::io::{BufRead as _, BufReader, Write as _};
     use std::os::unix::net::UnixStream;

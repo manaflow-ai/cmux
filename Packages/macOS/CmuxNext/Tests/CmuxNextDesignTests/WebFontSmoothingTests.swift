@@ -8,8 +8,10 @@ import WebKit
 
 /// `appearance.fontSmoothing` reaches every cmux web page through the one web theme
 /// (``WebTheme``): `antialiased` and `subpixel` win over each page's own `-webkit-font-smoothing`
-/// (the chat's stylesheets set `antialiased` on many rules), live, with no reload; `auto` leaves each
-/// page's own style, as before the setting.
+/// (the chat's stylesheets set `antialiased` on many rules), live, with no reload; `auto` gives the
+/// pages the smoothing native text draws with, so web text on a page and native text beside it draw
+/// the same pixels (Liquid Glass Parity: WebKit text exact only with the same smoothing on both sides,
+/// matrix run 10). The page script still takes `auto` (no rule) for a page outside the app's theme.
 @MainActor @Suite(.serialized) struct WebFontSmoothingTests {
     @MainActor final class Loader: NSObject, WKNavigationDelegate {
         var done: CheckedContinuation<Void, Never>?
@@ -58,9 +60,19 @@ import WebKit
         withExtendedLifetime(loader) {}
     }
 
-    @Test func theThemePayloadCarriesTheSetting() throws {
+    @Test func theThemePayloadCarriesTheSmoothingNativeTextDraws() throws {
         let theme = WebTheme(ThemeTokens.derive(from: ThemeInput(background: ThemeRGB(hex: 0x101018), foreground: ThemeRGB(hex: 0xE8E8F0))))
         let payload = try #require(JSONSerialization.jsonObject(with: Data(theme.payloadJSON.utf8)) as? [String: Any])
-        #expect(payload["fontSmoothing"] as? String == "auto", "the default leaves each page its own style")
+        let native = ProcessFontSmoothing.chrome.smoothsStems ? "subpixel" : "antialiased"
+        #expect(payload["fontSmoothing"] as? String == native, "the default draws pages as native text draws")
+    }
+
+    /// `auto` resolves to the native smoothing; an explicit choice is sent as it is.
+    @Test func autoFollowsNativeTextAndAChoiceStays() {
+        let on = ProcessFontSmoothing(smoothsStems: true), off = ProcessFontSmoothing(smoothsStems: false)
+        #expect(WebTheme.pageSmoothing(.auto, native: on) == "subpixel")
+        #expect(WebTheme.pageSmoothing(.auto, native: off) == "antialiased")
+        #expect(WebTheme.pageSmoothing(.antialiased, native: on) == "antialiased")
+        #expect(WebTheme.pageSmoothing(.subpixel, native: off) == "subpixel")
     }
 }

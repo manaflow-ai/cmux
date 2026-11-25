@@ -108,16 +108,117 @@ pub fn atomic_write(path: &Path, bytes: &[u8], mode: u32) -> Result<()> {
     result.ctx(path.display())
 }
 
+/// Copies `source` to `path` like [`atomic_write`]: a new temporary file
+/// (`O_EXCL`, a random name, so a planted file or symlink there is never
+/// written through), created with `mode`, fsync, one rename over `path`.
+pub fn atomic_copy(source: &Path, path: &Path, mode: u32) -> Result<()> {
+    let tmp = temp_sibling(path, "tmp");
+    let result = (|| -> io::Result<()> {
+        let mut from = File::open(source)?;
+        let mut file = open_new(&tmp, mode)?;
+        io::copy(&mut from, &mut file)?;
+        file.sync_all()?;
+        drop(file);
+        set_mode(&tmp, mode)?;
+        fs::rename(&tmp, path)?;
+        if let Some(dir) = path.parent() {
+            sys::fsync_dir(dir)?;
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result.ctx(path.display())
+}
+
 /// Like [`atomic_write`], but only when the content differs. Returns
-/// whether it wrote.
+/// whether it wrote. Anything but a plain file at `path` (a symlink, even
+/// to the same bytes) is replaced, never kept or written through.
 pub fn write_if_changed(path: &Path, bytes: &[u8], mode: u32) -> Result<bool> {
+    let plain = fs::symlink_metadata(path).is_ok_and(|m| m.is_file());
     match fs::read(path) {
-        Ok(old) if old == bytes => {
+        Ok(old) if plain && old == bytes => {
             set_mode(path, mode).ctx(path.display())?;
             Ok(false)
         }
         _ => atomic_write(path, bytes, mode).map(|()| true),
     }
+}
+
+/// Writes `bytes` to `path` as a new file every time ([`atomic_write`]: a new
+/// inode with `mode`, one rename), and returns whether the content changed.
+/// For a file a service manager runs: a file left in place keeps every
+/// descriptor opened on it before, also one another account opened for
+/// writing while it could (a group write bit or an ACL entry since taken
+/// away), and keeps its macOS ACL entries, which `chmod` does not reach. A
+/// new inode has neither. When the bytes are the same, the new file gets the
+/// old one's modification time, so systemd does not call the unit changed
+/// on disk (`NeedDaemonReload`).
+pub fn write_fresh(path: &Path, bytes: &[u8], mode: u32) -> Result<bool> {
+    if write_fresh_if(path, mode, |old| (old == Some(bytes)).then(|| bytes.to_vec()))? {
+        return Ok(false);
+    }
+    atomic_write(path, bytes, mode)?;
+    Ok(true)
+}
+
+/// Reads the plain file at `path` (this account's, not followed if it is a
+/// symlink) through one descriptor and asks `keep` which bytes to keep. Some:
+/// those bytes go into a new file with `mode` and the old modification time,
+/// renamed over `path`; returns true. None, or no plain file of this
+/// account's at `path`: nothing is written; returns false.
+fn write_fresh_if(
+    path: &Path,
+    mode: u32,
+    keep: impl FnOnce(Option<&[u8]>) -> Option<Vec<u8>>,
+) -> Result<bool> {
+    use std::io::Read as _;
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let old = match options.open(path) {
+        Ok(mut file) => {
+            let meta = file.metadata().ctx(path.display())?;
+            if meta.is_file() && sys::owner_uid(&meta) == sys::euid() {
+                let mut text = Vec::new();
+                file.read_to_end(&mut text).ctx(path.display())?;
+                Some((text, meta.modified().ok()))
+            } else {
+                None
+            }
+        }
+        Err(_) => None,
+    };
+    let Some(bytes) = keep(old.as_ref().map(|(text, _)| text.as_slice())) else {
+        return Ok(false);
+    };
+    let modified = old.and_then(|(_, modified)| modified);
+    let tmp = temp_sibling(path, "tmp");
+    let result = (|| -> io::Result<()> {
+        let mut file = open_new(&tmp, mode)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        if let Some(modified) = modified {
+            file.set_modified(modified)?;
+        }
+        drop(file);
+        set_mode(&tmp, mode)?;
+        fs::rename(&tmp, path)?;
+        if let Some(dir) = path.parent() {
+            sys::fsync_dir(dir)?;
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result.ctx(path.display())?;
+    Ok(true)
 }
 
 /// Creates `path` when it is missing: missing parents get `mode` (less the
@@ -296,6 +397,345 @@ pub fn remove_tree(path: &Path) -> Result<()> {
         remove_tree(&entry.ctx(path.display())?.path())?;
     }
     fs::remove_dir(path).ctx(path.display())
+}
+
+/// Removes the file at `path` only when, as it goes, it is still one
+/// `ours` accepts. Returns false when there is none.
+///
+/// Every step goes through descriptors, never a path read twice (Codex
+/// R-002): cmux opens the file's folder (this account's, writable by no one
+/// else by mode or ACL), makes a new folder in it that only this account
+/// can enter, and moves the file there (rename moves the entry itself and
+/// never follows a symlink). There no other account can swap the entry,
+/// so the file checked is the file removed. It must be a plain file of
+/// this account's that no other account can write (mode or ACL) and that
+/// has no other name, and its bytes must be ones `ours` accepts. Anything
+/// else goes back to its name, never over a new entry there, and the call
+/// fails. A descriptor another account opened for writing before all this
+/// (when it still could) is not revoked by it: it can change the bytes of
+/// the file being removed, never make cmux remove another file. (Uninstall
+/// first puts each unit into a new file, [`write_fresh`], so such a
+/// descriptor reaches only a file nothing reads.)
+#[cfg(unix)]
+pub fn remove_if_unchanged(path: &Path, ours: impl Fn(&[u8]) -> bool) -> Result<bool> {
+    use std::io::Read as _;
+    use std::os::fd::AsRawFd as _;
+    use std::os::unix::ffi::OsStrExt as _;
+    use std::os::unix::fs::MetadataExt as _;
+
+    use crate::error::Error;
+
+    let (Some(dir), Some(name)) = (path.parent(), path.file_name()) else {
+        return Err(Error::rejected(format!("{} names no file", path.display())));
+    };
+    let dir = if dir.as_os_str().is_empty() { Path::new(".") } else { dir };
+    let io_err = |e: io::Error| Error::io(path.display(), e);
+    let cname = cstring(name.as_bytes()).map_err(io_err)?;
+    let cdir = cstring(dir.as_os_str().as_bytes()).map_err(io_err)?;
+    let folder = match open_dir(libc::AT_FDCWD, &cdir) {
+        Ok(folder) => folder,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(Error::io(dir.display(), e)),
+    };
+    let meta = folder.metadata().ctx(dir.display())?;
+    let others_write = |file: &File, mode: u32| {
+        mode & 0o022 != 0 || crate::acl::fd_write_grants(file).unwrap_or(true)
+    };
+    if meta.uid() != sys::euid() || others_write(&folder, meta.mode()) {
+        return Err(Error::rejected(format!(
+            "{} (the folder of {}) is not yours alone (owner uid {}, mode {:o}, or an ACL entry that allows writing), so cmux removes nothing there",
+            dir.display(),
+            path.display(),
+            meta.uid(),
+            meta.mode() & 0o7777
+        )));
+    }
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.subsec_nanos());
+    let hold_name = format!(".cmux-removing.{}.{nanos}", std::process::id());
+    let hold = Hold::make(&folder, dir, &hold_name)?;
+    let hfd = hold.dir.as_raw_fd();
+    let fd = folder.as_raw_fd();
+    // SAFETY: both descriptors are open folders and cname a valid C string.
+    if unsafe { libc::renameat(fd, cname.as_ptr(), hfd, cname.as_ptr()) } != 0 {
+        let e = io::Error::last_os_error();
+        hold.drop_empty()?;
+        return match e.kind() {
+            io::ErrorKind::NotFound => Ok(false),
+            _ => Err(io_err(e)),
+        };
+    }
+    let held = hold.path.join(name);
+    // Why the held entry is not one to remove; None: remove it.
+    let refused: Option<&str> = match open_file(hfd, &cname) {
+        Err(_) => Some("is no longer a plain file"),
+        Ok(mut file) => match file.metadata() {
+            Err(_) => Some("cannot be read"),
+            Ok(m) if !m.is_file() || m.uid() != sys::euid() => {
+                Some("is no longer a plain file of this account's")
+            }
+            Ok(m) if others_write(&file, m.mode()) => {
+                Some("can be written by other accounts (mode or ACL)")
+            }
+            Ok(m) if m.nlink() != 1 => Some("has another name (a hard link) cmux never checked"),
+            Ok(_) => {
+                let mut bytes = Vec::new();
+                match file.read_to_end(&mut bytes) {
+                    Ok(_) if ours(&bytes) => None,
+                    Ok(_) => Some("changed and is no longer the file cmux wrote"),
+                    Err(_) => Some("cannot be read"),
+                }
+            }
+        },
+    };
+    let why = match refused {
+        None => {
+            // SAFETY: hfd is open and cname a valid C string.
+            if unsafe { libc::unlinkat(hfd, cname.as_ptr(), 0) } == 0 {
+                hold.drop_empty()?;
+                return Ok(true);
+            }
+            let e = io::Error::last_os_error();
+            format!("could not be removed ({e})")
+        }
+        Some(why) => why.to_owned(),
+    };
+    // Back to its name, never over an entry that took the name meanwhile.
+    match rename_noreplace(hfd, &cname, fd) {
+        Ok(()) => {
+            hold.drop_empty()?;
+            Err(Error::rejected(format!(
+                "{} {why}, so cmux left it in place; nothing else was removed",
+                path.display()
+            )))
+        }
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Err(Error::rejected(format!(
+            "{} {why}; a new entry took its name meanwhile, so cmux kept the old one at {}",
+            path.display(),
+            held.display()
+        ))),
+        Err(e) => Err(Error::rejected(format!(
+            "{} {why}, and cmux could not put it back ({e}): it is at {}",
+            path.display(),
+            held.display()
+        ))),
+    }
+}
+
+/// The private folder [`remove_if_unchanged`] holds a file in: made with
+/// mode 0700 in the unit folder, checked on its descriptor, and removed
+/// when it is empty again, also when a step fails (its drop).
+#[cfg(unix)]
+struct Hold {
+    dir: File,
+    parent: std::os::fd::RawFd,
+    name: std::ffi::CString,
+    path: PathBuf,
+    done: bool,
+}
+
+#[cfg(unix)]
+impl Hold {
+    fn make(parent: &File, parent_path: &Path, name: &str) -> Result<Hold> {
+        use std::os::fd::AsRawFd as _;
+        use std::os::unix::fs::MetadataExt as _;
+
+        use crate::error::Error;
+
+        let path = parent_path.join(name);
+        let cname = cstring(name.as_bytes()).map_err(|e| Error::io(path.display(), e))?;
+        let pfd = parent.as_raw_fd();
+        // SAFETY: pfd is open and cname a valid C string.
+        if unsafe { libc::mkdirat(pfd, cname.as_ptr(), 0o700) } != 0 {
+            return Err(Error::io(path.display(), io::Error::last_os_error()));
+        }
+        let rmdir = || {
+            // SAFETY: pfd is open and cname a valid C string.
+            unsafe { libc::unlinkat(pfd, cname.as_ptr(), libc::AT_REMOVEDIR) };
+        };
+        let dir = match open_dir(pfd, &cname) {
+            Ok(dir) => dir,
+            Err(e) => {
+                rmdir();
+                return Err(Error::io(path.display(), e));
+            }
+        };
+        let private = dir.metadata().is_ok_and(|m| m.uid() == sys::euid() && m.mode() & 0o077 == 0)
+            && !crate::acl::fd_write_grants(&dir).unwrap_or(true);
+        if !private {
+            rmdir();
+            return Err(Error::rejected(format!(
+                "{} is not a folder only this account can enter (mode, owner or an inherited ACL entry), so cmux removes nothing",
+                path.display()
+            )));
+        }
+        Ok(Hold { dir, parent: pfd, name: cname, path, done: false })
+    }
+
+    /// Removes the folder, which must be empty now.
+    fn drop_empty(mut self) -> Result<()> {
+        self.done = true;
+        // SAFETY: the parent descriptor outlives self; name is a C string.
+        if unsafe { libc::unlinkat(self.parent, self.name.as_ptr(), libc::AT_REMOVEDIR) } != 0 {
+            return Err(crate::error::Error::io(self.path.display(), io::Error::last_os_error()));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(unix)]
+impl Drop for Hold {
+    fn drop(&mut self) {
+        if !self.done {
+            // Only an empty folder goes: one that still holds a file stays,
+            // and the error that brought us here names it.
+            // SAFETY: the parent descriptor outlives self; name is a C string.
+            unsafe { libc::unlinkat(self.parent, self.name.as_ptr(), libc::AT_REMOVEDIR) };
+        }
+    }
+}
+
+/// Moves the entry `name` from the folder `from` to the folder `to`, under
+/// the same name, failing with `AlreadyExists` rather than replacing an
+/// entry there.
+#[cfg(unix)]
+fn rename_noreplace(
+    from: std::os::fd::RawFd,
+    name: &std::ffi::CStr,
+    to: std::os::fd::RawFd,
+) -> io::Result<()> {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        // SAFETY: both descriptors are open folders and name a C string.
+        let rc = unsafe {
+            libc::syscall(
+                libc::SYS_renameat2,
+                from,
+                name.as_ptr(),
+                to,
+                name.as_ptr(),
+                libc::RENAME_NOREPLACE,
+            )
+        };
+        if rc == 0 {
+            return Ok(());
+        }
+        let e = io::Error::last_os_error();
+        // An old kernel or a file system without it: link, then unlink.
+        if !matches!(e.raw_os_error(), Some(libc::ENOSYS | libc::EINVAL | libc::EOPNOTSUPP)) {
+            return Err(e);
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // SAFETY: both descriptors are open folders and name a C string.
+        let rc = unsafe {
+            libc::renameatx_np(from, name.as_ptr(), to, name.as_ptr(), libc::RENAME_EXCL)
+        };
+        if rc == 0 {
+            return Ok(());
+        }
+        let e = io::Error::last_os_error();
+        if !matches!(e.raw_os_error(), Some(libc::ENOTSUP | libc::EINVAL)) {
+            return Err(e);
+        }
+    }
+    // A hard link fails when the name is taken (and for a folder).
+    // SAFETY: both descriptors are open folders and name a C string.
+    if unsafe { libc::linkat(from, name.as_ptr(), to, name.as_ptr(), 0) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: as above.
+    if unsafe { libc::unlinkat(from, name.as_ptr(), 0) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn cstring(bytes: &[u8]) -> io::Result<std::ffi::CString> {
+    std::ffi::CString::new(bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))
+}
+
+/// The folder `name` in the folder `at` (`AT_FDCWD`: the working folder),
+/// opened as a folder. A final symlink is followed only from `AT_FDCWD`
+/// (a unit folder may be a symlink); in a held folder it is refused.
+#[cfg(unix)]
+fn open_dir(at: libc::c_int, name: &std::ffi::CStr) -> io::Result<File> {
+    use std::os::fd::FromRawFd as _;
+    let mut flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC;
+    if at != libc::AT_FDCWD {
+        flags |= libc::O_NOFOLLOW;
+    }
+    // SAFETY: name is a valid C string; the result is checked.
+    let fd = unsafe { libc::openat(at, name.as_ptr(), flags) };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: fd was just opened and is owned here.
+    Ok(unsafe { File::from_raw_fd(fd) })
+}
+
+/// The entry `name` in the folder `at`, opened to read without following
+/// a symlink or blocking on a FIFO.
+#[cfg(unix)]
+fn open_file(at: libc::c_int, name: &std::ffi::CStr) -> io::Result<File> {
+    use std::os::fd::FromRawFd as _;
+    let flags = libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC;
+    // SAFETY: name is a valid C string; the result is checked.
+    let fd = unsafe { libc::openat(at, name.as_ptr(), flags) };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: fd was just opened and is owned here.
+    Ok(unsafe { File::from_raw_fd(fd) })
+}
+
+/// [`remove_if_unchanged`] where there are no descriptor calls: the
+/// file is renamed to a private name in its folder, read, then removed.
+#[cfg(not(unix))]
+pub fn remove_if_unchanged(path: &Path, ours: impl Fn(&[u8]) -> bool) -> Result<bool> {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.subsec_nanos());
+    let claimed =
+        path.with_file_name(format!(".{name}.cmux-removing.{}.{nanos}", std::process::id()));
+    match fs::rename(path, &claimed) {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(crate::error::Error::io(path.display(), e)),
+    }
+    if read_plain_file(&claimed).is_some_and(|bytes| ours(&bytes)) {
+        fs::remove_file(&claimed).ctx(claimed.display())?;
+        return Ok(true);
+    }
+    let back = fs::hard_link(&claimed, path).is_ok() && fs::remove_file(&claimed).is_ok();
+    Err(crate::error::Error::rejected(if back {
+        format!(
+            "{} changed while cmux uninstalled it and is no longer the file cmux wrote, so cmux left it in place; nothing else was removed",
+            path.display()
+        )
+    } else {
+        format!(
+            "{} changed while cmux uninstalled it and is no longer the file cmux wrote; a new file took its name, so cmux kept the changed one at {}",
+            path.display(),
+            claimed.display()
+        )
+    }))
+}
+
+/// The bytes of the plain file at `path` that this account owns, read
+/// through one descriptor opened without following a symlink (or blocking
+/// on a FIFO); None for anything else.
+#[cfg(not(unix))]
+fn read_plain_file(path: &Path) -> Option<Vec<u8>> {
+    use std::io::Read as _;
+    let mut file = OpenOptions::new().read(true).open(path).ok()?;
+    let meta = file.metadata().ok()?;
+    if !meta.is_file() || sys::owner_uid(&meta) != sys::euid() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).ok()?;
+    Some(bytes)
 }
 
 /// True when `path` exists (without following a final symlink).

@@ -1,13 +1,30 @@
+/** A chat's kept task list as its list row carries it (acpmux `taskList`): counts and two steps. */
+export interface HomeChiefPlan {
+  source: "harness" | "agent" | "chief";
+  done: number;
+  total: number;
+  /** The step in progress. */
+  current?: string | null;
+  /** The first pending step after it. */
+  next?: string | null;
+  updatedAt?: number | null;
+}
+
+export interface HomeChiefAgent {
+  id: string;
+  name: string;
+  state: "working" | "waiting" | "idle" | "failed";
+  task?: string | null;
+  startedAt?: number | null;
+  updatedAt?: number | null;
+  plan?: HomeChiefPlan | null;
+}
+
 /** The current Chief's read-only work inventory, scoped by the owner to this machine. */
 export interface HomeChiefWork {
-  agents: {
-    id: string;
-    name: string;
-    state: "working" | "waiting" | "idle" | "failed";
-    task?: string | null;
-    startedAt?: number | null;
-    updatedAt?: number | null;
-  }[];
+  agents: HomeChiefAgent[];
+  /** The Chief's own chats (not subagents) that keep a plan. */
+  plans?: HomeChiefAgent[];
   tasks: {
     id: string;
     sessionId: string;

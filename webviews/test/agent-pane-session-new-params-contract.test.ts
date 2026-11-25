@@ -22,6 +22,16 @@ const sent: Record<string, Record<string, unknown>> = {
   "local, folder and extra folders": newSessionParams({ cwd: "/work/project" }, "claude", false, undefined, [
     "/work/shared",
   ]),
+  "local, folder, read-only": newSessionParams({ cwd: "/work/project" }, "claude", false, undefined, undefined, true),
+  "local, folder, Auto place": newSessionParams(
+    { cwd: "/work/project" },
+    "claude",
+    false,
+    undefined,
+    undefined,
+    false,
+    true,
+  ),
   "no project": newSessionParams({}, "claude", true),
   "peer, model": newSessionParams({ peer: "devbox" }, "codex", false, "gpt-5.5"),
   adopt: newSessionParams({ adopt }),

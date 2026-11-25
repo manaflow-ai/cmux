@@ -121,7 +121,14 @@ export const mockModels = {
   chatgptSignedOut,
   chatgptOff,
   chatgptPending: { ...macLogins, chatgpt: { attempt: "attempt-1", error: null } },
-  chatgptError: { ...macLogins, chatgpt: { attempt: null, error: "no_plan_scope" } },
+  chatgptError: { ...macLogins, chatgpt: { attempt: null, error: "no_chatgpt_account" } },
+  claudeStarting: { ...macOnly, claudeToken: { attempt: "claude-1", phase: "starting", error: null } },
+  claudeSigningIn: { ...macOnly, claudeToken: { attempt: "claude-1", phase: "signing_in", error: null } },
+  claudeSaving: { ...macOnly, claudeToken: { attempt: "claude-1", phase: "saving", error: null } },
+  claudeError: {
+    ...macOnly,
+    claudeToken: { attempt: null, phase: null, error: "The Claude sign-in page closed before you signed in." },
+  },
   member: {
     ...macLogins,
     organization: { ...macLogins.organization, canEdit: false, keys: [{ agent: "claude", set: true, last4: null }] },
@@ -166,6 +173,11 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
       return connections.some((c) => c.kind === "claude-login")
         ? state
         : personal({ connections: [...connections, { ...claudeLogin, defaultFor: [] }] });
+    case "connectClaudeToken":
+      // The app's run starts on the sign-in page; `advanceMockClaudeToken` walks it on.
+      return { ...state, claudeToken: { attempt: "claude-mock", phase: "starting", error: null } };
+    case "cancelClaudeToken":
+      return { ...state, claudeToken: { attempt: null, phase: null, error: null } };
     case "claudeSetupToken":
       // The app opens a terminal tab running `claude setup-token`; the state does not change.
       return state;
@@ -229,4 +241,29 @@ function nextId(base: string, connections: ModelConnection[]): string {
   let number = 2;
   while (taken.has(`${base}-${number}`)) number += 1;
   return `${base}-${number}`;
+}
+
+/** The mock app's Connect Claude run, one step on: starting, signing in, saving, then the token saved
+ * as a connection (labelled `label`), or with `fail` the error a closed sign-in page leaves. */
+export function advanceMockClaudeToken(state: ModelsState, fail = false, label?: string): ModelsState {
+  const run = state.claudeToken;
+  if (!run?.attempt) return state;
+  if (fail)
+    return {
+      ...state,
+      claudeToken: { attempt: null, phase: null, error: "The Claude sign-in page closed before you signed in." },
+    };
+  if (run.phase === "starting") return { ...state, claudeToken: { ...run, phase: "signing_in" } };
+  if (run.phase === "signing_in") return { ...state, claudeToken: { ...run, phase: "saving" } };
+  const connections = state.personal.connections;
+  const added: ModelConnection = {
+    ...claudeToken,
+    id: nextId("claude-token", connections),
+    label: label?.trim() || "Claude Code token",
+  };
+  return {
+    ...state,
+    personal: { ...state.personal, connections: [...connections, added] },
+    claudeToken: { attempt: null, phase: null, error: null, saved: true },
+  };
 }

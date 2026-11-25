@@ -75,6 +75,39 @@ impl Schema {
                 "anyOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }],
             }),
         );
+        root.insert(
+            "density".into(),
+            json!({
+                "type": "object",
+                "description": "The look's own density: the shape of every tab and sidebar row, the toolbar's buttons and the sidebar's width. A built-in (basedOn) with the Density Playground's tokens over it; it is the density in use while the file applies.",
+                "properties": {
+                    "basedOn": { "enum": ["ultraCompact", "compact", "cozy", "comfortable", "spacious"] },
+                    "level": { "type": "number" },
+                    "spacing": { "type": "number" },
+                    "fontSize": { "type": "number" },
+                    "tokens": {
+                        "type": "object",
+                        "description": "Density Playground tokens by name (tabCornerRadius, sidebarCornerRadius, sidebarWidth, browserRowHeight, toolbarGlyphSize, ...), in points.",
+                        "additionalProperties": { "type": "number", "minimum": 0 },
+                    },
+                },
+                "additionalProperties": false,
+            }),
+        );
+        root.insert(crate::theme_file::slots::KEY.into(), crate::theme_file::slots::json_schema());
+        root.insert(
+            crate::theme_file::motion::KEY.into(),
+            crate::theme_file::motion::json_schema(),
+        );
+        root.insert(
+            "fonts".into(),
+            json!({
+                "type": "array",
+                "description": "Font files the app registers for itself while the file applies (a theme pack's own faces), as absolute file: paths; the look names their families (terminal.fontFamily).",
+                "items": { "type": "string", "pattern": "^file:/" },
+                "maxItems": 32,
+            }),
+        );
         for row in self.rows.iter().filter(|row| is_look(row)) {
             root.insert(row.key.clone(), leaf(row));
             if row.path.len() > 1 {
@@ -132,9 +165,11 @@ fn kind_schema(row: &Row) -> Value {
         Validation::Domain(DomainKind::BackdropSelection) => {
             let Kind::Choice(choices) = &row.kind else { return json!({ "type": "string" }) };
             // `system:<absolute path>` (a macOS wallpaper), `file:<absolute path>`
-            // or `folder:<absolute path>` (not `/` alone).
+            // or `folder:<absolute path>` (not `/` alone), or a `youtube:` video.
             let path = json!({ "type": "string", "pattern": "^((system|file):/|folder:/.)" });
-            return json!({ "anyOf": [choice(choices), path] });
+            // `live:<id>` or `live:<extension>/<id>` (a live wallpaper).
+            let live = json!({ "type": "string", "pattern": super::backdrop::LIVE_PATTERN });
+            return json!({ "anyOf": [choice(choices), path, live, youtube(), shader()] });
         }
         Validation::Domain(DomainKind::BackdropPicture) => return picture(),
         Validation::Domain(DomainKind::BackdropSchedule) => {
@@ -146,6 +181,36 @@ fn kind_schema(row: &Row) -> Value {
         }
         Validation::Domain(DomainKind::BackdropLocation) => {
             return json!({ "type": "string", "pattern": super::backdrop::LOCATION_PATTERN });
+        }
+        Validation::Domain(DomainKind::BackdropMemory) => {
+            let folder = json!({ "type": "string", "pattern": "^folder:/." });
+            let rotate = json!({ "anyOf": [{ "const": "daily" }, folder] });
+            let off = json!({ "anyOf": [{ "const": "none" }, picture()] });
+            return json!({
+                "type": "object",
+                "properties": { "rotate": rotate, "folder": folder, "off": off },
+                "additionalProperties": false,
+            });
+        }
+        Validation::Domain(DomainKind::BackdropPlacement) => {
+            return json!({
+                "type": "object",
+                "propertyNames": { "pattern": "\\S" },
+                "additionalProperties": {
+                    "type": "string",
+                    "pattern": "^[ \\t]*(fill|fit|center|stretch)([ \\t]+[0-9.]+[ \\t]+[0-9.]+([ \\t]+[0-9.]+)?)?[ \\t]*$",
+                },
+            });
+        }
+        Validation::Domain(DomainKind::BackdropRecents) => {
+            let listed = json!({ "type": "string", "enum": super::backdrop::selection_choices() });
+            let path = json!({ "type": "string", "pattern": "^((system|file):/|folder:/.)" });
+            return json!({
+                "type": "array",
+                "maxItems": super::backdrop::RECENTS_CAP,
+                "uniqueItems": true,
+                "items": { "anyOf": [listed, path, youtube()] },
+            });
         }
         Validation::Domain(DomainKind::ChatRoots) => {
             return json!({ "type": "array", "items": { "type": "string", "pattern": "^/" } });
@@ -182,12 +247,78 @@ fn kind_schema(row: &Row) -> Value {
             });
             return json!({ "type": "array", "items": { "anyOf": [name, rule] } });
         }
+        Validation::Domain(DomainKind::ParticlesDocument) => {
+            // The shape only; the limits and phase names are the validator's (cmux-app-host
+            // particles.rs, js/ABI.md "Particles choreography").
+            return json!({
+                "type": "object",
+                "required": ["$schema", "particle", "phases"],
+                "properties": {
+                    "$schema": { "const": cmux_app_host::particles::SCHEMA },
+                    "particle": { "type": "object" },
+                    "phases": { "type": "object", "minProperties": 1 },
+                    "formations": { "type": "object" },
+                    "triggers": { "type": "object" },
+                },
+            });
+        }
+        Validation::Domain(DomainKind::TranscriptTokens) => {
+            // One property per token of schemas/transcript-look/transcript-look.json, so an editor
+            // completes and checks a theme file's tokens.
+            let mut properties = Map::new();
+            for token in &crate::transcript_look::spec().tokens {
+                let schema = match token.kind {
+                    crate::transcript_look::TokenKind::Choice => {
+                        json!({ "enum": token.choices, "description": token.description })
+                    }
+                    crate::transcript_look::TokenKind::Number => json!({
+                        "type": "number", "minimum": token.min, "maximum": token.max,
+                        "description": token.description,
+                    }),
+                };
+                properties.insert(token.name.clone(), schema);
+            }
+            return json!({ "type": "object", "properties": properties, "additionalProperties": false });
+        }
+        Validation::Domain(DomainKind::Hosts) => {
+            let address = json!({ "type": "string", "pattern": "^[^\\s-][^\\s]*$" });
+            let host = json!({
+                "type": "object",
+                "required": ["label"],
+                "oneOf": [{ "required": ["endpoints"] }, { "required": ["endpoint"] }],
+                "properties": {
+                    "label": { "type": "string", "minLength": 1, "maxLength": crate::hosts::MAX_LABEL },
+                    "endpoints": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": crate::hosts::MAX_ENDPOINTS,
+                        "items": address,
+                    },
+                    "endpoint": address,
+                    "icon": { "type": "string" },
+                    "id": { "type": "string" },
+                },
+            });
+            return json!({ "type": "array", "items": host });
+        }
         Validation::Domain(DomainKind::AppId) => {
             // The manifest's own id pattern, read from its schema.
             return match super::app_id::app_id_pattern() {
                 Some(pattern) => json!({ "type": "string", "pattern": pattern }),
                 None => json!({ "type": "string" }),
             };
+        }
+        Validation::Domain(DomainKind::SidebarSectionIds) => {
+            return json!({
+                "type": "array",
+                "maxItems": super::accepts::MAX_SECTION_IDS,
+                "uniqueItems": true,
+                "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": super::accepts::MAX_SECTION_ID_CHARS,
+                },
+            });
         }
         _ => {}
     }
@@ -242,6 +373,8 @@ fn kind_schema(row: &Row) -> Value {
         Kind::StringMap => {
             json!({ "type": "object", "additionalProperties": { "type": "string" } })
         }
+        // The row's own shape, as the owner checks it (`shape::matches`).
+        Kind::Json(shape) => shape.clone(),
         Kind::SoundRules => {
             let events: Map<String, Value> = super::accepts::SOUND_RULE_EVENTS
                 .iter()
@@ -272,10 +405,23 @@ fn kind_schema(row: &Row) -> Value {
     }
 }
 
-/// A fixed background: a listed one or a `system:` / `file:` absolute path.
+/// A fixed background: a listed one, a `system:` / `file:` absolute path or a
+/// `youtube:` video.
 fn picture() -> Value {
     let listed = json!({ "type": "string", "enum": super::backdrop::picture_choices() });
-    json!({ "anyOf": [listed, { "type": "string", "pattern": super::backdrop::PATH_PATTERN }] })
+    let path = json!({ "type": "string", "pattern": super::backdrop::PATH_PATTERN });
+    json!({ "anyOf": [listed, path, youtube(), shader()] })
+}
+
+/// A living wallpaper, `shader:NAME` (super::backdrop::SHADERS).
+fn shader() -> Value {
+    json!({ "type": "string", "enum": super::backdrop::shader_ids() })
+}
+
+/// A canonical `youtube:` video id (crate::youtube; a settings write turns a
+/// pasted YouTube address into one).
+fn youtube() -> Value {
+    json!({ "type": "string", "pattern": crate::youtube::ID_PATTERN })
 }
 
 fn choice(choices: &[Choice]) -> Value {

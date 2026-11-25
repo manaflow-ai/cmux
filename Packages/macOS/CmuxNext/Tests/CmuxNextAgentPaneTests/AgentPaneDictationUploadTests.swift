@@ -61,7 +61,7 @@ struct AgentPaneDictationUploadTests {
                     chunkCount += 1
                     await onChunk?()
                     if chunkCount - 1 == failsAtChunk { return AgentPaneReply.failure(code: "upload_failed", message: "Couldn't send the file to huge-blue.") }
-                    received.append(data)
+                    received.append(data.bytes() ?? Data())
                     return AgentPaneReply.success(["offset": offset + data.count])
                 case .finish:
                     await duringFinish?()
