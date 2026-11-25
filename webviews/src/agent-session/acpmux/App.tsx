@@ -6634,6 +6634,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [linkDown, setLinkDown] = useState(false);
   /// When the pane's trouble began (paneSnapshot.ts `troubleSince`): bounds the bare "Reconnecting…".
   const [hostTroubleSince, setHostTroubleSince] = useState<number | undefined>();
+  /// The pane's handshake loop stopped past its bound (paneSnapshot.ts `stopped`): the failure line
+  /// says why and offers Retry, and an event (focus, shown, online, acpmux answering) asks again.
+  const [hostGaveUp, setHostGaveUp] = useState(false);
   /// The host says acpmux is restoring its chats after a start (its `acpmux-host-status` event, or
   /// a refused handshake's `details.restoring`): the line says "Restoring sessions… m:ss" instead.
   const [hostRestoring, setHostRestoring] = useState<HostRestoring | undefined>();
@@ -7631,6 +7634,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       restartGate,
       setLinkDown,
       setHostTroubleSince,
+      setHostGaveUp,
       setHostRestoring,
       runPendingAdoption,
       freshRef,
@@ -7671,7 +7675,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A failure the pane clears by asking again by itself (a machine rebooting) is quiet in the
   // header too: the one line above the composer says Reconnecting… (HostError.tsx).
   const header = paneHeader(composerSnapshot, t, {
-    hostRecovering: !hostErrorShown || hostSelfRetrying(hostFailure, acpmuxRestartOffered),
+    hostRecovering: !hostErrorShown || (!hostGaveUp && hostSelfRetrying(hostFailure, acpmuxRestartOffered)),
   });
   // The pane header never says where the chat runs (Leo 2026-10-26); Session Info's Environment does.
   const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness, snapshot.summary?.family);
@@ -10096,11 +10100,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         onRetry={() => retryHost.current?.()}
         // The pane asks again by itself unless asking cannot change the answer: a chat too large to
         // open, or another build's acpmux holding the socket (only Restart clears it).
-        selfRetrying={hostSelfRetrying(
-          hostFailure,
-          acpmuxRestartOffered,
-          hostTroubleSince === undefined ? 0 : Date.now() - hostTroubleSince,
-        )}
+        // A stopped loop (paneSnapshot.ts `stopped`) is not retrying: the line says why and offers Retry.
+        selfRetrying={
+          !hostGaveUp &&
+          hostSelfRetrying(
+            hostFailure,
+            acpmuxRestartOffered,
+            hostTroubleSince === undefined ? 0 : Date.now() - hostTroubleSince,
+          )
+        }
         restarting={restartingAcpmux}
         onRestart={
           acpmuxRestartOffered
