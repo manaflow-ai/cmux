@@ -79,47 +79,51 @@ final class TerminalComposerBarUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 0.5)
     }
 
-    /// Scrolls the key row back to its start, then shoots start, middle and
-    /// end; checks Paste draws at the start and records every key seen.
+    /// Walks the key row from its start to its end in short, slow drags,
+    /// recording every key whose center comes on screen; shoots the start,
+    /// the middle and the end, and checks Paste draws where it is whole.
     @MainActor
     private func rowStates(_ app: XCUIApplication, keyRowY: CGFloat, name: String, seen: inout Set<String>) throws {
         let window = app.windows.firstMatch.frame
-        func drag(_ fromX: CGFloat, _ toX: CGFloat) {
-            let origin = app.coordinate(withNormalizedOffset: .zero)
-            origin.withOffset(CGVector(dx: fromX, dy: keyRowY))
-                .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: toX, dy: keyRowY)),
-                       withVelocity: .default, thenHoldForDuration: 0.3)
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        func drag(_ dx: CGFloat) {
+            let from = dx < 0 ? window.width * 0.85 : window.width * 0.55
+            origin.withOffset(CGVector(dx: from, dy: keyRowY))
+                .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: from + dx, dy: keyRowY)),
+                       withVelocity: .slow, thenHoldForDuration: 0.3)
+            Thread.sleep(forTimeInterval: 0.5)
         }
-        func record() {
+        var pasteChecked = false
+        func record() throws {
             for key in Self.scrollerKeys {
                 let element = app.descendants(matching: .any)["terminal.key.\(key)"]
-                // A key scrolled under the pinned keys or past the edge is
-                // hidden from accessibility (`KeyBarClippedKeys`), so one
-                // that exists with its center on screen is shown.
+                // Keys under the pinned keys are hidden from accessibility
+                // (`KeyBarClippedKeys`); one that exists with its center on
+                // screen is shown.
                 if element.exists, element.frame.width > 0,
                    window.contains(CGPoint(x: element.frame.midX, y: element.frame.midY)) {
                     seen.insert(key)
                 }
             }
+            let paste = app.descendants(matching: .any)["terminal.key.paste"]
+            if !pasteChecked, paste.exists, paste.frame.minX >= window.width * 0.3, paste.frame.maxX <= window.maxX {
+                pasteChecked = true
+                try checkPasteDraws(app, name: name)
+            }
         }
-        for _ in 0..<4 { drag(window.width * 0.35, window.width * 0.95) }
-        Thread.sleep(forTimeInterval: 0.6)
-        record()
+        for _ in 0..<6 { drag(window.width * 0.6) }
+        try record()
         shoot(app, "\(name)-start")
-        try checkPasteDraws(app, name: "\(name)-start")
-
-        drag(window.width * 0.9, window.width * 0.45)
-        Thread.sleep(forTimeInterval: 0.6)
-        record()
-        shoot(app, "\(name)-middle")
-
-        for _ in 0..<5 { drag(window.width * 0.95, window.width * 0.3) }
-        Thread.sleep(forTimeInterval: 0.6)
-        record()
+        var steps = 0
+        while steps < 24, !seen.contains("hide-chrome") {
+            drag(-window.width * 0.3)
+            try record()
+            steps += 1
+            if steps == 4 { shoot(app, "\(name)-middle") }
+        }
         shoot(app, "\(name)-end")
-        // Back to the start for the next state.
-        for _ in 0..<5 { drag(window.width * 0.35, window.width * 0.95) }
-        Thread.sleep(forTimeInterval: 0.4)
+        if !pasteChecked { XCTFail("\(name): Paste never came whole on screen") }
+        for _ in 0..<8 { drag(window.width * 0.6) }
     }
 
     /// Paste draws its glyph: its cap is not one flat color (a blank
