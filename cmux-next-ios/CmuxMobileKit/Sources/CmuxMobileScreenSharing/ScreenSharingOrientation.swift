@@ -16,6 +16,13 @@ public import UIKit
 public final class ScreenSharingOrientation {
     public static let shared = ScreenSharingOrientation()
 
+    /// Starts the device's orientation reports, so `update()` reads a phone
+    /// already held sideways (`UIDevice.current.orientation` is `.unknown`
+    /// until something starts them).
+    init() {
+        UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+    }
+
     /// Whether a Mac's screen is on screen.
     public private(set) var isPresenting = false
 
