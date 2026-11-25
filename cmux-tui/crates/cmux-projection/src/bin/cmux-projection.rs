@@ -4,6 +4,7 @@
 //! ```text
 //! cmux-projection git-mount --git-dir MIRROR --commit REV --at PATH [--keep DIR] [--fresh]
 //!                           [--name NAME] [--ready-file FILE] [--sparse FILE]
+//!                           [--lazy [--sizes LISTING]... [--sizes-from STORE]...] [--detach]
 //! cmux-projection git-lower --git-dir MIRROR --commit REV --at PATH --index FILE [--sparse FILE]
 //!                           [--keep DIR] [--trees DIR] [--ready-file FILE] [--allow-other]
 //! cmux-projection git-unmount --at PATH
@@ -47,6 +48,24 @@
 //! and `CMUX_PROJECTION_ZONE`.
 //! `s3-push` puts MIRROR's blobs into an S3-compatible bucket. It signs each HEAD and PUT with
 //! the configured store keys, skips blobs already held, and prints one JSON result line.
+//!
+//! With `--detach` it serves from a process of its own session
+//! (its log `mount.log` in the keep folder) and returns once the mount is up, printing that line on
+//! stdout: what a checkout tool runs (`wt new` with `WT_LAZY=1`). An existing worktree NAME whose
+//! `HEAD` is a branch at REV keeps its branch.
+//!
+//! MIRROR may be a blobless clone (`git clone --bare --filter=blob:none`). Without `--lazy` the
+//! mount first fetches every blob the commit names, a full checkout's bytes. With `--lazy` it
+//! fetches only the links' blobs, and each file's blob (with its folder's other small missing
+//! files, in one request) on first read: a machine with no copy of the repo mounts it after one
+//! tree-only clone. A lazy mount needs the missing blobs' sizes without their bytes. It takes
+//! them from, in order: each LISTING (`git ls-tree -r -l -z REV`, or `git cat-file
+//! --batch-all-objects --batch-check='%(objectname) %(objecttype) %(objectsize)'`, made where the
+//! blobs are), each STORE (another git dir on this machine that has blobs, an image's full clone),
+//! origin's protocol v2 `object-info` (served when origin sets `transfer.advertiseObjectInfo`;
+//! GitHub does not), and last by fetching the blobs no source sized, in one request. Sizes are
+//! keyed by blob id, so a listing or store from an older commit leaves only the blobs added since
+//! to fetch. The ready line counts the blobs each source sized (`sizes`).
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn main() -> std::process::ExitCode {
@@ -82,7 +101,7 @@ mod cli {
     use cmux_projection::sparse::Sparse;
 
     const USAGE: &str = "usage: cmux-projection git-mount --git-dir MIRROR --commit REV --at PATH \
-                         [--keep DIR] [--fresh] [--name NAME] [--ready-file FILE] [--sparse FILE]\n       \
+                         [--keep DIR] [--fresh] [--name NAME] [--ready-file FILE] [--sparse FILE] [--lazy [--sizes LISTING]... [--sizes-from STORE]...] [--detach]\n       \
                          cmux-projection git-lower --git-dir MIRROR --commit REV --at PATH \
                          --index FILE [--sparse FILE] [--keep DIR] [--trees DIR] [--ready-file FILE] [--allow-other]\n       \
                          cmux-projection git-unmount --at PATH\n       \
@@ -113,6 +132,10 @@ mod cli {
         repo: Option<String>,
         fresh: bool,
         allow_other: bool,
+        lazy: bool,
+        detach: bool,
+        sizes: Vec<PathBuf>,
+        sizes_from: Vec<PathBuf>,
     }
 
     fn parse(args: &[String]) -> anyhow::Result<Args> {
@@ -125,6 +148,15 @@ mod cli {
                     parsed.fresh = true;
                 } else {
                     parsed.allow_other = true;
+                }
+                at += 1;
+                continue;
+            }
+            if flag == "--lazy" || flag == "--detach" {
+                if flag == "--lazy" {
+                    parsed.lazy = true;
+                } else {
+                    parsed.detach = true;
                 }
                 at += 1;
                 continue;
@@ -150,6 +182,8 @@ mod cli {
                 "--advertise" => parsed.advertise = Some(value.clone()),
                 "--zone" => parsed.zone = Some(value.clone()),
                 "--repo" => parsed.repo = Some(value.clone()),
+                "--sizes" => parsed.sizes.push(value.into()),
+                "--sizes-from" => parsed.sizes_from.push(value.into()),
                 _ => anyhow::bail!("unknown flag {flag}\n{USAGE}"),
             }
             at += 2;
@@ -168,6 +202,7 @@ mod cli {
         }
         let at = args.at.clone().ok_or_else(|| anyhow::anyhow!("--at is required\n{USAGE}"))?;
         match command.as_str() {
+            "git-mount" if args.detach => detach(rest, &args, &at),
             "git-mount" => git_mount(&args, &at),
             "git-lower" => git_lower(&args, &at),
             "git-unmount" => {
@@ -534,6 +569,87 @@ mod cli {
         }
     }
 
+    /// The folder kept beside the mount at `at` (canonical): `--keep`, else one per mount path.
+    fn keep_dir(args: &Args, at: &Path) -> anyhow::Result<PathBuf> {
+        let keep = match &args.keep {
+            Some(keep) => keep.clone(),
+            None => {
+                let home = std::env::var_os("HOME").ok_or_else(|| anyhow::anyhow!("no HOME"))?;
+                let at_text = at.to_string_lossy();
+                PathBuf::from(home).join(".cache/cmux-projection").join(hash(&at_text))
+            }
+        };
+        std::fs::create_dir_all(&keep)?;
+        Ok(keep)
+    }
+
+    /// How long `--detach` waits for the mount to come up: a lazy mount of a 57k-file repo is
+    /// ready in about a second, an eager one fetches every blob first.
+    const DETACH_DEADLINE: std::time::Duration = std::time::Duration::from_secs(900);
+
+    /// Runs `git-mount` without `--detach` in a session of its own (so it outlives the caller
+    /// and its terminal), its output in `mount.log` in the keep folder, and returns once it
+    /// writes its ready line, printing it; a mount that exits first fails with its log's end.
+    fn detach(rest: &[String], args: &Args, at: &Path) -> anyhow::Result<()> {
+        use std::os::unix::process::CommandExt as _;
+        std::fs::create_dir_all(at)?;
+        let keep = keep_dir(args, &at.canonicalize()?)?;
+        let ready = match &args.ready_file {
+            Some(ready) => ready.clone(),
+            None => keep.join("ready.json"),
+        };
+        let _ = std::fs::remove_file(&ready);
+        let mut forward: Vec<String> =
+            rest.iter().filter(|arg| *arg != "--detach").cloned().collect();
+        if args.ready_file.is_none() {
+            forward.push("--ready-file".into());
+            forward.push(ready.to_string_lossy().into_owned());
+        }
+        let log_file = keep.join("mount.log");
+        let log = std::fs::File::create(&log_file)?;
+        let mut command = std::process::Command::new(std::env::current_exe()?);
+        command
+            .arg("git-mount")
+            .args(&forward)
+            .stdin(std::process::Stdio::null())
+            .stdout(log.try_clone()?)
+            .stderr(log);
+        // SAFETY: setsid is async-signal-safe and touches no memory of this process.
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let mut child = command.spawn()?;
+        let started = Instant::now();
+        loop {
+            if let Ok(line) = std::fs::read_to_string(&ready)
+                && line.ends_with('\n')
+            {
+                print!("{line}");
+                return Ok(());
+            }
+            if let Some(status) = child.try_wait()? {
+                let text = std::fs::read_to_string(&log_file).unwrap_or_default();
+                let tail: Vec<&str> = text.lines().rev().take(5).collect();
+                let tail: Vec<&str> = tail.into_iter().rev().collect();
+                anyhow::bail!("the mount exited ({status}) before it was up: {}", tail.join(" | "));
+            }
+            if started.elapsed() > DETACH_DEADLINE {
+                let _ = child.kill();
+                anyhow::bail!(
+                    "the mount was not up after {} s (log: {})",
+                    DETACH_DEADLINE.as_secs(),
+                    log_file.display()
+                );
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+
     fn git_mount(args: &Args, at: &Path) -> anyhow::Result<()> {
         let started = Instant::now();
         let git_dir =
@@ -550,27 +666,32 @@ mod cli {
         std::fs::create_dir_all(at)?;
         let at = at.canonicalize()?;
         let at_text = at.to_string_lossy().into_owned();
-        let keep = match &args.keep {
-            Some(keep) => keep.clone(),
-            None => {
-                let home = std::env::var_os("HOME").ok_or_else(|| anyhow::anyhow!("no HOME"))?;
-                PathBuf::from(home).join(".cache/cmux-projection").join(hash(&at_text))
-            }
-        };
-        std::fs::create_dir_all(&keep)?;
+        let keep = keep_dir(args, &at)?;
         let name = args.name.clone().unwrap_or_else(|| format!("projected-{}", hash(&at_text)));
 
         let phase = Instant::now();
         let (commit, commit_s) = git::resolve(&git_dir, &rev)?;
         let listing = args.trees.clone().unwrap_or_else(|| keep.join("trees")).join(&commit);
-        // A listing kept from an earlier mount of this commit means its blobs were all fetched
-        // then: skip the walk of its trees.
-        let missing = if listing.exists() { 0 } else { fill_missing(&git_dir, &commit)? };
+        let (items, missing, fetched, sized) = if args.lazy {
+            let sources = git::SizeSources {
+                listings: args.sizes.iter().map(std::fs::read).collect::<Result<_, _>>()?,
+                stores: args.sizes_from.clone(),
+            };
+            let tree = git::lazy_tree(&git_dir, &commit, &sources)?;
+            let fetched = tree.links_fetched + tree.sizes.fetched;
+            (Some(tree.items), tree.missing, fetched, tree.sizes)
+        } else {
+            let fetched = if listing.exists() { 0 } else { fill_missing(&git_dir, &commit)? };
+            (None, Vec::new(), fetched, git::SizeCounts::default())
+        };
         let fetch_ms = ms(phase);
 
         let phase = Instant::now();
         let sparse = args.sparse.as_deref().map(Sparse::load).transpose()?;
-        let items = git::ls_tree_cached(&git_dir, &commit, &listing)?;
+        let items = match items {
+            Some(items) => items,
+            None => git::ls_tree_cached(&git_dir, &commit, &listing)?,
+        };
         let (items, skipped) = Sparse::partition(sparse.as_ref(), items);
         let links = git::link_texts(&git_dir, &items)?;
         let ls_tree_ms = ms(phase);
@@ -619,16 +740,30 @@ mod cli {
         let phase = Instant::now();
         let entries = projection.manifest.len();
         let files = projection.index.len();
-        let blobs = Arc::new(GitBlobs::new(&git_dir, projection.sources));
+        let deferred = missing.len();
+        let mut blobs = GitBlobs::new(&git_dir, projection.sources);
+        if args.lazy {
+            blobs = blobs.lazy(&projection.manifest, missing);
+        }
+        let blobs = Arc::new(blobs);
         let overlay = Arc::new(Overlay::open(Arc::new(projection.manifest), &state, blobs, owner)?);
         mount::unmount_stale(&at);
         let ready = args.ready_file.clone();
         mount::serve(overlay, &at, move || {
             let line = format!(
                 "{{\"commit\":\"{commit}\",\"entries\":{entries},\"files\":{files},\
-                 \"missing_fetched\":{missing},\"fetch_ms\":{fetch_ms},\
-                 \"ls_tree_ms\":{ls_tree_ms},\"build_ms\":{build_ms},\"index_ms\":{index_ms},\
-                 \"mount_ms\":{},\"total_ms\":{}}}",
+                 \"missing_fetched\":{fetched},\"missing_deferred\":{deferred},\
+                 \"sizes\":{{\"local\":{},\"listed\":{},\"stores\":{},\"remote\":{},\
+                 \"fetched\":{},\"fetched_bytes\":{}}},\
+                 \"fetch_ms\":{fetch_ms},\"ls_tree_ms\":{ls_tree_ms},\
+                 \"build_ms\":{build_ms},\"index_ms\":{index_ms},\"mount_ms\":{},\
+                 \"total_ms\":{}}}",
+                sized.local,
+                sized.listed,
+                sized.stores,
+                sized.remote,
+                sized.fetched,
+                sized.fetched_bytes,
                 ms(phase),
                 ms(started),
             );
