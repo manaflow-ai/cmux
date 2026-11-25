@@ -119,7 +119,12 @@ public nonisolated struct SidebarSessionTreeState: Hashable, Sendable {
     public var pullRequests: [WorkspaceID: SidebarPullRequestBadge]
     /// What each workspace's agents are doing, as acpmux decided it (the lanes); a workspace
     /// without a lane is read from its own row (`SidebarAgentState.of`).
-    public var states: [WorkspaceID: SidebarAgentState]
+    public var states: [WorkspaceID: SidebarAgentState] {
+        didSet { needsPerson = Set(states.compactMap { Self.needsPerson($0.value) ? $0.key : nil }) }
+    }
+    /// Agent-started sessions whose current state needs the person. This small projection lets the live tree
+    /// distinguish a visibility-changing blocked transition from ordinary state ticks without comparing every lane.
+    public private(set) var needsPerson: Set<WorkspaceID>
     /// Parents whose subtree the user folded: their descendants draw as the parent's roll-up.
     public var collapsed: Set<WorkspaceID>
     /// Parents below the top level the user opened (`foldsDeep` folds the others).
@@ -144,6 +149,7 @@ public nonisolated struct SidebarSessionTreeState: Hashable, Sendable {
         self.parents = parents
         self.pullRequests = pullRequests
         self.states = states
+        self.needsPerson = Set(states.compactMap { Self.needsPerson($0.value) ? $0.key : nil })
         self.collapsed = collapsed
         self.opened = opened
         self.foldsDeep = foldsDeep
@@ -236,6 +242,16 @@ public nonisolated struct SidebarSessionTreeState: Hashable, Sendable {
         return SidebarSessionTreeState(parents: parents, states: waiting, collapsed: collapsed, opened: opened,
                                        foldsDeep: foldsDeep, hidesStarted: hidesStarted, keeps: keeps)
     }
+
+    /// The state fields that can move a tree row, excluding lane states and pull-request answers. The live tree uses
+    /// ``needsPerson`` separately so a blocked transition remains a shape change while ordinary work stays on the
+    /// cheap state revision.
+    fileprivate var structuralIdentity: SidebarSessionTreeState {
+        var copy = self
+        copy.states = [:]
+        copy.pullRequests = [:]
+        return copy
+    }
 }
 
 /// The session tree's live state; nil while `sidebar.sessionTree` is off and no session has a parent, so the list
@@ -244,7 +260,23 @@ public nonisolated struct SidebarSessionTreeState: Hashable, Sendable {
 public final class SidebarSessionTree {
     public static let shared = SidebarSessionTree()
 
-    public var state: SidebarSessionTreeState?
+    public var state: SidebarSessionTreeState? {
+        didSet {
+            // Only the agents' states moved (a lane's turn started or ended, many a second across 10,000 sessions):
+            // `statesRevision`, which redraws no row unless a folded parent rolls them up. Anything else: the shape.
+            if state?.parents != oldValue?.parents { parentsRevision &+= 1 }
+            let nowNeedsPerson = state?.needsPerson
+            let wasNeedsPerson = oldValue?.needsPerson
+            // Pull-request answers travel in the same feed value as lane states, but badges patch their rows through
+            // `pullRequestsRevision`. Compare only the tree's structural identity here so a badge read does not lay
+            // out the whole sidebar. A state write with the same structural identity takes the cheap state path.
+            if state?.structuralIdentity != oldValue?.structuralIdentity || nowNeedsPerson != wasNeedsPerson {
+                shapeRevision &+= 1
+            } else {
+                statesRevision &+= 1
+            }
+        }
+    }
     /// The lineage drawn last while acpmux's lanes were live (child to parent), kept across launches: the last run's,
     /// then this run's. While the lanes are not live (a launch before the watch's first page, a watch gap) the feed
     /// keeps these parents, so the rows nest from the first frame as they were and nothing un-nests and nests again
@@ -258,17 +290,28 @@ public final class SidebarSessionTree {
         }
     }
     /// Every row's pull request badge, with the tree on or off.
-    public var pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]
+    public var pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:] { didSet { pullRequestsRevision &+= 1 } }
     /// The parents the user folded (a chevron on the row), kept across launches.
-    public private(set) var collapsed: Set<WorkspaceID>
+    public private(set) var collapsed: Set<WorkspaceID> { didSet { shapeRevision &+= 1 } }
     /// The parents below the top level the user opened (they start folded), kept across launches.
-    public private(set) var opened: Set<WorkspaceID>
+    public private(set) var opened: Set<WorkspaceID> { didSet { shapeRevision &+= 1 } }
     /// Whether sessions started by agents list in the sidebar (nested under their parents, as before); nil reads the
     /// person's setting `sidebar.showAgentSessions` (off by default: they hide, `SidebarSessionTreeState.hidesStarted`).
     /// A test pins it.
     public var showsStartedOverride: Bool?
     /// `sidebar.showAgentSessions`, or the override.
     public var showsStarted: Bool { showsStartedOverride ?? DesignSettings.shared.sidebarSections.showAgentSessions }
+    /// Moves on every write of the tree other than its agents' states alone (on or off, parents, pull requests in the
+    /// tree, folds): what the list draws changes. A render compares this counter, never the tree's whole-list
+    /// dictionaries (cmuxterm-hq#13493).
+    public private(set) var shapeRevision: UInt64 = 0
+    /// Moves on every write that changed the lineage (`SidebarSessionTreeState.parents`, nil and empty apart): a
+    /// restore's arrival (`SidebarView.isRestoreArrival`) compares this, never the parents dictionary.
+    public private(set) var parentsRevision: UInt64 = 0
+    /// Moves on a write that changed only the agents' states (`SidebarSessionTreeState.states`).
+    public private(set) var statesRevision: UInt64 = 0
+    /// Moves on every write of `pullRequests`.
+    public private(set) var pullRequestsRevision: UInt64 = 0
     @ObservationIgnored private let defaults: UserDefaults
 
     public init(defaults: UserDefaults = .standard, showsStarted: Bool? = nil) {

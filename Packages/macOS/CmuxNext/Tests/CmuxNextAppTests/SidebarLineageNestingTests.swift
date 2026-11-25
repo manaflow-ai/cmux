@@ -490,6 +490,23 @@ import Testing
         #expect(!tree.patchChangesHidden(from: idle, to: asks))
     }
 
+    /// A state-only transition keeps the cheap state path for ordinary work, but a hidden helper becoming blocked
+    /// changes the drawn row set and therefore advances the shape revision used by sidebar observation.
+    @Test func blockedStateChangesTheHiddenRowsShape() {
+        let defaults = UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard
+        let tree = SidebarSessionTree(defaults: defaults, showsStarted: false)
+        tree.state = SidebarSessionTreeState(parents: [Self.lane: Self.coordinator], states: [Self.lane: .running])
+        let initialShape = tree.shapeRevision
+        let initialStates = tree.statesRevision
+        tree.state?.states[Self.lane] = .idle
+        #expect(tree.shapeRevision == initialShape)
+        #expect(tree.statesRevision > initialStates)
+        let beforeBlocked = tree.shapeRevision
+        tree.state?.states[Self.lane] = .blocked
+        #expect(tree.shapeRevision > beforeBlocked)
+        #expect(tree.drawn?.needsPerson == [Self.lane])
+    }
+
     /// Selecting a hidden session (Command-K, a notification, the needs-you tray, Go to Chat from its parent chat's
     /// list) shows it under its parent while it stays selected; selecting a person's row changes nothing drawn.
     @Test func aSelectedHiddenSessionShowsUnderItsParent() {

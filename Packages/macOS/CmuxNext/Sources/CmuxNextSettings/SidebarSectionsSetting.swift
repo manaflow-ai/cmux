@@ -50,6 +50,8 @@ public nonisolated enum SidebarSectionsSetting {
         result.showSpaces = flag(root, showSpacesPath, fallback: showSpacesDefault, &diagnostics)
         result.showProfileControl = flag(root, showProfileControlPath, fallback: showProfileControlDefault, &diagnostics)
         result.showSearchButton = flag(root, showSearchButtonPath, fallback: showSearchButtonDefault, &diagnostics)
+        result.showLiveToggle = flag(root, showLiveTogglePath, fallback: showLiveToggleDefault, &diagnostics)
+        result.presenceLive = flag(root, presenceLivePath, fallback: presenceLiveDefault, &diagnostics)
         result.showNewWorkspaceChooser = flag(root, showNewWorkspaceChooserPath, fallback: showNewWorkspaceChooserDefault, &diagnostics)
         result.workspacesAsTabs = flag(root, workspacesAsTabsPath, fallback: workspacesAsTabsDefault, &diagnostics)
         result.chromeGroups = flag(root, chromeGroupsPath, fallback: chromeGroupsDefault, &diagnostics)

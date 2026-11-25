@@ -336,6 +336,7 @@ public final class AgentPaneView: NSView {
         model.onTabRowToolInvoked = { [weak self] id, menuItemID in
             self?.invokeTabRowTool(id, menuItemID: menuItemID)
         }
+        model.onCustomizationsMenuRequested = { [weak self] point in self?.popCustomizationsMenu(at: point) ?? false }
         model.onTabRowToolMenuRequested = { [weak self] id, menuItemID in
             self?.onNativeToolMenuRequested?(id, menuItemID)
         }
@@ -377,6 +378,7 @@ public final class AgentPaneView: NSView {
             return await AgentPaneFilePicker(openPanel: openPanel).pickAttachments(window: window)
         }
         model.onFramePacing = { [weak self] _ in self?.framePacingSettings() ?? [:] }
+        model.paneShown = { [weak self] in self.map { $0.window != nil && !$0.isHidden } ?? false }
         model.onTabKeyChange = { [weak self] in self?.announceTab() }
         model.onPaintReport = { [weak self] in self?.documentCoverPaintReported() }
         model.onRenderRate = { [weak self] full in
@@ -623,6 +625,7 @@ public final class AgentPaneView: NSView {
         model.transport.onRemoteApprovalsOff = nil
         model.transport.onPeerApprovalsOff = nil
         model.onTabRowToolMenuRequested = nil
+        model.onCustomizationsMenuRequested = nil
         onNativeToolMenuRequested = nil
         model.transport.onQuestionStateChanged = nil
         model.onQuestionKeySessionChange = nil
