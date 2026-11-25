@@ -16,7 +16,8 @@ import { Switch } from "../../ui/Switch";
 import { SceneContextMenu, SceneMenu } from "./sceneMenus";
 import { SceneReorderable } from "./SceneReorderable";
 import { SceneSymbol } from "./SceneSymbol";
-import { SceneChoreography, nodeChoreography } from "./SceneChoreography";
+import { nodeChoreography } from "./nodeChoreography";
+import { SceneChoreography } from "./SceneChoreography";
 import { SceneParticles } from "./SceneParticles";
 import { loopStyle, trimRange } from "./motionProps";
 import {

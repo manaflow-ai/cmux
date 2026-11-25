@@ -2,6 +2,7 @@ import { useId, useState, type FormEvent } from "react";
 import { ChevronDown } from "../conversation/icons";
 import { useT, type StringKey } from "../i18n";
 import { profileName, type CustomizeBarState, type CustomizePart, type CustomizeVerb } from "./customizeBarModel";
+import { customizeBarShows } from "./customizeBarShows";
 import "./CustomizeBar.css";
 
 export type CustomizeBarLook = "strip" | "card" | "chip";

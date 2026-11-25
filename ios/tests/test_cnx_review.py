@@ -974,7 +974,26 @@ fleet_submit_mac; echo "JOB=$MAC_JOB"''', {'CMUX_CI': str(ci), 'CNX_REVIEW_BUILD
                 ref = args[args.index('--ref') + 1]
                 self.assertEqual(ref, base if want_base else head)
                 self.assertEqual('--any-tag' in args, want_base)
+                # The fleet client's swap-first default queues nothing for a change it can swap; the hand-off
+                # needs the tagged Mac app itself, for its head as for its base (vfix1125, 2026-11-25).
+                self.assertIn('--build', args)
                 self.assertEqual((state / 'mac-ref').read_text().strip(), ref)
+
+    def test_a_build_the_fleet_does_not_queue_says_what_the_client_said(self):
+        # Before: `KeyError: 'id'` on stderr and "printed no job id"; the client's reason was lost.
+        with tempfile.TemporaryDirectory() as temp:
+            ci = Path(temp) / 'cmux-ci'
+            ci.write_text('#!/bin/sh\necho "Nothing queued (swap first): pass --build to build anyway."\n')
+            ci.chmod(0o755)
+            state = Path(temp) / 'state'
+            state.mkdir()
+            (state / 'mac-ref').write_text(SHA + '\n')
+            r = bash(f'''source "{REVIEW}"; SLUG={TAG} SHA={SHA} STATE="{state}" WORKSPACE=w CMUX_CI="{ci}"
+rc=0; fleet_submit_mac || rc=$?; echo "RC=$rc"; echo "REPORT=$REPORT_MAC"''', {'CMUX_CI': str(ci)})
+            self.assertIn('RC=1', r.stdout, r.stderr)
+            self.assertIn('REPORT=BLOCKED: cmux-ci build cmux queued no job: Nothing queued (swap first)', r.stdout)
+            self.assertNotIn('KeyError', r.stderr)
+            self.assertFalse((state / 'cmux-job').exists())
 
     def test_sim_step_arguments(self):
         with tempfile.TemporaryDirectory() as temp:

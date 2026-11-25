@@ -370,6 +370,8 @@ jobs:
             /cmux.xcodeproj/project.pbxproj
             /tests/workflow_jobs.py
             /docs/mdm/
+            /docs/ci/cmux-next-workflow-notes.md
+            /docs/ci/nightly-workflow-notes.md
             /backend/apps/api/
             *.xcstrings
 

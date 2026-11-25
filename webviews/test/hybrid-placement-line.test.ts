@@ -1,7 +1,7 @@
 // The line after the three-state control's name says where the chat runs, from the app's place
 // state (HybridMounts.placementLine): the move in flight first, then the reported place.
 import { expect, test } from "bun:test";
-import { placementLine } from "../src/agent-session/acpmux/hybrid/HybridMounts";
+import { placementLine } from "../src/agent-session/acpmux/hybrid/placementLine";
 import type { MoveView, PlaceState } from "../src/agent-session/acpmux/place/placeModel";
 
 const t = ((key: string, vars?: Record<string, string>) => (vars ? `${key}:${vars.to}` : key)) as never;

@@ -15,7 +15,7 @@ import { type ReactNode, useLayoutEffect, useMemo, useRef, useState } from "reac
 import type { Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { PHASE_DWELL_MS } from "./hatStep";
-import { useDwell } from "./HatStepSlot";
+import { useDwell } from "./useDwell";
 import type { TrayItem } from "./runningTray";
 import { type TrayHeadForms, type TrayHeadPart, trayHeadForms } from "./trayHeadKinds";
 import {

@@ -1,6 +1,6 @@
 import { EnvironmentIcon } from "../EnvironmentPicker";
 import { useT, type StringKey, type Translate } from "../i18n";
-import { useNow } from "./MoveProgress";
+import { useNow } from "./useNow";
 import {
   MOVE_STEPS,
   bringBackCount,

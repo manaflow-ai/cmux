@@ -620,10 +620,12 @@ export function ComposerContext({
     noProject && !readOnly && !cloudStartOut
       ? undefined
       : cloudSide && !readOnly && !machineOnCloud && !cloudStartOut
-        ? (cloudRepositoryPick(
+        ? // A folder of this Mac picked here goes as itself (projected or copied), a GitHub checkout too (cmux#55104).
+          ((localOnCloud && pickedFolder !== undefined && pickedFolder === pickedHere ? pickedFolder : undefined) ??
+          cloudRepositoryPick(
             pickedFolder,
             pickedRepo ?? folders.find((folder) => folder.id === pickedFolder)?.repo?.github,
-          ) ?? (localOnCloud && pickedFolder !== undefined && pickedFolder === pickedHere ? pickedFolder : undefined))
+          ))
         : pickedFolder;
   const cloudFolders = useMemo(() => {
     if (!cloudSide || readOnly) return [];
