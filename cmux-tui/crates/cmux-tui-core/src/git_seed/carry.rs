@@ -51,14 +51,9 @@ impl Seed {
     fn unpack_carry(&self, pack: &Path) -> Result<(), Failure> {
         let io = |what: &str, error: std::io::Error| Failure::of(format!("fatal: {what}: {error}"));
         std::fs::create_dir_all(&self.folder).map_err(|error| io("the folder", error))?;
-        let folder = self.folder_str();
-        let mut init = vec!["init", "--quiet"];
-        if self.params.base.len() == 64 {
-            init.push("--object-format=sha256");
-        }
-        init.extend(["--", folder.as_str()]);
-        self.git.quiet(None, &self.chosen, &init)?;
-        self.git(&["remote", "add", "origin", &self.params.url])?;
+        self.init()?;
+        // `origin`, and the promisor sources when the caller named some ([`borrow`]).
+        self.add_remotes(false)?;
         // The boundary first: `index-pack --strict` checks every object it gets is connected,
         // and the base's parents are not in the pack.
         let base = &self.params.base;

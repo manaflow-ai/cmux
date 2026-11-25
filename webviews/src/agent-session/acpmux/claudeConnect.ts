@@ -5,7 +5,7 @@
 // the app checks it, moves it into the Keychain and hands acpmux only the reference
 // (`_acpmux/connections/claude_token.add`). The page never keeps the token after it is sent.
 import { createContext, useContext } from "react";
-import { isClaudeToken } from "../shared/claudeSetupToken";
+import { isClaudeToken, normalizeClaudeToken } from "../shared/claudeSetupToken";
 import type { CloudSetupAction, CloudSetupNeed } from "./cloudSetup";
 
 /// What the host gives the composer for a Claude connection. Absent (no provider): the pane cannot
@@ -78,16 +78,17 @@ export const CLAUDE_CONNECT_BRAND = "claude";
 export type TokenCheck = "empty" | "valid" | "invalid";
 
 export function checkToken(field: string): TokenCheck {
-  const pasted = field.trim();
+  const pasted = normalizeClaudeToken(field);
   if (!pasted) return "empty";
   return isClaudeToken(pasted) ? "valid" : "invalid";
 }
 
-/// The submit's arguments: the trimmed token, and the label only when one was typed (the app
-/// names an unlabeled connection "Claude subscription").
+/// The submit's arguments: the token with all whitespace taken out (`normalizeClaudeToken`), and the
+/// label only when one was typed (the app names an unlabeled connection "Claude subscription").
 export function connectRequest(token: string, label: string): { token: string; label?: string } {
   const named = label.trim();
-  return named ? { token: token.trim(), label: named } : { token: token.trim() };
+  const clean = normalizeClaudeToken(token);
+  return named ? { token: clean, label: named } : { token: clean };
 }
 
 /// The refusal the dialog shows for a failed submit: the host's own message, else `fallback`.

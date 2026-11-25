@@ -61,13 +61,15 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
   mobile: () =>
     import("./MobileCard").then(({ MobileCard }) => () => <MobileCard />),
   devices: () =>
-    import("./DevicesCard").then(({ DevicesCard }) => () => <DevicesCard />),
+    import("./DevicesCard").then(({ DevicesCard }) => (focus) => <DevicesCard focus={focus} />),
   chiefPet: () =>
     import("./ChiefPetCard").then(({ ChiefPetCard }) => (focus) => <ChiefPetCard focus={focus} />),
   density: () =>
     import("./DensityCard").then(({ DensityCard }) => (focus) => <DensityCard focus={focus} />),
   textSize: () =>
     import("./TextSizeCard").then(({ TextSizeCard }) => () => <TextSizeCard />),
+  replayIntro: () =>
+    import("./ReplayIntroCard").then(({ ReplayIntroCard }) => () => <ReplayIntroCard />),
   importSuggestions: () =>
     import("./ImportSuggestionsCard").then(({ ImportSuggestionsCard }) => () => <ImportSuggestionsCard />),
   channels: () =>

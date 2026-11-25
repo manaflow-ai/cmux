@@ -205,7 +205,7 @@ fn launch_agent_plist_golden() {
 \t<string>Standard</string>
 \t<key>ProgramArguments</key>
 \t<array>
-\t\t<string>/Users/ana/Library/Application Support/cmux/current/bin/cmux</string>
+\t\t<string>/Users/ana/Library/Application Support/cmux-next/current/bin/cmux</string>
 \t\t<string>host</string>
 \t\t<string>run</string>
 \t\t<string>--mode</string>
@@ -214,9 +214,9 @@ fn launch_agent_plist_golden() {
 \t<key>RunAtLoad</key>
 \t<true/>
 \t<key>StandardErrorPath</key>
-\t<string>/Users/ana/Library/Application Support/cmux/server/logs/server.log</string>
+\t<string>/Users/ana/Library/Application Support/cmux-next/server/logs/server.log</string>
 \t<key>StandardOutPath</key>
-\t<string>/Users/ana/Library/Application Support/cmux/server/logs/server.log</string>
+\t<string>/Users/ana/Library/Application Support/cmux-next/server/logs/server.log</string>
 \t<key>ThrottleInterval</key>
 \t<integer>10</integer>
 </dict>
@@ -303,7 +303,7 @@ fn launch_daemon_and_escaping() {
     let daemon = launch_daemon_plist(&l, "ana").unwrap();
     assert!(daemon.contains("\t<key>UserName</key>\n\t<string>ana</string>\n"));
     assert!(daemon.contains(
-        "<string>/Users/a&amp;b/Library/Application Support/cmux/current/bin/cmux</string>"
+        "<string>/Users/a&amp;b/Library/Application Support/cmux-next/current/bin/cmux</string>"
     ));
     assert_eq!(launch_daemon_plist(&l, "ana</string>"), Err(UnitError::BadUser));
 

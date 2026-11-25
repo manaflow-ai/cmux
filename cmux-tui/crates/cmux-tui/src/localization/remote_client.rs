@@ -383,6 +383,9 @@ OPTIONS:
   --agent-hooks PROVIDER[,PROVIDER...] installs those coding-agent hooks for
 the remote user on each attach (for example claude,codex)
   --remote-state-dir PATH for a non-default daemon state directory
+  --repo LOCAL[:REMOTE] once connected, puts LOCAL's repo at REMOTE on the host
+over this link: the git carry pack at your commit with uncommitted work, else a
+clone, else a copy (REMOTE defaults to ~/<LOCAL's folder name>)
   --upgrade explicitly replaces an SSH-managed remote sidecar; terminal panes
 survive, remote clients and forwards disconnect, RPC processes stop, and
 other RPC resources reset
@@ -679,6 +682,9 @@ ID とセッション:
   --agent-hooks プロバイダー[,プロバイダー...] 接続のたびにリモートユーザーへ
 コーディングエージェントのフックを導入 (例: claude,codex)
   --remote-state-dir パス  既定以外のデーモン状態ディレクトリ
+  --repo ローカル[:リモート]  接続後、このリンク経由でローカルのリポジトリをホストの
+リモートに置きます。未コミットの変更を含む git キャリーパック、だめならクローン、
+さらにだめならコピー (リモートの既定は ~/<ローカルのフォルダー名>)
   --upgrade は SSH 管理のサイドカーを明示的に置換します。ターミナルペインは維持され、
 リモートクライアントと転送は切断され、RPC プロセスなどの状態はリセットされます。
   --state-dir パス  --local-socket パス  --connect-timeout-seconds 秒数

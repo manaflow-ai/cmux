@@ -17,17 +17,21 @@ use tokio::runtime::Runtime;
 
 mod auto_chats;
 mod browser;
+mod catch_up;
 mod chat_prompt_outbox;
 mod classic_leftovers;
 mod composer_outbox;
 mod follow_camera;
+mod lan;
 mod last_place;
+mod link_progress;
 mod link_side;
 pub mod local_link;
 mod mac_screen;
 mod mailbox_client;
 mod pair_requests;
 mod read_store;
+mod relay_hold;
 mod row_layout;
 mod share_approval;
 mod tabs;
@@ -41,6 +45,10 @@ pub use auto_chats::{
     AutoChat, AutoChatError, AutoChats, AutoHttp, AutoHttpError, AutoHttpReply, AutoHttpRequest,
 };
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
+pub use catch_up::{
+    CatchUpAnswer, CatchUpAsk, CatchUpChatAsk, CatchUpChatPage, CatchUpCut, CatchUpError, CatchUpTree,
+    PhoneCatchUp, catch_up_falls_back, catch_up_service,
+};
 pub use chat_prompt_outbox::{
     ChatAttachment, ChatCancelStep, ChatEditStep, ChatPromptDone, ChatPromptLook, ChatPromptOutbox,
     ChatPromptOutcome, ChatPromptRequest, ChatPromptTaken, ChatUploadState, ChatUploadedAttachment,
@@ -51,6 +59,7 @@ pub use composer_outbox::{
 };
 pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};
 pub use last_place::{LastPlaceAnchor, LastPlaceRecord, LastPlaceScreen, LastPlaceStore};
+pub use link_progress::{HeldKeysExpiryReason, LinkProgressClock, held_keys_expiry};
 pub use link_side::{LinkOpenSide, link_open_side};
 pub use mac_screen::{MacScreenAnswer, MacScreenDisplay, MacScreenIceServer, MacScreenObserver, MacScreenRd};
 pub use read_store::{PhoneReadKey, PhoneReadStore, PhoneReadStoreError};
@@ -323,8 +332,9 @@ fn timing_marks(timeline: &Timeline) -> Vec<TimingMark> {
 pub struct LinkHandle {
     link: cmux_mobile_link::Link,
     /// The (shared, warm) signaling socket this link was dialed on; it
-    /// stays open for the next dial while the warm pool holds it.
-    /// `None` for a link resumed on a dormant tunnel (no signaling ran).
+    /// stays open for the next dial while the warm pool holds it. `None` for a
+    /// link resumed on a dormant tunnel (no signaling ran) or one that came up
+    /// directly on the LAN (`lan.rs`).
     _signaling: Option<Arc<WarmSocket>>,
     transport: Transport,
     path: tokio::sync::watch::Receiver<cmux_mobile_link::LinkPath>,
@@ -525,6 +535,13 @@ impl LinkHandle {
         Ok(u32::try_from(rtt.as_millis()).unwrap_or(u32::MAX))
     }
 
+    /// Wake the radio before a keystroke (the terminal's keyboard took focus
+    /// or a finger touched it): one datagram ping on a link quiet for a
+    /// second. Free when the link is busy, parked or closed. `true` when sent.
+    pub fn prewake(&self) -> bool {
+        self.link.prewake()
+    }
+
     /// Whether the link is alive within `timeout_ms`: the round trip in
     /// milliseconds on the pong, `None` when other frames from the Mac came
     /// first (a slow relay's queue; the link is alive), an error only when
@@ -558,6 +575,17 @@ impl LinkHandle {
     /// it was parked and its hold has not passed. The tunnel then moves onto
     /// a fresh socket (as on a network change) and the caller probes; the
     /// first frame back ends the park on both sides.
+    /// This link's relay-held send route (RFD 0142 R8), or `None` while [`relay_hold::set_relay_hold_enabled`]
+    /// is off or the link is not a WireGuard session. One per link: keep it while the link lives.
+    pub fn relay_hold(&self) -> Option<Arc<relay_hold::RelayHoldRoute>> {
+        if !relay_hold::enabled() {
+            return None;
+        }
+        let _runtime = runtime().enter();
+        let ports = cmux_mobile_link::dial::wireguard::relay_hold_port(&self.session_id, true)?;
+        Some(Arc::new(relay_hold::RelayHoldRoute::new(cmux_mobile_link::hold_route::HoldRoute::start(ports))))
+    }
+
     pub fn resume(&self) -> bool {
         if !self.link.resume() {
             return false;
@@ -802,6 +830,18 @@ pub struct ConnectOptions {
     /// TLS on 443 (path `TurnTls`). WebRTC ignores it.
     #[uniffi(default = false)]
     pub block_udp: bool,
+    /// Debug "simulate a network whose only way out is its proxy": like
+    /// `block_udp`, and TURN over TLS must leave through the system's proxy
+    /// (Settings > Wi-Fi > HTTP Proxy, PAC, an MDM profile); with none for the
+    /// TURN server the dial fails at once and says so. WebRTC ignores it.
+    #[uniffi(default = false)]
+    pub proxy_only: bool,
+    /// Debug "simulate a firewall that drops WireGuard": STUN and TURN's own
+    /// requests pass, every UDP datagram carrying WireGuard (plain, or inside
+    /// TURN over UDP) is dropped both ways, so WireGuard falls through to TURN
+    /// over TLS (path `TurnTls`). WebRTC ignores it.
+    #[uniffi(default = false)]
+    pub drop_wireguard: bool,
     /// Debug "Relay via cmux (HTTPS) only": WireGuard sends no plain UDP and
     /// takes no TURN allocation; it joins cmux's WebSocket relay at once and
     /// rides it (path `HttpsRelay`). WebRTC ignores it.
@@ -874,6 +914,8 @@ pub async fn connect_with_options(
         include_loopback: false,
         relay_only: options.relay_only,
         block_udp: options.block_udp,
+        proxy_only: options.proxy_only,
+        drop_wireguard: options.drop_wireguard,
         force_relay: options.force_relay,
         video_lane: !options.no_video_lane,
         webrtc_media: !options.no_webrtc_media
@@ -907,6 +949,10 @@ pub struct ConnectRequest {
     pub include_loopback: bool,
     pub relay_only: bool,
     pub block_udp: bool,
+    /// `ConnectOptions::proxy_only`.
+    pub proxy_only: bool,
+    /// `ConnectOptions::drop_wireguard`.
+    pub drop_wireguard: bool,
     /// Debug: ride cmux's WebSocket relay only (`ConnectOptions::force_relay`).
     pub force_relay: bool,
     /// Offer the media lane (browser video as RTP: a WebRTC track, or UDP inside the WireGuard tunnel).
@@ -941,7 +987,11 @@ async fn connect_on(
     let timeline = Timeline::new();
     let transport = request.transport;
     emit(&observer, LinkEvent::Connecting { transport });
-    let result = dial(pool, &request, &timeline).await;
+    // The relay dial may itself come back without a socket (a dormant resume), so the race's
+    // "no socket" and the dial's fold into one.
+    let result = lan::race(&request.mac_device_id, &timeline, dial(pool, &request, &timeline))
+        .await
+        .map(|(connected, signaling)| (connected, signaling.flatten()));
     let (connected, signaling) = match result {
         Ok(ok) => ok,
         Err(error) => {
@@ -969,6 +1019,7 @@ async fn finish_link(
         Some(socket) if connected.webrtc_media => Some(media_manager(pool, request, &connected, socket)),
         _ => None,
     };
+    lan::enroll_later(connected.link.clone(), request.mac_device_id.clone());
     let mut media_status = media.as_ref().map(cmux_mobile_link::hybrid::MediaManager::status);
     let link = connected.link.clone();
     let watcher = tokio::spawn(async move {
@@ -1038,6 +1089,7 @@ async fn finish_link(
         timeline.clone(),
         match &signaling {
             Some(socket) => current_signaling(pool, socket),
+            // A LAN direct link (lan.rs) has no socket of its own: the pool's, when one is open.
             None => pooled_signaling(pool, request),
         },
         connected.session_id.clone(),
@@ -1697,6 +1749,8 @@ mod redial_tests {
             relay_only: true,
             force_relay: false,
             block_udp: false,
+            proxy_only: false,
+            drop_wireguard: false,
             video_lane: false,
             webrtc_media: false,
             ultra: cmux_mobile_link::UltraSetting::Off,
@@ -1955,7 +2009,17 @@ fn dial_options(request: &ConnectRequest, ice_servers: Vec<IceServer>, timeline:
         relay_only: request.relay_only || std::env::var_os("CMUX_MOBILE_DEV_RELAY_ONLY").is_some(),
         // The rig's UDP-blocked runs (simulator:
         // SIMCTL_CHILD_CMUX_MOBILE_DEV_BLOCK_UDP=1) without touching app settings.
-        block_udp: request.block_udp || std::env::var_os("CMUX_MOBILE_DEV_BLOCK_UDP").is_some(),
+        // A proxy-only network blocks UDP too.
+        block_udp: request.block_udp
+            || std::env::var_os("CMUX_MOBILE_DEV_BLOCK_UDP").is_some()
+            || proxy_only(request),
+        // The corporate network simulations (PROTOCOL.md "Corporate networks";
+        // simulator: SIMCTL_CHILD_CMUX_MOBILE_DEV_DROP_WIREGUARD=1,
+        // SIMCTL_CHILD_CMUX_MOBILE_DEV_PROXY_ONLY=1, and
+        // SIMCTL_CHILD_CMUX_MOBILE_DEV_PROXY=http://host:port for the proxy).
+        drop_wireguard_udp: request.drop_wireguard
+            || std::env::var_os("CMUX_MOBILE_DEV_DROP_WIREGUARD").is_some(),
+        egress: cmux_mobile_link::egress::Egress { require_proxy: proxy_only(request), ..Default::default() },
         video_lane: request.video_lane,
         webrtc_media: request.webrtc_media,
         ultra: request.ultra,
@@ -2087,6 +2151,11 @@ async fn dial_service(
         }
         Err(Attempt::Failed(error)) => Err(fail(pool, &socket, error).await),
     }
+}
+
+/// The debug "Proxy only" network, from the app or the rig's environment.
+fn proxy_only(request: &ConnectRequest) -> bool {
+    request.proxy_only || std::env::var_os("CMUX_MOBILE_DEV_PROXY_ONLY").is_some()
 }
 
 /// Measurement support (simulator: SIMCTL_CHILD_CMUX_MOBILE_DEV_NO_TURN=1): no

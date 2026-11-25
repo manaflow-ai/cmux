@@ -69,6 +69,18 @@ pub(crate) fn tools() -> Value {
             }
         },
         {
+            "name": "move_chat",
+            "description": "Move this chat between Local (this Mac), Cloud (runs in cmux Cloud and stays there) and AutoCloud (here while the Mac is up, in the Cloud while it sleeps). You may move your own chat off the Mac (to cloud or auto) only while the person's AutoCloud setting is on; bringing it back to local always needs the person. A move you may not make changes nothing and returns status needs_person with the command the person runs (cmux chat move ID --on PLACE): tell them, do not retry. Say why in reason.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "on": {"type": "string", "enum": ["local", "cloud", "auto"], "description": "Where the chat should run."},
+                    "reason": {"type": "string", "description": "One line on why, shown to the person and logged."}
+                },
+                "required": ["on"]
+            }
+        },
+        {
             "name": "list_sessions",
             "description": "List your sub-sessions with their live state (state working, input, failed or idle; doing: one line of what a working one does right now, its plan step and latest tool; queued: messages waiting for its turn to end; the last turn's outcome; live children) and your own limits: depth, live sub-sessions, maxChildren and maxDepth. A live child is running, waiting for input, or has a harness process alive; finished, dead and closed children do not count toward maxChildren. Report a sub-session's progress from doing, not from status alone. waitingOn question or permission means it waits on the user: only the user allows a permission, in the app, so tell the user what it asks; a question you may answer with answer_question (see get_session's questions).",
             "inputSchema": {
@@ -299,6 +311,20 @@ fn refusal(e: anyhow::Error) -> Value {
     error_result(format!("{e:#}"))
 }
 
+/// `move_chat`'s one line: moved, already there, or what the person runs.
+fn moved_text(r: &Value) -> String {
+    let to = r["to"].as_str().unwrap_or("?");
+    match r["status"].as_str() {
+        Some("moved") => format!("Moved this chat to {to}."),
+        Some("already") => format!("This chat already runs {to}."),
+        _ => format!(
+            "Not moved: {}. Ask the person to run: {}",
+            r["why"].as_str().unwrap_or("the person decides this move"),
+            r["command"].as_str().unwrap_or_default()
+        ),
+    }
+}
+
 /// `send_message`'s remembered `idempotency_key`s, for every session this process serves.
 static SEND_KEYS: std::sync::LazyLock<crate::idempotency::Cache> = std::sync::LazyLock::new(|| {
     crate::idempotency::Cache::new(crate::idempotency::TTL, crate::idempotency::MAX_ENTRIES)
@@ -351,6 +377,14 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
             Ok(r) => ok(serde_json::to_string_pretty(&r).unwrap_or_default(), r),
             Err(e) => refusal(e),
         },
+        "move_chat" => {
+            let mut p = args;
+            p["sessionId"] = json!(session);
+            match request(method::MUX_CHAT_MOVE, p).await {
+                Ok(r) => ok(moved_text(&r), r),
+                Err(e) => refusal(e),
+            }
+        }
         "wait_for_sessions" => wait(daemon, &args).await,
         other => {
             error_result(crate::mcp_hint::unknown_tool(other, crate::mcp_hint::names(&tools())))
