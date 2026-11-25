@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "git.push.nonFastForward" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يحتوي الفرع البعيد على إيداعات غير موجودة في هذا الفرع. اسحب أو أعد التأسيس في الطرفية، ثم ادفع مرة أخرى."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Udaljena grana ima commite koje ova grana nema. Uradite pull ili rebase u terminalu, pa ponovo pushajte."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Remote-grenen har commits, som denne gren ikke har. Pull eller rebase i en terminal, og push derefter igen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Der Remote-Branch hat Commits, die dieser Branch nicht hat. Führe Pull oder Rebase in einem Terminal aus und pushe dann erneut."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The remote branch has commits this branch does not have. Pull or rebase in a terminal, then push again."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La rama remota tiene commits que esta rama no tiene. Haz pull o rebase en un terminal y vuelve a enviar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La branche distante contient des commits absents de cette branche. Tirez ou faites un rebase dans un terminal, puis poussez à nouveau."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il ramo remoto ha commit che questo ramo non ha. Esegui pull o rebase in un terminale, poi ripeti il push."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "リモートブランチに、このブランチにないコミットがあります。ターミナルでプルまたはリベースしてから、もう一度プッシュしてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Branch Remote មាន Commit ដែល Branch នេះមិនមាន។ សូម Pull ឬ Rebase នៅក្នុងទែមីណាល់ បន្ទាប់មក Push ម្ដងទៀត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "원격 브랜치에 이 브랜치에 없는 커밋이 있습니다. 터미널에서 풀 또는 리베이스한 후 다시 푸시하십시오."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Remote-grenen har commits som denne grenen ikke har. Pull eller rebase i en terminal, og push på nytt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zdalna gałąź ma commity, których nie ma ta gałąź. Wykonaj pull lub rebase w terminalu, a następnie wypchnij ponownie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O branch remoto tem commits que este branch não tem. Faça pull ou rebase em um terminal e depois faça push novamente."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "В удалённой ветке есть коммиты, которых нет в этой ветке. Выполните pull или rebase в терминале, затем отправьте снова."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แบรนช์รีโมตมีคอมมิตที่แบรนช์นี้ไม่มี ให้ pull หรือ rebase ในเทอร์มินัล แล้วพุชอีกครั้ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uzak dalda bu dalda olmayan commit'ler var. Terminalde pull veya rebase yapıp yeniden push edin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Віддалена гілка має коміти, яких немає в цій гілці. Виконайте pull або rebase у терміналі, потім надішліть знову."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nhánh remote có commit mà nhánh này không có. Hãy pull hoặc rebase trong terminal, rồi push lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "远程分支包含此分支没有的提交。请在终端中拉取或变基，然后重新推送。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "遠端分支包含此分支沒有的提交。請在終端機中拉取或重訂基底，然後重新推送。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

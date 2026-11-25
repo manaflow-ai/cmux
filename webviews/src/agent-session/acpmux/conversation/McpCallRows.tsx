@@ -146,9 +146,10 @@ export const McpCallRow = memo(function McpCallRow({ item }: { item: AcpmuxActiv
   // A described call is titled with its description, as a shell call is (mcpDescription).
   const label = useMemo(
     () =>
-      video
+      mcpDescription(call) ??
+      (video
         ? t("tools.videoFrames", { n: video.count })
-        : (mcpDescription(call) ?? cmuxTitle(t, [call], [tool], names) ?? mcpLabel(t, [call], names, running)),
+        : (cmuxTitle(t, [call], [tool], names) ?? mcpLabel(t, [call], names, running))),
     [t, video, call, tool, names, running],
   );
   // A condensed tool's one-line outcome trails its words, muted; its own "failed" reads as a
