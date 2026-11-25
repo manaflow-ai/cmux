@@ -1,6 +1,5 @@
 import CmuxEgress
 public import CMUXAuthCore
-public import CmuxInstallAuthCore
 public import Foundation
 
 /// POSTs install-auth JSON to the API Worker at `baseURL`. Redirects are

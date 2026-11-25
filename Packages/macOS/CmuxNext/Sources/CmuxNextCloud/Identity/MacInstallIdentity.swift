@@ -1,5 +1,4 @@
 public import CMUXAuthCore
-public import CmuxInstallAuthCore
 import CryptoKit
 public import Foundation
 import os

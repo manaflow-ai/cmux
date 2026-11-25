@@ -4728,6 +4728,16 @@ CmuxNextCloud	struct	FileInstallSigner	0	PLATFORM	0	0	Packages/macOS/CmuxNext/So
 CmuxNextCloud	actor	MacInstallIdentity	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Identity/MacInstallIdentity.swift	which install identity signs, rotation, sign-out revocation
 CmuxNextCloud	enum	OwnerOnlyFile	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Identity/MacInstallStore.swift	from struct MacInstallStore:16: Keychain/Secure Enclave install key blob and 0600 record store
 CmuxNextCloud	struct	MacInstallStore	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Identity/MacInstallStore.swift	Keychain/Secure Enclave install key blob and 0600 record store
+CmuxNextCloud	protocol	InstallSigner	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Identity/InstallAuthClient.swift	the Secure Enclave or file signer the app supplies
+CmuxNextCloud	enum	InstallAuthError	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Identity/InstallAuthClient.swift	mirror of cmux-cloud-config install_auth::Error
+CmuxNextCloud	extension	InstallAuthError	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Identity/InstallAuthClient.swift	log text of a failed mint
+CmuxNextCloud	struct	PublicJWK	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Identity/InstallAuthClient.swift	public JWK of a presence key (HandPresenceKey)
+CmuxNextCloud	extension	Data	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Identity/InstallAuthClient.swift	base64url encoding
+CmuxNextCloud	protocol	InstallAuthTransport	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Identity/InstallAuthClient.swift	the HTTP exchange the app supplies
+CmuxNextCloud	extension	InstallAuthTransport	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Identity/InstallAuthClient.swift	GET unsupported by default
+CmuxNextCloud	struct	InstallRecord	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Identity/InstallAuthClient.swift	mirror of install_auth::Record (Keychain record)
+CmuxNextCloud	struct	InstallProfile	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Identity/InstallAuthClient.swift	mirror of install_auth::Profile
+CmuxNextCloud	actor	InstallAuthClient	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Identity/InstallAuthClient.swift	performs cmux-cloud-config install_auth effects: HTTP, signer, session, record, the shared in-flight mint; the rules are Rust
 CmuxNextCloud	extension	CloudLinkChange	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkChange+Event.swift	link change of a daemon event (from the App's CloudAppLinks)
 CmuxNextCloud	extension	DaemonIdentity	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/DaemonIdentity+CloudLink.swift	post-handshake link socket check (from the App's CloudAppLinks)
 CmuxNextCloud	struct	CloudLinkChange	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkChange.swift	link changed event shape copy

@@ -1,7 +1,6 @@
 import CCmuxLayoutReducerFFI
 import CmuxNextCompat
 public import CmuxNextDaemon
-public import CmuxInstallAuthCore
 import CryptoKit
 public import Foundation
 import Security

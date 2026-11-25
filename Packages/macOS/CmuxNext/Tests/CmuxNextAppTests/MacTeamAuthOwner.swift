@@ -1,4 +1,4 @@
-import CmuxInstallAuthCore
+import CmuxNextCloud
 import CryptoKit
 import Foundation
 
