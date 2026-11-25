@@ -116,9 +116,6 @@ import Testing
         #expect(mac.prompts.isEmpty)
     }
 
-    /// Leo's lanes run in Bypass permissions, and his phone's Full-access setting was off: a
-    /// message to one is refused, truly. The draft comes back with what to change; a reconnect
-    /// alone shows nothing, and a connection that says Full access is on clears the notice.
     /// Leo, 2026-11-24: "10s timeout for messages being sendsble is a shame. if it's making good
     /// progress, it shiukd be allowed to keep going?" A prompt held while the way to the Mac keeps
     /// moving stays held past the window; one with nothing moving for the window comes back.
@@ -187,6 +184,9 @@ import Testing
         #expect(store.returnedDraft?.text == "look at this")
     }
 
+    /// Leo's lanes run in Bypass permissions, and his phone's Full-access setting was off: a
+    /// message to one is refused, truly. The draft comes back with what to change; a reconnect
+    /// alone shows nothing, and a connection that says Full access is on clears the notice.
     @Test func fullAccessNoticeIsTheMacsWordAndClearsOnReconnectWithAccess() async throws {
         let mac = Mac(fullAccess: false)
         let (hub, link, _, store) = try await openChat(mac)
