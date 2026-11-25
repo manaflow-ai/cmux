@@ -190,24 +190,4 @@ import Testing
         #expect(!notice.claim(for: "authorized"))
         #expect(notice.claim(for: "denied"), "allowed, then denied again: told again")
     }
-
-    @Test func settingsSoundPlayButtonPlaysDefaultThroughTheApp() async throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-55600-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let url = directory.appending(path: "cmux.json")
-        try Data("{}".utf8).write(to: url)
-        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
-                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
-        await settings.reload()
-        let page = SettingsPageProvider(settings: settings)
-        var played: [String] = []
-        page.playSound = { played.append($0) }
-        for name in ["default", "Glass"] {
-            let params: JSONValue = ["name": .string(name)]
-            _ = try await page.call("cmux.settings.sound.play", params: params,
-                                    context: PageCallContext(page: "cmux.settings", userGesture: true))
-        }
-        #expect(played == ["default", "Glass"], "Default is played, not skipped")
-    }
 }

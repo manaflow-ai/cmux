@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
@@ -47,9 +48,6 @@ final class SettingsPageProvider: PageProvider {
     var sharesRevoke: (@MainActor (String) async throws -> JSONValue)?
     /// Settings > Keys (CmuxNextKeys `SettingsKeys`): its `cmux.settings.keys.*` ops and stream; nil in tests without an app.
     var keys: (any PageProvider)?
-    /// Settings > Sounds' play button (`cmux.settings.sound.play {name}`): the app sets the notification
-    /// sounds' own player and master volume.
-    var playSound: @MainActor (String) -> Void = { NotificationSoundPlayer().play($0, volume: 1, banner: false) }
     /// Notifications > macOS Notifications' button: the prompt, or System Settings (cmux#55600).
     var allowNotifications: (@MainActor () async throws -> Void)?
     var devicesWatching: (@MainActor (Bool) -> Void)?
@@ -98,6 +96,8 @@ final class SettingsPageProvider: PageProvider {
     var personBacksGesture: (@MainActor (TimeInterval) -> Bool)?
     /// Settings > Machines' "Dedicated agent machine" switch on a Cloud machine: the error to show, or nil.
     var setMachineVmHost: (@MainActor (String, Bool) async -> String?)?
+    /// Notification sounds: the ▷ preview and Custom Sound…; nil in tests without an app.
+    var sounds: NotificationSoundImport?
     /// Touch ID or the password, which every turn-on of Full access or Dedicated agent machine needs; nil, never.
     var ownerConfirm: (any DeviceOwnerAuthenticating)?
     let wideningGate: PageWideningGate
@@ -334,10 +334,16 @@ final class SettingsPageProvider: PageProvider {
             return .object([:])
         case "cmux.settings.sound.play":
             guard let name = params["name"]?.stringValue else { throw PageError.invalidParams("name is required") }
-            // Through the app's sound player, "default" and file paths included, never through notification
-            // permission: a preview plays while macOS denies cmux banners (cmux#55600).
-            playSound(name)
+            try Self.host(sounds, "sounds").preview(name)
             return .object([:])
+        case "cmux.settings.sound.import": // Custom Sound…: the person picks the file in the open panel, so the write is theirs.
+            let descriptor = try descriptor(params)
+            guard descriptor.kind == .sound else { throw PageError.invalidParams("\(descriptor.id) is not a sound") }
+            let picked: String?
+            do { picked = try await Self.host(sounds, "sounds").pick() } catch let failure as ActionWorkFailure { throw PageError(code: "cmux.settings.sound.import", message: failure.message) }
+            guard let name = picked else { return ["name": .null] }
+            try await write(descriptor, .string(name), by: Self.writer(context)) // concurrency-allow: the settings owner writes through its CmuxConfigFile actor, off the main actor
+            return ["name": .string(name)]
         case "cmux.settings.notification_permission.allow": // Notifications > macOS Notifications (cmux#55600), the person's click
             guard context.page == PageDescriptor.settings.id, context.userGesture, let allowNotifications else { throw Self.personOnly }
             try await allowNotifications(); return .object([:])
@@ -510,23 +516,4 @@ final class SettingsPageProvider: PageProvider {
         // setSetting returns once its own load applied the write (reloadAfterWrite), so the
         // page's next read is current without a second full load and apply.
     }
-}
-
-/// The value domains the Settings page offers in menus, listed once per launch.
-@MainActor
-enum SettingsPageDomains {
-    /// Installed fixed-pitch families the terminal accepts, sorted.
-    static let fontFamilies: [String] = {
-        let names = NSFontManager.shared.availableFontNames(with: .fixedPitchFontMask) ?? []
-        let families = Set(names.compactMap { NSFont(name: $0, size: 0)?.familyName })
-            .filter { TerminalFontSetting().isValidFamily($0) && !$0.hasPrefix(".") }
-        return families.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-    }()
-
-    /// The sounds in /System/Library/Sounds.
-    static let sounds: [String] = {
-        let urls = (try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: "/System/Library/Sounds"),
-                                                                  includingPropertiesForKeys: nil)) ?? []
-        return urls.map { $0.deletingPathExtension().lastPathComponent }.sorted()
-    }()
 }

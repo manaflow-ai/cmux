@@ -167,9 +167,8 @@ struct PageFactory {
     func settingsPage(route: String?) -> PageWebView? {
         guard let settings = services.settings else { return nil }
         let provider = SettingsPageProvider(settings: settings, domains: { [weak services] in
-            ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "ui_font_families": AppFontSetting.installedFamilies, "sounds": SettingsPageDomains.sounds, "recent_fonts": services?.settings?.recentFonts.families ?? []]
+            ["themes": services?.themes.catalog.names ?? [], "font_families": TerminalFontSetting.installedFamilies, "ui_font_families": AppFontSetting.installedFamilies, "sounds": services?.notifications.soundGate.soundNames ?? [], "recent_fonts": services?.settings?.recentFonts.families ?? []]
         }, hostSections: services.settingsWindow.pageHostSections(), wideningGate: services.wideningGate)
-        provider.playSound = { [weak center = services.notifications] in center?.soundGate.preview($0, volume: center?.preferences.sounds.volume ?? 1) }
         provider.allowNotifications = { [weak services] in try await services?.notifications.desktop.allowFromSettings() }
         provider.removeDevice = { [weak services] id in await services?.devices.remove(id: id) }
         provider.setDeviceFullAccess = { [weak services] id, on in await services?.devices.setFullAccess(id: id, on: on) }
@@ -178,6 +177,7 @@ struct PageFactory {
             return await services.joinConsent.set(surface, on: on)
         }
         provider.personBacksGesture = { [weak services] uptime in services?.personInput.backs(uptime) ?? false }
+        provider.sounds = NotificationSoundImport(host: services, gate: services.notifications.soundGate) // AppServices lives as long as the app
         // Touch ID or the password, which every turn-on of Full access or Dedicated agent machine needs.
         provider.ownerConfirm = LocalDeviceOwnerAuthenticator()
         provider.setMachineVmHost = { [weak services] id, on in
