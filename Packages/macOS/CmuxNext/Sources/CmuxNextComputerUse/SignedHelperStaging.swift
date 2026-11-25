@@ -141,7 +141,7 @@ nonisolated struct SignedHelperStaging: Sendable {
     /// `helperBundleID` is the bundled helper's own id (a NIGHTLY side build carries NIGHTLY's);
     /// without one, the channel's (``channelHelperBundleID(forApp:)``). The folder builds before
     /// kept it in, `cmux-next/screen-sharing/<scope>`, is removed, and so are other builds' ones.
-    static func screenSharing(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+    static func screenSharing(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app.next",
                               helperBundleID: String? = nil,
                               home: URL = FileManager.default.homeDirectoryForCurrentUser) -> SignedHelperStaging {
         let support = NextSupport(applicationSupport: home.appending(path: "Library/Application Support", directoryHint: .isDirectory))
@@ -355,11 +355,17 @@ nonisolated struct SignedHelperStaging: Sendable {
     /// too, since the group is `staff`, which holds every local user, so
     /// another user could swap the copy. `logger` names the folder that failed.
     private func trustedFolder(create: Bool, logger: Logger? = nil) -> Bool {
-        let expected = folder.absoluteURL
-        let home = home.absoluteURL
-        guard !expected.pathComponents.contains("."), !expected.pathComponents.contains(".."),
-              expected.path.hasPrefix(root.absoluteURL.path + "/"),
-              fileSystem.resolve(home) == home.path else { return false }
+        let named = folder.absoluteURL
+        let namedHome = home.absoluteURL
+        guard !named.pathComponents.contains("."), !named.pathComponents.contains(".."),
+              named.path.hasPrefix(root.absoluteURL.path + "/"), named.path.hasPrefix(namedHome.path + "/"),
+              let real = fileSystem.resolve(namedHome), real == Self.withPrivatePrefix(namedHome.path) else {
+            logger?.error("helper copy: home \(home.path, privacy: .public) is not its own real path (\(fileSystem.resolve(home.absoluteURL) ?? "missing", privacy: .public))")
+            return false
+        }
+        // Checked under the real home: a /tmp HOME's folders are /private/tmp's.
+        let home = URL(fileURLWithPath: real, isDirectory: true)
+        let expected = URL(fileURLWithPath: real + named.path.dropFirst(namedHome.path.count), isDirectory: true)
         var directory = home
         for component in expected.pathComponents.dropFirst(home.pathComponents.count) {
             directory.append(path: component, directoryHint: .isDirectory)
@@ -383,6 +389,17 @@ nonisolated struct SignedHelperStaging: Sendable {
                   info.owner == geteuid(), info.modified < cutoff else { continue }
             try? FileManager.checked.removeItem(at: entry)
         }
+    }
+
+    /// PATH with the `/private` Foundation drops put back: `/tmp`, `/var` and `/etc` are the system's
+    /// root-owned links into `/private`, and a HOME under one reads back without it (a launch with
+    /// HOME=/private/tmp/x answers /tmp/x from `homeDirectoryForCurrentUser`, so realpath never matched
+    /// and every walk home's Screen Sharing helper was refused). Any other path is itself.
+    static func withPrivatePrefix(_ path: String) -> String {
+        for alias in ["/tmp", "/var", "/etc"] where path == alias || path.hasPrefix(alias + "/") {
+            return "/private" + path
+        }
+        return path
     }
 
     /// A directory owned by this user, not a symlink.

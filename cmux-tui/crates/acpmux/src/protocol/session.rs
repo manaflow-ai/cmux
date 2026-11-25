@@ -55,7 +55,7 @@ pub struct ForkParams {
 /// session arrives as the peer daemon's own summary plus `peer`, with
 /// `status` `unreachable` while the peer is gone; a peer on an older
 /// acpmux may lack newer fields, so nullable ones are optional here.
-#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionSummary {
     pub session_id: String,
@@ -210,18 +210,6 @@ pub struct SessionSummary {
     pub preview: Option<String>,
     /// One sidebar line; null before the first prompt.
     pub last_message: Option<LastMessage>,
-    /// What is done and what is next across the chat's turns (`task_list.rs`): its harness's
-    /// latest plan (TodoWrite, update_plan) or the list its agent or Chief keeps
-    /// (`_acpmux/task_list/set`); null until one is written. Absent from a peer on an older acpmux.
-    #[serde(default)]
-    #[schemars(default)]
-    pub task_list: Option<crate::task_list::TaskListSummary>,
-    /// Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar
-    /// and the chat header. Absent before the first turn that makes one, and from a peer on an
-    /// older acpmux.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(default)]
-    pub rolling_summary: Option<crate::store::RollingSummary>,
     /// The plan the person last approved in this chat (`hub/plan_build.rs`), which the pane keeps
     /// in sight while the agent builds it. Absent until one, and from a peer on an older acpmux.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -234,6 +222,11 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(default)]
     pub has_draft: bool,
+    /// A person pinned it (`_acpmux/pin`), on any of their replicas (`hub/synced.rs`). Absent
+    /// otherwise, and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(default)]
+    pub pinned: bool,
     /// Work runs below it with no turn open: a background subagent, a harness background process,
     /// or a sub-session at work (what keeps the idle pass from ending it, `hub/idle.rs`). An app
     /// update that installs when idle waits for it. Absent otherwise, and from a peer on an older
@@ -352,6 +345,11 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(default)]
     pub retry_deciding: bool,
+    /// It waits for capacity and goes on by itself (`hub/capacity_wait.rs`). Absent otherwise,
+    /// and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub capacity_wait: Option<CapacityWait>,
     /// Attached clients.
     pub attached: u64,
     /// Some attached client shows the chat.
@@ -387,12 +385,21 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(default)]
     pub time_breakdown: Option<crate::time_breakdown::TimeBreakdown>,
+    /// The composer footer's status dot and quiet metadata, decided from this row's own fields
+    /// (`protocol/composer_status.rs`); set on the row after it is built, and again by this
+    /// daemon on a peer's row (with `peer`). Whole on a read with tools (attach, info, the
+    /// attached chat's `session_changed`); a census row carries it only with an item or a live
+    /// fact, and without the facts that repeat its own fields (`composer_status::census`).
+    /// Absent from an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub composer_status: Option<super::composer_status::ComposerStatus>,
 }
 
 /// The bounded diagnosis shown beside a looping chat. The daemon emits one event when this
 /// becomes active and another when progress clears it; the summary lets a newly attached client
 /// render the current state without replaying the transcript.
-#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct LoopEpisodeSummary {
     pub episode_id: u64,
@@ -445,8 +452,14 @@ pub struct UsageStats {
     pub tokens24h: Option<u64>,
     #[serde(rename = "tokensByModel1h")]
     pub tokens_by_model1h: Option<BTreeMap<String, u64>>,
+    /// Cache-read prompt tokens by call model in the rolling last hour.
+    #[serde(rename = "cacheReadByModel1h")]
+    pub cache_read_by_model1h: Option<BTreeMap<String, u64>>,
     /// Tokens per call model in the completed UTC hour preceding the hour of updatedAt.
     pub tokens_by_model_previous_utc_hour: Option<BTreeMap<String, u64>>,
+    /// Cache-read prompt tokens by call model in the completed UTC hour preceding updatedAt.
+    #[serde(rename = "cacheReadByModelPreviousUtcHour")]
+    pub cache_read_by_model_previous_utc_hour: Option<BTreeMap<String, u64>>,
     /// Those tokens at the model catalog's list prices, USD; null when no model
     /// they ran on has a price, or when `tokens24h` is null.
     #[serde(rename = "costUsd24h")]
@@ -481,7 +494,7 @@ pub enum Autocompact {
 /// A durable lifecycle fact supplied by an explicit producer. This contract
 /// is intentionally optional and opaque to the session sidebar until a
 /// producer wires it to a real controller receipt.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(transform = require_all)]
 pub struct LifecycleReceipt {
@@ -503,7 +516,7 @@ pub enum Indicator {
 }
 
 /// One row of a chat's tool list (`store::ToolRow`).
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(transform = require_all)]
 pub struct ToolSummary {
@@ -572,7 +585,7 @@ impl McpServerSummary {
 }
 
 /// The session's lane (cx-v9k2f), decided once by the daemon (`views::lane`).
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[schemars(transform = require_all)]
 pub struct Lane {
     pub state: LaneState,
@@ -604,14 +617,14 @@ pub enum LaneState {
     Idle,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum MessageRole {
     Agent,
     User,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct LastMessage {
     pub role: MessageRole,
     pub text: String,
@@ -619,7 +632,7 @@ pub struct LastMessage {
 
 /// What a daemon start holds for a person (`SessionSummary::person_hold`): the chat's folder and
 /// why an agent does not start there unasked.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(transform = require_all)]
 pub struct PersonHold {
@@ -628,7 +641,7 @@ pub struct PersonHold {
 }
 
 /// The running turn.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(transform = require_all)]
 pub struct TurnSummary {
@@ -641,8 +654,6 @@ pub struct TurnSummary {
     /// What the turn does right now: its latest tool call's title, masked
     /// (`secret_scan`); null until it calls one (`hub/activity.rs`).
     pub activity: Option<String>,
-    /// Its plan's entry in progress, masked; null without one.
-    pub plan_step: Option<String>,
     /// Since when it has stalled: no tool call in flight and no sign of its
     /// model since then, for `stalledTurnMs` or more (`hub/activity.rs`);
     /// null while it has not.
@@ -650,7 +661,7 @@ pub struct TurnSummary {
 }
 
 /// A prompt waiting for the running turn to end.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(transform = require_all)]
 pub struct QueuedPromptSummary {
@@ -721,6 +732,14 @@ pub struct QueuedPromptSummary {
     #[serde(default)]
     #[schemars(default)]
     pub inbox_notice: Option<Value>,
+    /// Who put it in the queue, from its provenance alone (`hub/queue_origin.rs`): `person` (the
+    /// composer's steer rows), `agent` (another agent's message or acpmux's notice of such), or
+    /// `acpmux` (the daemon's own prompt: a surge digest, a subagent's resume, a cut turn's
+    /// continuation), which an app draws apart from the person's rows with none of their actions.
+    /// Absent from an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub origin: Option<crate::hub::queue_origin::QueueOrigin>,
 }
 
 /// The subagent a queued resume asks the agent to resume (`QueuedPromptSummary.subagentRetry`).
@@ -761,7 +780,7 @@ fn require_all_but_avatar(schema: &mut schemars::Schema) {
 }
 
 /// An image a queued prompt sends.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(transform = require_all_but_source)]
 pub struct QueuedImage {
@@ -867,6 +886,34 @@ pub struct ErrorDetails {
     pub retry_after_ms: Option<u64>,
 }
 
+/// A chat waiting for capacity (`hub/capacity_wait.rs`): a turn cut by an overloaded model, an
+/// exhausted account pool or the account's rate limit, which acpmux continues by itself. A
+/// client draws it as one calm state ("Waiting for capacity, about 40 s"; in a list "paused for
+/// capacity, resumes ~22:41"), never as a failed turn, and keeps `error` for a details
+/// disclosure.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CapacityWait {
+    /// `capacity` or `rate_limit`.
+    pub reason: RetryReason,
+    /// When it goes on (epoch ms); absent while the continuation is still being decided.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub resumes_at: Option<u64>,
+    /// The cut turn the wait continues, when there is one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub turn_id: Option<String>,
+    /// Since when it waits (epoch ms): the cut turn's end.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub since: Option<u64>,
+    /// The harness's raw error, cut to 600 characters, for a details disclosure only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub error: Option<String>,
+}
+
 /// An automatic retry of a failed turn that waits (`hub/auto_resume.rs`): attempt `attempt`
 /// of `of`, at `nextAt` (epoch ms). It sends the prompt `promptId~resume-<attempt>` in the same
 /// session, for the cut turn `turnId`.
@@ -885,8 +932,9 @@ pub struct RetrySummary {
 /// Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no
 /// capacity (HTTP 503 or 529, overloaded, no account free), the account hit its usage or rate
 /// limit (`rate_limit`, HTTP 429: the chat holds every turn until the reset, `hub/rate_hold.rs`),
-/// the connection dropped, the agent process died mid-turn, or the chat outgrew its model's
-/// context window (`context`: it is compacted, then continued at once).
+/// the connection dropped, the agent process died mid-turn, the chat outgrew its model's
+/// context window (`context`: it is compacted, then continued at once), or the machine's disk
+/// was full (`disk`: it goes on once space is free again).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum RetryReason {
@@ -895,6 +943,7 @@ pub enum RetryReason {
     Transport,
     AgentExited,
     Context,
+    Disk,
 }
 
 impl RetryReason {
@@ -906,6 +955,7 @@ impl RetryReason {
             "transport" => Some(Self::Transport),
             "agent_exited" => Some(Self::AgentExited),
             "context" => Some(Self::Context),
+            "disk" => Some(Self::Disk),
             _ => None,
         }
     }
@@ -917,6 +967,7 @@ impl RetryReason {
             Self::Transport => "transport",
             Self::AgentExited => "agent_exited",
             Self::Context => "context",
+            Self::Disk => "disk",
         }
     }
 }

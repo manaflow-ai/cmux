@@ -69,7 +69,7 @@ export default agentPaneEntry({
         await ctx.click({ selector: '[data-report-look="compact"] .cv-agent-tag.is-open' });
         await ctx.waitFor(
           () =>
-            ctx.document.querySelector(".cv-subagent-of") &&
+            ctx.document.querySelector(".cv-subagent-corner") &&
             [...ctx.document.querySelectorAll(".cv-md")].some((node) =>
               node.textContent?.includes("corner tests pass"),
             ),

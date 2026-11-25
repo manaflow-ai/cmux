@@ -19,8 +19,8 @@ use super::contract::{
     stdin_line,
 };
 use super::{
-    DialArgs, DialService, ServeArgs, desktop_failure, parse, parse_key, parse_serve,
-    public_key_line, with_team_env,
+    DialArgs, DialService, ServeArgs, open_failure, parse, parse_key, parse_serve, public_key_line,
+    with_team_env,
 };
 
 fn words(text: &str) -> Vec<String> {
@@ -157,6 +157,23 @@ fn detail_codes_are_short_tokens_and_never_the_text() {
         ("noise handshake failed: decrypt", "noise"),
         ("authorization failed: grant expired", "unauthorized"),
         ("unexpected Bearer eyJhbGciOi.secret-ticket", "other"),
+        ("reconnect deadline expired after 4 attempts", "resume_deadline"),
+        ("reconnect failed after 3 attempts: connection is closed", "closed"),
+        ("stale connection generation 2, current is 3", "stale_generation"),
+        ("connection generation changed from 2 to 3", "generation_changed"),
+        ("connection generation exhausted", "generation_exhausted"),
+        (
+            "daemon no longer has the requested logical session (it expired or was closed)",
+            "session_gone",
+        ),
+        ("too many connected clients: the daemon serves its limit of 256", "daemon_full"),
+        ("interactive replay buffer is full", "replay_full"),
+        ("bulk delivery window is full", "window_full"),
+        ("interactive outbound queue is full", "queue_full"),
+        ("interactive sequence gap: expected 6, got 9", "sequence_gap"),
+        ("frame belongs to another session", "wrong_session"),
+        ("outbound scheduler closed", "scheduler_closed"),
+        ("invalid session frame: short header", "invalid_frame"),
     ];
     let token = |code: &str| {
         (1..=24).contains(&code.len())
@@ -298,6 +315,10 @@ fn arguments_are_the_machine_and_one_deadline() {
         DialService::Desktop
     );
     assert_eq!(
+        parse(&words(&format!("dial --machine {VM} --service acpmux"))).unwrap().service,
+        DialService::Acpmux
+    );
+    assert_eq!(
         parse(&words(&format!("dial --service mux --machine {VM}"))).unwrap().service,
         DialService::Mux
     );
@@ -313,6 +334,7 @@ fn arguments_are_the_machine_and_one_deadline() {
         format!("dial --machine {VM} --host x"),
         format!("dial --machine {VM} --service ssh"),
         format!("dial --machine {VM} --service desktop --service desktop"),
+        format!("dial --machine {VM} --service acpmux --service mux"),
         format!("dial --machine {VM} --team team_0123"),
         format!("dial --machine {VM} --team team_0123456789ABCDEF0123"),
         format!("dial --machine {VM} --team user_0123456789abcdef0123"),
@@ -757,16 +779,17 @@ fn a_carrier_desktop_open_that_its_send_finds_the_session_gone_takes_a_fresh_ses
     use cmux_remote::bridge::BridgeError;
     use cmux_remote::service::ServiceError;
     let sent = BridgeError::Service(ServiceError::Client(ConnectionError::SessionUnavailable));
-    let failure = desktop_failure(sent, false);
+    let failure = open_failure(sent, false, "the desktop");
     assert!(failure.fresh_session && failure.retryable, "{}", failure.detail);
     assert_eq!(failure.step, Step::Relay);
-    let typed = desktop_failure(BridgeError::Service(ServiceError::SessionUnavailable), false);
+    let typed =
+        open_failure(BridgeError::Service(ServiceError::SessionUnavailable), false, "the desktop");
     assert!(typed.fresh_session, "{}", typed.detail);
     // A session that ended any other way is still the carrier's, and fatal.
-    let closed = desktop_failure(BridgeError::Service(ServiceError::Closed), false);
+    let closed = open_failure(BridgeError::Service(ServiceError::Closed), false, "the desktop");
     assert!(!closed.fresh_session && !closed.retryable, "{}", closed.detail);
     // The daemon's refusal is the service's.
-    let refused = desktop_failure(BridgeError::Rejected("not the owner".into()), false);
+    let refused = open_failure(BridgeError::Rejected("not the owner".into()), false, "the desktop");
     assert_eq!(refused.step, Step::Service);
     assert!(!refused.fresh_session);
 }

@@ -45,6 +45,34 @@ pub(super) fn fill_unfinished(folder: &Path) -> bool {
     std::fs::symlink_metadata(folder.join(".git").join(FILLING)).is_ok()
 }
 
+/// Writes how full the checkout is, 0..=100, into the [`FILLING`] marker as `{"fill":N}`
+/// (RFD 0139 readiness: acpmux reads it and tells a client that asked, `_acpmux/fill`). Only
+/// the marker's presence means "not whole"; its text is a hint, written whole by a rename, and
+/// nothing fails on it. Never writes once the marker is gone (the fill ended).
+pub(super) fn write_fill(folder: &Path, fill: u8) {
+    let git_dir = folder.join(".git");
+    let marker = git_dir.join(FILLING);
+    if std::fs::symlink_metadata(&marker).is_err() {
+        return;
+    }
+    let staged = git_dir.join(format!("{FILLING}.next"));
+    let text = format!("{{\"fill\":{}}}\n", fill.min(100));
+    if std::fs::write(&staged, text).is_ok() && std::fs::rename(&staged, &marker).is_err() {
+        let _ = std::fs::remove_file(&staged);
+    }
+}
+
+/// The fill after `done` of `total` download chunks: the head and hot files are in place
+/// before the first chunk, so the figure starts at 10 and reaches 99 with the last chunk; 100
+/// is the marker's removal, once the whole tree is checked out.
+pub(super) fn fill_after(done: usize, total: usize) -> u8 {
+    if total == 0 {
+        return 99;
+    }
+    let share = done.min(total) * 89 / total;
+    10 + u8::try_from(share).unwrap_or(89)
+}
+
 /// The head's non-cone patterns: the root's files, then each subpath folder's own files
 /// (each re-includes what its parent's `!.../*/` left out), then every head folder's harness
 /// folders whole. A folder is judged by the last pattern that matches the folder itself, and
@@ -147,11 +175,24 @@ const DOWNLOAD_CHUNK: usize = 1000;
 /// files), so a seed started again after a kill downloads only what the last one did
 /// not. `git backfill` would do it too, but it walks the whole history's trees first:
 /// minutes of CPU on cmux before its first blob. False when a fetch failed.
+#[cfg(test)]
 pub(super) fn download_missing(
     git: &Git,
     credential: &Credential,
     folder: &Path,
     work: &str,
+) -> bool {
+    download_missing_counted(git, credential, folder, work, &mut |_, _| {})
+}
+
+/// [`download_missing`], calling `chunk_done(done, total)` after each chunk lands (and once
+/// with `(0, total)` before the first).
+pub(super) fn download_missing_counted(
+    git: &Git,
+    credential: &Credential,
+    folder: &Path,
+    work: &str,
+    chunk_done: &mut dyn FnMut(usize, usize),
 ) -> bool {
     let tree = format!("{work}^{{tree}}");
     let Ok(listing) =
@@ -176,10 +217,16 @@ pub(super) fn download_missing(
         "--recurse-submodules=no",
         "--filter=blob:none",
     ];
-    missing.chunks(DOWNLOAD_CHUNK).all(|chunk| {
+    let total = missing.len().div_ceil(DOWNLOAD_CHUNK);
+    chunk_done(0, total);
+    missing.chunks(DOWNLOAD_CHUNK).enumerate().all(|(at, chunk)| {
         let args: Vec<&str> =
             base.iter().copied().chain(chunk.iter().map(String::as_str)).collect();
-        git.quiet(Some(folder), credential, &args).is_ok()
+        let landed = git.quiet(Some(folder), credential, &args).is_ok();
+        if landed {
+            chunk_done(at + 1, total);
+        }
+        landed
     })
 }
 
@@ -262,13 +309,14 @@ pub struct Seed {
     /// with (never a submodule's or LFS's); None when none reached it (a
     /// delta seed, a fetch that failed).
     reached: Option<Credential>,
+    /// The warm mirrors' folder a clone borrows from ([`mirror`]); `None`: clone directly.
+    mirrors: Option<PathBuf>,
 }
 
 impl Seed {
     pub fn new(
         job: Arc<Job>,
         params: StartParams,
-        folder: PathBuf,
         bundle: Option<place::BundleCopy>,
         carry: Option<place::BundleCopy>,
         roots: Roots,
@@ -276,7 +324,28 @@ impl Seed {
         credentials: Vec<Credential>,
     ) -> Self {
         let chosen = credentials.first().cloned().unwrap_or(Credential::Anonymous);
-        Self { job, params, folder, bundle, carry, roots, git, credentials, chosen, reached: None }
+        // The job's folder is where this seed writes: one source, never a second copy to agree.
+        let folder = job.folder.clone();
+        Self {
+            job,
+            params,
+            folder,
+            bundle,
+            carry,
+            roots,
+            git,
+            credentials,
+            chosen,
+            reached: None,
+            mirrors: None,
+        }
+    }
+
+    /// Clones borrow the warm mirror under `mirrors` ([`mirror`]).
+    #[must_use]
+    pub fn with_mirrors(mut self, mirrors: Option<PathBuf>) -> Self {
+        self.mirrors = mirrors;
+        self
     }
 
     /// `barrier`: the sync this seed holds; a head-first seed marks its head on it.
@@ -331,7 +400,8 @@ impl Seed {
                 || fill_unfinished(&self.folder);
             let head_first = self.params.head_first.clone().filter(|_| fresh);
             // The sender's pack of the base, when it sent one, instead of a clone ([`carry`]).
-            if !self.carry_in() {
+            // A warm mirror's objects on this machine before either ([`borrow`]).
+            if !self.borrow_in() && !self.carry_in() {
                 self.clone_or_fetch()?;
             }
             self.base()?;
@@ -398,6 +468,9 @@ impl Seed {
             std::fs::read_dir(&folder).is_ok_and(|mut entries| entries.next().is_some());
         if not_empty {
             return Err(failed("seed.folder_not_empty", "the folder exists and is not empty"));
+        }
+        if self.borrow_clone() {
+            return Ok(());
         }
         self.clone_into(&folder)
     }
@@ -520,9 +593,13 @@ impl Seed {
         self.clone_into(&folder)
     }
 
-    /// A blobless clone without a checkout into the (absent or empty) folder.
+    /// A blobless clone without a checkout into the (absent or empty) folder: from the
+    /// machine's warm mirror of the remote when it can ([`mirror`]), else from the remote.
     fn clone_into(&mut self, folder: &Path) -> Result<(), Failed> {
         self.job.enter(Phase::Clone);
+        if folder == self.folder && self.borrow_mirror() {
+            return Ok(());
+        }
         let folder = folder.to_path_buf();
         let existed = folder.exists();
         let url = self.params.url.clone();
@@ -778,7 +855,7 @@ impl Seed {
     /// The head: WORK through [`head_patterns`], the index left at WORK for the fill.
     fn checkout_head(&mut self, head: &HeadFirst) -> Result<(), Failed> {
         let marker = self.folder.join(".git").join(FILLING);
-        std::fs::write(&marker, b"")
+        std::fs::write(&marker, b"{\"fill\":0}\n")
             .map_err(|error| failed("seed.checkout_failed", format!("fatal: {error}")))?;
         self.check_out_work(Some(&head_patterns(head)))
     }
@@ -874,7 +951,11 @@ impl Seed {
             (self.git.clone(), self.chosen.clone(), self.folder.clone(), self.params.work.clone());
         // A scoped thread: it ends before this step returns, with the seed that owns it.
         let downloaded = std::thread::scope(|scope| {
-            let download = scope.spawn(|| download_missing(&git, &credential, &folder, &work));
+            let download = scope.spawn(|| {
+                download_missing_counted(&git, &credential, &folder, &work, &mut |done, total| {
+                    write_fill(&folder, fill_after(done, total));
+                })
+            });
             while !download.is_finished() {
                 let mut lines = Vec::new();
                 for want in barrier.wants() {
@@ -1118,6 +1199,9 @@ impl Seed {
             return Ok(());
         }
         self.job.enter(Phase::Submodules);
+        // Each from its warm mirror when it can; what is left (nested, relative, failed) as
+        // before.
+        self.submodules_from_mirrors();
         let folder = self.folder.clone();
         self.net(
             Some(&folder),
@@ -1259,6 +1343,14 @@ fn clean_folder(folder: &Path, existed: bool) {
 /// `git-seed-carry-v1`: the base from the sender's own objects.
 #[path = "carry.rs"]
 mod carry;
+
+/// A warm mirror's objects through alternates, and the promisor sources.
+#[path = "borrow.rs"]
+pub(super) mod borrow;
+
+/// The clone from the machine's warm mirror of the remote.
+#[path = "mirror.rs"]
+pub(super) mod mirror;
 
 /// A test's hold of a seed at its head ([`Seed::mark_head`]), so it can read the
 /// checkout and the barrier there.

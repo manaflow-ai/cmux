@@ -34,6 +34,9 @@ pub(super) struct OpenWork {
     /// for an older record.
     turn_line: Option<String>,
     turn_trigger: bool,
+    /// That turn went through the trust gate (`turn_started` `trustGate`; an older record's is
+    /// gated, the stricter): a continuation of it goes through it too (`auto_resume.rs`).
+    turn_trust_gate: bool,
     /// That turn was carried on from the turn before (`turn_started` `carried`,
     /// `carried_turn.rs`): its prompt is the hub's own, and a steer is never it.
     turn_carried: bool,
@@ -709,6 +712,27 @@ impl Hub {
         hold: &mut Option<super::full_access_bound::FamilyHold>,
     ) -> anyhow::Result<()> {
         let incarnation = record.incarnation.clone();
+        // A host whose agent was still starting when the last daemon stopped: the chat never
+        // learned its conversation (no agent session id), so every prompt to it would answer
+        // "no agent session". It ends, and the chat's next prompt starts its agent as the cut
+        // start would have (a fork from its chat's conversation: `fork_start.rs`; cmux#50096).
+        if session.meta().agent_session_id.is_none() {
+            let dir = agent_host::hosts_dir();
+            let ended = end_host_blocking(
+                dir.clone(),
+                record.session_id.clone(),
+                Some(record.start_nonce.clone()),
+                Some(record.host_pid),
+            )
+            .await;
+            if ended {
+                agent_host::remove_artifacts(&dir, &record);
+                hold.take();
+            }
+            tracing::warn!(session = %session.id, ended, "agent host ended at adoption: its start was cut by the restart, so the chat has no agent session; the next prompt starts it again");
+            self.append(session, "mux", "host_ended", json!({"reason": "start_cut_by_restart"}));
+            return Ok(());
+        }
         let of = incarnation.clone();
         if session.meta().remote_origin
             && !self
@@ -787,7 +811,11 @@ impl Hub {
         // back from the agent's own env, so its next start runs on it again (`agent_credentials.rs`).
         // Not from an agent that already exited: its host was reaped, so its pid may now be
         // another agent's (another session's credential on this one).
-        if adopted.exited.is_none() {
+        // The host's own word comes first: it launched the agent, so it says the credential even
+        // when the agent's env no longer shows it (cmux#52399).
+        if !self.hold_launch_credential(session, &adopted.launch_credential.0)
+            && adopted.exited.is_none()
+        {
             self.recover_credential(session, adopted.harness_pid);
         }
         let proven = self.adopt_caller_token(&session.id, caller_token, &incarnation);
@@ -889,7 +917,7 @@ impl Hub {
         // Recovery sets the turn and `running` under the spawn lock every new prompt waits on, so
         // no prompt starts in between. When recovery wrote a status (a recovered turn, which may
         // also have ended by now; a permission asked again), it stands. Else the status loaded from
-        // disk is replaced as a turn's end does (`turns.rs` `finish_turn`): `waiting` while
+        // disk is replaced as a turn's end does (`turns/finish.rs` `finish_turn`): `waiting` while
         // something still asks the person, `ready` otherwise, read under the permissions lock
         // that an answer takes.
         if session.status_changes.load(Ordering::SeqCst) == changes && session.turn().is_none() {
@@ -940,16 +968,24 @@ impl Hub {
             && work.turn_carried
             && work.prompt_request.is_none()
         {
-            let mut turn = TurnInfo::prompted(&client, &prompt, &turn_id, &prompt_id, control);
-            if let Some(line) = &work.turn_line {
-                turn.show(line);
-            }
+            let mut turn = match &work.turn_line {
+                Some(line) => {
+                    TurnInfo::prompted_as(&client, &prompt, &turn_id, &prompt_id, control, line)
+                }
+                None => TurnInfo::prompted(&client, &prompt, &turn_id, &prompt_id, control),
+            };
             turn.trigger = work.turn_trigger;
             turn.turn_seq = turn_seq;
             if work.turn_at > 0 {
                 turn.started_at = work.turn_at;
             }
-            self.recover_carried(session, child, turn, None, Default::default());
+            // Its continuation, should an outage cut it, goes through the gate its start did.
+            let continues = super::carried_turn::Continues {
+                trust_gate: work.turn_trust_gate,
+                trigger: work.turn_trigger,
+                ..Default::default()
+            };
+            self.recover_carried(session, child, turn, None, continues);
         } else if work.turn.is_none()
             && let Some((from, record)) = &work.carry_next
             && let Some(next) = super::carried_turn::NextTurn::from_record(record)
@@ -974,6 +1010,13 @@ impl Hub {
                 }
                 (Some(request_id), answer) => {
                     let outcome = super::prompt_ledger::recover(session, &prompt_id);
+                    // A cut `/compact` is resent as itself (`auto_resume::resent_command`).
+                    let slash = super::auto_resume::resent_command(&prompt).map(str::to_owned);
+                    // The hub's own compactions are not continued, as a live turn's are not.
+                    let own_compaction = prompt_id.starts_with("cache-compact-")
+                        || prompt_id.starts_with(super::cold_wake::COMPACT_ID_PREFIX);
+                    let goes_on = !work.turn_trigger && !own_compaction;
+                    let trust_gate = work.turn_trust_gate;
                     // Before anything can force its end (`turn_answer`).
                     let ended = session.steer_end.subscribe();
                     // Its start as logged: a restart does not make it new.
@@ -985,6 +1028,12 @@ impl Hub {
                         .clone()
                         .unwrap_or_else(|| super::prompt_line::prompt_line(&prompt, &client, None));
                     self.resume_before_turn();
+                    // A daemon restart preserves whether this was the person's prompt. Keep
+                    // that waited-on protection until the restored turn's first token, just as
+                    // `auto_resume::start_turn` does for a fresh prompt.
+                    session
+                        .awaiting_reply
+                        .store(work.turn_persons && !work.turn_trigger, Ordering::SeqCst);
                     *session.turn.lock().unwrap() = Some(TurnInfo {
                         trigger: work.turn_trigger,
                         started_at,
@@ -1054,6 +1103,7 @@ impl Hub {
                     let next_raised = work.next_raised;
                     let s = session.clone();
                     let c = child.clone();
+                    let install_turn = self.harness_turn(session).await;
                     tokio::spawn(async move {
                         // New prompts queue behind the recovered turn.
                         let guard = s.turn_lock.lock().await;
@@ -1073,6 +1123,23 @@ impl Hub {
                             c.next.control = Control::Web;
                         }
                         let next = carried.as_deref();
+                        // A cut turn goes on by itself as a live one does (`auto_resume.rs`):
+                        // census 2026-11-24, 22 chats a 503/529/502 cut while their daemon
+                        // restarted sat idle 12 to 366 min because this end continued nothing.
+                        let cut_by = match &result {
+                            Err(e) if carried.is_none() && goes_on => Some((
+                                super::turn_errors::continuation_error(
+                                    Some(e.message.as_str()),
+                                    &e.message,
+                                )
+                                .to_owned(),
+                                super::auto_resume::reset_hint::error_reset_at(
+                                    e.data.as_ref(),
+                                    now_ms(),
+                                ),
+                            )),
+                            _ => None,
+                        };
                         let mut result = hub
                             .finish_turn(
                                 &s,
@@ -1096,14 +1163,27 @@ impl Hub {
                         // A notice's turn answers the messages it carried (`inbox.rs`).
                         hub.recovered_notice_done(&s, &prompt_id, &result);
                         outcome.send_replace(Some(result));
+                        super::turns::release_acceptance(&s, &prompt_id, &outcome);
                         super::prompt_ledger::prune(
                             &mut s.prompts.lock().unwrap_or_else(|e| e.into_inner()),
                         );
-                        // A recovered turn is not continued (`auto_resume.rs`); settle its mark.
-                        hub.schedule_auto_resume(&s, &turn_id, None);
+                        let cut = cut_by.as_ref().map(|(error, not_before)| {
+                            super::auto_resume::CutTurn {
+                                // Its family sender is not logged: it speaks as acpmux.
+                                from: None,
+                                prompt_id: &prompt_id,
+                                turn_id: &turn_id,
+                                control,
+                                trust_gate,
+                                error,
+                                not_before: *not_before,
+                                slash: slash.as_deref(),
+                            }
+                        });
+                        hub.schedule_auto_resume(&s, &turn_id, cut);
                         if let Some(carried) = &carried {
                             // Its task takes the turn lock once this one lets it go.
-                            hub.start_carried(&s, &c, &turn_id, carried, None);
+                            hub.start_carried(&s, &c, &turn_id, carried, None, install_turn);
                             if raised {
                                 hub.recovered_floor(&s, Control::Web);
                             }

@@ -1,4 +1,4 @@
-use super::hint;
+use super::{hint, is_region};
 
 #[test]
 fn each_continent_gets_its_region() {
@@ -24,4 +24,19 @@ fn the_middle_east_wins_over_its_continent() {
 fn no_continent_leaves_placement_to_cloudflare() {
     assert_eq!(hint(None, None, None), None);
     assert_eq!(hint(Some("AN"), None, Some(0.0)), None);
+}
+
+#[test]
+fn every_hint_this_maps_to_is_one_the_relay_accepts() {
+    for continent in ["NA", "SA", "EU", "AF", "OC", "AS"] {
+        for lon in [-150.0, -50.0, 5.0, 40.0, 120.0] {
+            for country in ["US", "AE", "JP"] {
+                let region = hint(Some(continent), Some(country), Some(lon)).unwrap();
+                assert!(is_region(region));
+            }
+        }
+    }
+    assert_eq!(hint(Some("NA"), Some("US"), Some(f32::NAN)), Some("enam"));
+    assert!(!is_region("weur\nextra"));
+    assert!(!is_region(""));
 }

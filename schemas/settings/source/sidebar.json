@@ -316,6 +316,33 @@
           }
         },
         {
+          "key": "sidebar.workspaceListApp",
+          "title": {
+            "key": "settings.sidebar.workspaceListApp",
+            "text": "Workspace List Extension"
+          },
+          "help": {
+            "key": "settings.sidebar.workspaceListApp.help",
+            "text": "The id of an installed extension that draws the whole workspace list (cmux.sidebar/1), such as local/workspace-list. Empty draws the built-in list, which also shows while the extension loads, fails or is removed."
+          },
+          "kind": "text",
+          "default": null,
+          "keywords": [
+            "sidebar",
+            "workspace list",
+            "extension",
+            "app",
+            "replace",
+            "fork",
+            "custom",
+            "layout"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.showProjects",
           "title": {
             "key": "settings.sidebar.showProjects",
@@ -384,6 +411,34 @@
             "generated": false,
             "module": "CmuxNextDesign"
           },
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.folderlessUngrouped",
+          "note": "Group by Folder's rows with no folder sit at the end of the list with no No Folder header (SidebarLayout's folder loop; customize-app-profiles, the Claude Code app's look). Off by default: the No Folder header shows as before.",
+          "title": {
+            "key": "settings.sidebar.folderlessUngrouped",
+            "text": "Ungroup Rows With No Folder"
+          },
+          "help": {
+            "key": "settings.sidebar.folderlessUngrouped.help",
+            "text": "Under Group by Folder, rows with no folder sit at the end of the list with no No Folder header."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sidebar",
+            "projects",
+            "chats",
+            "group",
+            "folder",
+            "no folder",
+            "ungrouped",
+            "header"
+          ],
           "swift_owner": {
             "type": "SidebarSectionsSetting",
             "prefixed": true
@@ -487,6 +542,62 @@
             "footer",
             "hide",
             "show"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.showLiveToggle",
+          "note": "Off by default (Lawrence 2026-11-25: \"get rid of it by default... keep things as minimal as possible\"; Leo 2026-11-25 didn't want it on by default either; Leo 2026-11-24 first asked for an icon \"somewhere omnipresent\"). Off hides the footer's Live button only; presence.live and the Live palette action stay.",
+          "title": {
+            "key": "settings.sidebar.showLiveToggle",
+            "text": "Show Live Button"
+          },
+          "help": {
+            "key": "settings.sidebar.showLiveToggle.help",
+            "text": "A Live button after the profile button turns presence on or off. Off: use the palette."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sidebar",
+            "live",
+            "presence",
+            "online",
+            "teammates",
+            "footer",
+            "hide",
+            "show"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "presence.live",
+          "name": "presenceLive",
+          "note": "Off by default (RFD 0141: Live is opt-in, nothing about a person leaves their machine until they turn it on). On: this Mac publishes its presence and the footer's Live button is accent-filled; off it is dimmed. The daemon reads the same key from cmux.json.",
+          "title": {
+            "key": "settings.presence.live",
+            "text": "Live Presence"
+          },
+          "help": {
+            "key": "settings.presence.live.help",
+            "text": "Show teammates and agents who are live, and let them see you. Off: you appear offline."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "live",
+            "presence",
+            "online",
+            "teammates",
+            "agents",
+            "status",
+            "sync"
           ],
           "swift_owner": {
             "type": "SidebarSectionsSetting",
@@ -758,6 +869,13 @@
                 "key": "settings.choice.sidebarLookStudio",
                 "text": "Studio"
               }
+            },
+            {
+              "value": "rex",
+              "title": {
+                "key": "settings.choice.sidebarLookRex",
+                "text": "Rex"
+              }
             }
           ],
           "default": "cmux",
@@ -769,6 +887,9 @@
             "claude",
             "codex",
             "studio",
+            "rex",
+            "minimal",
+            "sessions",
             "like",
             "app"
           ],
@@ -966,6 +1087,58 @@
           }
         },
         {
+          "key": "sidebar.profileMenu.style",
+          "name": "profileMenuStyle",
+          "title": {
+            "key": "settings.sidebar.profileMenu.style",
+            "text": "Profile Menu"
+          },
+          "help": {
+            "key": "settings.sidebar.profileMenu.style.help",
+            "text": "What the profile button at the sidebar's foot opens: the app menu, or an account menu with your accounts and teams to switch between, then Settings, Usage, Help and Sign Out."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "app",
+              "title": {
+                "key": "settings.choice.profileMenuApp",
+                "text": "App Menu"
+              }
+            },
+            {
+              "value": "account",
+              "title": {
+                "key": "settings.choice.profileMenuAccount",
+                "text": "Account Menu"
+              }
+            }
+          ],
+          "default": "app",
+          "keywords": [
+            "profile",
+            "account",
+            "accounts",
+            "switch",
+            "switching",
+            "sign out",
+            "log out",
+            "usage",
+            "menu",
+            "claude",
+            "codex"
+          ],
+          "swift_enum": {
+            "name": "SidebarProfileMenuStyle",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.detailedStatusIcons",
           "title": {
             "key": "settings.sidebar.detailedStatusIcons",
@@ -1057,30 +1230,30 @@
           }
         },
         {
-          "key": "sidebar.showAutomaticSessions",
-          "note": "Sessions no person started and no chat's subagent (the daemon recorded created_by kind script at the create: a script, an automation, a launcher) fold behind an Automatic (N) row at the end of their list (SidebarLayout+DoneFold); the rule is Rust's (cmux-layout-reducer automatic). Off by default: they fold; on draws them in place.",
+          "key": "sidebar.showAgentSessions",
+          "note": "Leo 2026-11-25 about the nested helper sessions: \"idk who asked for those in teh sidebar. it's weird\". Off by default: a workspace whose session another session's agent started (acpmux spawnedBy, a peer daemon's parents, AgentSessionParents) draws no row, except one waiting on the person (a permission or a question) and the selected one, which draw under their parents (SidebarSessionTreeState.hidesStarted). On nests them under their parents (the lineage nesting that was Debug's sidebar.lineageNesting).",
           "title": {
-            "key": "settings.sidebar.showAutomaticSessions",
-            "text": "Show Automatic Sessions"
+            "key": "settings.sidebar.showAgentSessions",
+            "text": "Show Sessions Started by Agents"
           },
           "help": {
-            "key": "settings.sidebar.showAutomaticSessions.help",
-            "text": "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list."
+            "key": "settings.sidebar.showAgentSessions.help",
+            "text": "Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows."
           },
           "kind": "toggle",
           "default": false,
           "keywords": [
             "sidebar",
-            "automatic",
-            "auto",
-            "script",
-            "automation",
-            "background",
+            "agent",
+            "agents",
+            "subagent",
+            "helper",
+            "started",
+            "nested",
+            "tree",
             "hidden",
             "hide",
-            "fold",
-            "sessions",
-            "tidy"
+            "sessions"
           ],
           "swift_owner": {
             "type": "SidebarSectionsSetting",
@@ -1667,6 +1840,81 @@
           }
         },
         {
+          "key": "sidebar.priorityView.filters",
+          "title": {
+            "key": "settings.sidebar.priorityView.filters",
+            "text": "Priority Filters"
+          },
+          "help": {
+            "key": "settings.sidebar.priorityView.filters.help",
+            "text": "All, Waiting, Unread and Running chips with counts, and Mark All as Read."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sidebar",
+            "priority",
+            "activity",
+            "filter",
+            "unread",
+            "running",
+            "waiting",
+            "mark all as read"
+          ],
+          "swift_owner": {
+            "type": "SidebarPriorityViewSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.priorityView.showIdle",
+          "title": {
+            "key": "settings.sidebar.priorityView.showIdle",
+            "text": "Idle Chats in Priority"
+          },
+          "help": {
+            "key": "settings.sidebar.priorityView.showIdle.help",
+            "text": "Off, Priority lists only chats that need you or are running."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "sidebar",
+            "priority",
+            "activity",
+            "idle",
+            "hide"
+          ],
+          "swift_owner": {
+            "type": "SidebarPriorityViewSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.priorityView.statusWords",
+          "title": {
+            "key": "settings.sidebar.priorityView.statusWords",
+            "text": "Priority Status Words"
+          },
+          "help": {
+            "key": "settings.sidebar.priorityView.statusWords.help",
+            "text": "Each Priority row says its state, such as Needs you or Done."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sidebar",
+            "priority",
+            "activity",
+            "status",
+            "label"
+          ],
+          "swift_owner": {
+            "type": "SidebarPriorityViewSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.side",
           "name": "sidebarSide",
           "title": {
@@ -1713,6 +1961,42 @@
             "type": "ChromePlacementSetting",
             "prefixed": true
           }
+        },
+        {
+          "key": "appearance.metrics.spaceButtonSpacing",
+          "title": {
+            "key": "settings.sidebar.spaceButtonSpacing",
+            "text": "Space Button Spacing"
+          },
+          "help": {
+            "key": "settings.sidebar.spaceButtonSpacing.help",
+            "text": "Distance between the centers of neighboring Space buttons. The density default fits them to the sidebar."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 18,
+            "max": 48,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 24
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "sidebar",
+            "spaces",
+            "dots",
+            "buttons",
+            "gap",
+            "spacing"
+          ]
         },
         {
           "key": "sidebar.spacesPosition",

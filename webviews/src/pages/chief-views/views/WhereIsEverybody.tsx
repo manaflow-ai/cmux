@@ -4,7 +4,7 @@
 // since its last output and its pull request.
 import { useMemo, useState } from "react";
 import { Input } from "../../../ui/Input";
-import { branchPRs, byMachine, stateCounts } from "../model";
+import { branchPRs, byMachine, shownReply, stateCounts } from "../model";
 import { AgentRow, agentsOf, Loaded, machineLabel, stateKey, StateMark } from "../parts";
 import type { ChiefViewProps } from "../registry";
 import type { AgentState } from "../types";
@@ -14,7 +14,8 @@ const STATES: AgentState[] = ["waiting", "failed", "working", "idle"];
 export function WhereIsEverybodyView({ data, strings, placement, onOpenAgent }: ChiefViewProps) {
   const [filter, setFilter] = useState("");
   const agents = agentsOf(data);
-  const prs = useMemo(() => branchPRs(data.fleet.status === "ready" ? data.fleet.reply.prs : undefined), [data.fleet]);
+  const fleetPRs = shownReply(data.fleet)?.prs;
+  const prs = useMemo(() => branchPRs(fleetPRs), [fleetPRs]);
   const groups = useMemo(() => byMachine(agents, filter), [agents, filter]);
   const counts = useMemo(() => stateCounts(agents), [agents]);
   const compact = placement === "sidebar";

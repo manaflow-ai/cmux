@@ -26,7 +26,6 @@ public final class TerminalHostView: NSView {
     lazy var statusLabel = TerminalStatusLabel(clock: statusClock, install: { [weak self] banner in
         self?.addChrome(banner, .statusLabel)
     }, didReveal: { [weak self] in
-        self?.syncRetryButton()
         self?.needsLayout = true
     })
     private let statusClock: any Clock<Duration>
@@ -42,12 +41,10 @@ public final class TerminalHostView: NSView {
     private var hostLossCause: TerminalHostLossCause?
     private var shellStall: TerminalShellStall?
     /// "Restart Shell Here" above the banner while the shell has ended.
-    /// It, Retry and the "Sized for" chip are built the first time they show, not with the
+    /// It and the "Sized for" chip are built the first time they show, not with the
     /// terminal: each is a rounded NSButton, whose bezel is sized and laid out through SwiftUI,
     /// and a hidden chip's constraints conflict at its zero frame, all in a split's first frame.
     private var restartButton: TerminalRestartButton?
-    /// "Retry" above the banner once the view's attach kept failing.
-    private var retryButton: TerminalRetryButton?
     /// "Sized for <device>" with Take over, bottom-trailing, while another view sets the grid.
     private var sizedForChip: TerminalSizedForChip?
     /// Classic's hatch over the pane space the grid does not use while the chip shows.
@@ -108,7 +105,8 @@ public final class TerminalHostView: NSView {
     }
 
     /// Computer Use's live preview card (``TerminalComputerUsePreview``) for the agent running in
-    /// this terminal, at the top-trailing corner, under the find bar while that shows.
+    /// this terminal, where the person dragged it (at first the top-trailing corner), under the find
+    /// bar while that shows.
     public var computerUsePreview: TerminalComputerUsePreview? {
         didSet {
             guard oldValue !== computerUsePreview else { return }
@@ -203,7 +201,7 @@ public final class TerminalHostView: NSView {
         if view === scroller { return .scroller }
         if view === bottomAccessory { return .accessory }
         if view === statusLabel.banner { return .statusLabel }
-        if view === topOverlay || view === computerUsePreview || view === restartButton || view === retryButton || view === sizedForChip
+        if view === topOverlay || view === computerUsePreview || view === restartButton || view === sizedForChip
             || view is TerminalFindBarView { return .overlay }
         return nil
     }
@@ -225,27 +223,11 @@ public final class TerminalHostView: NSView {
         shownStatus = status
         var changed = statusLabel.show(status, hostLoss: hostLoss, cause: hostLossCause, stall: shellStall)
         changed = syncRestartButton() || changed
-        if retryButton == nil, TerminalRetryButton.shows(status) {
-            let button = TerminalRetryButton()
-            // The same re-attach a click in the disconnected terminal starts.
-            button.onRetry = { [weak self] in self?.current?.session?.surfaceClicked() }
-            statusLabel.prepareView()
-            retryButton = button
-            addChrome(button, .overlay)
-        }
-        changed = syncRetryButton() || changed
+        // No Retry button over a failed attach (Leo, 2026-11-22: "vacuous decisions like that should be just
+        // done"): a visible view already re-attaches by itself at the capped backoff for as long as it shows
+        // (TerminalAttachMachine, cx-wwtam), and a click or a key re-attaches at once anyway.
         // A new terminal's "connected" (or a label still waiting) changes nothing on screen: no layout.
         if changed { needsLayout = true }
-    }
-
-    /// Shows Retry for the shown status with the label it sits over: not while that label still waits
-    /// out its reveal delay (a drop that heals within it shows neither). Returns whether it changed.
-    @discardableResult
-    private func syncRetryButton() -> Bool {
-        guard let retryButton else { return false }
-        let hidden = retryButton.isHidden
-        retryButton.show(shownStatus, waiting: statusLabel.isWaiting)
-        return hidden != retryButton.isHidden
     }
 
     /// Builds the restart button once the shell has ended, or cmux lost its
@@ -523,10 +505,10 @@ public final class TerminalHostView: NSView {
     }
 
     /// The status banner centered 12 pt above the bottom (at most the width
-    /// less 24), the restart and retry buttons centered 8 pt above it, and
+    /// less 24), the restart button centered 8 pt above it, and
     /// the find bar in the top-trailing corner. Hidden ones are skipped.
     private func layoutOverlays() {
-        let buttons: [NSView] = ([restartButton, retryButton] as [NSButton?]).compactMap { $0 }.filter { !$0.isHidden }
+        let buttons: [NSView] = ([restartButton] as [NSButton?]).compactMap { $0 }.filter { !$0.isHidden }
         if statusLabel.banner?.isHidden == false || !buttons.isEmpty {
             layoutStatus(buttons: buttons)
         }
@@ -557,9 +539,10 @@ public final class TerminalHostView: NSView {
         if let computerUsePreview, !computerUsePreview.isHidden {
             computerUsePreview.paneWidth = bounds.width
             let top = findBottom < bounds.height ? findBottom - inset : bounds.height - inset
-            _ = place(computerUsePreview, maxWidth: bounds.width - inset * 2) { size in
-                CGPoint(x: self.bounds.width - self.scrollerWidth - inset - size.width, y: top - size.height)
-            }
+            // Where the person dragged it inside the pane; a new card at the top-trailing corner.
+            computerUsePreview.area = CGRect(x: inset, y: inset, width: max(0, bounds.width - scrollerWidth - inset * 2),
+                                             height: max(0, top - inset))
+            _ = place(computerUsePreview, maxWidth: bounds.width - inset * 2) { size in computerUsePreview.origin(for: size) }
         }
     }
 

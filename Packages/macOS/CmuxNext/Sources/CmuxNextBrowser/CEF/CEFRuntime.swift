@@ -95,6 +95,10 @@ final class CEFRuntime {
             self?.tabsByBrowser.values.filter { !$0.isClosed && $0.isContentHidden && CEFPageRendererGC.isCmuxPage($0.state.url) } ?? []
         },
         notify: { await CEFHiddenPageTrim.notice($0) })
+    /// The focused agent chat's own renderer (`CEFOwnChatRenderer`).
+    private(set) lazy var ownChatRenderer = CEFOwnChatRenderer(name: { [weak self] browser in
+        self?.shim?.pageOwnRenderer?(browser)
+    })
     /// Shown pages on their way to their first document: the next spare waits for them (`CEFArrivingPages`).
     let arriving = CEFArrivingPages()
     /// How the next tabs inserted into a window open, by window id, from the
@@ -586,7 +590,10 @@ final class CEFRuntime {
         CEFFrameworkPrefetch.noteMapped(clock.now - mapStarted)
         CEFFrameworkPrefetch.warm(layout)
         // Lists the framework's locale directories here, off the main thread.
-        let locale = CEFLocale.current(frameworkDirectory: layout.frameworkDirectory)
+        // Downloaded Chromium paks (CMUX-570) are listed with them, and Chromium reads that folder first.
+        let downloaded = Bundle.main.bundleIdentifier.map { ChromiumLocalePaks.directory(bundleID: $0) }
+        let locale = CEFLocale.current(frameworkDirectory: layout.frameworkDirectory, downloadedDirectory: downloaded)
+        if let downloaded { downloaded.path.withCString { shim.setLocalesDir($0) } }
         return .success(CEFLoadedLibrary(shim: shim, shimABI: shimABI ?? "", layout: layout, locale: locale, loadDuration: clock.now - started))
     }
 

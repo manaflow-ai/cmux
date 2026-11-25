@@ -77,7 +77,7 @@ fn a_revision_in_the_store_is_fetched_and_assembled() {
     let split = cmux_projection::revision::split(&manifest).unwrap();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
-    let pieces: std::collections::HashMap<String, Vec<u8>> =
+    let pieces: HashMap<String, Vec<u8>> =
         split.pieces.iter().map(|piece| (piece.sha256.clone(), piece.bytes.clone())).collect();
     let served = std::thread::spawn(move || {
         // One request per connection, until the test drops the last reference.
@@ -443,7 +443,7 @@ fn the_away_notice_names_the_folder_the_mac_and_the_failed_reads() {
          - README.md\n\
          - src/main.rs"
     );
-    let capped = Report { paths: vec!["a".into()], failed: 9, ..report.clone() };
+    let capped = Report { paths: vec!["a".into()], failed: 9, ..report };
     let (title, body) = away_notice(at, &capped);
     assert_eq!(title, "The Mac is away: 9 reads in a projected folder failed");
     assert!(body.ends_with("Reads that failed (9):\n- a\n- and 8 more"), "{body}");
@@ -455,7 +455,7 @@ fn the_away_notice_names_the_folder_the_mac_and_the_failed_reads() {
 
 #[test]
 fn brought_back_and_release_are_projection_frames() {
-    for op in [BROUGHT_BACK, RELEASE, LAYER, FILES, DROP] {
+    for op in [BROUGHT_BACK, RELEASE, LAYER, FILES, DROP, PIN, UNPIN, PINS, WARM] {
         let line = json!({"id": 1, "cmd": op, "name": "a"}).to_string();
         assert_eq!(frame_command(&line), Some(op));
     }
@@ -483,6 +483,8 @@ fn control_line(name: &str, mark: Option<&str>, why: Option<&str>) -> WayBackLin
         paths_bytes: 0,
         mark: mark.map(str::to_owned),
         why: why.map(str::to_owned),
+        path: None,
+        paths: Vec::new(),
     }
 }
 
@@ -523,6 +525,92 @@ fn release_frees_the_state_and_its_empty_mount_point() {
     assert_eq!(free(RELEASE, &line, &state).unwrap()["freed_bytes"], 0);
     let line = control_line("p-gone", None, Some("lost"));
     assert_eq!(free(RELEASE, &line, &state).unwrap_err().0, "projection.params_invalid");
+}
+
+fn pin_line(name: &str, path: Option<&str>) -> WayBackLine {
+    WayBackLine { path: path.map(str::to_owned), ..control_line(name, None, None) }
+}
+
+#[test]
+fn a_pin_of_a_projection_not_mounted_here_is_refused_as_unknown() {
+    for cmd in [PIN, UNPIN, PINS] {
+        let refused = pin_answer(cmd, &pin_line("never-mounted-pin", Some("src"))).unwrap_err();
+        assert_eq!(refused.0, "projection.unknown", "{cmd}");
+    }
+}
+
+#[test]
+fn pin_refusals_name_the_path_and_their_code() {
+    assert_eq!(pin_refusal(libc::ENOENT, "src", "not pinned").0, "projection.not_found");
+    assert!(pin_refusal(libc::ENOENT, "src", "not pinned").1.contains("src: not pinned"));
+    assert_eq!(pin_refusal(libc::ENOSPC, "", "x").0, "projection.no_space");
+    assert!(pin_refusal(libc::ENOSPC, "", "x").1.starts_with("the whole folder"));
+    assert_eq!(pin_refusal(libc::EINVAL, "../x", "x").0, "projection.params_invalid");
+    assert_eq!(pin_refusal(libc::EIO, "a", "x").0, "projection.io");
+}
+
+/// `projection.pin`, `unpin` and `pins` against a projection in the table (no FUSE mount: the
+/// overlay is what they read and change). Only folders and nothing to fetch, so no Mac is needed.
+#[cfg(target_os = "linux")]
+#[test]
+fn pin_unpin_and_pins_answer_the_mounted_overlay_and_its_status() {
+    use cmux_projection::manifest::{Item, Kind, Manifest};
+    let home = cmux_unix_socket::short_test_dir("proj");
+    let state = home.path().join("state");
+    std::fs::create_dir_all(&state).unwrap();
+    let dir = |path: &str| Item {
+        path: path.into(),
+        kind: Kind::Dir,
+        mode: 0o755,
+        size: 0,
+        mtime_ns: 1,
+        link: None,
+    };
+    let manifest = Manifest::build(1, vec![dir("docs"), dir("docs/empty")]).unwrap();
+    let link = Arc::new(cmux_projection::link::Link::default());
+    let fetch: Arc<dyn cmux_projection::Fetch> = link.clone();
+    let overlay =
+        cmux_projection::overlay::Overlay::open(Arc::new(manifest), &state, fetch, (0, 0))
+            .unwrap()
+            .with_pin_reserve(0);
+    let name = "pin-answer-test";
+    let projected = Arc::new(Projected {
+        link,
+        digest: AtomicU64::new(0),
+        at: home.path().join("at"),
+        mounted: Mutex::new(None),
+        overlay: Arc::new(overlay),
+        ext: Mutex::new(None),
+        barrier: Mutex::new(None),
+        away: cmux_projection::away::Away::new(|_| {}),
+    });
+    projections().lock().unwrap().insert(name.into(), projected.clone());
+
+    let pinned = pin_answer(PIN, &pin_line(name, Some("docs"))).unwrap();
+    assert_eq!(pinned["path"], "docs");
+    assert_eq!((pinned["files"].as_u64(), pinned["away"].as_bool()), (Some(0), Some(false)));
+    assert_eq!(pinned["pins"][0]["path"], "docs");
+    assert_eq!(pinned["pins"][0]["complete"], true);
+    assert_eq!(pinned["pinned_bytes"], 0);
+
+    let listed = pin_answer(PINS, &pin_line(name, None)).unwrap();
+    assert_eq!(listed["pins"].as_array().map(Vec::len), Some(1));
+    // A mount's answer carries the same status.
+    let data = with_pins(json!({"at": "/x"}), &projected);
+    assert_eq!(data["pins"], listed["pins"]);
+    assert_eq!(data["at"], "/x");
+
+    assert_eq!(
+        pin_answer(PIN, &pin_line(name, Some("nope"))).unwrap_err().0,
+        "projection.not_found"
+    );
+    assert_eq!(pin_answer(PIN, &pin_line(name, None)).unwrap_err().0, "projection.params_invalid");
+    let unpinned = pin_answer(UNPIN, &pin_line(name, Some("docs"))).unwrap();
+    assert_eq!(unpinned["unpinned"], true);
+    assert_eq!(unpinned["pins"].as_array().map(Vec::len), Some(0));
+    let again = pin_answer(UNPIN, &pin_line(name, Some("docs"))).unwrap_err();
+    assert_eq!(again.0, "projection.not_found");
+    projections().lock().unwrap().remove(name);
 }
 
 /// A head dial leaves the folder's sync barrier at HeadReady, an extend makes it Ready, a

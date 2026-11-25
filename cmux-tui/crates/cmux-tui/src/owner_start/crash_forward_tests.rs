@@ -27,33 +27,42 @@ fn the_dsn_names_the_envelope_endpoint() {
 }
 
 #[test]
-fn consent_sends_only_when_nothing_turns_it_off() {
+fn consent_sends_only_after_opt_in_and_when_nothing_turns_it_off() {
     let none: BTreeMap<String, Value> = BTreeMap::new();
     let no_env = |_: &str| -> Option<String> { None };
-    assert_eq!(consent(&inputs(&none, None, &no_env)), Consent::Send);
+    // A fresh install (no setting) sends nothing; only an explicit opt-in sends.
+    assert_eq!(
+        consent(&inputs(&none, None, &no_env)),
+        Consent::Off("app.sendAnonymousTelemetry is not turned on")
+    );
+    assert!(matches!(consent(&inputs(&none, Some(&json!({})), &no_env)), Consent::Off(_)));
+    let on_settings = json!({"app": {"sendAnonymousTelemetry": true}});
+    assert_eq!(consent(&inputs(&none, Some(&on_settings), &no_env)), Consent::Send);
 
     let app = ConsentInputs { channel: InstallChannel::App, ..inputs(&none, None, &no_env) };
     assert!(matches!(consent(&app), Consent::Off(_)));
 
     let forced = BTreeMap::from([("DisableTelemetry".to_string(), Value::Bool(true))]);
-    assert!(matches!(consent(&inputs(&forced, None, &no_env)), Consent::Off(_)));
+    assert!(matches!(consent(&inputs(&forced, Some(&on_settings), &no_env)), Consent::Off(_)));
 
     let off = json!({"app": {"sendAnonymousTelemetry": false}});
     assert_eq!(
         consent(&inputs(&none, Some(&off), &no_env)),
         Consent::Off("app.sendAnonymousTelemetry is false")
     );
-    let on = json!({"app": {"sendAnonymousTelemetry": true}});
-    assert_eq!(consent(&inputs(&none, Some(&on), &no_env)), Consent::Send);
 
     let dnt = |name: &str| (name == "DO_NOT_TRACK").then(|| "1".to_string());
-    assert_eq!(consent(&inputs(&none, None, &dnt)), Consent::Off("DO_NOT_TRACK"));
+    assert_eq!(consent(&inputs(&none, Some(&on_settings), &dnt)), Consent::Off("DO_NOT_TRACK"));
     let telemetry_off = |name: &str| (name == "CMUX_TUI_TELEMETRY").then(|| "off".to_string());
-    assert_eq!(consent(&inputs(&none, None, &telemetry_off)), Consent::Off("CMUX_TUI_TELEMETRY"));
+    assert_eq!(
+        consent(&inputs(&none, Some(&on_settings), &telemetry_off)),
+        Consent::Off("CMUX_TUI_TELEMETRY")
+    );
     let ci = |name: &str| (name == "CI").then(|| "true".to_string());
-    assert_eq!(consent(&inputs(&none, None, &ci)), Consent::Off("CI"));
+    assert_eq!(consent(&inputs(&none, Some(&on_settings), &ci)), Consent::Off("CI"));
 
-    let unreleased = ConsentInputs { release_build: false, ..inputs(&none, None, &no_env) };
+    let unreleased =
+        ConsentInputs { release_build: false, ..inputs(&none, Some(&on_settings), &no_env) };
     assert_eq!(consent(&unreleased), Consent::Off("not a release build"));
 }
 
@@ -99,8 +108,11 @@ const SEEDS: [[&str; 3]; 17] = [
 #[test]
 fn seeded_secrets_never_leave_in_a_panic_event() {
     let text = SEEDS.map(|[prefix, rest, _]| format!("{prefix}{rest}")).join(" | ");
-    for kind in ["panic", "memory"] {
-        let line = json!({"message": text, "location": text, "backtrace": text, "kind": kind});
+    for kind in ["panic", "memory", "client-hang"] {
+        let line = json!({
+            "message": text, "location": text, "backtrace": text, "kind": kind,
+            "waits": [text], "cancelled": [text],
+        });
         let event = event_for(&line.to_string(), Some("/home/other")).unwrap();
         let sent = String::from_utf8(envelope(&event)).unwrap();
         for [_, _, marker] in SEEDS {
@@ -138,6 +150,23 @@ fn seeded_secrets_never_reach_the_wire() {
 }
 
 #[test]
+fn a_client_hang_line_is_a_warning_grouped_by_its_top_frame() {
+    let line = json!({
+        "kind": "client-hang", "at_ms": 1_000, "message": "cmux-tui UI loop stalled 2.4s in f",
+        "location": "cmux::app::f", "duration_ms": 2400, "backtrace": "#0 0x1 cmux::app::f",
+        "waits": ["daemon request tree (waited 2.4s of 5.0s)"], "cancelled": [], "version": "1.2.3",
+    });
+    let event = event_for(&line.to_string(), None).unwrap();
+    assert_eq!(event["level"], "warning");
+    assert_eq!(event["exception"]["values"][0]["type"], "ClientHang");
+    assert_eq!(event["fingerprint"], json!(["client-hang", "cmux::app::f"]));
+    assert_eq!(event["tags"]["crash_source"], "client_hang_log");
+    assert_eq!(event["extra"]["duration_ms"], 2400);
+    assert_eq!(event["extra"]["waits"][0], "daemon request tree (waited 2.4s of 5.0s)");
+    assert_eq!(event["release"], "cmux-tui@1.2.3");
+}
+
+#[test]
 fn each_line_goes_once_and_a_failed_send_retries_next_time() {
     let dir = std::env::temp_dir().join(format!("cmux-cf-unit-{}", uuid::Uuid::new_v4().simple()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -172,4 +201,21 @@ fn each_line_goes_once_and_a_failed_send_retries_next_time() {
     std::fs::write(&log, format!("{}{}{}three-partial", line("one"), line("two"), "")).unwrap();
     assert_eq!(forward_new(&log, &state, 10, None, |_| Ok(())).unwrap(), 0);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The home the scrubber turns into `~`: `HOME`, else on Windows the profile (RFD 0157).
+#[test]
+fn home_dir_falls_back_to_the_windows_profile() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |name: &str| {
+            pairs.iter().find(|(key, _)| *key == name).map(|(_, value)| value.to_string())
+        }
+    };
+    assert_eq!(home_dir(&env(&[("HOME", "/home/maya")])), Some("/home/maya".into()));
+    assert_eq!(
+        home_dir(&env(&[("HOME", "/home/maya"), ("USERPROFILE", r"C:\Users\maya")])),
+        Some("/home/maya".into())
+    );
+    let profile_only = home_dir(&env(&[("HOME", ""), ("USERPROFILE", r"C:\Users\maya")]));
+    assert_eq!(profile_only, cfg!(windows).then(|| r"C:\Users\maya".to_string()));
 }

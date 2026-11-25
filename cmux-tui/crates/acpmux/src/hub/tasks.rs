@@ -203,6 +203,10 @@ impl Hub {
             prompt_id: Some(format!("task-result-{id}-{}", result["at"])),
             resend: true,
             provenance: Some(provenance),
+            // The lane's message, as its report is (`lane_reports.rs`): an idle giver's turn
+            // gathers the ones after it, and a cold giver's waits for its batch (`cold_wake.rs`).
+            agent: Some(lane_name.clone()),
+            class: Some(crate::prompt_class::PromptClass::Result),
             // Accepted, or a duplicate of one accepted before: an orphan card is no longer owed.
             on_accepted: Some(Box::new(move |_| hub.card_sent(&card.0, &card.1))),
             ..PromptOptions::default()

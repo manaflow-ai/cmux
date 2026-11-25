@@ -135,6 +135,8 @@ final class ShellModel {
     struct CloudChatsPresentation: Identifiable {
         let id = UUID()
         let attention: CloudChatAttention?
+        /// A New Task on a Cloud machine: its chat starts with this first message.
+        var task: CloudChatTask? = nil
     }
     /// A Mac screen link being opened: Screen Sharing as a sheet, that device's share asked for.
     var macScreenLink: MacScreenLinkPresentation?
@@ -327,6 +329,7 @@ final class ShellModel {
         creator.onTaskNotDelivered = { [weak self] workspace, task, failure in
             self?.taskNotDelivered(workspace, task: task, failure: failure)
         }
+        wireCloudTasks()
         creator.onManageFailure = { [weak self] _, what, message in
             self?.toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: what)
             theme.haptics.error()
@@ -482,6 +485,7 @@ final class ShellModel {
             terminalTabs.macLinkUp = { [weak store] macID in store?.macConnection[macID].map { $0 == .connected } ?? true }
             terminalTabs.artifactSourceProvider = { [weak live] tab, macID in live?.terminalArtifactSource(tabID: tab.id, macID: macID) }
             terminalTabs.uploaderProvider = { [weak live] tab, macID in live?.terminalUploader(tabID: tab.id, macID: macID) }
+            terminalTabs.uploaderDirectoryProvider = { [weak live] tab, macID in live?.terminalDirectory(tabID: tab.id, macID: macID) }
             terminalTabs.screenTextProvider = { [weak live] tab, macID in await live?.terminalScreenText(tabID: tab.id, macID: macID) }
             // Grid cards and the close prompt's programs follow the Mac's output, not a timer.
             live.onTerminalOutput = { [weak terminalTabs] tab, macID in terminalTabs?.macOutput(tabID: tab, macID: macID) }
@@ -516,6 +520,13 @@ final class ShellModel {
             // Browser tabs opened on this iPhone follow the Macs' tab lists.
             StreamedBrowserDirectory.shared.tabsRetained = { NativeBrowserTabs.shared.retain(tabs: $0) }
             StreamedBrowserDirectory.shared.tabRenamed = { NativeBrowserTabs.shared.rename(tab: $0, to: $1) }
+            // New browser tabs open on the phone or stream (Settings → Browser → Open New Pages),
+            // and an HTML file on the Mac reads over its link to show here.
+            StreamedBrowserDirectory.shared.browserTabsListed = { NativeBrowserTabs.shared.listed(macID: $0, browserTabs: $1) }
+            NativeBrowserTabs.shared.readMacHTML = { [weak live] url, macID in
+                guard let live else { throw CancellationError() }
+                return try await live.macHTMLPage(url, macID: macID)
+            }
             // Their `localhost:<port>` pages, forwarded to the Mac when it serves `localhost`.
             NativeBrowserTabs.shared.forwarder = StreamedBrowserDirectory.shared.localhost
             NativeBrowserTabs.shared.macForwardsLocalhost = { [store] macID in
@@ -524,6 +535,8 @@ final class ShellModel {
         } else {
             StreamedBrowserDirectory.shared.opener = nil
             StreamedBrowserDirectory.shared.macOpener = nil
+            StreamedBrowserDirectory.shared.browserTabsListed = nil
+            NativeBrowserTabs.shared.readMacHTML = nil
             ChiefComputer.shared.source = nil
             FeedRouting.shared.clearAllNotifications = nil
             FeedRouting.shared.markAllNotificationsRead = nil
@@ -535,6 +548,7 @@ final class ShellModel {
             terminalTabs.macLinkUp = nil
             terminalTabs.artifactSourceProvider = nil
             terminalTabs.uploaderProvider = nil
+            terminalTabs.uploaderDirectoryProvider = nil
             terminalTabs.screenTextProvider = nil
             creator.backend = offlineCreation
         }
@@ -714,6 +728,10 @@ final class ShellModel {
         // The user left the restored workspace: no late link for it.
         if let macID = restoreLinkMac, location.macID != macID { restoreLinkMac = nil }
         lastOpen.save(location)
+        // The Rust last place (`LastPlaceMemory`): the same move, with the reading place kept
+        // for the tab it names.
+        let tab = location.workspaceID.flatMap { store.workspace(id: $0) }?.tabs.first { $0.id == location.tabID }
+        LastPlaceMemory.shared.noteLocation(workspaceID: location.workspaceID, tabID: location.tabID, isChat: tab?.kind == .agent)
     }
 
     /// How many screens are pushed on `tab`'s stack.
@@ -1088,17 +1106,31 @@ extension ShellModel {
         let stackHub: URL? = nil
         #endif
         let auth = auth
+        // The build's cloud data space, as every other cloud client of this build sends it: a tagged Debug build is a
+        // device of its tag's space on the hub; one with no usable tag makes no hub calls.
+        let space = auth.buildSpace
+        let hubSpace: DeviceHubBuildSpace = if space.refusal != nil { .unusable } else if let dev = space.space { .dev(dev.headerValue) } else { .nightly }
         let configuration = ScreenSharingService.Configuration(
             baseURL: ScreenSharingService.hubURL(isDebug: isDebug, environment: environment, stackHub: stackHub),
             bundleIdentifier: Bundle.main.bundleIdentifier ?? "dev.cmux.mobile",
-            deviceName: UIDevice.current.name,
+            deviceName: DeviceInstanceName(device: UIDevice.current.name, bundle: .main).value,
             tokens: DeviceHubAccountToken { try await auth.accessToken() },
-            accountID: auth.user?.id
+            accountID: auth.user?.id,
+            buildSpace: hubSpace
         )
         let service = ScreenSharingService(configuration: configuration)
         // The Share <Mac> tap's carrier (cmuxterm-hq#18912): the device hub's share-approval route.
         service.shareCarrier = { approval, target, hub in
             try await hub.sendShareApproval(target: target.id, approvalJSON: approval)
+        }
+        // Mac Screen over Link: the Macs this phone holds a link to, by name, with what their hosts
+        // list in `version` (a Mac listing `mac-display-v1` can show its screen on the link).
+        service.linkedMacs = { [weak self] in
+            guard let self, let live = self.live else { return [] }
+            let names = Dictionary(self.store.teams.flatMap(\.macs).map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+            return live.linkedMacIDs.compactMap { macID in
+                names[macID].map { ScreenSharingLinkedMac(macID: macID, name: $0, capabilities: self.store.macCapabilities[macID]) }
+            }
         }
         #if DEBUG
         if let demo = ScreenSharingService.demoMode() {

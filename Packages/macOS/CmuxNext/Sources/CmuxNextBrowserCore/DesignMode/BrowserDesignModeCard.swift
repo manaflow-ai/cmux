@@ -20,9 +20,13 @@ public nonisolated struct BrowserDesignModeCard: Sendable, Equatable {
     public var comment: String
     /// The pick's number, as its pin on the page shows it (1 for the first pick).
     public var number: Int
+    /// The pick's page selector (its key on the page); a browser comment thread names it.
+    public var selector: String
+    /// The picked element's text, trimmed (a browser comment's `quote`); empty for a drawn region.
+    public var quote: String
 
     public init(id: String, name: String, text: String, bounds: CGRect, viewportWidth: Double, pickedVariation: Int? = nil,
-                comment: String = "", number: Int = 1) {
+                comment: String = "", number: Int = 1, selector: String = "", quote: String = "") {
         self.id = id
         self.name = name
         self.text = text
@@ -31,5 +35,19 @@ public nonisolated struct BrowserDesignModeCard: Sendable, Equatable {
         self.pickedVariation = pickedVariation
         self.comment = comment
         self.number = number
+        self.selector = selector
+        self.quote = quote
+    }
+
+    /// The id of the card for the pick at `selector` on `pageURL`, the same on every launch (FNV-1a;
+    /// Swift's `hashValue` is seeded per process): a kept comment thread put back on its element is
+    /// held under it before the page reports the pick, so the pick gets no chip.
+    public static func id(selector: String, pageURL: URL?) -> String {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in (selector + "|" + (pageURL?.absoluteString ?? "")).utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x0000_0100_0000_01b3
+        }
+        return "design-" + String(hash, radix: 16)
     }
 }

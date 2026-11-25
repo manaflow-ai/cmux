@@ -149,7 +149,7 @@ export default componentEntry<Props>({
     layoutShiftMax: { value: 0, reason: "The Return cap takes no room from other rows; opening shifts nothing." },
   },
   covers: ["agent-session/acpmux/PaletteMenu.tsx#PaletteMenu"],
-  styles: () => Promise.all([import("./styles.css"), import("./keys.css")]),
+  styles: () => import("./styles.css"),
   load: async () => Fixture,
   variants: {
     now: {

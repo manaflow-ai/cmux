@@ -132,6 +132,7 @@ public final class Commands {
     public static final CommandMetadata FEED_LOCAL_LIST = new CommandMetadata("feed-local-list", Authority.CONTROL, 12, "feed-local-owner-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FEED_LOCAL_READ = new CommandMetadata("feed-local-read", Authority.CONTROL, 12, "feed-local-owner-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FLOAT_PANE = new CommandMetadata("float-pane", Authority.CONTROL, 12, "floating-panes-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata FLUSH_LAUNCH_SNAPSHOT = new CommandMetadata("flush-launch-snapshot", Authority.CONTROL, 12, "launch-snapshot-flush-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FOCUS_DIRECTION = new CommandMetadata("focus-direction", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FOCUS_PANE = new CommandMetadata("focus-pane", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FORGET_SESSION = new CommandMetadata("forget-session", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -160,7 +161,7 @@ public final class Commands {
     public static final CommandMetadata LIST_TERMINAL_COMMANDS = new CommandMetadata("list-terminal-commands", Authority.LOCAL_ADMIN, 12, "terminal-command-history-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_TERMINALS = new CommandMetadata("list-terminals", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_WORKSPACE_GROUPS = new CommandMetadata("list-workspace-groups", Authority.CONTROL, 12, "workspace-groups-v1", StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata LIST_WORKSPACES = new CommandMetadata("list-workspaces", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("after", 12L), Map.entry("known", 12L), Map.entry("limit", 12L)), Map.ofEntries(Map.entry("after", "list-workspaces-page-v1"), Map.entry("known", "list-workspaces-known-v1"), Map.entry("limit", "list-workspaces-limit-v1")));
+    public static final CommandMetadata LIST_WORKSPACES = new CommandMetadata("list-workspaces", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("after", 12L), Map.entry("known", 12L), Map.entry("limit", 12L)), Map.ofEntries(Map.entry("after", "list-workspaces-page-v1"), Map.entry("known", "list-workspaces-known-v1"), Map.entry("limit", "list-workspaces-limit-v1"), Map.entry("since", "workspace-list-delta-v1")));
     public static final CommandMetadata MACHINE_LISTENING_TCP = new CommandMetadata("machine-listening-tcp", Authority.CONTROL, 12, "machine-listening-tcp-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MACHINE_USAGE = new CommandMetadata("machine-usage", Authority.CONTROL, 12, "machine-usage-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MARK_WORKSPACES_PROVIDER_MANAGED = new CommandMetadata("mark-workspaces-provider-managed", Authority.PROVIDER_AUTHORITY, 9, "provider-managed-workspace-authority-v2", StreamKind.NONE, Map.of(), Map.of());
@@ -217,6 +218,7 @@ public final class Commands {
     public static final CommandMetadata REGISTER_BROWSER_PROVIDER = new CommandMetadata("register-browser-provider", Authority.LOCAL_ADMIN, 10, "browser-provider-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("hosting", "browser-provider-native-hosting-v1")));
     public static final CommandMetadata RELEASE_ATTACHED_VIEW_SIZE = new CommandMetadata("release-attached-view-size", Authority.FRONTEND, 10, "view-attachment-lease-v1", StreamKind.NONE, Map.ofEntries(Map.entry("view", 12L)), Map.ofEntries(Map.entry("view", "shared-sizing-v1")));
     public static final CommandMetadata RELEASE_SURFACE_SIZE = new CommandMetadata("release-surface-size", Authority.CONTROL, 7, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata RELEASE_WORKSPACE_NAMES = new CommandMetadata("release-workspace-names", Authority.CONTROL, 12, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata RELOAD_CONFIG = new CommandMetadata("reload-config", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata REMOTE_HOST_APP = new CommandMetadata("remote-host-app", Authority.LOCAL_ADMIN, 12, "remote-host-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata REMOTE_HOST_CALL = new CommandMetadata("remote-host-call", Authority.LOCAL_ADMIN, 12, "remote-host-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -276,7 +278,7 @@ public final class Commands {
     public static final CommandMetadata SET_TERMINAL_TAIL_PIN = new CommandMetadata("set-terminal-tail-pin", Authority.CONTROL, 12, "terminal-tail-pin-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_VIEWPORT_PANE_WIDTH = new CommandMetadata("set-viewport-pane-width", Authority.CONTROL, 9, "viewport-column-resize-v1", StreamKind.NONE, Map.ofEntries(Map.entry("transaction", 9L)), Map.ofEntries(Map.entry("transaction", "layout-undo-v1")));
     public static final CommandMetadata SET_WINDOW_TITLE = new CommandMetadata("set-window-title", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata SET_WORKSPACE_METADATA = new CommandMetadata("set-workspace-metadata", Authority.CONTROL, 12, "workspace-metadata-v1", StreamKind.NONE, Map.ofEntries(Map.entry("marked_unread", 12L), Map.entry("pinned", 12L)), Map.ofEntries(Map.entry("marked_unread", "notification-mark-unread-v1"), Map.entry("pinned", "workspace-pin-v1")));
+    public static final CommandMetadata SET_WORKSPACE_METADATA = new CommandMetadata("set-workspace-metadata", Authority.CONTROL, 12, "workspace-metadata-v1", StreamKind.NONE, Map.ofEntries(Map.entry("keep_awake", 12L), Map.entry("marked_unread", 12L), Map.entry("pinned", 12L)), Map.ofEntries(Map.entry("keep_awake", "workspace-keep-awake-v1"), Map.entry("marked_unread", "notification-mark-unread-v1"), Map.entry("pinned", "workspace-pin-v1")));
     public static final CommandMetadata SHELL_READ = new CommandMetadata("shell-read", Authority.CONTROL, 12, "shell-runs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SHELL_RUN = new CommandMetadata("shell-run", Authority.CONTROL, 12, "shell-runs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SHELL_STOP = new CommandMetadata("shell-stop", Authority.CONTROL, 12, "shell-runs-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -448,6 +450,7 @@ public final class Commands {
         values.put("feed-local-list", FEED_LOCAL_LIST);
         values.put("feed-local-read", FEED_LOCAL_READ);
         values.put("float-pane", FLOAT_PANE);
+        values.put("flush-launch-snapshot", FLUSH_LAUNCH_SNAPSHOT);
         values.put("focus-direction", FOCUS_DIRECTION);
         values.put("focus-pane", FOCUS_PANE);
         values.put("forget-session", FORGET_SESSION);
@@ -533,6 +536,7 @@ public final class Commands {
         values.put("register-browser-provider", REGISTER_BROWSER_PROVIDER);
         values.put("release-attached-view-size", RELEASE_ATTACHED_VIEW_SIZE);
         values.put("release-surface-size", RELEASE_SURFACE_SIZE);
+        values.put("release-workspace-names", RELEASE_WORKSPACE_NAMES);
         values.put("reload-config", RELOAD_CONFIG);
         values.put("remote-host-app", REMOTE_HOST_APP);
         values.put("remote-host-call", REMOTE_HOST_CALL);

@@ -8,6 +8,8 @@ import {
   apnsTopics,
   clean,
   isSealedText,
+  MAILBOX_MAX_HOLD_MS,
+  MAILBOX_TTL_MS,
   MAX_MAILBOX_SEALED,
   notifyFailures,
   notifyLimitKey,
@@ -22,15 +24,24 @@ import {
 import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
 import { StoreSchemaError } from "./store-mysql.ts"
 import { userHubName, type Attachment, type HubOwner, type Ingress } from "./team-hub.ts"
-import { RELAY_SUBPROTOCOL, RELAY_TICKET_HEADER, relayRoomName } from "./link-relay.ts"
+import { RELAY_SUBPROTOCOL, RELAY_TICKET_HEADER } from "./link-relay.ts";
+import { CACHE_VIEWER_HEADER, relayCacheRoomName } from "./relay-cache.ts"
 import { HUB_SUBPROTOCOL, hubRoomName } from "./hub-relay.ts"
-import { isRegion, netcheckRoomName, parseNetcheck, relayPlacement } from "./placement.ts"
+import {
+  isRegion,
+  netcheckRoomName,
+  parseNetcheck,
+  relayPlacement,
+  locationHintFor,
+  relayRoomName,
+} from "./placement.ts";
 import { Timing, timingFor } from "./timing.ts"
 import { WorkerEntrypoint } from "cloudflare:workers"
 
 export { TeamHub } from "./team-hub.ts"
 export { LinkRelay } from "./link-relay.ts"
 export { HubRelay } from "./hub-relay.ts"
+export { locationHintFor } from "./placement.ts"
 export { ConnectivityAlertDesk } from "./connectivity-alerts.ts"
 
 const CLOUD_MACHINE = /^vm_[a-z0-9]{20}$/
@@ -173,33 +184,6 @@ const readJson = async (req: Request): Promise<Record<string, unknown>> => {
  * personal space id that appeared in two projects would still be two separate spaces.
  */
 const scoped = (env: Env, caller: Caller, key: string) => (caller.projectId === primaryProject(env).id ? key : `${caller.projectId}:${key}`)
-/**
- * Where a new TeamHub should live: the region of the caller's own location (Cloudflare's geolocation of the
- * client), not of the colo that received the request. A Durable Object stays where it is first created, and
- * free-plan traffic is sometimes received far away (a California client was served from Paris on 2026-10-13),
- * so creating hubs next to the ingress colo stranded them across an ocean. Only affects a hub's creation.
- */
-export const locationHintFor = (cf: { continent?: unknown; longitude?: unknown; country?: unknown } | undefined): DurableObjectLocationHint | undefined => {
-  if (!cf || typeof cf.continent !== "string") return undefined
-  const lon = typeof cf.longitude === "string" ? Number.parseFloat(cf.longitude) : typeof cf.longitude === "number" ? cf.longitude : Number.NaN
-  switch (cf.continent) {
-    case "NA":
-      return Number.isFinite(lon) && lon < -100 ? "wnam" : "enam"
-    case "SA":
-      return "sam"
-    case "EU":
-      return Number.isFinite(lon) && lon > 20 ? "eeur" : "weur"
-    case "AF":
-      return "afr"
-    case "OC":
-      return "oc"
-    case "AS":
-      return ["AE", "BH", "IL", "IQ", "IR", "JO", "KW", "LB", "OM", "QA", "SA", "SY", "YE"].includes(String(cf.country)) ? "me" : "apac"
-    default:
-      return undefined
-  }
-}
-
 /** The caller's identity, build space (`spaceOf`), and where a hub created by this request should live. */
 type Ctx = Caller & { readonly space: string; readonly hint?: DurableObjectLocationHint; readonly t: Timing }
 /**
@@ -452,6 +436,50 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     return t.span("relay", room.fetch("https://link-relay/join", { headers }))
   }
 
+  const cachePath = path.match(/^\/v1\/relay-cache\/([^/]+)\/(snapshot|delta|catch-up|ack)$/)
+  if (cachePath) {
+    // The relay's sealed snapshot cache and delta catch-up (RFD 0142 R2 and R9, PROTOCOL.md "Relay snapshot seal",
+    // "Relay delta catch-up"): one LinkRelay room per source Mac, so a phone's cold open reads it with no link
+    // session and the Mac asleep. The Mac writes for a named viewer (`?viewer=`); a viewer reads only its own.
+    // The relay sees only each envelope's clear header (relay-cache.ts `peek`), never the plaintext.
+    if (env.LINK_RELAY_MODE === "off") return fail(503, "relay_off", "the cmux relay is turned off")
+    if (env.LINK_RELAY_CACHE !== "on") return fail(503, "relay_cache_off", "the relay cache is turned off")
+    const source = pathSegment(cachePath[1]!).toLowerCase()
+    const what = cachePath[2]!
+    const deviceId = (url.searchParams.get("deviceId") ?? "").toLowerCase()
+    if (!UUID.test(source) || !UUID.test(deviceId)) throw new HttpError(400, "bad_request", "sourceDeviceId and deviceId must be UUIDs")
+    const kindOf = async (id: string) => {
+      const kind = await t.span("hub", userHub(env, caller).hubDevice(who, id))
+      if (kind) return kind
+      const device = await withStore(env, ctx, (s) => s.getDevice(space, id))
+      return device && device.ownerUserId === me ? (device.kind === "mac" ? "mac" : "phone") : null
+    }
+    const writes = (what === "snapshot" && method === "PUT") || (what === "delta" && method === "POST")
+    let viewer = deviceId
+    if (writes) {
+      // Only the source itself writes, and only for one of the owner's own devices.
+      if (deviceId !== source) throw new HttpError(403, "not_the_source", "only the source device writes its cache")
+      viewer = (url.searchParams.get("viewer") ?? "").toLowerCase()
+      if (!UUID.test(viewer)) throw new HttpError(400, "bad_request", "viewer must be a UUID")
+      const [sourceKind, viewerKind] = await Promise.all([kindOf(source), kindOf(viewer)])
+      if (sourceKind !== "mac") throw new HttpError(403, "not_a_source", "only a Mac or VM device has a relay cache")
+      if (!viewerKind) throw new HttpError(403, "not_owner", "the viewer is not one of your devices")
+    } else {
+      const [sourceKind, viewerKind] = await Promise.all([kindOf(source), kindOf(deviceId)])
+      if (sourceKind !== "mac" || !viewerKind) throw new HttpError(403, "not_owner", "register this device first")
+    }
+    const room = env.LINK_RELAY.get(env.LINK_RELAY.idFromName(relayCacheRoomName(me, space, source)), caller.hint ? { locationHint: caller.hint } : undefined)
+    const target = new URL(`https://link-relay/cache/${what}`)
+    const stream = url.searchParams.get("stream")
+    if (stream !== null) target.searchParams.set("stream", stream)
+    const headers = new Headers({ [CACHE_VIEWER_HEADER]: viewer })
+    const type = req.headers.get("content-type")
+    if (type) headers.set("content-type", type)
+    const length = req.headers.get("content-length")
+    if (length) headers.set("content-length", length)
+    return t.span("relay", room.fetch(target.toString(), { method, headers, body: method === "GET" ? undefined : req.body }))
+  }
+
   const hubPath = path.match(/^\/v1\/hub\/([^/]+)$/)
   if (hubPath && method === "GET") {
     // The three-way hub (RFD 0142 R6, PROTOCOL.md "Three-way hub"): the session's sources (the owner's Mac and VM,
@@ -608,8 +636,12 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       if (!isSealedText(b.sealed, MAX_MAILBOX_SEALED)) throw new HttpError(400, "bad_request", `sealed must be base64url of at most ${MAX_MAILBOX_SEALED} characters`)
       const phone = await withStore(env, ctx, (s) => s.getDevice(space, from))
       if (!phone || phone.ownerUserId !== me || phone.kind !== "phone") throw new HttpError(403, "not_owner", "replies come from your own phone")
+      // `hold` (seconds, API 0.18.0 "Store and forward"): how long the item waits for a Mac that sleeps.
+      if (b.hold !== undefined && !(Number.isInteger(b.hold) && (b.hold as number) >= 1 && (b.hold as number) * 1000 <= MAILBOX_MAX_HOLD_MS))
+        throw new HttpError(400, "bad_request", `hold must be whole seconds from 1 to ${MAILBOX_MAX_HOLD_MS / 1000}`)
       await limit(env.MAILBOX_LIMIT, me, "replies")
-      const r = await userHub(env, caller).mailboxPost(who, { id, mac: deviceId, from, sealed: b.sealed })
+      const ttl = b.hold === undefined ? MAILBOX_TTL_MS : (b.hold as number) * 1000
+      const r = await userHub(env, caller).mailboxPost(who, { id, mac: deviceId, from, sealed: b.sealed }, ttl)
       if ("error" in r) {
         if (r.error === "full") throw new HttpError(429, "rate_limited", "this Mac has too many replies waiting; try again later")
         throw new HttpError(409, "conflict", "another reply already has this id")

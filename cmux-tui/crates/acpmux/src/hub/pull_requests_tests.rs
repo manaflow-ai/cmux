@@ -13,6 +13,10 @@ fn only_a_command_that_is_gh_pr_create_counts() {
         "gh pr create --fill &>/tmp/pr.log",
         "git push && gh pr create --fill",
         "git add -A && git commit -m 'x; y' && git push -u origin HEAD && gh pr create --fill 2>&1",
+        "gh pr create --fill | tee out",
+        "cd /w && GUARD_OVERRIDE=\"$5\" timeout 900 gh pr create -R o/r --fill 2>&1 | tail -2",
+        "timeout -k 5 --signal=KILL 60 gh pr create --fill",
+        "lane-gh call pr_create o/r '{\"head\": \"lane/x\", \"base\": \"main\"}'",
     ] {
         assert!(is_gh_pr_create(yes), "{yes}");
     }
@@ -20,7 +24,9 @@ fn only_a_command_that_is_gh_pr_create_counts() {
         "grep -rn 'gh pr create' .",
         "echo gh pr create",
         "gh pr create --fill && gh pr view 9",
-        "gh pr create --fill | tee out",
+        "gh pr create --fill | xargs echo",
+        "timeout 900 gh pr view 9",
+        "lane-gh call pr_view o/r '{}'",
         "gh pr create --body \"$(cat body.md)\" && gh pr view 9",
         "git push; gh pr create --fill",
         "git push || gh pr create --fill",
@@ -110,15 +116,15 @@ fn a_gh_pr_merge_or_close_anywhere_in_the_script_names_its_pull_request() {
 #[test]
 fn settled_urls_are_what_gh_says_it_merged_or_closed() {
     let out = "✓ Squashed and merged pull request o/r#5 (Fix it)\n\
-            ✓ Rebased and merged pull request o/r#6 (x)\n\
-            ✓ Merged pull request a-b/c.d#7 (x)\n\
-            ✓ Closed pull request o/r#8 (x)\n\
-            ! Pull request o/r#9 was already merged\n\
-            ! Pull request o/r#10 was already closed\n\
-            merged o/r#11 at 0123456789ab (head fedcba9876)\n\
-            ✓ Squashed and merged o/r#12\n\
-            ✓ Closed o/r#13\n\
-            ✓ Squashed and merged pull request o/r#5 (Fix it)\n";
+        ✓ Rebased and merged pull request o/r#6 (x)\n\
+        ✓ Merged pull request a-b/c.d#7 (x)\n\
+        ✓ Closed pull request o/r#8 (x)\n\
+        ! Pull request o/r#9 was already merged\n\
+        ! Pull request o/r#10 was already closed\n\
+        merged o/r#11 at 0123456789ab (head fedcba9876)\n\
+        ✓ Squashed and merged o/r#12\n\
+        ✓ Closed o/r#13\n\
+        ✓ Squashed and merged pull request o/r#5 (Fix it)\n";
     let urls: Vec<String> = (5..=13).map(|n| format!("https://github.com/o/r/pull/{n}")).collect();
     let mut want = urls.clone();
     want[2] = "https://github.com/a-b/c.d/pull/7".into();
@@ -170,12 +176,116 @@ fn a_closed_pull_request_counts_once_its_call_ends() {
 }
 
 #[test]
+fn a_broker_pr_create_tool_counts_the_url_its_answer_names() {
+    let mut calls = std::collections::HashMap::new();
+    let start = json!({"toolCallId": "m1", "kind": "other", "title": "mcp__github__pr_create",
+        "_meta": {"claude": {"tool": "mcp__github__pr_create"}},
+        "rawInput": {"repo": "o/r", "head": "lane/x", "base": "main", "title": "t"}});
+    let done = json!({"toolCallId": "m1", "status": "completed", "content": [{"type": "content",
+        "content": {"type": "text", "text": "{\"ok\":true,\"status\":201,\"data\":{\"html_url\":\"https://github.com/o/r/pull/7\",\"number\":7,\"head\":{\"repo\":{\"html_url\":\"https://github.com/o/r\"}}}}"}}]});
+    assert_eq!(track(&mut calls, &start), None);
+    assert_eq!(track(&mut calls, &done).as_deref(), Some("https://github.com/o/r/pull/7"));
+    // A refusal (a cooldown, a 409) names none, though the tool call "completed".
+    for refused in [
+        "{\"ok\":false,\"error\":\"shared content-creation cooldown\",\"retry_after\":898}",
+        "{\"ok\":false,\"status\":409,\"error\":\"the accepted PR create changed\"}",
+    ] {
+        assert_eq!(track(&mut calls, &start), None);
+        let answer = json!({"toolCallId": "m1", "status": "completed",
+            "content": [{"type": "content", "content": {"type": "text", "text": refused}}]});
+        assert_eq!(track(&mut calls, &answer), None, "{refused}");
+    }
+    // Codex names it by its title.
+    let codex = json!({"toolCallId": "c1", "title": "github.pr_create", "status": "completed",
+        "rawOutput": {"output": "{\"ok\": true, \"data\": {\"html_url\": \"https://github.com/o/r/pull/8\"}}"}});
+    assert_eq!(track(&mut calls, &codex).as_deref(), Some("https://github.com/o/r/pull/8"));
+    assert!(calls.is_empty());
+
+    // The repository MCP helper opens the PR itself and returns the same structured URL.
+    let publish = json!({"toolCallId": "p1", "title": "mcp__repo__repo_publish",
+        "rawInput": {"repo": "o/r", "branch": "lane/x"}});
+    let published = json!({"toolCallId": "p1", "status": "completed",
+        "content": [{"type": "text", "text": "o/r lane/x: abc123 pushed through broker\nhttps://api.github.com/repos/o/r/pulls/9"}]});
+    assert_eq!(track(&mut calls, &publish), None);
+    assert_eq!(track(&mut calls, &published).as_deref(), Some("https://github.com/o/r/pull/9"));
+
+    let published_json = json!({"toolCallId": "p2", "title": "repo_publish", "status": "completed",
+        "content": [{"type": "text", "text": "{\"data\":{\"url\":\"https://api.github.com/repos/o/r/pulls/10\"}}"}]});
+    assert_eq!(
+        track(&mut calls, &published_json).as_deref(),
+        Some("https://github.com/o/r/pull/10")
+    );
+
+    let existing = json!({"toolCallId": "p3", "title": "repo_publish", "status": "completed",
+        "content": [{"type": "text", "text": "a pull request already exists:\nhttps://api.github.com/repos/o/r/pulls/11"}]});
+    assert_eq!(track(&mut calls, &existing), None);
+}
+
+#[test]
+fn a_shell_create_behind_timeout_and_a_pipe_counts_but_not_one_that_already_exists() {
+    let mut calls = std::collections::HashMap::new();
+    let command = "GUARD_OVERRIDE=x timeout 900 gh pr create --fill 2>&1 | tail -3";
+    let run = |stdout: &str| {
+        json!({"toolCallId": "s1", "kind": "execute", "status": "completed",
+            "rawInput": {"command": command}, "rawOutput": {"stdout": stdout}})
+    };
+    let printed = "https://github.com/o/r/pull/9\nsession-footer: added\n";
+    assert_eq!(track(&mut calls, &run(printed)).as_deref(), Some("https://github.com/o/r/pull/9"));
+    // The pipe hides gh's exit status: the line before its URL says it was not opened here.
+    let exists = "a pull request for branch \"x\" into branch \"main\" already exists:\nhttps://github.com/o/r/pull/9\n";
+    assert_eq!(track(&mut calls, &run(exists)), None);
+    // `lane-gh call pr_create` answers with the broker's JSON.
+    let lane = json!({"toolCallId": "s2", "kind": "execute", "status": "completed",
+        "rawInput": {"command": "lane-gh call pr_create o/r '{}'"},
+        "rawOutput": {"stdout": "{\"ok\": true, \"status\": 201, \"data\": {\"html_url\": \"https://github.com/o/r/pull/10\"}}\n"}});
+    assert_eq!(track(&mut calls, &lane).as_deref(), Some("https://github.com/o/r/pull/10"));
+    assert!(calls.is_empty());
+}
+
+#[test]
+fn a_background_create_counts_what_its_task_printed() {
+    let mut creates = Creates::default();
+    let start = json!({"toolCallId": "b1", "kind": "other", "title": "mcp__acpmux__bg_start",
+        "_meta": {"claude": {"tool": "mcp__acpmux__bg_start"}},
+        "rawInput": {"command": "f(){ cd $1 && timeout 900 gh pr create --fill 2>&1 | tail -2; }; f a; f b"}});
+    assert!(follow(&mut creates, &start).is_empty());
+    let started = json!({"toolCallId": "b1", "status": "completed", "content": [{"type": "content",
+        "content": {"type": "text", "text": "{\"id\":\"bg-1\",\"state\":\"running\"}"}}]});
+    assert!(follow(&mut creates, &started).is_empty());
+    // A `bg_output` answer for another task names none.
+    let other = json!({"toolCallId": "b2", "status": "completed", "content": [{"type": "content",
+        "content": {"type": "text", "text": "{\"id\":\"bg-2\",\"text\":\"https://github.com/o/r/pull/1\\n\"}"}}]});
+    assert!(follow(&mut creates, &other).is_empty());
+    let output = json!({"toolCallId": "b3", "status": "completed", "content": [{"type": "content",
+        "content": {"type": "text", "text": "{\"id\":\"bg-1\",\"state\":\"exited\",\"text\":\"https://github.com/o/r/pull/11\\na pull request for branch already exists:\\nhttps://github.com/o/r/pull/3\\nhttps://github.com/o/r/pull/12\\n\"}"}}]});
+    assert_eq!(
+        follow(&mut creates, &output),
+        ["https://github.com/o/r/pull/11", "https://github.com/o/r/pull/12"]
+    );
+    // Its end notice quotes its last lines.
+    let notice = json!({"promptId": "bg-done-bg-1", "_meta": {"provenance": {"bgTaskId": "bg-1"}},
+        "text": "[notice from acpmux] Background command finished: x (exit 0)\nTask bg-1: f...\nLast 2 lines of its output:\nhttps://github.com/o/r/pull/12\nsession-footer: added"});
+    assert_eq!(follow_notice(&mut creates, &notice), ["https://github.com/o/r/pull/12"]);
+    let unrelated = json!({"_meta": {"provenance": {"bgTaskId": "bg-9"}},
+        "text": "https://github.com/o/r/pull/13"});
+    assert!(follow_notice(&mut creates, &unrelated).is_empty());
+    // A background command that opens none is not followed.
+    let plain = json!({"toolCallId": "b4", "title": "mcp__acpmux__bg_start",
+        "rawInput": {"command": "cargo test"}});
+    follow(&mut creates, &plain);
+    assert!(!creates.launches.contains("b4"));
+}
+
+#[test]
 fn printed_url_is_the_last_line_that_is_only_a_pull_url() {
     let out = "Creating pull request for b into main in o/r\n\nhttps://github.com/o/r/pull/12\n";
-    assert_eq!(printed_url(out), Some("https://github.com/o/r/pull/12"));
+    assert_eq!(printed_url(out).as_deref(), Some("https://github.com/o/r/pull/12"));
     assert_eq!(printed_url("see https://github.com/o/r/pull/3 for more"), None);
     assert_eq!(printed_url("https://github.com/o/r/pull/3/files"), None);
     let stdout =
         json!({"rawOutput": {"stdout": "https://github.com/o/r/pull/4\n", "stderr": "warning"}});
-    assert_eq!(printed_url(&output_text(&stdout)), Some("https://github.com/o/r/pull/4"));
+    assert_eq!(
+        printed_url(&output_text(&stdout)).as_deref(),
+        Some("https://github.com/o/r/pull/4")
+    );
 }

@@ -131,6 +131,7 @@ test("a chat on the store: switch first, the hold, its rows, and its kept window
       eventStream: true,
       kinds: [...HOLD_KINDS],
       visible: expect.any(Boolean),
+      attending: expect.any(Boolean),
     });
 
     // The store's window is the snapshot's rows.

@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import { type ComposerAttachment, type DroppedKind, inlineCopyId } from "./attachments";
 import { composerCopy, forgetCopy, pastePlan, pastesPlaced, writeComposerCopy } from "./composer/composerCopy";
+import { stagesComposerCopy } from "./composer/composerCopyStage";
 import { useInlineAttachments } from "./composer/inlineAttachments";
 import { AttachmentStrip } from "./composer/attachmentIntake";
 import { attachStripSize } from "./composer/attachStrip.experiment";
@@ -25,7 +26,6 @@ import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { ChromeArea, type HideableChromeItem } from "../../ui/HideableChrome";
 import { ComposerListAnchor } from "./backdropLayer";
 import { remember } from "./composer/pasteMarks";
-import { type PromptText, usePromptTextValue } from "./composer/promptText";
 import { acpmuxPerf } from "./perf";
 import { composerChanged } from "./launchInputEcho";
 import { holdFlag, setRef } from "./heldFlag";
@@ -33,6 +33,7 @@ import { Slot } from "../../slots/Slot";
 import { composerCaretSlot } from "../../slots/composerCaret";
 import { watchFocusVisible } from "./focusVisibleMark";
 import { composerControlsAnchor } from "./composerControlsAnchor.experiment";
+import { ComposerCopyStatusLine, useComposerCopyStatus } from "./composer/ComposerCopyStatus";
 
 /// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
 /// and dialogs the card opens, and attachments.
@@ -57,9 +58,6 @@ export type ComposerBoxProps = {
   /// The prompt field: its value and the host's own behavior (what Return does, its menus). The box
   /// runs a huge paste (a Pasted text chip, pastedChips.ts) and ⌘⇧V before the host hears them.
   field: Omit<MarkdownFieldProps, "plugins">;
-  /// The prompt's text when the host keeps it outside React state (the chat pane, composer/promptText.ts):
-  /// the box reads it itself, so a key renders the box and the field, not the host. Over `field.value`.
-  prompt?: PromptText;
   /// Receives the prompt field's handle.
   fieldRef?: (handle: MarkdownFieldHandle | null) => void;
   handle?: React.Ref<ComposerBoxHandle>;
@@ -81,9 +79,8 @@ export type ComposerBoxProps = {
   /// Codex's attachments say they go as files (AttachmentStrip).
   codex?: boolean;
   onRemoveAttachment(id: string): void;
-  /// A loading chip's × and a failed chip's Retry (attachmentIntake.tsx PendingChip).
+  /// A loading chip's × (attachmentIntake.tsx PendingChip).
   onCancelAttachment?(id: string): void;
-  onRetryAttachment?(id: string): void;
   /// A cancelled loading chip's node came back (undo): read its file again; false when it can't.
   onReviveAttachment?(id: string): boolean;
   /// Why a staged image's original failed to upload, by chip id (AttachmentStrip).
@@ -107,6 +104,8 @@ export type ComposerBoxProps = {
   onFieldMenuOpen?(): void;
   /// Drawn with the prompt, inside its menu (the chat's shell field over the hidden prompt).
   fieldOverlay?: React.ReactNode;
+  /// The vim mode to show (`agentPane.composerVimKeys` on); unset, nothing is drawn.
+  vimMode?: "normal" | "insert";
   /// The box's first children: menus anchored to the field (the `/` and `@` lists, which draw out of
   /// the box's glass, backdropLayer.tsx) and hidden inputs.
   top?: React.ReactNode;
@@ -119,6 +118,9 @@ export type ComposerBoxProps = {
   chips?: React.ReactNode;
   /// What ends the quiet row (the context ring).
   ring?: React.ReactNode;
+  /// Drawn centered in the quiet row, out of its flow (the chat's Customize button,
+  /// ComposerCustomizer.tsx); the row's fit never counts it.
+  footCenter?: React.ReactNode;
   /// The one send control (Send or Stop) before the mic, which keeps the right edge (the plain
   /// footer, in both looks); without the plain footer it is last (`trailing`).
   actionsLead?: React.ReactNode;
@@ -137,7 +139,6 @@ export type ComposerBoxProps = {
 /// anchor to the field and the controls of their row.
 export function ComposerBox({
   field,
-  prompt: promptText,
   fieldRef,
   handle,
   boxRef,
@@ -150,7 +151,6 @@ export function ComposerBox({
   codex = false,
   onRemoveAttachment,
   onCancelAttachment,
-  onRetryAttachment,
   onReviveAttachment,
   originalFailures,
   onReorderAttachment,
@@ -162,11 +162,13 @@ export function ComposerBox({
   fieldMenu,
   onFieldMenuOpen,
   fieldOverlay,
+  vimMode,
   top,
   onCardPress,
   leading,
   chips,
   ring,
+  footCenter,
   actionsLead,
   accessory,
   trailing,
@@ -186,7 +188,7 @@ export function ComposerBox({
   // The composer refresh (Settings > Advanced > Experiments, composerV2.ts): its arm and whether the draft has
   // words, as attributes composerV2.css reads; both absent while it is off.
   const composerV2 = useComposerV2();
-  const value = usePromptTextValue(promptText, field.value);
+  const value = field.value;
   const hasText = composerV2 !== undefined && /\S/.test(value);
   // The footer look and the row's place can change while this component stays mounted: the fit key
   // has both, so the live row is measured again before the new form paints.
@@ -233,7 +235,6 @@ export function ComposerBox({
     setAttachments,
     pending: pending ?? [],
     cancel: (id) => onCancelAttachment?.(id),
-    retry: (id) => onRetryAttachment?.(id),
     revive: (id) => onReviveAttachment?.(id) ?? false,
     expand: (id) => {
       pastedChips.expand(id);
@@ -272,14 +273,17 @@ export function ComposerBox({
   // the text are in its selection (composer/inlineNode.ts); the strip's show as selected while the
   // whole draft is, and go with its copy, cut and delete.
   const [whole, setWhole] = useState(false);
+  const [copyStatus, setCopyStatus] = useComposerCopyStatus(field.selectionKey);
   const staged = () => (attachmentsRef ?? ownAttachments).current;
   /// The strip's own attachments, those not placed in the text, go with a whole draft cut or deleted.
-  const dropStrip = () => {
-    for (const chip of staged().filter((each) => !placed.has(each.id))) {
+  const dropStrip = (selected?: ReadonlySet<string>) => {
+    for (const chip of staged().filter((each) => !placed.has(each.id) && (!selected || selected.has(each.id)))) {
       inline.remove(chip.id);
       onRemoveAttachment(chip.id);
     }
-    if (onCancelAttachment) for (const chip of pending ?? []) if (!placed.has(chip.id)) inline.cancel(chip.id);
+    if (onCancelAttachment)
+      for (const chip of pending ?? [])
+        if (!placed.has(chip.id) && (!selected || selected.has(chip.id))) inline.cancel(chip.id);
   };
   // A press on the card around the text (the field's padding, the gap around the button row, the
   // card's edge) focuses the prompt where its caret was, as in Codex and Claude Code, whose whole
@@ -308,6 +312,7 @@ export function ComposerBox({
       <ComposerFoot ref={bar} plain={plainFooter}>
         {shownChips}
         {ring}
+        {footCenter}
       </ComposerFoot>
     </ChromeArea>
   );
@@ -341,10 +346,14 @@ export function ComposerBox({
   }, [boxElement]);
   return (
     <>
+      <ComposerCopyStatusLine status={copyStatus} />
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the prompt inside is the control and takes the keyboard itself. */}
       <div
         ref={attachBox}
         className="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box"
+        // The page's glass, at the popups' tokens (composerStates.css, ONE MATERIAL FAMILY), never the App's:
+        // the card animates its height and the App's glass trails a report, and the stack's seams are one rim.
+        data-page-glass="docked composer: animates its height and joins the stack's rim, which the App's glass cannot follow"
         // The compact grid (composerLocation.css): a state attribute, not a :has() on the box.
         data-composer-grid=""
         data-attachment-view={attachmentView}
@@ -371,7 +380,6 @@ export function ComposerBox({
           }}
           selected={whole}
           {...(onCancelAttachment ? { onCancel: inline.cancel } : {})}
-          {...(onRetryAttachment ? { onRetry: onRetryAttachment } : {})}
           {...(originalFailures ? { originalFailures } : {})}
           onReorder={onReorderAttachment ?? inline.reorder}
           onExpand={inline.expand}
@@ -390,15 +398,28 @@ export function ComposerBox({
             }}
             onInlineViews={inline.onInlineViews}
             isInlineAttachment={inline.known}
+            inlineHidden={attachmentView === "strip"}
             onWholeSelection={setWhole}
-            onCopy={(copy, cut) => {
+            onCopy={(copy, cut, commitCut) => {
               const made = composerCopy(copy.parts, copy.whole, staged());
               // Text alone is the field's own copy: the last copy with attachments is gone from the pasteboard.
               if (!made) {
                 forgetCopy();
+                setCopyStatus(undefined);
                 return false;
               }
-              writeComposerCopy(made);
+              setCopyStatus(undefined);
+              if (cut && stagesComposerCopy(made)) {
+                const selected = new Set([
+                  ...staged().map((chip) => chip.id),
+                  ...(pending ?? []).map((chip) => chip.id),
+                ]);
+                writeComposerCopy(made, setCopyStatus, () => {
+                  if (commitCut() && copy.whole) dropStrip(selected);
+                });
+                return "pending";
+              }
+              writeComposerCopy(made, setCopyStatus);
               if (cut && copy.whole) dropStrip();
               return true;
             }}
@@ -451,14 +472,16 @@ export function ComposerBox({
                 onKeyDown?.(event);
                 return;
               }
-              // Backspace at the prompt's start takes back the last chip (backspacedAttachment).
-              const backspaced = composing
-                ? undefined
-                : backspacedAttachment(
-                    event,
-                    prompt.current?.atStart() ?? false,
-                    attachments.filter((chip) => attachmentView === "strip" || !placed.has(chip.id)),
-                  );
+              // Backspace at the prompt's start takes back the last chip outside the text
+              // (backspacedAttachment), in the inline view only: the strip's attachments go by their ×.
+              const backspaced =
+                composing || attachmentView === "strip"
+                  ? undefined
+                  : backspacedAttachment(
+                      event,
+                      prompt.current?.atStart() ?? false,
+                      attachments.filter((chip) => !placed.has(chip.id)),
+                    );
               if (backspaced) {
                 event.preventDefault();
                 inline.remove(backspaced.id);
@@ -473,6 +496,11 @@ export function ComposerBox({
               field's own caret as before. */}
           <Slot slot={composerCaretSlot} props={{ empty: !/\S/.test(field.value) }} />
         </ContextMenu>
+        {vimMode && (
+          <output className="acpmux-vim-mode" data-vim-mode={vimMode} aria-live="off">
+            {vimMode === "normal" ? "NORMAL" : "INSERT"}
+          </output>
+        )}
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
           {/* The box grid for +, the prompt, the mic and Send, with the model group in

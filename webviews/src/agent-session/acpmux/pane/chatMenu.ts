@@ -2,6 +2,7 @@ import type { Dispatch, RefObject, SetStateAction } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { sayActionRefusal } from "../actionRefusal";
 import { callNative } from "../callNative";
+import { autoUnsupported } from "../autoSession/autoSession";
 import type { useCheckpoints } from "../checkpoints/controller";
 import type { CheckpointStrings } from "../checkpoints/strings";
 import { cloudMachineRows, type StopWaiter, type chatCloudMachine } from "../cloudMachineMenu";
@@ -16,6 +17,7 @@ import type { AcpmuxDirectClient } from "../direct";
 import { CONNECT_ACTIONS, type OffloadKind } from "../environments";
 import type { HandoffStrings } from "../handoff/strings";
 import type { archiveRow, markUnreadRow } from "../header/archiveRow";
+import { autoRows } from "../header/autoRow";
 import type { avatarRows } from "../header/avatarRow";
 import { HEADER_ACTIONS, guardedChatMenu, menuGroups, type ChatMenuItem } from "../header/chatHeaderToolsModel";
 import { deleteChatRow, moveMachineRow } from "../header/chatRows";
@@ -25,7 +27,7 @@ import { revokeAccessRows, type chatAccessGrants } from "../header/grantsMenu";
 import { headerState, type HeaderState } from "../header/headerState";
 import { instructionsRow, projectFilesRow } from "../header/instructionsRow";
 import { chatMini, miniRow, showInMini } from "../header/miniRow";
-import { presentationRow } from "../header/presentationRow";
+import { chatDetailRow } from "../header/chatDetailRow";
 import type { QuickActionMode } from "../header/quickActions";
 import { opensBesideRows, type sideChatRow } from "../header/sideChatRow";
 import { TERMINAL_SWITCH_ACTION, moveToTerminal, terminalMoveRow, terminalSwitchRow } from "../header/terminalMoveRow";
@@ -85,6 +87,13 @@ export type ChatMenuDeps = {
   toggleInspector: (open?: boolean) => boolean;
   turnActions: TurnActions;
 };
+
+/// Whether chatMenuItems has rows whatever else the chat's state is: a tab's chat always has
+/// Rename and Pin, and Quick Chat's has Delete once it has a session. Only Quick Chat before its
+/// session may have none, and then the header reads the rows to draw "..." disabled.
+export function chatMenuHasRows(quick: boolean, sessionId: string | undefined): boolean {
+  return !quick || !!sessionId;
+}
 
 /// The header's "..." menu for the pane's chat (AcpmuxPane's `chatMenu`).
 export function chatMenuItems(deps: ChatMenuDeps): ChatMenuItem[] {
@@ -263,10 +272,10 @@ export function chatMenuItems(deps: ChatMenuDeps): ChatMenuItem[] {
         ) ?? document.querySelector<HTMLElement>(".acpmux-header-tools"),
       ),
   };
-  // Normal, Thinking or Verbose for this chat, then Wrap lines (every command's output) and
-  // Text & Width… under them in one submenu (header/transcriptViewRow.ts): the menu is full
+  // Messages, Normal, Thinking or Verbose for this chat, then Wrap lines (every command's output)
+  // and Text & Width… under them in one submenu (header/chatDetailRow.ts): the menu is full
   // height, and a row more pushes Archive off it.
-  const transcriptView = presentationRow(snapshot.sessionId, t, [wrapOutputRow(t), display]);
+  const transcriptView = chatDetailRow(snapshot.sessionId, t, [wrapOutputRow(t), display]);
   const tools: ChatMenuItem[] = [
     transcriptView ?? { ...display, icon: "site.permission.localfonts" },
     ...replay,
@@ -319,6 +328,12 @@ export function chatMenuItems(deps: ChatMenuDeps): ChatMenuItem[] {
     client !== undefined && client === directClient.current && client.selectedSession === sessionId;
   const guarded = (row: ChatMenuItem | undefined): Exclude<ChatMenuItem, "separator">[] =>
     row ? guardedChatMenu([row], sameChat).filter((item) => item !== "separator") : [];
+  const setAutoSession = (auto: boolean, keepInCloud?: boolean) => {
+    if (!client || !sessionId) return;
+    void client
+      .setAutoSession(sessionId, auto, keepInCloud)
+      .catch((error: unknown) => (autoUnsupported(error) ? undefined : notices.failed(t("auto.setFailed"))));
+  };
   const moveMachine = moveMachineRow(
     {
       move: moves.includes(CONNECT_ACTIONS.move),
@@ -330,6 +345,17 @@ export function chatMenuItems(deps: ChatMenuDeps): ChatMenuItem[] {
       bringBack: () => (sessionId ? offloadChat("bringBack", sessionId) : undefined),
     },
     t,
+    // Auto and Keep in Cloud (header/autoRow.ts), with the chat's other Cloud rows. An acpmux that
+    // does not know Auto is not an error to show: the rows are only there when it named the chat's
+    // Auto state, so that answer means an older daemon took over since.
+    autoRows(
+      sessionId ? summary?.autoSession : undefined,
+      {
+        setAuto: (auto) => setAutoSession(auto),
+        keepInCloud: (keep) => setAutoSession(true, keep),
+      },
+      t,
+    ),
   );
   const remove = sessionId ? guarded(deleteChatRow(requestDelete, t)) : [];
   const moveRow = guarded(moveMachine);
