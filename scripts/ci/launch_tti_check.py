@@ -114,7 +114,8 @@ KEPT_MARKS = ("main_start", "first_window_frame_committed", "reveal.pane", "reve
 # `terminal.first_key.<reading>`: what the app's terminal key hold read of the process's first key-down (hq#22681):
 # `terminal_awaited` held it for the restored terminal; any other names why it did not.
 FIRST_KEY_PREFIX = "terminal.first_key."
-KEPT_MARK_PREFIXES = ("cef.", "chromium_page.", "first_page.", "agent_pane.", "home.", "reveal.", FIRST_KEY_PREFIX)
+KEPT_MARK_PREFIXES = ("cef.", "chromium_page.", "first_page.", "agent_pane.", "home.", "reveal.", "after_open.",
+                      FIRST_KEY_PREFIX)
 KEPT_MARKS_MAX = 120  # a round's line stays small; the stage marks and KEPT_MARKS always fit first
 
 
