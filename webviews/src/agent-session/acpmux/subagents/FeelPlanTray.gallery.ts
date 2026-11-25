@@ -10,6 +10,10 @@ import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxPlanEntry } from "../model";
 
+// These variants check the carded head's columns (icon, time, chevron); the one-line head (trayFoldHead
+// `line`, the default since Leo, 2026-11-25) draws none while tucked, so they pin the carded `groups` head.
+const CARD_HEAD = { "subagent-tray-fold-head": "groups" } as const;
+
 const STEPS = [
   "Read the tray and its tests",
   "Move the plan into the hat",
@@ -79,14 +83,16 @@ export default agentPaneEntry({
   anchors: [{ selector: ".acpmux-header" }, { selector: ".acpmux-composer" }],
   covers: ["agent-session/acpmux/subagents/SubagentTray.tsx", "agent-session/acpmux/subagents/trayResize.ts"],
   variants: {
-    one: { note: "One plan step and one command.", play: opened, snapshot: snapshot(1) },
-    five: { note: "Five plan steps and five commands.", play: opened, snapshot: snapshot(5) },
+    one: { experiments: CARD_HEAD, note: "One plan step and one command.", play: opened, snapshot: snapshot(1) },
+    five: { experiments: CARD_HEAD, note: "Five plan steps and five commands.", play: opened, snapshot: snapshot(5) },
     fifty: {
+      experiments: CARD_HEAD,
       note: "Fifty plan steps and fifty commands: the list scrolls in place under the cap.",
       play: opened,
       snapshot: snapshot(50),
     },
     huge: {
+      experiments: CARD_HEAD,
       note: "Five steps and commands of huge text: each cut at the row's edge.",
       play: opened,
       snapshot: snapshot(5, true),

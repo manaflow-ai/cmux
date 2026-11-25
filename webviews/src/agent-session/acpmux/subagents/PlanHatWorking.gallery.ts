@@ -9,6 +9,10 @@ import { chat, row, user } from "../../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxPlanEntry, AcpmuxSnapshot } from "../model";
 
+// These variants check the carded head's columns (icon, time, chevron); the one-line head (trayFoldHead
+// `line`, the default since Leo, 2026-11-25) draws none while tucked, so they pin the carded `groups` head.
+const CARD_HEAD = { "subagent-tray-fold-head": "groups" } as const;
+
 const STEPS = [
   "Read prior fixes, find real cause",
   "Write failing regression test",
@@ -65,16 +69,19 @@ export default agentPaneEntry({
   ],
   variants: {
     working: {
+      experiments: CARD_HEAD,
       note: "Six steps while the turn runs: the header spins and counts, the step at work spins, all six show.",
       play: opened,
       snapshot: working(6, 0),
     },
     "working-long": {
+      experiments: CARD_HEAD,
       note: "Ten steps, the eighth at work: the list scrolls in place with that step in view.",
       play: opened,
       snapshot: working(10, 7),
     },
     between: {
+      experiments: CARD_HEAD,
       note: "Between turns: the kept list rests, its step in progress a plain ring, the header quiet.",
       play: opened,
       snapshot: between(),
