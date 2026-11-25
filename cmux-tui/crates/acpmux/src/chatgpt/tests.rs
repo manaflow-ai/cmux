@@ -653,11 +653,16 @@ async fn signing_in_again_on_a_route_with_no_sign_in_here_takes_that_route() {
 fn callback_pages_use_the_cmux_sign_in_page_styles() {
     use super::oauth::{AUTH_PAGE_CSS, Page};
     let ok = Page::signed_in().html();
-    assert!(ok.contains("<h1>Signed in to cmux</h1>"));
+    assert!(ok.contains("<h1>Signed in to ChatGPT</h1>"));
+    assert!(ok.contains("You can close this tab and return to cmux."));
+    assert!(ok.contains("class=\"card\"") && ok.contains("<svg"));
+    // Self-contained: no fetched font, script or image.
+    assert!(!ok.contains("@import") && !ok.contains("<script") && !ok.contains("http"), "{ok}");
     assert!(ok.contains("data-auth-state=\"ok\""));
     let err = Page::failed("access_denied").html();
     assert!(err.contains("data-auth-state=\"error\""));
-    assert!(err.contains("<p class=\"code\">access_denied</p>"));
+    assert!(err.contains("<h1>Couldn\u{2019}t sign in to ChatGPT</h1>"));
+    assert!(err.contains("<p class=\"code\">Error code <span>access_denied</span></p>"));
     assert!(err.contains("cancelled"));
     // A code never injects markup.
     let odd = Page::failed("<script>").html();
