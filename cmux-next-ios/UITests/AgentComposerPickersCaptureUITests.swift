@@ -39,7 +39,7 @@ final class AgentComposerPickersCaptureUITests: UIStateCaptureCase {
         C.steps([
             { openSubmenu(app, submenu) },
             { C.tap(app.buttons[item].firstMatch, item) },
-            { C.pause(0.8); return nil },
+            { _ = row(app, submenu).waitForNonExistence(timeout: 3); return nil },
         ])
     }
 
@@ -47,20 +47,20 @@ final class AgentComposerPickersCaptureUITests: UIStateCaptureCase {
     func testComposerPickers() {
         let g = "Composer pickers"
         capture([
-            Scene(group: g, id: "rest", args: Self.chat, settle: 6) { app in Self.openComposer(app) },
-            Scene(group: g, id: "menu", args: Self.chat, settle: 6) { app in
+            Scene(group: g, id: "rest", args: Self.chat) { app in Self.openComposer(app) },
+            Scene(group: g, id: "menu", args: Self.chat) { app in
                 C.steps([{ Self.openComposer(app) }, { C.tap(app.buttons["agentChat.composer.model"].firstMatch, "picker button") }])
             },
-            Scene(group: g, id: "claude-submenu", args: Self.chat, settle: 6) { app in
+            Scene(group: g, id: "claude-submenu", args: Self.chat) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.openSubmenu(app, "Claude") }])
             },
-            Scene(group: g, id: "mode-submenu", args: Self.chat, settle: 6) { app in
+            Scene(group: g, id: "mode-submenu", args: Self.chat) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.openSubmenu(app, "Mode") }])
             },
-            Scene(group: g, id: "effort-submenu", args: Self.chat, settle: 6) { app in
+            Scene(group: g, id: "effort-submenu", args: Self.chat) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.openSubmenu(app, "Effort") }])
             },
-            Scene(group: g, id: "after-picks-sonnet-plan-high", args: Self.chat, settle: 6) { app in
+            Scene(group: g, id: "after-picks-sonnet-plan-high", args: Self.chat) { app in
                 C.steps([
                     { Self.openComposer(app) },
                     { Self.pick(app, "Claude", "Sonnet 5.5") },
@@ -68,7 +68,7 @@ final class AgentComposerPickersCaptureUITests: UIStateCaptureCase {
                     { Self.pick(app, "Effort", "High") },
                 ])
             },
-            Scene(group: g, id: "after-picks-menu", args: Self.chat, settle: 6) { app in
+            Scene(group: g, id: "after-picks-menu", args: Self.chat) { app in
                 C.steps([
                     { Self.openComposer(app) },
                     { Self.pick(app, "Claude", "Sonnet 5.5") },
@@ -77,11 +77,11 @@ final class AgentComposerPickersCaptureUITests: UIStateCaptureCase {
                     { C.tap(app.buttons["agentChat.composer.model"].firstMatch, "picker button") },
                 ])
             },
-            Scene(group: g, id: "large-text-rest", args: Self.chat + Self.largeText, settle: 6) { app in Self.openComposer(app) },
-            Scene(group: g, id: "large-text-menu", args: Self.chat + Self.largeText, settle: 6) { app in
+            Scene(group: g, id: "large-text-rest", args: Self.chat + Self.largeText) { app in Self.openComposer(app) },
+            Scene(group: g, id: "large-text-menu", args: Self.chat + Self.largeText) { app in
                 C.steps([{ Self.openComposer(app) }, { C.tap(app.buttons["agentChat.composer.model"].firstMatch, "picker button") }])
             },
-            Scene(group: g, id: "large-text-effort-submenu", args: Self.chat + Self.largeText, settle: 6) { app in
+            Scene(group: g, id: "large-text-effort-submenu", args: Self.chat + Self.largeText) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.openSubmenu(app, "Effort") }])
             },
         ])

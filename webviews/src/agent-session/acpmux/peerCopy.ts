@@ -8,7 +8,7 @@
 //
 // Lawrence: "start new VMs from acp chat - decouple persistence of acp trajectories from the VM
 // itself, in case the VM is resuming" (cmuxterm-hq#4381, "Persistence, pause and resume").
-import type { EventRecord } from "./direct";
+import type { EventRecord } from "./eventRecord";
 import type { KeptTail } from "./tailCache";
 
 /// The longest an open waits on the Mac's daemon for its copy. It answers from its own disk, so

@@ -1,1 +1,2 @@
 # #46896 (Sidebar: archived chats, Restore and Undo) added this action; the pinned app FFI gains it with the next re-pin, which deletes this marker.
+# Sidebar: archived chats Restore (#46896); waits for the app FFI re-pin.

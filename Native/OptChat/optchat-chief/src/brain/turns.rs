@@ -190,6 +190,7 @@ impl Brain {
                 let Ok(Some(start)) = start.recv() else {
                     return;
                 };
+                let engine = start.engine_override.clone().unwrap_or(engine);
                 let outcome = match &engine {
                     Engine::Acpmux => {
                         let progress = |session_id: &str, after: u64| {
@@ -398,7 +399,21 @@ impl Brain {
         let family = self.family_of(&engine.harness);
         // The cached layout on a Claude harness whose acpmux takes a preset
         // system prompt; else the view and the messages as blocks.
-        let (cached, plain_preset) = self.harness_presets(&engine.harness, family);
+        let engine_override = self.gateway.as_ref().and_then(|gateway| {
+            gateway.refresh();
+            matches!(
+                gateway.route(),
+                crate::gateway::GatewayRoute::DirectAnthropic
+            )
+            .then(|| self.fallback_engine.clone())
+            .flatten()
+        });
+        self.turn_gateway_fallback = engine_override.is_some();
+        let (cached, plain_preset) = if engine_override.is_some() {
+            (None, None)
+        } else {
+            self.harness_presets(&engine.harness, family)
+        };
         let marker = self.marker_refused.take();
         let ttl = self.turn_cache_ttl();
         // Our marks (spec 5a.2): the `<chat>` header, the frozen view's end and
@@ -592,6 +607,15 @@ impl Brain {
             .map(crate::engine::load)
             .as_ref()
             .and_then(crate::engine::computer_line);
+        // What to check at this turn's start and end (chief_kernel::TURN_CHECKS)
+        // and the user's turn-start digest (`chief.turnStart`, turn_start.rs,
+        // bounded at 8 s): last, after the delta, so the cached prefix is unchanged
+        // and the checks are the newest words the turn reads.
+        let checks = Some(format!(
+            "<turn-checks>\n{}\n</turn-checks>",
+            chief_kernel::TURN_CHECKS.trim()
+        ));
+        let turn_start = crate::turn_start::block();
         // The person's Home workspace as it is now: after the view, never logged.
         let tail: Vec<String> = now
             .iter()
@@ -602,6 +626,8 @@ impl Brain {
             .chain(computer.iter())
             .chain(home.iter())
             .chain(resumes.iter())
+            .chain(turn_start.iter())
+            .chain(checks.iter())
             .cloned()
             .collect();
         // Spec 5a: the frozen view and the delta after it (this turn's new
@@ -789,6 +815,21 @@ impl Brain {
         if let Some(block) = &home {
             layout["home_workspace"] = serde_json::json!(block);
         }
+        // The rest of the tail, in the order it was sent (open items and held
+        // news after the subagents-at-work line, the turn-start digest and
+        // the turn checks last), so the inspector sends the same bytes again.
+        if let Some(block) = &open_items {
+            layout["open_items"] = serde_json::json!(block);
+        }
+        if let Some(block) = &held_news {
+            layout["held_news"] = serde_json::json!(block);
+        }
+        if let Some(block) = &turn_start {
+            layout["turn_start"] = serde_json::json!(block);
+        }
+        if let Some(block) = &checks {
+            layout["turn_checks"] = serde_json::json!(block);
+        }
         if keep {
             layout["kept"] = serde_json::json!({
                 "reuse": reuse.as_ref().map(|r| r.kept.session.clone()),
@@ -861,6 +902,8 @@ impl Brain {
             keep,
             retire,
             permission_mode: permission_mode.map(str::to_owned),
+            gateway: self.gateway.clone(),
+            engine_override,
         })
     }
 
@@ -1498,6 +1541,25 @@ impl Brain {
 
     pub(super) fn turn_ended(&mut self, key: &str, mut outcome: TurnOutcome) {
         self.price_unpriced(&mut outcome);
+        let claude_turn = self
+            .turn_engine
+            .as_ref()
+            .is_some_and(|engine| self.family_of(&engine.harness) == crate::acpmux::Family::Claude);
+        if claude_turn
+            && !self.turn_gateway_fallback
+            && outcome
+                .error
+                .as_deref()
+                .is_some_and(crate::gateway::is_refusal)
+            && let Some(gateway) = &self.gateway
+        {
+            let _ = gateway.record_refusal(key, outcome.error.as_deref().unwrap_or_default());
+        }
+        if let Some(gateway) = &self.gateway
+            && let Some(text) = gateway.take_notice()
+        {
+            self.notice("gateway-wide".into(), text);
+        }
         // A failed turn on an open-source brain is cut and runs again on the default harness
         // (turn_engine_choice), so the person's message still gets its answer.
         // A lost acpmux link is no fault of the brain: that cut runs again on the brain.
