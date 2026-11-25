@@ -2380,7 +2380,7 @@ def command_run(args) -> int:
             # slow step: the 11-25 re-tries' 17.35 s side phase was a park display waited out for 15 s.
             with phases("launch"):
                 launched = side.run("launch", timeout=launch_seconds())
-            result["launch"] = {"said": launched[-200:], "note": side.said[-300:] or None}
+            result["launch"] = {"said": launched[-200:], "note": getattr(side, "said", "")[-300:] or None}
             found = re.search(r"pid (\d+)", launched)
             if not found:
                 raise LookError(f"side-instance.sh launch said no pid: {launched[-200:]}")
