@@ -503,7 +503,7 @@ jobs:
           # The xcframework and target/ are gitignored; the script rewrites the bindings
           # and restores Cargo.lock, so any tracked change is drift.
           if ! git diff --exit-code -- cmux-next-ios/; then
-            echo "::error::build-xcframework.sh changed tracked files (CmuxMobileLinkFFI.swift or Cargo.lock); run it and commit the result"
+            echo "::error::build-xcframework.sh changed tracked files (CmuxMobileLinkFFI.swift or Cargo.lock). The base autofix regenerates the bindings (scripts/ios-ffi-bindings.sh, base-autofix.sh --ios-ffi); a pull request's autofix re-run does too"
             exit 1
           fi
 
