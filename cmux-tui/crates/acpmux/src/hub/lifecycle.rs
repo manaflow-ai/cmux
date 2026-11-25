@@ -1725,6 +1725,7 @@ impl Hub {
                             Some(&sid),
                             &child,
                             &codex_answer,
+                            &init,
                         ),
                     )
                     .await;
@@ -1768,7 +1769,15 @@ impl Hub {
             let res = match child
                 .request(
                     method::SESSION_NEW,
-                    self.acp_params(&session.id, &meta, profile, None, &child, &codex_answer),
+                    self.acp_params(
+                        &session.id,
+                        &meta,
+                        profile,
+                        None,
+                        &child,
+                        &codex_answer,
+                        &init,
+                    ),
                 )
                 .await
             {

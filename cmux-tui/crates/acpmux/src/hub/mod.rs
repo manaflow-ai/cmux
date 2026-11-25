@@ -426,6 +426,7 @@ pub use paging::{
 };
 pub use spawn::expand_env_value;
 pub mod approvers;
+pub(crate) mod dead_letters;
 mod former_names;
 mod harness_key;
 pub(crate) mod key_route;
@@ -445,6 +446,7 @@ mod peer_grace_tests;
 mod peer_lease;
 pub(crate) mod peer_snapshot;
 mod spoken_handles;
+mod successors;
 mod task_names;
 pub use peer_lease::PeerLease;
 /// Debug builds only: the next `n` reads of whether a copy of `peer` is ahead fail, as a timed
@@ -523,6 +525,8 @@ pub mod plan_build;
 #[cfg(test)]
 mod refused_append_tests;
 pub(crate) mod release_to_watch;
+#[cfg(test)]
+mod reply_segment_tests;
 mod restore_point;
 pub mod rules;
 pub(crate) mod session_hold;
