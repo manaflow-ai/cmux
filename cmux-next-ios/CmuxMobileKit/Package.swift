@@ -68,7 +68,9 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxTheme"),
     ],
     targets: [
-        .target(name: "CmuxMobileDesign", dependencies: [.product(name: "CmuxSpinner", package: "CmuxSpinner"), .product(name: "CmuxTheme", package: "CmuxTheme")], resources: [.process("Resources")]),
+        // CmuxMobileDesign's pure rules (no UI framework), which build and test on Linux; CmuxMobileDesign re-exports it.
+        .target(name: "CmuxMobileDesignCore"),
+        .target(name: "CmuxMobileDesign", dependencies: ["CmuxMobileDesignCore", .product(name: "CmuxSpinner", package: "CmuxSpinner"), .product(name: "CmuxTheme", package: "CmuxTheme")], resources: [.process("Resources")]),
         // Push payloads, notification buttons, the App Group outbox and chat
         // snapshots: Foundation and UserNotifications only, so the notification
         // extensions link it without the app's modules (verify/rich-push.md).
@@ -257,6 +259,7 @@ let package = Package(
             ]
         ),
         .testTarget(name: "CmuxMobileRealtimeTests", dependencies: ["CmuxMobileRealtime"]),
+        .testTarget(name: "CmuxMobileDesignCoreTests", dependencies: ["CmuxMobileDesignCore"]),
         .testTarget(name: "CmuxMobileVoiceTests", dependencies: [
             "CmuxMobileVoice", "CmuxMobileChief", "CmuxMobileModel",
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),
@@ -320,7 +323,7 @@ let package = Package(
 // iOS and macOS, and keeps the whole package. cmux-next-ios-kit.yml skips these test targets on the Mac.
 if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
     let linuxModules: Set<String> = [
-        "CmuxMobileAuth", "CmuxMobileModel", "CmuxMobileRealtime", "CmuxMobileTransport",
+        "CmuxMobileAuth", "CmuxMobileDesignCore", "CmuxMobileModel", "CmuxMobileRealtime", "CmuxMobileTransport",
     ]
     let linuxTests = Set(linuxModules.map { $0 + "Tests" })
     package.products.removeAll { !linuxModules.contains($0.name) }
