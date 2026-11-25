@@ -31,11 +31,15 @@
 //! (`switch`: the proxy's credential helper, which git runs in the chat's environment, says
 //! so); `/etc/cmux/git-cache.disabled` turns the whole machine's proxy off.
 //!
+//! The same listener serves cargo's crates.io sparse index and `.crate` downloads (`crates`),
+//! with its own cargo config written while it listens.
+//!
 //! Pushes never come here (`pushInsteadOf` keeps them on their own URL), and a proxy that is
 //! not listening has no include file, so git goes straight to GitHub as before.
 
 pub mod auth;
 pub mod cli;
+pub mod crates;
 pub mod credential;
 pub mod gitconfig;
 pub mod mirror;
