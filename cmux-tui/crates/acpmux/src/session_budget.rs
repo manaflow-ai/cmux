@@ -34,7 +34,8 @@
 //!   on, and a 100 MB/s cap took the neighbor's fsync p99 from 231-336 ms to 779-859 ms. The disk
 //!   watcher (`hub/session_budget_watch.rs`) is the session's disk limit.
 //! - disk: `ACPMUX_SESSION_DISK_MB` / `session.diskMb`, default this host's registry
-//!   `lanes.disk_per_lane_gb`, else a tenth of the home filesystem between 2 and 64 GiB. The
+//!   `lanes.disk_per_lane_gb`, else a tenth of the home filesystem between 8 GiB (at most half
+//!   the disk) and 64 GiB. The
 //!   kernel has no per-scope disk limit here, so `hub/session_budget_watch.rs` measures it.
 //! - store: what a chat keeps in acpmux's own store (its event log and background output),
 //!   `ACPMUX_SESSION_STORE_MB`, default an eighth of the disk budget (`session_store.rs`).
@@ -204,11 +205,18 @@ pub(crate) fn memory_default(host: &Host) -> u64 {
     }
 }
 
+/// The least disk a session gets by default with no registry share: a repo lane's working set.
+/// A cmux blobless clone is 1.3 GiB before a build or `node_modules`, so the old 2 GiB floor
+/// warned a product Cloud chat (no registry entry, a ~20 GiB disk: a tenth is 2 GiB) on its first
+/// clone (AutoCloud proof, 2026-11-25). Never more than half a known disk.
+pub(crate) const DISK_FLOOR: u64 = 8 * GIB;
+
 /// A session's default disk budget on `host` (0: unknown).
 pub(crate) fn disk_default(host: &Host) -> u64 {
+    let half = if host.disk_total > 0 { host.disk_total / 2 } else { u64::MAX };
     host.disk_per_lane
         .filter(|n| *n > 0)
-        .unwrap_or_else(|| (host.disk_total / 10).clamp(2 * GIB, 64 * GIB))
+        .unwrap_or_else(|| (host.disk_total / 10).clamp(DISK_FLOOR.min(half), 64 * GIB))
         .min(if host.disk_total > 0 { host.disk_total } else { u64::MAX })
 }
 

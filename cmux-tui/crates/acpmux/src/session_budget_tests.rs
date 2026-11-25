@@ -62,10 +62,13 @@ fn disk_defaults_to_the_lane_share_else_a_tenth_of_home_clamped() {
     let no_lanes = Host { disk_total: 247 * GIB, ..Host::default() };
     assert_eq!(disk_default(&no_lanes), 247 * GIB / 10);
     assert_eq!(disk_default(&Host { disk_total: 2000 * GIB, ..Host::default() }), 64 * GIB);
-    assert_eq!(disk_default(&Host { disk_total: 10 * GIB, ..Host::default() }), 2 * GIB);
-    // Unknown disk: still the floor, never more than the disk when it is known.
-    assert_eq!(disk_default(&Host::default()), 2 * GIB);
-    assert_eq!(disk_default(&Host { disk_total: GIB, ..Host::default() }), GIB);
+    // A product Cloud VM (no registry entry, a 20 GiB disk): a repo lane's 8 GiB, not 2.
+    assert_eq!(disk_default(&Host { disk_total: 20 * GIB, ..Host::default() }), 8 * GIB);
+    // A small disk: half of it, never the whole disk.
+    assert_eq!(disk_default(&Host { disk_total: 10 * GIB, ..Host::default() }), 5 * GIB);
+    // Unknown disk: the floor; never more than half the disk when it is known.
+    assert_eq!(disk_default(&Host::default()), 8 * GIB);
+    assert_eq!(disk_default(&Host { disk_total: GIB, ..Host::default() }), GIB / 2);
 }
 
 #[test]
