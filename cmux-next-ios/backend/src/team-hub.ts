@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers"
 import { primaryProject, type Caller } from "./auth.ts"
 import type { CachedIce } from "./ice.ts"
 import type { Env } from "./env.ts"
-import { MAILBOX_PENDING_LIMIT, MAILBOX_TTL_MS } from "./push.ts"
+import { MAILBOX_PENDING_LIMIT, MAILBOX_TTL_MS, MAILBOX_HOLD_BYTES, MAILBOX_HOLD_LIMIT, MAILBOX_PAGE } from "./push.ts";
 import { userTeams } from "./stack.ts"
 import { relayRoomName } from "./link-relay.ts"
 import { FIRST_GRANT, MIB, MibBucket, newTicket, RELAY_CLOSE, ticketsMatch, userMibPerMinute, type BudgetAnswer, type MibBucketState } from "./relay-access.ts"
@@ -49,6 +49,8 @@ const LINK_STAT_PATHS = new Set(["direct", "turn", "turn-tls", "https-relay", "n
 const LINK_STAT_REASONS = new Set(["first", "periodic", "path", "end"])
 const LINK_STAT_ENDS = new Set(["app", "keepalive", "transport", "other"])
 const LINK_STAT_NETS = new Set(["cellular", "other"])
+/** Which protocol mapped the Mac's endpoint (PROTOCOL.md "Mapped endpoints"). */
+const LINK_STAT_PORTMAP = new Set(["pcp", "nat-pmp", "upnp", "unknown"])
 const LINK_STAT_MARKS = new Set([
   "signaling_open",
   "signaling_reused",
@@ -113,6 +115,11 @@ export function linkStatLine(f: Record<string, unknown>, kind: Attachment["kind"
   const end = reason === "end" ? word(f.end, LINK_STAT_ENDS) : undefined
   if (end) line.end = end
   if (typeof f.lib === "string" && LIB_VERSION.test(f.lib)) line.lib = f.lib
+  if (typeof f.portmap === "object" && f.portmap !== null) {
+    const p = f.portmap as Record<string, unknown>
+    const by = word(p.by, LINK_STAT_PORTMAP)
+    if (by && typeof p.used === "boolean") Object.assign(line, { portmapBy: by, portmapUsed: p.used })
+  }
   // Keystroke round trips (PROTOCOL.md "Link stats", `echo`, `ack`, `spikes`): flattened as `rtt` is.
   for (const [field, prefix] of [["echo", "echo"], ["ack", "ack"]] as const) {
     const k = f[field]
@@ -179,9 +186,14 @@ export interface MailboxItem {
   sealed: string
 }
 
-export type MailboxPost = { queued: true; delivered: boolean } | { error: "conflict" | "full" }
+/** `seq` and `expiresAt` (ms) since API 0.18.0 ("Store and forward"): a phone that gets no `seq` talks to an older hub. */
+export type MailboxPost = { queued: true; delivered: boolean; seq: number; expiresAt: number } | { error: "conflict" | "full" }
+type MailboxWhen = { seq?: number; expiresAt?: number }
 /** `sig`: the Mac's identity signature over the outcome (PROTOCOL.md), which the phone checks; absent from an older Mac. */
-export type MailboxState = { state: "queued" | "expired" } | { state: "applied"; sig?: string } | { state: "rejected"; reason: string; sig?: string }
+export type MailboxState =
+  | ({ state: "queued" | "expired" } & MailboxWhen)
+  | ({ state: "applied"; sig?: string } & MailboxWhen)
+  | ({ state: "rejected"; reason: string; sig?: string } & MailboxWhen)
 
 const MAX_ACK_RESULTS = 64
 const ACK_REASON = /^[a-z_]{1,32}$/
@@ -210,6 +222,15 @@ export interface MacPresence {
  * only reports `quietMs`.
  */
 export const FRESH_MS = 18_000
+
+/**
+ * A Mac's socket the hub has not heard for this long is gone (cmux#52200): its network was cut or it slept, and
+ * no close reached the hub (a silent drop leaves the socket half open forever). Six missed 15 s pings, and past
+ * the Mac's own 40 s give-up (`KEEPALIVE_TIMEOUT` in cmux-mobile-link `signaling.rs`), so a Mac that is alive but
+ * overloaded still reads "not responding" (`quietMs`) first. The hub closes the socket and phones hear the Mac
+ * offline, last seen when it was last heard.
+ */
+export const GONE_MS = 90_000
 
 /** A device registration as the Worker hands it to the hub (POST /v1/devices). */
 export interface HubDevice {
@@ -345,8 +366,8 @@ export class TeamHub extends DurableObject<Env> {
     this.sql.exec(`CREATE TABLE IF NOT EXISTS devices (device_id TEXT PRIMARY KEY, owner_key TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL)`)
     this.sql.exec(`CREATE TABLE IF NOT EXISTS sessions (session_id TEXT PRIMARY KEY, initiator TEXT NOT NULL, responder TEXT NOT NULL, created_at INTEGER NOT NULL)`)
     // Columns added after the tables first shipped (a hub created by older code has the tables without them).
-    const addColumn = (table: string, column: string) => {
-      if (!this.sql.exec<{ name: string }>(`PRAGMA table_info(${table})`).toArray().some((c) => c.name === column)) this.sql.exec(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`)
+    const addColumn = (table: string, column: string, type: "TEXT" | "INTEGER" = "TEXT") => {
+      if (!this.sql.exec<{ name: string }>(`PRAGMA table_info(${table})`).toArray().some((c) => c.name === column)) this.sql.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`)
     }
     addColumn("macs", "owner_project_id")
     addColumn("macs", "team_id")
@@ -367,6 +388,12 @@ export class TeamHub extends DurableObject<Env> {
         at INTEGER NOT NULL, expires_at INTEGER NOT NULL, keep_until INTEGER NOT NULL, state TEXT NOT NULL, reason TEXT)`
     )
     addColumn("mailbox", "sig")
+    // Store and forward (PROTOCOL.md, API 0.18.0): the item's place in its (Mac, phone) order, and the Mac socket
+    // (its `connectedAt`) it was last sent on, so a page goes once per socket. `mailbox_seq` keeps the last seq of a
+    // pair after its items are gone, so a seq is never reused.
+    addColumn("mailbox", "seq", "INTEGER")
+    addColumn("mailbox", "sent_conn", "INTEGER")
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS mailbox_seq (mac TEXT NOT NULL, from_device TEXT NOT NULL, seq INTEGER NOT NULL, PRIMARY KEY (mac, from_device))`)
     // Each party's relay ticket (PROTOCOL.md "WebSocket relay"), made when the session opens.
     addColumn("sessions", "initiator_ticket")
     addColumn("sessions", "responder_ticket")
@@ -393,12 +420,56 @@ export class TeamHub extends DurableObject<Env> {
   }
 
   async alarm(): Promise<void> {
+    let iceUntil: number | undefined
     await this.ctx.storage.transaction(async (tx) => {
       const entry = await tx.get<CachedIce>("turn-credentials")
       if (!entry) return
-      if (Date.now() < entry.usableUntil) await tx.setAlarm(entry.usableUntil)
+      if (Date.now() < entry.usableUntil) iceUntil = entry.usableUntil
       else await tx.delete("turn-credentials")
     })
+    const reapAt = this.reapSilentMacs(Date.now())
+    const next = Math.min(iceUntil ?? Infinity, reapAt ?? Infinity)
+    if (Number.isFinite(next)) await this.ctx.storage.setAlarm(next)
+  }
+
+  /**
+   * Closes every Mac socket not heard for ``GONE_MS`` as gone (cmux#52200), and returns when the next open Mac
+   * socket would be (undefined: none open). Only a socket of a host that pings: one that predates application
+   * pings is never heard after its connect, and stays as before.
+   */
+  private reapSilentMacs(now: number): number | undefined {
+    let next: number | undefined
+    for (const ws of this.ctx.getWebSockets()) {
+      const att = this.attach(ws)
+      if (!att || att.kind !== "mac" || att.replaced || ws.readyState !== WebSocket.OPEN) continue
+      const pinged = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime()
+      if (pinged === undefined && this.recordedPing(att.deviceId) === null) continue
+      const heard = Math.max(att.connectedAt ?? 0, pinged ?? 0)
+      if (!heard) continue
+      if (now - heard < GONE_MS) {
+        next = Math.min(next ?? Infinity, heard + GONE_MS)
+        continue
+      }
+      this.recordPing(ws, att.deviceId)
+      // Marked replaced first, so its close event (if one ever comes) does not announce it a second time.
+      this.setAttach(ws, { ...att, replaced: true })
+      try {
+        ws.close(4002, "silent")
+      } catch {}
+      if (this.live.get(att.deviceId) === ws) this.live.delete(att.deviceId)
+      if (this.open(att.deviceId)) continue
+      this.sql.exec(`UPDATE macs SET last_seen_at = ? WHERE device_id = ?`, heard, att.deviceId)
+      const mac = this.macRow(att.deviceId)
+      console.log(JSON.stringify({ event: "mac_silent_closed", deviceId: att.deviceId, quietMs: now - heard }))
+      if (mac) this.broadcast(mac.team_id, JSON.stringify({ type: "presence", mac: this.presenceOf(att.deviceId) }), ws)
+    }
+    return next
+  }
+
+  /** Makes sure an alarm comes by `at` (a Mac socket's reap deadline), keeping an earlier one. */
+  private async armReap(at: number) {
+    const current = await this.ctx.storage.getAlarm()
+    if (current === null || current > at) await this.ctx.storage.setAlarm(at)
   }
 
   /** Team membership through Stack, cached 60 s (15 s for a refusal) per team. Throws when Stack fails. */
@@ -525,6 +596,7 @@ export class TeamHub extends DurableObject<Env> {
     this.sql.exec(`DELETE FROM sessions WHERE initiator = ? OR responder = ?`, deviceId, deviceId)
     // A removed phone's replies never reach a Mac, and a removed Mac's queue goes with it.
     this.sql.exec(`DELETE FROM mailbox WHERE mac = ? OR from_device = ?`, deviceId, deviceId)
+    this.sql.exec(`DELETE FROM mailbox_seq WHERE mac = ? OR from_device = ?`, deviceId, deviceId)
   }
 
   /**
@@ -556,7 +628,7 @@ export class TeamHub extends DurableObject<Env> {
     // Before `meta` (the owner key names the relay objects) goes.
     for (const r of this.sql.exec<{ session_id: string }>(`SELECT session_id FROM relay_sessions`).toArray())
       this.closeRelay(r.session_id, RELAY_CLOSE.removed, "removed")
-    for (const t of ["macs", "devices", "sessions", "meta", "forgotten", "turn_pushes", "mailbox", "relay_sessions"]) this.sql.exec(`DELETE FROM ${t}`)
+    for (const t of ["macs", "devices", "sessions", "meta", "forgotten", "turn_pushes", "mailbox", "mailbox_seq", "relay_sessions"]) this.sql.exec(`DELETE FROM ${t}`)
     this.ownerKey = null
   }
 
@@ -746,23 +818,53 @@ export class TeamHub extends DurableObject<Env> {
   /**
    * Queues a sealed reply for `item.mac` (the Worker checked that the caller owns both devices): delivered at
    * once when the Mac's socket is open, else right after its next `hello`. The same id with the same blob is
-   * the same item (a retried request); with another blob it is a conflict. At most MAILBOX_PENDING_LIMIT wait
-   * per Mac. `ttlMs` is MAILBOX_TTL_MS outside tests.
+   * the same item (a retried request, answered its first `seq`); with another blob it is a conflict. An item held
+   * at most MAILBOX_TTL_MS counts against MAILBOX_PENDING_LIMIT per Mac; a longer hold ("Store and forward") counts
+   * per (Mac, phone) against MAILBOX_HOLD_LIMIT items and MAILBOX_HOLD_BYTES sealed characters. `ttlMs` is the
+   * phone's `hold` (MAILBOX_TTL_MS when it sent none).
    */
   async mailboxPost(owner: HubOwner, item: MailboxItem, ttlMs: number = MAILBOX_TTL_MS): Promise<MailboxPost> {
     this.bind(owner)
     const now = Date.now()
     this.mailboxSweep(now)
-    const existing = this.sql.exec<{ mac: string; from_device: string; sealed: string; state: string }>(`SELECT mac, from_device, sealed, state FROM mailbox WHERE id = ?`, item.id).toArray()[0]
+    const existing = this.sql
+      .exec<{ mac: string; from_device: string; sealed: string; state: string; seq: number | null; expires_at: number }>(
+        `SELECT mac, from_device, sealed, state, seq, expires_at FROM mailbox WHERE id = ?`,
+        item.id
+      )
+      .toArray()[0]
     if (existing) {
       if (existing.mac !== item.mac || existing.from_device !== item.from || (existing.state === "queued" && existing.sealed !== item.sealed)) return { error: "conflict" }
-      return { queued: true, delivered: false }
+      return { queued: true, delivered: false, seq: existing.seq ?? 0, expiresAt: existing.expires_at }
     }
-    const pending = this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM mailbox WHERE mac = ? AND state = 'queued' AND expires_at > ?`, item.mac, now).toArray()[0]?.n ?? 0
-    if (pending >= MAILBOX_PENDING_LIMIT) return { error: "full" }
+    if (ttlMs <= MAILBOX_TTL_MS) {
+      const pending = this.sql
+        .exec<{ n: number }>(`SELECT COUNT(*) AS n FROM mailbox WHERE mac = ? AND state = 'queued' AND expires_at > ? AND expires_at - at <= ?`, item.mac, now, MAILBOX_TTL_MS)
+        .toArray()[0]?.n ?? 0
+      if (pending >= MAILBOX_PENDING_LIMIT) return { error: "full" }
+    } else {
+      const held = this.sql
+        .exec<{ n: number; bytes: number | null }>(
+          `SELECT COUNT(*) AS n, SUM(LENGTH(sealed)) AS bytes FROM mailbox WHERE mac = ? AND from_device = ? AND state = 'queued' AND expires_at > ? AND expires_at - at > ?`,
+          item.mac,
+          item.from,
+          now,
+          MAILBOX_TTL_MS
+        )
+        .toArray()[0]
+      if ((held?.n ?? 0) >= MAILBOX_HOLD_LIMIT || (held?.bytes ?? 0) + item.sealed.length > MAILBOX_HOLD_BYTES) return { error: "full" }
+    }
+    const last = this.sql.exec<{ seq: number }>(`SELECT seq FROM mailbox_seq WHERE mac = ? AND from_device = ?`, item.mac, item.from).toArray()[0]?.seq ?? 0
+    const seq = last + 1
+    this.sql.exec(
+      `INSERT INTO mailbox_seq (mac, from_device, seq) VALUES (?, ?, ?) ON CONFLICT(mac, from_device) DO UPDATE SET seq = excluded.seq`,
+      item.mac,
+      item.from,
+      seq
+    )
     const expiresAt = now + ttlMs
     this.sql.exec(
-      `INSERT INTO mailbox (id, mac, from_device, sealed, at, expires_at, keep_until, state) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued')`,
+      `INSERT INTO mailbox (id, mac, from_device, sealed, at, expires_at, keep_until, state, seq) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?)`,
       item.id,
       item.mac,
       item.from,
@@ -770,16 +872,12 @@ export class TeamHub extends DurableObject<Env> {
       now,
       expiresAt,
       // The outcome stays readable for one more full window, whatever this item's own time to live.
-      expiresAt + MAILBOX_TTL_MS
+      expiresAt + MAILBOX_TTL_MS,
+      seq
     )
     const ws = this.open(item.mac)
-    if (!ws) return { queued: true, delivered: false }
-    try {
-      ws.send(JSON.stringify({ type: "mailbox", items: [{ id: item.id, from: item.from, sealed: item.sealed, at: now }] }))
-      return { queued: true, delivered: true }
-    } catch {
-      return { queued: true, delivered: false }
-    }
+    const delivered = ws ? this.deliverMailbox(ws, item.mac).includes(item.id) : false
+    return { queued: true, delivered, seq, expiresAt }
   }
 
   /** The outcome of one item of `mac`, or null when there is none (never posted, or long gone). */
@@ -787,31 +885,51 @@ export class TeamHub extends DurableObject<Env> {
     this.bind(owner)
     const now = Date.now()
     this.mailboxSweep(now)
-    const row = this.sql.exec<{ state: string; reason: string | null; expires_at: number; sig: string | null }>(
-      `SELECT state, reason, expires_at, sig FROM mailbox WHERE id = ? AND mac = ?`,
+    const row = this.sql.exec<{ state: string; reason: string | null; expires_at: number; sig: string | null; seq: number | null }>(
+      `SELECT state, reason, expires_at, sig, seq FROM mailbox WHERE id = ? AND mac = ?`,
       id,
       mac
     ).toArray()[0]
     if (!row) return null
     const sig = row.sig ? { sig: row.sig } : {}
-    if (row.state === "applied") return { state: "applied", ...sig }
-    if (row.state === "rejected") return { state: "rejected", reason: row.reason ?? "refused", ...sig }
-    return row.expires_at <= now ? { state: "expired" } : { state: "queued" }
+    const when = row.seq ? { seq: row.seq, expiresAt: row.expires_at } : {}
+    if (row.state === "applied") return { state: "applied", ...sig, ...when }
+    if (row.state === "rejected") return { state: "rejected", reason: row.reason ?? "refused", ...sig, ...when }
+    return row.expires_at <= now ? { state: "expired", ...when } : { state: "queued", ...when }
   }
 
-  /** The Mac's queued, unexpired items, oldest first, sent on its socket after `hello`. */
-  private deliverMailbox(ws: WebSocket, mac: string) {
+  /**
+   * Sends the Mac's next page of queued, unexpired items on `ws` (after `hello`, a post, and each `mailbox_ack`):
+   * ordered by phone, then `seq`, each once per socket, at most MAILBOX_PAGE waiting for their ack on it at a time.
+   * Answers the ids it sent.
+   */
+  private deliverMailbox(ws: WebSocket, mac: string): string[] {
     const now = Date.now()
     this.mailboxSweep(now)
+    const conn = this.attach(ws).connectedAt ?? 0
+    const outstanding = this.sql
+      .exec<{ n: number }>(`SELECT COUNT(*) AS n FROM mailbox WHERE mac = ? AND state = 'queued' AND expires_at > ? AND sent_conn = ?`, mac, now, conn)
+      .toArray()[0]?.n ?? 0
+    const room = MAILBOX_PAGE - outstanding
+    if (room <= 0) return []
     const items = this.sql
-      .exec<{ id: string; from_device: string; sealed: string; at: number }>(
-        `SELECT id, from_device, sealed, at FROM mailbox WHERE mac = ? AND state = 'queued' AND expires_at > ? ORDER BY at`,
+      .exec<{ id: string; from_device: string; sealed: string; at: number; seq: number | null }>(
+        `SELECT id, from_device, sealed, at, seq FROM mailbox WHERE mac = ? AND state = 'queued' AND expires_at > ? AND (sent_conn IS NULL OR sent_conn != ?)
+         ORDER BY from_device, COALESCE(seq, 0), at LIMIT ?`,
         mac,
-        now
+        now,
+        conn,
+        room
       )
       .toArray()
-      .map((r) => ({ id: r.id, from: r.from_device, sealed: r.sealed, at: r.at }))
-    if (items.length) ws.send(JSON.stringify({ type: "mailbox", items }))
+    if (!items.length) return []
+    try {
+      ws.send(JSON.stringify({ type: "mailbox", items: items.map((r) => ({ id: r.id, from: r.from_device, sealed: r.sealed, at: r.at, ...(r.seq ? { seq: r.seq } : {}) })) }))
+    } catch {
+      return []
+    }
+    for (const r of items) this.sql.exec(`UPDATE mailbox SET sent_conn = ? WHERE id = ?`, conn, r.id)
+    return items.map((r) => r.id)
   }
 
   /** `mailbox_ack` from a Mac socket: settles that Mac's own queued items; anything else is ignored or refused. */
@@ -834,6 +952,8 @@ export class TeamHub extends DurableObject<Env> {
         att.deviceId
       )
     }
+    // The next page, if more wait (PROTOCOL.md "Store and forward").
+    this.deliverMailbox(ws, att.deviceId)
   }
 
   // ---- WebSocket -------------------------------------------------------------------------------
@@ -892,6 +1012,7 @@ export class TeamHub extends DurableObject<Env> {
     this.ctx.acceptWebSocket(server, [att.deviceId])
     this.setAttach(server, { ...att, connectedAt: Date.now() })
     this.live.set(att.deviceId, server)
+    if (att.kind === "mac") await this.armReap(Date.now() + GONE_MS)
     if (att.kind === "mac") {
       this.sql.exec(
         `INSERT INTO macs (device_id, name, owner_user_id, owner_project_id, team_id, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)
