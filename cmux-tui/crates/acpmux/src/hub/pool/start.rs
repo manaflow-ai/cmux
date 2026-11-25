@@ -241,6 +241,13 @@ impl Hub {
         };
         let started = async {
             let init = child.request(method::INITIALIZE, initialize_params()).await?;
+            // An agent signed in by its key says so first (`acp_key_auth.rs`).
+            let family = crate::config::derive_family(&draft.harness, &spec.spawn);
+            if let Some(params) = crate::acp_key_auth::authenticate_params(&family, &init, |k| {
+                crate::acp_key_auth::launch_var(&spec.spawn.env, &family, k)
+            }) {
+                child.request(method::AUTHENTICATE, params).await?;
+            }
             let new_result = if claude {
                 None
             } else {
@@ -255,6 +262,7 @@ impl Hub {
                                 None,
                                 &child,
                                 &spec.answer,
+                                &init,
                             ),
                         )
                         .await?,

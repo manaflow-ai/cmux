@@ -87,6 +87,9 @@ const PARITY_HEADER: usize = 16;
 /// Type, receiver index and counter in front of a WireGuard data message's
 /// ciphertext.
 const WG_DATA_HEADER: usize = 16;
+/// A WireGuard keepalive: a data message with an empty payload, so its
+/// ciphertext is only the 16-byte Poly1305 tag.
+const WG_KEEPALIVE_LEN: usize = WG_DATA_HEADER + 16;
 /// Received data datagrams kept for rebuilding. Parity follows its group
 /// within one pass, so a few groups' worth is enough.
 const KEEP: usize = 256;
@@ -132,11 +135,13 @@ const FLOOR_GROUP: u8 = 4;
 const FLOOR_MAX_DATAGRAM: usize = 256;
 /// The environment variable that turns the mode on.
 pub const ENV: &str = "CMUX_WG_ULTRA";
-
-/// `none` turns the tunnel's TCP congestion control off, so loss never
-/// shrinks a window and each stream runs at what its window and the pacer
-/// allow (Hysteria's "Brutal" idea, bounded by the stream window). For
-/// benches: it is unfair to other traffic on a congested link.
+/// The tunnel's TCP congestion control. Unset or `bbr`: the model-based
+/// controller (RFD 0142 O1), whose window follows the measured bottleneck
+/// rate and minimum RTT, so random loss does not shrink it. `cubic`: the
+/// loss-based controller cmux-wg used before. `none`: no congestion control,
+/// so each stream runs at what its window and the pacer allow (bounded by the
+/// stream window); for benches, as it is unfair to other traffic on a
+/// congested link.
 pub const CC_ENV: &str = "CMUX_WG_ULTRA_CC";
 
 /// Whether `datagram` is an ultra-mode parity datagram. A carrier that
@@ -146,9 +151,26 @@ pub fn is_parity(datagram: &[u8]) -> bool {
     datagram.first() == Some(&TAG)
 }
 
-/// Whether [`CC_ENV`] asks for no congestion control.
-pub(crate) fn loss_blind_from_env() -> bool {
-    std::env::var(CC_ENV).is_ok_and(|value| value.trim().eq_ignore_ascii_case("none"))
+/// A process-wide pin set by [`crate::testing::pin_loss_based_congestion`]:
+/// it wins over [`CC_ENV`], and setting it needs no environment write.
+pub(crate) static CUBIC_PINNED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// The congestion control [`CC_ENV`] asks for; BBR when unset or unknown.
+pub(crate) fn congestion_from_env() -> smoltcp::socket::tcp::CongestionControl {
+    if CUBIC_PINNED.load(Ordering::Relaxed) {
+        return smoltcp::socket::tcp::CongestionControl::Cubic;
+    }
+    congestion_from(std::env::var(CC_ENV).ok().as_deref())
+}
+
+pub(crate) fn congestion_from(value: Option<&str>) -> smoltcp::socket::tcp::CongestionControl {
+    use smoltcp::socket::tcp::CongestionControl;
+    match value.map(|value| value.trim().to_ascii_lowercase()).as_deref() {
+        Some("none") => CongestionControl::None,
+        Some("cubic") => CongestionControl::Cubic,
+        _ => CongestionControl::Bbr,
+    }
 }
 
 /// How much repair data a tunnel sends.
@@ -394,6 +416,17 @@ pub(crate) fn data_id(datagram: &[u8]) -> Option<([u8; 4], u64)> {
     let index: [u8; 4] = datagram.get(4..8)?.try_into().ok()?;
     let counter: [u8; 8] = datagram.get(8..16)?.try_into().ok()?;
     Some((index, u64::from_le_bytes(counter)))
+}
+
+/// A WireGuard keepalive past a session's first message: it carries nothing,
+/// and a lost one is replaced by the next (the air floor sends one every few
+/// seconds on an idle link), so it gets no copies, parity or group. Before,
+/// Auto's floor or repair made each idle keepalive its own group with one or
+/// two 32-byte parities: two or three datagrams per keepalive on the radio.
+/// Counter 0 keeps its repair: an initiator's first keepalive confirms a new
+/// handshake, and the responder cannot send until it arrives.
+fn is_idle_keepalive(datagram: &[u8]) -> bool {
+    datagram.len() == WG_KEEPALIVE_LEN && data_id(datagram).is_some_and(|(_, counter)| counter > 0)
 }
 
 /// Datagrams the loss window spans before it halves.
@@ -765,6 +798,9 @@ pub(crate) struct UltraUnderlay {
     /// The staged datagram was rebuilt from parity.
     staged_rebuilt: bool,
     counters: Arc<UltraCounters>,
+    /// Measurement only (`testing::set_receive_tap`): the wire size of each
+    /// parity datagram consumed here since the driver last took them.
+    tapped_parity: Vec<usize>,
 }
 
 impl UltraUnderlay {
@@ -793,7 +829,14 @@ impl UltraUnderlay {
             staged_bytes: Vec::new(),
             staged_rebuilt: false,
             counters,
+            tapped_parity: Vec::new(),
         }
+    }
+
+    /// Measurement only: the parity datagrams `poll_recv` consumed since the
+    /// last call, by wire size (empty unless a receive tap is set).
+    pub(crate) fn take_tapped_parity(&mut self) -> Vec<usize> {
+        std::mem::take(&mut self.tapped_parity)
     }
 
     /// Carry on over a new carrier after a network change; the mode stays.
@@ -834,18 +877,20 @@ impl UltraUnderlay {
     /// (handshakes, the tunnel's own) keep the mode's repair too.
     fn repairs(&mut self, priority: Option<Priority>) -> bool {
         match priority {
-            Some(Priority::Screen) => {
+            // Remote desktop media keeps its repair at any loss: its loss behaviour under
+            // the 1 % rule has not been measured (RFD 0164 B6).
+            None | Some(Priority::Media) => true,
+            Some(priority) => priority.braid_class().repairs_at(|| {
                 self.fold_loss();
                 self.window.above_one_percent()
-            }
-            _ => true,
+            }),
         }
     }
 
     fn send_with(&mut self, datagram: &[u8], priority: Option<Priority>) {
         self.forward(datagram, priority);
         UltraCounters::add(&self.counters.data_bytes, datagram.len() as u64);
-        if !self.repairs(priority) {
+        if is_idle_keepalive(datagram) || !self.repairs(priority) {
             return;
         }
         // Repaired screen state groups with input.
@@ -1160,6 +1205,10 @@ impl Underlay for UltraUnderlay {
         UltraCounters::add(&self.counters.data_bytes, datagram.len() as u64);
     }
 
+    fn hold_routine_probes(&mut self, floor: Option<Instant>) {
+        self.inner.hold_routine_probes(floor);
+    }
+
     fn poll_probes(&mut self, now: Instant) -> DueProbes {
         self.inner.poll_probes(now)
     }
@@ -1212,6 +1261,9 @@ impl Underlay for UltraUnderlay {
                 if self.trusts(received.origin) {
                     let datagram = datagram.to_vec();
                     self.on_parity(&datagram, received.origin);
+                }
+                if crate::testing::tapping() {
+                    self.tapped_parity.push(received.len);
                 }
                 parities += 1;
                 if parities >= PARITY_PER_POLL {

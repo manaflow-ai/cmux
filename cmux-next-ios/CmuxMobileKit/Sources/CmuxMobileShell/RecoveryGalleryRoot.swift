@@ -35,12 +35,15 @@ import SwiftUI
 /// - `chiplist`: a list's connection state (the Workspaces list, Home, Agent Chats) as a chip over
 ///   the rows, which never move: A, top center (the one `cmuxMobileBanner` draws), in the link
 ///   states and over the signed-out banner; B, top leading; C, symbol only at the top trailing edge.
+/// - `panefilter`: the tab overview's pane filter, A (the one the grid shows), B and C (`PaneFilterGallery`).
 /// - `stills`: what a tab card's picture draws for math, a running tool's spinner and a menu, A (the
 ///   app's), B and C, each through `ImageRenderer` (`StillPictureGallery`).
 /// - `keybar`: the terminal key row's layouts, A (the default), B and C (`TerminalKeyBarGallery`).
 /// - `lastsent`: the terminal's top strip back to the last line sent (Leo 2026-11-23: "click (tap)
 ///   the top bit of the terminal in phone to jump to that last sent bit"): A, the pill the page
 ///   shows; B, a full-width bar; C, the top edge alone (`TerminalLastSentGallery`).
+/// - `favicons`: browser tab cards with no picture: today's globe, then the site monogram (A, Settings
+///   → Advanced → Site Monograms on Tab Cards) and the variants it was picked from, B and C.
 /// - `quiet-before`, `quiet-a`, `quiet-b`, `quiet-c`: the places that said "Updating…" over rows
 ///   the phone had, before and in three variants (Leo 2026-11-24: "they dont need to know that
 ///   it's updating before they KNOW it's updating"); A is the one the app shows (`QuietUpdatingGallery`).
@@ -115,6 +118,8 @@ public struct RecoveryGalleryRoot: View {
                 MacThemeGallery(variant: scene)
             case "keybar":
                 TerminalKeyBarGallery()
+            case "panefilter":
+                PaneFilterGallery()
             case "stills":
                 // `stills-mocha`, `stills-solarized`: the same under a Mac's dark or light theme.
                 StillPictureGallery()
@@ -125,6 +130,8 @@ public struct RecoveryGalleryRoot: View {
                     }
             case "lastsent":
                 TerminalLastSentGallery()
+            case "favicons":
+                SiteMonogramGallery()
             case "agentmark":
                 AgentAvatarHostGallery(variant: variant)
             default:

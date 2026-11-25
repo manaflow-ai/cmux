@@ -57,7 +57,10 @@ async fn a_direct_redial_has_its_own_deadline_through_the_websocket_upgrade() {
         peer.set_link_host("inst_b".into());
         peer.set_link_socket(socket);
         peer.linked_once.store(true, Ordering::SeqCst);
-        let dial = tokio::spawn(async move { peer.open_direct(Via::Link, None).await.map(|_| ()) });
+        let dial =
+            tokio::spawn(
+                async move { peer.open_direct(Via::Link, None, For::Link).await.map(|_| ()) },
+            );
         stalled.await.unwrap();
         tokio::time::pause();
         tokio::time::advance(Duration::from_secs(5)).await;
@@ -471,6 +474,34 @@ async fn a_path_that_stops_being_offered_is_taken_out() {
     assert!(!peer.dial_order().contains(&Via::Tailnet));
 }
 
+#[tokio::test]
+async fn a_cold_connect_never_waits_on_an_absent_or_hung_tailscale() {
+    use crate::tailnet_carrier::{LocalRead, Mode, PathSource, Snapshots};
+    // LocalAPI never answers its first read; the CLI is missing or hangs for 2 s.
+    let missing = Snapshots::new(Arc::new(|| Err(anyhow::anyhow!("no tailscale CLI"))));
+    let hung = Snapshots::new(Arc::new(|| {
+        std::thread::sleep(Duration::from_secs(2));
+        Err(anyhow::anyhow!("tailscale status hung"))
+    }));
+    for (name, local, cli) in [
+        ("localapi pending", LocalRead::Pending, missing.clone()),
+        ("localapi absent, cli missing", LocalRead::Unavailable, missing),
+        ("localapi absent, cli hung", LocalRead::Unavailable, hung),
+    ] {
+        let (tx, _rx) = mpsc::channel(8);
+        let peer = Peer::new("box", "ssh://leo@box:7777", Some("t".into()), Some("p".into()), tx);
+        let source = PathSource::new(Arc::new(move || local.clone()), cli);
+        *peer.tailnet.lock().unwrap() =
+            super::super::tailnet_path::State::with_source(Mode::DirectOnly, Some(source));
+        let started = std::time::Instant::now();
+        peer.refresh_tailnet(None).await;
+        let waited = started.elapsed();
+        eprintln!("cold connect tailnet read, {name}: {waited:?}");
+        assert!(waited < Duration::from_millis(5), "{name}: the race waited {waited:?}");
+        assert!(!peer.dial_order().contains(&Via::Tailnet));
+    }
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_black_holed_tailnet_path_falls_back_within_the_stagger() {
     // The tailnet path never answers; the next path starts one stagger later, not after the
@@ -502,4 +533,52 @@ async fn lockstep_a_new_client_to_a_server_with_nothing_on_the_tailnet_falls_bac
     let (via, _, failed) = won.unwrap();
     assert_eq!(via, Via::Ssh);
     assert_eq!(failed.len(), 1);
+}
+
+/// #54052: only the link's dial carries its `initialize` behind the upgrade. A probe's socket
+/// greets the peer with its observer `probe_hello`, so its upgrade request has nothing behind it.
+#[tokio::test]
+async fn only_the_links_dial_sends_a_first_request_behind_the_upgrade() {
+    use tokio::io::AsyncReadExt;
+    for (dialer, wants_early) in [(For::Link, true), (For::Probe, false)] {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (behind_tx, behind_rx) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut seen = Vec::new();
+            let mut chunk = [0u8; 4096];
+            let end = loop {
+                let n = stream.read(&mut chunk).await.unwrap();
+                assert!(n > 0, "the dial closed before its upgrade request ended");
+                seen.extend_from_slice(&chunk[..n]);
+                if let Some(at) = seen.windows(4).position(|w| w == b"\r\n\r\n") {
+                    break at + 4;
+                }
+            };
+            let mut behind = seen.len() - end;
+            if behind == 0
+                && let Ok(Ok(n)) =
+                    tokio::time::timeout(Duration::from_millis(300), stream.read(&mut chunk)).await
+            {
+                behind = n;
+            }
+            behind_tx.send(behind).unwrap();
+            pending::<()>().await;
+            drop(stream);
+        });
+        let (tx, _rx) = mpsc::channel(8);
+        let peer =
+            Peer::new("early", &format!("ws://127.0.0.1:{port}"), Some("token".into()), None, tx);
+        let dial = tokio::spawn(async move { peer.open_url(dialer).await.map(|_| ()) });
+        let behind =
+            tokio::time::timeout(Duration::from_secs(5), behind_rx).await.unwrap().unwrap();
+        dial.abort();
+        server.abort();
+        assert_eq!(
+            behind > 0,
+            wants_early,
+            "{dialer:?}: {behind} bytes behind the upgrade request"
+        );
+    }
 }

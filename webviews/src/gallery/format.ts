@@ -290,9 +290,6 @@ export type AgentPaneVariant = VariantBase & {
   /** Milliseconds a native method's answer waits, by method: a slow host call the pane shows as
    *  in progress (New Worktree's "Creating worktree…"). */
   nativeDelayMs?: Record<string, number>;
-  /** The in-session status toggle (Debug Settings `agent.sessionStatus`, off by default) on, as the
-   *  app's `sessionStatus` push sends it: the live plan card and the recap card. */
-  sessionStatus?: boolean;
   /** The chat's `display` push (AgentPaneDisplaySetting.swift, chatDisplay.ts): `agentPane.display.*`
    *  keys and the app keys the chat follows, such as Minimal Mode (`{ "sidebar.minimal": true }`). */
   display?: Record<string, unknown>;
@@ -305,6 +302,9 @@ export type AgentPaneVariant = VariantBase & {
   /** Experiment arms the variant pins, by experiment id (experiments/experiment.ts), set before the
    *  pane's scripts run: a variant about one arm's look keeps it when the default moves. */
   experiments?: Record<string, string>;
+  /** Settings > Advanced > Experiments switches the variant turns on, by name (`{ foldSummaryCounts:
+   *  true }`), as the app's `applyExperiments` push sends them (experiments/switches.ts). */
+  experimentSwitches?: Record<string, boolean>;
   /** The pane's first chat has Session Info open, as a person who opened it there has it. Session
    *  Info starts closed in every new pane (sessionInfoState.ts); a stage that draws it set this. */
   sessionInfoOpen?: boolean;

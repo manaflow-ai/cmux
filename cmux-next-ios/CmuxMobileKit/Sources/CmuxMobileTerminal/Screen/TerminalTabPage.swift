@@ -103,14 +103,31 @@ public struct TerminalTabPage: View {
     let chromeTop: CGFloat?
     /// The page is settled full screen (no zoom, swipe or open menu).
     let isInteractive: Bool
+    /// The page is full screen, not zoomed out to the tab grid; true through
+    /// an open menu, a swipe or an edit. The page turns sideways by this, so
+    /// opening the page menu in landscape does not snap the app to portrait.
+    let isOnPage: Bool
     /// This page's own identity for the host's size-claim ownership.
     @State private var pageID = UUID()
 
-    public init(host: TerminalTabHost, insets: EdgeInsets, chromeTop: CGFloat? = nil, isInteractive: Bool) {
+    public init(host: TerminalTabHost, insets: EdgeInsets, chromeTop: CGFloat? = nil, isInteractive: Bool,
+                isOnPage: Bool? = nil) {
         self.host = host
         self.insets = insets
         self.chromeTop = chromeTop
         self.isInteractive = isInteractive
+        self.isOnPage = isOnPage ?? isInteractive
+    }
+
+    /// How far above the page's bottom inset its rows end now: the dock at rest (key row
+    /// and one-line composer) over the keyboard when it is up (``TerminalConnectingView``).
+    private var rowsLift: CGFloat {
+        let model = host.model
+        let stack = TerminalDockMetrics().restingStackHeight(
+            lineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight,
+            visibility: TerminalDockVisibility(chromeHidden: model.chromeHidden, composerPresented: model.composerPresented))
+        let keyboard = model.keyboardVisible ? TerminalKeyboardHeight.shared.height : 0
+        return max(0, keyboard - insets.bottom) + stack + TerminalDocumentLayout.composerGap
     }
 
     public var body: some View {
@@ -124,12 +141,15 @@ public struct TerminalTabPage: View {
             // workspace release it (PROTOCOL.md, "Terminal size claims").
             .onAppear {
                 host.pageAppeared(pageID, interactive: isInteractive)
-                TerminalPageOrientation.shared.page(pageID, shows: isInteractive)
+                TerminalPageOrientation.shared.page(pageID, shows: isOnPage)
             }
             .onChange(of: isInteractive) { _, interactive in
                 host.pageSettled(pageID, interactive: interactive)
-                // Settled, the page turns with the phone; zoomed out, the grid is portrait.
-                TerminalPageOrientation.shared.page(pageID, shows: interactive)
+            }
+            .onChange(of: isOnPage) { _, onPage in
+                // On the page, it turns with the phone (a menu, swipe or edit
+                // keeps it turned); zoomed out, the grid is portrait.
+                TerminalPageOrientation.shared.page(pageID, shows: onPage)
             }
             .onDisappear {
                 host.pageDisappeared(pageID)
@@ -152,8 +172,10 @@ public struct TerminalTabPage: View {
                     if Self.showsCover(attached: model.connectionState.isAttached, seeded: model.seeded,
                                        drewLiveOutput: model.drewLiveOutput, heldFrame: model.coldFrame != nil) {
                         // Once attached the cover stays until the live rows are drawn, then
-                        // goes in one frame: a cut, never a fade over live rows (R3-4).
-                        TerminalConnectingView(topInset: insets.top, screenText: model.cardScreenText)
+                        // goes in one frame: a cut, never a fade over live rows (R3-4). Its
+                        // rows are laid out for the page as it is now (keyboard up or down).
+                        TerminalConnectingView(topInset: insets.top, screenText: model.cardScreenText,
+                                               rowsLift: rowsLift, rows: model.coldFrameRows, rowsMeasured: model.coldFrameMeasured)
                             .ignoresSafeArea()
                             .padding(.bottom, insets.bottom)
                             .transition(.identity)
@@ -188,10 +210,14 @@ extension TerminalTabPage {
 public struct TerminalTabCard: View {
     let model: TerminalModel
     let insets: EdgeInsets
+    /// A picture of the tab from elsewhere (the Mac's thumbnail, kept across launches), drawn in place
+    /// of the labeled placeholder: a card never blanks while any picture of its tab is known.
+    let fallback: UIImage?
 
-    public init(model: TerminalModel, insets: EdgeInsets) {
+    public init(model: TerminalModel, insets: EdgeInsets, fallback: UIImage? = nil) {
         self.model = model
         self.insets = insets
+        self.fallback = fallback
     }
 
     public var body: some View {
@@ -244,8 +270,14 @@ public struct TerminalTabCard: View {
                         .opacity(content.drawnOpacity)
                     }
                 case .nothing:
-                    // Nothing known yet: the terminal's background, no stand-in.
-                    EmptyView()
+                    // Nothing of the terminal known yet: a picture of the tab from elsewhere (the Mac's
+                    // thumbnail) when there is one, else the terminal's background, no stand-in.
+                    if let fallback {
+                        Image(uiImage: fallback).resizable().interpolation(.medium)
+                            .frame(width: geo.size.width, height: geo.size.width * fallback.size.height / max(1, fallback.size.width))
+                            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+                            .clipped()
+                    }
                 }
             }
         }

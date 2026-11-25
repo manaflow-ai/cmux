@@ -56,6 +56,9 @@ use futures::future::BoxFuture;
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
+/// Builds a rig's importer from the daemon, the laptop's transport and a folder for new chats.
+type MakeImporter = Box<dyn FnOnce(Arc<Hub>, FakeAutoCloud, PathBuf) -> Arc<dyn SessionImporter>>;
+
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
 /// When the test's clocks start (epoch ms).
@@ -176,10 +179,7 @@ impl Rig {
         Rig::build(DEVICE, Some(Box::new(make))).await
     }
 
-    async fn build(
-        device: &str,
-        make: Option<Box<dyn FnOnce(Arc<Hub>, FakeAutoCloud, PathBuf) -> Arc<dyn SessionImporter>>>,
-    ) -> Rig {
+    async fn build(device: &str, make: Option<MakeImporter>) -> Rig {
         let root = tempfile::tempdir().unwrap();
         let work = checkout(root.path());
         let wire_log = root.path().join("wire.log");
@@ -356,7 +356,9 @@ async fn an_auto_chat_renews_and_keeps_a_whole_copy_in_the_cloud() {
     let id = rig.auto_chat().await;
     assert_eq!(
         rig.row(&id),
-        json!({"auto": true, "state": "local", "here": true, "keepInCloud": false})
+        json!({
+            "auto": true, "mode": "auto", "state": "local", "here": true, "keepInCloud": false,
+        })
     );
     assert_eq!(rig.view(&id).epoch, 1);
     assert_eq!(rig.holder.holder(), &rig.me);
