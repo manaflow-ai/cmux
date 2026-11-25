@@ -214,7 +214,13 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
                   let url = URL(string: hub), url.scheme == "https" || url.host == "127.0.0.1" || url.host == "localhost" else {
                 return RemoteWire.failure(id: id, code: "bad_request", message: "user_id and an https hub_url are required")
             }
-            agent.anchored(userID: user, hubURL: hub)
+            // A tagged dev build's space (`dev:<slug>`); absent for NIGHTLY and release. Anything else is refused,
+            // never read as the default space.
+            let space = params["build_space"] as? String
+            guard space.map(DeviceAgent.isBuildSpace) ?? true else {
+                return RemoteWire.failure(id: id, code: "bad_request", message: "build_space must be dev:<slug>")
+            }
+            agent.anchored(userID: user, hubURL: hub, buildSpace: space)
             return RemoteWire.answer(id: id, result: agent.status)
         case "hub.signed_out":
             agent.signedOut()

@@ -66,6 +66,22 @@ export function thoughtHead(text: string): ThoughtHead {
     .trimEnd();
   const parts = thoughtParts(first);
   const head = parts[0];
-  if (head && "title" in head) return { line: head.title, title: true, rest, gap };
-  return { line: first.trim(), title: false, rest, gap: gap && rest !== "" };
+  if (head && "title" in head) return { line: unmeta(head.title), title: true, rest, gap };
+  return { line: unmeta(first.trim()), title: false, rest, gap: gap && rest !== "" };
+}
+
+/// A summarized thought (Claude Code's `--thinking-display summarized`, written server side) can open
+/// by narrating the thinking instead of saying it: "I'm checking the next thinking, and it reads
+/// 'Already known....'" (Leo, 2026-11-25: "this is extremely strange"). The row line is never such
+/// a meta line: it reads what the narration quotes, else the sentence after the narration's own.
+const META_LEAD =
+  /^(?:(?:now|so|ok(?:ay)?),?\s+)?(?:i['\u2019]?m|i am|i['\u2019]ll|i will|let me|i)\s+(?:now\s+)?(?:check(?:ing|s)?|read(?:ing|s)?|look(?:ing)? (?:at|over)|review(?:ing|s)?|summariz(?:e|ing)|go(?:ing)? (?:through|over)|process(?:ing)?)\s+(?:the\s+|this\s+|my\s+)?(?:next|previous|prior|latest|last|current|new|following|above)?\s*(?:chunk of\s+|block of\s+|piece of\s+|part of\s+)?(?:thinking|thoughts?|reasoning)\b/i;
+const META_QUOTE = /\b(?:reads?|says?|is|goes)\s*:?\s*["'\u2018\u201c](.+?)["'\u2019\u201d]?\s*$/i;
+
+export function unmeta(line: string): string {
+  if (!META_LEAD.test(line)) return line;
+  const quoted = META_QUOTE.exec(line)?.[1]?.trim();
+  if (quoted) return quoted;
+  const next = line.replace(/^[^.!?:]*[.!?:]\s+/, "").trim();
+  return next && next !== line ? next : line;
 }

@@ -1047,7 +1047,7 @@ server (`optchat-chief agent-memory mcp`) with `memory_search`, `memory_get` and
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `enabled` | `false` | Register the server for the agent sessions cmux starts, and let the Agent Memory app's search use the index. Only `true` turns it on; a settings file that cannot be read keeps it off. |
-| `owner` | unset | The route of the machine that owns the index (`ssh://HOST` uses your ssh config; any `cmux remote` route works). Unset: this machine owns it. |
+| `owner` | unset | The route of the machine that owns the index (`ssh://HOST` uses your ssh config; any `cmux remote` route works). Unset: this machine owns it, and a chat that moves from here to another of your machines takes the route back with it (this machine's `remoteDaemon` through the hub carrier, `--via-machine`), so its memory still searches this index. |
 | `ownerArgs` | `[]` | Extra `cmux remote rpc` options for that route, such as `--daemon FINGERPRINT` or `--ssh-arg ARG`. |
 | `ownerCommand` | unset | The owner's `optchat-chief`, as argv, when it is not in a cmux app bundle, on its `PATH` or in `~/.local/bin`. |
 | `remember` | `true` | Whether agents may save notes. `false` hides `memory_remember`. |

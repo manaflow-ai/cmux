@@ -73,6 +73,9 @@ jobs:
       - name: H checks every tracked file
         id: tt-h
         run: python3 tests/test_h.py
+      - name: I lists source folders under a root it is handed
+        id: tt-i
+        run: python3 tests/test_i.py
 """
 FILES = {
     WORKFLOW: FIXTURE_WORKFLOW,
@@ -105,6 +108,29 @@ FILES = {
         import subprocess
         tracked = subprocess.run(["git", "ls-files", "-z"], capture_output=True).stdout
         """),
+    # ios_placeholder_bounds.py's shape: the root is a parameter (`--root`), the folders a tuple it loops over;
+    # the listing of a scratch folder names no repository directory and adds nothing.
+    "tests/test_i.py": textwrap.dedent("""\
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+        import check_i
+        """),
+    "scripts/check_i.py": textwrap.dedent("""\
+        import tempfile
+        from pathlib import Path
+        SOURCE_DIRS = ("app/Sources", "kit/Sources")
+        def sources(root: Path):
+            for rel in SOURCE_DIRS:
+                base = root / rel
+                yield from base.rglob("*.swift")
+        def scratch():
+            tmp = Path(tempfile.mkdtemp())
+            return list((tmp / "out").glob("*.json"))
+        """),
+    "app/Sources/Feature/View.swift": "struct V {}\n",
+    "kit/Sources/Kit.swift": "struct K {}\n",
+    "app/Other/Readme.swift": "struct R {}\n",
 }
 
 
@@ -123,8 +149,8 @@ class FixtureRepo(unittest.TestCase):
     def tearDown(self):
         self.scratch.cleanup()
 
-    def route(self, changed, event="pull_request"):
-        return tooling_steps.route(self.root, WORKFLOW, "tooling-tests", changed, event)
+    def route(self, changed, event="pull_request", added_deleted=None):
+        return tooling_steps.route(self.root, WORKFLOW, "tooling-tests", changed, event, added_deleted)
 
     def verdicts(self, decision):
         return {s.key: s for s in decision.steps}
@@ -149,7 +175,7 @@ class FixtureRepo(unittest.TestCase):
         decision = self.route(["webviews/src/pane.tsx"])
         self.assertFalse(decision.all)
         steps = self.verdicts(decision)
-        self.assertEqual({k for k, s in steps.items() if not s.run}, {"tt-a", "tt-b", "tt-f", "tt-g"})
+        self.assertEqual({k for k, s in steps.items() if not s.run}, {"tt-a", "tt-b", "tt-f", "tt-g", "tt-i"})
         # Setup steps are never selectable: they always run.
         self.assertNotIn("setup-python", steps)
 
@@ -172,7 +198,7 @@ class FixtureRepo(unittest.TestCase):
         self.assertIn("mystery_module_nowhere", steps["tt-c"].reason)
 
     def test_a_step_naming_no_test_or_hiding_its_script_runs(self):
-        steps = self.verdicts(self.route(["webviews/src/pane.tsx"]))
+        steps = self.verdicts(self.route(["docs/notes.md"]))
         self.assertTrue(steps["tt-d"].run)
         self.assertIn("no test", steps["tt-d"].reason)
         self.assertTrue(steps["tt-e"].run)
@@ -225,6 +251,15 @@ class FixtureRepo(unittest.TestCase):
                                                   "pull_request", ["webviews/src/new.tsx"]))
         self.assertTrue(steps["tt-h"].run, steps["tt-h"].reason)
 
+    def test_a_command_run_from_a_variable_is_judged_only_for_a_non_product_diff(self):
+        # tt-f's script runs `bash "$t"`: any file of tests/shell may run, so a tooling change runs it, but a diff of
+        # product source alone (which no tooling test reads) skips it.
+        steps = self.verdicts(self.route(["webviews/src/pane.tsx"]))
+        self.assertFalse(steps["tt-f"].run, steps["tt-f"].reason)
+        # With a file of its own directory in the diff, it runs.
+        steps = self.verdicts(self.route(["webviews/src/pane.tsx", "tests/shell/new.test.sh"]))
+        self.assertTrue(steps["tt-f"].run, steps["tt-f"].reason)
+
     def test_a_workflow_or_router_change_runs_every_step(self):
         for changed in (WORKFLOW, "scripts/ci/tooling_steps.py", "scripts/ci/workflow_paths_cover_inputs.py",
                         "scripts/ci/gh_expressions.py", "scripts/env.sh"):
@@ -256,6 +291,20 @@ class FixtureRepo(unittest.TestCase):
             self.assertEqual(values["tooling_all"], "false")
             self.assertEqual(values["tooling_steps"], " tt-a tt-c tt-d tt-e tt-h ")
             self.assertIn("`tt-b` B:", summary.read_text(encoding="utf-8"))
+
+    # A listing under a root the script is handed (`root / rel`, `--root`) is read as one under the repository: the
+    # walker used to drop it, so a change under those folders skipped the step and turned the base red after merge
+    # (tests/test_ios_placeholder_bounds.py, RecoveryGalleryRoot.swift, fixed on base by #55212).
+    def test_a_change_under_a_computed_root_listing_runs_the_step(self):
+        for changed in ("app/Sources/Feature/View.swift", "kit/Sources/Kit.swift"):
+            steps = self.verdicts(self.route([changed]))
+            self.assertTrue(steps["tt-i"].run, f"{changed}: {steps['tt-i'].reason}")
+            self.assertIn("lists", steps["tt-i"].reason)
+
+    def test_a_change_beside_a_computed_root_listing_skips_it(self):
+        steps = self.verdicts(self.route(["app/Other/Readme.swift"]))
+        self.assertFalse(steps["tt-i"].run, steps["tt-i"].reason)
+        self.assertFalse(steps["tt-a"].run, steps["tt-a"].reason)
 
 
 DECLARED_FIXTURE = """\
@@ -319,6 +368,33 @@ class DeclaredInputs(unittest.TestCase):
             steps = self.verdicts(self.route(["webviews/src/pane.tsx"]))
             self.assertTrue(steps["tt-d"].run, text)
 
+    def test_a_traced_declaration_alone_decides_its_step(self):
+        # 2026-11-23T18..11-24T18: tt-measure-tests ran on 3,637 of 4,398 tooling-tests jobs (6.9k runner-min/day): the
+        # walker's folder and whole-tree guesses (a script naming Packages/macOS/CmuxNext, a `git ls-files`) matched
+        # nearly every diff its declared globs did not. With "traced": true, its globs and resolved files decide it.
+        added = ["webviews/src/new.tsx"]
+        steps = self.verdicts(self.route(added, added_deleted=added))
+        self.assertTrue(steps["tt-h"].run, steps["tt-h"].reason)  # undeclared: the whole-tree guess holds
+        self.declare('{"%s": {"tooling-tests": {"tt-h": {"inputs": ["tests/test_h.py", "data/**"], '
+                     '"why": "traced: reads only its test and data/", "traced": true}}}}' % WORKFLOW)
+        steps = self.verdicts(self.route(added, added_deleted=added))
+        self.assertFalse(steps["tt-h"].run, steps["tt-h"].reason)
+        self.assertIn("traced", steps["tt-h"].reason)
+        for path in ("data/new.txt", "tests/test_h.py"):
+            steps = self.verdicts(self.route([path], added_deleted=[path]))
+            self.assertTrue(steps["tt-h"].run, (path, steps["tt-h"].reason))
+        # "traced" counts only as the literal true, on an entry load_declared accepts.
+        self.declare('{"%s": {"tooling-tests": {"tt-h": {"inputs": ["tests/test_h.py"], "why": "x", '
+                     '"traced": "yes"}}}}' % WORKFLOW)
+        steps = self.verdicts(self.route(added, added_deleted=added))
+        self.assertTrue(steps["tt-h"].run, steps["tt-h"].reason)
+
+    def test_the_real_traced_steps_are_declared_steps(self):
+        workflow = ".github/workflows/cmux-next-guards.yml"
+        traced = tooling_steps.load_traced(ROOT, workflow, "tooling-tests")
+        self.assertIn("tt-measure-tests", traced)
+        self.assertLessEqual(traced, set(tooling_steps.load_declared(ROOT, workflow, "tooling-tests")))
+
     def test_parse_trace_reads_the_checkout_only(self):
         repo = tooling_steps.Repo.load(self.root)
         root = str(self.root)
@@ -349,6 +425,90 @@ class DeclaredInputs(unittest.TestCase):
         self.assertEqual(problems, ["tt-f: read data/listed.txt, outside its declared inputs and its resolved inputs"])
         self.declare(DECLARED_FIXTURE.replace('"tests/run-all.test.sh"', '"tests/run-all.test.sh", "data/**"'))
         self.assertEqual(tooling_steps.verify(self.root, WORKFLOW, "tooling-tests", ["tt-f"]), [])
+
+
+class GreenReuse(FixtureRepo):
+    """scripts/ci/tooling_reuse.py: a later head reuses an earlier run's pass for a step only when route, asked about the
+    diff between the two merge trees, would not select that step."""
+
+    def setUp(self):
+        super().setUp()
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import tooling_reuse
+        self.reuse = tooling_reuse
+        self.commit("fixture")
+        self.before = tooling_reuse.tree_of(self.root)
+
+    def commit(self, message):
+        env = git_fixture_env.fixture_env()
+        subprocess.run(["git", "-C", str(self.root), "add", "-A"], check=True, env=env)
+        subprocess.run(["git", "-C", str(self.root), "-c", "user.name=t", "-c", "user.email=t@example.com",
+                        "commit", "-q", "--allow-empty", "-m", message], check=True, env=env)
+
+    def edit(self, rel, text):
+        path = self.root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        self.commit(f"edit {rel}")
+
+    def found(self, selected, passed=("tt-a", "tt-b", "tt-g")):
+        record = self.reuse.Record("run 1", self.before, set(passed))
+        return self.reuse.reusable(self.root, WORKFLOW, "tooling-tests", list(selected),
+                                   self.reuse.tree_of(self.root), [record])
+
+    def test_the_same_tree_reuses_every_step_that_passed(self):
+        found = self.found(["tt-a", "tt-b", "tt-c"])
+        self.assertEqual(set(found), {"tt-a", "tt-b"})  # tt-c never passed in run 1
+
+    def test_a_change_one_step_reads_reruns_that_step_only(self):
+        self.edit("liba/lib_a.py", "VALUE = 2\n")
+        found = self.found(["tt-a", "tt-b"])
+        self.assertEqual(set(found), {"tt-b"})
+        self.assertIn("run 1", found["tt-b"][0])
+
+    def test_a_change_to_the_workflow_or_reuse_logic_reuses_nothing(self):
+        for rel in (WORKFLOW, "scripts/ci/tooling_reuse.py"):
+            with self.subTest(rel=rel):
+                path = self.root / rel
+                old = path.read_text(encoding="utf-8") if path.exists() else ""
+                self.edit(rel, old + "\n# changed\n")
+                self.assertEqual(self.found(["tt-a", "tt-b"]), {})
+
+    def test_a_deleted_file_a_listed_data_file_names_reruns_its_step(self):
+        (self.root / "tools/listed_tool.py").unlink()
+        self.commit("delete")
+        self.assertNotIn("tt-g", self.found(["tt-a", "tt-g"]))
+
+    def test_apply_rewrites_the_route_output_and_fails_open(self):
+        self.edit("webviews/src/pane.tsx", "export const x = 1\n")
+        out = self.root / "tooling.out"
+        out.write_text("tooling_steps= tt-a tt-b tt-c \ntooling_all=false\n", encoding="utf-8")
+        record = self.reuse.Record("run 1", self.before, {"tt-a", "tt-c"})
+        found = self.reuse.apply(out, self.root, WORKFLOW, "tooling-tests", lambda: [record])
+        self.assertEqual(set(found), {"tt-a"})  # tt-c reads an unknown module, so route still selects it
+        self.assertEqual(out.read_text(encoding="utf-8"), "tooling_steps= tt-b tt-c \ntooling_all=false\n")
+
+        def broken():
+            raise TimeoutError("api down")
+        out.write_text("tooling_steps= tt-a \ntooling_all=false\n", encoding="utf-8")
+        self.assertEqual(self.reuse.apply(out, self.root, WORKFLOW, "tooling-tests", broken), {})
+        self.assertEqual(out.read_text(encoding="utf-8"), "tooling_steps= tt-a \ntooling_all=false\n")
+
+    def test_record_keeps_only_steps_that_ran_and_passed(self):
+        import json
+        steps = {"setup-python": {"outcome": "success"}, "tt-a": {"outcome": "success"},
+                 "tt-b": {"outcome": "skipped"}, "tt-c": {"outcome": "failure"}}
+        out = self.root / "out" / "tooling-passed.json"
+        passed = self.reuse.record(WORKFLOW, "tooling-tests", self.root, json.dumps(steps), out, "1")
+        self.assertEqual(passed, ["tt-a"])
+        data = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual(data["tree"], self.before)
+
+    def test_audit_is_stable_per_run_and_near_its_percent(self):
+        self.assertEqual(self.reuse.audited("123", 10), self.reuse.audited("123", 10))
+        hits = sum(self.reuse.audited(str(n), 10) for n in range(2000))
+        self.assertTrue(120 < hits < 280, hits)
+        self.assertFalse(any(self.reuse.audited(str(n), 0) for n in range(200)))
 
 
 class RealDeclarations(unittest.TestCase):
@@ -400,6 +560,12 @@ class RealWorkflow(unittest.TestCase):
         expected = [s["id"] for s in self.job["steps"] if "run" in s and not s["id"].startswith("setup-")]
         self.assertEqual([s.key for s in decision.steps], expected)
 
+    def test_an_iphone_swift_change_runs_the_placeholder_bounds_step(self):
+        decision = tooling_steps.route(ROOT, ".github/workflows/cmux-next-guards.yml", "tooling-tests",
+            ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift"], "pull_request")
+        step = next(s for s in decision.steps if s.key == "tt-ios-placeholder-bounds")
+        self.assertTrue(step.run, step.reason)
+
     def test_the_route_step_runs_the_router_before_every_selected_step(self):
         steps = self.job["steps"]
         index = next(i for i, s in enumerate(steps) if s.get("id") == "setup-tooling-route")
@@ -417,7 +583,7 @@ class RealWorkflow(unittest.TestCase):
         # No routing job of its own: tooling-tests waits on coalesce and on the base-red check (#52891).
         self.assertEqual(self.job["needs"], ["coalesce", "tooling-tests-base-red"])
         self.assertNotIn("portable-placement", self.document["jobs"])
-        self.assertTrue(self.job["if"].startswith("${{ (!cancelled()"))
+        self.assertIn("(!cancelled() && needs.coalesce.outputs.run != 'false')", self.job["if"])  # after the draft tier
 
 
 if __name__ == "__main__":

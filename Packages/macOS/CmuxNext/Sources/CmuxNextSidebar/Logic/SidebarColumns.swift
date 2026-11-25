@@ -24,7 +24,12 @@ nonisolated struct SidebarColumns: Hashable, Sendable {
     /// The control side plus its gap, supplied by the row's density.
     var trailingPitch: CGFloat = LayoutGrid.sidebarSecondMarkPitch
 
-    var iconBox: CGFloat { iconBoxOverride ?? max(comfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox, minIconBox) }
+    var iconBox: CGFloat { Self.iconBox(comfortable: comfortable, minIconBox: minIconBox, override: iconBoxOverride) }
+    /// The icon column's width alone, for a reader that must not build the whole grid: its trailing insets read the
+    /// row inset, which centers Home's house by a glyph size that reads this width (`SidebarRowTuning.outerInset`).
+    static func iconBox(comfortable: Bool, minIconBox: CGFloat, override: CGFloat?) -> CGFloat {
+        override ?? max(comfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox, minIconBox)
+    }
     var lead: CGFloat { LayoutGrid.sidebarLead - leadingInset + CGFloat(max(0, depth)) * LayoutGrid.sidebarDepthIndent + leadingOffset }
     var text: CGFloat { lead + iconBox + gap }
     /// Only a visible leading icon or pin reserves the icon column. Text-only rows start
