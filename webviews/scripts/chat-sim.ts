@@ -20,6 +20,8 @@
 //   bun scripts/chat-sim.ts --reported [--update]   (replay each fixture and compare the rows breaking each rule)
 //   bun scripts/chat-sim.ts --drift ~/.acpmux/sessions [--days 7 --json]   (record kinds live chats write that no fixture or scenario plays)
 //   bun scripts/chat-sim.ts --cases   (the layout-shift case space; test/layout-every-case-browser-N.test.ts plays it)
+//   bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> --integrity   (bubble-integrity checker only)
+//   bun scripts/chat-sim.ts --stream-map [ID...]                           (the stream scenario map, model cases)
 //   ... --start-at S | --seek-to-event SEQ [--lead S]   (apply the steps before at once; trace from there)
 //
 // Exit status: 0 with no violations, 1 with any (2: bad arguments).
@@ -57,6 +59,8 @@ import {
   layoutCaseScenario,
   layoutCases,
 } from "../src/agent-session/acpmux/sim/layoutCases";
+import { integrityScan, runMapScenario } from "../src/agent-session/acpmux/sim/mapRun";
+import { STREAM_SCENARIOS } from "../src/agent-session/acpmux/sim/streamScenarios";
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.includes(name);
@@ -550,6 +554,22 @@ if (flag("--map")) {
   );
   process.exit(wrong ? 1 : 0);
 }
+// The stream scenario map's model cases (docs/design/chat-stream-scenarios.md); the live ones run in its test.
+if (flag("--stream-map")) {
+  const ids = args.filter((arg) => !arg.startsWith("--"));
+  let failed = 0;
+  for (const entry of STREAM_SCENARIOS) {
+    if (entry.harness !== "sim" || (ids.length && !ids.includes(entry.id))) continue;
+    const findings = runMapScenario(entry);
+    if (findings.length) failed += 1;
+    console.log(`${findings.length ? "FAIL" : "pass"} ${entry.id.padEnd(28)} ${entry.title}`);
+    for (const finding of findings.slice(0, Number(value("--show") ?? 3)))
+      console.log(
+        `  ${finding.rule.padEnd(22)} step ${finding.step} (${finding.label}) ${finding.rowId}: ${finding.detail}`,
+      );
+  }
+  process.exit(failed ? 1 : 0);
+}
 if (flag("--list")) {
   for (const name of scenarioNames()) console.log(`${name.padEnd(24)} ${SCENARIOS[name]!().about}`);
   console.log(`${"--long N".padEnd(24)} N turns of mixed work (about 12 rows a turn)`);
@@ -593,6 +613,21 @@ if (replay) {
   const name = args.find((arg, at) => !arg.startsWith("--") && !args[at - 1]?.startsWith("--"));
   if (!name || !SCENARIOS[name]) usage(2);
   scenarios.push(SCENARIOS[name]!());
+}
+
+// The bubble-integrity checker on recorded chats: one line a finding, exit 1 on any.
+if (flag("--integrity")) {
+  let found = 0;
+  for (const scenario of scenarios) {
+    const findings = integrityScan(scenario);
+    found += findings.length;
+    console.log(`${scenario.name}: ${scenario.events.length} records, ${findings.length} integrity findings`);
+    for (const finding of findings.slice(0, Number(value("--show") ?? 20)))
+      console.log(
+        `  ${finding.rule.padEnd(24)} step ${finding.step} (${finding.label}) ${finding.rowId}: ${finding.detail}`,
+      );
+  }
+  process.exit(found ? 1 : 0);
 }
 
 const tracePath = value("--trace");
