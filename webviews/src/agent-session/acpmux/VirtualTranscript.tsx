@@ -7156,11 +7156,13 @@ function TranscriptView({
   // A running turn's own rows are not news, nor a turn that ended with the reader at its bottom
   // (sinceNews.ts `SinceTurnHold`; Leo, 2026-11-25: "dont mark it as new if it's still going").
   const sinceHeld =
-    sinceRow !== undefined ? sinceHold.spans(rows, sinceIndex, sinceKey, working, renderFollowing) : NO_HELD;
+    sinceRow !== undefined
+      ? sinceHold.spans(rows, sinceIndex, sinceKey, working, renderFollowing && !sessionSwitched)
+      : NO_HELD;
   const sinceHasNews = sinceRow !== undefined && sinceNews(rows, sinceIndex, sinceHeld);
   // "157 new messages" (sinceNews.ts `sinceCount`): the news under the line, read from the end back
   // to it, bounded; only when the rows change, never per scroll frame.
-  const sinceHeldKey = sinceHeld.map((span) => `${span.from}-${span.to}`).join(",");
+  const sinceHeldKey = sinceHeld.map((span) => `${span.from}-${span.to}${span.seen ? "s" : ""}`).join(",");
   const sinceMessages = useMemo(
     () => (sinceHasNews ? sinceCount(rows, sinceIndex, undefined, sinceHeld) : undefined),
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- the spans are new each render; their key is what changes
