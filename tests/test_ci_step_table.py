@@ -455,6 +455,19 @@ class StepResultsTest(unittest.TestCase):
         self.assertIn("| a | yes | pr | reused |", summary)
         self.assertIn("1 of 2 routed steps reused", out)
 
+    def test_a_skipped_alone_step_stores_no_pass(self) -> None:
+        # A skipped step never ran: storing a pass under its key would let a later run reuse a verdict nobody had.
+        self.table.steps.pop("event")
+        self.table.steps["red"] = ci_steps.Step(name="red", job="linux", run="exit 3", inputs=("b.txt",), reuse=False)
+        self.table.steps["a"] = ci_steps.Step(name="a", job="linux", run=self.table.steps["a"].run,
+                                              inputs=("a/**",), alone=True)
+        store = FakeStore()
+        code, out, ran = self.run_job(store)
+        self.assertEqual(code, 1, out)
+        self.assertNotIn("a", ran)
+        self.assertIn("step a skipped: blocking step red failed", out)
+        self.assertEqual(store.posts, [])
+
     def test_every_step_reused_skips_setup(self) -> None:
         self.table.steps.pop("event")
         store = FakeStore()
@@ -744,6 +757,37 @@ class SetupTest(unittest.TestCase):
         self.assertLess(out.index("::group::a"), out.index("::group::big"), out)
         self.assertLess(out.index("::group::big"), out.index("::group::last"), out)
 
+    def test_an_alone_step_is_skipped_once_a_blocking_step_failed(self) -> None:
+        # The job is red already and its re-run runs every step: a 15 to 65 minute alone step would only
+        # spend the machine (4 of 30 long red linux jobs on 11-24, 16% of their time).
+        with tempfile.TemporaryDirectory() as tmp:
+            body = (f'[step.big]\njob = "linux"\nalone = true\nrun = "touch {tmp}/big"\n'
+                    '[step.red]\njob = "linux"\nrun = "exit 3"\n')
+            code, out = self.run_job(table(body), "linux")
+            self.assertEqual(code, 1, out)
+            self.assertFalse(Path(tmp, "big").exists(), out)
+        self.assertIn("step big skipped: blocking step red failed", out)
+        self.assertIn("::error title=red::", out)
+        self.assertNotIn("step big exited", out)
+
+    def test_a_failed_alone_step_skips_the_alone_steps_after_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            body = ('[step.first]\njob = "linux"\nalone = true\nrun = "exit 2"\n'
+                    f'[step.second]\njob = "linux"\nalone = true\nrun = "touch {tmp}/second"\n'
+                    '[step.ok]\njob = "linux"\nrun = "true"\n')
+            code, out = self.run_job(table(body), "linux")
+            self.assertEqual(code, 1, out)
+            self.assertFalse(Path(tmp, "second").exists(), out)
+        self.assertIn("step second skipped: blocking step first failed", out)
+
+    def test_a_skipped_step_reads_skipped_in_the_summary(self) -> None:
+        step = ci_steps.Step(name="big", job="linux", run="true", alone=True)
+        red = ci_steps.Step(name="red", job="linux", run="false")
+        summary = ci_steps.report([ci_steps.Result(red, 1, 1.0, ""), ci_steps.Result(step, 0, 0.0, "", skipped=True)],
+                                  "linux", io.StringIO(), logs=False)
+        self.assertIn("| big | yes | ", summary)
+        self.assertRegex(summary, r"\| big \|.*\| skipped \|")
+
     def test_the_tables_coderouter_runs_alone(self) -> None:
         # Its cargo build takes every core; broker.test.mjs's 50 ms deadline failed beside it, twice.
         self.assertTrue(ci_steps.load().steps["coderouter"].alone)
@@ -872,6 +916,15 @@ class PipelineTest(unittest.TestCase):
         for name, job in wf["jobs"].items():
             if name == "mac-fallback":
                 continue  # MacFallbackTest: it runs on a linux step's request, not on the router's
+            if name == "ios-ffi-fleet":
+                # The ios job's build fleet head start: no step, no checkout, only when the ios job runs, and
+                # never a verdict (each failure path is a warning and exit 0).
+                with self.subTest(helper=name):
+                    self.assertTrue(job["if"].startswith("${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'ios')) && "))
+                    self.assertFalse([s for s in job["steps"] if "ci/run" in s.get("run", "") or "uses" in s])
+                    self.assertNotIn(name, wf["jobs"]["ios"]["needs"], "the ios job never waits for it")
+                    self.assertIn("exit 0", job["steps"][0]["run"])
+                continue
             if name in pickers:
                 with self.subTest(picker=name):
                     self.assertEqual(job["if"], f"${{{{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), '{pickers[name]}') }}}}")

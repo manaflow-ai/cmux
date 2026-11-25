@@ -1767,7 +1767,7 @@ job = "ios"
 alone = true
 timeout = 3600
 title = "CmuxMobileKit tests (macOS swift test, iOS simulator)"
-about = "builds CmuxMobileLinkFFI.xcframework (and checks the checked-in bindings match), runs the kit's swift test on macOS, then its tests on an iOS 26 iPhone simulator"
+about = "takes CmuxMobileLinkFFI.xcframework from the build fleet or builds it (and checks the checked-in bindings match), runs the kit's swift test on macOS, then its tests on an iOS 26 iPhone simulator"
 # The kit and every local package it links (scripts/ci/ios_app_package_paths.py --check keeps the list exact), and
 # its toolchain. A change to only notes or cmux-next-ios/verify/ evidence builds nothing new (cmux#43251 took a
 # simulator Mac for SECURITY.md and verify/parity-mac.md). A note under a package's Resources/ ships in the bundle,
@@ -1801,6 +1801,7 @@ inputs = [
   ".xcode-version",
   "scripts/ci/ios_app_package_paths.py",
   "scripts/ci/ios_link_ffi_key.py",
+  "scripts/ci/ios_link_ffi.sh",
   "scripts/ci/ios_sim_udid.py",
   ".github/actions/setup-cmux-tui-rust/**",
   ".github/actions/runner-cargo-home/**",
@@ -1818,9 +1819,10 @@ ignore = ["cmux-next-ios/verify/**", "**/*.md", "!cmux-next-ios/verify/agent-cli
 needs = ["rust"]
 run = '''
 (cd cmux-next-ios/rust && rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal)
-JOBS=8 bash cmux-next-ios/rust/scripts/build-xcframework.sh
-# The xcframework and target/ are gitignored; the script rewrites the bindings and restores Cargo.lock, so any
-# tracked change is drift.
+# The build fleet's copy of the head when it has one for these inputs, else this Mac builds it (a logged Mac fallback).
+bash scripts/ci/ios_link_ffi.sh 8
+# The xcframework and target/ are gitignored; a Mac build rewrites the bindings and restores Cargo.lock, so any
+# tracked change is drift (the fleet's build passes only when its bindings match the checked-in ones).
 if ! git diff --exit-code -- cmux-next-ios/; then
   echo "::error::build-xcframework.sh changed tracked files (CmuxMobileLinkFFI.swift or Cargo.lock); run it and commit the result"
   exit 1
@@ -1887,13 +1889,16 @@ inputs = [
   "cmux-tui/vendor/smoltcp/**",
   "scripts/ci/ios_reliability_matrix.py",
   "scripts/ci/ios_sim_udid.py",
+  "scripts/ci/ios_link_ffi.sh",
+  "scripts/ci/ios_link_ffi_key.py",
 ]
 run = '''
 out="${RUNNER_TEMP:-$CI_TOOLS}/matrix"
 mkdir -p "$out"
 (cd cmux-next-ios/rust && rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal)
-# Incremental after the kit's build on this checkout; the whole build when the kit was not routed.
-JOBS=4 bash cmux-next-ios/rust/scripts/build-xcframework.sh
+# The kit's copy when it took the fleet's; else the fleet's, else incremental after the kit's build on this
+# checkout, or the whole build when the kit was not routed.
+bash scripts/ci/ios_link_ffi.sh 4
 udid="$(python3 -I scripts/ci/ios_sim_udid.py)"
 # Not -quiet: the report reads each test's result and its MATRIX lines.
 (cd cmux-next-ios/CmuxMobileKit && xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" \
