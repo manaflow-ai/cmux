@@ -1414,7 +1414,7 @@ impl Hub {
                 sender_session.as_deref(),
             );
         // A chat on the coordinator list wakes only for a page (`inbox_page_rule.rs`).
-        // Read the catalog snapshot. Reload publishes page-rule names before taking the config
+        // Read the catalog snapshot. Reload publishes page-rule names while holding the config
         // writer, so inbox admission never guesses during a write and never waits on it.
         let page_rule_on = self.page_rule_lists(&meta_now.name);
         let continuing = self.continuation_pending(session);

@@ -553,6 +553,10 @@ impl Hub {
         admission.release();
         match unanswered {
             Unanswered::Defer(deferral) => self.defer_unanswered(session, deferral, stage).await,
+            Unanswered::Guarded(guard) => {
+                guard()?;
+                Err(super::auto_resume::retry_turn::busy())
+            }
             Unanswered::Busy => Err(super::auto_resume::retry_turn::busy()),
             Unanswered::SteerUnavailable => Err(super::turn_cap::steer_unavailable(false)),
         }
@@ -678,22 +682,6 @@ impl Hub {
                 }
             }
         };
-        // A prompt that cannot reach any agent (none running, and its folder or harness is gone)
-        // is refused before it is recorded (`cold_prompt_check`, after steer-only's refusal).
-        admission.enter("agent");
-        // Release the child mutex before probing the host. If either operation stalls,
-        // the enclosing admission deadline durably defers this delivery.
-        let child = session.child.lock().await.clone();
-        let live = match child {
-            Some(child) => child.is_alive().await,
-            None => false,
-        };
-        let text = prompt_text(&blocks);
-        let running = session.turn();
-        // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
-        let capped = running.is_some()
-            && !opts.send_now
-            && self.turn_cap_holds(session, opts.provenance.as_ref(), opts.agent.as_deref(), fyi);
         // Another agent's message goes into the chat's inbox, never a turn or a steer of its own
         // (`inbox.rs`). Boxed, out of this future.
         let route = self.inbox_route(
@@ -713,7 +701,7 @@ impl Hub {
             super::inbox::Route::Plain => None,
             super::inbox::Route::Inbox(agent, class) => {
                 admission.enter("inbox");
-                admission.commit();
+                // The inbox's acceptance callback commits this delivery after its journal write.
                 return Box::pin(self.inbox_accept(
                     session,
                     &blocks,
@@ -750,6 +738,22 @@ impl Hub {
                 let _ = release.await;
             }
         }
+        // A prompt that cannot reach any agent (none running, and its folder or harness is gone)
+        // is refused before it is recorded (`cold_prompt_check`, after steer-only's refusal).
+        admission.enter("agent");
+        // Release the child mutex before probing the host. If either operation stalls,
+        // the enclosing admission deadline durably defers this delivery.
+        let child = session.child.lock().await.clone();
+        let live = match child {
+            Some(child) => child.is_alive().await,
+            None => false,
+        };
+        let text = prompt_text(&blocks);
+        let running = session.turn();
+        // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
+        let capped = running.is_some()
+            && !opts.send_now
+            && self.turn_cap_holds(session, opts.provenance.as_ref(), opts.agent.as_deref(), fyi);
         // An inbox notice steers in only while the turn is under its cap and no prompt waits
         // (`inbox.rs`), checked again here at dispatch.
         let notice_held = steer

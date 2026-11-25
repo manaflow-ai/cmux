@@ -418,6 +418,7 @@ mod tests {
             });
             config.save().unwrap();
             hub.reload_catalog().await.unwrap();
+            let _config_writer = hub.config.write().await;
             assert_eq!(hub.page_rule_lists(" old "), name == Some("old"));
             assert_eq!(hub.page_rule_lists("host/new"), name == Some("new"));
         }

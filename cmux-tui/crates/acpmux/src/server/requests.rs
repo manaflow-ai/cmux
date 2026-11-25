@@ -2256,19 +2256,19 @@ async fn dispatch_request_with_identity(
                 == crate::hub::Control::Web;
             // The uploads this prompt names as its own (`attach::blocks_for` uploaded them for it
             // alone): a refusal before the session sees it deletes them, so none is left behind.
-            let mut owned = crate::attach::OwnedUploads(if web {
-                Vec::new()
+            let mut owned = if web {
+                crate::attach::OwnedUploads(Vec::new())
             } else {
                 match tokio::time::timeout_at(
                     admission.answer_due(),
-                    crate::prompt_uploads::owned(&s.id, &blocks),
+                    crate::prompt_uploads::owned_guard(&s.id, &blocks),
                 )
                 .await
                 {
                     Ok(owned) => owned,
                     Err(_) => return Err(crate::hub::auto_resume::retry_turn::busy()),
                 }
-            });
+            };
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             // An `@computer-use` / `@browser-use` the person wrote gets acpmux's fixed note for the
             // agent, from any origin: its text is acpmux's, not the client's (`tool_mentions.rs`).
