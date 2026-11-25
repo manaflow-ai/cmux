@@ -366,7 +366,7 @@ public struct CloudGitHubPicker {
             default: return nil
             }
         }
-        switch CloudGitHubApp(status: status, body: body) {
+        return switch CloudGitHubApp(status: status, body: body) {
         case .ready: CloudGitHubApp.configureURL(status: status, body: body).map(Connect.open) ?? .connected
         // A suspended install is fixed on its settings page; with none named (or uninstalled) Connect is the fix.
         case .needsReauth: CloudGitHubApp.configureURL(status: status, body: body).map(Connect.open)
