@@ -260,7 +260,7 @@ async fn measure_pings_every_region_and_picks_home_without_the_upgrade() {
     let started = Instant::now();
     // The silent region holds it for its whole timeout (1 s); in turn, the eight others alone
     // would take 8 x (150 + 3 x 60) ms = 2.6 s.
-    let netcheck = measure(&base, "t0k", None, ms(1000)).await.unwrap();
+    let netcheck = measure(&base, "t0k", None, &crate::egress::Egress::default(), ms(1000)).await.unwrap();
     assert!(
         started.elapsed() < ms(1800),
         "regions run in parallel, the silent one bounded: {:?}",
@@ -279,17 +279,58 @@ async fn measure_pings_every_region_and_picks_home_without_the_upgrade() {
 #[tokio::test]
 async fn an_older_worker_without_netcheck_is_unsupported() {
     let (base, _) = fake_worker(Some(404), Duration::ZERO, |_| Some(ms(1))).await;
-    assert_eq!(measure(&base, "t0k", None, ms(1000)).await, Err(NetcheckError::Unsupported(404)));
+    assert_eq!(
+        measure(&base, "t0k", None, &crate::egress::Egress::default(), ms(1000)).await,
+        Err(NetcheckError::Unsupported(404))
+    );
     let (base, _) = fake_worker(Some(503), Duration::ZERO, |_| Some(ms(1))).await;
-    assert_eq!(measure(&base, "t0k", None, ms(1000)).await, Err(NetcheckError::Unsupported(503)));
+    assert_eq!(
+        measure(&base, "t0k", None, &crate::egress::Egress::default(), ms(1000)).await,
+        Err(NetcheckError::Unsupported(503))
+    );
 }
 
 #[tokio::test]
 async fn a_wrong_token_or_no_server_is_no_answer() {
     let (base, _) = fake_worker(None, Duration::ZERO, |_| Some(ms(1))).await;
-    assert_eq!(measure(&base, "wrong", None, ms(1000)).await, Err(NetcheckError::NoAnswer));
+    assert_eq!(
+        measure(&base, "wrong", None, &crate::egress::Egress::default(), ms(1000)).await,
+        Err(NetcheckError::NoAnswer)
+    );
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let closed = format!("http://{}", listener.local_addr().unwrap());
     drop(listener);
-    assert_eq!(measure(&closed, "t0k", None, ms(1000)).await, Err(NetcheckError::NoAnswer));
+    assert_eq!(
+        measure(&closed, "t0k", None, &crate::egress::Egress::default(), ms(1000)).await,
+        Err(NetcheckError::NoAnswer)
+    );
+}
+
+/// Off by default: a cached measurement reaches no URL until the switch is
+/// on, and `with_value` adds nothing for no value.
+#[test]
+fn the_switch_is_off_by_default_and_gates_the_wire() {
+    assert_eq!(SWITCH_ENV, "CMUX_MOBILE_NETCHECK");
+    if std::env::var(SWITCH_ENV).is_err() {
+        assert!(!enabled());
+    }
+    let base = "https://netcheck-switch.example";
+    let key = CacheKey::new(base, None, network_fingerprint());
+    {
+        let mut cache = cache();
+        cache.begin(&key);
+        cache.finish(&key, Ok(sample()), Instant::now());
+    }
+    set_enabled(Some(false));
+    assert_eq!(cached_value(base, None), None);
+    set_enabled(Some(true));
+    assert_eq!(cached_value(base, None), sample().value());
+    set_enabled(None);
+
+    let mut url = "wss://h/v1/relay/s?deviceId=d".to_owned();
+    with_value(&mut url, None);
+    with_value(&mut url, Some(""));
+    assert_eq!(url, "wss://h/v1/relay/s?deviceId=d");
+    with_value(&mut url, Some("wnam:31,enam:72"));
+    assert_eq!(url, "wss://h/v1/relay/s?deviceId=d&netcheck=wnam:31,enam:72");
 }
