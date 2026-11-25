@@ -24,6 +24,7 @@ mod composer_outbox;
 mod follow_camera;
 mod lan;
 mod last_place;
+mod link_progress;
 mod link_side;
 pub mod local_link;
 mod mac_screen;
@@ -57,6 +58,7 @@ pub use composer_outbox::{
 };
 pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};
 pub use last_place::{LastPlaceAnchor, LastPlaceRecord, LastPlaceScreen, LastPlaceStore};
+pub use link_progress::{HeldKeysExpiryReason, LinkProgressClock, held_keys_expiry};
 pub use link_side::{LinkOpenSide, link_open_side};
 pub use mac_screen::{MacScreenAnswer, MacScreenDisplay, MacScreenIceServer, MacScreenObserver, MacScreenRd};
 pub use read_store::{PhoneReadKey, PhoneReadStore, PhoneReadStoreError};

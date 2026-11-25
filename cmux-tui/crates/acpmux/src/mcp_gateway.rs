@@ -238,6 +238,10 @@ pub struct Gateway {
     /// Every task of the gateway and its servers' readers.
     scope: Arc<cmux_scope::Scope>,
     chats: Mutex<HashMap<String, Arc<Chat>>>,
+    /// Looks for idle servers made ([`reap`]); tests read it.
+    reap_passes: AtomicUsize,
+    /// A chat had a request: [`reap`] looks again while it may hold a server.
+    used: Arc<tokio::sync::Notify>,
 }
 
 struct Chat {
@@ -252,6 +256,11 @@ struct Chat {
     /// Its tool servers, made by their first request for the launch they were made from.
     tools: Mutex<Option<(Launch, Arc<Vec<crate::tools_mcp::Served>>)>>,
     last: Mutex<Instant>,
+    /// The [`Chat::last`] request whose server and tool servers [`reap`] let go: equal to `last`,
+    /// the chat holds nothing and [`reap`] need not look at it.
+    reaped: Mutex<Instant>,
+    /// The gateway's [`Gateway::used`].
+    used: Arc<tokio::sync::Notify>,
     inflight: AtomicUsize,
 }
 
@@ -339,6 +348,8 @@ pub fn hibernated(session: &str) {
 /// The chat ended: its server stops and its launch file goes.
 pub fn forget(home: &Path, session: &str) {
     let _ = crate::home_fs::remove_file(launch_path(home, session));
+    // Its Computer Use session ends on the worker, as the stdio bridge's ended with its pipe.
+    crate::computer_use::served::end(session);
     if let Some(gateway) = current() {
         let chat = gateway.chats.lock().unwrap_or_else(PoisonError::into_inner).remove(session);
         if let (Some(chat), Ok(_)) = (chat, tokio::runtime::Handle::try_current()) {
@@ -450,6 +461,8 @@ pub async fn bind_at(
         idle,
         scope: Arc::new(cmux_scope::Scope::new("mcp gateway")),
         chats: Mutex::new(HashMap::new()),
+        reap_passes: AtomicUsize::new(0),
+        used: Arc::new(tokio::sync::Notify::new()),
     });
     for listener in listeners {
         gateway.scope.spawn_named("mcp gateway listener", serve(gateway.clone(), listener));
@@ -690,6 +703,8 @@ impl Gateway {
             crate::acpmux_mcp_names::SESSION_ENV,
             crate::secret_mcp::SESSION_ENV,
             crate::offer_mcp::SESSION_ENV,
+            crate::computer_use::mcp::SESSION_ENV,
+            crate::cloud_repo_mcp::SESSION_ENV,
         ] {
             if let Some(value) = env.get_mut(key) {
                 *value = session.to_owned();
@@ -792,6 +807,7 @@ impl Gateway {
 
 impl Chat {
     fn new(id: &str, file: PathBuf, kept: Kept, gateway: &Gateway) -> Self {
+        let now = Instant::now();
         Chat {
             id: id.to_owned(),
             file,
@@ -800,7 +816,10 @@ impl Chat {
             server: tokio::sync::Mutex::new(None),
             tools_daemon: Arc::new(crate::tools_mcp::Daemon::at(gateway.socket.clone())),
             tools: Mutex::new(None),
-            last: Mutex::new(Instant::now()),
+            // Made holding nothing: nothing to let go until its first request.
+            last: Mutex::new(now),
+            reaped: Mutex::new(now),
+            used: gateway.used.clone(),
             inflight: AtomicUsize::new(0),
         }
     }
@@ -863,10 +882,17 @@ impl Chat {
 
     fn touch(&self) {
         *self.last.lock().unwrap_or_else(PoisonError::into_inner) = Instant::now();
+        // A permit when the look is not waiting: it looks once more, then sleeps again.
+        self.used.notify_one();
     }
 
-    fn idle_for(&self) -> Duration {
-        self.last.lock().unwrap_or_else(PoisonError::into_inner).elapsed()
+    fn last(&self) -> Instant {
+        *self.last.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Whether a request came since [`reap`] last let this chat's servers go.
+    fn may_hold(&self) -> bool {
+        self.last() != *self.reaped.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// The running server, or a new one. A server started for anything but `initialize` gets the
@@ -1047,10 +1073,13 @@ async fn serve(gateway: Arc<Gateway>, listener: TcpListener) {
     }
 }
 
-/// Stops each chat's server that had no request in flight for the gateway's idle window.
+/// Stops each chat's server that had no request in flight for the gateway's idle window, looking
+/// every `every` while a chat used since its last stop may hold a server or tool servers. With
+/// none it sleeps until a request ([`Chat::touch`]): an idle daemon with chats that all stopped
+/// wakes for nothing (it looked every 30 s, the last periodic wake of an idle daemon but the lag
+/// canary's).
 async fn reap(gateway: Arc<Gateway>, every: Duration) {
     loop {
-        tokio::time::sleep(every).await;
         let chats: Vec<_> = gateway
             .chats
             .lock()
@@ -1058,17 +1087,28 @@ async fn reap(gateway: Arc<Gateway>, every: Duration) {
             .values()
             .cloned()
             .collect();
+        if !chats.iter().any(|chat| chat.may_hold()) {
+            // A request after the list was read left a permit: no request is missed.
+            gateway.used.notified().await;
+            continue;
+        }
+        tokio::time::sleep(every).await;
+        gateway.reap_passes.fetch_add(1, Ordering::Relaxed);
         for chat in chats {
-            if chat.inflight.load(Ordering::SeqCst) == 0 && chat.idle_for() >= gateway.idle {
+            let last = chat.last();
+            if chat.inflight.load(Ordering::SeqCst) == 0 && last.elapsed() >= gateway.idle {
                 chat.release_tools();
                 let server = match chat.server.try_lock() {
                     Ok(mut slot) => slot.take(),
-                    Err(_) => None,
+                    // A request holds the slot: looked at again next time.
+                    Err(_) => continue,
                 };
                 if let Some(server) = server {
                     tracing::debug!(session = %chat.id, "mcp gateway: idle server stops");
                     server.stop().await;
                 }
+                // A request since `last` keeps the chat looked at.
+                *chat.reaped.lock().unwrap_or_else(PoisonError::into_inner) = last;
             }
         }
     }
@@ -1262,7 +1302,7 @@ async fn tool_answer(
 /// `message` for server `name` of a chat's tool servers: its params' `_meta` names it
 /// ([`crate::tools_mcp::SERVER_META`]) as the `cmux` server's request would, whatever the
 /// harness put there.
-fn for_server(message: &mut Value, name: &str) {
+pub(crate) fn for_server(message: &mut Value, name: &str) {
     let Some(fields) = message.as_object_mut() else { return };
     let params = fields.entry("params").or_insert_with(|| json!({}));
     if !params.is_object() {
