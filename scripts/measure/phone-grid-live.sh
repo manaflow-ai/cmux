@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# phone-grid-live: a real Claude Code turn in a real cmux-tui daemon, then the Mac's pane and the
+# phone's view of the same terminal (`agent-cli-phone-grid-v1`, drawn at the phone's own grid)
+# side by side.
+#
+#   cmux-ci run --class exclusive --measurement --script scripts/measure/phone-grid-live.sh \
+#     --ref SHA --artifact .build/phone-grid-live [--arg=grids=50x34,59x42] [--arg=claude=2.1.332]
+#
+# It builds cmux-tui and cmux-agent-cli-render's `phone_grid_proof` example from this checkout,
+# installs the asked Claude Code version into a scratch folder (the host's own stays as it is),
+# then runs scripts/agent-cli-render/phone_grid_live.py once per phone grid. Each grid's folder in
+# .build/phone-grid-live holds mac.txt, phone.txt and side-by-side.html, and a typed/ folder for
+# the same screen with an unsent draft.
+set -euo pipefail
+grids=50x34,59x42 claude=2.1.332 mac=110x32
+for kv in "$@"; do
+  case "$kv" in
+    grids=*|claude=*|mac=*) eval "${kv%%=*}=\${kv#*=}";;
+    *) echo "phone-grid-live: unknown argument $kv" >&2; exit 2;;
+  esac
+done
+here=$(cd "$(dirname "$0")" && pwd)
+repo=$(cd "$here/../.." && pwd)
+out="$repo/.build/phone-grid-live"
+mkdir -p "$out"
+# A fleet Mac routes Claude Code through the team's model pool from its login environment.
+if [ -z "${ANTHROPIC_BASE_URL:-}" ] && [ -f "$HOME/.zshenv" ]; then
+  eval "$(grep -E '^export ANTHROPIC_[A-Z_]+=' "$HOME/.zshenv" || true)"
+fi
+work=$(mktemp -d "${TMPDIR:-/tmp}/phone-grid-live.XXXXXX")
+trap 'rm -rf -- "$work"' EXIT
+if npm install --silent --prefix "$work/claude" "@anthropic-ai/claude-code@$claude" >/dev/null 2>&1; then
+  export PATH="$work/claude/node_modules/.bin:$PATH"
+fi
+command -v claude >/dev/null || { echo "phone-grid-live: no claude" >&2; exit 2; }
+echo "claude: $(claude --version)"
+cd "$repo/cmux-tui"
+cargo build -q -p cmux-tui --bin cmux-tui
+cargo build -q -p cmux-agent-cli-render --example phone_grid_proof
+target=$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')
+IFS=, read -ra list <<<"$grids"
+for grid in "${list[@]}"; do
+  python3 "$repo/scripts/agent-cli-render/phone_grid_live.py" --bin "$target/debug" \
+    --out "$out/$grid" --cols "${grid%x*}" --rows "${grid#*x}" --mac "$mac"
+done
+ls -R "$out"
