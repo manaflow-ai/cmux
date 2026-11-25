@@ -605,6 +605,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-cloud-wire",
  "cmux-terminal-sizing",
+ "serde_json",
 ]
 
 [[package]]

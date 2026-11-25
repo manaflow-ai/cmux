@@ -16,6 +16,7 @@ use tokio::runtime::Runtime;
 
 mod auto_chats;
 mod browser;
+mod catch_up;
 mod chat_prompt_outbox;
 mod classic_leftovers;
 mod composer_outbox;
@@ -40,6 +41,10 @@ pub use auto_chats::{
     AutoChat, AutoChatError, AutoChats, AutoHttp, AutoHttpError, AutoHttpReply, AutoHttpRequest,
 };
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
+pub use catch_up::{
+    CatchUpAnswer, CatchUpAsk, CatchUpChatAsk, CatchUpChatPage, CatchUpCut, CatchUpError, CatchUpTree,
+    PhoneCatchUp, catch_up_falls_back, catch_up_service,
+};
 pub use chat_prompt_outbox::{
     ChatAttachment, ChatCancelStep, ChatEditStep, ChatPromptDone, ChatPromptLook, ChatPromptOutbox,
     ChatPromptOutcome, ChatPromptRequest, ChatPromptTaken, ChatUploadState, ChatUploadedAttachment,
