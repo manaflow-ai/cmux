@@ -151,6 +151,9 @@ pub struct PodSlots<X> {
     init: (String, Vec<String>),
     /// Environment for the init (the pod's `HOME` is always set to its root).
     env: Vec<(String, String)>,
+    /// Variables the init takes from the caller's environment by name, so a value (a
+    /// model token) never sits in an argv that `ps` shows.
+    pass_env: Vec<String>,
 }
 
 impl<X: HostRunner> PodSlots<X> {
@@ -160,7 +163,15 @@ impl<X: HostRunner> PodSlots<X> {
             pods_dir: pods_dir.into().trim_end_matches('/').to_owned(),
             init: ("sleep".to_owned(), vec!["infinity".to_owned()]),
             env: Vec::new(),
+            pass_env: Vec::new(),
         }
+    }
+
+    /// Hand these variables of the caller's environment to each pod's init, by name
+    /// (`systemd-run --setenv=NAME`). One the caller does not have is left unset.
+    pub fn with_pass_env(mut self, names: Vec<String>) -> Self {
+        self.pass_env = names;
+        self
     }
 
     /// What each pod boots: for a guest, its own `acpmux` daemon.
@@ -198,6 +209,9 @@ impl<X: HostRunner> PodSlots<X> {
         ]);
         for (key, value) in &self.env {
             out.push(format!("--setenv={key}={value}"));
+        }
+        for name in &self.pass_env {
+            out.push(format!("--setenv={name}"));
         }
         out.push("--".to_owned());
         out.extend(bwrap_argv(&self.pods_dir, &root, &root, &self.init.0, &self.init.1));
@@ -466,13 +480,16 @@ mod tests {
     #[test]
     fn create_boots_the_init_in_bwrap_with_home_at_the_root() {
         let host = FakeHost::default();
-        let pods = PodSlots::new(&host, "/srv/pods/").with_init(
-            "acpmux",
-            vec!["daemon".into()],
-            vec![("ACPMUX_HUB".into(), "https://hub".into())],
-        );
+        let pods = PodSlots::new(&host, "/srv/pods/")
+            .with_init(
+                "acpmux",
+                vec!["daemon".into()],
+                vec![("ACPMUX_HUB".into(), "https://hub".into())],
+            )
+            .with_pass_env(vec!["ANTHROPIC_AUTH_TOKEN".into()]);
         let boot = pods.boot_argv(&slot("a")).join(" ");
-        assert!(boot.starts_with("systemd-run --user --quiet --collect --expand-environment=no --unit=cmux_pod_a_hold.service --slice=cmux_pod_a.slice --setenv=HOME=/srv/pods/a --setenv=ACPMUX_HUB=https://hub -- bwrap "), "{boot}");
+        // A passed variable goes by name only: its value never reaches the argv.
+        assert!(boot.starts_with("systemd-run --user --quiet --collect --expand-environment=no --unit=cmux_pod_a_hold.service --slice=cmux_pod_a.slice --setenv=HOME=/srv/pods/a --setenv=ACPMUX_HUB=https://hub --setenv=ANTHROPIC_AUTH_TOKEN -- bwrap "), "{boot}");
         assert!(boot.ends_with("--tmpfs /srv/pods --bind /srv/pods/a /srv/pods/a --setenv CMUX_POD_ROOT /srv/pods/a --chdir /srv/pods/a -- acpmux daemon"), "{boot}");
         let size = SlotSize { vcpus: 3, memory_mib: 2048 };
         assert_eq!(pods.create(&slot("a"), size).unwrap(), SlotState::Running);
