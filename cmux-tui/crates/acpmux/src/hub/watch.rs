@@ -70,12 +70,18 @@ pub(super) mod idle_cost {
     }
 }
 
-/// The chats a watch reader follows now (`Hub::start_watch`): one reader each.
-static FOLLOWING: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+/// The chats a watch reader follows now (`Hub::start_watch`): one reader each. Keyed by the
+/// session's address, not its id: two hubs in one process (tests) may hold chats of the same id,
+/// and a reader holds its session, so the address is never reused while it is here.
+static FOLLOWING: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<usize>>> =
     std::sync::LazyLock::new(Default::default);
 
-fn following() -> std::sync::MutexGuard<'static, std::collections::HashSet<String>> {
+fn following() -> std::sync::MutexGuard<'static, std::collections::HashSet<usize>> {
     FOLLOWING.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn reader_key(session: &Arc<Session>) -> usize {
+    Arc::as_ptr(session) as usize
 }
 
 /// A transcript bigger than this is read from its newest part only.
@@ -283,7 +289,7 @@ impl Hub {
         self.follow_app(session, None);
         // One reader per chat: a chat reopened while its last reader has not yet seen the close
         // keeps that reader (`revive_registered_watch`), never a second one reading the same lines.
-        if !following().insert(session.id.clone()) {
+        if !following().insert(reader_key(session)) {
             return;
         }
         let (hub, session) = (self.clone(), session.clone());
@@ -304,8 +310,8 @@ impl Hub {
                 if !ended() {
                     return false;
                 }
-                following().remove(&session.id);
-                !(!ended() && following().insert(session.id.clone()))
+                following().remove(&reader_key(&session));
+                !(!ended() && following().insert(reader_key(&session)))
             };
             // Do not start copying the transcript before its older-history
             // boundary is safely journaled and checkpointed. Retry a transient
@@ -325,7 +331,7 @@ impl Hub {
                     return;
                 }
                 let Some(watching) = session.meta().watching else {
-                    following().remove(&session.id);
+                    following().remove(&reader_key(&session));
                     return;
                 };
                 let file = watching.file.clone();

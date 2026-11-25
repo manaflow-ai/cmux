@@ -94,7 +94,7 @@ async fn a_closed_registered_chat_follows_its_app_again_from_the_transcript_end(
 
     // Open already: nothing to revive, and one reader, never two.
     assert!(!hub.revive_registered_watch(&session));
-    assert!(super::following().contains(id));
+    assert!(super::following().contains(&super::reader_key(&session)));
     hub.start_watch(&session);
     std::fs::OpenOptions::new()
         .append(true)
