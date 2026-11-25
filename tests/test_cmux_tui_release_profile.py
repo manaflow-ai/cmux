@@ -131,13 +131,17 @@ class ChannelOnlyThinTest(unittest.TestCase):
         target_set = jobs["build"]["with"]["target_set"]
         refs = PROFILE_REF.findall(target_set)
         self.assertEqual(refs, [("shipped", "target_set_main"), ("shipped", "target_set")])
-        self.assertEqual(profiles()["shipped"]["target_set_main"], "all")
-        self.assertEqual(profiles()["shipped"]["target_set"], "linux-macos-arm64")
+        self.assertEqual(profiles()["shipped"]["target_set_main"], "macos")
+        self.assertEqual(profiles()["shipped"]["target_set"], "macos-arm64")
         self.assertEqual(resolve(jobs["build"]["with"]["lto"]), "fat")
+        # The shipped Linux targets: build-linux, fat, from shipped.linux_target_set.
+        linux = jobs["build-linux"]["with"]
+        self.assertEqual(PROFILE_REF.findall(linux["target_set"]), [("shipped", "linux_target_set")])
+        self.assertEqual(profiles()["shipped"]["linux_target_set"], "linux")
+        self.assertEqual(resolve(linux["lto"]), "fat")
         for name in ("publish", "darwin-fallback-plan"):
             with self.subTest(job=name):
-                self.assertNotIn("build-linux", jobs[name]["needs"])
-                self.assertNotIn("build-linux", str(jobs[name].get("if", "")))
+                self.assertIn("build-linux", jobs[name]["needs"])
 
     def test_only_the_early_channel_reads_thin_artifacts(self):
         readers = []
