@@ -38,8 +38,10 @@ fn put(file: &Path, patch: &[u8], scratch: bool) -> anyhow::Result<()> {
     if !scratch {
         return crate::config::write_atomic(file, patch);
     }
-    let mut options = crate::home_fs::OpenOptions::new();
-    options.write(true).create_new(true).mode(0o600);
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
     let mut out = options.open(file).with_context(|| format!("making {}", file.display()))?;
     out.write_all(patch).with_context(|| format!("writing {}", file.display()))
 }
@@ -109,7 +111,7 @@ pub(crate) async fn apply(leftover: &Leftover) -> Result<(), String> {
 /// `discard`: the patch file goes.
 pub(crate) async fn discard(leftover: &Leftover) {
     let path = Path::new(&leftover.path).to_path_buf();
-    let _ = tokio::task::spawn_blocking(move || crate::home_fs::remove_file(path)).await;
+    let _ = tokio::task::spawn_blocking(move || std::fs::remove_file(path)).await;
 }
 
 #[cfg(all(test, unix))]

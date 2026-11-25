@@ -141,8 +141,7 @@ fn run(
     let scratch = match input {
         Some(input) => {
             let file = tempfile::NamedTempFile::new().map_err(|e| format!("a temp file: {e}"))?;
-            crate::home_fs::write(file.path(), input)
-                .map_err(|e| format!("write git's input: {e}"))?;
+            std::fs::write(file.path(), input).map_err(|e| format!("write git's input: {e}"))?;
             Some(file)
         }
         None => None,
@@ -215,7 +214,7 @@ impl Git<'_> {
         }
         let scratch = tempfile::tempdir().map_err(|e| format!("a temp folder: {e}"))?;
         let file = scratch.path().join("patch");
-        crate::home_fs::write(&file, self.patch).map_err(|e| format!("write the patch: {e}"))?;
+        std::fs::write(&file, self.patch).map_err(|e| format!("write the patch: {e}"))?;
         let patch = if self.patch.is_empty() { PathBuf::new() } else { file.clone() };
         // The patch is cut from the repository's top, so it goes on there: a chat that started
         // in a subfolder keeps its own folder as the chat's `cwd`, and git there would skip
@@ -329,7 +328,7 @@ impl Git<'_> {
             };
         }
         let file = scratch.join("bundle");
-        crate::home_fs::write(&file, self.bundle).map_err(|e| format!("write the bundle: {e}"))?;
+        std::fs::write(&file, self.bundle).map_err(|e| format!("write the bundle: {e}"))?;
         let file = file.to_string_lossy();
         let heads = git(dir, &["bundle", "list-heads", &file])
             .map_err(|e| format!("the snapshot's bundle is not one: {e}"))?;
