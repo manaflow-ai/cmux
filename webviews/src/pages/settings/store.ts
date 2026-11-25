@@ -41,6 +41,7 @@ import { rowsByKey } from "./schema";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, resolveHarnessPlacement } from "../../ui/harnessPlacement";
 import { isBackdropRefusal, linkRefusal } from "./backdropRefusal";
 import { t, text as localized } from "./strings";
+import { readLooksAnswer, type LooksOutcome } from "./looksGallery";
 import { pageTransport, TransportError, type SettingsTransport } from "./transport";
 import { readRecipe, readSetupReply, type ResolvedWorktreeRecipe, type WorktreeRecipe } from "../../worktreeRecipe";
 import { readExtensionSettings, type ExtensionSettings } from "./extensionSettings";
@@ -60,6 +61,7 @@ import {
   type CloudEnvironmentsState,
   type LibraryListing,
   type LibraryRun,
+  type LooksRun,
   type Standup,
   type SharesState,
   type TailnetState,
@@ -94,9 +96,6 @@ import {
   type McpServersRun,
   type McpServersState,
   type HubRun,
-  type CreatedToken,
-  type DeveloperTokensRun,
-  type DeveloperTokensState,
   type HubState,
   type RowNoteData,
   type AgentSkillsRun,
@@ -121,6 +120,9 @@ import {
   type Checklist,
   type ChecklistFact,
   type PreviousBuild,
+  type CreatedToken,
+  type DeveloperTokensRun,
+  type DeveloperTokensState,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -923,7 +925,9 @@ export class SettingsStore {
   }
 
   /** One Developer gesture, then the card as it is after it. `created` is the new token, answered once. */
-  async runTokens(run: DeveloperTokensRun): Promise<{ state: DeveloperTokensState | null; created: CreatedToken | null }> {
+  async runTokens(
+    run: DeveloperTokensRun,
+  ): Promise<{ state: DeveloperTokensState | null; created: CreatedToken | null }> {
     const reply = await this.request("cmux.settings.tokens.run", run);
     const created = reply.ok ? (reply.value?.created ?? null) : null;
     return { state: await this.tokensState(), created };
@@ -1158,6 +1162,18 @@ export class SettingsStore {
       ? null
       : (answer.message ?? (answer.code ? t("settingsPage.customizeLibrary.notChanged") : null));
     return { library: answer.library ?? null, refusal };
+  }
+
+  /** Settings > Appearance > Looks: one `cmux setup` verb. Answers its JSON, the consent card an
+   * install without `yes` answers, or the CLI's refusal in its own words; null when the host has no
+   * Looks part or no CLI (a call it could not run), so the card draws nothing. */
+  async looks(run: LooksRun): Promise<LooksOutcome | null> {
+    const reply = await this.request("cmux.settings.looks", run);
+    if (!reply.ok) {
+      if (run.verb === "gallery" || run.verb === "preview") return null;
+      return { kind: "refusal", code: reply.error.code, message: userMessage(reply.error, SETTINGS_SENTENCES) };
+    }
+    return readLooksAnswer(reply.value);
   }
 
   /** Settings > Customize's Standup: every library entry as one line (`cmux customize library
