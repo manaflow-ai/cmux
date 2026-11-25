@@ -31,6 +31,9 @@ fn is_appkv(event: &CloudEvent) -> bool {
         CloudEvent::SubscriptionState { target, .. } => *target == Target::AppKv,
         _ => false,
     }
+    /// The Forum page's hosted forum (server/forum_routed.rs), set up on the first `forum.*` op.
+    #[cfg(unix)]
+    pub(crate) forum: OnceLock<crate::server::forum_routed::ForumOwner>,
 }
 
 impl Mux {
