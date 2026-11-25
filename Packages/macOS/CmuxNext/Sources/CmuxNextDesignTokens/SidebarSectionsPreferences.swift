@@ -143,7 +143,7 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var settleFinished = false
     /// `sidebar.showAutomaticSessions`: sessions no person started and no chat's subagent (a script, an automation, a
     /// launcher; the daemon records `created_by` kind `script`) draw in place. Off by default: they fold into an
-    /// "Automatic (N)" row at the end of their list (the rule is Rust's, `cmux-layout-reducer` `automatic`).
+    /// "From scripts (N)" row at the end of their list (the rule is Rust's, `cmux-layout-reducer` `automatic`).
     public var showAutomaticSessions = false
     /// `sidebar.showAgentSessions`: sessions another session's agent started list in the sidebar, each nested under
     /// the row of the session that started it. Off by default: they draw no row (Leo 2026-11-25 about the nested
