@@ -20,6 +20,9 @@ extension WindowRootView {
     /// content host: the motion is window-scoped, so a terminal anywhere in it
     /// held its grid and would otherwise hold it for good.
     func wireContentAreaMotion() {
+        // The hold starts before the slide's first step, while the card still has the size its content was laid out at:
+        // a show then lays nothing out until the landing, and a hide lays the content out once, at the landing width.
+        sidebar.onWidthLegStart = { [weak self] in self?.followContentAreaMotion(settled: true) }
         sidebar.onWidthMotionChange = { [weak self] animating in
             guard let self else { return }
             guard !animating else { return onContentAreaMotionChange?(true) ?? () }
@@ -56,8 +59,8 @@ extension WindowRootView {
     /// hide), which widens the hold once. Chromium pages are child windows: they are told the card moved, so their
     /// windows follow it (geometry only, no clip shape changed).
     ///
-    /// `settled`: called from `layout()` after the window's constraints are solved, where the card's and the sidebar's
-    /// frames agree. Only there does a hold start: a card frame change can come mid-solve, before the card takes the
+    /// `settled`: called as a slide's leg starts (`onWidthLegStart`) or from `layout()` after the window's constraints are
+    /// solved, where the card's and the sidebar's frames agree. Only there does a hold start: a card frame change can come mid-solve, before the card takes the
     /// width the sidebar's stepped constraint gives it, and a landing read then would miss one step of the slide (a hide
     /// then widened its hold, and laid the content out again, on every later frame).
     func followContentAreaMotion(settled: Bool = false) {

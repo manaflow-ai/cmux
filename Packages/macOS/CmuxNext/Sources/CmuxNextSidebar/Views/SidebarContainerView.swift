@@ -117,6 +117,9 @@ public final class SidebarContainerView: NSView {
     /// animation's completion, `snap()`, a drag or the watchdog
     /// (`SidebarContainerView+WidthMotion`) end it. `internal(set)` and not
     /// `private(set)` because the watchdog lives in that file.
+    /// A width slide starts a leg (a new slide, or one turned around), before its first step moves the width: the
+    /// content beside the sidebar still has the size it had, and `widthStillToGo` says where it lands.
+    public var onWidthLegStart: (() -> Void)?
     public internal(set) var isWidthAnimating = false {
         didSet {
             guard isWidthAnimating != oldValue else { return }

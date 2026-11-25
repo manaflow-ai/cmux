@@ -24,6 +24,7 @@ extension SidebarContainerView {
         widthLeg = WidthLeg(width: (fromWidth, width), reach: (fromReach, target), edge: edge)
         // The leg starts on screen: this frame's layout pass shows the turn, not the old slide's step.
         (widthConstraint.constant, edge.constant) = (fromWidth, fromReach)
+        onWidthLegStart?() // before the first step: the window holds its content at one size (`widthStillToGo`)
         let duration = Motion.sidebar.canAnimate(in: self) ? Motion.sidebar.duration(token, in: window) : 0
         // The float slides in from the window's edge as a drawer does: the strong ease (a spring's start) over the
         // token's time, so it reads at once and lands soft; its slide out takes the faster disappear token. The
