@@ -36,6 +36,11 @@ pub enum PeerCmd {
         #[arg(long)]
         build: bool,
     },
+    /// The lane hosts as one cell (RFD 0181): each one's live sessions against its lane cap,
+    /// the hosts past it, and the ones fleet-registry.json keeps work off (held or stopped)
+    /// while sessions still run there. Read-only: it reads the fleet listing `acpmux ls` reads
+    /// and the registry, and changes nothing.
+    Cells,
     /// Whether a machine is dedicated: it runs agents with no per-session
     /// sandbox, the VM is the boundary (vmHost). Claude runs there without the
     /// sandbox only for a session whose caller asked, once the Cloud API said
@@ -351,9 +356,11 @@ pub enum PeerCmd {
     /// `LANE_GH_SOCKET=PATH lane-gh ...` uses it. OWNER serves it once its owner sets
     /// `acpmux config --set lane_gh_broker=PATH`. Runs until stopped.
     BrokerForward {
-        /// The machine whose broker to reach (its name in the hub's address book).
-        #[arg(value_name = "OWNER")]
-        owner: String,
+        /// The machines whose broker to reach (names in the hub's address book), in order of
+        /// preference: each connection goes to the first whose broker answered its last
+        /// progress check, and fails over before any of its bytes are sent.
+        #[arg(value_name = "OWNER", required = true, num_args = 1..)]
+        owners: Vec<String>,
         /// Where to listen (a stale socket there is replaced; a served one is left alone).
         #[arg(long, value_name = "PATH")]
         socket: std::path::PathBuf,

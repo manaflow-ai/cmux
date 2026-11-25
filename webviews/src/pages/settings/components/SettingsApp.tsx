@@ -1,11 +1,11 @@
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
-import { useRowState, useSettingsRouter, useSettingsState, useStore } from "../context";
+import { useSettingsRouter, useSettingsState, useStore, useRowState } from "../context";
 import { installKeyboard, runPageCommand } from "../keyboard";
 import { parseLocation, sectionHref } from "../router";
 import { homes, shownSection } from "../categories";
 import { rowsByKey } from "../schema";
-import { filterRows } from "../search";
+import { exactPlace, filterPlaces, filterRows, joinConsentPlaces, placeCategory } from "../search";
 import { managedOf, valueOf } from "../store";
 import { ReadOnlyNotice } from "./ReadOnlyBanner";
 import { SearchField } from "./SearchField";
@@ -15,6 +15,7 @@ import { SearchResults } from "./SearchResults";
 import { SectionList } from "./SectionList";
 import { ScrollArea } from "../../../ui/ScrollArea";
 import { whenPageShown } from "../../shared/paintGate";
+import { glassControlsOn } from "../glassControls";
 import { configureKeyStyle, KEY_STYLE_KEY, SHORTCUT_LAYOUT_KEY } from "../../../ui/keyStyle";
 
 /**
@@ -82,6 +83,11 @@ export function SettingsApp() {
     (key: string) => {
       const row = rowsByKey.get(key);
       if (row) go(homes.get(key)?.category ?? row.section, key);
+      else {
+        // A page-only place (a join consent switch) opens its card's category on it.
+        const category = placeCategory(key);
+        if (category) go(category, key);
+      }
     },
     [go],
   );
@@ -128,6 +134,14 @@ export function SettingsApp() {
     clearField();
   };
   const submit = () => {
+    // A place named exactly ("control", "remote control") opens first; one that only contains the words
+    // comes after every matching row.
+    const places = joinConsentPlaces(state.host?.devices_join);
+    const exact = exactPlace(query, places);
+    if (exact) {
+      go(exact.category, exact.key);
+      return;
+    }
     const first = filterRows({
       query,
       valueOf: (key) => valueOf(state, key),
@@ -135,7 +149,9 @@ export function SettingsApp() {
       scope: "user",
       revision: state.revision,
     })[0]?.rows[0];
+    const place = filterPlaces(query, places)[0];
     if (first) reveal(first.key);
+    else if (place) go(place.category, place.key);
     // Nothing matches: Return asks cmux for it, as the row under "No settings match." does.
     else if (query.trim()) void store.askCmux(query);
   };
@@ -146,6 +162,7 @@ export function SettingsApp() {
       ref={keyboardRef}
       data-section-switched={switched ? "" : undefined}
       data-page-shown={pageShown ? "" : undefined}
+      data-glass-controls={glassControlsOn(state) ? "" : undefined}
     >
       <aside className="sidebar">
         <SearchField query={query} onQuery={setQuery} onSubmit={submit} />
