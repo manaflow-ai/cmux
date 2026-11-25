@@ -1,7 +1,7 @@
-//! The Chief's `send` tool (plans/cmux-next/chief-tools-DESIGN.md): one or
-//! more messages posted now, with text, attached files and URLs, at the top
-//! level or in the thread of a user message. It goes through the outbox like
-//! a turn reply (retries, rate limits, idempotency), with the same subagent
+//! The Chief's `send` tool (plans/cmux-next/chief-tools-DESIGN.md): one
+//! message posted now, with text, attached files and URLs, at the top level
+//! or in the thread of a user message. It goes through the outbox like a
+//! turn reply (retries, rate limits, idempotency), with the same subagent
 //! links, link cards and uploads (previews.rs, media.rs).
 //!
 //! An attachment is an explicit act: the Chief's Markdown links to local
@@ -19,6 +19,21 @@ use crate::tools::SendCall;
 impl Brain {
     /// The `send` tool.
     pub(super) fn send(&mut self, call: SendCall) -> Result<String, String> {
+        // The length gate: the first long send of a turn comes back for
+        // Chief to cut; the next one posts (chief_kernel::replies). A send
+        // marked `long` (a list the person asked for) posts the first time.
+        if let Some(refusal) = chief_kernel::replies::length_check(
+            call.text.as_deref().unwrap_or(""),
+            self.chief.reply_max_words,
+            self.length_refused || call.long,
+        ) {
+            self.length_refused = true;
+            self.trace.emit(
+                "chief.reply_too_long",
+                serde_json::json!({"words": chief_kernel::replies::reply_words(call.text.as_deref().unwrap_or(""))}),
+            );
+            return Err(refusal);
+        }
         let home = std::env::var_os("HOME").map(PathBuf::from);
         // Every attachment is checked before anything is posted, so a bad
         // call can be fixed and sent again whole.
@@ -110,6 +125,11 @@ impl Brain {
             "send-{conversation}-{turn}-{:016x}",
             super::replies::fnv(fingerprint.as_bytes())
         );
+        if self.sent_keys.contains(&key)
+            || self.state.outbox.iter().any(|e| e.idempotency_key == key)
+        {
+            return Ok("outcome: noop. this message is already sent".to_owned());
+        }
         // The text as a reply's (subagent links), then a URL line each.
         // The file manifest stays separate: attachment count must not
         // consume the message's text allowance.
@@ -131,58 +151,26 @@ impl Brain {
                 super::REPLY_BYTES
             ));
         }
-        let text_parts = if call.long {
-            vec![text.clone()]
-        } else {
-            chief_kernel::replies::split_reply(&text, self.chief.reply_max_words)
-        };
-        let part_keys: Vec<String> = text_parts
-            .iter()
-            .enumerate()
-            .map(|(index, _)| {
-                if index == 0 {
-                    key.clone()
-                } else {
-                    format!("{key}:part-{}", index + 1)
-                }
-            })
-            .collect();
-        let pending: Vec<usize> = part_keys
-            .iter()
-            .enumerate()
-            .filter_map(|(index, part_key)| {
-                let done = self.sent_keys.contains(part_key)
-                    || self
-                        .state
-                        .outbox
-                        .iter()
-                        .any(|entry| entry.idempotency_key == *part_key);
-                (!done).then_some(index)
-            })
-            .collect();
-        if pending.is_empty() {
-            return Ok("outcome: noop. this message is already sent".to_owned());
+        let mut entry = super::reply_entry(conversation, &key, &text);
+        if let (
+            Some((_, parent, root)),
+            Op::MessageSend {
+                reply_to,
+                thread_root,
+                ..
+            },
+        ) = (&thread, &mut entry.op)
+        {
+            *reply_to = Some(PartRef {
+                message_id: parent.clone(),
+                part_index: 0,
+            });
+            *thread_root = Some(root.clone());
         }
         if let Some(seconds) = call.delay_seconds {
-            let mut scheduled = Vec::with_capacity(pending.len());
-            for index in pending.iter().copied() {
-                let part = &text_parts[index];
-                let mut entry = super::reply_entry(conversation.clone(), &part_keys[index], part);
-                add_thread_refs(&thread, &mut entry);
-                scheduled.push(self.send_later(entry, part_keys[index].clone(), seconds)?);
-            }
-            return Ok(if scheduled.len() == 1 {
-                scheduled.remove(0)
-            } else {
-                format!(
-                    "outcome: done. scheduled {} messages to send in {seconds} s",
-                    scheduled.len()
-                )
-            });
+            return self.send_later(entry, key, seconds);
         }
-        for index in &pending {
-            self.sent_keys.insert(part_keys[*index].clone());
-        }
+        self.sent_keys.insert(key.clone());
         // The wake run's `result`: the posted text, or the files it sent.
         let posted = if text.is_empty() {
             let names: Vec<String> = files
@@ -193,18 +181,8 @@ impl Brain {
         } else {
             text.clone()
         };
-        for index in pending.iter().copied() {
-            let part = &text_parts[index];
-            let mut entry = super::reply_entry(conversation.clone(), &part_keys[index], part);
-            add_thread_refs(&thread, &mut entry);
-            let files = if index == 0 {
-                files.clone()
-            } else {
-                Vec::new()
-            };
-            let reply = self.reply_with_media(entry, files);
-            self.state.outbox.push(reply);
-        }
+        let entry = self.reply_with_media(entry, files.clone());
+        self.state.outbox.push(entry);
         self.save();
         self.flush_outbox();
         // What the owner did with it: "sent" only when it took the message.
@@ -213,36 +191,20 @@ impl Brain {
         // The key it went under: a merge into an earlier waiting message
         // (pacing::coalesce) shares that message's fate; a refused link
         // card retries as `{key}:text`, a refused thread as `{key}:top`.
-        let mut refused = None;
-        let mut refused_part_key = None;
-        for part_key in &part_keys {
-            let mut under = part_key.clone();
-            while let Some(into) = self.merged_sends.get(&under).cloned() {
-                under = into;
-            }
-            let ours = |k: &str| {
-                k == under
-                    || k.strip_prefix(under.as_str())
-                        .is_some_and(|r| r.starts_with(':'))
-            };
-            if let Some(at) = self.refused.iter().position(|r| ours(&r.key)) {
-                refused = Some(self.refused.remove(at));
-                refused_part_key = Some(part_key);
-                break;
-            }
+        let mut under = key.clone();
+        while let Some(into) = self.merged_sends.remove(&under) {
+            under = into;
         }
-        if let Some(refused) = refused {
-            if let Some(part_key) = refused_part_key {
-                self.sent_keys.remove(part_key);
-                self.merged_sends.remove(part_key.as_str());
-            }
-            let status = if part_keys.len() == 1 {
-                "nothing was posted"
-            } else {
-                "one part was refused; other parts may be queued or posted"
-            };
+        let ours = |k: &str| {
+            k == under
+                || k.strip_prefix(under.as_str())
+                    .is_some_and(|r| r.starts_with(':'))
+        };
+        let refused_at = self.refused.iter().position(|r| ours(&r.key));
+        if let Some(refused) = refused_at.map(|at| self.refused.remove(at)) {
+            self.sent_keys.remove(&key);
             let mut error = format!(
-                "send: refused by the conversation, {status} ({}): {}",
+                "send: refused by the conversation, nothing was posted ({}): {}",
                 refused.reason,
                 refusal_meaning(&refused.reason)
             );
@@ -254,22 +216,7 @@ impl Brain {
             (0, 0) => String::new(),
             (f, u) => format!(" with {} attachment(s)", f + u),
         };
-        let mut queued_keys = std::collections::HashSet::new();
-        for part_key in &part_keys {
-            let mut resolved = part_key.clone();
-            queued_keys.insert(resolved.clone());
-            while let Some(into) = self.merged_sends.get(&resolved).cloned() {
-                resolved = into;
-                queued_keys.insert(resolved.clone());
-            }
-            queued_keys.insert(format!("{resolved}:text"));
-            queued_keys.insert(format!("{resolved}:top"));
-        }
-        let queued = self
-            .state
-            .outbox
-            .iter()
-            .any(|entry| queued_keys.contains(&entry.idempotency_key));
+        let queued = self.state.outbox.iter().any(|e| ours(&e.idempotency_key));
         let mut answer = match (queued, placed, call.reply_to) {
             (true, placed, _) => format!(
                 "outcome: queued. not posted yet{what}: it waits its turn in the outbox (the gap after the last message, an upload or link previews){}; a refusal is told on your next send",
@@ -315,27 +262,6 @@ impl Brain {
         Ok(format!(
             "outcome: done. scheduled {id} to send in {seconds} s"
         ))
-    }
-}
-
-fn add_thread_refs(
-    thread: &Option<(String, String, String)>,
-    entry: &mut crate::state::OutboxEntry,
-) {
-    if let (
-        Some((_, parent, root)),
-        Op::MessageSend {
-            reply_to,
-            thread_root,
-            ..
-        },
-    ) = (thread, &mut entry.op)
-    {
-        *reply_to = Some(PartRef {
-            message_id: parent.clone(),
-            part_index: 0,
-        });
-        *thread_root = Some(root.clone());
     }
 }
 

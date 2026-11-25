@@ -52,6 +52,19 @@ extension ChatController {
         }
     }
 
+    /// A click on the picture `id` in the message box (``FieldTextView/openPictureClicked(down:up:)``): opens it large
+    /// with the box's other pictures, growing out of `thumbnail` (its box in ``host`` and its picture) when given
+    /// (issue 51939). False when `id` is not a picture
+    /// of the draft.
+    @discardableResult
+    func openDraftPicture(_ id: ID, from thumbnail: (rect: CGRect, image: CGImage)? = nil) -> Bool {
+        let intents = intents
+        guard let gallery = HomePictureGallery(draft: store?.state.ui.draft.attachments ?? [], opening: id,
+                                               file: { intents?.draftAttachmentFile($0) }) else { return false }
+        presentPictures(gallery, from: thumbnail) { item in await Self.decode(item) }
+        return true
+    }
+
     /// Opens `gallery` over this pane through the main-actor seam (``HomePictureViewerMount``); the viewer has the
     /// pane's keyboard until it closes.
     func presentPictures(_ gallery: HomePictureGallery, from thumbnail: (rect: CGRect, image: CGImage)? = nil,
