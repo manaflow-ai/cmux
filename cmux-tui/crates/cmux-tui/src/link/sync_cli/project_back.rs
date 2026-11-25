@@ -3,11 +3,14 @@
 //! agent wrote sits in the projection's upper layer on the machine; this brings it here in
 //! O(edits):
 //!
-//! 1. the machine's listing of the upper layer and whiteouts (`projection.layer`, no bytes);
+//! 1. the machine's listing of the upper layer and whiteouts (`projection.layer`, no bytes),
+//!    with the dependency, cache and build folders the agent made (`node_modules`, a Cargo
+//!    `target`) counted, not listed: they stay on the machine (`kept_on_machine` in the summary);
 //! 2. this Mac's stat of each path they touch, against the manifest the session started from
 //!    (kept here by `serve`, [`record`]), planned by [`cmux_projection::way_back::plan`]: writes,
 //!    deletes, mode changes and named conflicts. New paths this Mac's git ignores stay there;
-//! 3. only the files the plan writes or names come over (`projection.files`), and the upper's
+//! 3. only the files the plan writes or names come over (`projection.files`, in batches of
+//!    bounded paths and bytes), and the upper's
 //!    `.git` files of each repository go through the HEAD and index three-way
 //!    ([`super::git_back::plan_from_layer`]), never copied as files;
 //! 4. one transaction here ([`super::place`]): every file replaced or deleted is checked to be

@@ -455,7 +455,7 @@ fn the_away_notice_names_the_folder_the_mac_and_the_failed_reads() {
 
 #[test]
 fn brought_back_and_release_are_projection_frames() {
-    for op in [BROUGHT_BACK, RELEASE, LAYER, FILES, DROP, PIN, UNPIN, PINS] {
+    for op in [BROUGHT_BACK, RELEASE, LAYER, FILES, DROP, PIN, UNPIN, PINS, UNSYNCED] {
         let line = json!({"id": 1, "cmd": op, "name": "a"}).to_string();
         assert_eq!(frame_command(&line), Some(op));
     }
@@ -484,7 +484,24 @@ fn control_line(name: &str, mark: Option<&str>, why: Option<&str>) -> WayBackLin
         mark: mark.map(str::to_owned),
         why: why.map(str::to_owned),
         path: None,
+        prune: false,
     }
+}
+
+/// `projection.unsynced`: what Bring Back would carry and what stays on the machine, counted.
+#[test]
+fn unsynced_counts_the_changes_and_what_stays_on_the_machine() {
+    let home = cmux_unix_socket::short_test_dir("proj");
+    let (state, _) = projected_state(home.path(), "p-count");
+    std::fs::create_dir_all(state.join("upper/node_modules/x")).unwrap();
+    std::fs::write(state.join("upper/node_modules/x/i.js"), b"1;").unwrap();
+    std::fs::write(state.join("upper/node_modules/x/package.json"), b"{}").unwrap();
+    let answer = unsynced(&state).unwrap();
+    assert_eq!(
+        answer,
+        json!({"files": 1, "bytes": 23, "deleted": 1,
+               "kept_on_machine": {"folders": 1, "files": 2, "bytes": 4}})
+    );
 }
 
 /// RFD 0007: Bring Back's upper layer is "brought back at the mark it read

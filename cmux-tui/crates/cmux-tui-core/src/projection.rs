@@ -33,6 +33,12 @@
 //! - `{"id", "cmd": "projection.drop", "name"}`: the same with no mark (a Mac from before
 //!   `projection.brought_back`); `{"id", "ok": true, "data": {"dropped"}}`.
 //!
+//! - `{"id", "cmd": "projection.unsynced", "name"}`: one metadata walk of the upper layer, no
+//!   bytes, for a "N files to bring back" line: `{"files", "bytes", "deleted", "kept_on_machine":
+//!   {"folders", "files", "bytes"}}`. `files` and `bytes` are what Bring Back would list (files
+//!   and links), `deleted` its whiteouts, `kept_on_machine` the dependency, cache and build
+//!   folders `"prune": true` leaves on the machine.
+//!
 //! Pinned folders (`cmux_projection::overlay::pin`, "available offline"), by projection `name`,
 //! mounted here, each one request and its answer:
 //! - `{"id", "cmd": "projection.pin", "name", "path"}`: `path` (relative to the projected folder,
@@ -120,6 +126,9 @@ pub const RELEASE: &str = "projection.release";
 pub const PIN: &str = "projection.pin";
 pub const UNPIN: &str = "projection.unpin";
 pub const PINS: &str = "projection.pins";
+/// What the agent changed that Bring Back would carry, and what stays on the machine, as counts
+/// (module docs).
+pub const UNSYNCED: &str = "projection.unsynced";
 /// How long after the daemon starts the first reaper pass runs (acpmux starts beside it).
 const REAP_FIRST_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
 /// How often the reaper runs.
@@ -351,7 +360,7 @@ pub fn frame_command(line: &str) -> Option<&'static str> {
         return None;
     }
     let cmd = object.get("cmd")?.as_str()?;
-    [SERVE, LAYER, FILES, DROP, BROUGHT_BACK, RELEASE, PIN, UNPIN, PINS]
+    [SERVE, LAYER, FILES, DROP, BROUGHT_BACK, RELEASE, PIN, UNPIN, PINS, UNSYNCED]
         .into_iter()
         .find(|known| *known == cmd)
 }
@@ -702,6 +711,12 @@ fn way_back_answer(
             }
             Ok((data, WayBackBody::Bytes(encoded)))
         }
+        UNSYNCED => {
+            if !state.is_dir() {
+                return Err(("projection.unknown", format!("no projection {} here", line.name)));
+            }
+            Ok((unsynced(&state).map_err(|error| io(&error))?, WayBackBody::None))
+        }
         FILES => {
             if line.paths_bytes > MAX_PATHS_BYTES {
                 return Err(("projection.too_large", "too many paths".into()));
@@ -732,6 +747,26 @@ fn way_back_answer(
             Ok((json!({"dropped": dropped}), WayBackBody::None))
         }
     }
+}
+
+/// [`UNSYNCED`]'s answer for the projection whose state folder is `state` (module docs).
+fn unsynced(state: &Path) -> anyhow::Result<Value> {
+    let (layer, pruned) = cmux_projection::layer::Layer::collect_pruned(state)?;
+    let (files, bytes) = layer
+        .upper
+        .iter()
+        .filter(|entry| entry.kind != cmux_projection::manifest::Kind::Dir)
+        .fold((0u64, 0u64), |(files, bytes), entry| (files + 1, bytes + entry.size));
+    Ok(json!({
+        "files": files,
+        "bytes": bytes,
+        "deleted": layer.whiteouts.len(),
+        "kept_on_machine": {
+            "folders": pruned.len(),
+            "files": pruned.iter().map(|folder| folder.files).sum::<u64>(),
+            "bytes": pruned.iter().map(|folder| folder.bytes).sum::<u64>(),
+        },
+    }))
 }
 
 /// [`PIN`], [`UNPIN`] or [`PINS`] of projection `line.name`, mounted here (module docs).
