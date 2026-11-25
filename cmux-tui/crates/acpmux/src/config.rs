@@ -1332,8 +1332,8 @@ pub struct SessionResourceConfig {
     pub disk_mb: Option<u64>,
     /// `cpuClass`: the CPU class a macOS session's harness runs at once its
     /// start is over (it starts at normal), `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
-    /// overrides it, a profile's env overrides both. Unset: `background`, or `normal` for a
-    /// Claude Code launcher or a Codex app-server (`cpu_class::default_for`).
+    /// overrides it, a profile's env overrides both. Unset: `normal`, a terminal shell's
+    /// priority and disk tier (`cpu_class::default_for`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_class: Option<crate::cpu_class::CpuClass>,
 }
@@ -1399,6 +1399,26 @@ impl Default for ArtifactsSyncConfig {
 }
 
 impl ArtifactsSyncConfig {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
+/// The fleet memory mount (`memory_mount.rs`): `~/.cmux/memory/{private,team}` kept in sync with
+/// the memory store on cmux-platform. On by default on a machine joined to cmux Cloud ("autocloud
+/// default on"); `"memory": {"sync": false}` turns it off.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MemorySyncConfig {
+    /// Unset: on. `false`: the daemon never syncs (`acpmux memory sync` still does, by hand).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync: Option<bool>,
+    /// The mount's root, `~/.cmux/memory` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dir: Option<PathBuf>,
+}
+
+impl MemorySyncConfig {
     pub fn is_default(&self) -> bool {
         self == &Self::default()
     }
@@ -1548,6 +1568,8 @@ pub struct Config {
     /// Optional platform artifact and memory synchronization.
     #[serde(default, skip_serializing_if = "ArtifactsSyncConfig::is_default")]
     pub artifacts_sync: ArtifactsSyncConfig,
+    #[serde(default, skip_serializing_if = "MemorySyncConfig::is_default")]
+    pub memory: MemorySyncConfig,
     /// Opt-in cmux-platform wake-on-message integration. Absent/disabled keeps
     /// the normal peer route and send behavior unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1756,7 +1778,10 @@ pub struct Config {
     /// `hub_carrier_direct.rs`). Set, the carrier also listens on it and dials the person's other
     /// machines on it first when their name resolves to a private address (one GCP region's VPC),
     /// with the relay as the fallback. The same Noise XX and node keys as a relay circuit admit a
-    /// connection, so it lets in no one the relay would not. Unset (the default): relay only.
+    /// connection, so it lets in no one the relay would not. Unset (the default): no dial by name,
+    /// but the carrier listens on a port of its own and punches a direct path to a machine on
+    /// another network (`hub_carrier_punch.rs`), the relay meanwhile and when no punch connects;
+    /// 0: relay only (so does `ACPMUX_DIRECT_PUNCH=0`).
     /// Set with `acpmux config --set direct_port=PORT`; the carrier takes it at its start.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub direct_port: Option<u16>,
@@ -2063,7 +2088,7 @@ mod start_check;
 mod store_config;
 pub use store_config::{StoreConfig, StoreMode};
 mod pool;
-pub use pool::PoolConfig;
+pub use pool::{PoolConfig, spare_personal_enabled};
 mod btw;
 pub use btw::BtwConfig;
 mod auto_evacuate;

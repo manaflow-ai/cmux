@@ -1,4 +1,4 @@
-# nightly.yml notes
+# nightly.yml notes (frozen: a new note is its own file in [`docs/ci/nightly-workflow-notes/`](nightly-workflow-notes/README.md))
 
 Long comments moved out of `.github/workflows/nightly.yml` to keep it under GitHub's workflow file size limit
 (tests/test_ci_workflow_file_size.py). Each note's line in the workflow reads `# Why: docs/ci/nightly-workflow-notes.md#note-N`.
