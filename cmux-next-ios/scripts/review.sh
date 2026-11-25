@@ -348,13 +348,16 @@ fleet_submit_mac() {
   # the tag's own local mode.
   local ref reuse=()
   ref="$(mac_build_ref)"
-  # The base's build: any tag's equal build answers at once (--any-tag), and swap-first never stands in for it.
-  [[ "$ref" == "$SHA" ]] || reuse=(--any-tag --build)
-  # ${reuse[@]+...}: macOS's /bin/bash 3.2 (what `env bash` finds) calls an empty array unbound under set -u.
-  out="$(cmux_ci build cmux --ref "$ref" ${reuse[@]+"${reuse[@]}"} --tag "$SLUG" --workspace "$WORKSPACE" --backend-mode local)" ||
+  # --build always: the hand-off pairs the phone with a tagged Mac app, which a swap into a copy of the
+  # NIGHTLY is not. Since the fleet client's swap-first default (an agent's submission of a change it can
+  # swap queues nothing), a head that changes only Rust the app links queued no Mac build, and every such
+  # hand-off ended "printed no job id" (vfix1125, 2026-11-25). The base's build: any tag's equal build
+  # answers at once (--any-tag).
+  if [[ "$ref" == "$SHA" ]]; then reuse=(--build); else reuse=(--any-tag --build); fi
+  out="$(cmux_ci build cmux --ref "$ref" "${reuse[@]}" --tag "$SLUG" --workspace "$WORKSPACE" --backend-mode local)" ||
     { REPORT_MAC="BLOCKED: cmux-ci build cmux was refused"; return 1; }
-  MAC_JOB="$(printf '%s' "$out" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')" ||
-    { REPORT_MAC="BLOCKED: cmux-ci build cmux printed no job id"; return 1; }
+  MAC_JOB="$(printf '%s' "$out" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' 2>/dev/null)" ||
+    { REPORT_MAC="BLOCKED: cmux-ci build cmux queued no job: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-300)"; return 1; }
   printf '%s\n' "$MAC_JOB" >"$STATE/cmux-job"
   echo "==> Mac build: fleet job $MAC_JOB"
   mac_promote
