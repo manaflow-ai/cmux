@@ -950,8 +950,8 @@ def lower_words(line: str) -> list[str]:
 
 
 def close_in_length(words: list[str], other: list[str]) -> bool:
-    """Whether `other` is about as long as `words`: longer or shorter by at most half its word count, and by
-    at least two words either way (`max(2, len(words) // 2)`). A short
+    """Whether `other` is about as long as `words`: longer or shorter by at most
+    `max(2, len(words) // 2)` words (half its word count, but never less than two). A short
     removed line (`let x = 1;`) is not "still said" by a long unrelated line that happens to hold its words."""
     slack = max(2, len(words) // 2)
     return abs(len(other) - len(words)) <= slack
