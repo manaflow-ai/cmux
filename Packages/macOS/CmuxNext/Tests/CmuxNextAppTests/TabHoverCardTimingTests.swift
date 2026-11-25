@@ -325,6 +325,25 @@ import CmuxNextWakeupsTestSupport
                 "the first frame draws the card at \(drawn.size), not its rest size \(rest.size)")
     }
 
+    /// Lawrence 2026-11-23 (a recording of a tab's card: "we animate width/height which is bad, should just
+    /// fade in"): with a card open, a move to the next tab changes no size on a spring either: the card is
+    /// under the next tab at that card's size in the same frame (the first show: `aTabsFirstCardShowsAt...`).
+    @Test func aMoveToTheNextTabChangesNoSizeOnASpring() async throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let s = Self.strip()
+        defer { s.tearDown() }
+        try await Self.open("a", s)
+        let before = HoverCardPanel.morphGeneration
+        s.move(to: try s.center("b"))
+        try await Self.settle(until: { s.shows("b") })
+        try #require(s.shows("b"), "the next tab showed no card")
+        let panel = try #require(s.coordinator.panel)
+        #expect(HoverCardPanel.morphGeneration == before, "the move to the next tab changed the card's size on a spring")
+        #expect(panel.activeMorph == nil, "the card is still resizing")
+        #expect(panel.slideLayer?.animation(forKey: "sublayerTransform") == nil, "the card slid to the next tab")
+    }
+
     /// A picture that lands when the test says so.
     private final class HeldPreviews: TabPreviewProvider {
         private var held: CheckedContinuation<Void, Never>?

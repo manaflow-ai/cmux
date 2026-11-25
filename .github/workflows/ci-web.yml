@@ -184,6 +184,10 @@ jobs:
         env:
           REACT_APPS_SHARDS: "8"
           FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          # Into feat-cmux-next a FULL path runs the sampled pick; its post-merge batch runs every shard
+          # (webviews_pr_shards.py full_to_batch). CI_WEBVIEWS_FULL_TO_BATCH=0 runs every shard for it again.
+          CI_WEBVIEWS_PR_BASE: ${{ github.base_ref }}
+          CI_WEBVIEWS_FULL_TO_BATCH: ${{ vars.CI_WEBVIEWS_FULL_TO_BATCH || '1' }}
           CMUX_WEB_TEST_DURATIONS: ${{ runner.temp }}/webviews-durations/manifest.json
           CMUX_WEB_TEST_JOBS: "8"
           CMUX_WEB_TEST_DEV_JOBS: "4"
@@ -613,7 +617,9 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           shared-key: agent-pane-real-acpmux
-          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' || github.base_ref == 'feat-cmux-next' }}
+          # A feat-cmux-next push saves; a pull request restores only. `|| github.base_ref == 'feat-cmux-next'` saved a
+          # copy per pull request that only that pull request reads: 114 entries, 53 GB written in 6 h (2026-11-24, RFD 0148 row 19).
+          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
           workspaces: cmux-tui -> target
 
       - name: Build acpmux
@@ -640,6 +646,11 @@ jobs:
           CMUX_REAL_ACPMUX: "1"
           CMUX_BROWSER_TESTS: "1"
           FAST_CHECKS_OUT: ${{ runner.temp }}/agent-pane-real-acpmux
+          # Both files share one cache of the React Compiler's output (reactCompiler.mjs), as
+          # scripts/ci/run-webviews-tests.sh gives every other web file: without it each file's Vite
+          # compiles the pane again (cold warm-up 37-60 s on a 16-core VM, past warmDevServer's 100 s
+          # on a busy runner), and with it the second file warms in about 10 s.
+          CMUX_VITE_TRANSFORM_CACHE: ${{ runner.temp }}/vite-transforms
         run: |
           status=0
           for file in test/agent-pane-new-chat-settles.test.ts test/agent-pane-picks-hold.test.ts; do
@@ -778,11 +789,14 @@ jobs:
     # 44258208231 hit the limit on small runners, still testing. A fork's run reads no variables, so
     # its arms come first. The anchor hands these minutes to Test webviews, whose retry deadline is
     # measured from them.
+    # A dispatch (the post-merge batch tick, the full suite of the base) gets 45: the ticks of 11-22 to 11-24 ran 8
+    # shards to the 90 minute limit, 100% red (about 5,760 shard minutes a day), because a red base never turns
+    # green by waiting; the retry deadline follows these minutes, so a red file stays red and the tick ends sooner.
     # actions: read: a pull request's shard downloads the files that passed at its previous head (an artifact).
     permissions:
       contents: read
       actions: read
-    timeout-minutes: &webview-shard-minutes ${{ github.repository_owner != 'manaflow-ai' && 90 || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 90 || contains(fromJSON(vars.RUNNER_POOLS).linux_4, '-2vcpu-') && 150 || 90 }}
+    timeout-minutes: &webview-shard-minutes ${{ github.repository_owner != 'manaflow-ai' && 90 || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 90 || contains(fromJSON(vars.RUNNER_POOLS).linux_4, '-2vcpu-') && 150 || github.event_name == 'workflow_dispatch' && 45 || 90 }}
     name: react-apps-check (${{ matrix.shard }})
     strategy:
       fail-fast: false

@@ -182,6 +182,7 @@ dependencies = [
  "cmux-daemon-conn-core",
  "cmux-daemon-launch-core",
  "cmux-health-core",
+ "cmux-keymap",
  "cmux-launch-image",
  "cmux-launch-record",
  "cmux-launch-shell",
@@ -189,6 +190,7 @@ dependencies = [
  "cmux-layout-reducer-ffi",
  "cmux-motion",
  "cmux-palette-ranker",
+ "cmux-pane-pictures",
  "cmux-process",
  "cmux-rd-ffi",
  "cmux-sdk-ffi",
@@ -387,6 +389,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-keymap"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-launch-image"
 version = "0.1.0"
 
@@ -477,6 +487,10 @@ dependencies = [
  "unicode-general-category",
  "unicode-normalization",
 ]
+
+[[package]]
+name = "cmux-pane-pictures"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-process"

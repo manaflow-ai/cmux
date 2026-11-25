@@ -198,6 +198,9 @@ export function CloudRepositoryPicker({
       anchor={point ?? (anchor.current as UiAnchor)}
       label={t("cloudRepository.add")}
       className="acpmux-cloud-repository-popover"
+      // "results": opens on "Searching" and the repositories (the answer to the typed query, read
+      // after a pause) arrive with no input to the popup (ui/popupSettle.ts).
+      popupSettle="results"
       initialFocus={search}
     >
       <div className="acpmux-cloud-repository-picker">
