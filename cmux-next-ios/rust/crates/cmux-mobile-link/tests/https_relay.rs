@@ -541,3 +541,56 @@ async fn a_slow_turn_allocation_on_the_mac_gets_its_window_before_the_relay() {
     assert!(matches!(rig.mac_path(), Some(LinkPath::Turn | LinkPath::TurnTls)), "{:?}", rig.mac_path());
     connected.link.close("done");
 }
+
+/// Disco over the relay (ledger 13h): two devices on one LAN whose signaling
+/// carried no direct endpoint (an older or stripping signaling path, a
+/// relay-only meeting) meet on cmux's relay. Plain UDP between them works, so
+/// once the tunnel is up they must swap their LAN endpoints through it and
+/// move the link to the direct path: relayed -> direct, both sides.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn peers_that_met_on_the_relay_swap_lan_endpoints_and_go_direct() {
+    met_on_the_relay_goes_direct(false, "nearby_disco_over_relay").await;
+}
+
+/// The same with each side taking the other for an older peer (no `version`
+/// in wg-init or wg-resp): the endpoints ride the roam announcement, which
+/// older builds already take, so nothing new is negotiated.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_older_peer_met_on_the_relay_also_goes_direct() {
+    met_on_the_relay_goes_direct(true, "nearby_disco_over_relay_old_peer").await;
+}
+
+async fn met_on_the_relay_goes_direct(old_peer: bool, cell: &str) {
+    let fake =
+        FakeOptions { strip_direct_endpoints: true, strip_wg_version: old_peer, ..FakeOptions::default() };
+    let rig = rig(fake, options(), true).await;
+    let phone = DialOptions { relay: relay(&rig.server, &rig.phone_id), ..options() };
+    let started = std::time::Instant::now();
+    let connected =
+        dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
+            .await
+            .expect("dial with no direct endpoint in signaling");
+    echo(&connected.link, 1).await;
+    let up_ms = started.elapsed().as_secs_f64() * 1000.0;
+    let first = *connected.path.borrow();
+    let up = std::time::Instant::now();
+    let deadline = up + Duration::from_secs(10);
+    loop {
+        echo(&connected.link, 1).await;
+        if *connected.path.borrow() == LinkPath::Direct && rig.mac_path() == Some(LinkPath::Direct) {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "still {:?} (mac {:?}) 10 s after the link came up on {first:?}",
+            *connected.path.borrow(),
+            rig.mac_path()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    println!(
+        "MATRIX {{\"cell\": \"{cell}\", \"first_path\": \"{first:?}\", \"up_ms\": {up_ms:.1}, \"direct_after_ms\": {:.1}}}",
+        up.elapsed().as_secs_f64() * 1000.0
+    );
+    connected.link.close("done");
+}
