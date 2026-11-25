@@ -376,6 +376,12 @@
       "field:phone-frames/tui#rtt_ms",
       "service:phone-frames"
     ],
+    "reliable": [
+      "frame:ack=8",
+      "frame:bye=10",
+      "frame:hello=9",
+      "frame:seq=7"
+    ],
     "removal-v1": [
       "control:version.capabilities/removal-v1"
     ],

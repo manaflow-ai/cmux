@@ -2678,6 +2678,7 @@ pub(super) fn dial_wireguard<'a>(
             .map_err(|e| DialError::Signaling(e.to_string()))?;
         options.timeline.mark("wg_init_sent");
         let agreed;
+        let reliable;
         let video_agreed;
         let webrtc_media_agreed;
         let liveness_agreed;
@@ -2704,6 +2705,7 @@ pub(super) fn dial_wireguard<'a>(
                             .map_err(|_| DialError::Unexpected("wg-resp overlayIP is not IPv4".into()))?;
                         agreed = super::input_lane_agreed(options, &lanes);
                         liveness_agreed = lanes.iter().any(|lane| lane == crate::link::LIVENESS_LANE);
+                        reliable = super::reliable_agreed(options, &lanes);
                         classes_agreed = classes_offered()
                             && lanes.iter().any(|lane| lane == crate::classes::CLASSES_LANE);
                         screen_agreed =
@@ -2845,6 +2847,7 @@ pub(super) fn dial_wireguard<'a>(
             media,
             webrtc_media,
             liveness,
+            reliable,
         })
     })
 }
@@ -2891,6 +2894,7 @@ impl Dialer for WireGuardDialer {
                 return Err(DialError::Unexpected("expected wg-init".into()));
             };
             let agreed = super::input_lane_agreed(options, &lanes);
+            let reliable = super::reliable_agreed(options, &lanes);
             let video_wanted = options.video_lane && super::video_lane_listed(&lanes);
             let webrtc_media_wanted =
                 video_wanted && options.webrtc_media && super::webrtc_media_listed(&lanes);
@@ -3061,6 +3065,7 @@ impl Dialer for WireGuardDialer {
                 lane,
                 webrtc_media,
                 liveness,
+                reliable,
                 media: media.map(|carrier| {
                     options.timeline.mark("video_lane");
                     super::PendingMedia::Send(carrier)

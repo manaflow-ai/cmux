@@ -671,6 +671,7 @@ dependencies = [
  "cmux-mobile-link",
  "cmux-rd-core",
  "cmux-rd-proto",
+ "cmux-remote-protocol",
  "cmux-transport",
  "cmux-wg",
  "cmux-wire-lockstep",
@@ -804,6 +805,16 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-remote-protocol"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "serde",
+ "serde_json",
+ "uuid",
 ]
 
 [[package]]
