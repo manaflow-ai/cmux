@@ -90,6 +90,27 @@ impl IceOrigin {
 }
 
 impl IceSource {
+    /// cmux's WebSocket relay for an answer of `device_id` (PROTOCOL.md
+    /// "WebSocket relay"): on the backend this source asks for ICE servers,
+    /// with a current access token at each join. `None` for fixed servers
+    /// (tests, tools) and when `CMUX_MOBILE_RELAY=0` turns it off.
+    pub fn relay(&self, device_id: &str) -> Option<cmux_mobile_link::dial::relay::RelayEndpoint> {
+        let Self::Api { base_url, build_space, tokens, .. } = self else { return None };
+        if std::env::var("CMUX_MOBILE_RELAY").is_ok_and(|value| value == "0") {
+            return None;
+        }
+        let tokens = Arc::clone(tokens);
+        Some(cmux_mobile_link::dial::relay::RelayEndpoint::new(
+            base_url.clone(),
+            build_space.clone(),
+            device_id,
+            move || {
+                let tokens = Arc::clone(&tokens);
+                Box::pin(async move { tokens.access_token().await.ok() })
+            },
+        ))
+    }
+
     pub fn api(base_url: String, build_space: Option<BuildSpace>, tokens: Arc<Tokens>) -> Self {
         Self::Api {
             base_url,
@@ -478,6 +499,8 @@ fn mailbox_for(
         trust: pairing.trust.clone(),
         identity: pairing.identity.clone(),
         spent: Arc::clone(&pairing.spent_replies),
+        cursor: Arc::clone(&pairing.mailbox_cursor),
+        order: Default::default(),
         key_wait: crate::pairing::TRUST_WAIT,
         applier: Arc::new(crate::mailbox_apply::LiveApplier {
             acpmux: services.acpmux.clone(),
@@ -659,6 +682,7 @@ async fn answer_session(
     timeline.mark(origin.mark());
     let options = DialOptions {
         ice_servers,
+        relay: context.ice.relay(signaling.device_id()),
         include_loopback: context.include_loopback,
         exclude_cgnat: context.exclude_cgnat,
         timeline: timeline.clone(),
