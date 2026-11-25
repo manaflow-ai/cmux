@@ -89,10 +89,16 @@ ensure_sim() {
   if [[ -z "$(sims)" ]]; then
     # One set per checkout (a short /tmp path: CoreSimulator's sockets live inside it), made by mktemp
     # so no other account can have guessed its name first, and recorded in $EVAL_STATE/sims: this
-    # script runs once per verb, so no EXIT trap here can own it; host-stop (also from the harness's
-    # exit trap) removes it, and a run it misses leaves it recorded, so the next run reuses it.
+    # script runs once per verb, so once recorded, host-stop (also from the harness's exit trap)
+    # removes it, and a run it misses leaves it recorded, so the next run reuses it. Until it is
+    # recorded nothing else knows it: this EXIT trap (of ensure_sim's own $(...) subshell) removes it
+    # if the record fails or the subshell dies first, and does nothing once it is recorded.
+    unrecorded=""
+    trap 'if [[ -n "$unrecorded" ]]; then rm -rf "$unrecorded"; fi' EXIT
     set="$(mktemp -d /tmp/iphsim.XXXXXX)" || return 1
+    unrecorded="$set"
     echo "$set" >"$EVAL_STATE/sims" || return 1
+    unrecorded=""
   fi
   udid=$(simctl create screen-eval-iphone "$device_type" "$runtime") || return 1
   [[ -n "$udid" ]] || { echo "iphone-sim: simctl create printed no udid" >&2; return 1; }
