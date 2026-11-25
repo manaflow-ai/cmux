@@ -11,7 +11,8 @@ hq's fleet-reconciler-swift-logic-lines.yml runs it at feat-cmux-next's head in 
 A file counts when its code (comments blanked, strings kept) builds a request (REQUEST: `URLRequest(`, a
 `.webSocketTask(` or `URLSessionWebSocketTask`, `.data(for:` and the like) and it is Cloud code: its path names Cloud,
 or its code names a Cloud base or client (CLOUD). Tests, fixtures, galleries, vendored and generated files are left
-out (SKIP, NOW's now_code_shape TEST and VENDOR rules). It is a measure, not a guard: nothing fails on a count.
+out (SKIP, NOW's now_code_shape TEST and VENDOR rules), and so are the few files NOT_CLOUD names with the reason
+they are not Cloud. It is a measure, not a guard: nothing fails on a count.
 Standard library only; run it with `python3 -I`.
 """
 from __future__ import annotations
@@ -31,6 +32,11 @@ REQUEST = re.compile(r"\bURLRequest\s*\(|\.webSocketTask\s*\(|\bURLSessionWebSoc
                      r"|\.(?:data|upload|download|bytes)\s*\(\s*for\s*:")
 CLOUD = re.compile(r"\b(?:CloudConfiguration|CloudAuth|CloudAccessToken|CloudAPIClient|CloudOwnerAPIClient|"
                    r"cloudAPIBase|apiBaseURL|cloudBaseURL)\b|cmux\.dev|cloud-api")
+# Files that name cmux.dev but talk to no Cloud API, each with why.
+NOT_CLOUD = {
+    "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/ReleasePushListener.swift":
+        "the updater's release-feed socket on the cmux-presence Worker, not a Cloud API",
+}
 
 
 def code(text: str) -> str:
@@ -43,7 +49,7 @@ def count(root: Path) -> dict:
     base = root / SOURCES
     for path in sorted(base.rglob("*.swift")):
         rel = path.relative_to(root).as_posix()
-        if SKIP.search(rel[len(SOURCES) + 1:]):
+        if SKIP.search(rel[len(SOURCES) + 1:]) or rel in NOT_CLOUD:
             continue
         text = code(path.read_text(encoding="utf-8", errors="replace"))
         sites = len(REQUEST.findall(text))
