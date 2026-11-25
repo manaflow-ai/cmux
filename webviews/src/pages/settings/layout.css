@@ -98,18 +98,75 @@
   }
 }
 
-.section-children-rows {
+/* More (SectionList CollapsedSection): the sidebar's last run starts closed (one settings area, David
+   Beyer 2026-11-20: Settings felt overwhelming). Its header is a button that reads as a section title,
+   with the run's count and a chevron; the links open below it in place and stay in flow, so nothing
+   below jumps. */
+.sidebar-more {
   display: flex;
-  flex-direction: column;
-  gap: var(--look-nav-gap, 0);
-  min-height: 0;
-  margin-inline-start: var(--ds-space-4);
-  padding-inline-start: var(--ds-space-1);
-  border-inline-start: 1px solid var(--border);
+  align-items: center;
+  gap: var(--ds-space-1);
+  width: 100%;
+  margin: 0;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border: 0;
+  border-radius: var(--look-nav-radius, var(--ds-radius-md));
+  background: transparent;
+  color: var(--muted-text);
+  font: inherit;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-caption--letter-spacing);
+  text-align: start;
+  cursor: default;
+  transition:
+    color var(--motion-hover),
+    background-color var(--motion-hover);
 }
 
-/* Keep the child rows in flow so the categories below move with the opening and closing group. */
-.section-children {
+.sidebar-more:hover,
+.sidebar-more[aria-expanded="true"] {
+  color: var(--text);
+}
+
+.sidebar-more:hover {
+  background-color: var(--accent-soft);
+}
+
+.sidebar-more:active {
+  background-color: var(--row-focus);
+}
+
+.sidebar-more:focus-visible {
+  outline: 2px solid var(--polish-focus, var(--accent));
+  outline-offset: -2px;
+}
+
+.sidebar-more-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar-more-count {
+  font-weight: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Closed, the chevron points at the label; open, down at the links (as a card's More Options). */
+.sidebar-more-chevron {
+  flex: none;
+  width: var(--ds-icon-12);
+  height: var(--ds-icon-12);
+  rotate: -90deg;
+  transition: rotate var(--motion-hover) var(--motion-ease);
+}
+
+.sidebar-more[aria-expanded="true"] .sidebar-more-chevron {
+  rotate: 0deg;
+}
+
+.sidebar-more-links {
   display: grid;
   grid-template-rows: 0fr;
   overflow: clip;
@@ -117,28 +174,40 @@
   opacity: 0;
 }
 
-.section-children[data-open] {
+.sidebar-more-links[data-open] {
   grid-template-rows: 1fr;
   opacity: 1;
 }
 
-.section-children-rows > :first-child {
+.sidebar-more-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--look-nav-gap, 0);
+  min-height: 0;
+}
+
+.sidebar-more-rows > :first-child {
   margin-block-start: var(--look-nav-gap, 0);
 }
 
-.section-children-rows .section-name {
-  white-space: nowrap;
-}
-
+/* The open and close move only after the page is shown: a page opened on a category under More
+   draws it open in its first frame. */
 @media (prefers-reduced-motion: no-preference) and (min-width: 601px) {
-  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .settings[data-page-shown] .section-children {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .settings[data-page-shown] .sidebar-more-links {
     transition:
       grid-template-rows var(--cmux-motion-micro) var(--cmux-ease-settle),
       opacity var(--cmux-motion-micro) var(--cmux-ease-out);
   }
 
-  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .settings[data-page-shown] .section-children[data-open] {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .settings[data-page-shown] .sidebar-more-links[data-open] {
     transition-duration: var(--cmux-motion-standard);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-more,
+  .sidebar-more-chevron {
+    transition: none;
   }
 }
 
@@ -959,25 +1028,62 @@
   }
 
   .section-list {
+    --section-strip-fade-left: 0px;
+    --section-strip-fade-right: 0px;
     flex-direction: row;
     gap: var(--ds-space-1);
     overflow-x: auto;
   }
 
-  /* One scrolling row of categories: the sections' runs join it and their headers step aside. */
+  /* The side with categories past it fades them out (data-fade-left / data-fade-right,
+     scrollEdges.ts; sectionStrip.ts): with macOS's hidden scrollbars it is the strip's only sign
+     that it scrolls (first-run audit row 13). An alpha mask on the strip, so the pane shows through. */
+  .section-list[data-fade-left] {
+    --section-strip-fade-left: var(--ds-space-6);
+  }
+
+  .section-list[data-fade-right] {
+    --section-strip-fade-right: var(--ds-space-6);
+  }
+
+  .section-list:is([data-fade-left], [data-fade-right]) {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 var(--section-strip-fade-left),
+      #000 calc(100% - var(--section-strip-fade-right)),
+      transparent
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 var(--section-strip-fade-left),
+      #000 calc(100% - var(--section-strip-fade-right)),
+      transparent
+    );
+  }
+
+  /* One scrolling row of categories: the sections' runs join it and their headers step aside. More
+     stays a chip in the row; open, its categories follow it there. */
   .sidebar-section,
-  .section-branch,
-  .section-children[data-open],
-  .section-children-rows {
+  .sidebar-more-links[data-open],
+  .sidebar-more-rows {
     display: contents;
   }
 
   .sidebar-section-title,
-  .section-children:not([data-open]) {
+  .sidebar-more-links:not([data-open]) {
     display: none;
   }
 
-  .section-children-rows > :first-child {
+  .sidebar-more {
+    flex: none;
+    width: auto;
+    min-height: var(--look-nav-height, auto);
+    white-space: nowrap;
+  }
+
+  .sidebar-more-rows > :first-child {
     margin-block-start: 0;
   }
 
@@ -1149,4 +1255,251 @@
 .accent-popover .theme-option[aria-selected="true"] {
   background: var(--row-focus);
   box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
+}
+
+/* Beta chips (appearance.settingsBetaChips, off by default; betaChips.ts): a compact accent-tinted
+   chip beside an experimental row's title and the Experimental sidebar entry. Off, none is drawn. */
+.beta-chip {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  margin-inline-start: var(--page-size-6);
+  padding: 0 var(--page-size-6);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--ds-color-accent);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis);
+  line-height: var(--page-size-18);
+  letter-spacing: 0.02em;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+
+.section-link .beta-chip {
+  margin-inline-start: 0;
+}
+
+/* Settings > Customize (components/CustomizeChecklist.tsx): one search over dense groups, each a
+   header with its count and one switch per row. */
+.checklist-search {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  margin: 0 0 var(--ds-space-3);
+}
+
+.checklist-search .search-input {
+  flex: 1;
+}
+
+.checklist-group + .checklist-group {
+  margin-top: var(--ds-space-3);
+}
+
+.checklist-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+  margin: 0 0 var(--ds-space-1);
+}
+
+.checklist-group-title {
+  font-size: var(--text-detail);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.checklist-count {
+  font-size: var(--text-caption);
+  color: var(--muted-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.checklist-toggle-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+
+.checklist-toggle-all svg {
+  width: 12px;
+  height: 12px;
+  transition: transform var(--motion-focus);
+}
+
+.checklist-toggle-all[aria-expanded="false"] svg {
+  transform: rotate(-90deg);
+}
+
+.checklist-items {
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+}
+
+/* The title with Standup at its end; the Standup panel's lines read out loud, one per entry. */
+.checklist-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+}
+
+.checklist-standup {
+  margin: 0 0 var(--ds-space-3);
+}
+
+.checklist-standup .checklist-head {
+  align-items: center;
+}
+
+.checklist-standup .checklist-count {
+  margin-inline-start: auto;
+}
+
+.checklist-standup-lines {
+  margin: 0;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+}
+
+.checklist-standup-lines li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-1) 0;
+}
+
+.checklist-standup-lines .checklist-mark-icon {
+  flex: none;
+  width: 14px;
+}
+
+.checklist-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: 32px;
+  padding: 4px var(--row-pad-x);
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+.checklist-row:last-child {
+  box-shadow: none;
+}
+
+.checklist-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.checklist-text .row-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.checklist-text .row-title svg {
+  width: 12px;
+  height: 12px;
+  color: var(--muted-text);
+}
+
+.checklist-help {
+  color: var(--muted-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.checklist-install {
+  padding: var(--grid-half-step) 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--ds-radius-control);
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-caption);
+}
+
+.checklist-empty,
+.checklist-refusal {
+  margin: 0 0 var(--ds-space-2);
+  color: var(--muted-text);
+}
+
+/* The chips layout (gallery): a wrap of pill toggles, on ones tinted. */
+.checklist-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.checklist-chip,
+.checklist-menu-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+  font: inherit;
+}
+
+.checklist-chip {
+  padding: 4px 8px 4px 4px;
+  border-radius: 999px;
+}
+
+.checklist-chip[aria-pressed="true"] {
+  border-color: transparent;
+  background: var(--accent-soft);
+}
+
+.checklist-chip:disabled,
+.checklist-menu-item:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.checklist-mark-icon {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+}
+
+.checklist-mark-icon svg,
+.checklist-chip > svg,
+.checklist-menu-item > svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* The menu layout (gallery): menu-like rows, a check mark for on, no help line. */
+[data-checklist-layout="menu"] .checklist-items {
+  padding: 4px;
+}
+
+.checklist-menu-item {
+  width: 100%;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  text-align: start;
+}
+
+.checklist-menu-item:hover:not(:disabled) {
+  background: var(--accent-soft);
 }

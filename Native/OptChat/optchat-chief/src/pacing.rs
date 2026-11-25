@@ -17,8 +17,10 @@ pub const MAX_BACKOFF: Duration = Duration::from_secs(60);
 /// Merges each run of untried `message.send` entries of one conversation into
 /// the first: its key, the texts joined by a blank line. An entry already tried
 /// keeps its content (a retry under its key must send the same text), and an
-/// entry with a reply target or a non-text part is never merged.
-pub fn coalesce(entries: &mut Vec<OutboxEntry>) {
+/// entry with a reply target or a non-text part is never merged. Returns
+/// each merge as (the absorbed entry's key, the key it went under).
+pub fn coalesce(entries: &mut Vec<OutboxEntry>) -> Vec<(String, String)> {
+    let mut merged = Vec::new();
     let mut i = 0;
     while i + 1 < entries.len() {
         let mergeable = !entries[i].attempted
@@ -36,6 +38,10 @@ pub fn coalesce(entries: &mut Vec<OutboxEntry>) {
             continue;
         }
         let next = entries.remove(i + 1);
+        merged.push((
+            next.idempotency_key.clone(),
+            entries[i].idempotency_key.clone(),
+        ));
         let tail = plain_text(&next.op).unwrap_or_default();
         let (more, more_pending) = match next.op {
             Op::MessageSend {
@@ -71,6 +77,7 @@ pub fn coalesce(entries: &mut Vec<OutboxEntry>) {
             }
         }
     }
+    merged
 }
 
 /// The text of a one-part, plain-text `message.send` without a reply target.

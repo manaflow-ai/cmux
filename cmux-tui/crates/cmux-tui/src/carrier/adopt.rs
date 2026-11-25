@@ -227,7 +227,7 @@ async fn look_and_adopt(
 
 /// The signed machine channel, verified as the machine's updater verifies it.
 async fn verified_channel() -> Result<channel::Payload, String> {
-    let client = reqwest::Client::builder()
+    let client = cmux_egress::client_builder("cmux_tui::carrier::adopt")
         .redirect(reqwest::redirect::Policy::none())
         .timeout(CHANNEL_TIMEOUT)
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))

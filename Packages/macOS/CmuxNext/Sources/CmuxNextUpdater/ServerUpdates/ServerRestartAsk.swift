@@ -8,7 +8,8 @@ public import CmuxUpdater
 /// (``ServerUpdateNotice/confirmSpec``) and restarts only on its Restart. A run an agent, script,
 /// page or the control socket started always shows it: only a person's click is the ask (design
 /// audit 2026-11-18 #20; Leo: "All 4 do em these didn't need my addl input").
-public enum ServerRestartAsk {
+public struct ServerRestartAsk {
+    public init() {}
     /// The confirm to show before restarting, or nil when the person's click is enough.
     public static func prompt(for notice: ServerUpdateNotice, blockers: UpdateRelaunchBlockers, byPerson: Bool) -> CmuxDialogSpec? {
         byPerson && losesNothing(notice, blockers: blockers) ? nil : notice.confirmSpec

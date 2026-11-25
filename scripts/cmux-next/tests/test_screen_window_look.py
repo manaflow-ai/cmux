@@ -268,15 +268,15 @@ class WindowLookTests(unittest.TestCase):
     def test_the_head_says_the_rows_that_the_recorder_lost_in_each_case(self):
         rows = [{"invalid": []}, {"invalid": ["no-row: 2 of the 9 frames have no row", "input: 1 key sent, 0 more tabs"]},
                 {"invalid": ["refresh: the 4 rows come each 16.70 ms"]}, {"invalid": ["no-row: 1 frame", "refresh: slow"]}, {"invalid": ["engine: webkit"]}]
-        self.assertEqual(frames_of.recorder_lost(rows), {"rows": 3, "of": 5, "no_row": 2, "refresh": 2})
-        self.assertEqual(frames_of.recorder_lost([]), {"rows": 0, "of": 0, "no_row": 0, "refresh": 0})
+        self.assertEqual(frames_of.recorder_lost(rows), {"rows": 3, "of": 5, "not_known": 0, "no_row": 2, "refresh": 2})
+        self.assertEqual(frames_of.recorder_lost([]), {"rows": 0, "of": 0, "not_known": 0, "no_row": 0, "refresh": 0})
         cases = {"cmd-t/idle": {"recorder_lost": frames_of.recorder_lost(rows)}, "cmd-w/idle": {"recorder_lost": frames_of.recorder_lost(rows[:1])}}
         self.assertEqual(frames_of.recorder_sentence(cases),
                          "rows lost to the recorder (INVALID by `no-row` or `refresh`, a fault of the tool's yield): "
                          "cmd-t/idle 3 of 5 (no-row 2, refresh 2); cmd-w/idle 0 of 1")
         self.assertEqual(frames_of.recorder_sentence({}), "rows lost to the recorder: no case recorded")
         report, _ = self.run_mode(shown_app(self.folder), keys="t,w", close_cases="idle")
-        self.assertEqual(report["cases"]["cmd-t/idle"]["recorder_lost"], {"rows": 0, "of": 1, "no_row": 0, "refresh": 0})
+        self.assertEqual(report["cases"]["cmd-t/idle"]["recorder_lost"], {"rows": 0, "of": 1, "not_known": 0, "no_row": 0, "refresh": 0})
         self.assertIn("rows lost to the recorder (INVALID by `no-row` or `refresh`, a fault of the tool's yield): cmd-t/idle 0 of 1; cmd-w/idle 0 of 1",
                       report["head"])
 

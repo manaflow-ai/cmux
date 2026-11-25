@@ -1,3 +1,4 @@
+public import CmuxEgress
 import CmuxNextCloud
 public import Foundation
 import LocalAuthentication
@@ -38,6 +39,9 @@ public struct SystemKeychainProbe: KeychainProbing {
             kSecReturnData as String: true,
         ]
         var result: CFTypeRef?
+        // Only `CredentialResolver` reads this, on the person's Connect: the prompt for Codex's own item is
+        // their consent.
+        // keychain-prompt: consent
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess else { return nil }
         return result as? Data
     }
@@ -49,7 +53,7 @@ public struct HTTPServerProbe: LocalServerProbing {
     let session: URLSession
     let timeout: Duration
 
-    public init(session: URLSession = .shared, timeout: Duration = .milliseconds(800)) {
+    public init(session: URLSession = CmuxEgress.shared(site: "CmuxNextCodeRouter.LiveProbes"), timeout: Duration = .milliseconds(800)) {
         self.session = session
         self.timeout = timeout
     }
