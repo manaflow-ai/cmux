@@ -72,14 +72,22 @@ fn context_requires_the_panes_session() {
     }
 }
 
+/// A forged key never reaches the daemon: one the method does not take is dropped (P0, so a newer
+/// page keeps its chats), and `_meta` that is not an object is refused.
 #[test]
-fn context_rejects_forged_params_and_metadata() {
+fn context_drops_forged_params_and_refuses_forged_metadata() {
     for method in ["_acpmux/context", "_acpmux/context_override"] {
-        for key in ["cwd", "host", "unknown", "_meta"] {
+        for key in ["cwd", "host", "unknown"] {
             let mut params = json!({"sessionId":"own"});
             params[key] = json!("/other/project");
-            expect_refusal(method, params, false, Refusal::IntentInvalid);
+            let Checked::Frame { frame, facts } = check(method, params, false) else {
+                panic!("{method} refused a frame whose forged {key} the strip drops")
+            };
+            assert_eq!(frame["params"], json!({"sessionId":"own"}), "{method} {key}");
+            assert_eq!(facts.dropped, [key]);
         }
+        let params = json!({"sessionId":"own", "_meta":"/other/project"});
+        expect_refusal(method, params, false, Refusal::IntentInvalid);
     }
 }
 

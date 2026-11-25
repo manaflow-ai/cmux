@@ -637,6 +637,31 @@ private final class LiveResizeWindow: NSWindow {
         #expect(sendRights(fence.port) == 0)
     }
 
+    /// A page that missed its frame at a new size joins no more fences in that drag, so a page slower than the display
+    /// never holds the window's commits frame after frame; the next drag starts in sync again. A page that keeps up
+    /// joins at every resize (Leo, 2026-11-18, of a divider drag beside a long chat: "we SLOW :(").
+    @Test func aPageThatMissesJoinsNoMoreFencesInThatDrag() {
+        let (hosting, _, window) = makeHosted()
+        defer { window.close() }
+        hosting.paneResizeDrag(active: true)
+        hosting.pageViewResized()
+        fork.dones.last?(true)
+        endTurn()
+        hosting.pageViewResized()
+        #expect(fork.fences.count == 2)
+        fork.dones.last?(false)
+        endTurn()
+        hosting.pageViewResized()
+        hosting.pageViewResized()
+        #expect(fork.fences.count == 2)
+        hosting.paneResizeDrag(active: false)
+        hosting.paneResizeDrag(active: true)
+        hosting.pageViewResized()
+        #expect(fork.fences.count == 3)
+        fork.dones.last?(true)
+        endTurn()
+    }
+
     /// A page that never reports holds the window no longer than this app's deadline (the fork's and one refresh).
     @Test func aFenceGoesAtItsDeadline() async throws {
         let (hosting, _, window) = makeHosted()

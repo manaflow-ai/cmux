@@ -15,6 +15,20 @@ extension AgentPaneView {
                                          keepsClearAreas: snapshotKeepsClearAreas)
     }
 
+    /// A small picture of the page for a hover card (#51768), at most `maxPixelWidth` pixels wide: the page's
+    /// clear-area-keeping picture (``PageWebView/picture(maxPixelWidth:)``, a PNG in Chromium) laid over the chat's own
+    /// ground, the color the pane shows under its page. ``pageImage()`` is a JPEG in Chromium: the chat page is clear
+    /// over that ground, so its picture came out flat white (capture of 2026-11-23); nil when there is none.
+    public func cardPicture(maxPixelWidth: CGFloat) async -> CGImage? {
+        let shot: CGImage?
+        if let page { shot = await page.picture(maxPixelWidth: maxPixelWidth) } else {
+            shot = await pageSnapshot()?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        }
+        guard let shot else { return nil }
+        let ground = performWithTheme { AgentPaneTheme.pageBackground(themeTokens, surface: surfaceKind, backgrounds: themeScope.surfaceBackgrounds) }
+        return PageImageBackground.flattened(shot, over: ground)
+    }
+
     /// Whether a saved picture of a page (`AgentPaneLaunchImages`) may stand in for it under the
     /// pane: one that keeps clear pixels always, one with no alpha only when the page paints an
     /// opaque background. The draw side of ``pageImage()``'s rule, so a picture an older version saved
