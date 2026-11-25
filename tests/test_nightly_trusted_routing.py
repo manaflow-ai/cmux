@@ -54,7 +54,7 @@ OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, SIGNING_SLOT, HOSTED}
 CMUX_LINUX = 'cmux-linux'
 CMUX_LINUX_JOBS = ('resolve-nightly-cmux-tui-client', 'resolve-nightly-ghostty-cli-helper',
                    'prepare-nightly-variant-primary', 'prepare-nightly-variant', 'await-nightly-tree-marker',
-                   'published-build')
+                   'check-nightly-app-store-shelf', 'published-build')
 # The tail's secret jobs that take the ephemeral JIT nightly label, outside the push group, never Blacksmith
 # (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS has each one's reason). Every other nightly job runs on our own minis.
 # publish-nightly-next-github is the loop run's one hosted job (test_nightly_owned_minis_only.HOSTED_LOOP_JOBS, Leo's
@@ -109,6 +109,8 @@ OWNED_SECRET_JOBS = {
     'build-sign-notarize-nightly': "signing keys; the signer's label alone (test_nightly_sign_runner.py SECRET_JOBS)",
     'recover-nightly-next-notarization': "signing keys; the signer's label alone (test_nightly_sign_runner.py SECRET_JOBS)",
     'generate-nightly-deltas': "Sparkle keys; the signer's label alone (test_nightly_sign_runner.py SECRET_JOBS)",
+    'nightly-next-pkg': "Installer signing and notarization (RFD 0134 cut 2, #54859); the signer's label alone "
+                        "(test_nightly_sign_runner.py SECRET_JOBS)",
     'publish-nightly': "release and feed credentials in the push run; the signer's label",
     'keep-published-dsyms': "release credentials, short; the signer's label",
     'republish-nightly-deltas': "the signer's label on nightly-next, the JIT nightly label for classic and RC (NIGHTLY_NEXT_ONLY_OWNED)",
