@@ -49,6 +49,7 @@ pub mod caller_stats;
 pub mod capabilities;
 pub mod catalog;
 pub mod chat_fork;
+pub mod chat_place;
 pub mod chat_size_fixture;
 pub mod chatgpt;
 pub mod chats;
@@ -179,9 +180,11 @@ pub mod idempotency;
 #[cfg(windows)]
 mod job;
 mod joined_model_plane;
+pub mod terminal_autocompact;
 /// `cmux github` and the GitHub MCP bridge on a joined machine ask its hub (`joined_model_plane`).
 #[cfg(unix)]
 pub use joined_model_plane::install_github_source;
+pub mod chat_secrets;
 /// Hot paths for the instruction-count bench (`benches/icount.rs`); not an API.
 #[doc(hidden)]
 pub mod icount;
@@ -223,6 +226,8 @@ pub mod mcp_args;
 /// Each chat's `cmux` MCP server over loopback HTTP, started on use and stopped when idle.
 pub mod mcp_gateway;
 pub mod mcp_hint;
+#[cfg(unix)]
+pub mod mcp_pool;
 pub mod memory_mount;
 pub mod mesh;
 pub mod mesh_control;
