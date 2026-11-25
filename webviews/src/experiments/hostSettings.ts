@@ -38,7 +38,7 @@ export const SETTING_OFF_ARMS: Readonly<Record<string, SettingArmEntry>> = {
 };
 
 function armsFor(entry: SettingArmEntry): readonly SettingArm[] {
-  return Array.isArray(entry) ? entry : [entry];
+  return "experiment" in entry ? [entry] : entry;
 }
 
 /** The page event the theme bootstrap dispatches when the switches change. */
