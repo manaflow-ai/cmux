@@ -154,7 +154,7 @@
 }
 
 /* A ChatGPT account that signed in (`ChatGPTSignedIn`, experiment chatgpt-signed-in). OpenAI's Sign in
- * with ChatGPT guidance: the mark white on black (black on white in dark), never recolored. */
+ * with ChatGPT guidance: the mark white on near-black (inverted in dark), never recolored. */
 .signin-chatgpt {
   display: flex;
   flex-direction: column;
@@ -174,8 +174,9 @@
   width: 28px;
   height: 28px;
   border-radius: var(--ds-radius-md, 6px);
-  background: light-dark(#000, #fff);
-  color: light-dark(#fff, #000);
+  /* The page text colour as the tile, the page background as the mark: a dark tile in light mode, a light one in dark. */
+  background: var(--cmux-text, CanvasText);
+  color: var(--cmux-elevated-background, Canvas);
 }
 
 .signin-chatgpt-tile[data-size="20"] {
@@ -184,9 +185,9 @@
   border-radius: var(--ds-radius-sm, 4px);
 }
 
-.signin-chatgpt-tile[data-size="40"] {
-  width: 40px;
-  height: 40px;
+.signin-chatgpt-tile[data-size="32"] {
+  width: 32px;
+  height: 32px;
   border-radius: var(--ds-radius-lg, 8px);
 }
 
@@ -197,7 +198,7 @@
   display: inline-flex;
   border-radius: 50%;
   background: var(--page-bg, Canvas);
-  padding: 1px;
+  box-shadow: 0 0 0 1px var(--page-bg, Canvas);
 }
 
 .signin-chatgpt .signin-head {

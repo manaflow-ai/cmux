@@ -281,7 +281,7 @@ function ChatGPTSignedIn({
       {label}
     </Button>
   );
-  const tile = look === "sheet" ? 40 : 28;
+  const tile = look === "sheet" ? 32 : 28;
   if (arm === "row") {
     return (
       <div className="signin-chatgpt" data-arm="row">
@@ -413,7 +413,7 @@ export function DeviceSignInCard(props: DeviceSignInCardProps) {
       <header className="signin-head">
         {family === "codex" ? (
           // The same black ChatGPT tile the signed-in card ends on (OpenAI's brand rule), at the row's size inline.
-          <ChatGPTTile size={look === "sheet" ? 40 : 20} />
+          <ChatGPTTile size={look === "sheet" ? 32 : 20} />
         ) : (
           <ProviderMark family={family} size={look === "sheet" ? 28 : 16} />
         )}

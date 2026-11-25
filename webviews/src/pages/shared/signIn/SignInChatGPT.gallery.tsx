@@ -3,6 +3,7 @@
 // (chatgptSignedIn.experiment.ts), inline in its account row and as the sheet. Leo, 2026-11-25:
 // "it should just follow at least basic styling or guidance for signed in with chatgpt type stuff".
 import { componentEntry } from "../../../gallery/format";
+import type { Play } from "../../../gallery/play";
 import { chatgptSignedInLook } from "./chatgptSignedIn.experiment";
 
 type Arm = "plan" | "account" | "row";
@@ -47,6 +48,11 @@ for (const arm of ["plan", "account", "row"] as Arm[])
   for (const look of ["inline", "sheet"] as const)
     variants[`${arm}-${look}`] = { note: `${ARM_NOTES[arm]} (${look})`, props: { arm, look } };
 
+/// Waits for the signed-in card, so each arm is captured once it drew.
+const showSignedIn: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".signin-chatgpt"));
+};
+
 export default componentEntry<Props>({
   id: "settings.sign-in-chatgpt",
   title: "ChatGPT signed in",
@@ -62,5 +68,5 @@ export default componentEntry<Props>({
   styles: () => import("../../settings/page.css"),
   variants,
   experimental: true,
-  experiment: { definition: chatgptSignedInLook, script: [{ name: "Signed in", run: () => {} }] },
+  experiment: { definition: chatgptSignedInLook, script: [{ name: "Signed in", run: showSignedIn }] },
 });
