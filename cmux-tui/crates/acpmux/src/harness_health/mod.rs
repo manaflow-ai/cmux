@@ -244,7 +244,19 @@ fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>
             if !codex_login_in_file(&env) {
                 return None;
             }
-            match probe::codex_login_status(&s.env)? {
+            // A harness whose program is `codex` itself is asked; an adapter (codex-acp) runs the
+            // `codex` on its PATH, so that one is. A bare `codex` for the harness itself asked
+            // another install's sign-in: a signed-out npm Codex beside python3 in /usr/local/bin
+            // read a working Codex as signed out (the agent pane on Freestyle runners, 2026-11-24).
+            let status = if program == "codex" {
+                probe::codex_login_status_argv(
+                    &[s.program.clone(), "login".into(), "status".into()],
+                    &s.env,
+                )
+            } else {
+                probe::codex_login_status(&s.env)
+            };
+            match status? {
                 true => Some((Auth::SignedIn, Some("`codex login status` passed".into()))),
                 false => {
                     Some((Auth::SignedOut, Some("`codex login status`: not logged in".into())))

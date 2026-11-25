@@ -1011,6 +1011,22 @@ async fn health_reads_codex_login_status_and_claude_credentials_without_a_check(
             bin.display()
         ),
     );
+    // A harness that runs `codex` itself (`codex app-server`) is asked, not the `codex` first on
+    // its PATH: a signed-out npm Codex beside python3 in /usr/local/bin read the agent pane's
+    // signed-in Codex as signed out on Freestyle runners (2026-11-24).
+    let own = root.join("bin-codex-own");
+    codex_login(&own, 0, "Logged in using ChatGPT");
+    let other = root.join("bin-codex-other");
+    codex_login(&other, 1, "Not logged in");
+    profile(
+        &user,
+        "codex-own",
+        &format!(
+            "command = \"{}\"\nargs = [\"app-server\"]\n[env]\nPATH = \"{}:/usr/bin:/bin\"\n",
+            own.join("codex").display(),
+            other.display()
+        ),
+    );
     let claude = home.join(".local/bin/claude");
     program(&home.join(".local/share/claude/versions/2.0.5"), &claude, "2.0.5 (Claude Code)");
     let signed = root.join("claude-signed");
@@ -1061,6 +1077,7 @@ async fn health_reads_codex_login_status_and_claude_credentials_without_a_check(
     assert_eq!(auth("codex-back").as_deref(), Some("signedIn"), "{reply}");
     assert_eq!(auth("codex-elsewhere").as_deref(), Some("unknown"), "{reply}");
     assert_eq!(auth("codex-remote").as_deref(), Some("unknown"), "{reply}");
+    assert_eq!(auth("codex-own").as_deref(), Some("signedIn"), "{reply}");
     assert_eq!(auth("claude-in").as_deref(), Some("signedIn"), "{reply}");
     assert_eq!(auth("claude-none").as_deref(), Some("unknown"), "{reply}");
     // A provider of its own decides, over `codex login status` and an older
