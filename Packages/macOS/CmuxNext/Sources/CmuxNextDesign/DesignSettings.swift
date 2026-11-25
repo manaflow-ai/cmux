@@ -323,6 +323,11 @@ public final class DesignSettings {
     public var terminalConfigFontFamilies: [String] = [] {
         didSet { if terminalConfigFontFamilies != oldValue { ThemeScope.app.store.repaintAll() } }
     }
+    /// The active theme file's `slots` (slot id to variant id), as the daemon resolved them
+    /// (`theme.slots.resolve`). Pages get them with the theme as is (``WebTheme/slots``).
+    public var themeSlots: [String: String] = [:] {
+        didSet { if themeSlots != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
     /// The family the terminal draws in: cmux.json's, else the Ghostty config's; nil when
     /// neither names one (Ghostty's built-in face). Pages that show code follow it (`WebTheme`).
     public var effectiveTerminalFontFamily: String? { terminalFontFamily ?? terminalConfigFontFamily }
@@ -415,6 +420,14 @@ public final class DesignSettings {
     public var tabShape: TabShape = .block {
         didSet { if tabShape != oldValue { ThemeScope.app.store.repaintAll() } }
     }
+    /// `appearance.gooeyTabs`: off (the default), subtle or full goo (``GooeyTabs``). Under subtle and full the corner
+    /// resolves to flush-goo (``CornerFlush/current``) and the tone to Subtle Tone (``effectiveTitleAreaTone``)
+    /// without writing either setting. A change repaints, as the corner does.
+    public var gooeyTabs: GooeyTabs = .off {
+        didSet { if gooeyTabs != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
+    /// The title area's tone in effect: Subtle Tone under gooey tabs (subtle or full), else `titleAreaTone`.
+    public var effectiveTitleAreaTone: TitleAreaTone { gooeyTabs.isOn ? .subtleTone : titleAreaTone }
     /// `appearance.focusIndicator`: what marks the focused pane.
     public var focusIndicator: FocusIndicator = .tabs
     /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler

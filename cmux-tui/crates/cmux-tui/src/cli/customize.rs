@@ -17,7 +17,7 @@ mod dir;
 mod doctor;
 mod expire;
 mod library;
-mod pr;
+pub(super) mod pr;
 mod rebuild;
 mod render;
 mod source;
@@ -82,6 +82,8 @@ For an agent (the customize_* MCP tools are these verbs):
   cmux customize brief 'WISH'                 Open the draft and print what to edit and how; starts no chat
   cmux customize check                        Validate what is live, and mark your turn done
   cmux customize schema [PART]                Every key you can change (settings, theme, views, extensions); --typescript, --rust
+  cmux customize tokens [list|show|test]      The design tokens and scales: list [GROUP], show NAME, test 14 [--as spacing]
+  cmux customize components [list|show|test] The web kit's components: list [TIER], show NAME, test NAME '{\"prop\":1}'
 
 Ask options:
   --harness HARNESS   The agent that does it: claude (default), codex, ...
@@ -123,6 +125,8 @@ const VERBS: &[&str] = &[
     "check",
     "ask",
     "schema",
+    "tokens",
+    "components",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -200,6 +204,10 @@ pub(super) enum Request {
         section: Option<Section>,
         format: SchemaFormat,
     },
+    /// `tokens …`: the design tokens and scales (cmux_customize::kit).
+    Tokens(cmux_customize::kit::Request),
+    /// `components …`: the web kit's components, from its manifest.
+    Components(cmux_customize::kit::Request),
 }
 
 /// How `customize schema` answers: the schema, or the SDK types written from it.
@@ -252,6 +260,10 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
         },
         "try" | "try-on" => try_of(rest),
         "library" | "lib" => library::parse(rest).map(Request::Library),
+        "tokens" | "token" => cmux_customize::kit::parse("tokens", rest).map(Request::Tokens),
+        "components" | "component" => {
+            cmux_customize::kit::parse("components", rest).map(Request::Components)
+        }
         "checklist" => checklist_of(rest),
         "doctor" | "dr" => doctor::parse(rest).map(Request::Doctor),
         "paths" => none(Request::Paths),
@@ -517,6 +529,22 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         }
         return Some(0);
     }
+    // The kit reads built-in tables and the kit's manifest: no store either.
+    if let Some(answer) = kit_answer(&request) {
+        return Some(match answer {
+            Ok(answer) => {
+                if json_out {
+                    println!("{}", answer.json());
+                } else if global.output != OutputMode::Quiet {
+                    print!("{}", answer.human(now_ms()));
+                }
+                0
+            }
+            Err(failure) => {
+                super::scope_usage_failure(global.output, "customize", &failure.message, HELP)
+            }
+        });
+    }
     let chat = ask::Child { globals: child_globals(&global) };
     let result = Customize::from_env().map_err(Failure::from).and_then(|customize| {
         let answer = execute(&customize, request, "cli", now_ms(), &chat)?;
@@ -570,6 +598,9 @@ pub(super) fn run_json(
     }
     if let Request::Schema { section, format } = request {
         return Ok(render::Answer::Schema(Schema::current(), section, format).json());
+    }
+    if let Some(answer) = kit_answer(&request) {
+        return answer.map(|answer| answer.json()).map_err(|failure| failure.envelope());
     }
     let customize = Customize::from_env().map_err(|error| Failure::from(error).envelope())?;
     let answer = execute(&customize, request, origin, now_ms(), &ask::NoChat)
@@ -761,7 +792,27 @@ pub(super) fn execute(
         Request::Doctor(request) => doctor::execute(customize, request, origin, now_ms)?,
         Request::Paths => Answer::Paths(customize.roots().clone()),
         Request::Schema { section, format } => Answer::Schema(Schema::current(), section, format),
+        request @ (Request::Tokens(_) | Request::Components(_)) => kit_answer(&request)
+            .unwrap_or_else(|| Err(Failure::usage("not a kit verb".to_owned())))?,
     })
+}
+
+/// `tokens` and `components`, answered with no store (None: another verb).
+fn kit_answer(request: &Request) -> Option<Result<render::Answer, Failure>> {
+    use cmux_customize::kit;
+    let answer = match request {
+        Request::Tokens(request) => kit::tokens(request),
+        Request::Components(request) => {
+            let start = std::env::current_dir().unwrap_or_default();
+            kit::components(request, kit::manifest_path(&start).as_deref())
+        }
+        _ => return None,
+    };
+    Some(
+        answer
+            .map(|kit::Answer { json, human }| render::Answer::Library { json, human })
+            .map_err(Failure::usage),
+    )
 }
 
 /// Writes the recipes (cmux-customize-recipes) where `use` reads them, and
