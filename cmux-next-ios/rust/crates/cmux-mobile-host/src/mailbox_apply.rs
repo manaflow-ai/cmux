@@ -635,7 +635,7 @@ where
             }
         };
         let Some(frame) = frame else { return Err(refused("acpmux closed")) };
-        deadline.progressed();
+        // TEMP: fix reverted (no progress bump)
         let Ok(Message::Text(text)) = frame else { continue };
         let Ok(reply) = serde_json::from_str::<Value>(&text) else { continue };
         if reply.get("id").and_then(Value::as_str) != Some(id) {
