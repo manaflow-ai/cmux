@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45603017278",
+  "recorded_at": "2026-11-25T11:52:31Z",
+  "reason": "image inputs changed in 168f3c531d2c2c24e3db203c81151e636c061d91..a43ad9e27a3ddee172882119cae8fad7e5d98d5b",
+  "dry_run": false,
+  "cmux_tui": "67d01201b152cf703af3a9adab5bba27544acf99",
+  "fixes": [
+    {
+      "sha": "a43ad9e27a3ddee172882119cae8fad7e5d98d5b",
+      "mergedAt": "2026-11-25T11:17:02Z",
+      "subject": "Cloud Chief: answer turns with the owner's Claude login, sent at machine.chief_start (#56352)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-25T11:52:31Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
