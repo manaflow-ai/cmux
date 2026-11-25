@@ -34,6 +34,12 @@ extension CEFRuntime {
         _ = shim?.permissionContinue(token, outcome == .grant ? 1 : outcome == .deny ? 2 : 0)
     }
 
+    /// Answers a waiting AUTH_PROMPT (`CEFHTTPAuthPrompts`): `credential` nil cancels.
+    func authContinue(_ token: Int32, user: String?, password: String = "") {
+        guard let shim else { return }
+        if let user { _ = shim.authContinue(token, user, password) } else { _ = shim.authContinue(token, nil, nil) }
+    }
+
     /// Every cookie of the tab's profile.
     func cookies(_ browser: Int32) async throws -> [CEFCookie] {
         let reply = try await siteCall(browser, what: "cookie visit") { shim, id in shim.visitCookies(browser, id) }
