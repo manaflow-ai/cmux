@@ -63,8 +63,10 @@ nonisolated extension AcpmuxPaneMethods {
         // `afterSeq`: a reconnect that holds the chat's rows asks only the records after them
         // (attachParams.ts plainAttach, forward attach, #47119); refused, every reconnect said "cmux
         // blocked opening this chat" over the composer (Leo, 2026-11-22).
+        // `attending`: the reader's hand on a shown chat, apart from `visible` (on screen); `quietHidden`: the
+        // page draws nothing while hidden, so acpmux leaves the agent's stream out until it shows (CMUX-571).
         // schemas/agent-pane/attach-params.json lists every key the page sends here.
-        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "attending", "waitLogs", "settled", "hold", "afterSeq"], []),
+        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "attending", "quietHidden", "waitLogs", "settled", "hold", "afterSeq"], []),
         "_acpmux/detach": (["sessionId"], []),
         "_acpmux/view": (["sessionId", "visible", "attending", "seenSeq", "cutoverSeq"], []),
         "_acpmux/seen": (["sessionId", "seq"], []),

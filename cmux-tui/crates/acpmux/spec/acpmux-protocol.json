@@ -531,10 +531,28 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/forum/post",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/forum/reply",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/forum/rules",
       "params": {
         "$ref": "#/types/ForumRulesParams"
       },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/forum/search",
+      "params": true,
       "result": true
     },
     {
@@ -3420,6 +3438,13 @@
           "minimum": 0,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "quietHidden": {
+          "description": "True: the client draws nothing of the chat while it is hidden (`visible: false`), so the\nagent's `session/update` stream is left out until `_acpmux/view` shows it, which then sends\none `_acpmux/lagged` naming the chat (`server/view.rs`); default false.",
+          "type": [
+            "boolean",
             "null"
           ]
         },

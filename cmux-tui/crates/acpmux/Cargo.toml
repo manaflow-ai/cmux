@@ -118,6 +118,8 @@ cmux-auto-session.workspace = true
 cmux-cloud-api.workspace = true
 # NEXT Cloud's generated client: the join's hub calls (redeem, credentials/self).
 cmux-build-space.workspace = true
+# The team's hosted forum (`hub/forum_hosted.rs`): cmux-forum's post, reply and search.
+cmux-forum-hosted = { path = "../cmux-forum-hosted", features = ["http"] }
 cmux-cloud-client.workspace = true
 # The `cmux.wire/1` op trait the earned-access record read implements (`hub/earned_events.rs`).
 cmux-cloud-wire.workspace = true
