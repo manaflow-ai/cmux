@@ -100,11 +100,13 @@ struct PanesScreen: View {
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
-        } else if source.awaitsMacList {
+        } else if source.layout == nil, source.awaitsMacList {
             // The Mac's list is on its way: loading, never "No Panes Yet".
+            // placeholder-ok: this workspace has never had a cached pane layout.
             CmuxSpinner(label: Text("Loading panes from \(source.macName)…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("panes.loading")
+                .placeholderBound("panes.loading", .milliseconds(2000))
         } else {
             ContentUnavailableView("No Panes Yet", systemImage: "rectangle.split.2x1",
                                    description: Text("\(source.macName) hasn't listed this workspace's panes."))
