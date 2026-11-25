@@ -174,10 +174,18 @@ pub const CAPACITY_MAX_WAIT_MS: u64 = 300_000;
 /// it out?"). On 2026-11-23 18 lanes on one machine sat failed for 18 h: the 503s ran out of
 /// their four attempts (before #53115), and the 429s ran out at their fifth strike, one short of
 /// parking. A rate limit's waits are its chat's backoff (`rate_hold.rs`), whose park now
-/// lifts itself; a capacity wait is [`capacity_wait`]. Off (`[]`) stays off.
-pub(in crate::hub) fn waits_it_out(reason: RetryReason, delays: &[u64]) -> bool {
-    matches!(reason, RetryReason::Capacity | RetryReason::RateLimit | RetryReason::Disk)
-        && !delays.is_empty()
+/// lifts itself; a capacity wait is [`capacity_wait`]. A refused connection (`error` says
+/// `ECONNREFUSED`: the inference gateway is down, [`super::turn_errors::is_refused_connection`])
+/// is a transport error waited out the same way, with capacity's capped waits: its outage ends
+/// when the gateway listens again, which four attempts over 26 minutes may not see. Every other
+/// transport error keeps its configured attempts. Off (`[]`) stays off.
+pub(in crate::hub) fn waits_it_out(reason: RetryReason, error: &str, delays: &[u64]) -> bool {
+    let outage = match reason {
+        RetryReason::Capacity | RetryReason::RateLimit | RetryReason::Disk => true,
+        RetryReason::Transport => super::turn_errors::is_refused_connection(error),
+        RetryReason::AgentExited | RetryReason::Context => false,
+    };
+    outage && !delays.is_empty()
 }
 
 /// The wait before capacity attempt `index` (from 0): the configured wait, at most
@@ -568,9 +576,12 @@ pub(super) fn check_cut(
     session: &Session,
     after: Option<&str>,
     waiting: bool,
+    provenance: Option<&Value>,
 ) -> Result<(), RpcError> {
-    // A rate limit's compaction runs ahead of what the hold queued, as `compact_first` decided.
-    let rate_held = rate_compaction_runs(session);
+    // A rate limit's compaction runs ahead of what the hold queued, as `compact_first` decided;
+    // a cold batch's compaction ahead of the batch (`cold_wake.rs`).
+    let rate_held = rate_compaction_runs(session)
+        || (after.is_some() && super::cold_wake::goes_ahead_of_batch(session, provenance));
     match after {
         Some(cut) if waiting || !still_cut_by(session, cut, rate_held) => Err(superseded()),
         _ => Ok(()),
@@ -847,10 +858,10 @@ impl Hub {
             let delays = if context { compact_first::waits(&delays) } else { delays };
             // A move's continuation is no failed attempt and uses up no wait (`restart_resume.rs`).
             let moves = if done == 0 { 0 } else { hub.moves_behind(&session, &root) };
-            // A capacity outage or an account's rate limit is waited out, however long it
-            // lasts: never used up ([`waits_it_out`]).
+            // A capacity outage, an account's rate limit or a refused connection is waited
+            // out, however long it lasts: never used up ([`waits_it_out`]).
             let index = done.saturating_sub(moves);
-            let unbounded = waits_it_out(reason, &delays);
+            let unbounded = waits_it_out(reason, &error, &delays);
             let delay = if unbounded {
                 Some(capacity_wait(index, &delays, &session.id))
             } else {
@@ -931,6 +942,9 @@ impl Hub {
                 return;
             };
             if set {
+                // Its wait may shorten the chat's idle period (`idle_governor.rs`): the reaper
+                // takes the new deadline.
+                hub.idle_wake.notify_one();
                 hub.wait_retry(&session, &turn_id, reason, next_at, &wake).await;
             }
             let cut = CutTurn {
@@ -984,6 +998,25 @@ impl Hub {
     /// turn held, so a held agent message's own retry waits for it (`digest.rs`).
     pub(super) fn continuation_pending(&self, session: &Session) -> bool {
         is_pending(session.auto_resume.lock().as_ref())
+    }
+
+    /// Whether the chat's continuation waits for a deadline later than `beyond` from now, for a
+    /// reason its prompt alone answers (not the rate-limit hold, `rate_hold.rs` owns that, nor a
+    /// context compaction, which needs the harness): the chat may sleep meanwhile, its
+    /// continuation's prompt starts it again when due (`idle_governor.rs`).
+    pub(super) fn continuation_waits_far(
+        &self,
+        session: &Session,
+        beyond: std::time::Duration,
+    ) -> bool {
+        match session.auto_resume.lock().as_ref() {
+            Some(Mark::Waiting { retry: Some(r), .. }) => {
+                !matches!(r.reason, RetryReason::RateLimit | RetryReason::Context)
+                    && r.next_at != u64::MAX
+                    && r.next_at > super::now_ms().saturating_add(beyond.as_millis() as u64)
+            }
+            _ => false,
+        }
     }
 
     /// Whether no continuation is pending but one whose wait is the chat's rate-limit hold

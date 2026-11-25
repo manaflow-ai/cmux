@@ -45,7 +45,9 @@ def oidc_token(env=os.environ) -> str:
 def ask(op: str, check: str, token: str, endpoint: str = ENDPOINT) -> dict:
     body = json.dumps({"op": op, "class": check}).encode()
     request = urllib.request.Request(endpoint, data=body, method="POST", headers={
-        "Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+        "Authorization": f"Bearer {token}", "Content-Type": "application/json",
+        # gh-events.cmux.com (Cloudflare) answers urllib's default User-Agent with 403 (error 1010): every ask missed.
+        "User-Agent": "cmux-ci receipt_signed"})
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
             return json.load(response)

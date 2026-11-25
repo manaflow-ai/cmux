@@ -516,3 +516,24 @@ fn a_follower_too_far_behind_is_told_it_lagged() {
 fn folded_version(folded: &super::serve::Folded) -> u64 {
     super::serve::version(folded)
 }
+
+/// A Stop hook that sent the agent back draws one notice row with its reason, between the reply
+/// it blocked and the one the agent wrote next (Leo, 2026-11-22: "if you did get hooked, i think it
+/// should get displayed better").
+#[test]
+fn a_stop_hook_block_is_a_notice_row_between_the_two_replies() {
+    let log = [
+        mux(1, "user_message", json!({"promptId": "p", "turnId": "t", "text": "go"})),
+        mux(2, "turn_started", json!({"turnId": "t", "promptId": "p"})),
+        chunk(3, "Done.", Some("m1"), None),
+        update(4, json!({"sessionUpdate": "stop_hook_feedback", "text": "2 tests still fail."})),
+        chunk(5, "Fixed the two tests.", Some("m2"), None),
+    ];
+    let table = RowTable::fold(&log);
+    let rows = table.rows();
+    assert_eq!(ids(rows), ["prompt:p", "reply:t.1", "stop_hook_feedback@4", "reply:t.2"]);
+    assert_eq!(rows[2].head.kind, RowKind::Notice);
+    assert_eq!(rows[2].head.notice.as_deref(), Some("stop_hook_feedback"));
+    assert_eq!(rows[2].text, "2 tests still fail.");
+    assert!(!rows[1].head.streaming, "the hook ends the reply before it");
+}

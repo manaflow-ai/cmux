@@ -359,6 +359,7 @@ impl Mux {
             durable_terminal_defaults: AtomicBool::new(has_terminal_defaults),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             journal_plugin: crate::journal_plugin::JournalPluginRuntime::default(),
+            journal_plugin_demand: Default::default(),
             machine_usage: Mutex::new(None),
             agent_records: Mutex::new(agent_records),
             agent_hook_fences: Mutex::new(agent_hook_fences),

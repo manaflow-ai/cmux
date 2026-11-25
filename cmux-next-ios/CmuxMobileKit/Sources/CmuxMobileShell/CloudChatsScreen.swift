@@ -2,6 +2,7 @@
 import CmuxMobileAgentChat
 import CmuxMobileDesign
 import CmuxMobileLive
+import CmuxMobileModel
 import CmuxMobileNotifications
 import CmuxSpinner
 import SwiftUI
@@ -11,66 +12,102 @@ import SwiftUI
 struct CloudChatsScreen: View {
     let shell: ShellModel
     let attention: CloudChatAttention?
+    @State private var selectedMac: String?
+
+    var body: some View {
+        let macs = shell.store.activeTeam?.macs ?? []
+        let candidates = [selectedMac, shell.live?.focusedMacID].compactMap { $0 }
+        let macID = candidates.first { id in macs.contains { $0.id == id } } ?? macs.first?.id
+        let ids = attention == nil ? macID.map { [$0] } ?? [] : macs.map(\.id).filter {
+            shell.live?.canLink(macID: $0) != false
+        }
+        let scope = CloudDirectoryScope(account: shell.auth.user?.id, team: shell.store.activeTeamID,
+                                        macs: ids, attention: attention)
+        CloudDirectoryList(shell: shell, scope: scope, macID: macID, select: { selectedMac = $0 })
+            .id(scope)
+    }
+}
+
+private struct CloudDirectoryScope: Hashable {
+    let account: String?
+    let team: String
+    let macs: [String]
+    let attention: CloudChatAttention?
+}
+
+/// A source change creates a new list before its first frame. A live refresh keeps the same list.
+private struct CloudDirectoryList: View {
+    let shell: ShellModel
+    let scope: CloudDirectoryScope
+    let macID: String?
+    let select: (String) -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var selectedMac = ""
-    @State private var locations: [CloudChatLocation] = []
+    @State private var directories: [String: [CloudChatMachine]]
     @State private var selectedLocation: CloudChatLocation?
-    @State private var loading = false
-    @State private var error: String?
-    /// No Mac to read Cloud chats through: the state offers Connect a Mac, not Retry.
-    @State private var needsMac = false
+    @State private var failed = false
     @State private var refresh = 0
+    /// The account's Auto chats, listed first while Settings > Cloud > Auto is on (no Mac needed).
+    @State private var auto = AutoChatsPresentation()
 
-    private var macID: String {
-        selectedMac.isEmpty ? shell.live?.focusedMacID ?? shell.store.activeTeam?.macs.first?.id ?? "" : selectedMac
-    }
+    /// The list shows the Auto section: the setting is on, and this is not one chat from a notification.
+    private var showsAuto: Bool { scope.attention == nil && shell.settings.cloudAutoMode }
 
-    private var eligibleMacIDs: [String] {
-        guard let live = shell.live else { return [] }
-        return shell.store.activeTeam?.macs.map(\.id).filter { live.canLink(macID: $0) } ?? []
-    }
-
-    private struct Load: Hashable {
-        let mac: String
-        let macs: [String]
-        let live: ObjectIdentifier?
-        let team: String
-        let refresh: Int
+    init(shell: ShellModel, scope: CloudDirectoryScope, macID: String?, select: @escaping (String) -> Void) {
+        self.shell = shell
+        self.scope = scope
+        self.macID = macID
+        self.select = select
+        let saved = scope.macs.compactMap { id -> (String, [CloudChatMachine])? in
+            shell.auth.lastKnownList(screen: "cloud-chats", teamID: scope.team, context: [id])?
+                .read([CloudChatMachine].self).map { (id, $0) }
+        }
+        _directories = State(initialValue: Dictionary(saved, uniquingKeysWith: { first, _ in first }))
     }
 
     var body: some View {
+        let locations = scope.macs.flatMap { id in
+            CloudChatDirectory.scopedMachines(directories[id] ?? [], attention: scope.attention)
+                .map { CloudChatLocation(macID: id, machine: $0) }
+        }
         NavigationStack {
             List {
-                if attention == nil, let macs = shell.store.activeTeam?.macs, !macs.isEmpty {
-                    Picker("Mac", selection: Binding(get: { macID }, set: { selectedMac = $0 })) {
+                if showsAuto { AutoChatsSection(auto: auto) }
+                if scope.attention == nil, let macs = shell.store.activeTeam?.macs, !macs.isEmpty {
+                    Picker("Mac", selection: Binding(get: { macID ?? "" }, set: select)) {
                         ForEach(macs) { mac in Text(mac.name).tag(mac.id) }
                     }
                 }
-                if loading {
-                    // A list that answers within the coming-up bound draws no spinner (Leo, 2026-11-14).
-                    CloudChatsComingUp {
-                        CmuxSpinner(label: Text("Loading Cloud chats…"))
-                            .placeholderBound("cloud.chats.loading", .milliseconds(2000))
-                    }
-                } else if needsMac {
-                    CloudChatsConnectMac { openDevices() }
-                } else if let error {
-                    Text(error).foregroundStyle(.secondary)
-                    Button("Retry") { refresh += 1 }
-                } else if locations.isEmpty {
-                    ContentUnavailableView(
-                        attention == nil ? "No Cloud machines" : "Chat unavailable",
-                        systemImage: "cloud",
-                        description: Text(attention == nil
-                            ? "Open a Cloud machine on your Mac."
-                            : "Choose the Mac connected to this chat’s Cloud machine.")
-                    )
-                } else {
+                if !locations.isEmpty {
                     ForEach(locations) { location in
                         Button { selectedLocation = location } label: {
                             Label(location.machine.name, systemImage: "cloud")
                         }
                     }
+                } else if !directories.isEmpty {
+                    ContentUnavailableView(
+                        scope.attention == nil ? "No Cloud machines" : "Chat unavailable",
+                        systemImage: "cloud",
+                        description: Text(scope.attention == nil
+                            ? "Open a Cloud machine on your Mac."
+                            : "Choose the Mac connected to this chat’s Cloud machine.")
+                    )
+                } else if shell.live == nil || scope.macs.isEmpty {
+                    CloudChatsConnectMac {
+                        shell.cloudChats = nil
+                        shell.tab = .settings
+                        shell.settingsPath = [.devices]
+                    }
+                } else if !failed {
+                    // A list that answers within the coming-up bound draws no spinner (Leo, 2026-11-14).
+                    CloudChatsComingUp {
+                        // placeholder-ok: none of this account and team's selected Mac directories has answered.
+                        CmuxSpinner(label: Text("Loading Cloud chats…"))
+                            .placeholderBound("cloud.chats.loading", .milliseconds(2000))
+                    }
+                }
+                if failed {
+                    Text("Couldn't load Cloud chats. Try again.").foregroundStyle(.secondary)
+                    Button("Retry") { refresh += 1 }
                 }
             }
             .navigationTitle("Cloud chats")
@@ -79,62 +116,60 @@ struct CloudChatsScreen: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
                 ToolbarItem(placement: .primaryAction) {
                     Button("Refresh", systemImage: "arrow.clockwise") { refresh += 1 }
-                        .disabled(loading)
                 }
             }
             .navigationDestination(item: $selectedLocation) { location in
+                let name = shell.store.activeTeam?.macs.first { $0.id == location.macID }?.name ?? "your Mac"
                 CloudMachineChatsScreen(live: shell.live, macID: location.macID, machine: location.machine,
-                                        macName: macName(location.macID), preferredSession: attention?.sessionID)
+                                        macName: name, preferredSession: scope.attention?.sessionID,
+                                        cachedList: shell.auth.lastKnownList(screen: "cloud-chat-sessions", teamID: scope.team,
+                                            context: [location.macID, location.machine.teamID, location.machine.machineID]))
             }
-            .task(id: Load(mac: attention == nil ? macID : "", macs: eligibleMacIDs.sorted(),
-                           live: shell.live.map(ObjectIdentifier.init), team: shell.store.activeTeamID, refresh: refresh)) {
-                shell.cloudMacID = attention == nil && !macID.isEmpty ? macID : nil
-                selectedLocation = nil
-                locations = []
-                error = nil
-                needsMac = false
-                guard let live = shell.live, attention != nil ? !eligibleMacIDs.isEmpty : !macID.isEmpty else {
-                    loading = false
-                    needsMac = true
-                    return
-                }
-                loading = true
-                do {
-                    let found: [CloudChatLocation]
-                    if let attention {
-                        // Push routing is pinned to an exact authenticated
-                        // Cloud team/machine, even when another Mac is focused.
-                        let match = await CloudChatAttentionResolver.find(macIDs: eligibleMacIDs, attention: attention) { id in
-                            try await live.cloudMachines(on: id)
-                        }
-                        found = match.map { [$0] } ?? []
-                    } else {
-                        let listed = try await live.cloudMachines(on: macID)
-                        found = CloudChatDirectory.scopedMachines(listed, attention: nil)
-                            .map { CloudChatLocation(macID: macID, machine: $0) }
+            .modifier(AutoChatsHost(auto: auto, enabled: showsAuto, refresh: refresh) { openCloudMachines() })
+            .task(id: Refresh(live: shell.live.map(ObjectIdentifier.init), revision: refresh)) {
+                shell.cloudMacID = scope.attention == nil ? macID : nil
+                failed = false
+                guard let live = shell.live else { return }
+                if let attention = scope.attention {
+                    let found = await CloudChatAttentionResolver.find(macIDs: scope.macs, attention: attention) { id in
+                        try await readDirectory(on: id, live: live)
                     }
-                    try Task.checkCancellation()
-                    locations = found
-                    loading = false
-                    if attention != nil, found.count == 1 { selectedLocation = found[0] }
-                } catch {
-                    guard !Task.isCancelled else { return }
-                    loading = false
-                    self.error = "Couldn't load Cloud chats. Try again."
+                    if !Task.isCancelled, let found { selectedLocation = found }
+                } else if let macID {
+                    _ = try? await readDirectory(on: macID, live: live)
                 }
             }
         }
     }
 
-    private func macName(_ id: String) -> String {
-        shell.store.teams.flatMap(\.macs).first { $0.id == id }?.name ?? "your Mac"
+    private struct Refresh: Hashable {
+        let live: ObjectIdentifier?
+        let revision: Int
     }
 
-    /// The existing place to pair a Mac: Settings → Devices (its Macs and Scan QR on your Mac).
-    private func openDevices() {
+    /// The existing place to make a Cloud machine: Settings → Cloud Machines.
+    private func openCloudMachines() {
         shell.cloudChats = nil
         shell.tab = .settings
-        shell.settingsPath = [.devices]
+        shell.settingsPath = [.cloudMachines]
+    }
+
+    /// Capture the account's handle before awaiting the Mac. Only a complete, authenticated reply
+    /// replaces this particular Mac's directory, even when a push searched several Macs.
+    private func readDirectory(on id: String, live: LiveCoordinator) async throws -> [CloudChatMachine] {
+        guard shell.auth.user?.id == scope.account, shell.store.activeTeamID == scope.team else { throw CancellationError() }
+        let cache = shell.auth.lastKnownList(screen: "cloud-chats", teamID: scope.team, context: [id])
+        do {
+            let machines = try await live.cloudMachines(on: id)
+            try Task.checkCancellation()
+            guard shell.auth.user?.id == scope.account, shell.store.activeTeamID == scope.team else { throw CancellationError() }
+            directories[id] = machines
+            cache?.save(machines)
+            return machines
+        } catch {
+            if !Task.isCancelled, !(error is CancellationError) { failed = true }
+            throw error
+        }
     }
 }
 
@@ -263,6 +298,7 @@ private struct CloudMachineChatsScreen: View {
     let machine: CloudChatMachine
     let macName: String
     let preferredSession: String?
+    private let cachedList: LastKnownList?
     @State private var relay: CloudChatRelay?
     @State private var selectedSession: String?
     @State private var error: String?
@@ -277,59 +313,70 @@ private struct CloudMachineChatsScreen: View {
     @State private var startQueue = CloudChatStartQueue()
     /// How many of the machine's chats the list draws, newest first (Show Older Chats adds a page).
     @State private var shown = CloudChatList.pageSize
-    /// The chats acpmux listed for `shown`, in its order (the Mac's lists read the same one).
-    @State private var listed = CloudChatList.Listed()
-    /// The last list read failed: the list says so and offers Retry (pull to refresh reads it too).
+    /// The last list read failed: keep the last page and offer Retry.
     @State private var listError: String?
     /// Retry and pull to refresh read the list again.
     @State private var listRetry = 0
+    @State private var listRequest = 0
+    /// nil until this account, team, Mac and machine have returned a valid page.
+    @State private var page: CloudChatList.CachedPage?
+
+    init(live: LiveCoordinator?, macID: String, machine: CloudChatMachine, macName: String,
+         preferredSession: String?, cachedList: LastKnownList?) {
+        self.live = live
+        self.macID = macID
+        self.machine = machine
+        self.macName = macName
+        self.preferredSession = preferredSession
+        self.cachedList = cachedList
+        _page = State(initialValue: cachedList?.read(CloudChatList.CachedPage.self))
+    }
 
     var body: some View {
         Group {
             if relay?.isRetired == true {
                 ContentUnavailableView("Chat unavailable", systemImage: "bubble.left")
-            } else if let relay, relay.hub.isReady {
-                // Until the whole list is read (it comes in pages, CMUX-563) an older chat may still be on its way.
-                if let preferredSession, !openedPreferred, relay.hub.listWhole, relay.hub.sessions[preferredSession] == nil {
-                    ContentUnavailableView("Chat unavailable", systemImage: "bubble.left",
-                                           description: Text("This chat is no longer listed on this Cloud machine."))
-                } else {
-                    List {
-                        if let listError {
-                            Section {
-                                Text(listError).foregroundStyle(.secondary)
-                                Button("Retry") { listRetry += 1 }
-                            }
+            } else if let relay, relay.hub.isReady, let preferredSession, !openedPreferred,
+                      relay.hub.listWhole, relay.hub.sessions[preferredSession] == nil {
+                ContentUnavailableView("Chat unavailable", systemImage: "bubble.left",
+                                       description: Text("This chat is no longer listed on this Cloud machine."))
+            } else if page == nil, relay?.hub.isReady != true, let cause = failure {
+                CloudChatsConnectFailed(cause: cause) { refresh += 1 }
+            } else {
+                List {
+                    if let cause = relay?.hub.isReady == true ? listError : failure {
+                        Text(cause).foregroundStyle(.secondary)
+                        Button("Retry") {
+                            if relay?.hub.isReady == true { listRetry += 1 } else { refresh += 1 }
                         }
-                        ForEach(listed.sessions(in: relay.hub), id: \.id) { chat in
-                            Button { selectedSession = chat.id } label: {
+                    }
+                    if let page {
+                        if page.rows.isEmpty {
+                            ContentUnavailableView("No chats", systemImage: "bubble.left",
+                                                   description: Text("Tap New Chat to start one on this Cloud machine."))
+                        }
+                        ForEach(page.rows) { row in
+                            let current = relay?.hub.sessions[row.id]
+                            Button { selectedSession = row.id } label: {
                                 VStack(alignment: .leading) {
-                                    Text(chat.displayName)
-                                    if let prompt = chat.lastPrompt, !prompt.isEmpty {
+                                    Text(current?.displayName ?? row.displayName)
+                                    if let prompt = current?.lastPrompt ?? row.lastPrompt, !prompt.isEmpty {
                                         Text(prompt).lineLimit(2).foregroundStyle(.secondary)
                                     }
                                 }
                             }
+                            .disabled(relay?.hub.isReady != true || current == nil || current?.peer != nil)
                         }
-                        if listed.hasOlder {
-                            Section {
-                                Button("Show Older Chats") { shown += CloudChatList.pageSize }
-                                    .accessibilityIdentifier("cloudChats.more")
-                            }
-                        }
-                    }
-                    .refreshable { await readList(relay.hub, settle: false) }
-                    .overlay {
-                        if relay.hub.sessions.isEmpty, listError == nil {
-                            ContentUnavailableView("No chats", systemImage: "bubble.left",
-                                                   description: Text("Tap New Chat to start one on this Cloud machine."))
+                        if page.hasOlder {
+                            Button("Show Older Chats") { shown += CloudChatList.pageSize }
+                                .accessibilityIdentifier("cloudChats.more")
                         }
                     }
                 }
-            } else if let cause = failure {
-                CloudChatsConnectFailed(cause: cause) { refresh += 1 }
-            } else {
-                CloudChatsConnecting()
+                .refreshable {
+                    if let hub = relay?.hub, hub.isReady { await readList(hub, settle: false) }
+                    else { refresh += 1 }
+                }
             }
         }
         .navigationTitle(machine.name)
@@ -373,12 +420,13 @@ private struct CloudMachineChatsScreen: View {
             }
         }
         // acpmux orders and picks the page; a change of the hub's list reads it again (the last
-        // page stays drawn meanwhile, and after a failed read, which the list shows with Retry).
+        // page stays drawn meanwhile, and after a failed read until the next change).
         .task(id: ListRead(ready: relay?.hub.isReady == true, revision: relay?.hub.listRevision ?? 0,
                            shown: shown, retry: listRetry)) {
             guard let hub = relay?.hub, hub.isReady else { return }
-            await readList(hub, settle: !listed.ids.isEmpty)
+            await readList(hub, settle: page != nil)
         }
+        // placeholder-ok: a New Chat the user tapped is starting; there is no chat to show yet.
         .overlay { if starting || startQueue.queued { CmuxSpinner(label: Text("Starting chat…")) } }
         // A New Chat tap made while the relay connected starts once it is ready.
         .onChange(of: [relay?.hub.isReady == true, failure != nil || relay?.isRetired == true]) { _, link in
@@ -400,18 +448,22 @@ private struct CloudMachineChatsScreen: View {
         }
     }
 
-    /// Reads the first `shown` chats; `settle` waits out a burst of list changes first. A failed
-    /// read keeps the last page and says it failed; the next read that succeeds clears it.
+    /// Reads the first `shown` chats. A failed read keeps the last page visible and offers Retry.
     private func readList(_ hub: AcpmuxHub, settle: Bool) async {
+        listRequest += 1
+        let request = listRequest
         if settle { try? await Task.sleep(for: .milliseconds(250)) }
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, request == listRequest, hub === relay?.hub else { return }
         do {
             let page = try await CloudChatList.newest(hub, shown: shown)
-            guard !Task.isCancelled else { return }
-            listed = page
+            guard !Task.isCancelled, request == listRequest, hub === relay?.hub else { return }
+            let snapshot = CloudChatList.CachedPage(rows: page.sessions(in: hub).map(CloudChatList.CachedRow.init),
+                                                    hasOlder: page.hasOlder)
+            self.page = snapshot
             listError = nil
+            cachedList?.save(snapshot)
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, request == listRequest, hub === relay?.hub else { return }
             listError = "Couldn't load chats. Try again."
         }
     }

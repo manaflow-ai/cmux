@@ -36,6 +36,9 @@ mod limits;
 #[path = "auto_resume_retry.rs"]
 mod retry;
 
+#[path = "auto_resume_refused.rs"]
+mod refused;
+
 #[path = "auto_resume_race.rs"]
 mod race;
 

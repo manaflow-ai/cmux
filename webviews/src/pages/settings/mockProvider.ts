@@ -28,8 +28,7 @@ import {
   type AccountsCmux,
   type AccountsRow,
   type AccountsRun,
-  type AllotmentSet,
-  type AllotmentView,
+  type AccountsRunReply,
   type AgentsRun,
   type AgentsState,
   type ChannelsProgress,
@@ -72,8 +71,6 @@ import {
   type AgentToolsCardState,
   type McpServersRun,
   type McpServersState,
-  type HubRun,
-  type HubState,
   type AgentSkillsRun,
   type AgentSkillsState,
   type AgentMcpRun,
@@ -83,24 +80,29 @@ import {
   type AgentConfigAgent,
   type AgentConfigRun,
   type AgentConfigState,
-  type AccountsRunReply,
+  type AllotmentSet,
+  type AllotmentView,
+  type ArchivedRun,
+  type ArchivedState,
+  type AgentSkillRow,
   type DoctorReport,
   type DoctorRun,
   type LibraryAnswer,
-  type AgentSkillRow,
-  type AutocloudAction,
-  type AutocloudState,
+  type HubRun,
+  type HubState,
   type ConnectionsRun,
   type ConnectionsState,
-  type ArchivedRun,
-  type ArchivedState,
+  type AutocloudAction,
+  type AutocloudState,
+  type ChecklistFact,
 } from "./ops";
-import { rowsByKey, schema } from "./schema";
+import { rowsByKey, schema, hostRowsByKey } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
 import { validate } from "./validate";
 import { MockAgents } from "./mockAgents";
 import { mockChannels } from "./mockChannels";
 import { mockThemeColors } from "./mockThemes";
+import { mockChecklist } from "./mockChecklist";
 import { mockLibrary, runLibrary } from "./mockLibrary";
 import { mockEmptyDoctor, runDoctor } from "./mockDoctor";
 import { mockAgentConfig, runAgentConfigMock } from "./mockAgentConfig";
@@ -184,6 +186,16 @@ export const mockDomains: Domains = {
     "Tokyo Night",
   ],
   font_families: ["Berkeley Mono", "Iosevka", "JetBrains Mono", "Menlo", "SF Mono"],
+  ui_font_families: [
+    "Avenir Next",
+    "Georgia",
+    "Helvetica Neue",
+    "Iosevka",
+    "JetBrains Mono",
+    "Menlo",
+    "New York",
+    "SF Pro",
+  ],
   sounds: ["default", "Basso", "Funk", "Glass", "Ping", "Submarine", "none"],
   recent_fonts: ["JetBrains Mono"],
 };
@@ -280,6 +292,8 @@ export class MockSettingsProvider {
   domains: Domains | null;
   /** The theme file the mock picker returns for `cmux.settings.theme.import`; null: the person left it. */
   importable: GhosttyTheme | null = null;
+  /** The sound name the mock open panel imports for `cmux.settings.sound.import`; null: the person left it. */
+  importableSound: string | null = null;
   private readonly importTokens = new Map<string, GhosttyTheme>();
   private readonly chatFolders: ListRow["folders"];
   private actionRan: boolean;
@@ -345,6 +359,7 @@ export class MockSettingsProvider {
       "cmux.settings.preview": () => ({}),
       "cmux.settings.preview.end": () => ({}),
       "cmux.settings.sound.play": () => ({}),
+      "cmux.settings.sound.import": (params) => this.importSound(params.key as string),
       "cmux.settings.host.lists": async () => {
         if (this.holdHost) await this.holdHost;
         return this.host;
@@ -701,6 +716,9 @@ export class MockSettingsProvider {
       "cmux.settings.archived.list": () => this.archived,
       "cmux.settings.archived.run": (params) => this.runArchived(params as ArchivedRun),
       "cmux.settings.customize.library": (params) => this.runLibrary(params as LibraryRun),
+      "cmux.settings.customize.checklist": (params) => ({
+        checklist: mockChecklist(this.values, (params as { has?: ChecklistFact[] }).has ?? []),
+      }),
       "cmux.settings.keys.list": () => this.keys,
       "cmux.settings.keys.answer": (params) => this.answerKey(params as { request_id?: unknown; value?: unknown }),
       "cmux.settings.keys.decline": (params) =>
@@ -1060,6 +1078,7 @@ export class MockSettingsProvider {
       "cmux.settings.preview",
       "cmux.settings.preview.end",
       "cmux.settings.sound.play",
+      "cmux.settings.sound.import",
       "cmux.settings.host.lists",
       "cmux.settings.devices.remove",
       "cmux.settings.devices.full_access",
@@ -1094,6 +1113,7 @@ export class MockSettingsProvider {
       "cmux.settings.customize.run",
       "cmux.settings.shares.list",
       "cmux.settings.customize.library",
+      "cmux.settings.customize.checklist",
       "cmux.settings.shares.revoke",
       "cmux.settings.archived.list",
       "cmux.settings.archived.run",
@@ -2616,7 +2636,13 @@ export class MockSettingsProvider {
         [...this.managed].map(([key, { source, reason, team }]) => [key, { source, reason, team: team ?? null }]),
       ),
       diagnostics: this.diagnostics,
-      domains: this.domains ?? { themes: null, font_families: null, sounds: null, recent_fonts: null },
+      domains: this.domains ?? {
+        themes: null,
+        font_families: null,
+        ui_font_families: null,
+        sounds: null,
+        recent_fonts: null,
+      },
     };
   }
 
@@ -2664,7 +2690,7 @@ export class MockSettingsProvider {
   }
 
   private guard(key: string): void {
-    if (!rowsByKey.has(key)) throw new ProtocolError("cmux.settings.invalid", `unknown setting ${key}`);
+    if (!hostRowsByKey.has(key)) throw new ProtocolError("cmux.settings.invalid", `unknown setting ${key}`);
     const managed = this.managed.get(key);
     if (managed) {
       throw new ProtocolError("cmux.settings.managed", managed.reason, {
@@ -2677,13 +2703,23 @@ export class MockSettingsProvider {
     this.guard(key);
     const refusal = this.refusals[key];
     if (refusal) throw new ProtocolError("cmux.settings.invalid", refusal.message, { details: refusal.details });
-    const reason = validate(rowsByKey.get(key)!, value, this.domains ?? undefined);
+    const reason = validate(hostRowsByKey.get(key)!, value, this.domains ?? undefined);
     if (reason) throw new ProtocolError("cmux.settings.invalid", `${key}: ${reason}`, { details: { key, value } });
     this.values.set(key, value);
     // The host keeps the fonts written lately (RecentFonts.swift).
     if (this.domains && rowsByKey.get(key)?.kind === "font_family" && typeof value === "string")
       this.domains = { ...this.domains, recent_fonts: recentAfterPick(this.domains.recent_fonts, value) };
     return this.commit([key], "user");
+  }
+
+  /** Custom Sound…: the host copies the picked file into its sounds folder, lists it, and sets `key`. */
+  private importSound(key: string): { name: string | null } {
+    const name = this.importableSound;
+    if (name === null) return { name: null };
+    if (this.domains && !this.domains.sounds.includes(name))
+      this.domains = { ...this.domains, sounds: [...this.domains.sounds, name].sort() };
+    this.set(key, name);
+    return { name };
   }
 
   private reset(key: string): MutationResult {

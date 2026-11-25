@@ -5,6 +5,7 @@ import { cloudOpByName, PENDING_CONNECTION_TTL_MS, type Connection, type Integra
 import { chiefJobsEvent } from "./chief-brain-cc/jobs-upstash.ts"
 import { connectionsDomain, expiredForgets, githubInstallationOf, githubRepoAllowed, lockNoticePending, lockOf, mayUse, pendingExpiries, policyOf, providerAllowed, type ConnectionsState } from "./domains/connections.ts"
 import { decodeParams } from "./domains/common.ts"
+import { personalTeamIdFor } from "./domains/user.ts"
 import type { Env, RawEnv } from "./env.ts"
 import { createFallbackTable, loadCredential, nextResealAt, resealFallbacks, storeCredential } from "./integrations/credentials.ts"
 import type { ExternalReply, ProviderEvent } from "./integrations/external.ts"
@@ -235,6 +236,34 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     return ghTokens.githubToken({ ...this.ledgerHost(entity), state: () => engine.currentState }, principal, ask, Date.now()).finally(() => this.scheduleAlarm())
   }
 
+  /**
+   * Whether `user` belongs to this team (`entity`) now: their personal team, or a shared team TeamDO confirms. The
+   * own-connection reads below (cmux#55104) answer only a member, whichever team they ask from.
+   */
+  private async memberHere(entity: string, user: string): Promise<boolean> {
+    if (entity === personalTeamIdFor(user)) return true
+    return this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)).membership(entity, user).then((m) => m !== null, () => false)
+  }
+
+  /** This team's integration policy: what a mint from a member's own connections elsewhere may do here (cmux#55104). */
+  async githubPolicy(entity: string) {
+    return policyOf(this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial())
+  }
+
+  /**
+   * POST /v1/integrations/github/token from the person's own connections in one of their teams (this object), for a
+   * principal acting in another team that has none on the repository's owner; this object is any team the person belongs to (cmux#55104, ghTokens.ownConnectionsUnder).
+   * `policy` is the asking team's (``githubPolicy``). The ledger, the install's revoke registration and the audit are
+   * this object's, where the connection is.
+   */
+  async githubTokenOwn(entity: string, principal: Principal, ask: ghTokens.TokenAsk, policy: ReturnType<typeof policyOf>): Promise<ghTokens.TokenReply> {
+    if (!principal.user || principal.team === entity || !(await this.memberHere(entity, principal.user))) return { ok: false, status: 403, code: "auth.forbidden", message: "not this person's own connections" }
+    if (!this.boundTo(entity)) return { ok: false, status: 404, code: "integration.not_found", message: "this team has no GitHub connection" }
+    const engine = this.bind(entity)
+    const user = principal.user
+    return ghTokens.githubToken({ ...this.ledgerHost(entity), state: () => ghTokens.ownConnectionsUnder(engine.currentState, user, policy) }, principal, ask, Date.now()).finally(() => this.scheduleAlarm())
+  }
+
   /** POST /v1/integrations/github/token/revoke (the Worker checked who may revoke whose tokens): how many live tokens were revoked. */
   async githubRevoke(entity: string, who: { principal: string } | { install: string }): Promise<number> {
     return this.boundTo(entity) ? ghTokens.revokeTokens(this.ledger(), who, Date.now()).finally(() => this.scheduleAlarm()) : 0
@@ -242,7 +271,17 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
 
   async githubStatus(entity: string, principal: Principal) {
     if (principal.team !== entity) return { configured: false, app_slug: null, connection: null }
+    return this.githubStatusOf(this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial(), principal)
+  }
+
+  /** GET /status from the person's own connections here (one of their teams), under the asking team's `policy` (cmux#55104). */
+  async githubStatusOwn(entity: string, principal: Principal, policy: ReturnType<typeof policyOf>) {
+    if (!principal.user || principal.team === entity || !(await this.memberHere(entity, principal.user))) return { configured: false, app_slug: null, connection: null }
     const state = this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial()
+    return this.githubStatusOf(ghTokens.ownConnectionsUnder(state, principal.user, policy), principal)
+  }
+
+  private async githubStatusOf(state: ConnectionsState, principal: Principal) {
     const c = ghTokens.githubStatusConnection(state, principal)
     const installation = c ? githubInstallationOf(c) : undefined
     // Cached per installation (one GitHub read a day at most), so the picker's status read stays cheap.
@@ -262,6 +301,14 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     if (principal.team !== entity) return { ok: false as const, status: 403, code: "auth.forbidden", message: "not this team's connections" }
     if (!this.boundTo(entity)) return { ok: false as const, status: 404, code: "integration.not_found", message: "this team has no GitHub connection" }
     return ghTokens.githubRepos({ env: this.env, http: this.http, state: () => this.bind(entity).currentState, needsReauth: this.markNeedsReauth, installActive: this.installActive }, principal, query)
+  }
+
+  /** GET /repos from the person's own connections here (one of their teams), under the asking team's `policy` (cmux#55104). */
+  async githubReposOwn(entity: string, principal: Principal, query: { readonly query?: string; readonly cursor?: string }, policy: ReturnType<typeof policyOf>) {
+    if (!principal.user || principal.team === entity || !(await this.memberHere(entity, principal.user))) return { ok: false as const, status: 403, code: "auth.forbidden", message: "not this person's own connections" }
+    if (!this.boundTo(entity)) return { ok: false as const, status: 404, code: "integration.not_found", message: "this team has no GitHub connection" }
+    const user = principal.user
+    return ghTokens.githubRepos({ env: this.env, http: this.http, state: () => ghTokens.ownConnectionsUnder(this.bind(entity).currentState, user, policy), needsReauth: this.markNeedsReauth, installActive: this.installActive }, principal, query)
   }
 
   /** UserDO revoked an install (install.revoke, a machine delete's VM install): its sockets close and its GitHub tokens are revoked. */

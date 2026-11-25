@@ -9,6 +9,21 @@ use tokio::sync::mpsc;
 /// `release_all` drains: one at a time.
 static LIVE_SET: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+/// Seconds the fake PCP server grants (0: what was asked), so a test sees a
+/// renewal without waiting half an hour. Set under `LIVE_SET` only.
+static PCP_GRANT_S: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Ends a test's `release_all` (and its PCP grant) when the test ends, even
+/// on a failed assert, so the next test's host runs on.
+struct HostRunsOn;
+
+impl Drop for HostRunsOn {
+    fn drop(&mut self) {
+        PCP_GRANT_S.store(0, Ordering::SeqCst);
+        stop_releasing();
+    }
+}
+
 const PUBLIC: Ipv4Addr = Ipv4Addr::new(203, 0, 113, 7);
 const LOOPBACK: Ipv4Addr = Ipv4Addr::LOCALHOST;
 
@@ -52,6 +67,10 @@ async fn fake_pmp(speaks: Speaks) -> (u16, mpsc::UnboundedReceiver<Asked>) {
                         let mut answer = request[..60].to_vec();
                         answer[1] = 0x80 | PCP_MAP;
                         answer[3] = 0;
+                        let grant = PCP_GRANT_S.load(Ordering::SeqCst);
+                        if grant != 0 && lifetime != 0 {
+                            answer[4..8].copy_from_slice(&grant.to_be_bytes());
+                        }
                         let external = 40000 + (internal % 1000);
                         answer[42..44].copy_from_slice(&external.to_be_bytes());
                         answer[44..60].copy_from_slice(&speaks.external.to_ipv6_mapped().octets());
@@ -372,6 +391,7 @@ async fn release_all_deletes_live_mappings_at_exit() {
     let mapper = HostMapper::with_router(move || Some(router(port, ssdp)));
     let mapping = mapper.map(45000).await.expect("maps");
     drain(&mut asked);
+    let _runs_on = HostRunsOn;
     release_all(Duration::from_secs(2)).await;
     assert_eq!(
         next_matching(&mut asked, |a| matches!(a, Asked::Pcp { internal: 45000, .. })).await,
@@ -381,6 +401,63 @@ async fn release_all_deletes_live_mappings_at_exit() {
     drop(mapping);
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert!(!drain(&mut asked).contains(&Asked::Pcp { internal: 45000, lifetime: 0 }));
+    // A mapping granted once the host is stopping is given back, not held.
+    assert!(mapper.map(45001).await.is_none(), "not held while the host stops");
+    assert_eq!(
+        next_matching(&mut asked, |a| matches!(a, Asked::Pcp { internal: 45001, lifetime: 0 })).await,
+        Asked::Pcp { internal: 45001, lifetime: 0 }
+    );
+    assert!(live_mappings().is_empty());
+}
+
+#[tokio::test]
+async fn a_renewal_never_puts_a_mapping_back_after_release_all() {
+    let _one_at_a_time = LIVE_SET.lock().await;
+    let _runs_on = HostRunsOn;
+    PCP_GRANT_S.store(1, Ordering::SeqCst);
+    let (port, mut asked) = fake_pmp(Speaks { pcp: true, natpmp: false, external: PUBLIC }).await;
+    let (_quiet, ssdp) = silent().await;
+    let mapper = HostMapper::with_router(move || Some(router(port, ssdp)));
+    let _mapping = mapper.map(47000).await.expect("maps");
+    drain(&mut asked);
+    // Granted 1 s, it renews within about a second.
+    let renewed = |a: &Asked| matches!(a, Asked::Pcp { internal: 47000, lifetime } if *lifetime != 0);
+    next_matching(&mut asked, renewed).await;
+    release_all(Duration::from_secs(2)).await;
+    next_matching(&mut asked, |a| matches!(a, Asked::Pcp { internal: 47000, lifetime: 0 })).await;
+    // Several renew periods later, nothing asked for it again.
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    let after: Vec<Asked> = drain(&mut asked).into_iter().filter(renewed).collect();
+    assert!(after.is_empty(), "renewed after release_all: {after:?}");
+}
+
+#[tokio::test]
+async fn an_answer_from_another_port_on_the_gateway_is_ignored() {
+    let _one_at_a_time = LIVE_SET.lock().await;
+    let (real, mut asked) = fake_pmp(Speaks { pcp: true, natpmp: true, external: PUBLIC }).await;
+    // Asked on `front`, the real server's answers come back from `side`: the
+    // gateway's address, but not its PCP/NAT-PMP port.
+    let front = UdpSocket::bind((LOOPBACK, 0)).await.unwrap();
+    let front_port = front.local_addr().unwrap().port();
+    let side = UdpSocket::bind((LOOPBACK, 0)).await.unwrap();
+    tokio::spawn(async move {
+        let mut buffer = [0u8; 1100];
+        let mut answer = [0u8; 1100];
+        while let Ok((len, client)) = front.recv_from(&mut buffer).await {
+            let _ = side.send_to(&buffer[..len], (LOOPBACK, real)).await;
+            if let Ok(Ok((n, _))) =
+                tokio::time::timeout(Duration::from_millis(200), side.recv_from(&mut answer)).await
+            {
+                let _ = side.send_to(&answer[..n], client).await;
+            }
+        }
+    });
+    let (_quiet, ssdp) = silent().await;
+    let mapper = HostMapper::with_router(move || Some(router(front_port, ssdp)));
+    assert!(mapper.map(48000).await.is_none(), "an answer from another port is not taken");
+    // The server was asked (so it did answer), and nothing is held.
+    assert!(drain(&mut asked).iter().any(|a| matches!(a, Asked::Pcp { internal: 48000, .. })));
+    assert!(live_mappings().is_empty());
 }
 
 #[test]
@@ -419,7 +496,7 @@ fn pcp_request_and_answer_round_trip() {
     assert_eq!(request.len(), 60);
     assert_eq!(&request[..4], &[2, 1, 0, 0]);
     assert_eq!(&request[8..24], &Ipv4Addr::new(192, 168, 1, 20).to_ipv6_mapped().octets());
-    let mut answer = request.clone();
+    let mut answer = request;
     answer[1] = 0x81;
     answer[42..44].copy_from_slice(&60000u16.to_be_bytes());
     answer[44..60].copy_from_slice(&PUBLIC.to_ipv6_mapped().octets());

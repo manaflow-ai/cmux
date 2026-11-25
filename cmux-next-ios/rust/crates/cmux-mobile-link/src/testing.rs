@@ -29,8 +29,8 @@ mod hub;
 mod shaped;
 pub use hub::{FakeHub, FakeHubMode, FakeHubStats};
 pub use shaped::{
-    Direction, LINK_PROFILES_JSON, LinkProfile, RadioModel, radio_wakes, set_link_profile, set_radio_model,
-    shape_by_profile, shape_downlink, shape_uplink, shaped_counts,
+    Direction, LINK_PROFILES_JSON, LinkProfile, PeriodicLoss, RadioModel, radio_wakes, set_link_profile,
+    set_periodic_loss, set_radio_model, shape_by_profile, shape_downlink, shape_uplink, shaped_counts,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -72,6 +72,9 @@ struct State {
     /// sessionId → the two devices in it.
     sessions: HashMap<String, (String, String)>,
     refused_binary_frames: u64,
+    /// `POST /v1/devices`: device id → the user who registered it first (the real service
+    /// answers `403 not_owner` to anyone else).
+    owners: HashMap<String, String>,
     /// When each signal was forwarded: (sessionId, payload kind, instant).
     forwarded: Vec<(String, String, std::time::Instant)>,
     /// The relay's joined sockets: sessionId → device → its socket.
@@ -197,7 +200,7 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
     let mut stream = stream;
     match peek_head(&stream).await {
         Some(head) if !head.to_ascii_lowercase().contains("upgrade: websocket") => {
-            answer_http(&mut stream, &head, &ice, &options).await;
+            answer_http(&mut stream, &head, &ice, &options, &state).await;
             return;
         }
         Some(head) if head.starts_with("GET /v1/relay/") => {
@@ -564,6 +567,7 @@ async fn answer_http(
     head: &str,
     ice: &[crate::api::IceServer],
     options: &FakeOptions,
+    state: &Mutex<State>,
 ) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let length = head
@@ -579,7 +583,13 @@ async fn answer_http(
     }
     let body: Value = serde_json::from_slice(&request[head.len()..]).unwrap_or(Value::Null);
     let line = head.lines().next().unwrap_or_default();
-    let authorized = head.lines().any(|l| l.to_ascii_lowercase().starts_with("authorization: bearer user:"));
+    let user = head.lines().find_map(|l| {
+        let (name, value) = l.split_once(':')?;
+        name.eq_ignore_ascii_case("authorization")
+            .then(|| value.trim().strip_prefix("Bearer user:"))?
+            .map(str::to_owned)
+    });
+    let authorized = user.is_some();
     let (status, reply) = if line.starts_with("GET /v1/health") {
         ("200 OK", json!({"ok": true, "version": "fake"}))
     } else if !authorized {
@@ -593,7 +603,20 @@ async fn answer_http(
         }));
         ("200 OK", json!({"iceServers": servers, "ttl": 3600, "turn": !ice.is_empty()}))
     } else if line.starts_with("POST /v1/devices") {
-        ("200 OK", json!({"device": body}))
+        // A device id belongs to the user who registered it first (PROTOCOL.md `POST /v1/devices`).
+        let id = body.get("deviceId").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let user = user.unwrap_or_default();
+        let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+        match state.owners.get(&id) {
+            Some(owner) if *owner != user => (
+                "403 Forbidden",
+                json!({"error": {"code": "not_owner", "message": "this deviceId belongs to another user"}}),
+            ),
+            _ => {
+                state.owners.insert(id, user);
+                ("200 OK", json!({"device": body}))
+            }
+        }
     } else {
         ("404 Not Found", json!({"error": "not_found"}))
     };

@@ -20,9 +20,9 @@
 //!   Only the skill descriptions reach the prompt (progressive disclosure).
 //!   `cmux-computer-use` is model-invocable: its description claims tasks
 //!   in a desktop app; the person's Computer Use settings decide what runs.
-//!   Known limit: `skills/` is not a cmux-tui tree-key input
-//!   (scripts/cmux-next/cmux-tui-tree-inputs.txt), so a skills-only change
-//!   reaches a published cmux-tui build with the next cmux-tui change.
+//!   Each embedded skill file is a `blob` line in scripts/cmux-next/cmux-tui-tree-inputs.txt,
+//!   so a skills-only change builds a new tree (scripts/ci/check_cmux_tui_tree_inputs.py
+//!   fails when one is missing).
 //! - Computer Use (`computer_use/mcp.rs`): every session gets
 //!   `acpmux computer-use-mcp` (server `cmux-computer-use`), whatever
 //!   `computerUse.mode` says: tools are fixed when a chat spawns, and Computer
@@ -411,7 +411,7 @@ const SKILL_FILES: &[(&str, &str)] = &[
         include_str!("../../../../skills/cmux-customization/references/viewer-types.md"),
     ),
     ("cmux-live/SKILL.md", include_str!("../../../../skills/cmux-live/SKILL.md")),
-    // UI work shown in the chat: live mode, the captured preview tab, `look`, Try it on (hq RFD 0150).
+    // UI work shown in the chat: live mode, the preview tab turn shots capture, how to try it (hq RFD 0150).
     ("cmux-ui-preview/SKILL.md", include_str!("../../../../skills/cmux-ui-preview/SKILL.md")),
     // Diagrams, charts, math, decks, documents and opening pages beside the chat (hq
     // docs/design/next-rich-output.md). The deck template is a file the agent copies.
@@ -461,8 +461,9 @@ pub struct AgentTools {
     pub servers: Vec<McpServer>,
     /// The Claude Code plugin folder holding the skills.
     pub plugin_dir: Option<PathBuf>,
-    /// The person's own skills (`~/.config/cmux/skills`) as a second plugin, `cmux-user`
-    /// (`agent_guidance.rs`), while `agents.guidance.userSkills` is on and there are any.
+    /// The person's own skills (`~/.config/cmux/skills`, `cmux-next` on macOS) as a second
+    /// plugin, `cmux-user` (`agent_guidance.rs`), while `agents.guidance.userSkills` is on and
+    /// there are any.
     pub user_plugin_dir: Option<PathBuf>,
     /// The display allocation folder, only in per-workspace display mode
     /// (`agent_displays.rs`): [`AgentTools::scoped`] then leaves the
