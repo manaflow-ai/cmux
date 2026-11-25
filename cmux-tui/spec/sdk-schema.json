@@ -14495,6 +14495,16 @@
       "capability": "workspace-first-tab-v1",
       "description": "The workspace's first tab, made in the same request: {kind: \"browser\"} with the fields of new-frontend-browser-tab except pane, workspace, split and after. A first tab that cannot be made takes the workspace back; a replayed create replays a keyed tab and makes no second unkeyed one. The reply's first_tab is new-frontend-browser-tab's reply."
      },
+     "name_source": {
+      "type": {
+       "kind": "ref",
+       "name": "NameSource"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "description": "user: name is exactly what the caller asked for (agents chat new --name), pinned like a rename at name_revision 1 so no automatic name or chat title replaces it. Absent or auto: a starting name the automatic namer may replace."
+     },
      "origin": {
       "type": {
        "kind": "scalar",

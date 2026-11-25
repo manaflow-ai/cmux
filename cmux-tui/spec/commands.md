@@ -3225,6 +3225,7 @@ Params:
 | `name` | `string` | default null | Defaults to the zero-based workspace count at creation time |
 | `key` | `string` | default generated UUID | Must be a lowercase canonical UUID and never previously used |
 | `first_tab` | object | optional | `{kind:"browser", ...}` with the params of `new-frontend-browser-tab` except `pane`, `workspace`, `split` and `after`: the workspace's first tab, made by this request; capability `workspace-first-tab-v1` |
+| `name_source` | `"user"` \| `"auto"` | default null | `user`: `name` is exactly what the caller asked for (`agents chat new --name`), pinned like a rename (`name_source` user, `name_revision` 1), so no automatic name or chat title replaces it. Absent or `auto`: a starting name the automatic namer may replace |
 | mutation fields | see [common envelope](#durable-workspace-mutation-envelope) | optional | Exactly-once retry and CAS |
 
 Result:
