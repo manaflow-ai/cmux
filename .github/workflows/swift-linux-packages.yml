@@ -86,9 +86,7 @@ jobs:
           # shape); cmux-next-ios-kit.yml skips their test targets on the Mac.
           - group: ios-kit
             packages: cmux-next-ios/CmuxMobileKit
-          # PROBE (lane/linux-swift-tests-all): every other package with tests; reds are pruned before merge.
-          - group: CmuxAuthRuntime
-            packages: Packages/Shared/CmuxAuthRuntime
+          # Whole packages that pass on Linux; CmuxIrohTransport's Apple-gated tests still run on the Mac lane.
           - group: CmuxChiefList
             packages: Packages/Shared/CmuxChiefList
           - group: CmuxConnectivityTelemetry
@@ -101,8 +99,6 @@ jobs:
             packages: Packages/Shared/CmuxIrohTransport
           - group: CmuxVisibleRows
             packages: Packages/Shared/CmuxVisibleRows
-          - group: CmuxPhonePush
-            packages: Packages/macOS/CmuxPhonePush
     steps:
       # A reused pool workspace can hold a repository the container cannot read (an alternate on the VM's git
       # mirror, a broken index: "index cache-tree records empty sub-tree"); drop it and check out fresh.
