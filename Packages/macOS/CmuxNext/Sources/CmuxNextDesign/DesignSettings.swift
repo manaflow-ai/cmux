@@ -364,11 +364,25 @@ public final class DesignSettings {
     /// a name to its experiment's arm); native code reads ``experiment(_:)``. A change repaints, so
     /// every page gets its theme, and with it the switches, again.
     public var experiments: [String: Bool] = [:] {
-        didSet { if experiments != oldValue { ThemeScope.app.store.repaintAll() } }
+        didSet {
+            guard experiments != oldValue else { return }
+            // cmux Remote's prompts read the theme the app leaves for them only while Themed Floating Prompts is on.
+            if experiments["themedPrompts"] != oldValue["themedPrompts"] {
+                PromptThemeFile.publish(ThemeScope.app.store.tokens, enabled: themedPrompts)
+            }
+            ThemeScope.app.store.repaintAll()
+        }
     }
 
     /// Whether the `experiments.<name>` switch is on (`DesignSettings.shared.experiment("menuStyleV2")`).
     public func experiment(_ name: String) -> Bool { experiments[name] == true }
+    /// `experiments.themedPrompts` (Settings > Experiments > Themed Floating Prompts, off by default: Leo's UI merge
+    /// hold, 2026-11-24): prompts that float over every app draw the ``SurfaceRole/prompt`` look
+    /// (``CmuxDialogView/overApps``), and cmux Remote's wear the app's theme (``PromptThemeFile``). Off keeps the
+    /// system-glass prompts as they were. A test turns it on for its own task only (``themedPromptsOverride``).
+    public var themedPrompts: Bool { Self.themedPromptsOverride ?? experiment("themedPrompts") }
+    /// A test's answer for ``themedPrompts`` in its own task, so tests in parallel never see each other's switch.
+    @TaskLocal public static var themedPromptsOverride: Bool?
     /// `appearance.sidebarSurface`: the sidebar on the main pane's surface,
     /// or shaded apart from it.
     public var sidebarSurface: SidebarSurface = .same
