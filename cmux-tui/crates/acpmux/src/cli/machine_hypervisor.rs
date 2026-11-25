@@ -24,7 +24,7 @@ fn state_dir(opts: &HypervisorOpts) -> PathBuf {
 }
 
 /// The state dir, made owner-only whatever the umask, as acpmux makes its own (an existing one
-/// of this user is narrowed): it holds the leases and the spool, and a pod's `HOME` under it
+/// wider than that is refused with the `chmod` that fixes it): it holds the leases and the spool, and a pod's `HOME` under it
 /// boots an acpmux daemon that refuses a writable ancestor.
 fn private_state_dir(opts: &HypervisorOpts) -> Result<PathBuf> {
     let dir = state_dir(opts);
@@ -161,7 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn the_state_dir_is_made_owner_only_and_a_wider_one_narrowed() {
+    fn the_state_dir_is_made_owner_only_and_a_wider_one_refused() {
         // A pod's HOME sits under the state dir; its acpmux daemon refuses a writable ancestor,
         // so a state dir made under umask 002 (drwxrwxr-x) left every pod's init dead.
         let base = tempfile::tempdir().unwrap();
@@ -174,8 +174,7 @@ mod tests {
         let wide = base.path().join("wide");
         std::fs::create_dir(&wide).unwrap();
         std::fs::set_permissions(&wide, std::fs::Permissions::from_mode(0o775)).unwrap();
-        private_state_dir(&opts(&wide)).unwrap();
-        let mode = std::fs::metadata(&wide).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o700, "{mode:o}");
+        let err = private_state_dir(&opts(&wide)).unwrap_err().to_string();
+        assert!(err.contains("chmod 700"), "{err}");
     }
 }
