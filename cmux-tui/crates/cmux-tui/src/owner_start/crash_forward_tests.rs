@@ -108,8 +108,11 @@ const SEEDS: [[&str; 3]; 17] = [
 #[test]
 fn seeded_secrets_never_leave_in_a_panic_event() {
     let text = SEEDS.map(|[prefix, rest, _]| format!("{prefix}{rest}")).join(" | ");
-    for kind in ["panic", "memory"] {
-        let line = json!({"message": text, "location": text, "backtrace": text, "kind": kind});
+    for kind in ["panic", "memory", "client-hang"] {
+        let line = json!({
+            "message": text, "location": text, "backtrace": text, "kind": kind,
+            "waits": [text], "cancelled": [text],
+        });
         let event = event_for(&line.to_string(), Some("/home/other")).unwrap();
         let sent = String::from_utf8(envelope(&event)).unwrap();
         for [_, _, marker] in SEEDS {
@@ -144,6 +147,23 @@ fn seeded_secrets_never_reach_the_wire() {
         assert!(leaks.is_empty(), "{marker} left: {leaks:?}");
     }
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_client_hang_line_is_a_warning_grouped_by_its_top_frame() {
+    let line = json!({
+        "kind": "client-hang", "at_ms": 1_000, "message": "cmux-tui UI loop stalled 2.4s in f",
+        "location": "cmux::app::f", "duration_ms": 2400, "backtrace": "#0 0x1 cmux::app::f",
+        "waits": ["daemon request tree (waited 2.4s of 5.0s)"], "cancelled": [], "version": "1.2.3",
+    });
+    let event = event_for(&line.to_string(), None).unwrap();
+    assert_eq!(event["level"], "warning");
+    assert_eq!(event["exception"]["values"][0]["type"], "ClientHang");
+    assert_eq!(event["fingerprint"], json!(["client-hang", "cmux::app::f"]));
+    assert_eq!(event["tags"]["crash_source"], "client_hang_log");
+    assert_eq!(event["extra"]["duration_ms"], 2400);
+    assert_eq!(event["extra"]["waits"][0], "daemon request tree (waited 2.4s of 5.0s)");
+    assert_eq!(event["release"], "cmux-tui@1.2.3");
 }
 
 #[test]
