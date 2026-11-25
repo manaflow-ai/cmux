@@ -3499,6 +3499,7 @@ jobs:
         env:
           # Why: note-409
           CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}
+          CMUX_SPM_SCRATCH_SEED_EVICT: ${{ vars.CI_SPM_SCRATCH_SEED_EVICT || '1' }}
           CMUX_FAST_TIER_SECOND_SEED_ROOT: ${{ vars.CI_FAST_TIER_SECOND_SEED_ROOT }}  # passed as is: `== '0'` coerces an unset var (null) to 0 and matches
         run: |
           python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
@@ -5184,6 +5185,7 @@ jobs:
         continue-on-error: true
         env:
           CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}
+          CMUX_SPM_SCRATCH_SEED_EVICT: ${{ vars.CI_SPM_SCRATCH_SEED_EVICT || '1' }}
           CMUX_FAST_TIER_SECOND_SEED_ROOT: ${{ vars.CI_FAST_TIER_SECOND_SEED_ROOT }}  # passed as is: `== '0'` coerces an unset var (null) to 0 and matches
         run: |
           python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
@@ -6264,10 +6266,13 @@ jobs:
       # Why: note-scheme-fleet
       - name: Take the app the build fleet built
         id: fleet-app
-        if: ${{ inputs.dev_daily != true && env.CMUX_SCHEME_FLEET_JOB != '' }}
+        if: ${{ inputs.dev_daily != true }}
         timeout-minutes: 15
         env:
           CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+          FLEET_RESULT: ${{ needs.cmux-scheme-compile-fleet.result }}
+          FLEET_VERDICT: ${{ needs.cmux-scheme-compile-fleet.outputs.verdict }}
+          FLEET_SWITCH: ${{ vars.CI_SCHEME_COMPILE_FLEET }}
           PARITY: ${{ vars.CI_SCHEME_FLEET_PARITY == 'always' || endsWith(github.event.pull_request.head.sha || github.sha, '0') }}
         run: scripts/cmux-next/scheme-fleet.sh take
       # Why: 2026-11-24-cmux-scheme-compile-3.md, note-310
