@@ -62,3 +62,17 @@
 .ui-notice-gallery[data-tint="popover"] .ui-notice {
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-popover-tint), transparent);
 }
+
+/* glass-host-busy: transcript-like text filling the stage under the stack. */
+.ui-notice-gallery-stage[data-busy] {
+  position: relative;
+}
+.ui-notice-gallery-busy {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: var(--ds-space-4);
+  overflow: hidden;
+  color: var(--cmux-text-secondary, GrayText);
+  font: var(--weight-regular) var(--text-body) / var(--text-body--line-height) var(--font-ui);
+}
