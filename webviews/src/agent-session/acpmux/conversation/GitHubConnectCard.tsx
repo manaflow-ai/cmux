@@ -25,6 +25,7 @@ const CAUSE: Record<GitHubConnectNeed["reason"], StringKey> = {
   "not-connected": "githubConnect.notConnected",
   "needs-reauth": "githubConnect.needsReauth",
   "not-covered": "githubConnect.notCovered",
+  "not-installed": "githubConnect.notInstalled",
 };
 
 /// The card as drawn for one phase. `offer` absent: a pane that cannot run the app's actions (View
@@ -45,12 +46,15 @@ export function GitHubConnectCardView({
   const t = useT();
   const arm = experimentArm(turnErrorCard);
   const repo = need.repo;
+  const owner = repo?.split("/")[0];
   const cause =
-    need.reason === "not-covered" && repo
-      ? t("githubConnect.notCoveredRepo", { repo })
-      : repo && need.reason === "not-connected"
-        ? t("githubConnect.notConnectedRepo", { repo })
-        : t(CAUSE[need.reason]);
+    need.reason === "not-installed" && owner
+      ? t("githubConnect.notInstalledOwner", { owner })
+      : need.reason === "not-covered" && repo
+        ? t("githubConnect.notCoveredRepo", { repo })
+        : repo && need.reason === "not-connected"
+          ? t("githubConnect.notConnectedRepo", { repo })
+          : t(CAUSE[need.reason]);
   const line =
     phase.kind === "waiting"
       ? t("githubConnect.finishOnGitHub")
@@ -85,7 +89,11 @@ export function GitHubConnectCardView({
               disabled={phase.kind === "opening"}
               onClick={onConnect}
             >
-              {phase.kind === "refused" ? t("githubConnect.tryAgain") : t("githubConnect.connect")}
+              {phase.kind === "refused"
+                ? t("githubConnect.tryAgain")
+                : need.reason === "not-installed"
+                  ? t("githubConnect.install")
+                  : t("githubConnect.connect")}
             </button>
           )}
         </span>
