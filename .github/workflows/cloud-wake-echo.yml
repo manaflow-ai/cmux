@@ -48,14 +48,25 @@ jobs:
           set -euo pipefail
           out="$RUNNER_TEMP/wake-echo"
           mkdir -p "$out"
+          health=https://cmux-platform-staging.debussy.workers.dev/v1/health
+          curl --fail --silent --show-error --max-time 15 "$health" > "$out/platform-before.json"
+          inventory="$(bun scripts/cmux-next/cloud-journey.ts --backend staging --machines | tail -n 1)"
+          jq -e '{backend, machines}' <<< "$inventory"
+          jq -e '.backend == "staging" and (.machines | type == "number" and . < 300)' <<< "$inventory" > /dev/null
           deadline=$(( $(date +%s) + 125 * 60 ))
           bun scripts/cmux-next/cloud-journey.ts --backend staging --out "$out" --model stub \
             --cleanup-created-ids-only --wake-echo 50 --wake-echo-hold 5 --wake-echo-deadline "$deadline"
+      - name: Record staging platform revision after the run
+        if: always()
+        run: |
+          curl --fail --silent --show-error --max-time 15 \
+            https://cmux-platform-staging.debussy.workers.dev/v1/health > "$RUNNER_TEMP/wake-echo/platform-after.json"
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: wake-echo
           path: |
+            ${{ runner.temp }}/wake-echo/platform-*.json
             ${{ runner.temp }}/wake-echo/wake-echo.json
             ${{ runner.temp }}/wake-echo/wake-echo.md
             ${{ runner.temp }}/wake-echo/journey.json
