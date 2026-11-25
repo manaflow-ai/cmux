@@ -113,8 +113,10 @@ jobs:
       - name: Wait through GitHub API rate limits and 5xx in this job
         working-directory: ${{ github.workspace }}
         run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
-      # The extra hourly real tick runs only after a real run that read a reply; a quota skip (the weekly limit),
-      # or any other red, leaves the next real sample to the six-hourly canary.
+      # The extra hourly real tick runs only after a real run that read a reply: its probe.json outcome is ok. A quota
+      # skip (the weekly limit) or a reply never read leaves the next real sample to the six-hourly canary. A red on a
+      # check after first text (cold create's asked size, run 45571173365) still read a reply, so it keeps the hourly
+      # samples the p95 window needs.
       - name: Gate the hourly real tick on the newest real run
         id: gate
         if: env.SELECTED == 'true' && github.event.schedule == '47 1-5,7-11,13-17,19-23 * * *'
@@ -124,15 +126,25 @@ jobs:
         run: |
           set -uo pipefail
           verdict=""
+          reply=""
           for id in $(gh run list --workflow cloud-journey-prod.yml --branch main --event schedule --status completed \
               --limit 16 --json databaseId --jq '.[].databaseId'); do
             [ "$id" = "${{ github.run_id }}" ] && continue
             c="$(gh run view "$id" --json jobs --jq '[.jobs[] | select(.name | test("real")) | .steps[]
               | select(.name == "Cloud journey (prod, real model)") | .conclusion][0] // ""')" || break
-            case "$c" in success|failure|cancelled|timed_out) verdict="$c (run $id)"; break ;; esac
+            case "$c" in
+              success) reply=ok; verdict="$c (run $id)"; break ;;
+              failure|cancelled|timed_out)
+                # The step is red when any check fails; the probe row says whether the reply was read.
+                d="$RUNNER_TEMP/gate-$id"
+                if gh run download "$id" -n cloud-journey-prod-real -D "$d" >/dev/null 2>&1; then
+                  reply="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("outcome") or "")' "$d/probe.json" 2>/dev/null)" || reply=""
+                fi
+                verdict="$c, probe outcome ${reply:-unread} (run $id)"; break ;;
+            esac
           done
           echo "newest real run: ${verdict:-none found}"
-          if [ "${verdict%% *}" = success ]; then echo "skip=false" >> "$GITHUB_OUTPUT"; else
+          if [ "$reply" = ok ]; then echo "skip=false" >> "$GITHUB_OUTPUT"; else
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "Hourly real tick skipped: the newest real run did not read a reply (${verdict:-none found})." >> "$GITHUB_STEP_SUMMARY"
           fi
