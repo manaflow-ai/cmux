@@ -203,9 +203,6 @@ jobs:
   # sets the window (default 60: about 48 pushes fit the marker search's 40 commits
   # and the probe fallback's 50 only up to an hour; about 24 builds a day).
   coalesce:
-    # actions: read: base-coalesce lists this workflow's runs to re-run a window whose run failed.
-    permissions:
-      actions: read
     uses: ./.github/workflows/base-coalesce.yml
     with:
       key: cmux-tui-artifacts
@@ -390,6 +387,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/api_call_log/
             scripts/ci/cmux_tui_superseded_push.py
+            scripts/ci/ci_pool_tokens.py
             scripts/ci/cmux-tui-darwin-builder
             scripts/cmux-next/cmux-tui-build-profiles.json
             scripts/ci/cmux_tui_tree_key.py
@@ -415,6 +413,22 @@ jobs:
             git reset -q --hard HEAD
           fi
 
+      # CI_POOL_FIRST: the superseded check's REST reads go out on a CI pool App first. On a spent github.token the
+      # cmux-next dispatch lookup answered HTTP 403 ("could not tell; keeping the run"), so a branch head built on
+      # request only, which nobody asked for, built its three targets anyway: 2026-11-24 23Z..11-25 01Z, about 1 in 9
+      # branch pushes built (about 100 runner-min each), and every gate log read showed that 403. push-gate holds no
+      # secret and keeps github.token; this step answers it. No pool, a refused mint: github.token, as before
+      # (scripts/ci/ci_pool_tokens.py).
+      - name: Mint the CI pool's tokens
+        if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'push'
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
+          CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_PERMISSIONS: '{"actions":"read","contents":"read"}'
+        run: python3 scripts/ci/ci_pool_tokens.py
+
       # A queued run can be superseded before it gets a runner: on 2026-10-14
       # 37% of the queued runs of this workflow were cmux-tui-pin-* merge trees
       # of pull requests that had moved on, or lane-branch pushes whose branch
@@ -431,7 +445,8 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           REF: ${{ github.ref }}
           SHA: ${{ github.sha }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
+          GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
           # Branch heads are read over git, which spends no REST budget.
           CMUX_TUI_REF_REMOTE: ${{ github.server_url }}/${{ github.repository }}.git
           # Build on request: a pull request head's push builds nothing (ci-min-per-pr-30); '0' undoes it.
