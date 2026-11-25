@@ -414,6 +414,19 @@ public final class CloudAuth {
         callbackRouter.isAuthCallbackURL(url)
     }
 
+    /// Whether `url` is this build's own link that ends a flow a cmux tab started (GitHub's
+    /// `<scheme>://integration/complete` or the sign-in callback): the tab hands it over without asking.
+    public func isAppHandoff(_ url: URL) -> Bool {
+        CloudGitHubCompletion(url: url, scheme: configuration.callbackScheme) != nil || isCallback(url)
+    }
+
+    /// Takes an opened sign-in callback; true when sign-in then failed and Accounts should show why.
+    public func callbackFailed(_ url: URL) async -> Bool {
+        guard await !handleCallback(url) else { return false }
+        await awaitRestored()
+        return signInFailed && !isSignedIn && !isSigningIn
+    }
+
     /// Routes a `<scheme>://auth-callback` URL (browser fallback) to the flow.
     public func handleCallback(_ url: URL) async -> Bool {
         guard !captureCleanupActive else { return false }
