@@ -36,4 +36,13 @@ import Testing
             #expect(tokens.groupFill.alpha >= tokens.hoverFill.alpha, "\(name): group \(tokens.groupFill.alpha), hover \(tokens.hoverFill.alpha)")
         }
     }
+
+    /// The dark default's group is held under 8% by its text, so it takes an edge; the light one is whole and has none.
+    @Test func aFaintGroupTakesAnEdge() {
+        let dark = ThemeTokens.derive(from: Self.themes[0].1)
+        let light = ThemeTokens.derive(from: Self.themes[1].1)
+        #expect(dark.groupFill.alpha < 0.08 ? dark.groupStroke.alpha > 0 : dark.groupStroke.alpha == 0)
+        #expect(light.groupFill.alpha >= 0.06 - 0.001)
+        #expect(light.groupStroke.alpha == 0)
+    }
 }
