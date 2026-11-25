@@ -1,0 +1,395 @@
+// cmux-web-test-timeout: 900
+// l10n-allow-file: test fixture prompts and replies, not shipped UI.
+// The chat's layout-shift budget, flow by flow (Leo, 2026-11-25: "layout shifts and awkward looking
+// animations"). Four flows a person runs every day each get a budget the transcript and the composer
+// must stay inside, judged on every painted frame:
+//   send        type a prompt, Return, the reply streams in and the turn ends;
+//   thinking    a turn that thinks first (a live thinking row), then answers;
+//   compaction  /compact: a compaction row runs, finishes and its summary lands;
+//   reload      the page reloads onto the same chat: from its first frame nothing drawn moves, and
+//               the composer and the newest row come back where they were.
+// The check is the gallery's box tracker (src/gallery/shift.ts) judged by followJudge.ts, the same one
+// agent-chat-stream-no-shift-browser.test.ts reads for a streamed turn with tool calls: a stray move is
+// a transcript row or the composer moving other than by the rows' shared follow or by a row above it
+// growing. Each flow's worst stray (px), the composer's move across each step (px) and, in Chromium, the
+// browser's own layout-shift score (the CLS sum of entries without recent input) must stay in BUDGET.
+//
+// The control: each flow runs once more with a seeded 24 px jump (a rested row and the composer
+// translated mid-step, or on a reload's tenth frame), and the same verdict must name it. A budget
+// check that cannot catch a planted shift would pass a real one.
+//
+//   CMUX_BROWSER_TESTS=1 bun test test/chat-flow-shift-budget-browser.test.ts
+// FLOW_SHIFT_OUT=DIR (or $FAST_CHECKS_OUT) writes flow-shift.json with every step's numbers.
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import fs from "node:fs";
+import path from "node:path";
+import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import type { BoxShift } from "../src/gallery/shift";
+import { COMPOSER_EDITOR, MAIN_DOCK } from "../src/agent-session/acpmux/composerSelectors";
+import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
+import { installBoxTracker, installBoxTrackerOnLoad } from "./support/boxTrackerPage";
+import { papercutPane } from "./support/papercutChat";
+import { requireBrowserLane } from "./support/requireBrowserLane";
+
+/// The composer's box, judged by where it paints.
+const COMPOSER = `${MAIN_DOCK} .acpmux-composer-box`;
+
+export type FlowName = "send" | "thinking" | "compaction" | "reload";
+/// Per flow: the worst stray move (px), the composer's move over a step (px) and Chromium's
+/// layout-shift score. A budget only comes down: a fix that lowers a flow's number lowers its row.
+export const BUDGET: Record<FlowName, { stray: number; composer: number; cls: number }> = {
+  send: { stray: 1, composer: 1, cls: 0.01 },
+  thinking: { stray: 1, composer: 1, cls: 0.01 },
+  compaction: { stray: 1, composer: 1, cls: 0.01 },
+  reload: { stray: 1, composer: 1, cls: 0.01 },
+};
+/// The planted jump, px.
+const SEED_PX = 24;
+
+export type StepReport = {
+  step: string;
+  /** The worst stray move in the step (px), and the first few, labelled. */
+  stray: number;
+  strays: { label: string; dy: number; dx: number; follow: number; frame: number }[];
+  /** How far the composer's bottom moved from the step's start to its end (px). */
+  composer: number;
+  /** Chromium's layout-shift entries over the step (no recent input), summed; null in WebKit. */
+  cls: number | null;
+};
+
+/** Every way `report` breaks `budget`, one line each (empty: inside the budget). */
+export function overBudget(report: StepReport[], budget: (typeof BUDGET)[FlowName]): string[] {
+  const out: string[] = [];
+  for (const entry of report) {
+    if (entry.stray > budget.stray)
+      out.push(`${entry.step}: stray ${entry.stray}px > ${budget.stray}px (${entry.strays[0]?.label ?? "?"})`);
+    if (entry.composer > budget.composer)
+      out.push(`${entry.step}: composer moved ${entry.composer}px > ${budget.composer}px`);
+    if (entry.cls !== null && entry.cls > budget.cls)
+      out.push(`${entry.step}: layout-shift score ${entry.cls} > ${budget.cls}`);
+  }
+  return out;
+}
+
+await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
+  setDefaultTimeout(600_000);
+  const engines: [string, BrowserType][] = [];
+  for (const engine of [
+    ["chromium", chromium],
+    ["webkit", webkit],
+  ] as [string, BrowserType][]) {
+    try {
+      await (await engine[1].launch({ headless: true })).close();
+      engines.push(engine);
+    } catch {
+      console.warn(`chat-flow-shift-budget: skipping ${engine[0]}`);
+    }
+  }
+  if (engines.length === 0) {
+    describe.skip("chat flow shift budget", () => test("no engine", () => {}));
+    return;
+  }
+
+  const OUT = process.env.FLOW_SHIFT_OUT ?? process.env.FAST_CHECKS_OUT;
+  const update = (body: Record<string, unknown>) => ({
+    method: "session/update",
+    params: { sessionId: "agent-1", update: body },
+  });
+  const chunk = (text: string) => update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } });
+  const thought = (text: string) => update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text } });
+  const words = (text: string) => text.split(/(?<= )/);
+
+  type Pane = Awaited<ReturnType<typeof papercutPane>>;
+  type Play = (pane: Pane, page: Page) => Promise<void>;
+  // fixed-wait: the stream's own cadence (deltas some tens of ms apart, as an agent sends them) is the input under test.
+  const pause = (ms: number) => Bun.sleep(ms);
+  const stream =
+    (make: (text: string) => Record<string, unknown>, kind: string, texts: string[], gap = 35): Play =>
+    async (pane) => {
+      for (const text of texts) {
+        pane.record(kind, make(text), "in");
+        await pause(gap);
+      }
+    };
+  /// Typed in the composer and sent with Return, as a person does; the stand-in acpmux echoes the
+  /// prompt under the id the page sent it with.
+  const send =
+    (text: string, turn: string): Play =>
+    async (pane, page) => {
+      await page.locator(COMPOSER_EDITOR).first().click();
+      await page.keyboard.type(text);
+      const before = pane.prompts.length;
+      const asked = pane.sent("session/prompt", pane.methods.filter((method) => method === "session/prompt").length);
+      await page.keyboard.press("Enter");
+      await asked;
+      const promptId = pane.prompts[before]?._meta?.acpmux?.promptId as string;
+      pane.record("user_message", { text, promptId, turnId: `t-${turn}` });
+      pane.record("turn_started", {});
+    };
+  const ends: Play = async (pane) => pane.record("turn_result", { status: "completed" });
+
+  const flows = (turn: string): Record<Exclude<FlowName, "reload">, [string, Play][]> => ({
+    send: [
+      ["send", send(`Which retry loops sleep a fixed time? (${turn})`, turn)],
+      [
+        "reply",
+        stream(
+          chunk,
+          "agent_message_chunk",
+          words(
+            "The upload queue sleeps a fixed second between tries; the fetch client and the socket reconnect " +
+              "back off.\n\n- fetch client\n- socket reconnect\n- upload queue\n\nOnly the queue needs the cap.",
+          ),
+        ),
+      ],
+      ["turn ends", ends],
+    ],
+    thinking: [
+      ["send", send(`Why does the upload stall after a reconnect? (${turn})`, turn)],
+      [
+        "thinking",
+        stream(
+          thought,
+          "agent_thought_chunk",
+          words(
+            "The stall starts after a reconnect, so the queue must hold a socket that closed. " +
+              "Its retry reads the old handle and waits for a close that already happened. ",
+          ),
+        ),
+      ],
+      [
+        "answer",
+        stream(
+          chunk,
+          "agent_message_chunk",
+          words("The queue keeps the closed socket. It now asks the link for the current one on every retry."),
+        ),
+      ],
+      ["turn ends", ends],
+    ],
+    compaction: [
+      ["send", send("/compact", turn)],
+      [
+        "compaction runs",
+        async (pane) =>
+          pane.record("compaction", update({ sessionUpdate: "compaction", state: "running", reason: "manual" }), "in"),
+      ],
+      [
+        "compaction ends",
+        async (pane) =>
+          pane.record(
+            "compaction",
+            update({ sessionUpdate: "compaction", state: "completed", reason: "manual", tokensBefore: 182000 }),
+            "in",
+          ),
+      ],
+      [
+        "summary",
+        async (pane) =>
+          pane.record(
+            "compaction_summary",
+            update({ sessionUpdate: "compaction_summary", text: `Summary (${turn}): retry caps, upload queue.` }),
+            "in",
+          ),
+      ],
+      ["turn ends", ends],
+    ],
+  });
+
+  /// Every finite animation over, then the transcript's offset and height the same over 12 painted frames.
+  const settle = (page: Page) =>
+    page.evaluate(async () => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const moving = () =>
+        document
+          .getAnimations()
+          .some(
+            (animation) =>
+              animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime),
+          );
+      let last = "";
+      for (let held = 0, frames = 0; held < 12 && frames < 600; frames += 1) {
+        await window.cmuxPaintFrame();
+        const now = `${scroller.scrollTop}:${scroller.scrollHeight}`;
+        held = now === last && !moving() ? held + 1 : 0;
+        last = now;
+      }
+    });
+  const composerBottom = (page: Page) =>
+    page.evaluate(
+      (selector) => document.querySelector<HTMLElement>(selector)?.getBoundingClientRect().bottom ?? Number.NaN,
+      COMPOSER,
+    );
+  /// The newest row's top in the viewport, for the reload's return check.
+  const newestRowTop = (page: Page) =>
+    page.evaluate((rowSelector) => {
+      const rows = [...document.querySelectorAll<HTMLElement>(rowSelector)].filter(
+        (row) => row.getBoundingClientRect().height > 0,
+      );
+      return rows.at(-1)?.getBoundingClientRect().top ?? Number.NaN;
+    }, TRANSCRIPT_ROW);
+
+  /// Layout-shift entries from each document's start (Chromium; WebKit has none), read and cleared per step.
+  const installClsRecorder = (page: Page) =>
+    page.addInitScript(() => {
+      const w = window as unknown as { cmuxFlowCls: number; cmuxFlowClsLive: boolean };
+      w.cmuxFlowCls = 0;
+      w.cmuxFlowClsLive = false;
+      try {
+        new PerformanceObserver((list) => {
+          for (const entry of list.getEntries() as unknown as { value: number; hadRecentInput: boolean }[])
+            if (!entry.hadRecentInput) w.cmuxFlowCls += entry.value;
+        }).observe({ type: "layout-shift", buffered: true });
+        w.cmuxFlowClsLive = true;
+      } catch {
+        // WebKit: no layout-shift entries.
+      }
+    });
+  const takeCls = (page: Page) =>
+    page.evaluate(() => {
+      const w = window as unknown as { cmuxFlowCls: number; cmuxFlowClsLive: boolean };
+      const value = w.cmuxFlowClsLive ? Math.round(w.cmuxFlowCls * 10000) / 10000 : null;
+      w.cmuxFlowCls = 0;
+      return value;
+    });
+
+  /// The planted shift: once a row is drawn and `frames` more frames painted, a rested row in view and
+  /// the composer move SEED_PX, with nothing else moving (a stray the judge must name).
+  const SEED = (args: { px: number; frames: number; rowSelector: string; composer: string }) => {
+    const plant = async () => {
+      const paint = () => new Promise<void>((done) => requestAnimationFrame(() => done()));
+      while (!document.querySelector(args.rowSelector)) await paint();
+      for (let frame = 0; frame < args.frames; frame += 1) await paint();
+      const view = document.querySelector<HTMLElement>(".acpmux-scroll")?.getBoundingClientRect();
+      const rows = [...document.querySelectorAll<HTMLElement>(args.rowSelector)].filter((row) => {
+        const box = row.getBoundingClientRect();
+        return box.height > 0 && (!view || (box.top >= view.top && box.bottom <= view.bottom));
+      });
+      const row = rows.at(-2) ?? rows.at(-1);
+      if (row) row.style.translate = `0 ${args.px}px`;
+      const composer = document.querySelector<HTMLElement>(args.composer);
+      if (composer) composer.style.translate = `0 ${-args.px}px`;
+    };
+    void plant();
+  };
+  const seedArgs = { px: SEED_PX, frames: 4, rowSelector: TRANSCRIPT_ROW, composer: COMPOSER };
+
+  const reports: Record<string, StepReport[]> = {};
+  const browsers = new Map<string, Browser>();
+  let pane: Pane | undefined;
+  let current: Browser | undefined;
+  let serial = 0;
+  beforeAll(async () => {
+    for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
+    const first = browsers.values().next().value!;
+    pane = await papercutPane(() => current ?? first, { turns: 10, running: false });
+  });
+  afterAll(async () => {
+    await pane?.close();
+    for (const browser of browsers.values()) await browser.close();
+    if (OUT) {
+      fs.mkdirSync(OUT, { recursive: true });
+      fs.writeFileSync(path.join(OUT, "flow-shift.json"), JSON.stringify(reports, null, 2));
+    }
+  });
+
+  const measure = async (page: Page, step: string, play: () => Promise<void>, seeded: boolean) => {
+    const composerBefore = await composerBottom(page);
+    await takeCls(page);
+    await page.evaluate(() => window.cmuxBoxTracker!.start());
+    if (seeded) await page.evaluate(SEED, seedArgs);
+    await play();
+    await settle(page);
+    const shift: BoxShift = await page.evaluate(() => window.cmuxBoxTracker!.stop());
+    const follow = shift.follow!;
+    return {
+      step,
+      stray: follow.worst,
+      strays: follow.stray.slice(0, 4).map(({ label, dy, dx, follow, frame }) => ({ label, dy, dx, follow, frame })),
+      composer: Math.round(Math.abs((await composerBottom(page)) - composerBefore) * 10) / 10,
+      cls: await takeCls(page),
+    } satisfies StepReport;
+  };
+
+  /** Plays `flow` on a new page; with `seeded`, the planted jump lands in its second step (a reload's tenth frame). */
+  const runFlow = async (engine: string, flow: FlowName, seeded: boolean): Promise<StepReport[]> => {
+    current = browsers.get(engine)!;
+    const turn = `${engine}-${flow}-${++serial}`;
+    const page = await pane!.open({ width: 900, height: 760 }, async (page) => {
+      await installClsRecorder(page);
+      if (flow === "reload") {
+        await installBoxTrackerOnLoad(page);
+        if (seeded)
+          await page.addInitScript(
+            ({ seed, args }) => {
+              if (sessionStorage.getItem("cmuxSeedShift") !== "1") return;
+              sessionStorage.removeItem("cmuxSeedShift");
+              // biome-ignore lint/security/noGlobalEval: the seed is this file's own function, serialized.
+              document.addEventListener("DOMContentLoaded", () => (0, eval)(`(${seed})`)(args), { once: true });
+            },
+            { seed: SEED.toString(), args: { ...seedArgs, frames: 10 } },
+          );
+      }
+    });
+    try {
+      const report: StepReport[] = [];
+      if (flow === "reload") {
+        await settle(page);
+        const composerBefore = await composerBottom(page);
+        const rowBefore = await newestRowTop(page);
+        if (seeded) await page.evaluate(() => sessionStorage.setItem("cmuxSeedShift", "1"));
+        // The tracker starts on the new document's DOMContentLoaded; the clock stops once the chat is
+        // back and has held still.
+        await page.reload();
+        await page.getByText("Answer 10:", { exact: false }).first().waitFor({ timeout: 120_000 });
+        await settle(page);
+        const shift: BoxShift = await page.evaluate(() => window.cmuxBoxTracker!.stop());
+        const follow = shift.follow!;
+        const back = Math.abs((await newestRowTop(page)) - rowBefore);
+        const composer = Math.round(Math.abs((await composerBottom(page)) - composerBefore) * 10) / 10;
+        report.push({
+          step: "reload",
+          // A newest row that comes back elsewhere moved, whatever the frames between showed.
+          stray: Math.round(Math.max(follow.worst, back) * 10) / 10,
+          strays: [
+            ...(back > 0.5 ? [{ label: "newest row's place after the reload", dy: back, dx: 0, follow: 0, frame: -1 }] : []),
+            ...follow.stray.slice(0, 4).map(({ label, dy, dx, follow, frame }) => ({ label, dy, dx, follow, frame })),
+          ],
+          composer,
+          cls: await takeCls(page),
+        });
+      } else {
+        await installBoxTracker(page);
+        for (const [index, [step, play]] of flows(turn)[flow].entries())
+          report.push(await measure(page, step, () => play(pane!, page), seeded && index === 1));
+      }
+      for (const entry of report)
+        console.log(
+          `flow-shift ${engine} ${flow}${seeded ? " (seeded)" : ""} ${entry.step}: stray ${entry.stray}px composer ${entry.composer}px cls ${entry.cls} ${entry.strays
+            .slice(0, 2)
+            .map((stray) => `${stray.label} ${stray.dy}px`)
+            .join("; ")}`.slice(0, 380),
+        );
+      reports[`${engine} ${flow}${seeded ? " seeded" : ""}`] = report;
+      return report;
+    } finally {
+      await page.close();
+    }
+  };
+
+  for (const [engine] of engines)
+    describe(engine, () => {
+      for (const flow of ["send", "thinking", "compaction", "reload"] as const) {
+        test(`${flow}: the transcript and the composer stay inside the flow's shift budget`, async () => {
+          expect(overBudget(await runFlow(engine, flow, false), BUDGET[flow])).toEqual([]);
+        });
+        // The control, once per flow (Chromium, or the one engine that launched).
+        if (engine === engines[0]![0])
+          test(`${flow}: a seeded ${SEED_PX}px jump breaks the budget`, async () => {
+            const over = overBudget(await runFlow(engine, flow, true), BUDGET[flow]);
+            expect(over.some((line) => line.includes("stray"))).toBe(true);
+            expect(over.some((line) => line.includes("composer"))).toBe(true);
+          });
+      }
+    });
+});
