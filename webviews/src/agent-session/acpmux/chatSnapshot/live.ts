@@ -2,6 +2,7 @@
 // soon as the bundle runs, takes over from the copy in one frame once it drew the chat itself, and
 // writes the copy the next launch draws (capture.ts), from the visible window only.
 import { captureMiss, captureSnapshot } from "./capture";
+import { liveMatchesCopy, noteSwap, swapDiff } from "./swapDiff";
 import {
   SNAPSHOT_GLOBAL,
   SNAPSHOT_HOST_TAG,
@@ -13,7 +14,14 @@ import {
 import { watchLaunchSettle } from "../launchSettle";
 import { LIVE_THINKING } from "../conversation/turns";
 
-type Shown = { at: number; swappedAt?: number };
+/// `hold`: how the wait for the chat's draft ran out (draftSettleHold.ts), when, and at a `cap`
+/// what still differed between the copy's composer and the live one (`composerDifference`).
+type Shown = {
+  at: number;
+  swappedAt?: number;
+  chromeOnly?: boolean;
+  hold?: { by: string; at: number; differs?: string };
+};
 
 function shown(): Shown | undefined {
   if (typeof window === "undefined") return undefined;
@@ -36,6 +44,46 @@ export function showsChatSnapshot(): boolean {
   return !!shown() && typeof document !== "undefined" && !!document.querySelector(SNAPSHOT_HOST_TAG);
 }
 
+/// What the composer in an element shows, or undefined when it has no prompt (its editor's root; the
+/// placeholder lies beside it). It holds the prompt, surrounding text, tile count, and height.
+function composerShows(scope: ParentNode | null | undefined): string[] | undefined {
+  const composer = scope?.querySelector(".acpmux-composer");
+  const field = composer?.querySelector(".acpmux-composer-box .acpmux-md-root");
+  if (!composer || !field) return undefined;
+  const fold = (node: Node) => (node.textContent ?? "").replace(/\s+/g, " ").trim();
+  const tiles = composer.querySelectorAll(".acpmux-attachment-slot, img, video").length;
+  return [fold(field), fold(composer), String(tiles), String(Math.round(composer.getBoundingClientRect().height))];
+}
+
+const COMPOSER_PARTS = ["prompt", "text", "tiles", "height"] as const;
+
+/// Returns a bounded description of differences between the saved and live composers.
+export function composerDifference(): string | undefined {
+  const copy = composerShows(document.querySelector(SNAPSHOT_HOST_TAG)?.shadowRoot);
+  const live = composerShows(document.getElementById("root"));
+  if (!copy || !live) return "no composer";
+  const told = (part: (typeof COMPOSER_PARTS)[number], a: string, b: string) => {
+    if (part === "tiles" || part === "height") return `${part} ${a}/${b}`;
+    let at = 0;
+    while (at < a.length && a[at] === b[at]) at += 1;
+    return `${part} at ${at}, ${a.length}/${b.length} chars`;
+  };
+  const parts = COMPOSER_PARTS.flatMap((part, at) => (copy[at] === live[at] ? [] : [told(part, copy[at]!, live[at]!)]));
+  return parts.length ? parts.join("; ") : undefined;
+}
+
+/// Whether the live page's composer shows what the copy over it shows.
+export function promptMatchesChatSnapshot(): boolean {
+  return showsChatSnapshot() && composerDifference() === undefined;
+}
+
+/// Records how the draft wait ended on the copy's launch record.
+export function noteDraftWaitEnd(by: string): void {
+  const value = shown();
+  if (!value || value.hold) return;
+  value.hold = { by, at: performance.now(), ...(by === "cap" ? { differs: composerDifference() ?? "none" } : {}) };
+}
+
 /// Whether the copy on screen shows a turn still running: its live line (turns.ts LIVE_THINKING),
 /// which a kept tail cannot draw, since it keeps rows and not the turn's state.
 export function copyShowsRunningTurn(): boolean {
@@ -45,17 +93,22 @@ export function copyShowsRunningTurn(): boolean {
 }
 
 /// When the snapshot drew and when the live page took over, in `performance.now()` time (layoutWatch.ts).
-export function chatSnapshotTimes(): { painted_ms: number; swapped_ms: number | null } | undefined {
+export function chatSnapshotTimes(): { painted_ms: number; swapped_ms: number | null; chrome_only?: true } | undefined {
   const value = shown();
   if (!value) return undefined;
   return {
     painted_ms: Math.round(value.at),
     swapped_ms: value.swappedAt === undefined ? null : Math.round(value.swappedAt),
+    // Written at another size: the pane's chrome drew, the transcript's rows did not (shared.ts `fitsChromeOnly`).
+    ...(value.chromeOnly ? { chrome_only: true as const } : {}),
   };
 }
 
 /// This page's writes: how many, and what the host said to the last (`{kept}`), for the report.
-const writes = { count: 0, last: "none" as string };
+/// `sizes`: the last few writes' viewport, page visibility and cause ("868x712 visible quiet"), newest
+/// last, so a copy refused on size at the next launch names which write left it.
+const writes = { count: 0, last: "none" as string, sizes: [] as string[] };
+const WRITE_SIZES_KEPT = 6;
 
 /// The chat's copy as this document saw it, for `debug.agent_pane layout_watch` and the chat-open
 /// trace: when it drew and the live page took over, else why nothing drew and why the host served
@@ -64,15 +117,19 @@ export function chatSnapshotReport(): Record<string, unknown> {
   const globals = (typeof window === "undefined" ? {} : window) as unknown as Record<string, unknown>;
   return {
     ...chatSnapshotTimes(),
+    hold: shown()?.hold ?? null,
     miss: globals[SNAPSHOT_MISS_GLOBAL] ?? null,
     served: globals[`${SNAPSHOT_GLOBAL}Why`] ?? null,
-    writes: { ...writes },
+    served_cause: (globals[SNAPSHOT_GLOBAL] as { cause?: unknown } | undefined)?.cause ?? null,
+    writes: { ...writes, sizes: [...writes.sizes] },
+    view: typeof window === "undefined" ? null : `${Math.round(window.innerWidth)}x${Math.round(window.innerHeight)}`,
+    swap_diff: swapDiff() ?? null,
   };
 }
 
 /// The live page shows and the copy goes, in the same task, so the frame after shows the live page
 /// and no frame shows both or neither. `doc` is the page's document.
-export function removeChatSnapshot(doc: Document = document): boolean {
+export function removeChatSnapshot(doc: Document = document, held?: { ms: number; matched: boolean }): boolean {
   // The copy's input watch (``reportChatSnapshot``) ends with the copy, however it goes, and so does
   // a takeover that waits for the live rows to fill the view (``swapChatSnapshot``).
   stopCopyInput?.();
@@ -83,12 +140,17 @@ export function removeChatSnapshot(doc: Document = document): boolean {
   const root = doc.getElementById("root");
   if (root) root.style.removeProperty("opacity");
   if (!host) return false;
+  if (host.shadowRoot && root && doc.defaultView) noteSwap(host.shadowRoot, root, doc.defaultView, held);
   host.remove();
   const value = shown();
   if (value) value.swappedAt = performance.now();
   performance.mark?.("cmux-chat:snapshot-swap");
   return true;
 }
+
+/// The longest the swap waits for the live page to lay out what the copy shows (``swapChatSnapshot``).
+/// A part the copy has and the live page never draws (an ask answered since) keeps it no longer.
+const SWAP_MATCH_MS = 600;
 
 /// The transcript's scroller and rows, in the live page and in the copy (capture.ts keeps both).
 const SCROLLER_SELECTOR = ".acpmux-scroll";
@@ -132,8 +194,14 @@ export function liveStepsBack(doc: Document = document): boolean {
 /// Ends a takeover waiting for the live rows to fill the view (``swapChatSnapshot``).
 let stopCoverWait: (() => void) | undefined;
 
-/// Takes over from the copy at the next frame: the live page's frame is in by then (it rendered
-/// under the copy), and removing the copy before that frame paints shows it in one step. A live page
+/// Takes over from the copy once the live page lays out what the copy shows (swapDiff.ts
+/// `liveMatchesCopy`), at most ``SWAP_MATCH_MS`` after the page drew the chat: the live page renders
+/// under the copy, and removing the copy before a frame paints shows it in one step. Swapped at the
+/// first frame, a part the host answers after the chat is read (a folder's trust ask, 91 px over the
+/// composer) came in 50 ms later and drew every row up by its height, after each relaunch (relaunch-shift
+/// bench; Leo, 2026-11-14: "too much render shift when the thing restarts to update").
+///
+/// Then, a live page
 /// whose rows do not yet reach as high as the copy's (``liveStepsBack``) keeps the copy up until they
 /// do: each change of the live page is read at its next frame, and the copy goes in the frame its
 /// rows fill the view (an older page landed). Input on the copy and live.ts ``SNAPSHOT_HOLD_MS`` still
@@ -143,18 +211,30 @@ export function swapChatSnapshot(doc: Document = document): void {
   if (typeof window !== "undefined") liveSide().drawn = true;
   if (!showsChatSnapshot()) return;
   const view = doc.defaultView ?? window;
-  view.requestAnimationFrame(() => {
-    if (!liveStepsBack(doc)) {
-      removeChatSnapshot(doc);
+  const start = performance.now();
+  // Hold until the live page lays out what the copy shows (``SWAP_MATCH_MS`` at most), one read per frame.
+  const step = () => {
+    const host = doc.querySelector(SNAPSHOT_HOST_TAG);
+    // Gone already: a press ended it (``reportChatSnapshot``).
+    if (!host) return;
+    const root = doc.getElementById("root");
+    const waited = performance.now() - start;
+    const matched = !host.shadowRoot || !root || liveMatchesCopy(host.shadowRoot, root);
+    if (!matched && waited < SWAP_MATCH_MS) {
+      view.requestAnimationFrame(step);
       return;
     }
-    const root = doc.getElementById("root");
+    const held = { ms: waited, matched };
+    if (!liveStepsBack(doc)) {
+      removeChatSnapshot(doc, held);
+      return;
+    }
     if (!root || stopCoverWait) return;
     performance.mark?.("cmux-chat:snapshot-hold-band");
     let frame: number | undefined;
     const check = () => {
       frame = undefined;
-      if (!liveStepsBack(doc)) removeChatSnapshot(doc);
+      if (!liveStepsBack(doc)) removeChatSnapshot(doc, { ms: performance.now() - start, matched });
     };
     // Rows land as markup and move as style (VirtualTranscript places them absolutely): one read
     // per frame that changed anything, none while the page is at rest.
@@ -171,7 +251,8 @@ export function swapChatSnapshot(doc: Document = document): void {
       view.removeEventListener("resize", resized);
       if (frame !== undefined) view.cancelAnimationFrame(frame);
     };
-  });
+  };
+  view.requestAnimationFrame(step);
 }
 
 /// How long the live page may take to draw the chat before the copy goes anyway, so a page that
@@ -274,7 +355,7 @@ export function reportChatSnapshot(
 }
 
 /// The key of the theme the page draws in now (the host's `theme` event, pageHost.ts): a copy is
-/// drawn again only under the same one (shared.ts `fitsDocument`).
+/// drawn again under the same one, or another of the same appearance (shared.ts `fitsDocument`).
 let chatTheme = "";
 export function noteChatTheme(key: unknown): void {
   if (typeof key === "string") chatTheme = key;
@@ -284,6 +365,8 @@ export function noteChatTheme(key: unknown): void {
 /// streaming reply writes at most once per ``WRITE_GAP_MS``, never per frame or per delta.
 const QUIET_MS = 1_500;
 const WRITE_GAP_MS = 10_000;
+/// How long a resize rests before the copy is written at the new size (``watchChatSnapshot``).
+const RESIZE_QUIET_MS = 400;
 /// The host event that asks for a write now (the tab was hidden; AgentPaneView+PageHost).
 export const SNAPSHOT_WRITE_EVENT = "cmux-chat-snapshot-write";
 
@@ -302,7 +385,7 @@ export function watchChatSnapshot(
   let changedAt = 0;
   let wroteAt = 0;
   let stopped = false;
-  const write = () => {
+  const write = (cause: string) => {
     timer = undefined;
     // No theme heard yet: nothing to key a copy by, and the one kept stays.
     if (stopped || !chatTheme) return;
@@ -316,9 +399,15 @@ export function watchChatSnapshot(
     // Too large to keep (or no chat drawn): the host forgets the older one, which no longer shows
     // what this chat is, and keeps why, which the next document's record reads.
     writes.count += 1;
+    writes.sizes.push(`${Math.round(view.innerWidth)}x${Math.round(view.innerHeight)} ${doc.visibilityState} ${cause}`);
+    if (writes.sizes.length > WRITE_SIZES_KEPT) writes.sizes.shift();
     const miss = captureMiss();
     // A miss carries when it was taken too, so the host orders it with the copies (`savedAt`).
-    void put(snapshot ? { sessionId, ...snapshot } : { sessionId, miss, savedAt: Date.now() }).then(
+    // `cause` rides along (the host keeps the copy opaque) so the next document's record names the
+    // write that left the copy it got.
+    void put(
+      snapshot ? { sessionId, ...snapshot, cause: writes.sizes.at(-1) } : { sessionId, miss, savedAt: Date.now() },
+    ).then(
       (reply) => {
         const kept = (reply as { kept?: unknown } | null)?.kept;
         writes.last = !snapshot ? `forgot: ${miss}` : kept === true ? "kept" : "refused";
@@ -337,7 +426,7 @@ export function watchChatSnapshot(
         timer = undefined;
         const late = Math.max(changedAt + QUIET_MS, wroteAt + WRITE_GAP_MS) - performance.now();
         if (late > 1) schedule();
-        else write();
+        else write("quiet");
       },
       Math.max(0, due),
     );
@@ -345,30 +434,51 @@ export function watchChatSnapshot(
   // A change moves the armed timer to its new due time, so the page wakes once when it has been quiet, never to
   // find it changed and arm again (that re-arm woke a chat at rest after a switch, bench/chat-switch.bench.ts
   // idle_wakeups). One MutationObserver callback per batch of changes: a clear and a set, no wakeup.
-  const observer = new view.MutationObserver(() => {
+  const changed = () => {
     changedAt = performance.now();
     if (timer !== undefined) view.clearTimeout(timer);
     timer = undefined;
     schedule();
-  });
+  };
+  const observer = new view.MutationObserver(changed);
   observer.observe(root, { subtree: true, childList: true, characterData: true, attributes: true });
-  const now = () => {
+  // A resize can change no markup (the rows and composer follow the viewport in CSS), and a copy is
+  // drawn only at the size it was written at (shared.ts `fitsDocument`): a pane resized after the
+  // last write left a copy the next launch refused ("size 868x712, drawn at 528x512" in the
+  // relaunch-shift bench), and the chat opened from nothing, its chips filling in after the attach.
+  // So a resize writes once it rests, ``RESIZE_QUIET_MS``, past the write gap: a quit within the gap
+  // (the host asks for a write only when the tab hides) kept the old size.
+  let resizeTimer: number | undefined;
+  const resized = () => {
+    if (stopped) return;
+    view.clearTimeout(resizeTimer);
+    resizeTimer = view.setTimeout(() => {
+      resizeTimer = undefined;
+      if (timer !== undefined) view.clearTimeout(timer);
+      write("resize");
+    }, RESIZE_QUIET_MS);
+  };
+  view.addEventListener("resize", resized);
+  const now = (cause: string) => {
     if (timer !== undefined) view.clearTimeout(timer);
-    write();
+    write(cause);
   };
   const hidden = () => {
-    if (doc.visibilityState === "hidden") now();
+    if (doc.visibilityState === "hidden") now("hidden");
   };
+  const asked = () => now("asked");
   doc.addEventListener("visibilitychange", hidden);
-  view.addEventListener(SNAPSHOT_WRITE_EVENT, now);
+  view.addEventListener(SNAPSHOT_WRITE_EVENT, asked);
   changedAt = performance.now();
   wroteAt = -WRITE_GAP_MS;
   schedule();
   return () => {
     stopped = true;
     observer.disconnect();
+    view.removeEventListener("resize", resized);
+    view.clearTimeout(resizeTimer);
     if (timer !== undefined) view.clearTimeout(timer);
     doc.removeEventListener("visibilitychange", hidden);
-    view.removeEventListener(SNAPSHOT_WRITE_EVENT, now);
+    view.removeEventListener(SNAPSHOT_WRITE_EVENT, asked);
   };
 }
