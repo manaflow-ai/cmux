@@ -12,7 +12,7 @@ import Testing
         func send(_ intent: AgentClientIntent) {}
     }
 
-    private func rows(_ store: AgentChatStore) -> [ChatRow] {
+    @MainActor private func rows(_ store: AgentChatStore) -> [ChatRow] {
         ChatTranscriptBuilder(diffs: ChatDiffCache()).build(turns: store.turns, pendingPermission: nil, askOpen: false,
                                                            permissionBarHidden: false).flatMap(\.rows)
     }
