@@ -1,0 +1,28 @@
+name: Billing E2E (development, Stripe test mode)
+
+# The implementation lives on feat-cmux-next. GitHub dispatches only a
+# workflow the default branch registers, so this inert copy lets lanes run:
+#
+#   gh workflow run billing-e2e.yml -R manaflow-ai/cmux --ref feat-cmux-next
+#
+# A dispatch runs the file at --ref, so feat-cmux-next's inputs and jobs win
+# (its job runs only at feat-cmux-next, in the billing-e2e environment, and its
+# scripts refuse any key but a Stripe test key); these inputs only mirror them
+# for the Actions form.
+on:
+  workflow_dispatch:
+    inputs:
+      calls:
+        description: Model calls per PHASE=more round (each round syncs once)
+        required: false
+        default: "8"
+        type: string
+
+permissions: {}
+
+jobs:
+  registration:
+    timeout-minutes: 5
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    steps:
+      - run: echo "Billing E2E is implemented on feat-cmux-next; dispatch it with --ref feat-cmux-next"
