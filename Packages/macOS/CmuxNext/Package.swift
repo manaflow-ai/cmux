@@ -428,7 +428,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextImportSuggestions",
                 "CmuxNextKeepAwake",
                 "CmuxNextKeys",
-                "CmuxNextLaunchImages",
                 "CmuxNextLayout",
                 "CmuxNextLiveCode",
                 "CmuxNextMacScreen",
@@ -1422,19 +1421,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // action, working local agents and (sessions.keepAwakeForCommands) long terminal
         // commands, released on battery unless the user chose Always. IOKit's power-source
         // notification and one deadline from the Rust command rule, no polling.
-        // Each window's last frame for the next launch's stage 0: the capture, published into the
-        // launch image store (cmux-launch-image) on the Rust schedule; the app hands it its windows.
-        .target(
-            name: "CmuxNextLaunchImages",
-            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
-                "CCmuxAppFFI",
-                "CmuxNextCompat",
-                "CmuxNextControl",
-                "CmuxNextDesign",
-                "CmuxNextWakeups",
-            ],
-            swiftSettings: uiSwiftSettings
-        ),
         .target(
             name: "CmuxNextKeepAwake",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
