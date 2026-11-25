@@ -2573,6 +2573,7 @@ impl Hub {
             prompts: StdMutex::new(std::collections::VecDeque::new()),
             kept_messages: StdMutex::new(std::collections::VecDeque::new()),
             accepted_prompts: StdMutex::new(std::collections::VecDeque::new()),
+            pending_acceptances: StdMutex::new(std::collections::HashMap::new()),
             accepted_seq: tokio::sync::watch::channel(0).0,
             append_errors: AtomicU64::new(0),
             last_progress: AtomicU64::new(0),

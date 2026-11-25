@@ -184,7 +184,6 @@ fn begin_outcome(
     match ledger.iter().find(|(id, _)| id == prompt_id) {
         Some((_, outcome)) => Err((outcome_token(outcome), outcome.subscribe())),
         None => {
-            // Keep the lock order identical to keep_acceptance (prompts, then accepted).
             // A pending outcome cannot be pruned, so this only retires a receipt whose
             // original outcome is already complete.
             session
@@ -192,6 +191,7 @@ fn begin_outcome(
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .retain(|(id, _, _)| id != prompt_id);
+            session.pending_acceptances.lock().unwrap_or_else(|e| e.into_inner()).remove(prompt_id);
             let outcome = Arc::new(tokio::sync::watch::channel(None).0);
             ledger.push_back((prompt_id.to_owned(), outcome.clone()));
             Ok(outcome)
@@ -201,38 +201,44 @@ fn begin_outcome(
 
 /// Keeps the acceptance `v` of client prompt id `prompt_id`'s first run, for a resend of it.
 fn keep_acceptance(session: &Session, prompt_id: &str, v: &Value) {
-    // A prompt whose outcome is still pending must remain discoverable even when a burst
-    // exceeds the ordinary receipt cache. A resend of an inbox-taken prompt has no turn to
-    // identify it by, so evicting its acceptance makes every retry wait for the answer instead
-    // of hearing the receipt (the 513-admission regression).
-    let pending: std::collections::HashSet<String> = session
-        .prompts
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .iter()
-        .filter(|(_, outcome)| outcome.borrow().is_none())
-        .map(|(id, _)| id.clone())
-        .collect();
-    let token = session
+    let Some((token, pending)) = session
         .prompts
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .iter()
         .find(|(id, _)| id == prompt_id)
-        .map(|(_, outcome)| outcome_token(outcome));
-    let Some(token) = token else { return };
+        .map(|(_, outcome)| (outcome_token(outcome), outcome.borrow().is_none()))
+    else {
+        return;
+    };
+    if pending {
+        session
+            .pending_acceptances
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(prompt_id.to_owned(), (token, v.clone()));
+    } else {
+        session.pending_acceptances.lock().unwrap_or_else(|e| e.into_inner()).remove(prompt_id);
+    }
     {
         let mut kept = session.accepted_prompts.lock().unwrap_or_else(|e| e.into_inner());
         kept.retain(|(id, _, _)| id != prompt_id);
         kept.push_back((prompt_id.to_owned(), token, v.clone()));
         while kept.len() > KEPT_ACCEPTS {
-            let Some(i) = kept.iter().position(|(id, _, _)| !pending.contains(id)) else {
-                break;
-            };
-            kept.remove(i);
+            kept.pop_front();
         }
     }
     session.accepted_seq.send_modify(|n| *n = n.wrapping_add(1));
+}
+
+/// Release the overflow receipt once its prompt outcome settles. The token check keeps a late
+/// completion from deleting a newer attempt with the same client prompt id.
+pub(super) fn release_acceptance(session: &Session, prompt_id: &str, outcome: &PromptOutcome) {
+    let token = outcome_token(outcome);
+    let mut pending = session.pending_acceptances.lock().unwrap_or_else(|e| e.into_inner());
+    if pending.get(prompt_id).is_some_and(|(kept, _)| *kept == token) {
+        pending.remove(prompt_id);
+    }
 }
 
 /// The acceptance a resend of `prompt_id` answers with: the first run's own (kept as it was
@@ -250,14 +256,23 @@ async fn first_acceptance(
         seq.borrow_and_update();
         let kept = {
             let _ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
-            session
+            let kept = session
                 .accepted_prompts
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .iter()
                 .rev()
                 .find(|(id, kept_token, _)| id == prompt_id && *kept_token == token)
-                .map(|(_, _, v)| v.clone())
+                .map(|(_, _, v)| v.clone());
+            kept.or_else(|| {
+                session
+                    .pending_acceptances
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .get(prompt_id)
+                    .filter(|(pending_token, _)| *pending_token == token)
+                    .map(|(_, v)| v.clone())
+            })
         };
         if kept.is_some() {
             return kept;
@@ -518,6 +533,7 @@ impl Hub {
             }
             let mut ledger = session.prompts.lock().unwrap();
             outcome.send_replace(Some(answer.clone()));
+            release_acceptance(session, &prompt_id, &outcome);
             prompt_ledger::prune(&mut ledger);
             return answer;
         }
@@ -536,6 +552,7 @@ impl Hub {
             }
             let mut ledger = session.prompts.lock().unwrap();
             outcome.send_replace(Some(logged.clone()));
+            release_acceptance(session, &prompt_id, &outcome);
             prompt_ledger::prune(&mut ledger);
             return logged;
         }
@@ -584,6 +601,7 @@ impl Hub {
             ledger.retain(|(id, _)| *id != prompt_id);
         }
         outcome.send_replace(Some(result.clone()));
+        release_acceptance(session, &prompt_id, &outcome);
         prompt_ledger::prune(&mut ledger);
         result
     }
