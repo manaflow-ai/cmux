@@ -3,9 +3,21 @@
 //! and a busy Mac makes a dragged pane's page trail it (cmuxterm-hq#4947: p95 55 ms with 14 busy
 //! processes at the default class, 6 ms with the same load at background class).
 //!
-//! `background` (the default) puts the harness in `PRIO_DARWIN_BG`, as cmux-git starts its git
-//! children (`cmux-git` `run.rs`): the lowest CPU priority, throttled disk I/O and
-//! background-class new sockets. `normal` leaves the harness at its starter's class.
+//! `normal` (the default) runs the harness and every tool it starts as a shell in a terminal runs
+//! them: the daemon's CPU priority (never above nice 0) and the default disk tier. acpmux lowers
+//! nothing. `background` (opt-in) puts the harness in `PRIO_DARWIN_BG`, as cmux-git starts its
+//! git children (`cmux-git` `run.rs`): the lowest CPU priority, throttled disk I/O and
+//! background-class new sockets.
+//!
+//! `background` was the default until 2026-11-24, and it made NEXT agents slower than terminal
+//! agents: every tool a turn ran (git, tests, builds) inherited throttled disk I/O and waited on
+//! the disk whenever the Mac was busy. Over 130 sessions in 21 days on one Mac, tests took 37 s at
+//! the median against 11 s in a terminal, `git push` 79 s against 43 s, and the slowest tenth of
+//! builds 220 s against 52 s. The same `git grep` took 6 s at normal class and 61 s at background
+//! class, and 32 s against 962 s on another run. A 1-commit rebase took 87 minutes at 0% CPU, and a
+//! task with an 11-minute change took 3 h 55 min. The model's and the hooks' time per call were
+//! the same in both apps. The app's own main thread already runs at the frontmost app's priority
+//! (`qos.rs`), so the GUI does not need the agents' tools lowered below a terminal's.
 //!
 //! The start never runs at background class. A caller may retain a real hazard bound, and a
 //! background harness can miss it on a busy disk: on 2026-10-30 (load 125 on 18 cores, `du` and
@@ -20,16 +32,17 @@
 //!    clears one set on its starter by the starter itself (an agent host under
 //!    `ACPMUX_QOS=background`, [`start_at_normal`]), and right after the spawn the daemon clears
 //!    one that another process set ([`clear_running`]; a process cannot clear that one itself).
-//!    The exec and the harness's own start run at normal CPU class. Disk I/O stays at the
-//!    host's `IOPOL_UTILITY` (`qos.rs`): utility, not throttled.
+//!    The exec and the harness's own start run at normal CPU class. Its disk I/O goes back to the
+//!    default tier at its exec (`qos::default_disk_io`): its agent host's `IOPOL_UTILITY` is
+//!    throttled behind any default-tier disk work, and a terminal's shell does not take it.
 //! 2. Once the session's start is over (its `initialize` and `session/new` or `session/load`
 //!    answered, `hub/lifecycle.rs` `ensure_child`), the daemon puts the running harness in its
 //!    class ([`CpuClass::enter`]): `setpriority(PRIO_DARWIN_PROCESS, pid, PRIO_DARWIN_BG)`, which
-//!    macOS allows on another process of the same user. A `normal` harness goes to the agent
-//!    tier's nice instead (`qos::AGENT_NICE`: +11 on macOS, the utility clamp's base priority;
-//!    +5 on Linux, and its host's session group), with its whole process group in one
+//!    macOS allows on another process of the same user, with its whole process group at the agent
+//!    tier's nice (`qos::AGENT_NICE`: +11 on macOS, the utility clamp's base priority) in one
 //!    `setpriority(PRIO_PGRP)`: the processes it started during its start, its MCP servers and a
-//!    launcher's agent, at its own priority as under the clamp they replace. Every process the harness starts after
+//!    launcher's agent. A `normal` harness is left as it started on macOS; on Linux it goes to
+//!    nice +5 and its host's session group with it. Every process a `background` harness starts after
 //!    that inherits it, so the builds and tests of its turns run below the GUI. A process it
 //!    started during its start keeps the class it started at: an MCP server, and the real agent
 //!    of a harness that is only a launcher (a script or adapter that starts the agent as a child
@@ -64,8 +77,9 @@
 //! The class, first set wins: the profile's env `ACPMUX_SESSION_CPU_CLASS` as the harness gets it
 //! (its `${env:…}` references resolved; one build-heavy profile can opt out), the daemon's env
 //! `ACPMUX_SESSION_CPU_CLASS`, config `session.cpuClass`
-//! (`acpmux config --set session.cpu_class=normal`), then [`default_for`] the harness:
-//! `background`, or `normal` for a Claude Code launcher. Linux sessions get their
+//! (`acpmux config --set session.cpu_class=background`), then [`default_for`] the harness:
+//! `normal` ([`DEFAULT`]), and `normal` for a Claude Code launcher and Codex's `app-server` even
+//! if [`DEFAULT`] changes. Linux sessions get their
 //! CPU share from their cgroup scope's `CPUWeight` instead (`session_scope.rs`), and other
 //! platforms start harnesses as before: there the class is read and ignored.
 
@@ -86,7 +100,7 @@ pub enum CpuClass {
 }
 
 /// The class a session runs at when nothing names one, and its harness is no launcher.
-pub const DEFAULT: CpuClass = CpuClass::Background;
+pub const DEFAULT: CpuClass = CpuClass::Normal;
 
 /// Where Claude Code's installers keep its files (as `harness_health/channel.rs` lists them). A
 /// path into one of them is Claude Code under another name: the native installer's `claude` is a
@@ -172,34 +186,45 @@ impl CpuClass {
     }
 
     /// Puts the running harness `pid` in this class once its session's start is over, and only
-    /// lowers: its process group at the agent tier's nice value (`qos::AGENT_NICE`; on Linux its
-    /// host's session too) unless `ACPMUX_QOS=off`, then for `Background` the harness in
-    /// background class (macOS). The start itself ran at the daemon's tier (`qos.rs`). `pid` must
+    /// lowers. `Background`: its process group at the agent tier's nice value (`qos::AGENT_NICE`)
+    /// unless `ACPMUX_QOS=off`, then the harness in background class (macOS). `Normal`: nothing on
+    /// macOS, where it keeps a terminal shell's priority (module docs); on Linux the agent tier's
+    /// nice (its host's session too) unless `ACPMUX_QOS=off`. The start itself ran at the daemon's tier (`qos.rs`). `pid` must
     /// be a harness its caller holds (a direct child not reaped yet, or one its agent host reports
     /// alive): a pid that another process took would be lowered instead. True when it was lowered.
     pub fn enter(self, pid: u32) -> bool {
-        // Both classes leave the start's priority for the agent tier: on Linux that is all the
-        // lowering there is (it has no background class), and on macOS it takes the processes the
-        // harness started during its start (its MCP servers) with it, as the utility clamp did.
-        let tier = crate::qos::enabled() && imp::to_agent_tier(pid);
+        // On Linux the agent tier is all the lowering there is (it has no background class); on
+        // macOS a background harness takes the processes it started during its start (its MCP
+        // servers) with it, as the utility clamp did.
+        let tier = || crate::qos::enabled() && imp::to_agent_tier(pid);
         match self {
-            Self::Background => imp::set_background(pid, true) || tier,
-            Self::Normal => tier,
+            Self::Background => {
+                let tier = tier();
+                imp::set_background(pid, true) || tier
+            }
+            Self::Normal => cfg!(target_os = "linux") && tier(),
         }
     }
 }
 
-/// The class a session's harness takes at its exec: its starter's, without a background class it
-/// would inherit (macOS; elsewhere `cmd` is unchanged). Every harness start uses it: each has a
+/// The class a session's harness takes at its exec: its starter's, without a background class or
+/// a utility disk tier it would inherit (macOS; elsewhere `cmd` is unchanged). Every harness start uses it: each has a
 /// deadline (module docs, item 1).
 pub fn start_at_normal(cmd: &mut tokio::process::Command) {
+    // The disk tier only under acpmux's own policy: with `ACPMUX_QOS=off` its host took no utility
+    // tier, and a starter's own (`taskpolicy -d`) is kept. Read here: the hook reads no env.
     #[cfg(target_os = "macos")]
-    // SAFETY: the hook runs in the child between fork and exec and makes one setpriority(2) call
-    // on itself: no allocation, no lock, async-signal-safe. It never fails the spawn: a harness
-    // whose class could not be cleared starts as before.
+    let reset_disk = crate::qos::enabled();
+    #[cfg(target_os = "macos")]
+    // SAFETY: the hook runs in the child between fork and exec and makes one setpriority(2) and
+    // at most one setiopolicy_np(3) call on itself: no allocation, no lock, async-signal-safe. It
+    // never fails the spawn: a harness whose class could not be cleared starts as before.
     unsafe {
-        cmd.pre_exec(|| {
+        cmd.pre_exec(move || {
             libc::setpriority(libc::PRIO_DARWIN_PROCESS, 0, 0);
+            if reset_disk {
+                crate::qos::default_disk_io();
+            }
             Ok(())
         });
     }
@@ -803,7 +828,7 @@ mod tests {
 
     /// `sr2 claude` is the case that starved (module docs, item 2).
     #[test]
-    fn a_claude_launcher_defaults_to_normal_and_claude_itself_to_background() {
+    fn a_claude_launcher_is_normal_whatever_the_default_and_claude_itself_takes_the_default() {
         let default = |kind, program: &str| default_for(kind, &[program.to_owned()]);
         for launcher in ["/Users/me/.local/bin/claude-sr2", "/Users/me/bin/sr", "sr2", "python3"] {
             assert_eq!(default(HarnessKind::ClaudeStdio, launcher), CpuClass::Normal, "{launcher}");
@@ -857,7 +882,7 @@ mod tests {
         let bg = Some(CpuClass::Background);
         let normal = Some(CpuClass::Normal);
         let resolve = |profile, daemon, config| CpuClass::resolve(profile, daemon, config, DEFAULT);
-        assert_eq!(resolve(None, None, None), CpuClass::Background);
+        assert_eq!(resolve(None, None, None), CpuClass::Normal);
         assert_eq!(resolve(None, None, normal), CpuClass::Normal);
         // The daemon's env overrides config; the profile overrides both.
         assert_eq!(resolve(None, Some("normal".into()), bg), CpuClass::Normal);
@@ -865,7 +890,7 @@ mod tests {
         assert_eq!(resolve(Some(" Normal "), None, bg), CpuClass::Normal);
         // A value that names no class is skipped.
         assert_eq!(resolve(Some("utility"), Some("normal".into()), bg), CpuClass::Normal);
-        assert_eq!(resolve(Some(""), None, None), CpuClass::Background);
+        assert_eq!(resolve(Some(""), None, None), CpuClass::Normal);
         // What the harness defaults to comes last: any named class wins over it.
         let launcher = |profile, config| CpuClass::resolve(profile, None, config, CpuClass::Normal);
         assert_eq!(launcher(None, None), CpuClass::Normal);

@@ -122,6 +122,9 @@ pub(crate) struct Inputs<'a> {
 pub(crate) struct Verdict {
     pub under_floor: Option<UnderFloor>,
     pub over: Option<OverCap>,
+    /// Under the cap, this create takes its last slot (no free one is left after it):
+    /// where a warm spare is asked for (`admission_scale_up::wants_warm_spare`).
+    pub last_slot: Option<OverCap>,
     pub uncapped: Option<String>,
 }
 
@@ -157,13 +160,15 @@ pub(crate) fn check(inputs: &Inputs<'_>) -> Verdict {
     else {
         return uncapped(format!("no lanes entry with max_lanes for {machine}"));
     };
-    let over = (inputs.live as u64 >= max).then(|| OverCap {
+    let at = || OverCap {
         live: inputs.live,
         max,
         machine: machine.to_owned(),
         source: inputs.source.to_path_buf(),
-    });
-    Verdict { under_floor, over, uncapped: None }
+    };
+    let over = (inputs.live as u64 >= max).then(at);
+    let last_slot = (over.is_none() && inputs.live as u64 + 1 >= max).then(at);
+    Verdict { under_floor, over, last_slot, uncapped: None }
 }
 
 /// The registry machine this host is (module docs), lowercase names compared.
@@ -440,8 +445,15 @@ impl Hub {
         );
         // The connected peers as the placement engine weighs them, once for the move
         // and the warning.
-        let mut peers = (reason.is_some() || verdict.over.is_some())
-            .then(|| self.peer_verdict(registry.as_ref()));
+        let warm_spare =
+            super::admission_scale_up::warm_spare_on(registry.as_ref(), |k| std::env::var(k).ok());
+        let mut peers = (reason.is_some()
+            || verdict.over.is_some()
+            || (warm_spare && verdict.last_slot.is_some()))
+        .then(|| self.peer_verdict(registry.as_ref()));
+        let peer_room = peers
+            .as_ref()
+            .is_some_and(|verdict| super::admission_scale_up::room_elsewhere(verdict).is_some());
         let mut scaling_up = false;
         let mut auto_joined = false;
         let no_peer_room = verdict.over.is_some()
@@ -476,15 +488,27 @@ impl Hub {
                     }
                 }
             }
-        } else if verdict.over.is_some()
+        } else if let Some(over) = verdict.over.as_ref()
             && peers
                 .as_ref()
                 .is_some_and(|verdict| super::admission_scale_up::room_elsewhere(verdict).is_none())
         {
-            if let Some(over) = verdict.over.as_ref() {
-                let (trigger, _) = self.scale_up_wait(over, registry.as_ref());
-                scaling_up = trigger.scaling();
-            }
+            let (trigger, _) = self.scale_up_wait(over, registry.as_ref());
+            scaling_up = trigger.scaling();
+        } else if let Some(last) = verdict.last_slot.as_ref()
+            && super::admission_scale_up::wants_warm_spare(warm_spare, true, peer_room)
+        {
+            // Warm spare (default off): this create takes the last free slot and no
+            // connected host has room, so one machine is asked for now, ahead of the next
+            // start. The run's single flight and cooldown keep it to one; once it joins, a
+            // peer has room and nothing more is asked.
+            let (trigger, _) = self.scale_up_wait(last, registry.as_ref());
+            tracing::info!(
+                live = last.live,
+                max = last.max,
+                scaling = trigger.scaling(),
+                "scale-up: warm spare"
+            );
         }
         if let (Some(reason), Some(filler)) = (reason, fillers.first()) {
             // A filler's room is this start's: it starts here, never moved for it.
@@ -507,6 +531,20 @@ impl Hub {
             && admitted.placed.is_none()
             && let Some(over) = verdict.over.as_ref()
         {
+            admitted.placed = peers.as_ref().and_then(|peers| {
+                super::admission_redirect::pick(
+                    peers,
+                    super::admission_redirect::Reason::OverCap,
+                    over.live,
+                    Some(over.max),
+                )
+            });
+        } else if super::admission_scale_up::uses_spare(warm_spare, ask.auto, peer_room)
+            && admitted.placed.is_none()
+            && let Some(over) = verdict.over.as_ref()
+        {
+            // Warm spare: an Auto start past the cap takes the connected host with room
+            // (the spare) at once, as a joined one does, instead of waiting for a machine.
             admitted.placed = peers.as_ref().and_then(|peers| {
                 super::admission_redirect::pick(
                     peers,
@@ -931,11 +969,11 @@ mod tests {
             Some(OverCap { live, max, machine: machine.into(), source: source.into() })
         };
         for (machine, max) in [("huge-blue", 12), ("cmux16", 3), ("big-red", 6), ("air-blue", 3)] {
-            assert_eq!(
-                at(machine, max as usize - 1),
-                Verdict::default(),
-                "{machine} under its cap"
-            );
+            let last = at(machine, max as usize - 1);
+            assert_eq!((&last.under_floor, &last.over), (&None, &None), "{machine} under its cap");
+            // Taking the last free slot is marked for the warm spare, and warns nothing.
+            assert_eq!(last.last_slot, over(machine, max as usize - 1, max), "{machine} last slot");
+            assert_eq!(at(machine, max as usize - 2), Verdict::default(), "{machine} has room");
             for live in [max as usize, 16] {
                 let v = at(machine, live);
                 assert_eq!(v.under_floor, None, "{machine} at {live}: a cap never refuses");

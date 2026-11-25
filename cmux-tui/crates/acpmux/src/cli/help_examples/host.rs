@@ -47,6 +47,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "machine cells",
+        &[
+            ("See which lane hosts run past their lane cap", "acpmux machine cells"),
+            ("The same as JSON, for a script or a dashboard row", "acpmux machine cells --json"),
+        ],
+    ),
+    (
         "machine dedicated",
         &[
             (
