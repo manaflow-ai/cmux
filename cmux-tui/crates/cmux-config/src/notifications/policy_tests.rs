@@ -47,14 +47,19 @@ fn the_sound_timing_decides_by_viewing_and_activity() {
         (WhenInactive, false, false, true),
         (Always, true, true, true),
     ] {
-        assert_eq!(timing.plays(viewed, active), plays, "{timing:?} viewed={viewed} active={active}");
+        assert_eq!(
+            timing.plays(viewed, active),
+            plays,
+            "{timing:?} viewed={viewed} active={active}"
+        );
     }
 }
 
 #[test]
 fn a_timing_that_does_not_play_still_names_the_event() {
     let prefs = prefs_with(|p| p.sounds.when = SoundTiming::WhenInactive);
-    let decision = decide(&prefs, &Arrival { app_active: true, source: Source::Terminal, ..arrival() });
+    let decision =
+        decide(&prefs, &Arrival { app_active: true, source: Source::Terminal, ..arrival() });
     assert_eq!(decision.sound, None);
     assert_eq!(decision.sound_event, SoundEvent::Bell);
     let given = Arrival { sound_event: Some(SoundEvent::NeedsInput), ..arrival() };
@@ -67,7 +72,8 @@ fn a_timing_that_does_not_play_still_names_the_event() {
 fn a_viewed_pane_is_acknowledged_under_every_timing() {
     for timing in SoundTiming::ALL {
         let prefs = prefs_with(|p| p.sounds.when = *timing);
-        let decision = decide(&prefs, &Arrival { pane_is_viewed: true, app_active: true, ..arrival() });
+        let decision =
+            decide(&prefs, &Arrival { pane_is_viewed: true, app_active: true, ..arrival() });
         assert!(decision.acknowledge, "{timing:?}");
         assert!(!decision.attention, "{timing:?}");
         assert!(!decision.desktop, "{timing:?}");
@@ -104,7 +110,10 @@ fn typing_suppresses_an_arrival() {
     let decision = decide(&prefs, &Arrival { typed_ago: Some(1.0), ..arrival() });
     assert!(decision.acknowledge && !decision.attention && decision.sound.is_none());
     assert!(!decide(&prefs, &Arrival { typed_ago: Some(3.0), ..arrival() }).acknowledge);
-    assert!(!decide(&Preferences::default(), &Arrival { typed_ago: Some(0.0), ..arrival() }).acknowledge);
+    assert!(
+        !decide(&Preferences::default(), &Arrival { typed_ago: Some(0.0), ..arrival() })
+            .acknowledge
+    );
 }
 
 #[test]
@@ -171,7 +180,11 @@ fn each_dismissal_mode_clears_on_its_triggers() {
         (Dismissal::Never, vec![]),
     ] {
         for trigger in Trigger::ALL {
-            assert_eq!(clears_mode(*trigger, mode), clearing.contains(trigger), "{mode:?} {trigger:?}");
+            assert_eq!(
+                clears_mode(*trigger, mode),
+                clearing.contains(trigger),
+                "{mode:?} {trigger:?}"
+            );
         }
     }
     let prefs = prefs_with(|p| {
@@ -211,7 +224,10 @@ fn the_dock_bounce_setting_picks_the_bounce() {
 
 #[test]
 fn an_active_app_never_bounces() {
-    assert_eq!(decide(&Preferences::default(), &Arrival { app_active: true, ..arrival() }).bounce, None);
+    assert_eq!(
+        decide(&Preferences::default(), &Arrival { app_active: true, ..arrival() }).bounce,
+        None
+    );
 }
 
 #[test]

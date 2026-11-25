@@ -11,7 +11,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
 /// A setting whose value is one of a fixed list of names (a Swift `String`
 /// enum); `ALL` is in the Swift declaration order, which diagnostics list.
@@ -42,17 +42,17 @@ macro_rules! choice {
             }
         }
 
-        impl Serialize for $name {
-            fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        impl ::serde::Serialize for $name {
+            fn serialize<S: ::serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 serializer.serialize_str(self.name())
             }
         }
 
-        impl<'de> Deserialize<'de> for $name {
-            fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-                let text = String::deserialize(deserializer)?;
+        impl<'de> ::serde::Deserialize<'de> for $name {
+            fn deserialize<D: ::serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                let text = <String as ::serde::Deserialize>::deserialize(deserializer)?;
                 Self::from_name(&text).ok_or_else(|| {
-                    serde::de::Error::custom(format!("unknown {} `{text}`", stringify!($name)))
+                    ::serde::de::Error::custom(format!("unknown {} `{text}`", stringify!($name)))
                 })
             }
         }

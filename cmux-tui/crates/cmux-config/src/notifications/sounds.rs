@@ -26,18 +26,19 @@ impl SoundPreferences {
     /// the workspace, then each group from the innermost out.
     pub fn levels(&self, scope: &SoundScope) -> Vec<(String, &SoundRule)> {
         let mut levels = Vec::new();
-        if let Some(agent) = scope.agent.as_deref().map(str::to_lowercase) {
-            if let Some(rule) = self.agents.get(&agent) {
-                levels.push((format!("agent:{agent}"), rule));
-            }
+        if let Some(agent) = scope.agent.as_deref().map(str::to_lowercase)
+            && let Some(rule) = self.agents.get(&agent)
+        {
+            levels.push((format!("agent:{agent}"), rule));
         }
-        if let Some(workspace) = scope.workspace.as_deref() {
-            if let Some(rule) = self.workspaces.get(workspace) {
-                levels.push((format!("workspace:{workspace}"), rule));
-            }
+        if let Some(workspace) = scope.workspace.as_deref()
+            && let Some(rule) = self.workspaces.get(workspace)
+        {
+            levels.push((format!("workspace:{workspace}"), rule));
         }
         for group in &scope.groups {
-            if let Some(rule) = self.groups.get(&group.id).or_else(|| self.groups.get(&group.name)) {
+            if let Some(rule) = self.groups.get(&group.id).or_else(|| self.groups.get(&group.name))
+            {
                 levels.push((format!("group:{}", group.name), rule));
             }
         }
@@ -47,20 +48,31 @@ impl SoundPreferences {
     /// The sound `event` plays in `scope`: the most specific level that names
     /// one, then the event's global sound, then `fallback`. `"none"` (or an
     /// empty name) on that path mutes it.
-    pub fn choice(&self, event: SoundEvent, scope: &SoundScope, fallback: &str) -> Option<SoundChoice> {
+    pub fn choice(
+        &self,
+        event: SoundEvent,
+        scope: &SoundScope,
+        fallback: &str,
+    ) -> Option<SoundChoice> {
         let levels = self.levels(scope);
         let (name, level) = levels
             .iter()
             .find_map(|(level, rule)| rule.sound_for(event).map(|name| (name, level.clone())))
             .or_else(|| {
-                self.events.get(&event).map(|name| (name.as_str(), format!("event:{}", super::Choice::name(event))))
+                self.events
+                    .get(&event)
+                    .map(|name| (name.as_str(), format!("event:{}", super::Choice::name(event))))
             })
             .unwrap_or((fallback, "global".to_owned()));
         if name == "none" || name.is_empty() {
             return None;
         }
         let share = levels.iter().find_map(|(_, rule)| rule.volume).unwrap_or(1.0);
-        Some(SoundChoice { name: name.to_owned(), volume: (share * self.volume).clamp(0.0, 1.0), level })
+        Some(SoundChoice {
+            name: name.to_owned(),
+            volume: (share * self.volume).clamp(0.0, 1.0),
+            level,
+        })
     }
 }
 
@@ -74,19 +86,30 @@ pub struct Last {
 /// Whether `event` may sound at `now` (seconds) after `last`, with the
 /// cooldown `cooldown_seconds`; a yes is the newest sound. The cooldown is
 /// counted in whole milliseconds, as Swift's gate rounds it.
-pub fn admit(event: SoundEvent, now: f64, cooldown_seconds: f64, last: Option<Last>) -> (bool, Option<Last>) {
+pub fn admit(
+    event: SoundEvent,
+    now: f64,
+    cooldown_seconds: f64,
+    last: Option<Last>,
+) -> (bool, Option<Last>) {
     let cooldown_ms = (cooldown_seconds.max(0.0) * 1000.0).round();
-    if let Some(last) = last {
-        if (now - last.at) * 1000.0 < cooldown_ms && event.urgency() <= last.urgency {
-            return (false, Some(last));
-        }
+    if let Some(last) = last
+        && (now - last.at) * 1000.0 < cooldown_ms
+        && event.urgency() <= last.urgency
+    {
+        return (false, Some(last));
     }
     (true, Some(Last { at: now, urgency: event.urgency() }))
 }
 
 /// The rule after one change. `sound` `"inherit"` clears it (with no `event`:
 /// the level's sound and every event's); None keeps it. `volume` clamps to 0...1.
-pub fn apply_rule(rule: &SoundRule, sound: Option<&str>, event: Option<SoundEvent>, volume: Option<f64>) -> SoundRule {
+pub fn apply_rule(
+    rule: &SoundRule,
+    sound: Option<&str>,
+    event: Option<SoundEvent>,
+    volume: Option<f64>,
+) -> SoundRule {
     let mut rule = rule.clone();
     match (sound, event) {
         (None, _) => {}
@@ -192,7 +215,11 @@ pub fn source_of_event(event: SoundEvent) -> Source {
 }
 
 /// What a preview of `scope`'s `event` plays now; None when silent (a muted workspace, `"none"`).
-pub fn preview_choice(prefs: &Preferences, scope: &SoundScope, event: SoundEvent) -> Option<SoundChoice> {
+pub fn preview_choice(
+    prefs: &Preferences,
+    scope: &SoundScope,
+    event: SoundEvent,
+) -> Option<SoundChoice> {
     if scope.workspace.as_ref().is_some_and(|ws| prefs.muted_workspaces.contains(ws)) {
         return None;
     }

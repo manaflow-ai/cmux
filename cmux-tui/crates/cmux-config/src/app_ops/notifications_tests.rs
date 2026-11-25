@@ -52,7 +52,8 @@ fn the_parsed_prefs_go_back_in_unchanged() {
     assert_eq!(reply["decision"]["sound"], "Hero");
     assert_eq!(reply["decision"]["soundLevel"], "agent:codex");
     assert_eq!(reply["decision"]["bounce"], "once");
-    let quiet = ok("notifications.decide", json!({"prefs": prefs, "arrival": {"minuteOfDay": 1380}}));
+    let quiet =
+        ok("notifications.decide", json!({"prefs": prefs, "arrival": {"minuteOfDay": 1380}}));
     assert_eq!(quiet["decision"]["sound"], Value::Null);
     assert_eq!(quiet["decision"]["bounce"], Value::Null);
 }
@@ -77,7 +78,10 @@ fn decide_reads_wire_arrivals() {
 
 #[test]
 fn clears_and_flashes() {
-    assert_eq!(ok("notifications.clears", json!({"trigger": "click", "source": "terminal"}))["clears"], true);
+    assert_eq!(
+        ok("notifications.clears", json!({"trigger": "click", "source": "terminal"}))["clears"],
+        true
+    );
     assert_eq!(ok("notifications.clears", json!({"trigger": "timeout"}))["clears"], false);
     let flashes = |typing: bool| {
         ok(
@@ -93,14 +97,17 @@ fn clears_and_flashes() {
 fn sound_choice_and_admit() {
     let reply = ok(
         "notifications.sound_choice",
-        json!({"sounds": {"volume": 0.5, "groups": {"Ops": "Pop"}}, "event": "bell",
+        json!({"sounds": {"volume": 0.5, "groups": {"Ops": {"sound": "Pop"}}}, "event": "bell",
                "scope": {"groups": [{"id": "grp_1", "name": "Ops"}]}, "fallback": "Glass"}),
     );
     assert_eq!(reply["choice"], json!({"name": "Pop", "volume": 0.5, "level": "group:Ops"}));
     let muted = ok("notifications.sound_choice", json!({"event": "bell", "fallback": "none"}));
     assert_eq!(muted["choice"], Value::Null);
 
-    let first = ok("notifications.sound_admit", json!({"event": "finished", "now": 10.0, "cooldownSeconds": 1.5}));
+    let first = ok(
+        "notifications.sound_admit",
+        json!({"event": "finished", "now": 10.0, "cooldownSeconds": 1.5}),
+    );
     assert_eq!(first, json!({"admit": true, "last": {"at": 10.0, "urgency": 1}}));
     let held = ok(
         "notifications.sound_admit",
@@ -111,8 +118,14 @@ fn sound_choice_and_admit() {
 
 #[test]
 fn sound_event_and_agent_kind() {
-    assert_eq!(ok("notifications.sound_event", json!({"source": "agent", "level": "warning"}))["event"], "needsInput");
-    assert_eq!(ok("notifications.sound_event", json!({"source": "x", "level": "x"}))["event"], "finished");
+    assert_eq!(
+        ok("notifications.sound_event", json!({"source": "agent", "level": "warning"}))["event"],
+        "needsInput"
+    );
+    assert_eq!(
+        ok("notifications.sound_event", json!({"source": "x", "level": "x"}))["event"],
+        "finished"
+    );
     assert_eq!(ok("notifications.agent_kind", json!({"agent": "Claude"}))["agent"], "claude");
     assert_eq!(ok("notifications.agent_kind", json!({"agent": ""}))["agent"], Value::Null);
 }
@@ -130,7 +143,8 @@ fn rules_parse_apply_and_edit() {
         applied,
         json!({"isEmpty": false, "rule": {"sound": "Glass", "volume": 1.0, "events": {"needsInput": "Ping"}}})
     );
-    let cleared = ok("notifications.rule_apply", json!({"rule": {"sound": "Glass"}, "sound": "inherit"}));
+    let cleared =
+        ok("notifications.rule_apply", json!({"rule": {"sound": "Glass"}, "sound": "inherit"}));
     assert_eq!(cleared, json!({"isEmpty": true, "rule": {}}));
 
     let edit = ok(
@@ -144,7 +158,10 @@ fn rules_parse_apply_and_edit() {
         json!({"sounds": edit["sounds"], "level": {"kind": "workspace", "key": "ws_1"}}),
     );
     assert_eq!(checked["sound"], "Frog");
-    let event = ok("notifications.sound_edit", json!({"level": {"kind": "event", "key": "bell"}, "sound": "inherit"}));
+    let event = ok(
+        "notifications.sound_edit",
+        json!({"level": {"kind": "event", "key": "bell"}, "sound": "inherit"}),
+    );
     assert_eq!(event["path"], json!(["notifications", "sounds", "events", "bell"]));
     assert_eq!(event["value"], Value::Null);
 }

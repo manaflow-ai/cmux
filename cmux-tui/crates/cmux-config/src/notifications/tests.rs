@@ -39,18 +39,18 @@ fn paths(diagnostics: &[Diagnostic]) -> BTreeSet<&str> {
 
 #[test]
 fn each_notification_has_an_event() {
-    use Level::*;
-    use SoundEvent::*;
+    use Level::{Error as LError, Info, Warning};
+    use SoundEvent::{Bell, Error, Finished, Message, NeedsInput};
     for (source, level, event) in [
         (Source::Agent, Info, Finished),
         (Source::Agent, Warning, NeedsInput),
-        (Source::Agent, Level::Error, SoundEvent::Error),
+        (Source::Agent, LError, Error),
         (Source::Terminal, Info, Bell),
         (Source::Terminal, Warning, Bell),
-        (Source::Terminal, Level::Error, SoundEvent::Error),
+        (Source::Terminal, LError, Error),
         (Source::Cli, Info, Message),
         (Source::Cli, Warning, NeedsInput),
-        (Source::Cli, Level::Error, SoundEvent::Error),
+        (Source::Cli, LError, Error),
     ] {
         assert_eq!(SoundEvent::of(source, level), event, "{source:?} {level:?}");
     }
@@ -70,7 +70,10 @@ fn an_unknown_wire_source_or_level_reads_as_agent_and_info() {
 #[test]
 fn urgency_orders_events_in_a_burst() {
     use SoundEvent::*;
-    assert_eq!([NeedsInput, Error, Finished, Message, Bell].map(SoundEvent::urgency), [3, 2, 1, 1, 0]);
+    assert_eq!(
+        [NeedsInput, Error, Finished, Message, Bell].map(SoundEvent::urgency),
+        [3, 2, 1, 1, 0]
+    );
 }
 
 // MARK: Parsing
@@ -80,7 +83,11 @@ fn an_empty_file_reads_with_the_defaults() {
     let (prefs, diagnostics) = parse(&json!({}));
     assert!(diagnostics.is_empty());
     assert_eq!(prefs, Preferences::default());
-    assert_eq!(prefs.dismissal, Dismissal::Focus, "an empty cmux-next.json reads with the focus rule");
+    assert_eq!(
+        prefs.dismissal,
+        Dismissal::Focus,
+        "an empty cmux-next.json reads with the focus rule"
+    );
     assert_eq!(prefs.dock_bounce, DockBounce::Once);
     assert_eq!(prefs.sounds.max_seconds, 0.0, "by default a sound plays to its end");
 }
@@ -102,7 +109,10 @@ fn sounds_parse_from_cmux_json() {
     assert_eq!(sounds.max_seconds, 2.5);
     assert_eq!(
         sounds.events,
-        BTreeMap::from([(SoundEvent::NeedsInput, "Ping".into()), (SoundEvent::Error, "Basso".into())])
+        BTreeMap::from([
+            (SoundEvent::NeedsInput, "Ping".into()),
+            (SoundEvent::Error, "Basso".into())
+        ])
     );
     assert_eq!(sounds.groups["Agents & routing"], rule(Some("Submarine"), Some(0.5), &[]));
     assert_eq!(sounds.workspaces["ws_1"], rule(Some("none"), None, &[]));
@@ -122,7 +132,11 @@ fn a_bad_value_keeps_its_default_with_a_diagnostic() {
     assert_eq!(sounds.max_seconds, 30.0, "a duration past the longest clamps to it");
     assert!(sounds.events.is_empty());
     assert!(!sounds.workspaces.contains_key("ws_1"));
-    assert_eq!(sounds.workspaces["ws_2"], rule(Some("Pop"), Some(1.0), &[]), "an out-of-range volume clamps");
+    assert_eq!(
+        sounds.workspaces["ws_2"],
+        rule(Some("Pop"), Some(1.0), &[]),
+        "an out-of-range volume clamps"
+    );
     let found = paths(&diagnostics);
     for path in [
         "notifications.sounds.volume",
@@ -200,7 +214,11 @@ fn every_top_level_setting_parses_and_a_bad_one_is_named() {
     assert_eq!(terminal.color.as_deref(), Some("#00FF88"));
     assert_eq!(terminal.sound.as_deref(), Some("Tink"));
     assert_eq!(terminal.desktop, Some(false));
-    assert_eq!(prefs.sources[&Source::Cli], SourceOverrides::default(), "an empty entry still overrides");
+    assert_eq!(
+        prefs.sources[&Source::Cli],
+        SourceOverrides::default(),
+        "an empty entry still overrides"
+    );
     assert_eq!(prefs.sources[&Source::Agent].color, None);
     assert_eq!(prefs.dismissal_for(Source::Terminal), Dismissal::Click);
     assert_eq!(prefs.dismissal_for(Source::Agent), Dismissal::Timeout);
@@ -209,7 +227,11 @@ fn every_top_level_setting_parses_and_a_bad_one_is_named() {
     assert!(prefs.posts_desktop(Source::Cli));
     assert_eq!(
         prefs.feed_mirror,
-        FeedMirror { agents: false, terminal: FeedTerminalMirror::Full, agent_permission_prompts: true }
+        FeedMirror {
+            agents: false,
+            terminal: FeedTerminalMirror::Full,
+            agent_permission_prompts: true
+        }
     );
     let got: Vec<(&str, &str)> =
         diagnostics.iter().map(|d| (d.path.as_str(), d.message.as_str())).collect();
@@ -310,7 +332,10 @@ fn css_colors_read_as_swifts_theme_rgb_does() {
 fn a_rule_round_trips_through_its_json() {
     let original = rule(Some("Glass"), Some(0.25), &[(SoundEvent::NeedsInput, "Ping")]);
     let encoded = serde_json::to_value(&original).unwrap();
-    assert_eq!(encoded, json!({"sound": "Glass", "volume": 0.25, "events": {"needsInput": "Ping"}}));
+    assert_eq!(
+        encoded,
+        json!({"sound": "Glass", "volume": 0.25, "events": {"needsInput": "Ping"}})
+    );
     let (parsed, problems) = parse_rule(&encoded);
     assert_eq!(parsed, Some(original));
     assert!(problems.is_empty());
@@ -335,13 +360,14 @@ fn a_rules_problems_name_each_member() {
             "volume: clamped to 0...1",
         ]
     );
-    assert_eq!(parse_rule(&json!({"volume": "x", "events": 1})).1, [
-        "events: expected an object",
-        "volume: expected a number from 0 to 1",
-    ]);
-    assert_eq!(parse_rule(&json!(3)), (None, vec![
-        "expected a sound name or {\"sound\", \"volume\", \"events\"}".to_owned()
-    ]));
+    assert_eq!(
+        parse_rule(&json!({"volume": "x", "events": 1})).1,
+        ["events: expected an object", "volume: expected a number from 0 to 1",]
+    );
+    assert_eq!(
+        parse_rule(&json!(3)),
+        (None, vec!["expected a sound name or {\"sound\", \"volume\", \"events\"}".to_owned()])
+    );
 }
 
 // MARK: Inheritance
@@ -377,11 +403,23 @@ fn the_most_specific_level_wins() {
         "a group (by name) beats the global event sound"
     );
     sounds.groups.insert("grp_inner".into(), rule(Some("Tink"), None, &[]));
-    assert_eq!(name(&sounds, SoundEvent::Finished), pair("Tink", "group:Inner"), "an inner group beats its outer group");
+    assert_eq!(
+        name(&sounds, SoundEvent::Finished),
+        pair("Tink", "group:Inner"),
+        "an inner group beats its outer group"
+    );
     sounds.workspaces.insert("ws_1".into(), rule(Some("Frog"), None, &[]));
-    assert_eq!(name(&sounds, SoundEvent::Finished), pair("Frog", "workspace:ws_1"), "a workspace beats its groups");
+    assert_eq!(
+        name(&sounds, SoundEvent::Finished),
+        pair("Frog", "workspace:ws_1"),
+        "a workspace beats its groups"
+    );
     sounds.agents.insert("codex".into(), rule(None, None, &[(SoundEvent::Finished, "Hero")]));
-    assert_eq!(name(&sounds, SoundEvent::Finished), pair("Hero", "agent:codex"), "an agent kind beats its workspace");
+    assert_eq!(
+        name(&sounds, SoundEvent::Finished),
+        pair("Hero", "agent:codex"),
+        "an agent kind beats its workspace"
+    );
     assert_eq!(
         name(&sounds, SoundEvent::NeedsInput),
         pair("Frog", "workspace:ws_1"),
@@ -397,13 +435,18 @@ fn none_mutes_a_level_but_a_more_specific_level_still_plays() {
     sounds.workspaces.insert("ws_1".into(), rule(None, None, &[(SoundEvent::NeedsInput, "Ping")]));
     assert_eq!(sounds.choice(SoundEvent::NeedsInput, &scope(), "Glass").unwrap().name, "Ping");
     assert_eq!(sounds.choice(SoundEvent::Finished, &scope(), "Glass"), None);
-    assert_eq!(SoundPreferences::default().choice(SoundEvent::Bell, &scope(), ""), None, "an empty name is silent");
+    assert_eq!(
+        SoundPreferences::default().choice(SoundEvent::Bell, &scope(), ""),
+        None,
+        "an empty name is silent"
+    );
 }
 
 #[test]
 fn volume_is_the_nearest_levels_share_of_the_master() {
     let mut sounds = SoundPreferences { volume: 0.5, ..SoundPreferences::default() };
-    let volume = |s: &SoundPreferences| s.choice(SoundEvent::Finished, &scope(), "Glass").unwrap().volume;
+    let volume =
+        |s: &SoundPreferences| s.choice(SoundEvent::Finished, &scope(), "Glass").unwrap().volume;
     assert_eq!(volume(&sounds), 0.5);
     sounds.groups.insert("grp_outer".into(), rule(None, Some(0.5), &[]));
     assert_eq!(volume(&sounds), 0.25);
@@ -418,9 +461,14 @@ fn a_burst_sounds_once_but_a_more_urgent_event_still_plays() {
     use SoundEvent::*;
     let mut last = None;
     let mut admitted = Vec::new();
-    for (event, ms) in
-        [(Finished, 0), (Finished, 200), (Bell, 400), (NeedsInput, 600), (Finished, 1000), (Finished, 2200)]
-    {
+    for (event, ms) in [
+        (Finished, 0),
+        (Finished, 200),
+        (Bell, 400),
+        (NeedsInput, 600),
+        (Finished, 1000),
+        (Finished, 2200),
+    ] {
         let (yes, newest) = admit(event, 1000.0 + f64::from(ms) / 1000.0, 1.5, last);
         admitted.push(yes);
         last = newest;
@@ -458,7 +506,10 @@ fn a_burst_of_ten_finishes_sounds_once_and_an_ask_still_sounds() {
     }
     assert_eq!(played, ["Glass", "Ping"]);
     now += 2.0;
-    assert!(admit(SoundEvent::Finished, now, 1.5, last).0, "after the cooldown a finish sounds again");
+    assert!(
+        admit(SoundEvent::Finished, now, 1.5, last).0,
+        "after the cooldown a finish sounds again"
+    );
 }
 
 // MARK: Menu, palette and CLI edits
@@ -474,32 +525,61 @@ fn an_edit_sets_inherits_or_clears_a_level() {
         "inherit for one event clears only it"
     );
     let cleared = apply_rule(&edited, Some("inherit"), None, None);
-    assert_eq!(cleared, rule(None, Some(0.5), &[]), "inherit for every event keeps only the volume");
+    assert_eq!(
+        cleared,
+        rule(None, Some(0.5), &[]),
+        "inherit for every event keeps only the volume"
+    );
     assert!(apply_rule(&SoundRule::default(), Some("inherit"), None, None).is_empty());
-    assert_eq!(apply_rule(&edited, None, None, Some(7.0)).volume, Some(1.0), "a volume clamps to 0...1");
+    assert_eq!(
+        apply_rule(&edited, None, None, Some(7.0)).volume,
+        Some(1.0),
+        "a volume clamps to 0...1"
+    );
 }
 
 #[test]
 fn a_level_edit_writes_its_whole_map_or_removes_it() {
     let sounds = SoundPreferences::default();
-    let edit = edit_sounds(&sounds, &SoundLevel::Workspace("ws_1".into()), Some("Frog"), None, None);
+    let edit =
+        edit_sounds(&sounds, &SoundLevel::Workspace("ws_1".into()), Some("Frog"), None, None);
     assert_eq!(edit.path, ["notifications", "sounds", "workspaces"]);
     assert_eq!(edit.value, Some(json!({"ws_1": {"sound": "Frog"}})));
     assert_eq!(edit.sounds.workspaces["ws_1"], rule(Some("Frog"), None, &[]));
-    let back = edit_sounds(&edit.sounds, &SoundLevel::Workspace("ws_1".into()), Some("inherit"), None, None);
+    let back = edit_sounds(
+        &edit.sounds,
+        &SoundLevel::Workspace("ws_1".into()),
+        Some("inherit"),
+        None,
+        None,
+    );
     assert_eq!(back.value, None, "an empty map is removed");
     assert!(back.sounds.workspaces.is_empty());
 
-    let edit = edit_sounds(&sounds, &SoundLevel::Event(SoundEvent::Bell), Some("Tink"), None, Some(0.2));
+    let edit =
+        edit_sounds(&sounds, &SoundLevel::Event(SoundEvent::Bell), Some("Tink"), None, Some(0.2));
     assert_eq!(edit.path, ["notifications", "sounds", "events", "bell"]);
     assert_eq!(edit.value, Some(json!("Tink")));
     assert_eq!(edit.sounds.volume, 1.0, "an event's edit ignores the volume");
-    let back = edit_sounds(&edit.sounds, &SoundLevel::Event(SoundEvent::Bell), Some("inherit"), None, None);
+    let back = edit_sounds(
+        &edit.sounds,
+        &SoundLevel::Event(SoundEvent::Bell),
+        Some("inherit"),
+        None,
+        None,
+    );
     assert_eq!(back.value, None);
-    let kept = edit_sounds(&edit.sounds, &SoundLevel::Event(SoundEvent::Bell), None, None, Some(0.5));
+    let kept =
+        edit_sounds(&edit.sounds, &SoundLevel::Event(SoundEvent::Bell), None, None, Some(0.5));
     assert_eq!(kept.value, Some(json!("Tink")), "no sound keeps the event's");
 
-    let edit = edit_sounds(&sounds, &SoundLevel::Agent("codex".into()), Some("Hero"), Some(SoundEvent::Finished), Some(0.5));
+    let edit = edit_sounds(
+        &sounds,
+        &SoundLevel::Agent("codex".into()),
+        Some("Hero"),
+        Some(SoundEvent::Finished),
+        Some(0.5),
+    );
     assert_eq!(edit.path, ["notifications", "sounds", "agents"]);
     assert_eq!(edit.value, Some(json!({"codex": {"volume": 0.5, "events": {"finished": "Hero"}}})));
     let edit = edit_sounds(&sounds, &SoundLevel::Group("grp".into()), Some("Pop"), None, None);
@@ -520,10 +600,17 @@ fn the_checked_sound_is_the_levels_own_or_inherit() {
 #[test]
 fn a_preview_plays_the_scopes_sound_unless_muted() {
     let mut prefs = Preferences::default();
-    prefs.sources.insert(Source::Terminal, SourceOverrides { sound: Some("Tink".into()), ..Default::default() });
+    prefs.sources.insert(
+        Source::Terminal,
+        SourceOverrides { sound: Some("Tink".into()), ..Default::default() },
+    );
     let ws = SoundScope { workspace: Some("ws_1".into()), ..SoundScope::default() };
     assert_eq!(preview_choice(&prefs, &ws, SoundEvent::Finished).unwrap().name, "default");
-    assert_eq!(preview_choice(&prefs, &ws, SoundEvent::Bell).unwrap().name, "Tink", "a bell falls back to the terminal's sound");
+    assert_eq!(
+        preview_choice(&prefs, &ws, SoundEvent::Bell).unwrap().name,
+        "Tink",
+        "a bell falls back to the terminal's sound"
+    );
     assert_eq!(source_of_event(SoundEvent::Message), Source::Cli);
     prefs.muted_workspaces.insert("ws_1".into());
     assert_eq!(preview_choice(&prefs, &ws, SoundEvent::Finished), None);
@@ -555,14 +642,26 @@ fn quiet_hours_read_hh_mm_and_wrap_past_midnight() {
 fn a_remote_mute_saved_before_qualified_keys_stays_muted() {
     let keys = BTreeSet::from(["ws_lab".to_owned()]);
     let none = BTreeSet::new();
-    assert!(mutes(&keys, "lab", "ws_lab", "local", &none), "an earlier build's remote mute was dropped on upgrade");
+    assert!(
+        mutes(&keys, "lab", "ws_lab", "local", &none),
+        "an earlier build's remote mute was dropped on upgrade"
+    );
     assert_eq!(workspace_ids(&keys, "lab", "local", &none), keys);
-    assert_eq!(legacy_remote_key(&keys, "lab", "ws_lab", "local", &none).as_deref(), Some("ws_lab"));
+    assert_eq!(
+        legacy_remote_key(&keys, "lab", "ws_lab", "local", &none).as_deref(),
+        Some("ws_lab")
+    );
     let local_has = BTreeSet::from(["ws_lab".to_owned()]);
-    assert!(!mutes(&keys, "lab", "ws_lab", "local", &local_has), "a local mute reached a forked machine's same-id workspace");
+    assert!(
+        !mutes(&keys, "lab", "ws_lab", "local", &local_has),
+        "a local mute reached a forked machine's same-id workspace"
+    );
     assert!(workspace_ids(&keys, "lab", "local", &local_has).is_empty());
     let other = BTreeSet::from([qualified("other", "ws_lab")]);
-    assert!(workspace_ids(&other, "lab", "local", &none).is_empty(), "another machine's qualified key read as a bare id");
+    assert!(
+        workspace_ids(&other, "lab", "local", &none).is_empty(),
+        "another machine's qualified key read as a bare id"
+    );
 }
 
 #[test]
@@ -574,10 +673,18 @@ fn a_remote_sound_rule_saved_before_qualified_keys_still_applies() {
             if local_has { BTreeSet::from(["ws_lab".to_owned()]) } else { BTreeSet::new() };
         rule_key("lab", "ws_lab", "local", &rules, &local)
     };
-    assert_eq!(key(&["ws_lab"], false), "ws_lab", "an earlier build's remote sound rule was dropped on upgrade");
+    assert_eq!(
+        key(&["ws_lab"], false),
+        "ws_lab",
+        "an earlier build's remote sound rule was dropped on upgrade"
+    );
     assert_eq!(key(&[], false), q);
     assert_eq!(key(&["ws_lab", &q], false), q);
-    assert_eq!(key(&["ws_lab"], true), q, "a local workspace's rule reached a forked machine's same-id workspace");
+    assert_eq!(
+        key(&["ws_lab"], true),
+        q,
+        "a local workspace's rule reached a forked machine's same-id workspace"
+    );
     let all = BTreeSet::from(["ws_lab".to_owned()]);
     assert_eq!(rule_key("local", "ws_lab", "local", &BTreeSet::new(), &all), "ws_lab");
 }
@@ -587,7 +694,11 @@ fn qualified_keys_encode_both_parts_and_decode_for_their_machine() {
     assert_eq!(qualified("lab", "ws_1"), "machine:bGFi:workspace:d3NfMQ==");
     assert_eq!(settings_key("local", "ws_1", "local"), "ws_1");
     assert_eq!(settings_key("lab", "ws_1", "local"), qualified("lab", "ws_1"));
-    let keys = BTreeSet::from([qualified("lab", "ws_1"), "machine:bGFi:workspace:!!".to_owned(), "ws_2".to_owned()]);
+    let keys = BTreeSet::from([
+        qualified("lab", "ws_1"),
+        "machine:bGFi:workspace:!!".to_owned(),
+        "ws_2".to_owned(),
+    ]);
     assert_eq!(
         workspace_ids(&keys, "lab", "local", &BTreeSet::new()),
         BTreeSet::from(["ws_1".to_owned(), "ws_2".to_owned()]),
@@ -616,7 +727,11 @@ fn defaults_and_ranges_match_the_schema_source() {
     let number = |key: &str, default: f64, (lo, hi): (f64, f64)| {
         let row = rows[key];
         assert_eq!(row["default"].as_f64(), Some(default), "{key} default");
-        assert_eq!((row["range"]["min"].as_f64(), row["range"]["max"].as_f64()), (Some(lo), Some(hi)), "{key} range");
+        assert_eq!(
+            (row["range"]["min"].as_f64(), row["range"]["max"].as_f64()),
+            (Some(lo), Some(hi)),
+            "{key} range"
+        );
     };
     number("notifications.timeoutSeconds", defaults::TIMEOUT, defaults::TIMEOUT_RANGE);
     number("notifications.suppressWhileTypingSeconds", defaults::TYPING, defaults::TYPING_RANGE);
@@ -642,16 +757,23 @@ fn defaults_and_ranges_match_the_schema_source() {
         assert_eq!(&rows[key]["default"], got, "{key}");
     }
     for (key, names) in [
-        ("notifications.dismissal", Dismissal::ALL.iter().map(|c| c.name()).collect::<BTreeSet<_>>()),
+        (
+            "notifications.dismissal",
+            Dismissal::ALL.iter().map(|c| c.name()).collect::<BTreeSet<_>>(),
+        ),
         ("notifications.desktop", DesktopMode::ALL.iter().map(|c| c.name()).collect()),
         ("notifications.dockBounce", DockBounce::ALL.iter().map(|c| c.name()).collect()),
         ("notifications.showPreviews", Previews::ALL.iter().map(|c| c.name()).collect()),
         ("notifications.toast.style", ToastStyle::ALL.iter().map(|c| c.name()).collect()),
-        ("feed.mirrorNotifications.terminal", FeedTerminalMirror::ALL.iter().map(|c| c.name()).collect()),
+        (
+            "feed.mirrorNotifications.terminal",
+            FeedTerminalMirror::ALL.iter().map(|c| c.name()).collect(),
+        ),
         ("notifications.sounds.when", SoundTiming::ALL.iter().map(|c| c.name()).collect()),
     ] {
         let Some(choices) = rows[key]["choices"].as_array() else { continue };
         let schema: BTreeSet<&str> = choices.iter().map(|c| c["value"].as_str().unwrap()).collect();
-        assert_eq!(schema, names, "{key} choices");
+        // The schema lists what the settings UI offers; the parse accepts every Swift case.
+        assert!(schema.is_subset(&names), "{key} choices: {schema:?} not all in {names:?}");
     }
 }

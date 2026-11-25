@@ -124,7 +124,7 @@ pub(super) fn css_hex(text: &str) -> Option<String> {
     let mut value = u64::from_str_radix(digits, 16).ok()?;
     if digits.len() == 3 {
         let (r, g, b) = ((value >> 8) & 0xF, (value >> 4) & 0xF, value & 0xF);
-        value = (r * 17) << 16 | (g * 17) << 8 | b * 17;
+        value = ((r * 17) << 16) | ((g * 17) << 8) | (b * 17);
     }
     if digits.len() == 8 && value & 0xFF != 0xFF {
         return Some(format!("#{value:08X}"));
@@ -138,7 +138,8 @@ pub(super) fn css_hex(text: &str) -> Option<String> {
 /// The preferences in `root` (the whole cmux.json value) and the problems with them.
 pub fn parse(root: &Value) -> (Preferences, Vec<Diagnostic>) {
     let mut out = Vec::new();
-    let mut prefs = Preferences { feed_mirror: feed_mirror(root, &mut out), ..Preferences::default() };
+    let mut prefs =
+        Preferences { feed_mirror: feed_mirror(root, &mut out), ..Preferences::default() };
     let Some(mut reader) = Reader::at(root, &["notifications"], &mut out) else {
         return (prefs, out);
     };
@@ -177,7 +178,8 @@ pub fn parse(root: &Value) -> (Preferences, Vec<Diagnostic>) {
     prefs.muted_workspaces = muted_workspaces(root, &mut out);
     prefs.sounds = sounds(root, &mut out);
     for &source in Source::ALL {
-        let Some(mut entry) = Reader::at(root, &["notifications", "sources", source.name()], &mut out)
+        let Some(mut entry) =
+            Reader::at(root, &["notifications", "sources", source.name()], &mut out)
         else {
             continue;
         };
@@ -326,7 +328,10 @@ fn rules(root: &Value, key: &str, out: &mut Vec<Diagnostic>) -> BTreeMap<String,
 pub fn parse_rule(value: &Value) -> (Option<SoundRule>, Vec<String>) {
     let mut problems = Vec::new();
     if let Some(text) = value.as_str() {
-        return (Some(SoundRule { sound: Some(text.to_owned()), ..SoundRule::default() }), problems);
+        return (
+            Some(SoundRule { sound: Some(text.to_owned()), ..SoundRule::default() }),
+            problems,
+        );
     }
     let Some(members) = value.as_object() else {
         problems.push("expected a sound name or {\"sound\", \"volume\", \"events\"}".to_owned());

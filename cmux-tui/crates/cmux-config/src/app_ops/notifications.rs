@@ -144,7 +144,10 @@ fn rule_accepts(request: &Value) -> Result<Value, OpError> {
 }
 
 /// `sound`, `event` and `volume` of an edit; an empty sound is no sound.
-fn change(request: &Value) -> Result<(Option<String>, Option<SoundEvent>, Option<f64>), OpError> {
+/// One edit: the sound, the event it is for, the volume.
+type Change = (Option<String>, Option<SoundEvent>, Option<f64>);
+
+fn change(request: &Value) -> Result<Change, OpError> {
     let sound: Option<String> = optional(request, "sound")?;
     let event: Option<SoundEvent> = optional(request, "event")?;
     let volume: Option<f64> = optional(request, "volume")?;
