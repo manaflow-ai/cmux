@@ -140,10 +140,10 @@ pub(super) fn move_tab_to_new_workspace(
 ) -> anyhow::Result<Value> {
     validate_client_transaction(transaction.as_deref())?;
     get_surface(mux, surface)?;
-    let source_key = mux.surface_workspace_key(surface);
+    let source_key = mux.placed_workspace_key(surface);
     let workspace =
         mux.move_tab_to_new_workspace_as(&actor, surface, group.clone(), index, name)?;
-    mux.inherit_room_pin(source_key, mux.surface_workspace_key(surface));
+    mux.inherit_room_pin(source_key, mux.workspace_key_by_id(workspace));
     mux.emit_tab_changed_for_transaction(surface, transaction.map(Arc::from));
     let (key, workspace_index) = mux
         .with_state(|state| {
@@ -350,14 +350,14 @@ pub(super) fn move_tab_group_to_new_workspace(
         .tab_group_outcome(&group)
         .members
         .first()
-        .and_then(|surface| mux.surface_workspace_key(*surface));
+        .and_then(|surface| mux.placed_workspace_key(*surface));
     let outcome = mux.move_tab_group_as(
         &actor,
         &group,
         crate::TabGroupDestination::NewWorkspace { group: workspace_group, index },
         transaction.as_deref(),
     )?;
-    let moved_key = outcome.members.first().and_then(|surface| mux.surface_workspace_key(*surface));
+    let moved_key = outcome.workspace.and_then(|workspace| mux.workspace_key_by_id(workspace));
     mux.inherit_room_pin(source_key, moved_key);
     Ok(tab_group_outcome_json(&outcome))
 }

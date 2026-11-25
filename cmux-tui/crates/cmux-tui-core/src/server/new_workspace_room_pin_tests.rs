@@ -32,7 +32,7 @@ fn pinned_source(name: &str) -> (Arc<Mux>, String, String, [SurfaceId; 3]) {
     let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
     let second = mux.new_tab(Some(pane), None, None).unwrap().id;
     let third = mux.new_tab(Some(pane), None, None).unwrap().id;
-    let key = mux.surface_workspace_key(first).expect("canonical workspace key");
+    let key = mux.placed_workspace_key(first).expect("canonical workspace key");
     run(&mux, json!({"cmd":"create-profile","profile":"prof_work","name":"Work"})).unwrap();
     run(
         &mux,
@@ -61,10 +61,10 @@ fn a_tab_group_moved_to_a_new_workspace_keeps_its_space() {
         run(&mux, json!({"cmd":"create-tab-group","surfaces":[first, second],"name":"Build"}))
             .unwrap();
     let group = created["group"]["id"].as_str().unwrap().to_string();
-    run(&mux, json!({"cmd":"move-tab-group-to-new-workspace","group":group})).unwrap();
-    let key = mux.surface_workspace_key(first).unwrap();
+    let moved = run(&mux, json!({"cmd":"move-tab-group-to-new-workspace","group":group})).unwrap();
+    let key = mux.placed_workspace_key(first).unwrap();
     assert_ne!(key, source);
-    assert_eq!(pin_of(&mux, &own, &key).as_deref(), Some("prof_work"));
+    assert_eq!(pin_of(&mux, &own, &key).as_deref(), Some("prof_work"), "{moved}");
     mux.shutdown();
 }
 
