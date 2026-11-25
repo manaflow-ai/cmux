@@ -14,7 +14,7 @@
 // it when it can be dismissed. Native calls forward into the same card through the host's cards
 // (toolCards) rather than drawing their own.
 import { Checkbox } from "@base-ui/react/checkbox";
-import { useId, type KeyboardEvent, type ReactNode, useRef } from "react";
+import { useId, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { Spinner } from "../agent-session/acpmux/conversation/Spinner";
 import { Button } from "./Button";
 import { cx } from "./cx";
@@ -183,6 +183,9 @@ export function Notice({
       data-placement={placement}
       data-state={state}
       data-look={v2 ? look : undefined}
+      // One material per surface (#50119): a host-glass toast is the App's toast glass (above); every
+      // other notice keeps the page's glass.
+      data-page-glass={floats ? undefined : "an inline or banner notice, or a toast the App draws no glass under"}
       role={role}
       aria-live={role === "group" ? "polite" : undefined}
       aria-labelledby={title ? titleId : message ? messageId : undefined}
