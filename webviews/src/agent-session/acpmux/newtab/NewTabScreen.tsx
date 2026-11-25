@@ -4,6 +4,7 @@ import type { ExtraFolderControl } from "../extraFolders";
 import { authBlocksSend, authText, useSessionAuth, authLoginText, authParty } from "../sessionAuth";
 import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
+import { agentKey } from "../../shared/agentKey";
 import { watchFocusVisible } from "../focusVisibleMark";
 import React, {
   useCallback,
@@ -1164,8 +1165,11 @@ export function NewTabScreen(props: Props) {
   const ask = harness
     ? { harness, agent: agentName(harness, askEntry?.name), ...(askModel ? { model: askModel } : {}) }
     : undefined;
-  // Shell mode's text is a command line, where a `/` starts a path.
-  const commandAt = shell ? undefined : commandTrigger;
+  // Shell mode's text is a command line, where a `/` starts a path. A `$word` is Codex's skill mark:
+  // it opens the menu only while the chat starts on Codex (Lucas 2026-11-24), else it is a price or a
+  // shell variable.
+  const commandAt =
+    shell || (commandTrigger?.mark === "$" && agentKey(harness) !== "codex") ? undefined : commandTrigger;
   const commandQuery = commandAt?.query;
   // The `/` menu's commands: the agent's, cmux's and the extensions'. Computer use and browser use
   // (toolMentions.ts) are plugins, listed only after `@` (Lucas 2026-11-24).
