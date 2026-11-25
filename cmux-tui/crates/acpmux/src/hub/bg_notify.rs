@@ -168,6 +168,9 @@ impl Hub {
         }
         let session = self.session_get(session_id);
         let Some(session) = session else { return };
+        // The task no longer holds its chat's idle period up (`idle_governor.rs`): the reaper
+        // takes the new deadline.
+        self.idle_wake.notify_one();
         if session.closing.load(Ordering::SeqCst)
             || session.purged.load(Ordering::SeqCst)
             || session.status() == SessionStatus::Closed
