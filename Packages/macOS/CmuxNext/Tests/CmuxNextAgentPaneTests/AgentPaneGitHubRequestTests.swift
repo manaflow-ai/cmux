@@ -112,22 +112,22 @@ struct AgentPaneGitHubRequestTests {
             (.unreachable, "github.unavailable", AgentPaneModel.gitHubUnavailableMessage),
         ]
         for (reason, code, message) in cases {
-            let reply = await AgentPaneGitHubRequest.connect.reply(Self.gitHub(status: .unavailable(reason), connect: .unavailable(reason))) { true }
+            let reply = await AgentPaneGitHubRequest.connect(repo: nil).reply(Self.gitHub(status: .unavailable(reason), connect: .unavailable(reason))) { true }
             #expect((reply["error"] as? [String: Any])?["code"] as? String == code)
             #expect((reply["error"] as? [String: Any])?["userMessage"] as? String == message)
         }
-        let connected = await AgentPaneGitHubRequest.connect.reply(Self.gitHub(connect: .alreadyConnected)) { true }
+        let connected = await AgentPaneGitHubRequest.connect(repo: nil).reply(Self.gitHub(connect: .alreadyConnected)) { true }
         #expect((connected["value"] as? [String: Any])?["opened"] as? Bool == false)
-        let none = await AgentPaneGitHubRequest.connect.reply(nil) { true }
+        let none = await AgentPaneGitHubRequest.connect(repo: nil).reply(nil) { true }
         #expect((none["error"] as? [String: Any])?["code"] as? String == "github.unavailable")
     }
 
     @Test func connectNeedsTheClickAndSaysWhetherItOpened() async {
-        let noClick = await AgentPaneGitHubRequest.connect.reply(Self.gitHub()) { false }
+        let noClick = await AgentPaneGitHubRequest.connect(repo: nil).reply(Self.gitHub()) { false }
         #expect((noClick["error"] as? [String: Any])?["code"] as? String == AgentPaneTransportError.gestureRequired.rawValue)
-        let opened = await AgentPaneGitHubRequest.connect.reply(Self.gitHub()) { true }
+        let opened = await AgentPaneGitHubRequest.connect(repo: nil).reply(Self.gitHub()) { true }
         #expect((opened["value"] as? [String: Any])?["opened"] as? Bool == true)
-        let failed = await AgentPaneGitHubRequest.connect.reply(Self.gitHub(connect: .failed("Sign in to cmux to connect GitHub."))) { true }
+        let failed = await AgentPaneGitHubRequest.connect(repo: nil).reply(Self.gitHub(connect: .failed("Sign in to cmux to connect GitHub."))) { true }
         #expect((failed["error"] as? [String: Any])?["code"] as? String == "github.connect_failed")
         #expect((failed["error"] as? [String: Any])?["userMessage"] as? String == "Sign in to cmux to connect GitHub.")
     }

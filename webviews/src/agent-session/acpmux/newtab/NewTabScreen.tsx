@@ -17,6 +17,7 @@ import React, {
   useInsertionEffect,
 } from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
+import { useKeyStyleSettings, useListKeys } from "../../../ui/useListKeys";
 import type { ConnectKind } from "../environments";
 import { githubFolder, githubFolderRepo } from "../githubRepos";
 import { useSendAfterCheckout } from "../sendAfterCheckout";
@@ -37,9 +38,9 @@ import {
   isAgentHome,
   projectLabel,
   sessionMark,
-  isTemporaryFolder,
   SessionsBy,
   FolderRecency,
+  isTemporaryFolder,
 } from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
@@ -169,6 +170,7 @@ import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
 import { reportInputReadyWhenFocused } from "./inputReady";
 import { rememberNewChatPlace } from "../lastNewChatPlace";
+import type { EvacuateState } from "../place/placeModel";
 import type { ComputerUsePlace } from "../computerUse/computerUseState";
 import { KEYCAP_THEN, keycapLegend, keycapStrokes } from "../../../ui/keycapLegend";
 
@@ -232,6 +234,13 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// A chat card's Compress Chat or Decompress Chat: acpmux's cold archive (`_acpmux/cold_archive`) of
   /// that session. It rejects with acpmux's refusal (a chat under way), which the page shows.
   onColdArchive?(sessionId: string, archived: boolean): Promise<unknown>;
+  /// The chat cards' place and Evacuate menu rows (newtab/ChatCards.tsx); omitted where the page cannot ask the app.
+  onPlace?(sessionId: string, mode: "local" | "cloud" | "auto"): void;
+  onEvacuate?(sessions?: readonly string[]): void;
+  /// The running Evacuate and its Cancel (place/EvacuateControl.tsx).
+  evacuate?: EvacuateState;
+  onCancelEvacuate?(): void;
+  onBringBack?(sessions?: readonly string[]): void;
   onViewChat?(key: string): void;
   /// One page of All chats from the host (`chats.page`); without it the page shows no All chats list.
   loadChatsPage?: LoadChatsPage;
@@ -1914,6 +1923,52 @@ export function NewTabScreen(props: Props) {
   const placeholder = profilePick ? nt("profile.placeholder", { site: shortHost(profilePick.url) }) : nt("placeholder");
   // A dictation waiting for words says so in the empty field, in italic (dictation.css).
   const dictating = props.dictating === true;
+  // `app.keyStyle`. The prompt keeps its typing (Emacs' Ctrl-N/P are listStep's arrows already);
+  // Vim's Esc (Emacs' Ctrl-G) on open suggestions gives the keyboard to them, where j/k, gg/G and l
+  // or Return step and run them as the arrows and Return do, and / goes back to the prompt. A key
+  // the rows take never reaches the type-to-field listener (`typeAnywhere`: it is prevented, and
+  // the listbox owns its keys).
+  const rowsTakeKeys = useKeyStyleSettings().keyStyle !== "standard";
+  const fieldKeys = useListKeys({
+    onCommand: (command) => {
+      if (command !== "list.leave" || !rows.length || !list.current) return false;
+      focusRoute(list.current, "person", "key style list key", { preventScroll: true });
+    },
+  });
+  const rowKeys = useListKeys({
+    onCommand: (command) => {
+      if (!rows.length) return false;
+      switch (command) {
+        case "list.next":
+          pick(stepSelection(current, 1, rows.length));
+          return;
+        case "list.previous":
+          pick(stepSelection(current, -1, rows.length));
+          return;
+        case "list.first":
+          return pick(0);
+        case "list.last":
+          return pick(rows.length - 1);
+        case "list.open":
+          return void submit();
+        case "list.search":
+          return void focusRoute(field.current, "person", "key style list key");
+        case "list.leave":
+          // The field's first Escape: the suggestions close, the prompt has the keyboard again.
+          setDismissed(text);
+          return void focusRoute(field.current, "person", "key style list key");
+        default:
+          return false;
+      }
+    },
+  });
+  const rowsKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    rowKeys(event);
+    const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+    if (event.defaultPrevented || event.key !== "Enter" || !plain || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    submit();
+  };
   const keyDown = (event: KeyboardEvent) => {
     touch();
     if (composing.current || event.isComposing || event.keyCode === 229) return;
@@ -1921,6 +1976,11 @@ export function NewTabScreen(props: Props) {
     const input = field.current;
     const state = fieldText();
     if (!input) return;
+    // The profile search, the command list and shell mode keep their own Escape.
+    if (!profilePick && !commandsOpen && !shell) {
+      fieldKeys(event);
+      if (event.defaultPrevented) return;
+    }
     if (profilePick) {
       // The profile search keeps the rows' keys; Escape, or Backspace in its empty field, goes back.
       if (event.key === "Escape" || (event.key === "Backspace" && !state.value)) {
@@ -2571,6 +2631,11 @@ export function NewTabScreen(props: Props) {
           onOpen={openCard}
           {...(props.onOpenChatInTerminal ? { onOpenInTerminal: openCardInTerminal } : {})}
           {...(props.onColdArchive ? { onColdArchive: coldArchiveCard } : {})}
+          {...(props.onPlace ? { onPlace: props.onPlace } : {})}
+          {...(props.onEvacuate ? { onEvacuate: props.onEvacuate } : {})}
+          {...(props.evacuate ? { evacuate: props.evacuate } : {})}
+          {...(props.onBringBack ? { onBringBack: props.onBringBack } : {})}
+          {...(props.onCancelEvacuate ? { onCancelEvacuate: props.onCancelEvacuate } : {})}
           onShowAll={props.onShowAll}
         />
       )}
@@ -3020,6 +3085,8 @@ export function NewTabScreen(props: Props) {
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="listbox"
             aria-label={nt("suggestions")}
+            tabIndex={rowsTakeKeys ? -1 : undefined}
+            onKeyDown={rowsKeyDown}
           >
             {rows.map((row, index) => (
               <div
