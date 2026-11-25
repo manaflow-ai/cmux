@@ -530,11 +530,11 @@ mod imp {
         set
     }
 
-    pub(super) fn tree_pids(pid: u32, _max: usize) -> Vec<u32> {
+    pub(super) fn tree_pids(pid: u32, max: usize) -> Vec<u32> {
         let Some(root) = libc::c_int::try_from(pid).ok().filter(|p| *p > 0) else {
             return Vec::new();
         };
-        tree(root).into_iter().filter_map(|(p, _)| u32::try_from(p).ok()).collect()
+        tree_bounded(root, max).into_iter().filter_map(|(p, _)| u32::try_from(p).ok()).collect()
     }
 
     pub(super) fn is_background(pid: u32) -> Option<bool> {
@@ -571,17 +571,23 @@ mod imp {
     /// with the process that started it (`root`'s own is 0). Only the descendants of a harness
     /// acpmux spawned and holds: no other process is listed.
     fn tree(root: libc::c_int) -> Vec<(libc::c_int, libc::c_int)> {
+        tree_bounded(root, TREE_MAX)
+    }
+
+    /// [`tree`] with its bound `max`.
+    fn tree_bounded(root: libc::c_int, max: usize) -> Vec<(libc::c_int, libc::c_int)> {
+        let max = max.max(1);
         let mut all = vec![(root, 0)];
         let mut next = 0;
-        while next < all.len() && all.len() < TREE_MAX {
+        let mut kids = vec![0 as libc::c_int; max];
+        while next < all.len() && all.len() < max {
             let parent = all[next].0;
-            let mut kids = [0 as libc::c_int; TREE_MAX];
-            let bytes = libc::c_int::try_from(std::mem::size_of_val(&kids)).unwrap_or(0);
+            let bytes = libc::c_int::try_from(std::mem::size_of_val(kids.as_slice())).unwrap_or(0);
             // SAFETY: the buffer holds `bytes` bytes of pids, which the kernel fills.
             let n = unsafe { libc::proc_listchildpids(parent, kids.as_mut_ptr().cast(), bytes) };
-            let n = usize::try_from(n).unwrap_or(0).min(TREE_MAX);
+            let n = usize::try_from(n).unwrap_or(0).min(max);
             for kid in kids[..n].iter().copied() {
-                if all.len() == TREE_MAX {
+                if all.len() == max {
                     break;
                 }
                 if kid > 0 && !all.iter().any(|(p, _)| *p == kid) {

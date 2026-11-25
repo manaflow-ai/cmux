@@ -1,4 +1,4 @@
-//! The dynamic CPU class (`dynamic`, the default): a session's harness and every process it
+//! The dynamic CPU class (`dynamic`, opt-in): a session's harness and every process it
 //! started yield to the GUI only while the Mac is actually contended, and get their CPU back
 //! within seconds once it is not (Leo, 2026-11-25: "lucas ran into slow stuff on the desktop gui
 //! app with claude bc he was at relatively high cpu and agents' tool calls ran at background
