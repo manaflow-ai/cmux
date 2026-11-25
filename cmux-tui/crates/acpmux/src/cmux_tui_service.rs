@@ -8,7 +8,8 @@
 //!   dials M's carrier circuit naming the [`CircuitService::CmuxTui`] service
 //!   (`HubCarrier::dial_service`), answers one JSON-RPC line, and from then on the socket
 //!   carries the circuit's bytes both ways. The CLI speaks the remote protocol over it
-//!   (WebSocket upgrade, Noise, device enrollment), as over TCP.
+//!   (WebSocket upgrade, Noise, device enrollment), as over TCP. `{machine, service:
+//!   "lane-gh-broker"}` reaches M's lane-gh broker instead (`hub_carrier_broker.rs`).
 //! - Serving side: [`ConfiguredGate`] lets a circuit through only to the loopback address the
 //!   owner named (`remoteDaemon`, `acpmux config --set remote_daemon=127.0.0.1:PORT`), only for
 //!   that port, and on a joined machine only while its "control" consent is granted
@@ -102,16 +103,22 @@ pub fn admit(
 /// was given, a key itself, or the name the hub lists the machine by (`acpmux machine ls`, the
 /// address book's host). This machine's own key is refused: the hub carries only between two of
 /// the person's machines, and its daemon is on loopback here.
+/// A pipe to the far machine's lane-gh broker (`service: "lane-gh-broker"`) names no port: its
+/// port is 0 here.
 async fn pipe_target(hub: &Hub, params: &Value) -> Result<(String, u16), RpcError> {
     let text = |key: &str| params.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
-    let port = params
-        .get("port")
-        .and_then(Value::as_u64)
-        .and_then(|p| u16::try_from(p).ok())
-        .filter(|p| *p != 0)
-        .ok_or_else(|| {
-            RpcError::invalid_params("port is required (the remote daemon's loopback port)")
-        })?;
+    let port = if is_broker_pipe(params) {
+        0
+    } else {
+        params
+            .get("port")
+            .and_then(Value::as_u64)
+            .and_then(|p| u16::try_from(p).ok())
+            .filter(|p| *p != 0)
+            .ok_or_else(|| {
+                RpcError::invalid_params("port is required (the remote daemon's loopback port)")
+            })?
+    };
     let carrier = hub.hub_carrier.get();
     let daemon = match (text("daemonId"), text("machine")) {
         (Some(key), _) => Some(key.to_owned()),
@@ -151,6 +158,13 @@ async fn pipe_target(hub: &Hub, params: &Value) -> Result<(String, u16), RpcErro
         .with_data(json!({"reason": "machine.self"})));
     }
     Ok((daemon, port))
+}
+
+/// Whether a `remote.pipe` asks for the far machine's lane-gh broker (RFD 0127 cut 2,
+/// `hub_carrier_broker.rs`) rather than its cmux-tui remote daemon.
+fn is_broker_pipe(params: &Value) -> bool {
+    params.get("service").and_then(Value::as_str)
+        == Some(crate::hub_carrier::LANE_GH_BROKER_SERVICE)
 }
 
 /// The `daemonId` of the one machine the hub's address book lists as `name` (its host, any
@@ -202,9 +216,12 @@ pub(crate) async fn serve_pipe<R, W>(
         })?;
         // The far machine's refusal keeps its own reason (`consent_required`, ...): the CLI
         // ends on one no redial cures and redials the rest (`machine.unreachable`).
+        // `service: "lane-gh-broker"`: the far machine's lane-gh broker (RFD 0127 cut 2).
         // `resume`: the far acpmux holds the pipe across this one's end (RFD 0127 cut 4,
         // `hub_carrier_resume.rs`); the client resumes it on its next pipe.
-        let service = if params.get("resume").and_then(Value::as_bool) == Some(true) {
+        let service = if is_broker_pipe(&params) {
+            CircuitService::LaneGhBroker
+        } else if params.get("resume").and_then(Value::as_bool) == Some(true) {
             CircuitService::CmuxTuiResume { port }
         } else {
             CircuitService::CmuxTui { port }
