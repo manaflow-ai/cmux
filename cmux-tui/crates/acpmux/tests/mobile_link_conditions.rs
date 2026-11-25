@@ -348,6 +348,61 @@ impl Link {
         Ok(link)
     }
 
+    /// The app's cold open on a first connection to this Mac: `initialize`, the watch and the
+    /// chat's opening attach in one burst, the attach with every kind the phone draws (elevation
+    /// included: it knows no capabilities yet). An acpmux too old for that many kinds refuses the
+    /// attach; the phone then asks again with the kinds `initialize` named (one more round trip,
+    /// as before). Returns the open link, the attach reply's arrival and the reply.
+    async fn open_pipelined(
+        addr: std::net::SocketAddr,
+        token: &str,
+        session: &str,
+        deadline: Instant,
+    ) -> Result<(Self, Instant, Value), String> {
+        let dialed = Instant::now();
+        let mut link = tokio::time::timeout_at(deadline, Self::dial(addr))
+            .await
+            .map_err(|_| "connect timed out".to_owned())??;
+        link.upgraded = dialed.elapsed();
+        let mut every: Vec<&str> = CHAT_KINDS.to_vec();
+        every.extend(["elevation_request", "elevation_decision"]);
+        let meta = json!({"localAppToken": token, "omitTimeBreakdown": true});
+        let init = link
+            .post(
+                "initialize",
+                json!({"protocolVersion": 1, "clientInfo": {"name": "cmux-ios", "version": "1"},
+                       "clientCapabilities": {}, "_meta": {"acpmux": meta}}),
+            )
+            .await?;
+        let watch =
+            link.post("_acpmux/watch", json!({"enabled": true, "limit": WATCH_LIMIT})).await?;
+        let attach = link
+            .post(
+                "_acpmux/attach",
+                json!({"sessionId": session, "limit": PAGE_SIZE, "kinds": every,
+                       "eventStream": true, "maxBytes": OPEN_BYTES,
+                       "toolOutputMaxBytes": TOOL_OUTPUT_MAX_BYTES}),
+            )
+            .await?;
+        let (_, init) = link.answer(init, deadline).await?;
+        link.capabilities = init
+            .pointer("/_meta/acpmux/capabilities")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .unwrap_or_default();
+        link.answer(watch, deadline).await?;
+        let (at, reply) = match link.answer(attach, deadline).await {
+            Ok(answered) if link.kinds() == json!(every) => answered,
+            // Refused (an older acpmux), or this Mac serves no elevation records: ask again
+            // with the kinds `initialize` named.
+            _ => link.attach(session, None, deadline).await?,
+        };
+        if let Some(v) = reply.get("timeBreakdownVersion").and_then(Value::as_str) {
+            link.time_breakdown_version = Some(v.to_owned());
+        }
+        Ok((link, at, reply))
+    }
+
     /// The chat's attach; `after` for a reattach. Returns the reply's arrival and the reply.
     async fn attach(
         &mut self,
@@ -656,19 +711,22 @@ async fn cold_and_warm(
     shaper.reset_counters();
     let start = Instant::now();
     let deadline = start + BOUND;
-    let mut link = match Link::open(shaper.addr(), token, deadline).await {
-        Ok(l) => l,
-        Err(e) => {
-            for m in ["first_content_ms", "interactive_ms"] {
-                emit(&k, m, None);
-                emit_error(&k, m, &e);
+    // The app's cold open (AcpmuxHub.pipelineAttaches): the chat's attach rides with
+    // initialize and the watch, even on a first connection.
+    let (mut link, at, reply) =
+        match Link::open_pipelined(shaper.addr(), token, session, deadline).await {
+            Ok(opened) => opened,
+            Err(e) => {
+                for m in ["first_content_ms", "interactive_ms"] {
+                    emit(&k, m, None);
+                    emit_error(&k, m, &e);
+                }
+                return None;
             }
-            return None;
-        }
-    };
+        };
     // The newest record the app holds; the iOS reopen sends it as afterSeq.
     let mut last = 0u64;
-    match link.attach(session, None, deadline).await {
+    match Ok::<_, String>((at, reply)) {
         Ok((at, reply)) if !rows(&reply).is_empty() => {
             last = rows(&reply).into_iter().max().unwrap_or(0);
             emit(&k, "first_content_ms", Some(ms(at - start)));
