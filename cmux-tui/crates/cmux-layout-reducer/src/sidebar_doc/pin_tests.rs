@@ -131,6 +131,38 @@ fn batch_unpin_restores_sibling_order_for_either_selection_order() {
 }
 
 #[test]
+fn batch_unpin_returns_a_group_before_its_separately_pinned_child() {
+    let mut doc = fixture();
+    run(&mut doc, vec![Op::Pin { items: vec![item_id("w2")] }]);
+    run(&mut doc, vec![Op::Pin { items: vec!["g1".into()] }]);
+    run(&mut doc, vec![Op::Unpin { items: vec![item_id("w2"), "g1".into()] }]);
+    assert_eq!(list(&doc, &machine(), Some("g1")), ["w1", "w2", "w3"]);
+    assert_eq!(list(&doc, &machine(), None), ["w4", "g1", "w5"]);
+}
+
+#[test]
+fn batch_unpin_restores_a_separately_pinned_anchor_first() {
+    let mut doc = fixture();
+    run(&mut doc, vec![Op::Pin { items: vec![item_id("w3")] }]);
+    run(&mut doc, vec![Op::Pin { items: vec![item_id("w2")] }]);
+    run(&mut doc, vec![Op::Unpin { items: ["w3", "w2"].map(item_id).to_vec() }]);
+    assert_eq!(list(&doc, &machine(), Some("g1")), ["w1", "w2", "w3"]);
+}
+
+#[test]
+fn batch_unpin_uses_pinned_order_for_old_shared_places() {
+    let mut doc = fixture();
+    run(&mut doc, vec![Op::Pin { items: ["w2", "w3"].map(item_id).to_vec() }]);
+    for id in ["w2", "w3"] {
+        let mut item = doc.item(&item_id(id)).unwrap().clone();
+        item.extra.get_mut(UNPIN_TO_KEY).unwrap().as_object_mut().unwrap().remove("order");
+        apply_rows(&mut doc, &[Op::ItemPut { item }]);
+    }
+    run(&mut doc, vec![Op::Unpin { items: ["w2", "w3"].map(item_id).to_vec() }]);
+    assert_eq!(list(&doc, &machine(), Some("g1")), ["w1", "w2", "w3"]);
+}
+
+#[test]
 fn unpin_puts_a_first_member_back_first_in_its_group() {
     let mut doc = fixture();
     run(&mut doc, vec![Op::Pin { items: vec![item_id("w1")] }]);

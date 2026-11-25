@@ -795,6 +795,7 @@ fn place_run(
             let mut place = serde_json::Map::new();
             place.insert("section".into(), Value::String(item.section.clone()));
             place.insert("after".into(), after);
+            place.insert("order".into(), Value::String(item.order.clone()));
             if let Some(parent) = &item.parent {
                 place.insert("parent".into(), Value::String(parent.clone()));
             }
@@ -890,6 +891,63 @@ fn pin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
     place(tx, &moving, &Target::end(PINNED_SECTION_ID))
 }
 
+/// Return a selected parent or anchor before any row that remembers it. Rows
+/// that remember the same insertion point must return last sibling first:
+/// each insertion immediately after the shared anchor precedes the last one.
+fn unpin_order(doc: &Doc, ids: &[ItemId]) -> Result<Vec<ItemId>, Refusal> {
+    let selected: HashSet<_> = ids.iter().map(String::as_str).collect();
+    let mut stack = Vec::with_capacity(ids.len());
+    let mut sibling_runs: HashMap<_, Vec<_>> = HashMap::new();
+    for id in ids.iter().rev() {
+        let item = doc.item(id).ok_or(Refusal::UnknownItem)?;
+        stack.push((item, false));
+        if let Some(place) = item.extra.get(UNPIN_TO_KEY) {
+            let key = |field: &str| place.get(field).and_then(Value::as_str);
+            if let Some(section) = key("section") {
+                // Old places have no source order. Their order in Pinned is
+                // the only surviving order for siblings with the same place.
+                let order = key("order").unwrap_or(&item.order);
+                let run = sibling_runs.entry((section, key("parent"), key("after"))).or_default();
+                run.push((order, item));
+            }
+        }
+    }
+    let mut later_sibling = HashMap::new();
+    for run in sibling_runs.values_mut() {
+        run.sort_unstable_by_key(|(order, item)| (*order, item.id.as_str()));
+        for pair in run.windows(2) {
+            later_sibling.insert(pair[0].1.id.as_str(), pair[1].1);
+        }
+    }
+
+    let mut seen = HashSet::new();
+    let mut ordered = Vec::with_capacity(ids.len());
+    while let Some((item, ready)) = stack.pop() {
+        if ready {
+            ordered.push(item.id.clone());
+        } else if seen.insert(item.id.as_str()) {
+            stack.push((item, true));
+            if let Some(next) = later_sibling.get(item.id.as_str()) {
+                stack.push((next, false));
+            }
+            if let Some(place) = item.extra.get(UNPIN_TO_KEY) {
+                for field in ["after", "parent"] {
+                    if let Some(anchor) =
+                        place.get(field).and_then(Value::as_str).and_then(|id| doc.item(id))
+                    {
+                        // A member of a selected pinned tree comes back with its root.
+                        let root = doc.root(anchor);
+                        if selected.contains(root.id.as_str()) {
+                            stack.push((root, false));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(ordered)
+}
+
 /// Unpin. A member an older daemon pinned in its group (`extra.pinned`) goes
 /// right under the group's other pinned members; any other group member is not
 /// pinned and stays (a tree pinned with its top group unpins with it). An item
@@ -897,6 +955,13 @@ fn pin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
 /// (into its group when it was pinned from one) when that place is still
 /// there, else to the top of its own machine section.
 fn unpin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
+    let ordered;
+    let ids = if ids.len() > 1 {
+        ordered = unpin_order(tx.doc, ids)?;
+        &ordered
+    } else {
+        ids
+    };
     for id in ids {
         let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
         if item.pinned_in_group() {
