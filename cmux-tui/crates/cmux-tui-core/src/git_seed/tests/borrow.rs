@@ -168,7 +168,7 @@ fn mirror_and_promisors_are_refused_where_they_cannot_apply() {
         ("mirror", json!("/a\nb")),
         ("promisors", json!(["https://github.com/o/other.git"])),
         ("promisors", json!([URL, URL])),
-        ("promisors", json!(["/p"; 9])),
+        ("promisors", Value::from(vec!["/p"; 9])),
     ] {
         let mut params = world.start_params(&folder, &snapshot);
         params[key] = value.clone();
