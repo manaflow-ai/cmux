@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextPages
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -14,6 +15,10 @@ let cefEventCallback: CEFShimLibrary.EventFn = { context, kind, browser, request
         s1: s1.map { String(cString: $0) } ?? "", s2: s2.map { String(cString: $0) } ?? ""
     )
     let address = UInt(bitPattern: context)
+    #if DEBUG || CMUX_BENCH_HOOKS
+    // What each main-thread wake from Chromium was for (`debug.wakeups`): a page's DevTools session among them.
+    WakeupLedger.shared.record("CEF.event", reason: event.ledgerReason)
+    #endif
     // The shim emits on the CEF UI thread, which is the main thread. If a
     // future shim path emits elsewhere, hop instead of trapping in
     // assumeIsolated (the strings are already copied into `event`).
