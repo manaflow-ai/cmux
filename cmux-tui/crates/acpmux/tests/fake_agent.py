@@ -2267,11 +2267,11 @@ def main():
             sys.exit(1)
         if m in ("session/new", "session/load", "session/fork"):
             LAST_MCP_SERVERS = params.get("mcpServers")
-# FAKE_MCP_OUT=<dir>: each start writes the servers it was given to <dir>/<pid>.json.
-if os.environ.get("FAKE_MCP_OUT"):
-    os.makedirs(os.environ["FAKE_MCP_OUT"], exist_ok=True)
-    with open(os.path.join(os.environ["FAKE_MCP_OUT"], f"{os.getpid()}.json"), "w") as f:
-        json.dump(LAST_MCP_SERVERS, f)
+            # FAKE_MCP_OUT=<dir>: each start writes the servers it was given to <dir>/<pid>.json.
+            if os.environ.get("FAKE_MCP_OUT"):
+                os.makedirs(os.environ["FAKE_MCP_OUT"], exist_ok=True)
+                with open(os.path.join(os.environ["FAKE_MCP_OUT"], f"{os.getpid()}.json"), "w") as out:
+                    json.dump(LAST_MCP_SERVERS, out)
             LAST_DIRS = params.get("additionalDirectories")
         if m == "session/new" and os.environ.get("FAKE_CLASS_LOG"):
             with open(os.environ["FAKE_CLASS_LOG"], "a") as log:
