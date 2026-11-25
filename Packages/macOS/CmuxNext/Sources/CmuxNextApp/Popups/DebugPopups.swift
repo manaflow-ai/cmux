@@ -64,8 +64,7 @@ enum DebugPopups {
             "engine": .string(page.engineKind == .cef ? "chromium" : "webkit"),
             "frame": rect(panel.frame),
             "key": .bool(panel.isKeyWindow),
-            "visible": .bool(panel.isVisible),
-            "miniaturized": .bool(panel.isMiniaturized),
+            "visible": .bool(panel.isVisible), "miniaturized": .bool(panel.isMiniaturized),
             "child_of_window": .bool(panel.parent != nil),
             "traffic_lights": .array(lights),
             "location_bar": .object([
@@ -73,6 +72,7 @@ enum DebugPopups {
                 "shown": .bool(panel.isToolbarShown),
             ]),
             "window": parent.map { .string($0.state.id) } ?? .null,
+            "prompts": .array(page.pendingPrompts.map { .object(["kind": .string(String(describing: $0.kind))]) }), "prompt_shown": .bool(panel.showsPrompts),
             "opener_tab": services.popups.openerKey(of: page).map { .string($0) } ?? .null,
             "child_windows": .array((panel.childWindows ?? []).map { child in
                 .object(["frame": rect(child.frame), "key": .bool(child.isKeyWindow), "visible": .bool(child.isVisible)])

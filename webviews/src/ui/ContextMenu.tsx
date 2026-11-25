@@ -11,6 +11,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactElement,
   type ReactNode,
+  useMemo,
 } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "./cx";
@@ -18,11 +19,13 @@ import { MenuCheckGlyph } from "./MenuCheckGlyph";
 import { useScrollEdges } from "./scrollEdges";
 import { hasNativeMenuPick, nativeMenu, pickedId, type NativeMenuRow } from "./nativeMenu";
 import { useEscapingPopup, type AnchorBox } from "./popupHost";
+import { pointerAnchor, usePointerMenuPosition } from "./pointerMenuPosition";
 import { usePopupHost } from "./UiProvider";
 import { useNativePopup, type NativePopupDescription } from "./nativePopup";
 import type { NativePopupEvent } from "./popupProtocol";
 import { popupAction } from "./popupDescriptors";
 import { trackHeldMenuRelease } from "./pressRelease";
+import { usePopupSettle } from "./popupSettle";
 import { useExperimentArm } from "../experiments/useExperimentArm";
 import { menuStyleV2 } from "./menuStyleV2.experiment";
 import { menuRowStates } from "./menuRowStates.experiment";
@@ -103,7 +106,7 @@ const NATIVE_ROW_PX = 28;
  */
 /// The side the panel opens on: the page's flip applies only to the default "bottom"; a caller's own side stays.
 export function popupSide<S extends string>(callerSide: S, flipped: "top" | "bottom"): S | "top" {
-  return callerSide === "bottom" ? flipped : callerSide;
+  return callerSide === "bottom" ? (flipped as S | "top") : callerSide;
 }
 
 export function opensUp(y: number, rows: number, viewportHeight = window.innerHeight): boolean {
@@ -208,13 +211,12 @@ export function ContextMenu({
   });
   const [shown, setShown] = useState<HTMLDivElement | null>(null);
   const edges = useScrollEdges();
-  const attach = useCallback(
-    (node: HTMLDivElement | null) => {
-      menu.current = node;
-      if (host) setShown(node);
-    },
-    [host],
-  );
+  const keep = useCallback((node: HTMLDivElement | null) => {
+    menu.current = node;
+    setShown(node);
+  }, []);
+  // Opens at its final size and keeps it while data arrives (popupSettle.ts).
+  const attach = usePopupSettle<HTMLDivElement>(keep);
   useEffect(
     () => () => {
       heldPress.current?.();
@@ -224,44 +226,21 @@ export function ContextMenu({
     },
     [],
   );
+  const anchor = useMemo(() => point && pointerAnchor(point.x, point.y), [point]);
+  const place = usePointerMenuPosition(shown, anchor, shown?.parentElement);
+  const placed = place !== null;
   // No room above or below the pointer in the page: past the window's edge, as a Mac context menu
-  // (popupHost.ts). The backdrop stays, so a click on the page still closes it.
-  useEscapingPopup(
-    host,
-    shown,
-    () =>
-      point && {
-        getBoundingClientRect: () => ({
-          left: point.x,
-          right: point.x,
-          top: point.y,
-          bottom: point.y,
-        }),
-      },
-    // Up when the page has no room below the pointer: the host's panel then opens above it, not down
-    // into no space (the composer hat at the window's bottom edge).
-    { side: point && opensUp(point.y, items.length) ? "top" : "bottom", align: "start", gap: 0, shell: "self" },
-  );
-  // Where the menu sits, measured before it paints.
-  const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
+  // (popupHost.ts). The side is the one the measured placement chose, so the host's panel opens up when
+  // the page's own menu would.
+  useEscapingPopup(host, shown, () => anchor, {
+    side: place?.side ?? "bottom",
+    align: "start",
+    gap: 0,
+    shell: "self",
+  });
   useLayoutEffect(() => {
-    const node = menu.current;
-    if (!point || !node) {
-      setPlace(null);
-      return;
-    }
-    const { width, height } = node.getBoundingClientRect();
-    const left = point.x + width > window.innerWidth - 4 ? point.x - width : point.x;
-    const top = point.y + height > window.innerHeight - 4 ? point.y - height : point.y;
-    setPlace({
-      left: Math.max(4, Math.min(left, window.innerWidth - width - 4)),
-      top: Math.max(4, Math.min(top, window.innerHeight - height - 4)),
-    });
-  }, [point]);
-  // Takes focus once placed (a hidden menu cannot take it), so Up/Down/Return work.
-  useLayoutEffect(() => {
-    if (place) menu.current?.focus();
-  }, [place]);
+    if (placed) menu.current?.focus();
+  }, [placed, point]);
   // The experiments' arms (a Settings flip redraws live); they shape only the page-drawn menu.
   const look = useExperimentArm(menuStyleV2);
   const states = useExperimentArm(menuRowStates);
@@ -454,9 +433,7 @@ export function ContextMenu({
         : null;
     if (native && nativePopup.available) {
       setNativeSide(opensUp(at.y, native.model.rows.length) ? "top" : "bottom");
-      setNativeAnchor({
-        getBoundingClientRect: () => ({ left: at.x, right: at.x, top: at.y, bottom: at.y }),
-      });
+      setNativeAnchor(pointerAnchor(at.x, at.y));
       setNativeOpen(true);
       return;
     }
@@ -581,6 +558,7 @@ export function ContextMenu({
             >
               <div
                 ref={attach}
+                data-pointer-menu=""
                 className={cx("ui-popup ui-glass ui-context-menu ui-popup-scroll-shell", popupClassName)}
                 role="menu"
                 // The App's menu glass under the page, as ui/Menu's popups (ui/glass/hostGlass.ts).
@@ -590,8 +568,11 @@ export function ContextMenu({
                 tabIndex={-1}
                 {...menuArms}
                 style={{
-                  position: "fixed",
-                  minWidth: 180,
+                  position: "absolute",
+                  minWidth: "min(180px, 100%)",
+                  maxWidth: "min(360px, 100%)",
+                  maxHeight: "100%",
+                  width: "max-content",
                   left: place?.left ?? point.x,
                   top: place?.top ?? point.y,
                   visibility: place ? undefined : "hidden",
@@ -632,6 +613,7 @@ export function ContextMenu({
                         </button>
                         {item.submenu && subItem === item ? (
                           <div
+                            // one-material-allow: a submenu is a floating menu of its own beside its parent, not a control on the parent's glass; the parent's tree holds it for hover and focus
                             className={cx("ui-popup ui-glass ui-context-menu ui-context-submenu", popupClassName)}
                             role="menu"
                             aria-label={item.ariaLabel ?? (typeof item.label === "string" ? item.label : undefined)}

@@ -10,7 +10,7 @@ import { projectKind } from "./projectBadgeModel";
 /// apply here yet?"; no dots on the rows).
 export function ProjectBadge({ project }: { project: Project }) {
   const kind = projectKind(project);
-  const icon = useProjectIcon(kind === "local" ? project.cwd : undefined);
+  const icon = useProjectIcon(kind === "local" ? project.cwd : undefined, project.repo?.root);
   const [broken, setBroken] = useState<string | undefined>();
   const shown = icon.src && icon.src !== broken ? icon.src : undefined;
   const glyph = !shown && icon.glyph ? GLYPHS[icon.glyph] : undefined;

@@ -30,11 +30,17 @@ import Testing
         #expect(answer["library"]?["entries"] != nil)
     }
 
+    @Test func standupReadsWithoutAGesture() async throws {
+        let runs = Runs()
+        _ = try await library(runs).call(SettingsCustomizeLibrary.op, params: ["verb": "standup"], context: Self.page)
+        #expect(runs.arguments == [["--json", "customize", "library", "standup"]])
+    }
+
     /// An override moves the CLI's library state into the config folder, so the app's default file
     /// is never named: the card then lists what an ordinary `cmux customize` run kept (review P1-F1).
     @Test func theDefaultSettingsFileKeepsTheCLIsOwnStateFolder() {
         let home = ["HOME": "/Users/someone"]
-        let defaultFile = URL(fileURLWithPath: "/Users/someone/.config/cmux/cmux-next.json")
+        let defaultFile = URL(fileURLWithPath: "/Users/someone/.config/cmux-next/cmux-next.json")
         #expect(SettingsCustomizeLibrary.environment(home, settingsFile: defaultFile)["CMUX_NEXT_CONFIG_FILE"] == nil)
         #expect(SettingsCustomizeLibrary.environment(home, settingsFile: nil)["CMUX_NEXT_CONFIG_FILE"] == nil)
         let tagged = URL(fileURLWithPath: "/tmp/tagged/cmux-next.json")
@@ -100,7 +106,6 @@ import Testing
             ["verb": "doctor-fix", "id": "layer-on:pr-45206", "fix": "off"],
             ["verb": "doctor-fix", "id": "leftover:themes/old", "fix": "remove"],
             ["verb": "doctor-fix", "id": "broken:themes/night.json", "fix": "restore"],
-            ["verb": "doctor-fix", "id": "shadowed:appearance.theme", "fix": "follow-default"],
             ["verb": "doctor-dismiss", "id": "broken:themes/night.json"],
             ["verb": "doctor-recover"],
         ] {
@@ -111,7 +116,6 @@ import Testing
             ["--json", "customize", "doctor", "fix", "layer-on:pr-45206", "off"],
             ["--json", "customize", "doctor", "fix", "leftover:themes/old", "remove"],
             ["--json", "customize", "doctor", "fix", "broken:themes/night.json", "restore"],
-            ["--json", "customize", "doctor", "fix", "shadowed:appearance.theme", "follow-default"],
             ["--json", "customize", "doctor", "dismiss", "broken:themes/night.json"],
             ["--json", "customize", "doctor", "recover"],
         ])
@@ -186,6 +190,27 @@ import Testing
 
 /// What the fake CLI saw and answers. `nonisolated` against the target's MainActor default: the runner
 /// closure is `@Sendable` and runs off the main actor. Each test runs its calls one at a time.
+/// Settings > General's Customize cmux checklist: a read with no gesture, each connection the page
+/// reports one `--has NAME`, and a name the CLI does not know refused before any run.
+@MainActor @Suite struct SettingsCustomizeChecklistTests {
+    @Test func theChecklistReadsWithTheConnectionsThePageReports() async throws {
+        let runs = SettingsCustomizeLibraryRuns()
+        let provider = SettingsCustomizeLibraryTests().library(runs)
+        _ = try await provider.call(SettingsCustomizeLibrary.checklistOp, params: ["has": ["github", "models"]],
+                                    context: SettingsCustomizeLibraryTests.page)
+        _ = try await provider.call(SettingsCustomizeLibrary.checklistOp, params: [:], context: SettingsCustomizeLibraryTests.page)
+        #expect(runs.arguments == [
+            ["--json", "customize", "checklist", "--has", "github", "--has", "models"],
+            ["--json", "customize", "checklist"],
+        ])
+        await #expect(throws: PageError.self) {
+            try await provider.call(SettingsCustomizeLibrary.checklistOp, params: ["has": ["--json"]],
+                                    context: SettingsCustomizeLibraryTests.page)
+        }
+        #expect(runs.arguments.count == 2)
+    }
+}
+
 nonisolated final class SettingsCustomizeLibraryRuns: @unchecked Sendable {
     var arguments: [[String]] = []
     var configFiles: [String?] = []

@@ -87,6 +87,11 @@ try_resolve() {
 # The fleet step for SHA: try (cmux Dev, device only), else handoff tag=dev for an older script.
 try_fleet() {
   local mode="$1" args
+  # The fallback's phone sits in dev:dev. That is no tagged build's space only while every tag entry point
+  # (scripts/lib/mobile-attach.sh cmux_attach_validate_dev_tag: reload.sh, review.sh, the simulator handoff)
+  # refuses the tag dev; were it a usable tag, a Mac tagged dev would take this phone for its own.
+  [[ "$mode" != handoff ]] || cmux_attach_tag_reserved dev ||
+    try_die "the handoff fallback builds cmux Dev in build space dev:dev, which only stays apart while tag dev is reserved (CMUX_ATTACH_RESERVED_TAGS in scripts/lib/mobile-attach.sh)"
   args=(run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$SHA" --artifact artifacts/ios-sim/evidence.zip
     --no-supersede --key "cnx-ios-try-$mode-${SHA:0:12}$(try_attempt_suffix "$mode")")
   # Through the controller's shots form until it lists the modes (cmux-next-ios-sim.sh header).
