@@ -57,6 +57,8 @@ pub(crate) use reaper::run_reaper;
 #[cfg(unix)]
 use reaper::signal_harness;
 pub use reaper::tree_rss_bytes;
+pub use reserved::parse_shapes as parse_home_shapes;
+pub use spare::person_spare_shapes;
 #[cfg(test)]
 pub(super) use start::held_reports_full_access;
 
@@ -352,6 +354,9 @@ pub(super) fn started_on(
 }
 
 #[cfg(test)]
+#[path = "key_tests.rs"]
+mod key_tests;
+#[cfg(test)]
 #[path = "model_tests.rs"]
 mod model_tests;
 
@@ -377,6 +382,21 @@ impl Drop for ReaperClaim<'_> {
             self.flag.store(false, Ordering::SeqCst);
         }
     }
+}
+
+/// The spawn env a pool key hashes: all of it but the sr2 person mark (`sr2_priority::mark`),
+/// which says who made the chat, not what the agent runs. Every entry starts as the person's
+/// (`pool_spec_in`), and only the person's chats take a pooled Claude Code, the one harness the
+/// mark changes (`lifecycle.rs` `shaped`). Hashed whole, a chat whose creator was not drafted
+/// the same way as its entry never matched it: from cmux#52363 until this, every person's chat
+/// discarded the warm spare and started cold.
+pub(super) fn key_env(
+    env: &std::collections::BTreeMap<String, String>,
+) -> std::collections::BTreeMap<&str, &str> {
+    env.iter()
+        .filter(|(k, _)| k.as_str() != crate::sr2_priority::PERSON_ENV)
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect()
 }
 
 fn internal(e: impl std::fmt::Display) -> RpcError {
@@ -474,7 +494,7 @@ impl Hub {
         let family = draft.family.clone().unwrap_or_default();
         let (credentials, account) = self.pool.auth.fingerprint(&family, &spawn.env);
         let mut h = std::collections::hash_map::DefaultHasher::new();
-        spawn.env.hash(&mut h);
+        key_env(&spawn.env).hash(&mut h);
         credentials.hash(&mut h);
         // Codex's answer for the person's own `cmux` entry, asked once for this spec, off the
         // runtime.
@@ -597,6 +617,16 @@ impl Hub {
             draft.cmux_context = Some(crate::context_inventory::snapshot_session(&draft, &cfg));
         }
         draft.workspace_id = shape.workspace_id.clone();
+        // The pool is the person's (an agent's create warms nothing, `lifecycle.rs`; a pooled
+        // Claude Code starts for the person, `start.rs`): an entry starts as a person's chat
+        // would, so its agent asks sr2 for the person's reserve (`sr2_priority::mark`) like the
+        // chat that takes it. Drafted with no creator, it ran without, and its key (which hashed
+        // the mark, `key_env`) never matched a person's chat.
+        draft.created_by = Some(crate::store::CreatedBy {
+            kind: crate::store::CreatorKind::Person,
+            workspace: shape.workspace_id.clone(),
+            session: None,
+        });
         self.pool_spec_for(&draft, &r.profile, &r.defaults.env, shape.credential.as_ref()).await
     }
 
@@ -984,10 +1014,17 @@ impl Hub {
                     p.claimed_under = Some(off.clone());
                     p.codex_answer = Some(spec.answer.clone());
                     lock(&self.pool.claimed).insert(id.clone(), p);
+                    // A home chat took the machine's reserved warm agent: the next home chat's
+                    // folder is reserved and warmed now, so it starts warm too.
+                    let (reserved, ended) = lock(&self.pool.pool).end_reserved(&spec.key);
+                    self.pool_discard(ended);
+                    if reserved {
+                        self.refill_reserved_home(spec.key.cwd.clone());
+                    }
                     return Some(id);
                 }
-                Take::Discard(old) => {
-                    tracing::info!(harness = %spec.key.harness, "pooled session discarded: its key changed");
+                Take::Discard(old, fields) => {
+                    tracing::info!(harness = %spec.key.harness, differing = %fields.join(","), "pooled session discarded: its key changed");
                     self.pool_discard(old.into_iter().collect());
                     return None;
                 }
