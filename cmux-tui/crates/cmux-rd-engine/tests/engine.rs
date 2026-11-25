@@ -225,6 +225,16 @@ fn bdp_window_covers_a_fifty_ms_path_at_sixty_fps() {
 }
 
 #[test]
+fn bdp_window_covers_a_150_ms_path_and_stays_within_reassembly_budget() {
+    // Ten frame intervals cover the 150 ms RTT with the integer frame interval,
+    // and the extra encode slot makes eleven. The queue-derived bound still
+    // applies to a path wider than the BDP.
+    assert_eq!(cmux_rd_engine::frames_in_flight_for(150_000, 60), 11);
+    assert_eq!(cmux_rd_engine::frames_in_flight_for(250_000, 60), 16);
+    assert_eq!(cmux_rd_engine::frames_in_flight_for(u64::MAX, 60), 16);
+}
+
+#[test]
 fn nacked_shards_are_resent_from_history() {
     let mut e = engine();
     let first = e.start(0).expect("first");
@@ -619,6 +629,47 @@ fn an_outage_end_holds_the_rate_and_stops_waiting_for_stale_acks() {
     assert!(end.silent_us > 100_000, "{end:?}");
     assert_eq!(e.stats().target_bps, start, "an outage is not congestion");
     assert!(e.damage(0, small, 425_000).is_some(), "the gate no longer waits for the stale frame");
+}
+
+/// A shard the viewer NACKed and the host repaired was lost on the path: the
+/// repair reuses its transport sequence, so the viewer later reports that
+/// sequence as arrived. The host's loss (the stats' `loss_pct`, and what
+/// sizes FEC) must still count it; at 1% loss with every gap repaired it
+/// read 0.0% all run (fleet Mac pair, 2026-11-16).
+#[test]
+fn a_shard_repaired_after_a_nack_still_counts_as_lost() {
+    use cmux_rd_proto::Arrival;
+    let mut e = engine();
+    let first = e.start(0).expect("first");
+    let sent = send(&mut e, &first, true, 30_000, 0);
+    let seq = |d: &Vec<u8>| DatagramHeader::decode(d).expect("header").0.transport_seq;
+    let lost = 2;
+    let arrivals: Vec<Arrival> = sent
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != lost)
+        .map(|(_, d)| Arrival { transport_seq: seq(d), arrival_us: 5_000 })
+        .collect();
+    let nacks = vec![Nack { frame: first.frame, indexes: vec![lost as u16] }];
+    let out = e.on_datagram(
+        &feedback(&Feedback { arrivals, nacks, ..Feedback::default() }),
+        false,
+        10_000,
+    );
+    assert!(out.datagrams.contains(&sent[lost]), "the NACKed shard is resent");
+    // The repair arrives well inside the meter's reorder grace.
+    e.on_datagram(
+        &feedback(&Feedback {
+            acked_frame: first.frame,
+            arrivals: vec![Arrival { transport_seq: seq(&sent[lost]), arrival_us: 15_000 }],
+            ..Feedback::default()
+        }),
+        false,
+        20_000,
+    );
+    // Settle every receipt.
+    e.on_datagram(&feedback(&Feedback::default()), false, 400_000);
+    assert!(e.stats().loss > 0.0, "a repaired loss is a loss: {}", e.stats().loss);
 }
 
 /// D12 drop: an engine whose path worked (a keyframe of `keyframe` bytes answered in

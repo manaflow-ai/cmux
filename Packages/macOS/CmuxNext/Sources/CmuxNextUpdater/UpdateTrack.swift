@@ -54,6 +54,14 @@ nonisolated public enum UpdateTrack: String, Sendable, CaseIterable, Codable {
         case .stable, .rc, .nightly, .nightlyNext, .development: true
         }
     }
+
+    /// Update When Idle (`updates.installWhenIdle`) is on by default in cmux NEXT's NIGHTLY only: it
+    /// restarts into the downloaded build while the person is away, as if they clicked Restart to Update
+    /// (Leo 2026-11-22: "cosmic-gray was supposed to auto-update when i was away from the keyboard. like,
+    /// auto be de facto able to click the restart button"). Release, RC, classic NIGHTLY and DEV stay opt-in.
+    public var installsWhenIdleByDefault: Bool {
+        self == .nightlyNext
+    }
 }
 
 /// Why Sparkle does not run in this process. The read-only probe still works.

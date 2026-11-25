@@ -182,7 +182,7 @@ async function pressSend() {
 
 /// A new chat whose host offers Cloud, with Auto the remembered Where (lastNewChatPlace.ts). Every
 /// `cloud.startChat` is recorded and left out until `fail` answers the newest with a failure.
-async function mount() {
+async function mount(ready: Record<string, unknown> = {}) {
   dom.window.localStorage.setItem("cmux.agentPane.lastNewChatPlace", JSON.stringify({ kind: "auto" }));
   const starts: Record<string, unknown>[] = [];
   let settle: ((reply: unknown) => void) | undefined;
@@ -206,6 +206,7 @@ async function mount() {
                       machineName: "Mac",
                       sandboxState: true,
                       cwd: FOLDER,
+                      ...ready,
                     }
                   : message.method === "sandbox.state"
                     ? {}
@@ -253,6 +254,20 @@ async function sendWithAutoPicked() {
   await pressSend();
 }
 
+/// Open another pane in the same web data store, as the native Cloud start does.
+async function openCloudDestination(autoCloudStartKey?: string) {
+  await act(async () => root!.unmount());
+  const before = prompts().length;
+  await mount({
+    cloudMachineID: "cloud-machine",
+    prompt: PROMPT,
+    promptTicket: { ticket: "seed-ticket", promptId: crypto.randomUUID() },
+    ...(autoCloudStartKey ? { autoCloudStartKey } : {}),
+  });
+  await until(() => prompts().length === before + 1, "the Cloud chat sends its seeded first prompt");
+  expect(JSON.stringify(prompts().at(-1)![1].prompt)).toContain(PROMPT);
+}
+
 test("Auto picked + Send: the daemon's Cloud answer starts the chat on a Cloud machine", async () => {
   await daemonDecides({
     placement: { at: "there", place: "cloud" },
@@ -276,6 +291,15 @@ test("Auto picked + Send: the daemon's Cloud answer starts the chat on a Cloud m
   expect(placeCalls().length).toBe(1);
   expect(pane.starts.length).toBe(1);
   expect(prompts().length).toBe(before);
+
+  // The explicit Cloud chat arrives first, while the Auto start's landing is still outstanding.
+  const start = pane.starts[0]!;
+  expect(start.autoPlaced).toBe(true);
+  expect(typeof start.key).toBe("string");
+  await openCloudDestination();
+  expect(arrival()).toBeNull();
+  await openCloudDestination(start.key as string);
+  await until(() => arrival()?.dataset.went === "cloud", "only the Auto chat shows its Cloud landing");
 }, 60_000);
 
 test("Auto picked + Send: the daemon's here answer sends the prompt to this Mac's chat, no Cloud start", async () => {

@@ -6,9 +6,10 @@ import CmuxNextWakeups
 /// The Now Playing card in the bottom-left slot (cx-ouoxo), laid out like
 /// macOS's own Now Playing card: the site, the title and the artist, the
 /// artwork filling the top right and fading into the card, a scrubber that
-/// seeks, then Previous, Play or Pause (the one filled control, in the theme's
-/// accent) and Next, and past a divider Picture in Picture for a tab's video.
-/// Small level bars sway at the end of the controls while it plays. It sits
+/// seeks, then Previous, Play or Pause and Next, centered on the card, and past
+/// a divider Picture in Picture for a tab's video. Every control is the same
+/// light glyph with the sidebar's hover fill, on one center line with the level
+/// bars that sway at the end of the row while it plays (#52939). It sits
 /// on the sidebar cards' glass (``CardSurfaceView``), in the sidebar's theme.
 /// The bars and the scrubber move only when motion is allowed (`Motion`), as
 /// render-server animations, so a playing card costs the app no wakeups.
@@ -35,7 +36,7 @@ final class SidebarNowPlayingCardView: NSView {
     let artistLabel = ChromeLabel(labelWithString: "")
     let scrubber = SidebarNowPlayingScrubber()
     let previousButton = SidebarIconButton(icon: .mediaPrevious, label: "")
-    let playPauseButton = SidebarNowPlayingPlayButton()
+    let playPauseButton = SidebarIconButton(icon: .mediaPlay, label: "")
     let levels = SidebarNowPlayingLevels()
     let nextButton = SidebarIconButton(icon: .mediaNext, label: "")
     /// The hairline between the transport and Picture in Picture.
@@ -67,7 +68,7 @@ final class SidebarNowPlayingCardView: NSView {
         }
         closeButton.isHidden = true
         closeButton.alphaValue = 0
-        for button in [previousButton, nextButton, pictureInPictureButton, closeButton] { button.showsLabelToolTip = false }
+        for button in [previousButton, playPauseButton, nextButton, pictureInPictureButton, closeButton] { button.showsLabelToolTip = false }
         closeButton.onPress = { [weak self] in self?.onClose?() }
         previousButton.onPress = { [weak self] in self?.onCommand?(.previous) }
         playPauseButton.onPress = { [weak self] in self?.onCommand?(.playPause) }
@@ -164,8 +165,23 @@ final class SidebarNowPlayingCardView: NSView {
     private static var padding: CGFloat { Metrics.cardPadding }
     /// The header's height at least: the artwork never shrinks below it.
     private static let headerMinimum: CGFloat = 44
-    private static let controlSide: CGFloat = 24
-    private static let playSide: CGFloat = 32
+    /// The controls row's height: 32 pt, or a control's side where a large glyph needs more.
+    private static var rowHeight: CGFloat { max(32, controlSide(glyph: glyphSide)) }
+    /// About how large a control's hit box is; ``controlSide(glyph:)`` makes the exact side.
+    private static let controlTarget: CGFloat = 24
+
+    /// The side every transport control's glyph draws at: the icon size a sidebar icon button takes.
+    static var glyphSide: CGFloat { .iconRowSize(forLabelPointSize: Metrics.smallIconSize) }
+
+    /// A control's square hit box for `glyph`: the glyph plus the same whole-point inset on each side.
+    /// An image-only button draws its glyph at a whole-point offset, so a box whose side differs from
+    /// the glyph's by an odd number (a 17 pt glyph in 24 pt, the old 13 pt glyph in 32 pt) put the
+    /// glyph half a point off center, one way in one control and the other way in the next (#52939).
+    /// Spacing steps are half points at some densities (`space1` is 2.5 at Spacious), so the inset
+    /// rounds up to a whole point too.
+    static func controlSide(glyph: CGFloat) -> CGFloat {
+        glyph + 2 * max(Metrics.space1, ((controlTarget - glyph) / 2)).rounded(.up)
+    }
 
     /// The site, title and artist lines' height for `nowPlaying`.
     private static func textHeight(site: Bool, artist: Bool) -> CGFloat {
@@ -178,7 +194,7 @@ final class SidebarNowPlayingCardView: NSView {
     static func height(for nowPlaying: SidebarNowPlaying) -> CGFloat {
         let header = max(headerMinimum, textHeight(site: !nowPlaying.site.isEmpty, artist: !nowPlaying.artist.isEmpty))
         let scrub = nowPlaying.canSeek ? SidebarNowPlayingScrubber.height + Metrics.space1 : 0
-        return padding + header + Metrics.space2 + scrub + playSide + padding
+        return padding + header + Metrics.space2 + scrub + rowHeight + padding
     }
 
     override func layout() {
@@ -217,26 +233,30 @@ final class SidebarNowPlayingCardView: NSView {
         } else {
             scrubber.frame = .zero
         }
-        // Previous, Play or Pause and Next from the leading edge (macOS's card), then the divider
-        // and Picture in Picture; the level bars close the row.
-        let control = Self.controlSide, play = Self.playSide, gap = Metrics.space2
-        let controlY = y + (play - control) / 2
-        var x = max(0, pad - (control - Metrics.smallIconSize) / 2)
-        previousButton.frame = NSRect(x: x, y: controlY, width: control, height: control).integral
-        x += control + gap
-        playPauseButton.frame = NSRect(x: x, y: y, width: play, height: play).integral
-        x += play + gap
-        nextButton.frame = NSRect(x: x, y: controlY, width: control, height: control).integral
-        x += control + Metrics.space3
+        // Previous, Play or Pause and Next centered on the card, so Play keeps its place for every
+        // source; the divider and Picture in Picture follow Next, and the level bars close the row.
+        // One center line for all of them:
+        // each control is the same square on whole points, its glyph inset by whole points, and
+        // the bars are as tall as a glyph, so every glyph and the bars share the row's center (#52939).
+        // Whole-point steps: `space2` and `space3` are half points at some densities (3.5 at Compact).
+        let glyph = Self.glyphSide, control = Self.controlSide(glyph: glyph), gap = Metrics.space2.rounded(.up)
+        let wide = Metrics.space3.rounded(.up)
+        let row = Self.rowHeight, center = y + row / 2
+        let controlY = (center - control / 2).rounded(), inset = (control - glyph) / 2
+        var x = max(0, ((b.width - (3 * control + 2 * gap)) / 2).rounded())
+        for button in [previousButton, playPauseButton, nextButton] {
+            button.frame = NSRect(x: x, y: controlY, width: control, height: control)
+            x += control + gap
+        }
+        x += wide - gap
         let line = Metrics.lineWidth(1)
-        controlsDivider.frame = NSRect(x: x, y: y + Metrics.space2, width: line, height: max(0, play - 2 * Metrics.space2))
-        x += line + Metrics.space3
-        pictureInPictureButton.frame = NSRect(x: x, y: controlY, width: control, height: control).integral
-        let levelsSize = SidebarNowPlayingLevels.size, levelsX = b.width - pad - levelsSize.width
+        controlsDivider.frame = NSRect(x: x.rounded(), y: controlY + inset, width: line, height: glyph)
+        x = x.rounded() + line + wide
+        pictureInPictureButton.frame = NSRect(x: x.rounded(), y: controlY, width: control, height: control)
+        let levelsWidth = SidebarNowPlayingLevels.width, levelsX = (b.width - pad - levelsWidth).rounded()
         // A narrow sidebar drops the bars rather than draw them over the last control.
         let controlsEnd = (pictureInPictureButton.isHidden ? nextButton : pictureInPictureButton).frame.maxX + gap
-        levels.frame = levelsX < controlsEnd ? .zero
-            : NSRect(x: levelsX, y: y + (play - levelsSize.height) / 2, width: levelsSize.width, height: levelsSize.height).integral
+        levels.frame = levelsX < controlsEnd ? .zero : NSRect(x: levelsX, y: controlY + inset, width: levelsWidth, height: glyph)
         let close = Self.closeSide
         // In the card's top trailing corner, concentric with it (Lawrence 2026-11-15): the same inset from the top and
         // the side, its hover the corner less it.
@@ -258,7 +278,6 @@ final class SidebarNowPlayingCardView: NSView {
             scrubber.applyColors()
         }
         levels.applyColors()
-        playPauseButton.needsDisplay = true
     }
 
     override func viewDidChangeEffectiveAppearance() {
