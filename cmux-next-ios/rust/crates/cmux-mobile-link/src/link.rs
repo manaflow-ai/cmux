@@ -2322,6 +2322,8 @@ pub struct ChannelSender {
     /// (`crate::classes`).
     mirror: Option<Delivery>,
     next_seq: AtomicU64,
+    /// Payload bytes queued for the transport so far ([`sent_bytes`](Self::sent_bytes)).
+    sent: AtomicU64,
 }
 
 impl ChannelSender {
@@ -2338,6 +2340,15 @@ impl ChannelSender {
     /// (not the main stream).
     pub fn on_input_stream(&self) -> bool {
         self.stream == INPUT
+    }
+
+    /// Payload bytes this channel has queued for the transport so far. A channel's queue holds
+    /// at most [`CHANNEL_QUEUE_BYTES`], so each chunk of a long write gets in only once the
+    /// writer took the ones before it: while a write waits, this moves exactly as the link
+    /// drains it. A caller's deadline for a request reads it as progress (iOS `DaemonClient`:
+    /// a send that is still moving is never cut by a wall clock).
+    pub fn sent_bytes(&self) -> u64 {
+        self.sent.load(Ordering::Relaxed)
     }
 
     /// Counts every payload byte this sender queues from now on into `meter`.
@@ -2396,6 +2407,7 @@ impl ChannelSender {
             }
             match self.inner.outboxes[self.stream].push_data(self.class, frame, &self.closed).await {
                 Pushed::Queued => {
+                    self.sent.fetch_add(size as u64, Ordering::Relaxed);
                     if let Some(meter) = &self.meter {
                         meter.add_sent(size);
                     }
@@ -2496,6 +2508,7 @@ impl Channel {
                 meter: None,
                 mirror,
                 next_seq: AtomicU64::new(0),
+                sent: AtomicU64::new(0),
             },
             receiver: ChannelReceiver { rx, done: false, meter: None },
         }
@@ -2633,6 +2646,45 @@ mod tests {
             .unwrap();
         assert!(matches!(sent, Err(LinkError::ChannelClosed)), "{sent:?}");
         drop(phone);
+    }
+
+    /// `sent_bytes` is a write's progress: it stops where a stalled link stops taking bytes and
+    /// reaches the whole write on a link that drains (iOS `DaemonClient` bounds a send by it).
+    #[tokio::test]
+    async fn sent_bytes_moves_only_while_the_link_takes_the_write() {
+        let (a, _stalled) = tokio::io::duplex(64 * 1024);
+        let phone = Link::new(a, Role::Phone, LinkConfig::default(), None);
+        let channel = phone.open("daemon", serde_json::json!({})).await.unwrap();
+        let sender = Arc::new(channel.sender);
+        let total = CHANNEL_QUEUE_BYTES * 8;
+        let sending = tokio::spawn({
+            let sender = Arc::clone(&sender);
+            async move { sender.send(Bytes::from(vec![0u8; total])).await }
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let stuck = sender.sent_bytes();
+        assert!(stuck > 0 && stuck < total as u64, "part of the write got in: {stuck}");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(sender.sent_bytes(), stuck, "a stalled link makes no progress");
+        sender.close("cancelled", "").await;
+        let _ = sending.await;
+
+        let (phone, mac) = pair();
+        let server = tokio::spawn(async move {
+            let mut incoming = mac.accept().await.expect("incoming");
+            let mut got = 0;
+            while got < total {
+                match incoming.channel.recv().await {
+                    Some(ChannelEvent::Data(bytes)) => got += bytes.len(),
+                    other => panic!("unexpected {other:?}"),
+                }
+            }
+            mac
+        });
+        let channel = phone.open("daemon", serde_json::json!({})).await.unwrap();
+        channel.send(Bytes::from(vec![1u8; total])).await.unwrap();
+        assert_eq!(channel.sender.sent_bytes(), total as u64);
+        let _mac = server.await.unwrap();
     }
 
     /// The peer's close stops our sends: a Mac that refuses an upload before

@@ -123,6 +123,11 @@ impl Paths {
     }
 
     fn rank_of(&self, wanted: Wanted) -> (PathKind, Medium) {
+        if wanted.route.carrier == Carrier::Relay {
+            // cmux's WebSocket relay: a relay like TURN, farther away (its
+            // RTT ranks it below a TURN path that answers).
+            return (PathKind::DoRelay, Medium::Routed);
+        }
         if wanted.relayed || wanted.route.carrier == Carrier::Turn {
             return (PathKind::TurnRelay, Medium::Routed);
         }

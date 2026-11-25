@@ -1327,6 +1327,13 @@ impl Hub {
         } else {
             self.forum_context(session, pushed.clone(), &mut blocks).await
         };
+        // The files the prompt names, read into this message, last, after the cached prefix
+        // (`prefetch.rs`). Not into a resumed turn, a remote device's or a slash command.
+        if !resumed && control != Control::Web && super::forum::slash_command(&blocks).is_none() {
+            self.prefetch_into(session, &text, &turn_id, &mut blocks).await;
+        } else {
+            *session.prefetch.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        }
         // A turn rule that matches this prompt, and the end rule the last turn left (`turn_rules.rs`).
         if !resumed && let Some(said) = self.turn_rules_start(session, &text) {
             blocks.push(
@@ -2038,6 +2045,8 @@ impl Hub {
             super::fallback_start::say_fallback(e);
         }
         let git = super::turn_git::turn_git(session).await;
+        // The folder's work leaves this machine at each turn end (`wip_ref.rs`; off by default).
+        self.save_wip_in_background(session);
         // The end is written from here with no wait, under the shutdown's lock: a shutdown that
         // settled the turn meanwhile wrote its end (Quit Everything) or handed it on, and its
         // sweep finds this one either written or still to settle (`shutdown.rs` `settle_ends`).
@@ -2104,6 +2113,8 @@ impl Hub {
                             o.insert("cancelForced".into(), Value::Bool(true));
                         }
                         o.extend(usage);
+                        // Context surgery's counters (`surgery.rs`).
+                        o.extend(super::surgery::turn_fields(&session.id));
                         // What the task cost, model and compute, and the chat's total so far.
                         super::turn_cost::add_turn_cost(session, o, started_at, ended);
                         // Harness magic's counts for the turn (`claude_stdio/dedupe.rs`).
@@ -2350,10 +2361,14 @@ impl Hub {
     /// now. Bounded: a loop that is gone (closed channel) or stuck never holds
     /// a turn's settlement past the bound.
     pub(super) async fn drain_inbound(session: &Session) {
+        // No channel yet: nothing was ever sent to the chat, so nothing is left to handle.
+        let Some(channel) = session.inbound.get() else {
+            return;
+        };
         let (done, handled) = tokio::sync::oneshot::channel();
         let queued = tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            session.inbound_tx.send(crate::agent::Inbound::Barrier(done)),
+            channel.tx.send(crate::agent::Inbound::Barrier(done)),
         )
         .await;
         if matches!(queued, Ok(Ok(()))) {

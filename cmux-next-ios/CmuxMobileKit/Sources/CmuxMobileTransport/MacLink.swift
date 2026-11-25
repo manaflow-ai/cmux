@@ -18,6 +18,9 @@ public enum LinkPathKind: String, Sendable {
     case direct, turn
     /// TURN whose leg to the server is TLS (a network that blocks UDP).
     case turnTLS
+    /// cmux's own WebSocket relay over HTTPS (WireGuard): neither UDP nor
+    /// the TURN host gets through (PROTOCOL.md "WebSocket relay").
+    case httpsRelay
     /// No working route at the moment (WireGuard).
     case noPath
 }
@@ -52,6 +55,7 @@ extension LinkPathKind {
         case .direct: "direct"
         case .turn: "TURN"
         case .turnTLS: "TURN over TLS"
+        case .httpsRelay: "cmux relay"
         case .noPath: "no path"
         }
     }
@@ -178,10 +182,15 @@ public protocol LinkChannel: AnyObject, Sendable {
     func close(code: String, reason: String) async
     /// Why the Mac closed the channel, once `receive()` returned nil (nil: unknown).
     var closedBy: LinkError? { get }
+    /// Payload bytes the link has taken from this channel so far; it moves while a long write
+    /// drains and stops when the link stalls (nil: not known). ``DaemonClient/submit`` reads it
+    /// as progress.
+    var sentBytes: UInt64? { get }
 }
 
 public extension LinkChannel {
     var closedBy: LinkError? { nil }
+    var sentBytes: UInt64? { nil }
 }
 
 public struct LinkError: Error, Equatable, Sendable {
@@ -264,6 +273,9 @@ public struct LinkEndpoint: Sendable, Hashable {
     /// Debug "simulate a network that blocks UDP": WireGuard rides TURN over
     /// TLS (path `turnTLS`). WebRTC ignores it.
     public var blockUDP: Bool
+    /// Debug "Relay via cmux (HTTPS) only": WireGuard rides cmux's WebSocket
+    /// relay alone (path `httpsRelay`). WebRTC ignores it.
+    public var forceRelay: Bool = false
     /// Debug baseline: do not offer the media lane, so browser video rides
     /// its reliable channel even over WebRTC (verify/browser-video-track.md).
     public var browserVideoOnChannel: Bool
