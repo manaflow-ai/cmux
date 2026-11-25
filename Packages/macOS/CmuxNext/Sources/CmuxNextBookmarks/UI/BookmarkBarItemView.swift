@@ -112,7 +112,7 @@ final class BookmarkBarItemView: NSView {
         onClick?(self, event)
     }
 
-    override func menu(for event: NSEvent) -> NSMenu? { onContextMenu?(self) }
+    override func menu(for event: NSEvent) -> NSMenu? { NSMenu.withoutSystemItems(onContextMenu?(self)) }
 
     override func accessibilityPerformPress() -> Bool {
         guard let event = NSApp.currentEvent else { return false }

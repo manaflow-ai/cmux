@@ -397,7 +397,7 @@ pub(super) fn search_url(query: Option<&str>) -> String {
 /// (ignored when one is already installed).
 pub(super) fn search_client() -> Result<reqwest::Client, String> {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    reqwest::Client::builder()
+    cmux_egress::client_builder("cmux_tui::cli::ext::share")
         .timeout(SEARCH_TIMEOUT)
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .build()

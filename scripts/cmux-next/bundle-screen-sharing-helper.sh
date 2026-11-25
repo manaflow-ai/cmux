@@ -3,9 +3,15 @@
 # (plans/cmux-next/screen-sharing-helper.md): wraps the cmux.rd/1 host executable
 # (build-screen-sharing-helper.sh) in
 #
-#   Contents/Library/<app name> Screen Sharing.app       ("cmux NIGHTLY Screen Sharing.app")
+#   Contents/Library/<app name> Helper.app       ("cmux NIGHTLY Helper.app")
 #     Contents/MacOS/cmux-screen-sharing
-#     Contents/Info.plist   <app bundle id>.screen-sharing, LSUIElement
+#     Contents/Info.plist   <app bundle id>.screen-sharing (every DEV build: com.cmuxterm.app.debug.screen-sharing),
+#                           LSUIElement, named "<app name> Helper"
+#
+# The name is what macOS permission alerts show ("cmux NIGHTLY Helper"). The bundle id keeps
+# ".screen-sharing" (Screen Recording and Accessibility grants are keyed to it), and the executable
+# keeps its name. Builds before the rename named it "<app name> Screen Sharing.app": this script
+# finds and replaces that one too, so an incremental build or a --stamp of an older app migrates.
 #
 # Its own bundle id and signature make it its own app to macOS: the app starts it with
 # responsibility disclaimed (MacScreenHelper.swift), so Screen Recording and Accessibility are
@@ -32,7 +38,9 @@ set -euo pipefail
 
 repo_root="${SRCROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 EXECUTABLE=cmux-screen-sharing
-SUFFIX=" Screen Sharing"
+SUFFIX=" Helper"
+# The name before 2026-11-22; still found (and replaced) in an app built before the rename.
+LEGACY_SUFFIX=" Screen Sharing"
 
 # PlistBuddy on a Mac; plistlib elsewhere (the Linux release signer stamps before it signs). Empty for a plist that
 # is not there: PlistBuddy's Print then writes "File Doesn't Exist, Will Create: PATH" to stdout, which became the
@@ -83,20 +91,46 @@ check_identity() {
     || { echo "error: Screen Sharing helper: app name '$2' is empty or holds a slash, colon or control character" >&2; exit 1; }
 }
 
-# Removes every helper bundle in <app>/Contents/Library except <keep> (a renamed app's old one).
+# Prints every helper bundle in <app>/Contents/Library, one per line: legacy "* Screen Sharing.app" first, then
+# "* Helper.app" bundles that carry the helper executable (another app may end in " Helper.app"), so the last one is
+# the preferred, new-name one.
+helper_bundles() {
+  local helper
+  for helper in "$1/Contents/Library/"*"$LEGACY_SUFFIX.app"; do
+    [[ -d "$helper" ]] && printf '%s\n' "$helper"
+  done
+  for helper in "$1/Contents/Library/"*"$SUFFIX.app"; do
+    [[ -d "$helper" && -e "$helper/Contents/MacOS/$EXECUTABLE" ]] && printf '%s\n' "$helper"
+  done
+  return 0
+}
+
+# The helper's bundle id for app id <id>: one per channel. Every DEV build (com.cmuxterm.app.debug and each
+# com.cmuxterm.app.debug.<tag>) shares com.cmuxterm.app.debug.screen-sharing, so System Settings lists one
+# "cmux DEV Helper" row and one copy (SignedHelperStaging.swift), not one per tag; any other app is
+# <id>.screen-sharing (NIGHTLY's and stable's grants live there: check-screen-share-identity.sh pins them).
+helper_id_for() {
+  case "$1" in
+    com.cmuxterm.app.debug|com.cmuxterm.app.debug.*) echo com.cmuxterm.app.debug.screen-sharing ;;
+    *) echo "$1.screen-sharing" ;;
+  esac
+}
+
+# Removes every helper bundle in <app>/Contents/Library except <keep> (a renamed app's old one, or one named
+# before the rename).
 remove_other_helpers() {
   local app="$1" keep="${2:-}" helper
-  for helper in "$app/Contents/Library/"*"$SUFFIX.app"; do
-    [[ -d "$helper" && "$helper" != "$keep" ]] || continue
+  while IFS= read -r helper; do
+    [[ -n "$helper" && "$helper" != "$keep" ]] || continue
     rm -rf "$helper"
-  done
+  done < <(helper_bundles "$app")
 }
 
 # --stamp APP: the final app's id and name (after a nightly or RC rename), before Release signing.
 if [[ "${1:-}" == "--stamp" ]]; then
   app="${2:?usage: $0 --stamp <app>}"
   found=""
-  for helper in "$app/Contents/Library/"*"$SUFFIX.app"; do [[ -d "$helper" ]] && found="$helper"; done
+  while IFS= read -r helper; do [[ -n "$helper" ]] && found="$helper"; done < <(helper_bundles "$app")
   if [[ -z "$found" ]]; then
     echo "note: $app carries no Screen Sharing helper"
     exit 0
@@ -110,8 +144,9 @@ if [[ "${1:-}" == "--stamp" ]]; then
   dest="$app/Contents/Library/$name$SUFFIX.app"
   [[ "$found" == "$dest" ]] || { rm -rf "$dest"; mv "$found" "$dest"; }
   remove_other_helpers "$app" "$dest"
-  write_plist "$dest/Contents/Info.plist" "$id.screen-sharing" "$name$SUFFIX" "${version:-1}" "${minimum:-14.0}"
-  echo "stamped the Screen Sharing helper: $(basename "$dest") ($id.screen-sharing)"
+  helper_id="$(helper_id_for "$id")"
+  write_plist "$dest/Contents/Info.plist" "$helper_id" "$name$SUFFIX" "${version:-1}" "${minimum:-14.0}"
+  echo "stamped the Screen Sharing helper: $(basename "$dest") ($helper_id)"
   exit 0
 fi
 
@@ -194,7 +229,8 @@ staged="$tmp/$name$SUFFIX.app"
 mkdir -p "$staged/Contents/MacOS"
 cp "$src" "$staged/Contents/MacOS/$EXECUTABLE"
 chmod 755 "$staged/Contents/MacOS/$EXECUTABLE"
-write_plist "$staged/Contents/Info.plist" "$id.screen-sharing" "$name$SUFFIX" "$version" "$minimum"
+helper_id="$(helper_id_for "$id")"
+write_plist "$staged/Contents/Info.plist" "$helper_id" "$name$SUFFIX" "$version" "$minimum"
 printf 'APPL????' > "$staged/Contents/PkgInfo"
 
 identity="${EXPANDED_CODE_SIGN_IDENTITY:-}"
@@ -207,4 +243,4 @@ fi
 "$repo_root/scripts/codesign-retry.sh" "${flags[@]}" "$staged"
 rm -rf "$dest"
 mv "$staged" "$dest"
-echo "bundled the Screen Sharing helper $(basename "$dest") ($id.screen-sharing, signed by $identity) from $src"
+echo "bundled the Screen Sharing helper $(basename "$dest") ($helper_id, signed by $identity) from $src"

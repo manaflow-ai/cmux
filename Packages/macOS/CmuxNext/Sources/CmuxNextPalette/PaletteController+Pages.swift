@@ -82,6 +82,8 @@ extension PaletteController {
         case PaletteScopeID.scopes: page = scopeListPage()
         case PaletteScopeID.search: page = searchPage()
         case PaletteScopeID.chats: page = chatsPage()
+        case PaletteScopeID.thisWorkspace: page = thisWorkspacePage()
+        case PaletteScopeID.sessions: page = sessionsPage()
         default: page = sources.scopes.first { $0.descriptor.id == id }?.page(context)
         }
         page?.scope = id

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use super::*;
 use crate::manifest::{Item, Kind, Manifest};
@@ -382,4 +383,161 @@ fn a_version_seen_while_racy_never_earns_the_kept_cache() {
     // The racy sighting proved nothing: this open is the first that counts.
     assert_eq!(open_flags(&overlay, &versions, &notifier, ino), 0);
     assert_eq!(open_flags(&overlay, &versions, &notifier, ino), FOPEN_KEEP_CACHE);
+}
+
+#[test]
+fn a_listing_hands_the_kernel_each_entrys_stat_as_a_lookup_would() {
+    let state = tempfile::tempdir().unwrap();
+    let at = tempfile::tempdir().unwrap();
+    let mtime_ns = 1_700_000_000_123_456_789;
+    let files: &[(&str, &[u8])] =
+        &[("a.txt", b"one"), ("b/c.rs", b"fn c() {}"), ("b/d/e.md", b"# e"), ("f", b"")];
+    let Some((_overlay, mounted)) = mounted(files, mtime_ns, state.path(), at.path()) else {
+        return;
+    };
+    let root = at.path();
+    // An upper file beside the lower ones, listed in the same folder.
+    std::fs::write(root.join("b/new.rs"), "fn new() {}").unwrap();
+    // Walk first (READDIRPLUS fills the kernel's entries), then stat every name the walk saw.
+    let mut seen = Vec::new();
+    let mut folders = vec![root.to_path_buf()];
+    while let Some(folder) = folders.pop() {
+        for entry in std::fs::read_dir(&folder).unwrap() {
+            let entry = entry.unwrap();
+            let kind = entry.file_type().unwrap();
+            if kind.is_dir() {
+                folders.push(entry.path());
+            }
+            seen.push((entry.path(), kind.is_dir()));
+        }
+    }
+    seen.sort();
+    let rel: Vec<_> =
+        seen.iter().map(|(path, _)| path.strip_prefix(root).unwrap().to_owned()).collect();
+    assert_eq!(
+        rel,
+        ["a.txt", "b", "b/c.rs", "b/d", "b/d/e.md", "b/new.rs", "f"].map(std::path::PathBuf::from)
+    );
+    let mut inodes = std::collections::HashSet::new();
+    for (path, is_dir) in &seen {
+        let meta = std::fs::symlink_metadata(path).unwrap();
+        assert_eq!(meta.is_dir(), *is_dir, "{path:?}");
+        assert!(inodes.insert(meta.ino()), "{path:?} shares an inode");
+        let name = path.strip_prefix(root).unwrap().to_str().unwrap();
+        if name == "b/new.rs" {
+            assert_eq!(meta.len(), 11);
+        } else if let Some((_, bytes)) = files.iter().find(|(file, _)| *file == name) {
+            assert_eq!(meta.len(), bytes.len() as u64, "{name}");
+            assert_eq!(meta.mode() & 0o7777, 0o644, "{name}");
+            assert_eq!(meta.mtime_nsec(), mtime_ns % 1_000_000_000, "{name}");
+        }
+    }
+    // A name deleted after a listing is gone for stat, and a fresh listing leaves it out.
+    std::fs::remove_file(root.join("b/c.rs")).unwrap();
+    assert!(std::fs::symlink_metadata(root.join("b/c.rs")).is_err());
+    let mut names: Vec<String> = std::fs::read_dir(root.join("b"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["d", "new.rs"]);
+    mounted.unmount();
+}
+
+#[test]
+fn a_cached_manifest_folder_listing_shows_every_change_made_through_the_mount() {
+    let state = tempfile::tempdir().unwrap();
+    let at = tempfile::tempdir().unwrap();
+    let files: &[(&str, &[u8])] = &[("d/a.rs", b"a"), ("d/b.rs", b"b"), ("d/sub/c.rs", b"c")];
+    let Some((_overlay, mounted)) =
+        mounted(files, 1_700_000_000_000_000_000, state.path(), at.path())
+    else {
+        return;
+    };
+    let folder = at.path().join("d");
+    let names = || {
+        let mut names: Vec<String> = std::fs::read_dir(&folder)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        names
+    };
+    // Listed twice: the second comes from the kernel's cache of this manifest-only folder.
+    assert_eq!(names(), ["a.rs", "b.rs", "sub"]);
+    assert_eq!(names(), ["a.rs", "b.rs", "sub"]);
+    std::fs::write(folder.join("new.rs"), "n").unwrap();
+    assert_eq!(names(), ["a.rs", "b.rs", "new.rs", "sub"]);
+    std::fs::rename(folder.join("a.rs"), folder.join("z.rs")).unwrap();
+    assert_eq!(names(), ["b.rs", "new.rs", "sub", "z.rs"]);
+    std::fs::remove_file(folder.join("b.rs")).unwrap();
+    assert_eq!(names(), ["new.rs", "sub", "z.rs"]);
+    std::fs::remove_file(folder.join("sub/c.rs")).unwrap();
+    std::fs::remove_dir(folder.join("sub")).unwrap();
+    assert_eq!(names(), ["new.rs", "z.rs"]);
+    // A rename into another manifest-only folder shows in both listings.
+    std::fs::create_dir(folder.join("e")).unwrap();
+    std::fs::rename(folder.join("z.rs"), folder.join("e/z.rs")).unwrap();
+    assert_eq!(names(), ["e", "new.rs"]);
+    mounted.unmount();
+}
+
+#[test]
+fn idle_since_counts_whole_seconds_from_the_last_request() {
+    let idle = Duration::from_secs(30);
+    assert!(!idle_since(100, 129, idle));
+    assert!(idle_since(100, 130, idle));
+    assert!(!idle_since(200, 100, idle), "a clock that went back is not idle");
+}
+
+#[test]
+fn an_idle_mount_unmounts_itself_but_never_while_a_file_is_open() {
+    if !fuse_here() {
+        println!("skipping: no FUSE here (no /dev/fuse or no fusermount3)");
+        return;
+    }
+    let items = vec![Item {
+        path: "README.md".into(),
+        kind: Kind::File,
+        mode: 0o644,
+        size: 5,
+        mtime_ns: 1_700_000_000_000_000_000,
+        link: None,
+    }];
+    let manifest = Arc::new(Manifest::build(1, items).unwrap());
+    let bytes = HashMap::from([(manifest.resolve("README.md").unwrap(), b"hello".to_vec())]);
+    let state = tempfile::tempdir().unwrap();
+    let at = tempfile::tempdir().unwrap();
+    let meta = std::fs::metadata(state.path()).unwrap();
+    let overlay = Arc::new(
+        Overlay::open(manifest, state.path(), Arc::new(Files(bytes)), (meta.uid(), meta.gid()))
+            .unwrap(),
+    );
+    let options = Options { idle_exit: Some(Duration::from_secs(2)), ..Options::default() };
+    let (up, is_up) = std::sync::mpsc::channel();
+    let path = at.path().to_owned();
+    let server = std::thread::spawn(move || {
+        serve_with(overlay, &path, options, move || up.send(()).unwrap())
+    });
+    if is_up.recv_timeout(Duration::from_secs(10)).is_err() {
+        println!("skipping: the mount never came up here");
+        return;
+    }
+    let file = at.path().join("README.md");
+
+    // An open file holds it well past the idle time.
+    let held = std::fs::File::open(&file).unwrap();
+    std::thread::sleep(Duration::from_secs(6));
+    assert!(!server.is_finished(), "a mount with an open file stays");
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "hello");
+    drop(held);
+
+    // Nothing holds it: the server unmounts and returns.
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !server.is_finished() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    assert!(server.is_finished(), "an idle mount nobody holds unmounts itself");
+    server.join().unwrap().unwrap();
+    assert!(!file.exists(), "the folder is empty again once unmounted");
 }

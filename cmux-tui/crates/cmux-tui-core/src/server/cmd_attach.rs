@@ -48,7 +48,8 @@ use super::terminal_colors_json;
 use super::terminal_snapshot;
 use super::wait_for_initial_browser_resize;
 use super::{
-    AGENT_CLI_HYBRID_CAPABILITY, AGENT_CLI_HYBRID_LEAN_CAPABILITY, TERMINAL_SHELL_LINES_CAPABILITY,
+    AGENT_CLI_HYBRID_CAPABILITY, AGENT_CLI_HYBRID_LEAN_CAPABILITY,
+    TERMINAL_FULL_SCREEN_FRAMES_CAPABILITY, TERMINAL_SHELL_LINES_CAPABILITY,
 };
 use crate::Mux;
 use crate::RenderAttachFrame;
@@ -193,7 +194,11 @@ pub(super) fn attach_surface(
     output_coalesce_ms: Option<u32>,
     replay_history_start: Option<u64>,
     (hybrid_stream, hybrid_frame): (Option<String>, Option<u64>),
-    (resume_offset, resume_generation): (Option<u64>, Option<String>),
+    (resume_offset, resume_generation, resume_max_bytes): (
+        Option<u64>,
+        Option<String>,
+        Option<u64>,
+    ),
     snapshot: terminal_snapshot::SnapshotAttachParams,
 ) -> anyhow::Result<Value> {
     let hybrid_declared =
@@ -203,6 +208,9 @@ pub(super) fn attach_surface(
     let shell_lines = hybrid_declared
         && hybrid_lean
         && mux.control_clients.supports_capability(client, TERMINAL_SHELL_LINES_CAPABILITY);
+    // `terminal-full-screen-frames-v1`: a full-screen program as frames too (agent_cli_hybrid.rs).
+    let full_screen_frames = shell_lines
+        && mux.control_clients.supports_capability(client, TERMINAL_FULL_SCREEN_FRAMES_CAPABILITY);
     let hybrid_resume =
         agent_cli_hybrid::resume_request(hybrid_declared, hybrid_stream, hybrid_frame)?;
     anyhow::ensure!(
@@ -238,7 +246,11 @@ pub(super) fn attach_surface(
             })?;
             let terminal = TerminalPublicId::parse(terminal)
                 .map_err(|_| anyhow::anyhow!("attachment_terminal_mismatch"))?;
-            mux.resource_surface_for_terminal(&terminal)
+            mux.wake_lazy_terminal(&terminal);
+            // The tab's view, not the runtime's catalog id: a terminal reopened or projected into
+            // a new tab keeps its first surface id, and the client listening on its tab's surface
+            // drops every event the stream names the runtime by (cmux#53022).
+            mux.view_surface_for_terminal(&terminal)
                 .ok_or_else(|| anyhow::anyhow!("attachment_terminal_mismatch"))?
         }
     };
@@ -291,8 +303,12 @@ pub(super) fn attach_surface(
     } else {
         Adapter::Pty
     };
-    let shell_viewer = shell_lines && adapter == Adapter::Lines;
-    let hybrid = adapter == Adapter::Agent || shell_viewer;
+    // A viewer that asked for full-screen frames gets any terminal as an agent CLI's: frames
+    // throughout, the alternate screen and input modes as bytes, never the PTY bytes.
+    let shell_viewer = shell_lines && adapter == Adapter::Lines && !full_screen_frames;
+    let hybrid = adapter == Adapter::Agent
+        || shell_viewer
+        || (full_screen_frames && adapter == Adapter::Lines);
     // Only the plain byte attach coalesces; render mode keeps its own frames.
     let coalesce_interval = if !hybrid
         && surface.kind() == SurfaceKind::Pty
@@ -541,9 +557,13 @@ pub(super) fn attach_surface(
         && (resume_offset.is_some()
             || mux.control_clients.supports_capability(client, TERMINAL_RESUME_CAPABILITY));
     let resumed = match (resume_wire, &resume_generation, resume_offset) {
-        (true, Some(generation), Some(offset)) => {
-            surface.attach_resume_stream(lifecycle.clone(), generation, offset, initial_size)
-        }
+        (true, Some(generation), Some(offset)) => surface.attach_resume_stream(
+            lifecycle.clone(),
+            generation,
+            offset,
+            resume_max_bytes,
+            initial_size,
+        ),
         _ => None,
     };
     let resume_asked = resume_wire && resume_offset.is_some();
@@ -610,7 +630,12 @@ pub(super) fn attach_surface(
             attach.rows,
             &[&*attach.replay, &*attach.pending_sequence].concat(),
             hybrid_resume,
-            agent_cli_hybrid::Wants { lean: hybrid_lean, shell: shell_viewer, lines: shell_lines },
+            agent_cli_hybrid::Wants {
+                lean: hybrid_lean,
+                shell: shell_viewer,
+                lines: shell_lines,
+                display_frames: full_screen_frames && adapter == Adapter::Lines,
+            },
         );
         let (mut viewer, first) = match started {
             Ok(started) => started,
@@ -716,6 +741,8 @@ pub(super) fn attach_surface(
         let mut ready: Vec<AttachFrame> = Vec::new();
         // `terminal-resume-v1`: the position each frame leaves the stream at.
         let mut position = resume_wire.then_some(attach.stamp);
+        // A read past `DRAIN_MAX_BYTES` that the last drain handed back: it starts the next one.
+        let mut carry: Option<AttachFrame> = None;
         'stream: while writer.is_open()
             && outbound_stream.is_open()
             && !attach.lifecycle.is_canceled()
@@ -724,7 +751,10 @@ pub(super) fn attach_surface(
                 Some(viewer) => viewer.due(),
                 None => coalescer.as_ref().and_then(OutputCoalescer::due),
             };
-            let received = attach.stream.recv_interruptible(&interrupt, deadline);
+            let received = match carry.take() {
+                Some(frame) => Ok(frame),
+                None => attach.stream.recv_interruptible(&interrupt, deadline),
+            };
             let now = std::time::Instant::now();
             let ended = match received {
                 Ok(frame) => {
@@ -735,7 +765,18 @@ pub(super) fn attach_surface(
                             let _ = viewer.take(frame, now, &mut hybrid_out);
                         }
                         (None, Some(coalescer)) => coalescer.push(frame, now, &mut ready),
-                        (None, None) => ready.push(frame),
+                        (None, None) => {
+                            // The writer is free now: the reads that queued while it was
+                            // busy go out as one event, at once (no timer), of at most
+                            // `DRAIN_MAX_BYTES`; a longer backlog waits for the next drain,
+                            // which the read past the cap starts.
+                            carry = attach_output_coalesce::drain_merged(
+                                frame,
+                                || attach.stream.try_recv().ok(),
+                                attach_output_coalesce::DRAIN_MAX_BYTES,
+                                &mut ready,
+                            );
+                        }
                     }
                     false
                 }

@@ -131,8 +131,8 @@ async fn a_chat_a_peer_daemon_started_runs_with_that_macs_answer() {
 }
 
 /// A `session/new` or a brief (`_acpmux/dispatch`) this daemon forwards to a peer over a real
-/// peer link carries this daemon's own answer (here: no settings file, so `off`), over the `on`
-/// its caller sent: the chat on the peer runs with `off`.
+/// peer link carries this daemon's own answer (here: no settings file, so `on`), over the `off`
+/// its caller sent: the chat on the peer runs with `on`.
 #[test]
 fn a_start_forwarded_to_a_peer_carries_this_macs_answer_not_the_callers() {
     big_stack(async {
@@ -151,7 +151,7 @@ fn a_start_forwarded_to_a_peer_carries_this_macs_answer_not_the_callers() {
             .unwrap();
         let mut app = Client::new(&a, Origin::LocalApp, ConnAuth::LocalApp);
         let p = json!({"cwd": d.join("work"), "mcpServers": [],
-                       "_meta": {"acpmux": {"peer": "b", "cmuxTools": "on"}}});
+                       "_meta": {"acpmux": {"peer": "b", "cmuxTools": "off"}}});
         let r = app.call("session/new", p).await;
         let s = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
         let mut on_b = Client::new(&b, Origin::Local, ConnAuth::LocalSocket);
@@ -161,7 +161,7 @@ fn a_start_forwarded_to_a_peer_carries_this_macs_answer_not_the_callers() {
             .call(
                 "_acpmux/dispatch",
                 json!({"brief": "say hi", "host": "b", "cwd": d.join("work"),
-                       "_meta": {"acpmux": {"cmuxTools": "on"}}}),
+                       "_meta": {"acpmux": {"cmuxTools": "off"}}}),
             )
             .await;
         let dispatched = sent["result"]["brief"]["sessionId"]
@@ -170,8 +170,8 @@ fn a_start_forwarded_to_a_peer_carries_this_macs_answer_not_the_callers() {
             .to_owned();
         let seen_dispatched = on_b.answer_of(&dispatched).await;
         let _ = std::fs::remove_dir_all(&d);
-        assert_eq!(seen, "off", "session/new");
-        assert_eq!(seen_dispatched, "off", "dispatch");
+        assert_eq!(seen, "on", "session/new");
+        assert_eq!(seen_dispatched, "on", "dispatch");
     });
 }
 
