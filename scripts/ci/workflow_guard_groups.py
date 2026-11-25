@@ -450,7 +450,10 @@ def _test_importers(root: Path) -> dict[str, frozenset[str]]:
                 continue
             if not stripped.startswith("import "):
                 continue
-            for item in stripped[7:].split(","):
+            # The old line-oriented matcher accepted trailing comments, including the
+            # ``# noqa`` comments used by most tests. Keep that behavior while indexing
+            # comma-separated imports in one pass.
+            for item in stripped[7:].split("#", 1)[0].split(","):
                 module = item.strip().split(" as ", 1)[0].split(".", 1)[0]
                 if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", module):
                     importers.setdefault(module, set()).add(relative)
