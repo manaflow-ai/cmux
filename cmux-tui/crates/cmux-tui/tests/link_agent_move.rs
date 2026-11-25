@@ -295,6 +295,9 @@ enum Finish {
     /// The answer is lost while the finish still runs: the next receive-aborts answer "cannot
     /// say yet" (the real daemon's answer during a finish), then the chat lands.
     DropStillFinishing,
+    /// The machine's processes are killed before the chat lands: the daemon is back at once,
+    /// its acpmux a moment later, so the next receive-aborts answer `agent_transfer.unavailable`.
+    KilledRestarting,
 }
 
 struct Receive {
@@ -324,6 +327,8 @@ struct Target {
     vm_kinds: Vec<Value>,
     /// Receive-aborts still answered "cannot say yet" before the running finish lands the chat.
     finishing_asks: u32,
+    /// Receive-aborts still answered `agent_transfer.unavailable` while acpmux restarts.
+    restarting_asks: u32,
     /// Serves `agent-transfer-history-later-v1` and its acpmux can.
     later: bool,
     /// The stage each receive took, in order.
@@ -418,6 +423,13 @@ impl Target {
                     return Reply::Error("agent_transfer.unknown_receive", "no receive".into());
                 };
                 let (transfer, session) = (receive.transfer_id.clone(), receive.session_id.clone());
+                if self.restarting_asks > 0 {
+                    self.restarting_asks -= 1;
+                    return Reply::Error(
+                        "agent_transfer.unavailable",
+                        "this daemon has no acpmux or host to move chats with".into(),
+                    );
+                }
                 if self.finishing_asks > 0 {
                     self.finishing_asks -= 1;
                     if self.finishing_asks == 0 {
@@ -516,6 +528,10 @@ impl Target {
             }
             Finish::DropStillFinishing => {
                 self.finishing_asks = 3;
+                return Reply::Drop;
+            }
+            Finish::KilledRestarting => {
+                self.restarting_asks = 3;
                 return Reply::Drop;
             }
             _ => {}
@@ -759,6 +775,23 @@ mod agent_move {
         let source = world.source.lock().unwrap();
         assert_eq!(source.committed.as_deref(), Some("xfer_1"));
         assert!(source.aborted.is_empty());
+    }
+
+    #[test]
+    fn a_target_killed_before_the_finish_is_waited_for_then_the_chat_is_given_back() {
+        // kill-mid-move drill `local-cloud before-finish kill-dst` (run 45389153532): the
+        // target's daemon came back at once but its acpmux did not, the receive-abort was
+        // answered `agent_transfer.unavailable` and the pump (and its rerun 264 ms later)
+        // said "cannot say": the chat stayed frozen here and its queued prompt never ran.
+        let world = World::new(Target { finish: Finish::KilledRestarting, ..Target::default() });
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_failed"), "{answer}");
+        assert_eq!(world.count("target:agent-transfer-receive-abort"), 4);
+        assert!(world.target.lock().unwrap().forgotten.contains("xfer_1"));
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.aborted, ["xfer_1"], "the chat is given back here");
+        assert!(source.moving.is_none() && source.committed.is_none());
     }
 
     #[test]
