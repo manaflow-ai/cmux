@@ -494,6 +494,35 @@ test("Other devices heads with a way back to the main list", async () => {
   expect(document.querySelector('.acpmux-env-popover [data-action="otherDevices"]')).not.toBeNull();
 });
 
+test("Machines… heads with a way back to the main list", async () => {
+  const { container } = await render("persistent");
+  await openMachines(container);
+  expect(document.querySelector('.acpmux-env-popover [data-kind="ssh"]')).not.toBeNull();
+  await choose('[data-action="back"]');
+  expect(document.querySelector('.acpmux-env-popover [data-action="back"]')).toBeNull();
+  expect(document.querySelector('.acpmux-env-popover [data-kind="ssh"]')).toBeNull();
+  expect(document.querySelector('.acpmux-env-popover [data-mode="cloud"]')).not.toBeNull();
+});
+
+test("Move to… heads with a way back to the main list", async () => {
+  const { container } = await renderDevices(DEVICES.slice(0, 1), {
+    otherDevices: false,
+    onOffload: () => undefined,
+    offload: "move",
+    moveTargets: [
+      { id: "vm-dev", label: "dev-box", kind: "cloud" },
+      { id: "vm-gpu", label: "gpu-box", kind: "cloud" },
+    ],
+    onMoveTo: () => undefined,
+  });
+  await open(container);
+  await choose('[data-action="moveTo"]');
+  expect(document.querySelector(".acpmux-env-moves")).not.toBeNull();
+  await choose('[data-action="back"]');
+  expect(document.querySelector(".acpmux-env-moves")).toBeNull();
+  expect(document.querySelector('.acpmux-env-popover [data-action="moveTo"]')).not.toBeNull();
+});
+
 test("AutoCloud gated off: Auto stays the one plain row, with no chevron", async () => {
   const { container } = await renderDevices(DEVICES, autoChat(false, []));
   await open(container);
