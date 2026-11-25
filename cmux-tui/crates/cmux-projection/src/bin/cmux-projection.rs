@@ -1,4 +1,5 @@
-//! `cmux-projection`: a projected checkout of a git commit on a lane VM.
+//! `cmux-projection`: a projected checkout of a git commit, on a lane VM (FUSE) or a Mac (NFSv3
+//! from localhost, `cmux_projection::nfs`: no kernel or app extension, no prompt).
 //!
 //! ```text
 //! cmux-projection git-mount --git-dir MIRROR --commit REV --at PATH [--keep DIR] [--fresh]
@@ -22,7 +23,7 @@
 //! reads its lower as root (it needs `user_allow_other` in `/etc/fuse.conf`).
 //!
 //! `git-mount` mounts commit REV of the bare repo MIRROR at PATH and serves it until PATH is
-//! unmounted (`git-unmount`, or `fusermount3 -u PATH`). What it writes lands in an upper folder
+//! unmounted (`git-unmount`, or `fusermount3 -u PATH` on Linux, `umount PATH` on a Mac). What it writes lands in an upper folder
 //! under `--keep` (default `~/.cache/cmux-projection/<hash of PATH>`), which also holds the mtime
 //! book and the build output folders (`target/` and the like), so mount the same PATH again and
 //! cargo finds its last build fresh. `--fresh` starts a new checkout: the upper folder and the
@@ -53,9 +54,9 @@
 //! when the store has none (or none is configured), so the caller clones instead
 //! (`cmux_projection::repo_archive`, hq RFD 0065 pieces 1 and 2).
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn main() -> std::process::ExitCode {
-    match linux::run(std::env::args().skip(1).collect()) {
+    match cli::run(std::env::args().skip(1).collect()) {
         Ok(code) => std::process::ExitCode::from(code),
         Err(error) => {
             eprintln!("cmux-projection: {error:#}");
@@ -64,20 +65,23 @@ fn main() -> std::process::ExitCode {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn main() -> std::process::ExitCode {
-    eprintln!("cmux-projection: mounts are Linux only");
+    eprintln!("cmux-projection: mounts are Linux and macOS only");
     std::process::ExitCode::from(2)
 }
 
-#[cfg(target_os = "linux")]
-mod linux {
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod cli {
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
     use cmux_projection::git::{self, Book, GitBlobs, Layout, Projection, Worktree};
+    #[cfg(target_os = "linux")]
     use cmux_projection::mount;
+    #[cfg(target_os = "macos")]
+    use cmux_projection::nfs as mount;
     use cmux_projection::overlay::Overlay;
     use cmux_projection::peers::{self, Chain, SeedLimits};
 
@@ -184,9 +188,12 @@ mod linux {
             "git-mount" => git_mount(&args, &at),
             "git-lower" => git_lower(&args, &at),
             "git-unmount" => {
-                let status =
-                    std::process::Command::new("fusermount3").arg("-u").arg(&at).status()?;
-                anyhow::ensure!(status.success(), "fusermount3 -u {} failed", at.display());
+                #[cfg(target_os = "linux")]
+                let (program, flags): (&str, &[&str]) = ("fusermount3", &["-u"]);
+                #[cfg(target_os = "macos")]
+                let (program, flags): (&str, &[&str]) = ("/sbin/umount", &[]);
+                let status = std::process::Command::new(program).args(flags).arg(&at).status()?;
+                anyhow::ensure!(status.success(), "{program} {} failed", at.display());
                 Ok(())
             }
             _ => anyhow::bail!(USAGE),
@@ -321,8 +328,13 @@ mod linux {
             match archive::publish(store.as_ref(), &job) {
                 Ok(published) => {
                     let mut line = serde_json::to_value(&published)?;
-                    line["branch"] = branch.into();
-                    line["ms"] = u64::try_from(ms(started)).unwrap_or(u64::MAX).into();
+                    if let Some(fields) = line.as_object_mut() {
+                        fields.insert("branch".into(), branch.into());
+                        fields.insert(
+                            "ms".into(),
+                            u64::try_from(ms(started)).unwrap_or(u64::MAX).into(),
+                        );
+                    }
                     println!("{line}");
                 }
                 Err(error) => {

@@ -417,7 +417,7 @@ struct Hashing<W> {
 impl<W: Write> Write for Hashing<W> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         let n = self.inner.write(bytes)?;
-        self.hash.update(&bytes[..n]);
+        self.hash.update(bytes.get(..n).unwrap_or(bytes));
         self.size += n as u64;
         Ok(n)
     }
@@ -436,7 +436,7 @@ struct HashingReader<R> {
 impl<R: Read> Read for HashingReader<R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let n = self.inner.read(buf)?;
-        self.hash.update(&buf[..n]);
+        self.hash.update(buf.get(..n).unwrap_or_default());
         Ok(n)
     }
 }

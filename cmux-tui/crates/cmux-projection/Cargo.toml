@@ -34,6 +34,13 @@ tar.workspace = true
 libc.workspace = true
 cmux-file-lock.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+# The overlay served over NFSv3 (nfs.rs), which a Mac mounts from localhost with its own mount_nfs:
+# no kernel or app extension, no prompt.
+async-trait.workspace = true
+nfsserve = "0.11"
+tokio.workspace = true
+
 [target.'cfg(target_os = "linux")'.dependencies]
 # git-mount --sparse: the non-cone patterns are gitignore patterns (sparse.rs), as ripgrep reads them.
 ignore.workspace = true

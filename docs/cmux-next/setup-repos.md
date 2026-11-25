@@ -17,6 +17,10 @@ anything. `--yes` answers the card for you (needed with `--json` or without a te
   card, so you can try a look before you publish it. Its receipt names the folder as its source.
   Use `--as OWNER/NAME` to try it under an id of your own (for a look that names another owner, one
   you haven't named yet, or one whose id is installed already); only a folder takes `--as`.
+- A setup's page on cmux.com (`cmux.com/setups/OWNER/REPO`) has an **Open in cmux** button. It opens
+  `cmux://setups/install?repo=HOST/OWNER/REPO&commit=SHA`; cmux shows the same card, and installs that
+  commit only when you press Install. From a terminal, `cmux setup install-link URL` does the same
+  (it never takes `--yes`).
 - `cmux setup installed` lists what is installed, top layer first, each on or off.
 - `cmux setup update [REPO|ID|DIR]` moves one to the newest commit of the ref it came from (a
   folder: to what it holds now). It keeps its place in the order, and stays off if it was off.

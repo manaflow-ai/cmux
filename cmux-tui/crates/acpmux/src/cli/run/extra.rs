@@ -743,10 +743,18 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             from,
             slow_ok,
             abort,
+            take_back,
             from_snapshot,
+            as_harness,
         }) => {
             if abort {
-                return super::session_move::end_stale(&sessions, from.as_deref(), json_out).await;
+                return super::session_move::end_stale(
+                    &sessions,
+                    from.as_deref(),
+                    take_back,
+                    json_out,
+                )
+                .await;
             }
             let args = super::session_move::MoveArgs {
                 sessions,
@@ -763,6 +771,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 from,
                 slow_ok,
                 from_snapshot,
+                as_harness,
             };
             super::session_move::run(args, json_out).await
         }
