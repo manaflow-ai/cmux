@@ -207,3 +207,16 @@ test("with Cloud picked, a Return before this Mac's picked folder is granted wai
   expect(pane.starts[0]!.cwd).toBe(PICKED);
   expect(pane.starts[0]!.home).toBeUndefined();
 }, 60_000);
+
+test("a folder grant the host never answers holds a Cloud send no longer than the grant wait", async () => {
+  const pane = await mount();
+  await until(() => debug().runMode("cloud").runMode === "cloud", "Cloud is picked");
+  await act(async () => void debug().pickFolder(PICKED));
+  await until(() => pane.grants.length === 1, "the pick asks the host for the folder");
+  await act(async () => void promptField()!.type(PROMPT));
+  await until(() => promptField()?.value() === PROMPT, "the composer takes the prompt");
+  // Past CLOUD_FOLDER_GRANT_WAIT_MS (3 s) the composer sends again, as every grant wait ends.
+  await act(async () => new Promise((done) => setTimeout(done, 3_300)));
+  await pressSend();
+  await until(() => pane.starts.length === 1, "the send starts the chat in Cloud once the wait is over");
+}, 60_000);

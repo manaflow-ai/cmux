@@ -480,6 +480,7 @@ import type { LocalCommand } from "./localCommands";
 import {
   composerAgentLocal,
   cloudFolderGrants,
+  CLOUD_FOLDER_GRANT_WAIT_MS,
   cloudStartFolder,
   cloudStartTeam,
   makeCloudSignInRetry,
@@ -4499,6 +4500,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         : directProjects.find((item) => item.cwd === cwd)?.repo?.github,
     ) ?? (cwd !== undefined && cwd === pickedProject.current ? cwd : undefined);
   const [cloudFolderGrant] = useState(() => cloudFolderGrants());
+  /// A folder of this Mac picked here whose grant the host has not answered yet: a Cloud send waits for it, at most
+  /// CLOUD_FOLDER_GRANT_WAIT_MS as every grant wait, so a Return right after the pick never starts the chat with no
+  /// folder (cmux#53226) and a grant that never answers never holds the composer. Its own flag: the paused Cloud
+  /// machine's wait (`cloudSourceWaiting`) ends on its own schedule.
+  const [folderGranting, setFolderGranting] = useState(0);
+  const folderGrantSeq = useRef(0);
+  useEffect(() => {
+    if (!folderGranting) return;
+    const timer = setTimeout(() => setFolderGranting((now) => (now === folderGranting ? 0 : now)), CLOUD_FOLDER_GRANT_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, [folderGranting]);
   const pickComposerMode = (mode: RunMode) => {
     if (mode !== sandboxModeRows.mode) {
       dropFolderRequest.current?.();
@@ -7419,12 +7431,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         return Promise.resolve();
       }
       // Fresh or started is read when the folder is used (an answer can come later). Until the host answers, a
-      // Cloud send waits (PaneComposer `cloudSourceWaiting`): a Return right after the pick started the Cloud
-      // chat with no folder, the picked one not granted yet (cmux#53226).
+      // Cloud send waits (`folderGranting`).
       const asked = requestFolder(
         cwd,
         (folder) => {
-          setCloudSourceWaiting(false);
+          setFolderGranting(0);
           pickedProject.current = folder;
           if (freshRef.current) setProjectDraft(folder);
           else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
@@ -7432,12 +7443,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         },
         // Only the host's refusal of the path is `refused`; a request a newer one replaced is not.
         (refusal) => {
-          setCloudSourceWaiting(false);
+          setFolderGranting(0);
           if (refusal !== undefined) refused?.();
         },
       );
-      // Set after requestFolder ended the pick it replaces, whose end clears it.
-      setCloudSourceWaiting(true);
+      // Set after requestFolder ended the pick it replaces, whose end clears it; each pick its own wait.
+      setFolderGranting(++folderGrantSeq.current);
       return asked;
     },
     [folderContinuation, requestFolder, dropDeferredGitHub],
@@ -10076,7 +10087,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     commandState,
     harnessSwitch,
     projectDraft,
-    cloudSourceWaiting,
+    cloudSourceWaiting: cloudSourceWaiting || folderGranting !== 0,
     setCloudSourceWaiting,
     cloudSourcePick,
     checkedOutGitHub,
