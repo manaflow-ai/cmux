@@ -5,7 +5,10 @@ public import Foundation
 /// the app window the chat's agent drives. The App owns the card (which session, its newest frame,
 /// running or done); the page draws it as it comes (`computerUsePreview` event,
 /// computerUsePreview.ts) and sends a click back as `chat.computerUsePreview {action}`: `open` shows
-/// the session in Agent Activity, `close` hides the card for that session.
+/// the session in Agent Activity, `close` hides the card for that session (it turns into a chip),
+/// `show` brings it back, and `place {x?, y?, size?}` is where the person dragged it or how large
+/// they made it (Leo, 2026-11-22, asking for "the ability to drag it around and" hide it). The daemon
+/// keeps the place and hidden state per session and sends them back on every card (`place`, `hidden`).
 public nonisolated struct AgentPaneComputerUsePreview: Hashable, Sendable {
     /// The Computer Use session the card shows (`cua_<profile>_<ulid>`).
     public var session: String
@@ -22,9 +25,14 @@ public nonisolated struct AgentPaneComputerUsePreview: Hashable, Sendable {
     /// The agent's cursor and the person's pointer over the frame's window, as metadata the page
     /// draws (`telepointers`); `pointer` stays for pages that read only it.
     public var telepointers: Telepointers?
+    /// Where the person put the card and its size, as the daemon keeps it; nil from a daemon that
+    /// keeps none (the page keeps the person's own moves then).
+    public var place: Place?
+    /// The person hid the card: the page shows a chip that brings it back.
+    public var hidden: Bool
 
     public init(session: String, app: String, done: Bool, frame: String? = nil, icon: String? = nil,
-                pointer: Pointer? = nil, telepointers: Telepointers? = nil) {
+                pointer: Pointer? = nil, telepointers: Telepointers? = nil, place: Place? = nil, hidden: Bool = false) {
         self.session = session
         self.app = app
         self.done = done
@@ -32,6 +40,40 @@ public nonisolated struct AgentPaneComputerUsePreview: Hashable, Sendable {
         self.icon = icon
         self.pointer = pointer
         self.telepointers = telepointers
+        self.place = place
+        self.hidden = hidden
+    }
+
+    /// The card's place in its pane: fractions of the room the pane leaves around it (`x` 0 at the
+    /// left, 1 at the right; `y` 0 at the top, 1 at the bottom) and its size.
+    public struct Place: Hashable, Sendable {
+        public var x: Double
+        public var y: Double
+        public var size: Size
+
+        public init(x: Double = 1, y: Double = 0, size: Size = .small) {
+            self.x = min(1, max(0, x))
+            self.y = min(1, max(0, y))
+            self.size = size
+        }
+    }
+
+    /// The card's size: the small card, the enlarged one, or the whole pane.
+    public enum Size: String, Hashable, Sendable {
+        case small, large, full
+    }
+
+    /// A move from the page: what changed (a nil keeps its value).
+    public struct Move: Hashable, Sendable {
+        public var x: Double?
+        public var y: Double?
+        public var size: Size?
+
+        public init(x: Double? = nil, y: Double? = nil, size: Size? = nil) {
+            self.x = x
+            self.y = y
+            self.size = size
+        }
     }
 
     /// A pointer over the frame's window: a fraction of it (0...1 from the top left), whether it is
@@ -89,11 +131,15 @@ public nonisolated struct AgentPaneComputerUsePreview: Hashable, Sendable {
     }
 
     /// What a click on the card asks for.
-    public enum Action: String, Sendable {
+    public enum Action: Hashable, Sendable {
         /// Open Agent Activity on the card's session.
         case open
-        /// Hide the card for its session.
+        /// Hide the card for its session (the page shows a chip).
         case close
+        /// Bring the hidden card back.
+        case show
+        /// The person dragged or resized the card.
+        case place(Move)
     }
 
     var json: JSONValue { json(at: Date()) }
@@ -114,13 +160,39 @@ public nonisolated struct AgentPaneComputerUsePreview: Hashable, Sendable {
             if let person = telepointers.person { value["person"] = person.json(at: now) }
             object["telepointers"] = .object(value)
         }
+        if let place {
+            object["place"] = .object(["x": .number(place.x), "y": .number(place.y), "size": .string(place.size.rawValue)])
+        }
+        if hidden { object["hidden"] = .bool(true) }
         return .object(object)
     }
 
-    /// `chat.computerUsePreview {action}`: the action, nil when the params break the contract.
+    /// `chat.computerUsePreview {action, x?, y?, size?}`: the action, nil when the params break the
+    /// contract (only `place` takes more than its action, and at least one of x, y, size).
     static func action(_ params: [String: Any]?) -> Action? {
-        guard let params, Set(params.keys) == ["action"], let raw = params["action"] as? String else { return nil }
-        return Action(rawValue: raw)
+        guard let params, let raw = params["action"] as? String else { return nil }
+        let keys = Set(params.keys)
+        switch raw {
+        case "open" where keys == ["action"]: return .open
+        case "close" where keys == ["action"]: return .close
+        case "show" where keys == ["action"]: return .show
+        case "place":
+            guard keys.count > 1, keys.isSubset(of: ["action", "x", "y", "size"]) else { return nil }
+            func fraction(_ key: String) -> Double?? {
+                guard let value = params[key] else { return .some(nil) }
+                // A JSON true is an NSNumber too (`is Bool` holds for 0 and 1 as well): tell it by its CF type.
+                guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.isFinite else { return nil }
+                return .some(min(1, max(0, number.doubleValue)))
+            }
+            guard let x = fraction("x"), let y = fraction("y") else { return nil }
+            var size: Size?
+            if let value = params["size"] {
+                guard let raw = value as? String, let parsed = Size(rawValue: raw) else { return nil }
+                size = parsed
+            }
+            return .place(Move(x: x, y: y, size: size))
+        default: return nil
+        }
     }
 }
 

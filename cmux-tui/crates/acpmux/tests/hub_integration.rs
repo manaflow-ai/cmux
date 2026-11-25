@@ -53,8 +53,12 @@ mod drafts;
 mod full_access_guards;
 #[path = "hub_integration/held_queue.rs"]
 mod held_queue;
+#[path = "hub_integration/held_rows.rs"]
+mod held_rows;
 #[path = "hub_integration/inbox_digest.rs"]
 mod inbox_digest;
+#[path = "hub_integration/key_auth.rs"]
+mod key_auth;
 #[path = "hub_integration/lanes.rs"]
 mod lanes;
 #[path = "hub_integration/log_retention.rs"]
@@ -1858,6 +1862,8 @@ mod session_pause;
 #[path = "hub_integration/start_retry.rs"]
 mod start_retry;
 
+#[path = "hub_integration/fork_restart.rs"]
+mod fork_restart;
 #[path = "hub_integration/fork_through.rs"]
 mod fork_through;
 #[path = "hub_integration/last_message.rs"]

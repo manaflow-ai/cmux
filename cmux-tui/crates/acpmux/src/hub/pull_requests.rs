@@ -11,7 +11,7 @@
 //! (Claude Code, codex-acp), so such a call and the URL it printed are remembered until it ends
 //! (`Session::pr_creates`); the URL counts only when the call completes.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -28,6 +28,8 @@ static LANE_GH_NUMBER: LazyLock<Option<Regex>> =
     LazyLock::new(|| Regex::new(r#""number"\s*:\s*([0-9]+)"#).ok());
 
 /// A session keeps at most this many; a runaway loop stops growing its meta here.
+/// Measured: the meta is saved whole on every change, about 130 bytes a pull request (its URL
+/// and time): 26 KB per save at 200.
 pub(super) const MAX_PULL_REQUESTS: usize = 200;
 
 /// The shell script a tool call runs: `rawInput.command` as a string, or an argv (the script of
@@ -168,22 +170,76 @@ fn commands(script: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-/// The script ends in `gh pr create`: each command before it is a `cd` or must succeed for gh to
-/// run (`git push && gh pr create`), none come after, and only `VAR=value` words or `env` precede
-/// `gh`. gh's URL is the last bare pull request URL printed, so earlier steps' output can't stand
-/// in for it (`git push` prints `/pull/new/BRANCH`, which is not one).
+/// The script ends in `gh pr create` (or a lane VM's broker form, `lane-gh call pr_create`): each
+/// command before it is a `cd` or must succeed for gh to run (`git push && gh pr create`), none
+/// come after but output filters it pipes into (`2>&1 | tail -3`), and only `VAR=value` words,
+/// `env` or `timeout [-k N] N` precede `gh`. gh's URL is the last bare pull request URL printed,
+/// so earlier steps' output can't stand in for it (`git push` prints `/pull/new/BRANCH`, which is
+/// not one); a filter hides gh's exit status, so its "already exists" URL is ruled out by the
+/// line before it (`bare_urls`).
 fn is_gh_pr_create(script: &str) -> bool {
     let commands = commands(script);
-    let Some(((last, _), before)) = commands.split_last() else {
+    let mut end = commands.len();
+    while end > 1 && commands[end - 2].1 == "|" && is_filter(&commands[end - 1].0) {
+        end -= 1;
+    }
+    let Some(((last, _), before)) = commands[..end].split_last() else {
         return false;
     };
     if !before.iter().all(|(c, sep)| c == "cd" || c.starts_with("cd ") || sep == "&&") {
         return false;
     }
-    let mut words = last.split_whitespace().skip_while(|w| {
-        *w == "env" || w.split_once('=').is_some_and(|(k, _)| !k.is_empty() && !k.starts_with('-'))
-    });
-    matches!((words.next(), words.next(), words.next()), (Some("gh"), Some("pr"), Some("create")))
+    let mut words = last.split_whitespace().peekable();
+    loop {
+        match words.peek() {
+            Some(&w)
+                if w == "env"
+                    || w.split_once('=')
+                        .is_some_and(|(k, _)| !k.is_empty() && !k.starts_with('-')) =>
+            {
+                words.next();
+            }
+            Some(&"timeout") => {
+                words.next();
+                // Its flags (`-k 5`, `--signal=KILL`, `-s KILL`), then the duration.
+                while let Some(&w) = words.peek() {
+                    words.next();
+                    if matches!(w, "-k" | "-s" | "--kill-after" | "--signal") {
+                        words.next();
+                    } else if !w.starts_with('-') {
+                        break;
+                    }
+                }
+            }
+            _ => break,
+        }
+    }
+    let first: Vec<&str> = words.take(3).collect();
+    matches!(first[..], ["gh", "pr", "create"] | ["lane-gh", "call", "pr_create"])
+}
+
+/// A command that only passes on or keeps what it reads: `tail -3`, `head`, `tee FILE`, `cat`.
+fn is_filter(command: &str) -> bool {
+    matches!(command.split_whitespace().next(), Some("tail" | "head" | "tee" | "cat"))
+}
+
+/// A tool that opens a pull request through the lane VM broker: `mcp__github__pr_create` (Claude
+/// Code's name for an MCP tool), `github.pr_create` or a bare `pr_create`.
+fn is_pr_create_tool(name: &str) -> bool {
+    name == "pr_create" || name.ends_with("__pr_create") || name.ends_with(".pr_create")
+}
+
+/// A tool that starts a background command (acpmux's `bg_start`), whose output arrives later.
+fn is_bg_start_tool(name: &str) -> bool {
+    name == "bg_start" || name.ends_with("__bg_start") || name.ends_with(".bg_start")
+}
+
+/// The tool's name: Claude Code's `_meta.claude.tool`, else its title.
+fn tool_name(update: &Value) -> Option<&str> {
+    update
+        .pointer("/_meta/claude/tool")
+        .and_then(Value::as_str)
+        .or_else(|| update.get("title").and_then(Value::as_str))
 }
 
 /// A pull request a `gh pr merge` or `gh pr close` call settled.
@@ -415,9 +471,53 @@ fn output_text(update: &Value) -> String {
     text
 }
 
+/// Every output line that is nothing but a pull request URL, in order, once each, but one gh printed
+/// because it already exists (`a pull request for branch "b" into branch "main" already exists:`
+/// on the line before, or on its own line).
+fn bare_urls(output: &str) -> Vec<String> {
+    let mut urls: Vec<String> = vec![];
+    let mut previous = "";
+    for line in output.lines().map(str::trim) {
+        if PULL_URL.is_match(line)
+            && !previous.contains("already exists")
+            && !urls.iter().any(|u| u == line)
+        {
+            urls.push(line.to_owned());
+        }
+        if !line.is_empty() {
+            previous = line;
+        }
+    }
+    urls
+}
+
 /// The pull request `gh pr create` printed: the last output line that is nothing but its URL.
-fn printed_url(output: &str) -> Option<&str> {
-    output.lines().rev().map(str::trim).find(|line| PULL_URL.is_match(line))
+fn printed_url(output: &str) -> Option<String> {
+    bare_urls(output).pop()
+}
+
+/// The pull request a broker create answered with: `{"ok": true, "status": 201, "data":
+/// {"html_url": URL, ...}}` (the MCP tool and `lane-gh call pr_create`), or the bare URL `gh pr
+/// create` prints. A refusal (`"ok": false`, a cooldown, a 409) names none.
+fn created_url(output: &str) -> Option<String> {
+    let trimmed = output.trim();
+    let answer: Option<Value> = serde_json::from_str(trimmed)
+        .ok()
+        .or_else(|| trimmed.find('{').and_then(|i| serde_json::from_str(&trimmed[i..]).ok()));
+    if let Some(answer) = answer.filter(Value::is_object) {
+        if answer.get("ok").and_then(Value::as_bool) == Some(false) {
+            return None;
+        }
+        if let Some(url) = answer
+            .pointer("/data/html_url")
+            .or_else(|| answer.get("html_url"))
+            .and_then(Value::as_str)
+            .filter(|url| PULL_URL.is_match(url))
+        {
+            return Some(url.to_owned());
+        }
+    }
+    printed_url(output)
 }
 
 /// Notes a `tool_call` or `tool_call_update` into `m`: a shell call that runs `gh pr create` is
@@ -430,30 +530,103 @@ pub(super) fn absorb(
     m: &mut SessionMeta,
     at: u64,
 ) -> Option<String> {
-    let mut calls = session.pr_creates.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(url) = track(&mut calls, update)
-        && m.pull_requests.len() < MAX_PULL_REQUESTS
-        && !m.pull_requests.contains(&url)
-    {
-        m.pull_requests.push(url.clone());
-        m.pull_request_times.insert(url.clone(), at);
-        return Some(url);
+    let mut creates = session.pr_creates.lock().unwrap_or_else(|e| e.into_inner());
+    let mut joined = None;
+    for url in follow(&mut creates, update) {
+        if m.pull_requests.len() < MAX_PULL_REQUESTS && !m.pull_requests.contains(&url) {
+            m.pull_requests.push(url.clone());
+            m.pull_request_times.insert(url.clone(), at);
+            joined.get_or_insert(url);
+        }
     }
-    None
+    joined
+}
+
+/// The pull request creates a session has running (`Session::pr_creates`; the scorecard keeps
+/// its own while it reads a log).
+#[derive(Debug, Default)]
+pub(crate) struct Creates {
+    /// A `gh pr create` call's (or a broker `pr_create`'s) id, and the URL it printed so far.
+    calls: HashMap<String, Option<String>>,
+    /// `bg_start` calls whose command opens a pull request, by tool call id.
+    launches: HashSet<String>,
+    /// Their background tasks (`bg-…`), whose output is read when a tool reads it (`bg_output`,
+    /// `run_wait`) or the task's end notice arrives (`follow_notice`).
+    tasks: HashSet<String>,
+}
+
+impl Creates {
+    pub(crate) fn clear(&mut self) {
+        self.calls.clear();
+        self.launches.clear();
+        self.tasks.clear();
+    }
+}
+
+/// Follows one tool update into `creates`: the pull request URLs it settled as opened. A
+/// `gh pr create` or broker `pr_create` call counts once it completes (`track`). A `bg_start`
+/// whose command opens one is remembered by its task id, and every bare pull request URL that
+/// task printed counts when a tool result shows its output.
+pub(crate) fn follow(creates: &mut Creates, update: &Value) -> Vec<String> {
+    let mut urls: Vec<String> = track(&mut creates.calls, update).into_iter().collect();
+    let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { return urls };
+    let opens = |s: &str| s.contains("gh pr create") || s.contains("pr_create");
+    if tool_name(update).is_some_and(is_bg_start_tool) && script(update).is_some_and(|s| opens(&s))
+    {
+        creates.launches.insert(id.to_owned());
+    }
+    let completed = update.get("status").and_then(Value::as_str) == Some("completed");
+    let output = || output_text(update);
+    if completed && creates.launches.remove(id) {
+        if let Some(task) = serde_json::from_str::<Value>(output().trim())
+            .ok()
+            .and_then(|v| v.get("id").and_then(Value::as_str).map(str::to_owned))
+        {
+            creates.tasks.insert(task);
+        }
+    } else if completed && !creates.tasks.is_empty() {
+        // A `bg_output` or `run_wait` answer: `{"id": "bg-…", "text": OUTPUT, ...}`.
+        if let Ok(answer) = serde_json::from_str::<Value>(output().trim())
+            && answer.get("id").and_then(Value::as_str).is_some_and(|t| creates.tasks.contains(t))
+            && let Some(text) = answer.get("text").and_then(Value::as_str)
+        {
+            for url in bare_urls(text) {
+                if !urls.contains(&url) {
+                    urls.push(url);
+                }
+            }
+        }
+    }
+    urls
+}
+
+/// A background task's end notice (a `user_message` whose `_meta.provenance.bgTaskId` names a task
+/// `follow` remembered): the bare pull request URLs in the output lines it quotes.
+pub(crate) fn follow_notice(creates: &mut Creates, message: &Value) -> Vec<String> {
+    let Some(task) = message.pointer("/_meta/provenance/bgTaskId").and_then(Value::as_str) else {
+        return vec![];
+    };
+    if !creates.tasks.contains(task) {
+        return vec![];
+    }
+    message.get("text").and_then(Value::as_str).map(bare_urls).unwrap_or_default()
 }
 
 /// Follows one update of a `gh pr create` call in `calls` (its id, and the URL it printed so far):
 /// the URL to record once the call completes. A failed call records none, though it printed one
-/// before failing ("a pull request for branch ... already exists: URL").
+/// before failing ("a pull request for branch ... already exists: URL"). A broker `pr_create`
+/// tool call (`is_pr_create_tool`) counts the same way, with the URL its JSON answer names.
 fn track(calls: &mut HashMap<String, Option<String>>, update: &Value) -> Option<String> {
     let id = update.get("toolCallId").and_then(Value::as_str)?;
     let execute = update.get("kind").and_then(Value::as_str) == Some("execute");
-    if execute && script(update).is_some_and(|s| is_gh_pr_create(&s)) {
+    if execute && script(update).is_some_and(|s| is_gh_pr_create(&s))
+        || tool_name(update).is_some_and(is_pr_create_tool)
+    {
         calls.entry(id.to_owned()).or_default();
     }
     let printed = calls.get_mut(id)?;
-    if let Some(url) = printed_url(&output_text(update)) {
-        *printed = Some(url.to_owned());
+    if let Some(url) = created_url(&output_text(update)) {
+        *printed = Some(url);
     }
     match update.get("status").and_then(Value::as_str) {
         Some("completed") => calls.remove(id).flatten(),

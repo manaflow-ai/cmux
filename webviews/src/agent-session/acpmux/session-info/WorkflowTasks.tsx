@@ -17,7 +17,7 @@
 import { Fragment, useId, useLayoutEffect, useRef, useState } from "react";
 import { compactTokens } from "../conversation/compactionNoteModel";
 import { Spinner } from "../conversation/icons";
-import { CountLine, countParts, live, type CountPart } from "../summary/LiveCount";
+import { CountLine, type CountPart } from "../summary/LiveCount";
 import { Markdown } from "../conversation/Markdown";
 import { formatDuration, spanDuration } from "../conversation/turns";
 import { useT, type Translate } from "../i18n";
@@ -44,6 +44,7 @@ import "./sessionInfo.css";
 import "./WorkflowTasks.css";
 import "../summary/workflowDots.css";
 import { WindowedRows } from "./WindowedRows";
+import { orderedCountParts } from "./subagentsSectionModel";
 import { StateMark } from "../summary/StateMark";
 import { Clock } from "../../../ui/Typography";
 
@@ -119,14 +120,12 @@ export function WorkflowTasks({
   );
 }
 
-/// "1 running · 2 queued · 3 done": each count that is not zero, the running ones as their mark and
-/// number (LiveCount.tsx).
+/// "1 failed · (mark) 1 · 2 queued · 3 done": each count that is not zero, in the shared order, the
+/// running ones as their mark and number (LiveCount.tsx).
 function countLine(t: Translate, counts: Tally): CountPart[] {
-  return countParts(
-    live(counts.running, t("summary.subagents.running", { n: counts.running })),
-    counts.queued > 0 && t("workflow.queued", { n: counts.queued }),
-    counts.done > 0 && t("summary.subagents.done", { n: counts.done }),
-    counts.failed > 0 && t("summary.subagents.failed", { n: counts.failed }),
+  return orderedCountParts(
+    { failed: counts.failed, running: counts.running, queued: counts.queued, done: counts.done },
+    t,
   );
 }
 

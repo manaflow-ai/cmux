@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Popover } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
@@ -91,6 +91,18 @@ export function FolderPopover({
   const cloudFolders = sources?.cloudFolders;
   const cloud = cloudFolders !== undefined;
   const github = sources?.github;
+  // The repository the person wanted when Connect or Choose more repositories… started came back listed (the app
+  // finished GitHub's return): it becomes the chat's folder with no second click (Leo 2026-11-25).
+  const returned = github?.state.returned;
+  const takeReturned = github?.onTakeReturned;
+  const returnedPrivate = github?.state.repos?.find((item) => item.fullName === returned)?.private ?? false;
+  useEffect(() => {
+    if (!returned) return;
+    // Taken first: the store forgets it, so this runs once per return.
+    takeReturned?.();
+    rememberAddedRepo({ fullName: returned, private: returnedPrivate });
+    if (githubFolder(returned) !== current) onPick(githubFolder(returned));
+  }, [returned, takeReturned, returnedPrivate, current, onPick]);
   // The repositories whose worktrees are open under their row, by group key.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const [searchCollapsed, setSearchCollapsed] = useState<ReadonlySet<string>>(() => new Set());
@@ -413,12 +425,16 @@ export function FolderPopover({
     const suffix = leadSuffix(folder);
     const { disclosure } = place;
     const repo = folderRepo(folder);
+    // With Cloud picked the chip names a clone of a GitHub repository by that repository.
+    const leadCurrent =
+      folder.id === current ||
+      (repo?.github !== undefined && githubFolderRepo(current)?.toLowerCase() === repo.github.toLowerCase());
     return (
       <span
         className="acpmux-location-row"
         // tooltip-allow: the row shows the folder's name; the tooltip is its full path
         title={folder.id}
-        data-current={folder.id === current ? "" : undefined}
+        data-current={leadCurrent ? "" : undefined}
         data-expanded={disclosure ? String(disclosure.open) : undefined}
         data-github={repo?.github ? "" : undefined}
       >
@@ -475,7 +491,7 @@ export function FolderPopover({
           </button>
         )}
         <span className="acpmux-location-check" aria-hidden="true">
-          {folder.id === current && <CheckIcon />}
+          {leadCurrent && <CheckIcon />}
         </span>
       </span>
     );
@@ -643,10 +659,10 @@ export function FolderPopover({
   );
 }
 
-/// The list's values in order. Cloud: the added repositories, then the machines' folders. This Mac: each
+/// The list's values in order: each
 /// repository's rows (its lead, New Worktree, its open worktrees) kept together and placed by when its newest
 /// folder was used, the added repositories among them by theirs; with words typed, the folders in the search's
-/// order, the typed path, then the repositories that match.
+/// order, the typed path, then the repositories that match. Cloud adds each machine's folders after them.
 function orderedRows({
   cloud,
   cloudRows,
@@ -664,7 +680,6 @@ function orderedRows({
 }): string[] {
   const repos: { repo: AddedRepo; block: string[] }[] = [];
   githubRows.forEach((repo, value) => repos.push({ repo, block: [value] }));
-  if (cloud) return [...repos.map((repo) => repo.block[0]!), ...cloudRows.keys()];
   const blocks: { block: string[]; at: number | undefined }[] = [];
   let previous: string | undefined;
   shown.forEach((place, value) => {
@@ -676,8 +691,11 @@ function orderedRows({
     blocks[blocks.length - 1]!.block.push(value);
   });
   const path = typedPath ? [typedPath] : [];
-  if (typed) return [...blocks.flatMap(({ block }) => block), ...path, ...repos.flatMap(({ block }) => block)];
-  return [...mergeByRecentUse(blocks, repos).flat(), ...path];
+  // Cloud: the machines' own folders under their headings, after the one list.
+  const machines = cloud ? [...cloudRows.keys()] : [];
+  if (typed)
+    return [...blocks.flatMap(({ block }) => block), ...path, ...repos.flatMap(({ block }) => block), ...machines];
+  return [...mergeByRecentUse(blocks, repos).flat(), ...path, ...machines];
 }
 
 /// When a chat here last worked in any of `members`, if one did.

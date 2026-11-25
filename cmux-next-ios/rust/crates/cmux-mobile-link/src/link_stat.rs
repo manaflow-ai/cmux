@@ -126,6 +126,10 @@ pub struct LinkStat {
     pub end: Option<&'static str>,
     /// The link library's version.
     pub lib: &'static str,
+    /// The Mac offered a NAT-mapped endpoint (PROTOCOL.md "Mapped
+    /// endpoints"): which protocol mapped it and whether the route uses it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub portmap: Option<PortmapStat>,
     /// Keys typed since the last stat: tap to first echo ([`crate::key_echo`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub echo: Option<key_echo::Summary>,
@@ -142,6 +146,21 @@ pub struct LinkStat {
 
 fn is_zero(n: &u32) -> bool {
     *n == 0
+}
+
+/// `link_stat` `portmap`: `{"by":"pcp","used":true}`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct PortmapStat {
+    /// `pcp`, `nat-pmp`, `upnp` or `unknown`.
+    pub by: &'static str,
+    /// The link's direct route goes to the mapped endpoint.
+    pub used: bool,
+}
+
+impl From<crate::dial::portmap::PortmapUse> for PortmapStat {
+    fn from(use_: crate::dial::portmap::PortmapUse) -> Self {
+        Self { by: use_.protocol, used: use_.used }
+    }
 }
 
 impl LinkStat {
@@ -281,6 +300,7 @@ impl Reporter {
                 .min(30 * 86_400),
             end: end.map(end_kind),
             lib: env!("CARGO_PKG_VERSION"),
+            portmap: None,
             echo: None,
             ack: None,
             spike_count: 0,
@@ -309,7 +329,10 @@ pub fn spawn(
     mut path: watch::Receiver<LinkPath>,
     timeline: Timeline,
     signaling: SignalingSource,
+    session_id: String,
 ) -> JoinHandle<()> {
+    // The Mac's mapped endpoint and whether the route uses it, read at each stat.
+    let portmap = move || crate::dial::wireguard::portmap_use(&session_id).map(PortmapStat::from);
     tokio::spawn(async move {
         let mut reporter = Reporter::new(transport, *path.borrow_and_update(), Instant::now());
         let mut closed = link.closed_state();
@@ -331,10 +354,11 @@ pub fn spawn(
                     cellular(),
                 )
                 .map(|stat| stat.with_keys(&key_echo::take(), reporter.up_at));
-            if let Some(stat) = stat
-                && !send(&signaling, &stat).await
-            {
-                return;
+            if let Some(mut stat) = stat {
+                stat.portmap = portmap();
+                if !send(&signaling, &stat).await {
+                    return;
+                }
             }
         }
         // The dialer's path watch can end before the link (then the link's close ends the report).
@@ -367,7 +391,8 @@ pub fn spawn(
                 cellular(),
             );
             let Some(stat) = stat else { return };
-            let stat = stat.with_keys(&key_echo::take(), reporter.up_at);
+            let mut stat = stat.with_keys(&key_echo::take(), reporter.up_at);
+            stat.portmap = portmap();
             if !send(&signaling, &stat).await || reason == Reason::End {
                 return;
             }
@@ -505,8 +530,11 @@ mod tests {
                 true,
             )
             .unwrap();
+        let mut stat = stat;
+        stat.portmap = Some(PortmapStat { by: "nat-pmp", used: false });
         let text = stat.to_text();
         assert!(text.len() <= MAX_FRAME_BYTES, "{} bytes: {text}", text.len());
+        assert!(text.contains(r#""portmap":{"by":"nat-pmp","used":false}"#), "{text}");
         assert_eq!(stat.marks.len(), MARKS.len());
         assert_eq!(stat.end, Some("keepalive"));
         assert!(stat.lost <= stat.pings);

@@ -5,13 +5,13 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactElement,
   type ReactNode,
+  useMemo,
 } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "./cx";
@@ -25,6 +25,7 @@ import { useNativePopup, type NativePopupDescription } from "./nativePopup";
 import type { NativePopupEvent } from "./popupProtocol";
 import { popupAction } from "./popupDescriptors";
 import { trackHeldMenuRelease } from "./pressRelease";
+import { usePopupSettle } from "./popupSettle";
 import { useExperimentArm } from "../experiments/useExperimentArm";
 import { menuStyleV2 } from "./menuStyleV2.experiment";
 import { menuRowStates } from "./menuRowStates.experiment";
@@ -188,10 +189,12 @@ export function ContextMenu({
   });
   const [shown, setShown] = useState<HTMLDivElement | null>(null);
   const edges = useScrollEdges();
-  const attach = useCallback((node: HTMLDivElement | null) => {
+  const keep = useCallback((node: HTMLDivElement | null) => {
     menu.current = node;
     setShown(node);
   }, []);
+  // Opens at its final size and keeps it while data arrives (popupSettle.ts).
+  const attach = usePopupSettle<HTMLDivElement>(keep);
   useEffect(
     () => () => {
       heldPress.current?.();
@@ -579,6 +582,7 @@ export function ContextMenu({
                         </button>
                         {item.submenu && subItem === item ? (
                           <div
+                            // one-material-allow: a submenu is a floating menu of its own beside its parent, not a control on the parent's glass; the parent's tree holds it for hover and focus
                             className={cx("ui-popup ui-glass ui-context-menu ui-context-submenu", popupClassName)}
                             role="menu"
                             aria-label={item.ariaLabel ?? (typeof item.label === "string" ? item.label : undefined)}

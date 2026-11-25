@@ -53,11 +53,17 @@ import Testing
         let dialer = PerMacDialer()
         let live = await connected(store, dialer)
         defer { live.stop() }
+        // Offline, no dial reaches the Mac. Without this the redial right after the drop
+        // connected at once, so the network's return found a live link with nothing to
+        // redial (this test, from #46665, never ran on base: the macOS pass was red first).
+        dialer.setUnreachable("m1", true)
         _ = try drop(live)
         live.networkPathChanged(.lost)
+        await rig.settle { if case .waiting = live.sessions["m1"]?.link.phase { true } else { false } }
         #expect(store.isOffline)
         #expect(!ConnectionBannerState.offline.offersRetry, "no Retry while this iPhone has no network")
         let dials = dialer.dialCount("m1")
+        dialer.setUnreachable("m1", false)
         live.networkPathChanged(.changed("wifi"))
         #expect(!store.isOffline)
         await rig.settle { store.macConnection["m1"] == .connected }

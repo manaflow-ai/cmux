@@ -301,7 +301,11 @@ impl Index {
         }
     }
 
-    /// Full-text search: entries holding every word, best first.
+    /// Full-text search: entries holding every word, best first. A query of several words that
+    /// no entry holds all of (an agent asking its whole question, "Which flag makes the flaky ws
+    /// test pass in CI?") falls back to the entries holding the most of its words that carry
+    /// meaning (`optchat_host::db::recall_query`, ranked by bm25), so it still finds the note
+    /// that answers it.
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<Hit>, String> {
         self.refresh(false)?;
         let _lock = self.lock(true)?;
@@ -317,6 +321,17 @@ impl Index {
             {
                 found.snippet = snippet;
                 out.push(found);
+            }
+        }
+        if out.is_empty() && query.split_whitespace().nth(1).is_some() {
+            let recalled = db
+                .recall(query, limit, true)
+                .map_err(|e| format!("searching: {e}"))?;
+            for hit in recalled {
+                if let Some(mut found) = self.row(&db, hit.id)? {
+                    found.snippet = hit.snippet;
+                    out.push(found);
+                }
             }
         }
         Ok(out)

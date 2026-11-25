@@ -346,6 +346,11 @@ impl Tabs {
         let mut state = self.lock();
         let Some(known) = state.tabs.get_mut(tab_id) else { return false };
         let text = truncate(text, MAX_SCREEN_BYTES);
+        if known.screen.as_ref().is_some_and(|screen| {
+            screen.text == text && screen.cols == known.tab.cols && screen.rows == known.tab.rows
+        }) {
+            return false;
+        }
         known.screen = Some(ScreenInput { text, cols: known.tab.cols, rows: known.tab.rows });
         known.captured_at_ms = now_ms();
         let changed = observe(&mut state, tab_id);

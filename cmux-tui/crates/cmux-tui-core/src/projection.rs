@@ -33,6 +33,28 @@
 //! - `{"id", "cmd": "projection.drop", "name"}`: the same with no mark (a Mac from before
 //!   `projection.brought_back`); `{"id", "ok": true, "data": {"dropped"}}`.
 //!
+//! Pinned folders (`cmux_projection::overlay::pin`, "available offline"), by projection `name`,
+//! mounted here, each one request and its answer:
+//! - `{"id", "cmd": "projection.pin", "name", "path"}`: `path` (relative to the projected folder,
+//!   `""` for all of it) is recorded and every file under it fetched onto this machine's disk
+//!   before the answer, `{"id", "ok": true, "data": {"path", "files", "bytes", "fetched_bytes",
+//!   "failed", "first_error", "away", "pinned_bytes", "pins"}}`. With the Mac away the pin still
+//!   holds (`"away": true`) and the next mount finishes it. A pin the disk cannot hold is refused
+//!   first, `projection.no_space`; a path the folder lacks, `projection.not_found`;
+//! - `{"id", "cmd": "projection.unpin", "name", "path"}`: its bytes go back to the cache, which
+//!   may evict them: `{"path", "unpinned": true, "pinned_bytes", "pins"}`;
+//! - `{"id", "cmd": "projection.pins", "name"}`: `{"pinned_bytes", "pins"}`.
+//! - `{"id", "cmd": "projection.warm", "name", "paths"}`: the files at or under `paths` (in order,
+//!   at most [`WARM_MAX_FILES`] files and [`WARM_MAX_BYTES`] bytes) fetched into the cache like a
+//!   read's, before the answer: nothing pinned, recorded or shown in `pins`. The Mac sends its
+//!   predicted hot set (instruction files, its changed and newest files) once the folder is
+//!   mounted, so the agent's first reads find their bytes here. `{"files", "bytes",
+//!   "fetched_bytes", "failed", "first_error", "away"}`. A daemon older than this answers it
+//!   unknown, and the Mac lets it go.
+//!
+//! `pins` is one `{"path", "files", "bytes", "local_bytes", "present", "complete"}` per pin, and
+//! `pinned_bytes` the bytes kept on disk for them; a mount's answer carries both too.
+//!
 //! When a chat is archived or deleted, `{"id", "cmd": "projection.release", "name", "why":
 //! "archived" | "deleted"}` ends its projection, deletes its state and its empty mount point:
 //! `{"freed_bytes", "dropped": true}`. The reaper ([`start_reaper`]) frees the rest on its own,
@@ -101,6 +123,16 @@ pub const DROP: &str = "projection.drop";
 pub const BROUGHT_BACK: &str = "projection.brought_back";
 /// The chat is archived or deleted: free its projection.
 pub const RELEASE: &str = "projection.release";
+/// Pinned folders' dials (module docs).
+pub const PIN: &str = "projection.pin";
+pub const UNPIN: &str = "projection.unpin";
+pub const PINS: &str = "projection.pins";
+/// The Mac's predicted hot set, fetched into the cache (module docs).
+pub const WARM: &str = "projection.warm";
+/// The most files one [`WARM`] fetches.
+pub const WARM_MAX_FILES: usize = 256;
+/// The most bytes one [`WARM`] fetches.
+pub const WARM_MAX_BYTES: u64 = 32 * 1024 * 1024;
 /// How long after the daemon starts the first reaper pass runs (acpmux starts beside it).
 const REAP_FIRST_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
 /// How often the reaper runs.
@@ -137,6 +169,10 @@ struct ServeLine {
     /// `projection-extend-v1`: the manifest is the whole folder's, for the mount of `name`.
     #[serde(default)]
     extend: bool,
+    /// The folder on the Mac this projects, as that Mac names it. The mount table carries it
+    /// ([`fsname_for`]), so the agent's `this_folder` tool can say which Mac folder it mirrors.
+    #[serde(default)]
+    from: Option<String>,
 }
 
 /// A revision in the person's store, and the read grant to fetch it with.
@@ -332,7 +368,9 @@ pub fn frame_command(line: &str) -> Option<&'static str> {
         return None;
     }
     let cmd = object.get("cmd")?.as_str()?;
-    [SERVE, LAYER, FILES, DROP, BROUGHT_BACK, RELEASE].into_iter().find(|known| *known == cmd)
+    [SERVE, LAYER, FILES, DROP, BROUGHT_BACK, RELEASE, PIN, UNPIN, PINS, WARM]
+        .into_iter()
+        .find(|known| *known == cmd)
 }
 
 /// The capabilities to advertise: [`PROJECTION_CAPABILITY`] where a projection can mount (Linux,
@@ -354,6 +392,7 @@ struct Projected {
     /// extend, the full manifest's.
     digest: AtomicU64,
     at: PathBuf,
+    /// What the mount serves: its pins are read and changed here.
     #[cfg(target_os = "linux")]
     overlay: Arc<cmux_projection::overlay::Overlay>,
     /// The full manifest's mapping once the mount was extended (the streams then speak its indices).
@@ -567,6 +606,12 @@ struct WayBackLine {
     /// [`RELEASE`]'s reason.
     #[serde(default)]
     why: Option<String>,
+    /// [`PIN`]'s and [`UNPIN`]'s path, relative to the projected folder.
+    #[serde(default)]
+    path: Option<String>,
+    /// [`WARM`]'s paths, relative to the projected folder.
+    #[serde(default)]
+    paths: Vec<String>,
 }
 
 /// A projection name: 1-64 letters, digits, `-` or `_`.
@@ -672,6 +717,7 @@ fn way_back_answer(
             Ok((json!({}), WayBackBody::Files(state, paths)))
         }
         BROUGHT_BACK | RELEASE => Ok((free(cmd, &line, &state)?, WayBackBody::None)),
+        PIN | UNPIN | PINS | WARM => Ok((pin_answer(cmd, &line)?, WayBackBody::None)),
         _ => {
             end(
                 &mut projections().lock().unwrap_or_else(PoisonError::into_inner),
@@ -684,6 +730,102 @@ fn way_back_answer(
             }
             Ok((json!({"dropped": dropped}), WayBackBody::None))
         }
+    }
+}
+
+/// [`PIN`], [`UNPIN`], [`PINS`] or [`WARM`] of projection `line.name`, mounted here (module docs).
+fn pin_answer(cmd: &str, line: &WayBackLine) -> Result<Value, Refusal> {
+    let projected =
+        projections().lock().unwrap_or_else(PoisonError::into_inner).get(&line.name).cloned();
+    let Some(projected) = projected else {
+        return Err((
+            "projection.unknown",
+            format!("projection {} is not mounted here", line.name),
+        ));
+    };
+    let Some(pins) = projected.pins() else {
+        return Err(("projection.unavailable", "projected folders mount on Linux only".into()));
+    };
+    let path = || {
+        line.path.as_deref().ok_or(("projection.params_invalid", format!("{cmd} needs the path")))
+    };
+    let mut data = match cmd {
+        PIN => {
+            let path = path()?;
+            let report = pins
+                .pin(path)
+                .map_err(|errno| pin_refusal(errno, path, "not in the projected folder"))?;
+            let away = report.first_error == Some(cmux_projection::FetchError::Away.errno());
+            json!({"path": path, "files": report.files, "bytes": report.bytes,
+                   "fetched_bytes": report.fetched_bytes, "failed": report.failed,
+                   "first_error": report.first_error, "away": away})
+        }
+        UNPIN => {
+            let path = path()?;
+            pins.unpin(path).map_err(|errno| pin_refusal(errno, path, "not pinned"))?;
+            json!({"path": path, "unpinned": true})
+        }
+        WARM => {
+            // A cache fill, not a pin: no pin status in its answer.
+            let report = pins.warm(&line.paths, WARM_MAX_FILES, WARM_MAX_BYTES);
+            let away = report.first_error == Some(cmux_projection::FetchError::Away.errno());
+            return Ok(json!({"files": report.files, "bytes": report.bytes,
+                             "fetched_bytes": report.fetched_bytes, "failed": report.failed,
+                             "first_error": report.first_error, "away": away}));
+        }
+        _ => json!({}),
+    };
+    if let (Some(fields), Value::Object(status)) = (data.as_object_mut(), pin_status(pins)) {
+        fields.extend(status);
+    }
+    Ok(data)
+}
+
+/// A pin's or an unpin's `errno` as an answer's code and message.
+/// `missing` says what `ENOENT` means for it.
+fn pin_refusal(errno: i32, path: &str, missing: &str) -> Refusal {
+    let shown = if path.is_empty() { "the whole folder" } else { path };
+    match errno {
+        libc::ENOENT => ("projection.not_found", format!("{shown}: {missing}")),
+        libc::ENOSPC => (
+            "projection.no_space",
+            format!("{shown}: pinning it would leave too little free disk on this machine"),
+        ),
+        libc::EINVAL => ("projection.params_invalid", format!("{shown}: not a path in the folder")),
+        errno => {
+            ("projection.io", format!("{shown}: {}", std::io::Error::from_raw_os_error(errno)))
+        }
+    }
+}
+
+/// `{"pinned_bytes", "pins"}` of `overlay` (module docs).
+fn pin_status(overlay: &cmux_projection::overlay::Overlay) -> Value {
+    let pins: Vec<Value> = overlay
+        .pin_states()
+        .into_iter()
+        .map(|pin| {
+            let complete = pin.complete();
+            let mut value = serde_json::to_value(pin).unwrap_or(Value::Null);
+            if let Some(fields) = value.as_object_mut() {
+                fields.insert("complete".into(), Value::Bool(complete));
+            }
+            value
+        })
+        .collect();
+    json!({"pinned_bytes": overlay.pinned_bytes(), "pins": pins})
+}
+
+impl Projected {
+    /// The overlay whose pins this mount keeps.
+    #[cfg(target_os = "linux")]
+    fn pins(&self) -> Option<&cmux_projection::overlay::Overlay> {
+        Some(&self.overlay)
+    }
+
+    /// None off Linux, where nothing mounts.
+    #[cfg(not(target_os = "linux"))]
+    fn pins(&self) -> Option<&cmux_projection::overlay::Overlay> {
+        None
     }
 }
 
@@ -910,7 +1052,10 @@ fn attach(
         let existing = existing.filter(|projected| projected.at == at);
         if let Some(projected) = existing {
             attached(&line.name, &at);
-            return Ok((projected, json!({"at": at, "attached": true})));
+            return Ok((
+                projected.clone(),
+                with_pins(json!({"at": at, "attached": true}), &projected),
+            ));
         }
         // Not mounted here (a resume, a daemon restart): the stored revision, when the Mac named one.
         let Some(revision) = &line.revision else {
@@ -925,7 +1070,10 @@ fn attach(
             projected.digest.load(Ordering::Relaxed) == digest && projected.at == at
         }) {
             attached(&line.name, &at);
-            return Ok((projected, json!({"at": at, "attached": true})));
+            return Ok((
+                projected.clone(),
+                with_pins(json!({"at": at, "attached": true}), &projected),
+            ));
         }
         let manifest = cmux_projection::manifest::Manifest::decode(&encoded)
             .map_err(|error| ("projection.params_invalid", format!("bad manifest: {error:#}")))?;
@@ -935,7 +1083,8 @@ fn attach(
     let entries = manifest.len();
     // The upper layer and the cache: this daemon's own state, beside the folder roots, never in them.
     let state = state_of(&line.name)?;
-    let projected = mount(&line.name, manifest, &state, &at, digest, line.head)?;
+    let projected =
+        mount(&line.name, manifest, &state, &at, digest, line.head, line.from.as_deref())?;
     if let (Some(dir), Some(home)) = (state.parent(), std::env::var_os("HOME"))
         && let Err(error) = git_stat::keep(dir, Path::new(&home), &at)
     {
@@ -949,7 +1098,17 @@ fn attach(
         "mount_ms": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
         "revision_ms": from_store,
     });
-    Ok((projected, data))
+    Ok((projected.clone(), with_pins(data, &projected)))
+}
+
+/// A mount's answer `data` with its pins' status added (module docs).
+fn with_pins(mut data: Value, projected: &Projected) -> Value {
+    if let (Some(fields), Some(Value::Object(status))) =
+        (data.as_object_mut(), projected.pins().map(pin_status))
+    {
+        fields.extend(status);
+    }
+    data
 }
 
 /// `projection-extend-v1`: the mount of `name` at `at` takes the full manifest `encoded` in place
@@ -1070,6 +1229,7 @@ fn mount(
     at: &Path,
     digest: u64,
     head: bool,
+    from: Option<&str>,
 ) -> Result<Arc<Projected>, Refusal> {
     use std::os::unix::fs::MetadataExt as _;
     let mut table = projections().lock().unwrap_or_else(PoisonError::into_inner);
@@ -1111,8 +1271,19 @@ fn mount(
     .map_err(|error| io("opening the projection", &format!("{error:#}")))?
     .with_away(away.clone());
     let overlay = Arc::new(overlay);
-    let mounted = cmux_projection::mount::mount(overlay.clone(), at)
-        .map_err(|error| ("projection.mount_failed", format!("{error:#}")))?;
+    let named =
+        cmux_projection::mount::Options { fsname: Some(fsname_for(from)), ..Default::default() };
+    let mounted = match cmux_projection::mount::mount_with(overlay.clone(), at, named) {
+        Ok(mounted) => Ok(mounted),
+        // The Mac folder's name in the mount table is a label only: a mount that refuses it
+        // mounts as before, under the plain name.
+        Err(error) if from.is_some() => {
+            eprintln!("cmux-tui: projection {name}: mounting with its Mac folder named: {error:#}");
+            cmux_projection::mount::mount(overlay.clone(), at)
+        }
+        Err(error) => Err(error),
+    }
+    .map_err(|error| ("projection.mount_failed", format!("{error:#}")))?;
     // Pinned folders an earlier mount recorded are fetched whole in the background, so they read
     // with the Mac away again (a new manifest starts a fresh cache). Mac away: it stops at the
     // first absence, and the next mount tries again.
@@ -1207,9 +1378,39 @@ fn mount(
     _at: &Path,
     _digest: u64,
     _head: bool,
+    _from: Option<&str>,
 ) -> Result<Arc<Projected>, Refusal> {
     Err(("projection.unavailable", "projected folders mount on Linux only".into()))
 }
+
+/// The mount table's source for a projection: [`FSNAME`], then `:` and the Mac folder it mirrors
+/// when the Mac named one, percent-encoded so no mount option separator, space or escape is in
+/// it (decoded by acpmux's `this_folder`). `CMUX_PROJECTION_NAMES_MAC_FOLDER=0` leaves it out.
+pub fn fsname_for(from: Option<&str>) -> String {
+    let off = std::env::var("CMUX_PROJECTION_NAMES_MAC_FOLDER")
+        .is_ok_and(|value| matches!(value.as_str(), "0" | "false"));
+    let Some(from) = from.filter(|from| {
+        !off && !from.is_empty()
+            && from.len() <= MAX_FROM_BYTES
+            && !from.chars().any(char::is_control)
+    }) else {
+        return FSNAME.to_owned();
+    };
+    let mut name = format!("{FSNAME}:");
+    for byte in from.bytes() {
+        if byte.is_ascii_alphanumeric() || b"/._~+-".contains(&byte) {
+            name.push(char::from(byte));
+        } else {
+            name.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    name
+}
+
+/// The mount table's source of every projection, alone or before `:` and its Mac folder.
+pub const FSNAME: &str = "cmux-projection";
+/// The longest Mac folder name a mount carries; a longer one is left out.
+const MAX_FROM_BYTES: usize = 1024;
 
 /// Git in a projected folder compares a file's size and whole-second mtime only. The index came
 /// from the Mac, so its inode, device, owner and ctime never match this mount's: with git's
