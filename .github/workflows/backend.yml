@@ -153,11 +153,18 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -166,6 +173,7 @@ jobs:
             bun-backend-${{ runner.os }}-${{ runner.arch }}-
       # vitest-pool-workers and node:sqlite need a current Node.
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        timeout-minutes: 5
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
@@ -214,6 +222,11 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -221,6 +234,8 @@ jobs:
       # The Bun package cache for backend/ and the release rails. Only this job saves it (it holds
       # no secrets); the secret-bearing jobs below only restore it.
       - name: Cache Bun package cache
+        timeout-minutes: 3
+        continue-on-error: true
         if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -239,6 +254,7 @@ jobs:
             bun-backend-${{ runner.os }}-${{ runner.arch }}-
       # vitest-pool-workers and node:sqlite need a current Node.
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        timeout-minutes: 5
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
@@ -341,11 +357,18 @@ jobs:
         working-directory: backend/db
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -370,11 +393,18 @@ jobs:
         working-directory: backend/db
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -402,11 +432,18 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -414,6 +451,7 @@ jobs:
           restore-keys: |
             bun-backend-${{ runner.os }}-${{ runner.arch }}-
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        timeout-minutes: 5
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
@@ -461,6 +499,11 @@ jobs:
             scripts/cmux-next
             Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials
             tests/fixtures/model-stub
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -507,11 +550,18 @@ jobs:
           # A new branch has no previous head (all zeros): the step below then lints only. A previous head that
           # cannot be fetched fails the job here, so a network fault never passes as "nothing to compare".
           if [ -n "${BEFORE//0/}" ]; then fetch_one "$BEFORE"; fi
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -580,17 +630,28 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
       # This job compares with earlier commits of feat-cmux-next. checkout's fetch-depth 0 fetched every branch and
       # tag (80,000+ refs) and stalled on all three tries ("curl 28 ... bad pack header"): deploy-staging jobs
       # 138123838319 and 138095039278, deploy-dashboard-staging 137939866003. One branch's history is enough.
       - name: Fetch feat-cmux-next's history without blobs
         working-directory: ${{ github.workspace }}
         run: scripts/ci/fetch_branch_history.sh feat-cmux-next
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -598,6 +659,7 @@ jobs:
           restore-keys: |
             bun-backend-${{ runner.os }}-${{ runner.arch }}-
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        timeout-minutes: 5
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
@@ -739,6 +801,10 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
       # This job compares with earlier commits of feat-cmux-next. checkout's fetch-depth 0 fetched every branch and
       # tag (80,000+ refs) and stalled on all three tries ("curl 28 ... bad pack header"): deploy-staging jobs
       # 138123838319 and 138095039278, deploy-dashboard-staging 137939866003. One branch's history is enough.
@@ -780,12 +846,20 @@ jobs:
             echo "Dashboard inputs changed since ${last:0:12}; deploying."
             echo "deploy=true" >> "$GITHUB_OUTPUT"
           fi
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: steps.changed.outputs.deploy == 'true'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         if: steps.changed.outputs.deploy == 'true'
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
+        timeout-minutes: 5
+        continue-on-error: true
         if: steps.changed.outputs.deploy == 'true'
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -794,6 +868,7 @@ jobs:
           restore-keys: |
             bun-backend-${{ runner.os }}-${{ runner.arch }}-
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        timeout-minutes: 5
         if: steps.changed.outputs.deploy == 'true'
         with:
           node-version: "24"
@@ -873,6 +948,11 @@ jobs:
           else
             echo "path=$PWD/$binary" >> "$GITHUB_OUTPUT"
           fi
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -915,17 +995,28 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
       # This job compares with earlier commits of feat-cmux-next. checkout's fetch-depth 0 fetched every branch and
       # tag (80,000+ refs) and stalled on all three tries ("curl 28 ... bad pack header"): deploy-staging jobs
       # 138123838319 and 138095039278, deploy-dashboard-staging 137939866003. One branch's history is enough.
       - name: Fetch feat-cmux-next's history without blobs
         working-directory: ${{ github.workspace }}
         run: scripts/ci/fetch_branch_history.sh feat-cmux-next
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -933,6 +1024,7 @@ jobs:
           restore-keys: |
             bun-backend-${{ runner.os }}-${{ runner.arch }}-
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        timeout-minutes: 5
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
@@ -1060,11 +1152,17 @@ jobs:
       - name: Fetch feat-cmux-next's history without blobs
         working-directory: ${{ github.workspace }}
         run: scripts/ci/fetch_branch_history.sh feat-cmux-next
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -1158,11 +1256,17 @@ jobs:
       - name: Fetch feat-cmux-next's history without blobs
         working-directory: ${{ github.workspace }}
         run: scripts/ci/fetch_branch_history.sh feat-cmux-next
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -1170,6 +1274,7 @@ jobs:
           restore-keys: |
             bun-backend-${{ runner.os }}-${{ runner.arch }}-
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        timeout-minutes: 5
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
@@ -1250,11 +1355,17 @@ jobs:
       - name: Fetch feat-cmux-next's history without blobs
         working-directory: ${{ github.workspace }}
         run: scripts/ci/fetch_branch_history.sh feat-cmux-next
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -1262,6 +1373,7 @@ jobs:
           restore-keys: |
             bun-backend-${{ runner.os }}-${{ runner.arch }}-
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        timeout-minutes: 5
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
@@ -1300,11 +1412,17 @@ jobs:
       - name: Fetch feat-cmux-next's history without blobs
         working-directory: ${{ github.workspace }}
         run: scripts/ci/fetch_branch_history.sh feat-cmux-next
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -1330,6 +1448,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: scripts/ci/fetch_branch_history.sh feat-cmux-next
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        timeout-minutes: 5
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
@@ -1389,6 +1508,11 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -1502,6 +1626,10 @@ jobs:
         if: github.ref_name != 'feat-cmux-next'
         working-directory: ${{ github.workspace }}
         run: scripts/ci/fetch_branch_history.sh "$GITHUB_REF_NAME"
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"

@@ -174,6 +174,11 @@ jobs:
           echo "CMUX_TUI_VERSION=$("$binary" --version | head -1)" >> "$GITHUB_ENV"
           echo "CMUX_TUI_INSTALL_MS=$install_ms" >> "$GITHUB_ENV"
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
