@@ -21,6 +21,9 @@ use crate::receiver::{
 };
 
 /// Most open streams per session (main surface, popups, tiles).
+/// Measured: the host's bound, `cmux_rd_engine::MAX_STREAMS` (16: one encoder each, popups'
+/// 300 kbps floors fill a 24 Mbps target's 20 % share), exported to the app as
+/// `CMUX_RD_SESSION_MAX_STREAMS`.
 pub const MAX_STREAMS: usize = 16;
 
 /// Silence after which a session that hears heartbeats is stalled (the

@@ -19,13 +19,21 @@
 //! an agent's call) is read as the yes: only the signature is.
 
 use crate::share_approval::{
-    AskerKeys, OwnerPairedDevice, Refused, ShareApproval, Target, admit, target_entry,
+    AskerKeys, CONTROL_VERSION, OwnerPairedDevice, Refused, ShareApproval, Target, VERSION,
+    admit_as, target_entry,
 };
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 
 /// The push type the hub carries an approval in.
 pub(crate) const PUSH: &str = "share.approval";
+/// The push type the hub carries a control approval in (`cmux.control-approval.v1`): the
+/// owner's tap on their own device, granting this Mac's "control for my other signed-in
+/// machines" with nobody at the Mac ([`receive_control`]).
+pub(crate) const CONTROL_PUSH: &str = "control.approval";
+/// The person's switch for [`receive_control`], in their settings file: off unless they set it
+/// to `true`. Off, this Mac grants control only by its own Allow click.
+pub(crate) const CONTROL_SETTING: &str = "devices.allowControlFromMyDevices";
 /// The audit log under the share host's folder.
 pub(crate) const AUDIT_FILE: &str = "audit.jsonl";
 
@@ -98,6 +106,74 @@ pub(crate) fn receive(
     seen: &mut HashSet<String>,
     record: impl FnOnce(&Value),
 ) -> Result<(), Refused> {
+    carried(hub, push, VERSION, now, seen, record, |_account| {
+        hub.share_on().map_err(|e| {
+            refused("share.not_turned_on", format!("admitted, but sharing did not turn on: {e}"))
+        })
+    })
+}
+
+/// One carried control approval (`push`, a [`CONTROL_PUSH`]), at `now`: admitted exactly as
+/// [`receive`] admits a share approval (carried by the device that signed it, that device on
+/// this account's hub list, its device-key signature, fresh, an unused nonce), and then `grant`
+/// records "control for my other signed-in machines" for the account it names. `grant` is this
+/// Mac's consent writer; it refuses when this Mac is joined as another account. Nothing an
+/// agent can send is read as the yes: an agent's token is not a device and signs nothing.
+///
+/// `allowed` is the person's [`CONTROL_SETTING`], off by default: while it is off an admitted
+/// approval grants nothing and is refused as `control.off`, audited like any other refusal.
+/// The approval is still admitted first, so its nonce is spent and the audit line names the
+/// device that asked; turning the setting on later needs a new tap.
+pub(crate) fn receive_control(
+    hub: &impl TargetHub,
+    push: &Value,
+    now: u64,
+    seen: &mut HashSet<String>,
+    allowed: bool,
+    record: impl FnOnce(&Value),
+    grant: impl FnOnce(&str) -> Result<(), String>,
+) -> Result<(), Refused> {
+    carried(hub, push, CONTROL_VERSION, now, seen, record, |account| {
+        if !allowed {
+            return Err(refused(
+                "control.off",
+                format!(
+                    "this Mac does not take a control grant from another device: its setting \
+                     {CONTROL_SETTING} is off. Set it to true on this Mac, or click Allow there"
+                ),
+            ));
+        }
+        grant(account).map_err(|e| {
+            refused("control.not_granted", format!("admitted, but control was not turned on: {e}"))
+        })
+    })
+}
+
+/// Whether the settings document turns [`CONTROL_SETTING`] on. Anything but `true` is off.
+pub(crate) fn control_allowed_by(doc: Option<&Value>) -> bool {
+    doc.and_then(|d| crate::user_settings::value(d, CONTROL_SETTING)) == Some(Value::Bool(true))
+}
+
+/// The person's [`CONTROL_SETTING`] as their settings file has it now. An unreadable or
+/// missing file is off.
+pub(crate) fn control_allowed() -> bool {
+    match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => control_allowed_by(Some(&doc)),
+        _ => false,
+    }
+}
+
+/// The shared path of [`receive`] and [`receive_control`]: read the approval, admit it as
+/// `version`, then `act` for the account it was admitted for. Audited either way.
+fn carried(
+    hub: &impl TargetHub,
+    push: &Value,
+    version: &str,
+    now: u64,
+    seen: &mut HashSet<String>,
+    record: impl FnOnce(&Value),
+    act: impl FnOnce(&str) -> Result<(), Refused>,
+) -> Result<(), Refused> {
     let approval = match push.get("approval").cloned().map(serde_json::from_value::<ShareApproval>)
     {
         Some(Ok(approval)) => approval,
@@ -113,7 +189,8 @@ pub(crate) fn receive(
             return Err(why);
         }
     };
-    let decision = decide(hub, push, &approval, now, seen);
+    let decision =
+        admitted(hub, push, &approval, version, now, seen).and_then(|account| act(&account));
     let mut entry = target_entry(&approval, &decision);
     if let Some(fields) = entry.as_object_mut() {
         fields.insert("carrier".into(), json!("device-hub"));
@@ -123,13 +200,15 @@ pub(crate) fn receive(
     decision
 }
 
-fn decide(
+/// The account `approval` is admitted for, or why it is refused.
+fn admitted(
     hub: &impl TargetHub,
     push: &Value,
     approval: &ShareApproval,
+    version: &str,
     now: u64,
     seen: &mut HashSet<String>,
-) -> Result<(), Refused> {
+) -> Result<String, Refused> {
     // The hub writes `from` from its own authenticated record of the sender, never from the
     // body: the device that sent it must be the one that signed it.
     let from = push.get("from").and_then(Value::as_str).unwrap_or_default();
@@ -156,10 +235,8 @@ fn decide(
         )
     })?);
     let target = Target { device: &device, account: &account, now };
-    admit(approval, &target, &OwnerPairedDevice { account: &account }, &keys, seen)?;
-    hub.share_on().map_err(|e| {
-        refused("share.not_turned_on", format!("admitted, but sharing did not turn on: {e}"))
-    })
+    admit_as(version, approval, &target, &OwnerPairedDevice { account: &account }, &keys, seen)?;
+    Ok(account)
 }
 
 /// The audit line for a push whose approval cannot be read.
