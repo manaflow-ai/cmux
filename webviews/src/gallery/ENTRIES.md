@@ -303,7 +303,19 @@ cmux-ci test --setup playwright --artifact /tmp/golden -- bash -c 'cd webviews &
   bun run golden:looks --out "$FAST_CHECKS_OUT/golden"'
 bun run golden:looks --looks cmux,codex --setup ~/src/my-look   # an outside look beside the built-in ones
 bun run golden:looks --native DIR   # adds the native sidebar and tab bar (AAGoldenLookGalleryTests' PNGs) per look
+bun run golden:looks --every        # every look the checkout carries, as the contrast test draws them
+bun run golden:looks --setup ~/src/my-look --preview   # also writes ~/src/my-look/preview/golden-{light,dark}.png, the stills the Settings looks gallery shows
 ```
+
+`looks.golden-menus` (`src/gallery/golden/GoldenMenus.gallery.tsx`) is the golden screen's menus and
+popover, which portal outside the chat: an open menu with a section label, shortcuts, an open submenu,
+a disabled and a red destructive row, beside the plan usage popover, a variant per look.
+
+The golden screen is the sample every look's contrast is checked on (`test/browser/golden-look-contrast-{0,1,2,3}.test.ts` (one suite, `test/support/goldenLookContrastSuite.ts`)):
+both entries under every look the checkout carries, found rather than listed (`discoverLooks`: each
+shipped theme file, each setup folder and theme file under `examples/`, past the registry), in each
+scheme it draws. Every text under 4.5:1 (3:1 large text and icons) fails with its look, element, text,
+colors and ratio, past the default chat's known pairs (`test/support/contrastKnown.ts`).
 
 ## Seeing it
 

@@ -42,14 +42,14 @@ import Testing
     }
 
     @Test func aHeldRelaunchSaysWhyAndHowLong() {
-        let hold = UpdateRelaunchHoldState(reason: .agentWorking, since: Self.now.addingTimeInterval(-90))
+        let hold = UpdateRelaunchHoldState(reason: .notIdle, since: Self.now.addingTimeInterval(-90))
         let fields = Self.fields(.ready(version: "1.1.0"), hold: hold)
         #expect(fields["staged"] == .bool(true))
         #expect(fields["relaunch"] == .string("held"))
-        #expect(fields["relaunch_hold"] == .string(UpdateRelaunchMoment.Interruption.agentWorking.rawValue))
+        #expect(fields["relaunch_hold"] == .string(UpdateRelaunchMoment.Interruption.notIdle.rawValue))
         #expect(fields["relaunch_hold_seconds"] == .double(90))
         guard case .string(let line)? = fields["line"] else { Issue.record("no line"); return }
-        #expect(line.contains(UpdateRelaunchMoment.Interruption.agentWorking.description))
+        #expect(line.contains(UpdateRelaunchMoment.Interruption.notIdle.description))
     }
 
     @Test func aHoldWithNothingStagedIsNotReported() {

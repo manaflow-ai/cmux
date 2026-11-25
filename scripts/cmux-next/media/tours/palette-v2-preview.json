@@ -1,0 +1,127 @@
+{
+  "title": "Command Palette Preview (experiments.palettePreview on, look A): the palette open with \"re\" typed, the selected workspace's details beside the results, its primary action and Actions ⌘K at the bottom. Record it with: cmux-ci capture SHA --state tour:palette-v2-preview",
+  "settings": {
+    "experiments": {
+      "paletteV2": "flat",
+      "palettePreview": true
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "New workspace work api",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "work api"
+      ],
+      "wait": 1.2,
+      "shot": false
+    },
+    {
+      "title": "New workspace work web",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "work web"
+      ],
+      "wait": 1.2,
+      "shot": false
+    },
+    {
+      "title": "New workspace release notes",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "release notes"
+      ],
+      "wait": 1.2,
+      "shot": false
+    },
+    {
+      "title": "New workspace research",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "research"
+      ],
+      "wait": 1.2,
+      "shot": false
+    },
+    {
+      "title": "Show work api",
+      "cmux": [
+        "workspace",
+        "name:work api",
+        "focus"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Open the command palette",
+      "cmux": [
+        "action",
+        "run",
+        "commandPalette"
+      ],
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Type r",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "r",
+          "target": "palette"
+        }
+      },
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Type e",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "e",
+          "target": "palette"
+        }
+      },
+      "wait": 1.2,
+      "shot": false
+    },
+    {
+      "title": "Preview beside the results: \"re\"",
+      "wait": 0.5,
+      "rpc": {
+        "method": "debug.palette.capture",
+        "params": {
+          "path": "{collect}"
+        }
+      },
+      "collect": "preview-re.png"
+    },
+    {
+      "title": "Close the palette",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "escape",
+          "target": "palette"
+        }
+      },
+      "wait": 0.5,
+      "shot": false
+    }
+  ]
+}

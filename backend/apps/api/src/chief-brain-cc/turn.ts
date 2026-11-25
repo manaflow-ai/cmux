@@ -15,6 +15,7 @@ import { CHIEF_VM_MJS } from "./chief-vm-source.ts"
 import { stageAttachments } from "./attachments.ts"
 import { mergeTurnFiles, toolsOf } from "./tools.ts"
 import { githubLine, githubOf } from "./github.ts"
+import { withTurnChecks } from "./turn-checks.ts"
 import { wakeCall } from "./wake.ts"
 import { autoCall } from "./jobs.ts"
 import { memoryCall } from "./memory-tools.ts"
@@ -329,7 +330,8 @@ const ccAttempt = async (b: ChiefBrainDO, id: string, blocks: ReadonlyArray<stri
         files: mergeTurnFiles(turnFiles(env.CHIEF_CC_TURN_FILES), toolFiles),
         github_token: github.token ?? env.CHIEF_CC_GITHUB_TOKEN ?? null
       }
-      input.prompt = tail(blocks.join("\n\n") + missingNote, STDIN_BYTES - enc.encode(JSON.stringify(input)).length)
+      // The turn checks end the prompt (turn-checks.ts): `tail` keeps the end, so a clipped input still carries them.
+      input.prompt = tail(withTurnChecks(blocks.join("\n\n") + missingNote), STDIN_BYTES - enc.encode(JSON.stringify(input)).length)
       const begun = await execRoot(env, vm, `/opt/chief-cc/start.sh ${id}`, enc.encode(JSON.stringify(input)), 30_000)
       if (begun.exit !== 0) throw new CcError(`the turn did not start (exit ${begun.exit})`)
       b.sql.exec(`UPDATE cb_turn SET submitted = 1 WHERE id = ?`, id)

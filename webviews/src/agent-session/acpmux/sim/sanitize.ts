@@ -9,7 +9,7 @@
 // Kept verbatim: only short enum-like values under the keys the reducer branches on (`kind`,
 // `status`, `sessionUpdate`, `state`, ...). Dropped: the agent's own stdin (`out` records) and the
 // harness's per-token noise, which the pane never reads.
-import type { EventRecord } from "../direct";
+import type { EventRecord } from "../eventRecord";
 import { SIM_SESSION, SIM_START } from "./script";
 
 /** Keys whose short, enum-like string values stay as they are: the reducer branches on them. */

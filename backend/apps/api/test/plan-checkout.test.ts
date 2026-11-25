@@ -3,9 +3,9 @@ import { runInDurableObject } from "cloudflare:test"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { Env } from "../src/env.ts"
 import { handleCreditsWebhook } from "../src/credits-routes.ts"
-import { testPlanGrant } from "../src/inference/plan.ts"
+import { inferencePlanOf, testPlanGrant } from "../src/inference/plan.ts"
 import { hmacHex } from "../src/ingress/verify.ts"
-import { handlePlanCheckout } from "../src/plan-checkout.ts"
+import { handlePlanCheckout, NEXT_PLANS, planLink, planOfLink } from "../src/plan-checkout.ts"
 
 const secret = "whsec_plan_checkout_delivery_test"
 const testEnv: Env = { ...(env as unknown as Env), STRIPE_CREDITS_WEBHOOK_SECRET: secret }
@@ -60,5 +60,47 @@ describe("Chief plan checkout delivery", () => {
     expect(await retry.json()).toEqual({ received: true, granted: false })
     expect(chiefPlan).toHaveBeenCalledTimes(2)
     expect(chiefPlan.mock.calls[1]![0]).toMatchObject({ session: paid.id, team: paid.metadata.team, chief: paid.metadata.chief, conversation: paid.metadata.conversation })
+  })
+})
+
+describe("cmux NEXT plan test checkout (Cloud's cloud.billing.checkout)", () => {
+  const nextSession = (suffix: string, team: string, plan = "next_pro") => ({
+    ...session(suffix, team),
+    amount_total: NEXT_PLANS[plan]!.usd * 100,
+    amount_subtotal: NEXT_PLANS[plan]!.usd * 100,
+    metadata: { app: "cmux", kind: "cmux_plan", team, plan }
+  })
+  const answerOf = (team: string, testGrants: boolean) =>
+    inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)), async (instance) =>
+      inferencePlanOf(instance.ctx.storage.sql, null, team, undefined, undefined, "user_next", Date.now(), testGrants))
+
+  it("signs a link for every NEXT plan and reads it back", async () => {
+    const e: Env = { ...testEnv, BILLING_LEVELS_KEY: "k".repeat(40) }
+    for (const plan of Object.keys(NEXT_PLANS)) {
+      const link = await planLink(e, "https://api.test", TEAM, plan)
+      expect(link).toMatch(/^https:\/\/api\.test\/v1\/billing\/plan\//)
+      expect(await planOfLink(e, link!.split("/").pop()!)).toEqual({ team: TEAM, plan })
+    }
+    expect(await planLink(e, "https://api.test", TEAM, "next_intro")).toBeNull()
+  })
+
+  it("a paid NEXT session answers next_plan, never the classic plan or paid", async () => {
+    const team = "team_25574000000000000010"
+    expect(await (await hook(testEnv, "checkout.session.completed", nextSession("nextpro", team))).json()).toEqual({ received: true, granted: true })
+    expect(await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)), async (i) => [testPlanGrant(i.ctx.storage.sql), testPlanGrant(i.ctx.storage.sql, "next_plan")])).toEqual([null, "next_pro"])
+    expect(await answerOf(team, true)).toMatchObject({ ok: true, paid: false, next_plan: "next_pro", next_plan_started_at: null, next_plan_ends_at: null })
+    // Production (testGrants false) never honors it.
+    expect((await answerOf(team, false)).next_plan ?? null).toBeNull()
+    // Cancelling the subscription takes it back.
+    const s = nextSession("nextpro", team)
+    expect((await hook(testEnv, "customer.subscription.deleted", { id: s.subscription, metadata: s.metadata })).status).toBe(200)
+    expect((await answerOf(team, true)).next_plan ?? null).toBeNull()
+  })
+
+  it("refuses a NEXT session whose amount is not the plan's", async () => {
+    const team = "team_25574000000000000011"
+    const wrong = { ...nextSession("nextwrong", team, "next_max"), amount_total: 5000, amount_subtotal: 5000 }
+    expect(await (await hook(testEnv, "checkout.session.completed", wrong)).json()).toMatchObject({ received: true, granted: false })
+    expect((await answerOf(team, true)).next_plan ?? null).toBeNull()
   })
 })

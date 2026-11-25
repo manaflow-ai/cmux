@@ -53,7 +53,12 @@ public final class SidebarSessionTreeFeed {
         /// The pull request reads run (the tree, the Priority view or a row's badge wants them). Nesting alone asks
         /// GitHub nothing.
         var readsPullRequests = true
+        /// acpmux's lanes were live (`AgentLaneStore.live`): the parents are this run's own, not the saved ones held.
+        var lanesLive = true
     }
+
+    /// No acpmux here (no lanes will come to replace the lineage the last run saved): the tree draws none of it.
+    public func dropSavedLineage(tree: SidebarSessionTree = .shared) { tree.dropSavedLineage() }
 
     /// One workspace's agent chat tabs, in model order (its name only for the DEBUG pull request fixture).
     nonisolated struct WorkspaceChats: Equatable, Sendable {
@@ -105,7 +110,17 @@ public final class SidebarSessionTreeFeed {
             for await pass in ObservationStream({ () -> Pass? in
                 let sections = DesignSettings.shared.sidebarSections
                 let reads = Self.readsPullRequests(sections) || Self.readsBadges(sections), nests = SidebarTunables.lineageNesting.value
-                guard reads || nests, let listed = joined.chats else { return nil }
+                guard reads || nests else { return nil }
+                // Until acpmux's watch delivers its page (a launch, a gap) the lanes hold no `spawnedBy`: the lineage
+                // drawn last stands in, so no row un-nests now and nests again when the lanes land.
+                let lanesLive = lanes.live, held = lanesLive || !nests ? [:] : tree.savedParents
+                guard let listed = joined.chats else {
+                    guard !held.isEmpty else { return nil }
+                    var pass = Self.shaped(Pass(state: SidebarSessionTreeState(parents: held), asks: []),
+                                           sessionTree: sections.sessionTree, nests: nests, reads: false)
+                    pass.lanesLive = false
+                    return pass
+                }
                 // Each local session's links only (`AgentLaneStore.links(_:)`): an agent's new step or state passes nothing
                 // again; with the badges on this pass ran over every workspace on every agent event.
                 let chats = listed.map { ($0.id, $0.refs) }
@@ -118,6 +133,8 @@ public final class SidebarSessionTreeFeed {
                 var pass = Self.pass(chats, links: links, remoteParentsByHost: remote.parentsByHost,
                                      hostAliases: remote.hostAliases, recordedParents: storedParents.parents,
                                      localHost: localHost, pullRequests: reads ? pullRequests.answers : [:])
+                pass.state.parents = Self.holding(pass.state.parents, saved: held)
+                pass.lanesLive = lanesLive
                 pass = Self.shaped(pass, sessionTree: sections.sessionTree, nests: nests, reads: reads)
                 // Captures: sample pull requests on every row, and no GitHub reads.
                 if fixture, pass.readsPullRequests {
@@ -126,9 +143,25 @@ public final class SidebarSessionTreeFeed {
                 return pass
             }) {
                 Self.publish(pass, to: tree)
+                // The lanes' own lineage is the one to keep: a later launch or gap holds it.
+                if let pass, pass.lanesLive { tree.savedParents = pass.state.parents }
                 if let pass, pass.readsPullRequests, !fixture { pullRequests.refresh(pass.asks) } else { pullRequests.stop() }
             }
         }
+    }
+
+    /// `parents` while acpmux's lanes are not live: the `saved` lineage (the one drawn last while they were) wins, and a
+    /// parent the pass found for a row the saved lineage leaves loose (a parent recorded since) is added where it
+    /// closes no loop. With nothing saved, `parents` as they are.
+    static func holding(_ parents: [SidebarWorkspaceID: SidebarWorkspaceID],
+                        saved: [SidebarWorkspaceID: SidebarWorkspaceID]) -> [SidebarWorkspaceID: SidebarWorkspaceID] {
+        guard !saved.isEmpty else { return parents }
+        var held: [SidebarWorkspaceID: SidebarWorkspaceID] = [:]
+        for (child, parent) in saved.sorted(by: { $0.key.rawValue < $1.key.rawValue })
+            where child != parent && !reaches(from: parent, to: child, in: held) { held[child] = parent }
+        for (child, parent) in parents.sorted(by: { $0.key.rawValue < $1.key.rawValue })
+            where held[child] == nil && child != parent && !reaches(from: parent, to: child, in: held) { held[child] = parent }
+        return held
     }
 
     /// `pass` as the settings shape it: the tree shows while `sidebar.sessionTree` is on, or while lineage nesting is

@@ -1,6 +1,7 @@
 // AcpmuxPane's turn rows and turn actions (RFD 0046 step 2.5): the bodies of its `turnRowsShown` and
 // `turnActions` memos, moved out of App.tsx as they were. The memos, their deps arrays and every
 // hook stay in AcpmuxPane; these are plain functions over the values it closes over.
+import type { AnswerBlock } from "../subagents/restart";
 import type { RefObject } from "react";
 import type { AccessOffer } from "../accessOffer";
 import { callNative } from "../callNative";
@@ -42,6 +43,8 @@ import { trayWaitAgents, turnViewFrom, type TurnView } from "../conversation/tur
 import type { Folds } from "../conversation/viewFolds";
 import type { AcpmuxDirectClient } from "../direct";
 import { translate } from "../i18n";
+import { sessionLink } from "../links";
+import { GITHUB_CONNECT_ACTION, type GitHubConnectOffer } from "../conversation/githubConnect";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { postNative } from "../native";
 import { openPicker } from "../pickerOpeners";
@@ -60,6 +63,16 @@ import { subagentRowsFrom, type SubagentRows } from "../subagents/subagentRows";
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 type Held = { session?: string; keys: ReadonlySet<string> };
 
+/// The reader's click on a Worked for held open at its turn's end (`heldWorked`): the hold without
+/// it, and the fold named in `letGo`, so the pass the click asks for does not hold it open again over
+/// the work leaving the view. Undefined when the fold is not held.
+export function letGoHeldWorked<T extends Held & { letGo?: ReadonlySet<string> }>(held: T, id: string): T | undefined {
+  if (!held.keys.has(id)) return undefined;
+  const keys = new Set(held.keys);
+  keys.delete(id);
+  return { ...held, keys, letGo: new Set(held.letGo).add(id) };
+}
+
 /// What `turnRowsShownFrom` reads of AcpmuxPane: the values its `turnRowsShown` memo closes over.
 export interface TurnRowsShownDeps {
   chatPresentation: Presentation;
@@ -76,7 +89,9 @@ export interface TurnRowsShownDeps {
   callRelease: number;
   transcriptInView: RefObject<(() => readonly string[] | null) | undefined>;
   heldRuns: RefObject<Held & { asked?: true }>;
-  heldWorked: RefObject<Held>;
+  /// `letGo`: the held Worked for folds the reader's click let go of (App.tsx `toggleActivity`); the
+  /// pass it asks for does not hold them again.
+  heldWorked: RefObject<Held & { letGo?: ReadonlySet<string> }>;
   heldWorkedClosing: RefObject<boolean>;
   /// Only the fields the memo's deps array names.
   snapshot: Pick<
@@ -101,6 +116,8 @@ export interface TurnActionsDeps {
   /// CMUX-682); the chat already said why, or the click opened setup.
   holdsRetry?: (prompt: string) => boolean;
   restartChat: string | undefined;
+  /// Why the shown chat takes no answer, when `restartChat` is undefined (subagents/restart.ts).
+  answerBlock?: AnswerBlock;
   queuedMessageActionsRef: RefObject<QueuedMessageActionsValue | undefined>;
   stableBranches: Map<string, MessageBranch>;
   runningBranchSessions: ReadonlySet<string>;
@@ -232,6 +249,11 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
     // turn's end folding its work, a run of calls closing) leaves that fold open
     // (conversation/turnEndHold.ts); the effect below puts it in `expanded`. The reader's own
     // toggles change `folds` and are left alone, as is a chat just switched to.
+    // A click on a held Worked for changes no fold, so it names the fold (`letGo`): held again
+    // here, the work it hides leaving the view, it stayed open until the view followed the latest
+    // row. Only that fold: another turn that ends in the same pass still holds its own.
+    const workedLetGo = heldWorked.current.letGo;
+    if (workedLetGo) heldWorked.current = { session: heldWorked.current.session, keys: heldWorked.current.keys };
     const ownChange = foldsSeen.current.session !== shownSessionId || foldsSeen.current.folds !== folds;
     foldsSeen.current = { session: shownSessionId, folds };
     if (heldFolds.current.session !== shownSessionId) heldFolds.current = { session: shownSessionId, keys: new Set() };
@@ -245,6 +267,7 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
     if (inView) {
       const worked = new Set<string>();
       const held = foldsToHold(rows, turns.rows, last?.turns.rows, turns.reusedRows, inView, folds, worked);
+      for (const key of workedLetGo ?? []) worked.delete(key);
       if (worked.size > 0) {
         heldWorked.current = { session: shownSessionId, keys: new Set([...heldWorked.current.keys, ...worked]) };
         turns = shape(withHeldFolds(folds, heldOpen()));
@@ -307,6 +330,7 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
     showCall,
     holdsRetry,
     restartChat,
+    answerBlock,
     queuedMessageActionsRef,
     stableBranches,
     runningBranchSessions,
@@ -491,6 +515,8 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
               : Promise.resolve()
         )(restartChat),
       }),
+    // Where it cannot send, the card says why (NextStepCard.tsx), in the typed answer's row.
+    ...(!restartChat && answerBlock && { answerBlock }),
     // A tagged ask's answer (NextStepCard.tsx) sends as Continue does, with the same reach.
     ...(restartChat && {
       nextStepKey,
@@ -502,6 +528,26 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
             ? answerThrough(callNative)(text)
             : Promise.reject(new Error(CHAT_CHANGED))
       )(restartChat),
+    }),
+    // Connect GitHub (githubConnect.ts, a GitHub call that found no connection for this chat): the
+    // app's `accounts.githubConnect` with the call's repository and this chat's link, which GitHub's
+    // return opens; then Continue, with Continue's reach. A Connect the app did not run rejects with
+    // its reason, for the card.
+    ...(restartChat && {
+      githubConnect: ((owner: string): GitHubConnectOffer => ({
+        connect: (repo) => {
+          const returnTo = sessionLink(owner);
+          return callNative("action.run", {
+            id: GITHUB_CONNECT_ACTION,
+            ...(repo && { repo }),
+            ...(returnTo && { returnTo }),
+          }).then(() => undefined);
+        },
+        continue: () =>
+          restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
+            ? resumeThrough(callNative)()
+            : Promise.resolve(),
+      }))(restartChat),
     }),
     // A context-full failure's Compact sends the agent's own /compact as Continue sends its prompt,
     // with the same reach: never to a View Only chat or a read-only pane, never the next chat.

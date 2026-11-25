@@ -58,6 +58,9 @@ struct SidebarHoverReplacesMarksTests {
                     let titleWidth = row.title.frame.width
                     row.isHovered = true
                     row.layoutSubtreeIfNeeded()
+                    // A display pass follows layout on hover. It used to restore the blue dot and
+                    // error mark. Assert every variant is still clear after that repaint.
+                    row.updateLayer()
                     let controls = [row.closeButton, row.moreButton, row.pinSlot.made].compactMap(\.self)
                         .filter { !$0.isHidden && $0.alphaValue > 0 }
                     try #require(!controls.isEmpty, "\(spot) pinned \(pinned): no hover control on the hovered row")

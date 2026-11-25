@@ -193,6 +193,9 @@ await requireBrowserLane("transcript-thumb-look.test.ts", async () => {
           // Reaching for the thumb: it fades in wide, then out as the pointer leaves.
           await phase(`near-${round}`);
           await page.mouse.move(view.x + view.width - 4, middle.y, { steps: 6 });
+          // The pointer on the bar alone shows nothing (Leo 2026-11-22: "hovering only doesnt show"):
+          // a step of scroll with the pointer there shows the thumb, and the pointer holds it.
+          await page.mouse.wheel(0, 60);
           await settled(true);
           await phase(`leave-${round}`);
           await page.mouse.move(middle.x, middle.y, { steps: 6 });

@@ -15,7 +15,6 @@ import {
   type StatusItem,
 } from "./composerStatusModel";
 import { CONNECTION_QUIET_MS } from "../../ui/lasting";
-import { HOST_ERROR_DEADLINE_MS, RECONNECT_LINE_AFTER_MS } from "./hostRetry";
 import { readPeerLinkDetail } from "./linkState";
 import { PEEK_PIN_TABLE, peekPin, peekPinOpen } from "./peekPin";
 
@@ -163,19 +162,16 @@ describe("items", () => {
     expect(readPeerLinkDetail({ link: "connected", status: null })).toEqual({ link: "connected" });
   });
 
-  test("the pane's own reconnect is due after the quiet bound and ends at the deadline", () => {
-    const since = 1_000;
-    const early = hostRecoveryItem({ relinkingSince: since }, since + 1);
-    expect(early.item?.showAt).toBe(since + RECONNECT_LINE_AFTER_MS);
-    expect(early.wakeAt).toBe(since + HOST_ERROR_DEADLINE_MS);
-    expect(hostRecoveryItem({ relinkingSince: since }, since + RECONNECT_LINE_AFTER_MS).item?.words).toBe(
-      "status.agentService.reconnecting",
-    );
-    expect(hostRecoveryItem({ relinkingSince: since }, since + HOST_ERROR_DEADLINE_MS).item).toBeUndefined();
-    expect(hostRecoveryItem({ relinkingSince: since, failureShown: true }, since + 1).item).toBeUndefined();
-    const restoring = hostRecoveryItem({ restoring: { waitedMs: 4_000, at: 10_000 } }, 10_000).item;
+  test("the pane's own reconnect follows the link's state, not a clock", () => {
+    expect(hostRecoveryItem({ linkDown: false }, 1_000).item).toBeUndefined();
+    const down = hostRecoveryItem({ linkDown: true }, 1_000);
+    expect(down.item?.words).toBe("status.agentService.reconnecting");
+    expect(down.wakeAt).toBeUndefined();
+    expect(hostRecoveryItem({ linkDown: true }, 10_000_000).item?.words).toBe("status.agentService.reconnecting");
+    expect(hostRecoveryItem({ linkDown: true, failureShown: true }, 1_000).item).toBeUndefined();
+    const restoring = hostRecoveryItem({ linkDown: true, restoring: { waitedMs: 4_000, at: 10_000 } }, 10_000).item;
     expect(restoring?.words).toBe("status.restoringSessions.restoring");
-    expect(restoring?.showAt).toBe(6_000 + RECONNECT_LINE_AFTER_MS);
+    expect(restoring?.since).toBe(6_000);
     expect(hostRecoveryItem(undefined, 0)).toEqual({});
   });
 });

@@ -3,7 +3,7 @@
 // composer_status.rs) and the machine link's item (`status` on a peer's link); the pane adds only what
 // it alone knows (its own connection to acpmux, a send it holds). Everything here is pure: the dot's
 // clock is passed in, so a test runs it on a fake one.
-import { HOST_ERROR_DEADLINE_MS, RECONNECT_LINE_AFTER_MS, hostRecoveryLine, type HostRestoring } from "./hostRetry";
+import { hostRecoveryLine, type HostRestoring } from "./hostRetry";
 import { CONNECTION_QUIET_MS } from "../../ui/lasting";
 import type { StringKey } from "./i18n";
 import type { FactKind, StatusAction, StatusKind, StatusLevel } from "./protocol/generated/types";
@@ -208,43 +208,30 @@ export function worstLevel(items: readonly StatusItem[]): StatusLevel | undefine
 
 /// What the pane's own connection to acpmux says (App.tsx, as HostRecoveringLine reads it).
 export type HostRecovery = {
-  relinkingSince?: number;
+  linkDown?: boolean;
   restoring?: HostRestoring;
   failureShown?: boolean;
-  waitingSince?: number;
 };
 
-/// The pane's own recovery as a dot item (HostRecoveringLine's "Restoring sessions…" or
-/// "Reconnecting…", under the same rule, hostRetry.ts `hostRecoveryLine`), due RECONNECT_LINE_AFTER_MS
-/// after it began (`showAt`), and when its answer next changes on its own (`wakeAt`: the deadline
-/// past which "Reconnecting…" is the waiting line's).
+/// The pane's own recovery as a dot item, under HostRecoveringLine's rule (hostRetry.ts
+/// `hostRecoveryLine`): it follows the connection's state, never a clock (Leo, 2026-11-22: "surely we
+/// can think of better fixes than random timing which can shift"). "Restoring sessions…" while the
+/// host says acpmux restores, else "Reconnecting…" while the link is down for real; nothing while a
+/// failure the pane already says covers it. No `wakeAt`: only a new state changes the answer.
 export function hostRecoveryItem(host: HostRecovery | undefined, now: number): { item?: StatusItem; wakeAt?: number } {
-  if (!host) return {};
-  if (host.restoring) {
-    const since = host.restoring.at - host.restoring.waitedMs;
+  const line = host && hostRecoveryLine({ ...host, now });
+  if (!line) return {};
+  if (line.kind === "restoring") {
     return {
       item: {
         kind: "restoringSessions",
         level: "info",
         words: "status.restoringSessions.restoring",
-        since,
-        showAt: since + RECONNECT_LINE_AFTER_MS,
+        since: now - line.waitedMs,
       },
     };
   }
-  const since = host.relinkingSince;
-  if (since === undefined || host.failureShown) return {};
-  const item: StatusItem = {
-    kind: "agentService",
-    level: "info",
-    words: "status.agentService.reconnecting",
-    since,
-    showAt: since + RECONNECT_LINE_AFTER_MS,
-  };
-  const waiting = host.waitingSince;
-  const ends = [since + HOST_ERROR_DEADLINE_MS, waiting === undefined ? undefined : waiting + HOST_ERROR_DEADLINE_MS];
-  if (now < since + RECONNECT_LINE_AFTER_MS) return { item, wakeAt: nextWake(ends, now) };
-  return hostRecoveryLine({ ...host, now }) ? { item, wakeAt: nextWake(ends, now) } : {};
+  return { item: { kind: "agentService", level: "info", words: "status.agentService.reconnecting" } };
 }
 
 /// A send the composer holds until acpmux answers (sendWhenReady.ts), as a dot item.
