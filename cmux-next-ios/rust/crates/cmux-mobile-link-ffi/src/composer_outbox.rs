@@ -53,6 +53,10 @@ pub struct ComposerSendRequest {
 struct Inner {
     outbox: Outbox,
     form: Option<Form>,
+    /// The connection the queue is bound to (the session's serial), once one is attached.
+    link: Option<u64>,
+    /// Whether `identify` has answered on `link` (`form` is then that daemon's).
+    identified: bool,
     /// `now_ms` 0 on the outbox's clock.
     origin: Instant,
 }
@@ -93,6 +97,8 @@ impl ComposerOutbox {
             inner: Mutex::new(Inner {
                 outbox: Outbox::new(nonce, Duration::from_millis(hold_ms)),
                 form: None,
+                link: None,
+                identified: false,
                 origin: Instant::now(),
             }),
         }
@@ -102,8 +108,32 @@ impl ComposerOutbox {
     /// a daemon that does is attached, Sends wait in the outbox.
     pub fn set_capabilities(&self, capabilities: Vec<String>) -> bool {
         let mut inner = self.inner();
+        inner.identified = true;
         inner.form = Form::from_caps(capabilities.iter().map(String::as_str));
         inner.form.is_some()
+    }
+
+    /// The session is on `connection` (its serial). Returns whether that is a new one: then what
+    /// was in flight goes again under its key, every entry not answered yet stays queued in tap
+    /// order under its own hold (nothing is given up for the change alone), and the daemon is
+    /// asked `identify` once before anything goes on it (see [`Self::needs_identify`]).
+    pub fn attach(&self, connection: u64) -> bool {
+        let mut inner = self.inner();
+        if inner.link == Some(connection) {
+            return false;
+        }
+        inner.link = Some(connection);
+        inner.identified = false;
+        inner.form = None;
+        inner.outbox.link_lost();
+        true
+    }
+
+    /// Whether the attached connection's daemon still has to be asked `identify`: once per
+    /// connection, never per entry.
+    pub fn needs_identify(&self) -> bool {
+        let inner = self.inner();
+        inner.link.is_some() && !inner.identified
     }
 
     /// Whether the attached daemon takes keyed Sends (false before the first attach).
@@ -116,6 +146,22 @@ impl ComposerOutbox {
         let mut inner = self.inner();
         let at = inner.at(now_ms);
         inner.outbox.push(text, submit, at)
+    }
+
+    /// Typed keys at `now_ms`: raw terminal bytes as one keyed `send {bytes, key}`, in the same
+    /// queue and order as composer Sends. Returns the entry's number.
+    pub fn push_keys(&self, bytes: Vec<u8>, now_ms: u64) -> u64 {
+        let mut inner = self.inner();
+        let at = inner.at(now_ms);
+        inner.outbox.push_keys(bytes, at)
+    }
+
+    /// A tap on Send of a one-line draft for a full-screen program at `now_ms`: typed, then
+    /// Return, in one request (`send-typed-submit-v1`). Returns the Send's number.
+    pub fn push_typed(&self, text: String, now_ms: u64) -> u64 {
+        let mut inner = self.inner();
+        let at = inner.at(now_ms);
+        inner.outbox.push_typed(text, at)
     }
 
     /// The next request to send, in tap order behind those in flight (up to
@@ -226,6 +272,99 @@ mod tests {
             outbox.expire(1_030_000),
             vec![ComposerSendDone { seq, outcome: ComposerSendOutcome::NotSent { text: "make".into() } }]
         );
+    }
+
+    #[test]
+    fn typed_keys_wait_for_a_link_then_go_as_bytes_under_one_key_again_after_a_loss() {
+        let outbox = ComposerOutbox::new("phone-1".into(), 10_000);
+        outbox.set_capabilities(caps(&["send-key-v1"]));
+        let seq = outbox.push_keys(vec![0x1b, b'[', b'A'], 1_000);
+        let first = outbox.next_request().unwrap();
+        let params: serde_json::Value = serde_json::from_str(&first.params_json).unwrap();
+        assert_eq!(params["bytes"], "G1tB");
+        assert_eq!(params["key"], "phone-1-1");
+        outbox.link_lost();
+        assert_eq!(outbox.next_request().unwrap(), first);
+        // An attempt in flight waits for its answer; past the hold, once it is lost too, the
+        // keys may have been typed.
+        assert_eq!(outbox.expire(11_000), vec![]);
+        outbox.link_lost();
+        assert_eq!(
+            outbox.expire(11_000),
+            vec![ComposerSendDone {
+                seq,
+                outcome: ComposerSendOutcome::MaybeSent { text: "\u{1b}[A".into() }
+            }]
+        );
+    }
+
+    fn bytes_of(request: &ComposerSendRequest) -> String {
+        let params: serde_json::Value = serde_json::from_str(&request.params_json).unwrap();
+        params["bytes"].as_str().unwrap().to_owned()
+    }
+
+    #[test]
+    fn keys_typed_on_a_stalled_link_carry_over_to_the_next_connection_in_order() {
+        let outbox = ComposerOutbox::new("phone-1".into(), 10_000);
+        assert!(outbox.attach(1));
+        assert!(outbox.needs_identify());
+        // Typed while connection 1 stalls before `identify` answers: nothing went out.
+        let a = outbox.push_keys(b"a".to_vec(), 1_000);
+        let b = outbox.push_keys(b"b".to_vec(), 1_100);
+        assert_eq!(outbox.next_request(), None, "not identified on this connection yet");
+        // The redial lands on connection 2 inside the hold: both are still queued, not given up.
+        assert!(outbox.attach(2));
+        assert!(outbox.expire(5_000).is_empty());
+        assert_eq!(outbox.pending(), 2);
+        assert!(outbox.needs_identify());
+        assert!(outbox.set_capabilities(caps(&["send-key-v1"])));
+        assert!(!outbox.needs_identify(), "identify once per connection");
+        assert!(!outbox.attach(2), "the same connection again is not a change");
+        assert!(!outbox.needs_identify());
+        let first = outbox.next_request().unwrap();
+        let second = outbox.next_request().unwrap();
+        assert_eq!((first.seq, second.seq), (a, b), "typed order");
+        assert_eq!(bytes_of(&first), "YQ==");
+        assert_eq!(outbox.answer(a, ComposerSendAnswer::Applied).unwrap().outcome, ComposerSendOutcome::Sent);
+        assert_eq!(outbox.answer(b, ComposerSendAnswer::Applied).unwrap().outcome, ComposerSendOutcome::Sent);
+        assert_eq!(outbox.pending(), 0);
+    }
+
+    #[test]
+    fn a_key_attempted_then_redialed_goes_again_only_under_its_own_key() {
+        let outbox = ComposerOutbox::new("phone-1".into(), 10_000);
+        outbox.attach(1);
+        outbox.set_capabilities(caps(&["send-key-v1"]));
+        let a = outbox.push_keys(b"y".to_vec(), 1_000);
+        let first = outbox.next_request().unwrap();
+        assert_eq!(outbox.next_request(), None, "in flight: not sent a second time on this connection");
+        // Connection 1 drops with no answer; the attempt may have been typed.
+        assert!(outbox.attach(2));
+        assert_eq!(outbox.next_request(), None, "nothing goes before identify on connection 2");
+        outbox.set_capabilities(caps(&["send-key-v1"]));
+        let again = outbox.next_request().unwrap();
+        assert_eq!(again, first, "same key: the Mac types it once");
+        assert_eq!(outbox.next_request(), None, "one attempt per connection");
+        // A late answer for the old attempt and the new one both settle the one entry once.
+        assert_eq!(outbox.answer(a, ComposerSendAnswer::Applied).unwrap().outcome, ComposerSendOutcome::Sent);
+        assert_eq!(outbox.answer(a, ComposerSendAnswer::Applied), None);
+    }
+
+    #[test]
+    fn a_carried_key_older_than_the_hold_is_given_up_not_sent_late() {
+        let outbox = ComposerOutbox::new("phone-1".into(), 10_000);
+        outbox.attach(1);
+        let a = outbox.push_keys(b"1".to_vec(), 1_000);
+        let b = outbox.push_keys(b"2".to_vec(), 8_000);
+        // The redial takes past `a`'s hold: `a` is given up visibly, `b` still goes.
+        outbox.attach(2);
+        assert_eq!(
+            outbox.expire(11_000),
+            vec![ComposerSendDone { seq: a, outcome: ComposerSendOutcome::NotSent { text: "1".into() } }]
+        );
+        outbox.set_capabilities(caps(&["send-key-v1"]));
+        assert_eq!(outbox.next_request().unwrap().seq, b);
+        assert_eq!(outbox.next_request(), None);
     }
 
     #[test]

@@ -1,1 +1,1 @@
-# re-pin #52743 moved the FFI pin but the Swift exports are not regenerated yet; remove at the export refresh
+# Switch Host… (#51501, step B #52090): the exports regenerate from the re-pinned FFI

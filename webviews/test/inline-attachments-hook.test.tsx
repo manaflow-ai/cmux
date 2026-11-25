@@ -233,7 +233,7 @@ async function render(initial: {
           isInlineAttachment={inline.known}
         />
         {inline.chips}
-        {initial.strip && <AttachmentStrip attachments={attachments} onRemove={() => {}} />}
+        {initial.strip && <AttachmentStrip attachments={attachments} pending={pending} onRemove={() => {}} />}
         {/* The inline view's strip: only what is not placed in the text (ComposerBox.tsx). */}
         <div
           data-unplaced={attachments
@@ -464,6 +464,35 @@ test("an image in the text that cannot be drawn says so, with Retry and Remove t
 });
 
 const LOADING = { id: "loading-zip", name: "build-logs.zip", image: false, fileSize: 2048 } satisfies PendingAttachment;
+
+test("native lookup shows the file and movie glyphs in both views; a byte transfer shows progress", async () => {
+  const waiting = [
+    { ...LOADING, resolvingPath: true },
+    {
+      id: VIDEO.id,
+      name: VIDEO.name,
+      image: false,
+      video: true,
+      videoShape: 1.6,
+      resolvingPath: true,
+    },
+  ];
+  const { controls } = await render({
+    text: waiting.map((chip) => inlineToken(chip.id)).join(" "),
+    pending: waiting,
+    strip: true,
+  });
+  expect(host.querySelectorAll(".acpmux-attachment-pending").length).toBe(4);
+  expect(host.querySelectorAll(".acpmux-file-chip > svg").length).toBe(2);
+  expect(host.querySelectorAll("[data-video-shape] > svg").length).toBe(2);
+  expect(host.querySelector(".acpmux-paste-loading, .acpmux-paste-late, progress")).toBeNull();
+  expect(host.querySelectorAll('[aria-busy="true"]').length).toBe(4);
+  await act(async () =>
+    controls.setPending(waiting.map((chip) => ({ ...chip, resolvingPath: false, uploading: true, progress: 0.5 }))),
+  );
+  expect(host.querySelectorAll(".acpmux-paste-loading").length).toBe(4);
+  expect([...host.querySelectorAll("progress")].map((ring) => ring.value)).toEqual([50, 50, 50, 50]);
+});
 
 test("an inline file keeps its chip layout as the upload becomes ready", async () => {
   const { controls } = await render({ text: `logs ${inlineToken(LOADING.id)} here`, pending: [LOADING] });

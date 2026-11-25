@@ -210,12 +210,12 @@ import Testing
         let plate = (fill.whiteComponent * fill.alphaComponent + bar * (1 - fill.alphaComponent)) * 255
         #expect(abs(plate - 92) < 0.5, "the hovered plate is \(plate) of 255 over Helium's bar: want 92")
     }
-    /// The toolbar buttons' boxes keep Compact's padding at every density: about half the glyph's ink on each side (Lucas
-    /// 2026-11-18: "pay good attention to the hover/size of icon containers ... consistent with the rest across all
-    /// densities"). Default's glyphs are Compact's, so its buttons are Compact's 28 pt, centered on its 34 pt bar, not the
-    /// bar's height (10.5 pt of padding, 0.76 of the glyph).
+    /// The toolbar buttons' boxes are a tab tall at every density, as the tab bar's ⋮ above them (Lawrence 2026-11-23: "all
+    /// buttons need to have same derived size, which is same height as the tabs"; before, Compact's padding around each
+    /// glyph, Lucas 2026-11-18), centered on the bar to the 2x pixel: Spacious's 36 pt box on its 37.5 pt bar sits a
+    /// quarter point (half a pixel) off, the nearest the grid allows.
     @Test(arguments: DensityPreset.allCases)
-    func theToolbarButtonsKeepCompactsPadding(preset: DensityPreset) throws {
+    func theToolbarButtonsAreATabTall(preset: DensityPreset) throws {
         let design = DesignSettings.shared
         let saved = design.densityTokens
         defer { design.densityTokens = saved }
@@ -230,13 +230,12 @@ import Testing
         window.contentView = chrome
         chrome.layoutSubtreeIfNeeded()
         let barMid = chrome.convert(chrome.addressBar.bounds, from: chrome.addressBar).midY
-        let ink = OmnibarStyle.toolbarIconSize * DensityTokens.toolbarGlyphInkRatio
         for (name, button) in [("back", chrome.backButton as NSView), ("forward", chrome.forwardButton), ("reload", chrome.reloadButton),
                                ("more", try #require(chrome.toolbarButtons.anchor(for: .overflow)))] {
             let frame = chrome.convert(button.bounds, from: button)
-            let padding = (frame.height - ink) / 2 / ink
-            #expect(padding > 0.48 && padding < 0.58, "\(preset) \(name): \(frame.height) pt box for \(ink) pt of ink, padding \(padding) of the glyph")
-            #expect(abs(frame.midY - barMid) < 0.01, "\(preset) \(name): \(frame.midY - barMid) pt off the bar's middle")
+            #expect(frame.height == Metrics.tabHeight && frame.width == frame.height,
+                    "\(preset) \(name): a \(frame.size) box, want a \(Metrics.tabHeight) pt square")
+            #expect(abs(frame.midY - barMid) <= 0.25, "\(preset) \(name): \(frame.midY - barMid) pt off the bar's middle")
             #expect(frame.minY * 2 == (frame.minY * 2).rounded(), "\(preset) \(name): the box is off the pixel grid at \(frame.minY)")
         }
     }

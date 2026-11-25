@@ -120,6 +120,7 @@ const fn access(operation: Op) -> Access {
         | Op::DiffCommentsList
         | Op::DiffCommentsSave
         | Op::DiffCommentsDelete
+        | Op::DiffCommentsThread
         // A pull request review: checked out, drafted and posted with the
         // person's own git and gh, for the app and agents, never a page.
         | Op::GitReviewStart
@@ -281,6 +282,10 @@ const fn access(operation: Op) -> Access {
         | Op::SettingsReset
         | Op::SettingsResetAll
         | Op::SettingsEdit
+        | Op::SettingsHistory
+        | Op::SettingsUndo
+        | Op::SettingsRestore
+        | Op::SettingsResetGroup
         | Op::KeybindingsGet
         | Op::KeybindingsSet
         | Op::KeybindingsRemove
@@ -477,6 +482,7 @@ const fn access(operation: Op) -> Access {
         | Op::CloudMachineShareChat
         | Op::CloudMachineChiefStart
         | Op::CloudMachineChiefResize
+        | Op::CloudMachineFork
         => Access::Denied(Denied::NotAllowed),
     }
 }

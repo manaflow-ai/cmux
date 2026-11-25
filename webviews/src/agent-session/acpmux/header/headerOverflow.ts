@@ -70,7 +70,7 @@ export function useHeaderFold(tools: RefObject<HTMLElement | null>, count: numbe
         px(style.paddingRight) -
         px(style.columnGap) -
         HEADER_LEADING_RESERVE;
-      // The row's accessories (the rolling summary, tabRow.ts TAB_ROW_ACCESSORY) take only the room the tools leave:
+      // The row's accessories (tabRow.ts TAB_ROW_ACCESSORY) take only the room the tools leave:
       // a button never folds to make room for one (Leo, 2026-11-22: "the icons on the top right have gotten
       // displaced due to putting things on a line").
       let width = element.getBoundingClientRect().width;
