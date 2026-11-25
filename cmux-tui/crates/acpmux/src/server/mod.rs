@@ -3173,6 +3173,10 @@ mod outbound_queue_tests;
 #[cfg(all(unix, feature = "tailnet"))]
 pub mod tailnet_ingress;
 
+/// The stable tailnet node's front on the embedded node (`tailnet.stableNode.enabled`).
+#[cfg(all(unix, feature = "tailnet"))]
+pub(crate) mod tailnet_front;
+
 /// The embedded tailnet listener's lifecycle, a server module (it serves the hub through
 /// `tailnet_ingress`; it was `tailnet::embedded_service`). Its file stays where it was: the
 /// spawn-owner ratchet (`check-spawn-owner.py`) keeps its row by path and does not follow a move.
