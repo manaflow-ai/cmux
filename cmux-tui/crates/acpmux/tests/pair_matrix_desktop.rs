@@ -859,7 +859,8 @@ const ROW_CONDITIONS: &[&str] = &["loss", "latency", "handoff", "sleep", "failov
 #[ignore = "bench: run with --ignored --nocapture (pm/DESIGN.md)"]
 async fn pair_matrix_desktop_row() {
     let _ = HERMETIC;
-    { let f = std::env::var("PAIRMATRIX_LOG").unwrap_or_else(|_| "pm=info,acpmux=debug".into());
+    {
+        let f = std::env::var("PAIRMATRIX_LOG").unwrap_or_else(|_| "pm=info,acpmux=debug".into());
         let _ = tracing_subscriber::fmt()
             .with_env_filter(tracing_subscriber::EnvFilter::new(f))
             .with_writer(std::io::stderr)
