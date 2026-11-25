@@ -39,7 +39,7 @@
      (style-tokens.json). initial leaves it unset, so --cv-code-edge-mask is invalid and the card's
      mask (highlightedCodeModel.ts) computes to none: no look, a hard edge as before. */
   --cv-code-edge-fade: initial;
-  --cv-code-edge-mask: linear-gradient(to left, transparent, #000 var(--cv-code-edge-fade));
+  --cv-code-edge-mask: linear-gradient(to left, transparent, #000 var(--cv-code-edge-fade)); /* colour-allow: a mask stop's alpha only, never painted */
   --cv-strong-rule: color-mix(in srgb, var(--cv-fg) 16%, transparent); /* #484943: quote bar, table head */
   --cv-faint-rule: color-mix(in srgb, var(--cv-fg) 4.5%, transparent); /* #30312b: table rows */
   --cv-check-fill: var(--ds-surface-inset); /* #3a3b34 */
