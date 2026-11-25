@@ -5,7 +5,9 @@ base=${1:?usage: bash scripts/ice-netcond.sh BASE}
 backend=$(cd "$(dirname "$0")/.." && pwd)
 # Fast checks may have a shallow checkout containing only the tested tip.
 if ! git -C "$backend" cat-file -e "$base^{commit}" 2>/dev/null; then
-  git -C "$backend" fetch --no-tags --depth=1 origin "$base"
+  depth=()
+  [[ "$(git -C "$backend" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
+  git -C "$backend" fetch --no-tags ${depth[@]+"${depth[@]}"} origin "$base"
 fi
 repo=$(git -C "$backend" rev-parse --show-toplevel)
 scratch=$(mktemp -d)
