@@ -11,7 +11,7 @@ public struct TerminalToChatPlaceholders {
     public init() {}
     public static let ids: [ActionID] = ["terminal.fixLastCommand", "terminal.sendLastOutputToChat", "terminal.sendSelectionToChat"]
 
-    static var reason: String {
+    public static var reason: String {
         String(localized: "terminalToChat.unavailable", defaultValue: "This build of cmux can't send terminal text to a chat yet.", bundle: .localizedModule)
     }
 
