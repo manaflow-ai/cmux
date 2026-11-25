@@ -602,7 +602,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     )
                     .await?;
                     if !json_out {
-                        warn_host_pressure(&accepted);
+                        warn_host_pressure(&accepted, crate::cli::host_budget::Done::Started);
                     }
                 }
                 show()?;
@@ -639,7 +639,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 )
                 .await?;
                 if !json_out {
-                    warn_host_pressure(&accepted);
+                    warn_host_pressure(&accepted, crate::cli::host_budget::Done::Started);
                 }
             }
             if let Err(mut open_error) = show() {
