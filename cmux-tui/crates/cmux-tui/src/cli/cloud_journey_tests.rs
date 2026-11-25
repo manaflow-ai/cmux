@@ -154,6 +154,10 @@ fn the_named_api_passes_the_gate() {
         prompt: String::new(),
         chat_budget: Duration::from_secs(1),
         out: None,
+        repo: None,
+        machine_config: None,
+        keep: false,
+        capsule: None,
     };
     assert!(cmux_egress::check(named, "test").is_err());
     allow_named_api(&args("", Some(format!("https://{named}"))), &format!("https://{named}"));
