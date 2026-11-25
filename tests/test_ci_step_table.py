@@ -564,6 +564,8 @@ class PipelineTest(unittest.TestCase):
         # The ios job's picker (IosJobTest): it runs no step, only when the ios job runs, and places it.
         pickers = {"ios-runner": "ios"}
         for name, job in wf["jobs"].items():
+            if name == "mac-fallback":
+                continue  # MacFallbackTest: it runs on a linux step's request, not on the router's
             if name in pickers:
                 with self.subTest(picker=name):
                     self.assertEqual(job["if"], f"${{{{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), '{pickers[name]}') }}}}")
@@ -831,15 +833,54 @@ class MacJobTest(unittest.TestCase):
 
     def test_each_step_asks_the_router_first(self) -> None:
         steps = [s for s in ci_steps.load().steps.values() if s.job == "mac"]
-        self.assertEqual(sorted(s.name for s in steps), ["mac-fast-tier", "mac-swift-canary"])
-        for step in steps:
+        self.assertEqual(sorted(s.name for s in steps), ["mac-fast-tier"])
+        canary = ci_steps.load().steps["swift-canary"]
+        for step in steps + [canary]:
             with self.subTest(step=step.name):
-                tier = {"mac-fast-tier": "fast_tier", "mac-swift-canary": "swift_canary"}[step.name]
+                tier = {"mac-fast-tier": "fast_tier", "swift-canary": "swift_canary"}[step.name]
                 first = step.run.strip().splitlines()[0]
                 self.assertTrue(first.startswith(f"python3 -I scripts/ci/mac_tiers.py has {tier} "), first)
                 self.assertTrue(first.endswith("|| exit 0"), first)
                 self.assertTrue(step.inputs and step.blocks)
         self.assertTrue(ci_steps.load().steps["mac-fast-tier"].alone)
+
+    def test_the_canary_compiles_on_the_build_fleet_not_a_mac(self) -> None:
+        # Leo, 2026-11-25: "stop waiting on ci to get these fucking things in" (the Mac queue was 175 deep).
+        canary = ci_steps.load().steps["swift-canary"]
+        self.assertEqual(canary.job, "linux")
+        self.assertTrue(canary.alone)
+        self.assertIn("scripts/ci/fleet_compile_result.py", canary.run)
+        self.assertIn("--phase app-debug", canary.run)
+        self.assertNotIn("swift build", canary.run)
+        self.assertIn("mac_fallback=swift-canary", canary.run)
+        self.assertIn("swift-canary", ci_steps.route(ci_steps.load(), [self.ROUTED[0]]).get("linux", []))
+        job = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())["jobs"]["mac"]
+        self.assertNotIn("swift_canary", json.dumps(job))
+
+    def test_no_fleet_pass_falls_back_to_a_mac(self) -> None:
+        # Leo, 2026-11-25: "having our mac fleet be able to like... exist as fallbacks if we fucked up logic for
+        # linux and whatnot is still fine".
+        wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        linux, fb = wf["jobs"]["linux"], wf["jobs"]["mac-fallback"]
+        self.assertEqual(linux["outputs"]["mac_fallback"], "${{ steps.run.outputs.mac_fallback }}")
+        self.assertEqual(fb["needs"], "linux")
+        self.assertEqual(fb["if"], "${{ !cancelled() && needs.linux.outputs.mac_fallback != '' }}")
+        self.assertEqual(fb["runs-on"], wf["jobs"]["mac"]["runs-on"])
+        run = fb["steps"][-1]["run"]
+        self.assertIn('swift build --configuration debug --target "$target"', run)
+        self.assertIn("fleet fallback", run)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            tools = Path(tmp) / "tools"
+            tools.mkdir()
+            env = dict(os.environ, GITHUB_OUTPUT=str(out), CI_TOOLS=str(tools))
+            env.pop("GITHUB_EVENT_PATH", None)
+            script = ci_steps.load().steps["swift-canary"].run.split("fallback() {", 1)[1]
+            script = "word=fail\nfallback() {" + script.replace("swift_canary_targets=", "t=")
+            (tools / "canary-tiers.txt").write_text("t=CmuxNextCore CmuxNextApp\n")
+            subprocess.run(["bash", "-c", script.replace('"$head"', "abc").replace("$head", "abc")],
+                           env=env, check=True, capture_output=True)
+            self.assertEqual(out.read_text(), "mac_fallback=swift-canary\ncanary_targets=CmuxNextCore CmuxNextApp\n")
 
     def test_the_inputs_cover_what_the_router_routes(self) -> None:
         t = ci_steps.load()
