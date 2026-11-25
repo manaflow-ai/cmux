@@ -170,7 +170,7 @@ import { acpmuxPerf } from "./perf";
 import { type PerfSend } from "./perfReporter";
 import { startFromContext } from "./newtab/startHint";
 import { useSameValue } from "./session-info/sameValue";
-import { drawsAsIs, setStreamingRowBlocked, streamingRowBlocked, textOnlyRow } from "./streamingRow";
+import { drawsAsIs, setStreamingRowBlocked, streamingRowBlocked, textOnlyRow, thoughtOnlyRow } from "./streamingRow";
 import { liveToolOutput } from "./liveToolOutput";
 import { remoteComposer } from "./remoteEditing";
 import { type ComposerHandle, type ComposerRelay, type ComposerWake } from "./Composer";
@@ -845,7 +845,9 @@ export function streamedOnly(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot): numbe
   for (const key of keys) if (key !== "rows" && !Object.is(before[key], after[key])) return -1;
   if (streamingRowBlocked()) return -1;
   const at = textOnlyRow(drawn.rows, next.rows);
-  return at >= 0 && drawsAsIs(drawn.rows[at]!) ? at : -1;
+  if (at >= 0) return drawsAsIs(drawn.rows[at]!) ? at : -1;
+  const thought = thoughtOnlyRow(drawn.rows, next.rows);
+  return thought >= 0 && drawsAsIs(drawn.rows[thought]!) ? thought : -1;
 }
 
 /// Answers a secret card in the page (`chat.secret`): the value goes to acpmux only.

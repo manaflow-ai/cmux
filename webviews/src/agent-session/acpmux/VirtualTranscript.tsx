@@ -88,7 +88,7 @@ import { acpmuxPerf, type MountedSpan } from "./perf";
 import { layoutWatchWanted, startLayoutWatch } from "./conversation/layoutWatch";
 import { transition, type MotionList } from "./conversation/motionOwner";
 import { useCountedRender } from "./perfRender";
-import { drewStreamingRow, useStreamingRowCatchUp } from "./streamingRow";
+import { drewStreamingActivity, drewStreamingRow, useStreamingRowCatchUp } from "./streamingRow";
 import { rowsWithLiveOutput } from "./liveToolOutput";
 import { followTrace } from "./followTrace";
 import {
@@ -943,10 +943,15 @@ function TranscriptView({
     for (let index = paneRows.length - 1; index >= 0; index -= 1) {
       const row = paneRows[index]!;
       if (row.id !== live.row.id) continue;
-      if (row.text !== live.drawnText) return paneRows;
+      if (row.kind === "assistant" && row.text !== live.drawnText) return paneRows;
+      if (row.kind === "activity" && row.items !== live.drawnItems) return paneRows;
       const next = paneRows.slice();
       const version = row.version + live.ahead;
-      next[index] = { ...row, text: live.row.text, version };
+      next[index] = {
+        ...row,
+        ...(row.kind === "assistant" ? { text: live.row.text } : { items: live.row.items }),
+        version,
+      };
       // The live line under the reply stays quiet while the reply's text moves (turns.ts
       // `quietKey` names the reply's id and version): it moves with the newer version here.
       const stale = `${row.id}:${row.version}`;
@@ -976,11 +981,18 @@ function TranscriptView({
       const row = paneRows[index]!;
       if (row.kind === "assistant" && row.streaming) {
         drewStreamingRow(row.id, row.text);
+        drewStreamingActivity(undefined, undefined);
+        return;
+      }
+      if (row.kind === "activity" && row.streaming) {
+        drewStreamingRow(undefined, undefined);
+        drewStreamingActivity(row.id, row.items);
         return;
       }
       if (row.kind === "user") break;
     }
     drewStreamingRow(undefined, undefined);
+    drewStreamingActivity(undefined, undefined);
   }, [paneRows, streams]);
   const registry = givenRegistry ?? (readOnly ? readOnlyRegistry : defaultRegistry);
   const t = useT();

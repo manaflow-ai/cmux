@@ -83,3 +83,38 @@ test("a streamed frame's draw of the reply's row runs in a task a key can go bef
   await drawnBy(() => drawn.at(-1) === undefined);
   expect(drawn.at(-1)).toBeUndefined();
 });
+
+test("an activity row fast path accepts only a growing trailing thought", async () => {
+  const { drewStreamingActivity, drawsAsIs, thoughtOnlyRow } = await import("../src/agent-session/acpmux/streamingRow");
+  const thought = (text: string, endedAt: number) => ({ kind: "thought", text, startedAt: 1, endedAt });
+  const before = {
+    id: "activity",
+    kind: "activity",
+    version: 2,
+    streaming: true,
+    items: [thought("Thinking", 2)],
+  } as unknown as AcpmuxRow;
+  const after = {
+    ...before,
+    version: 3,
+    items: [thought("Thinking more", 3)],
+  } as unknown as AcpmuxRow;
+  drewStreamingActivity(before.id, before.items);
+  expect(drawsAsIs(before)).toBe(true);
+  expect(thoughtOnlyRow([before], [after])).toBe(0);
+
+  const newThought = {
+    ...after,
+    version: 4,
+    items: [...after.items!, thought("A second thought", 4)],
+  } as unknown as AcpmuxRow;
+  expect(thoughtOnlyRow([after], [newThought])).toBe(-1);
+
+  const tool = {
+    ...after,
+    version: 4,
+    items: [{ kind: "tool", text: "Read", tool: { id: "tool", title: "Read", status: "running" } }],
+  } as unknown as AcpmuxRow;
+  expect(thoughtOnlyRow([after], [tool])).toBe(-1);
+  drewStreamingActivity(undefined, undefined);
+});

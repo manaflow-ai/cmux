@@ -10,7 +10,7 @@
 // clears this store in the same turn, so the pane's own rows are the truth again. The store holds
 // one value; nothing else owns it.
 import { startTransition, useLayoutEffect, useRef, useState } from "react";
-import type { AcpmuxRow } from "./model";
+import type { AcpmuxActivity, AcpmuxRow } from "./model";
 import { keptPrefix } from "./conversation/prefixFlatMap";
 
 /// The reply's raw row (the client's), how many chunks it is ahead of the row the pane drew, and
@@ -19,6 +19,7 @@ export type StreamingRow = {
   readonly row: AcpmuxRow;
   readonly ahead: number;
   readonly drawnText: string;
+  readonly drawnItems?: readonly AcpmuxActivity[];
 };
 
 let current: StreamingRow | undefined;
@@ -38,7 +39,12 @@ export const streamingRow = {
   get: (): StreamingRow | undefined => current,
   /// The streaming row moved on without the pane: `drawn` is the raw row the pane last drew.
   set(row: AcpmuxRow, drawn: AcpmuxRow): void {
-    publish({ row, ahead: row.version - drawn.version, drawnText: drawn.text ?? "" });
+    publish({
+      row,
+      ahead: row.version - drawn.version,
+      drawnText: drawn.text ?? "",
+      drawnItems: drawn.kind === "activity" ? drawn.items : undefined,
+    });
   },
   /// The pane draws a new snapshot: its rows are the truth again.
   clear(): void {
@@ -50,13 +56,24 @@ export const streamingRow = {
 /// transcript shapes rows (conversation/turns.ts), so the fast path is only taken while the reply's
 /// drawn row is the client's row as it is (its text unchanged by the shaping).
 let drawn: { id: string; text: string } | undefined;
+let drawnActivity: { id: string; items: readonly AcpmuxActivity[] | undefined } | undefined;
 
 export function drewStreamingRow(id: string | undefined, text: string | undefined): void {
   drawn = id === undefined || text === undefined ? undefined : { id, text };
 }
 
+export function drewStreamingActivity(id: string | undefined, items: readonly AcpmuxActivity[] | undefined): void {
+  drawnActivity = id === undefined ? undefined : { id, items };
+}
+
 export function drawsAsIs(row: AcpmuxRow): boolean {
-  return drawn !== undefined && drawn.id === row.id && drawn.text === row.text;
+  if (row.kind === "assistant") return drawn !== undefined && drawn.id === row.id && drawn.text === row.text;
+  return (
+    row.kind === "activity" &&
+    drawnActivity !== undefined &&
+    drawnActivity.id === row.id &&
+    drawnActivity.items === row.items
+  );
 }
 
 /// The streaming row the transcript draws ahead of the pane's snapshot, if any. Only the pane's
@@ -121,6 +138,23 @@ function sameButText(previous: AcpmuxRow, next: AcpmuxRow): boolean {
   return keys.every((key) => key === "text" || key === "version" || Object.is(before[key], after[key]));
 }
 
+/// Every own field of two activity rows is the same, except their items and version.
+function sameButItems(previous: AcpmuxRow, next: AcpmuxRow): boolean {
+  const before = previous as unknown as Record<string, unknown>;
+  const after = next as unknown as Record<string, unknown>;
+  const keys = Object.keys(after);
+  if (keys.length !== Object.keys(before).length) return false;
+  return keys.every((key) => key === "items" || key === "version" || Object.is(before[key], after[key]));
+}
+
+function sameButThoughtText(previous: AcpmuxActivity, next: AcpmuxActivity): boolean {
+  const before = previous as unknown as Record<string, unknown>;
+  const after = next as unknown as Record<string, unknown>;
+  const keys = Object.keys(after);
+  if (keys.length !== Object.keys(before).length) return false;
+  return keys.every((key) => key === "text" || key === "endedAt" || Object.is(before[key], after[key]));
+}
+
 /// The index of the one row `next` changes from `previous` when the change is only a streaming
 /// reply's text growing, else -1. Unchanged rows keep their objects (direct.ts `OrderedRows`), and
 /// the client says how many leading rows a snapshot kept (prefixFlatMap.ts `keptPrefix`), so only
@@ -142,6 +176,47 @@ export function textOnlyRow(previous: readonly AcpmuxRow[], next: readonly Acpmu
       typeof after.text !== "string" ||
       !after.text.startsWith(before.text) ||
       !sameButText(before, after)
+    )
+      return -1;
+    changed = index;
+  }
+  return changed;
+}
+
+/// The index of the one activity row whose trailing thought grew, else -1. A new thought, tool item,
+/// or any other row change must redraw the pane because it can change grouping, height, or the live line.
+export function thoughtOnlyRow(previous: readonly AcpmuxRow[], next: readonly AcpmuxRow[]): number {
+  if (previous === next || previous.length !== next.length) return -1;
+  const kept = keptPrefix(previous, next);
+  let changed = -1;
+  for (let index = next.length - 1; index >= kept; index -= 1) {
+    const before = previous[index]!;
+    const after = next[index]!;
+    if (before === after) continue;
+    if (changed >= 0 || before.kind !== "activity" || after.kind !== "activity" || after.streaming !== true) return -1;
+    const beforeItems = before.items;
+    const afterItems = after.items;
+    if (
+      before.id !== after.id ||
+      !sameButItems(before, after) ||
+      beforeItems === undefined ||
+      afterItems === undefined ||
+      beforeItems.length !== afterItems.length ||
+      beforeItems.length === 0 ||
+      !beforeItems.slice(0, -1).every((item, itemIndex) => item === afterItems[itemIndex])
+    )
+      return -1;
+    const oldThought = beforeItems.at(-1)!;
+    const newThought = afterItems.at(-1)!;
+    if (
+      oldThought.kind !== "thought" ||
+      newThought.kind !== "thought" ||
+      oldThought.tool !== undefined ||
+      newThought.tool !== undefined ||
+      typeof oldThought.text !== "string" ||
+      typeof newThought.text !== "string" ||
+      !newThought.text.startsWith(oldThought.text) ||
+      !sameButThoughtText(oldThought, newThought)
     )
       return -1;
     changed = index;
