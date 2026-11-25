@@ -2282,8 +2282,12 @@ jobs:
               required_jobs.append("react-apps-base-check")
           else:
               required_jobs.append("react-doctor")
+          # On the fleet (react_fleet): pr-pipeline.yml's web-browser step react-apps-check judges this head.
+          fleet = needs["web-subarea-scope"]["outputs"].get("react_fleet") == "true"
+          if fleet:
+              print("react-apps-check runs on the fleet: ci/steps.toml's react-apps-check (pr-pipeline.yml web-browser)")
           exit_with_verdict({name: needs[name]["result"] for name in required_jobs}, "react-apps-check",
-                            () if required else required_jobs)
+                            required_jobs if fleet or not required else ())
           for name in required_jobs:
               print(f"{name}: required={str(required).lower()} result={needs[name]['result']}")
           PY
