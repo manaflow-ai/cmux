@@ -243,6 +243,8 @@ async fn a_chat_whose_folder_is_missing_on_the_target_is_refused_with_a_reason_t
 
 #[path = "transfer_cli/composer_attachments.rs"]
 mod composer_attachments;
+#[path = "transfer_cli/first_turn_fence.rs"]
+mod first_turn_fence;
 #[path = "transfer_cli/move_matrix.rs"]
 mod move_matrix;
 #[path = "transfer_cli/session_move.rs"]

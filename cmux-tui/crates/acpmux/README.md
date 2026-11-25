@@ -441,6 +441,15 @@ not accepted yet with its outbox state. Removing a watch stops new wakes, and wa
 owes are still delivered (`watch_rm` answers how many). `cmux agent wait` remains the blocking
 script interface.
 
+A time watch (`acpmux watch add --at <RFC3339|+DURATION> | --every <DURATION> [--until <time>]
+--prompt TEXT`, MCP `watch_add` with `at`/`every`/`end`/`prompt`; params `atMs`, `everyMs`,
+`endMs`, `prompt`) wakes its recipient with its prompt at a time instead of on a session's state
+(`hub/watch_timers.rs`, RFD 0177). One hub task sleeps until the earliest due time and never polls;
+watches due within 1 s of each other share one wake, each at most 1 s late. Each fire's prompt id
+is `<watch id>@<due ms>`, saved with the watch's next due time in one write, so a fire is delivered
+once across restarts. An `--every` the host slept through fires once, then reschedules from now.
+`watch ls` shows the next due time.
+
 Agents spawned by acpmux get `ACPMUX_ENV=1`, `ACPMUX_SESSION_ID`, `ACPMUX_SESSION_NAME` and
 `ACPMUX_SOCKET`, and `@` names that session (`cmux agent last @`), so an agent can drive its own
 session and siblings. A session an agent starts (`cmux agent new` in its shell, or its
