@@ -6,8 +6,8 @@
 //! and the phone never reaches signaling at all. Here the addresses race through
 //! `cmux_braid_path` (IPv6 first, IPv4 joining after the stagger), and the address that won is
 //! remembered per host and port: the next connect starts there, with a stagger of 1.5 times its
-//! connect time. `CMUX_BRAID_LAST_GOOD=0` turns the memory off. Signaling dials through
-//! [`crate::egress::connect_tcp`], whose direct way out is [`connect_host`] here.
+//! connect time. `CMUX_BRAID_LAST_GOOD=0` turns the memory off. The upgrade and TLS then run
+//! over the won socket exactly as `connect_async` runs them.
 
 use std::future::Future;
 use std::io;
@@ -59,17 +59,6 @@ pub async fn connect_tcp(request: &Request) -> Result<TcpStream, tungstenite::Er
     let (host, port) = host_port(request)?;
     let addresses: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), port)).await?.collect();
     Ok(connect_remembered(&LAST_GOOD, &host, port, &addresses, TcpStream::connect).await?)
-}
-
-/// The raced, remembered TCP connect to `host:port` (the direct way out of
-/// [`crate::egress::connect_tcp`]).
-///
-/// # Errors
-/// A failed lookup, or the race's last error.
-pub(crate) async fn connect_host(host: &str, port: u16) -> io::Result<TcpStream> {
-    let host = host.trim_start_matches('[').trim_end_matches(']').to_ascii_lowercase();
-    let addresses: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), port)).await?.collect();
-    connect_remembered(&LAST_GOOD, &host, port, &addresses, TcpStream::connect).await
 }
 
 #[cfg(test)]

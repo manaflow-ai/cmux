@@ -47,7 +47,7 @@ public enum DeveloperOptions {
     /// removes them so a value set by an earlier Debug or Demo install in the
     /// same container can never apply.
     public static let storedKeys = [
-        mockDataKey, launchDemoKey, relayOnlyKey, blockUDPKey, proxyOnlyKey, dropWireGuardKey, forceRelayKey,
+        mockDataKey, launchDemoKey, relayOnlyKey, blockUDPKey, forceRelayKey, proxyOnlyKey, dropWireGuardKey,
         browserVideoOnChannelKey, terminalDemoPhasesKey,
         slowApprovalKey, retiredSlowFaceIDKey, CloudBackendOverride.storedKey,
     ]

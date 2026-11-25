@@ -48,7 +48,7 @@ final class QuitCoordinator {
     /// Chromium's close, the quit's last engine step (tests replace it). An app quit closes every page
     /// without its beforeunload (`cmux_shim_close_all` answers any question with Leave), then `engineWillStop`.
     lazy var closeEngines: @MainActor () async -> Void = { [weak self] in
-        await self?.services.cache.cef.shutdown(timeout: QuitDeadline.engineCloseWait, beforeEngineStop: { await self?.engineWillStop() })
+        await self?.services.cache.cef.shutdown(timeout: QuitDeadline.engineCloseWait, stopsEngine: self?.services.updater.relaunchingForUpdate != true, beforeEngineStop: { await self?.engineWillStop() }) // an update's relaunch skips CefShutdown (ask-ad4a68e740)
     }
 
     /// Right before CefShutdown, which never returned before the 4 s deadline in the quit hang files (cmuxterm-hq#8608, #11994): the windows

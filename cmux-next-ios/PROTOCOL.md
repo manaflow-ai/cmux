@@ -1773,9 +1773,16 @@ Mac's hostd) leave the device the way URLSession's do. No wire change; `cmux-mob
   over TLS, or with no `turns:` or TCP `turn:` server, does nothing. Both
   sides then send a handshake initiation at once (the escalating side on its
   new allocation, the peer on the announcement); after answering the peer's,
-  a side with data queued waits up to 2 s for the peer's first data before it
-  starts another (cmux-wg `ANSWER_WAIT`), so the two crossing handshakes
-  complete instead of replacing each other.
+  a side with data queued waits for the peer's first data before it starts
+  another (cmux-wg `wait_for_handshake_until`), so the two crossing
+  handshakes complete instead of replacing each other.
+- **Then the WebSocket relay.** The relay's "nothing reached the peer" join
+  (WebSocket relay, above) waits while this fallback may still take TURN over
+  TLS: from the moment the tunnel has no route until a route comes, or the TLS
+  allocation came up and had 3 s (`RELAY_AFTER`) to carry a handshake
+  (`RelayClock::turn_window`). So a network that drops WireGuard links over
+  TURN over TLS, and joins the relay only when that fails too (TLS to TURN
+  blocked, or the proxy refuses it).
 
 Debug builds add Settings → Transport → Developer → "Proxy only" and "Drop
 WireGuard" (`DeveloperOptions.proxyOnlyKey`, `dropWireGuardKey`;
