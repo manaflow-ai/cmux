@@ -17,16 +17,15 @@ extension ScreenContentView {
         -> (target: DropTarget, hit: DropTarget, highlight: CGRect, region: CGRect, companions: [CGRect])? {
         // The top band starts below the tab bar of the pane under the pointer.
         let (topInset, bottomInset) = dockInsets(at: localPoint)
+        let (headers, footers) = paneChromeBands()
+        // One Rust screen per layout, viewport, tab bars and style: a pointer move asks numbers only.
+        let rules = dropAnswers.zoneRules(screen: screenID, geometry: geometry, headers: headers, footers: footers, style: context.style)
         if context.model.acceptsEdgeDockDrops,
-           let dock = DropZoneGeometry.dockTarget(atView: localPoint, screen: screenID, geometry: geometry, style: context.style,
-                                                  topInset: topInset, bottomInset: bottomInset, previous: previous),
-           let rect = DropZoneGeometry.highlightRectInView(for: dock, offset: scroll.value, geometry: geometry, style: context.style) {
+           let dock = rules.dockTarget(atView: localPoint, topInset: topInset, bottomInset: bottomInset, previous: previous),
+           let rect = rules.rects(for: dock, offset: scroll.value)?.highlight {
             return (dock, dock, rect, rect, [])
         }
-        let (headers, footers) = paneChromeBands()
-        guard var zoneHit = DropZoneGeometry.target(atView: localPoint, offset: scroll.value, screen: screenID, geometry: geometry,
-                                                    headers: headers, footers: footers, style: context.style,
-                                                    previous: previous) else { return nil }
+        guard var zoneHit = rules.target(atView: localPoint, offset: scroll.value, previous: previous) else { return nil }
         // A pinned dock (the Home Chief pane) never splits: a tab dropped anywhere over it joins it.
         // One that takes no other tab (`allow_tabs` off) takes no drop at all: the join would only be
         // refused (`dock-column-pinned`), so nothing promises one.
@@ -41,46 +40,44 @@ extension ScreenContentView {
         } else {
             target = roomAdjusted(hit, removing: removing)
         }
-        guard var rect = DropZoneGeometry.highlightRectInView(for: target, offset: scroll.value, geometry: geometry,
-                                                              style: context.style) else { return nil }
+        guard let shown = rules.rects(for: target, offset: scroll.value) else { return nil }
+        var rect = shown.highlight
         var companions: [CGRect] = []
         // An edge shows the layout the drop makes (DESIGN.md (c)1): the new pane filled, and every pane the
         // split resizes or moves outlined at its final frame.
         if case let .pane(pane, zone) = target, zone != .center, let preview = finalLayoutPreview(splitting: pane, zone: zone, removing: removing) {
             rect = preview.newPane
             companions = preview.resized
-        } else if case let .pane(pane, zone) = target, let body = paneBody(pane, headers: headers, footers: footers) {
+        } else if case let .pane(_, zone) = target, let body = shown.body {
             rect = DropZoneGeometry.classicPaneHighlight(body: body, zone: zone)
         }
         // A strip target's highlight never draws over a docked column.
         if case let .pane(pane, _) = target, !geometry.scrolls(pane: pane) {} else { rect = rect.intersection(uncoveredRect) }
         guard !rect.isNull else { return nil }
-        let region = DropZoneGeometry.regionRectInView(for: target, offset: scroll.value, geometry: geometry, style: context.style) ?? rect
-        return (target, hit, rect, region, companions)
+        return (target, hit, rect, shown.region, companions)
     }
 
     /// `pane`'s body in view coordinates: its content rect below its tab bar (and above a bottom
     /// tab bar), the area its drop zones divide.
     func paneBody(_ pane: PaneID, headers: [PaneID: CGFloat], footers: [PaneID: CGFloat]) -> CGRect? {
-        guard let cell = geometry.panes[pane],
-              let content = DropZoneGeometry.regionRectInView(for: .pane(pane, .center), offset: scroll.value, geometry: geometry,
-                                                              style: context.style) else { return nil }
-        let shown = geometry.scrolls(pane: pane) ? cell.offsetBy(dx: geometry.viewShift(offset: scroll.value), dy: 0) : cell
-        let top = max(content.minY, shown.minY + DropZoneGeometry.header(of: pane, in: cell, headers, context.style))
-        let bottom = min(content.maxY, shown.maxY - DropZoneGeometry.footer(of: pane, in: cell, footers, context.style))
-        return CGRect(x: content.minX, y: top, width: content.width, height: max(0, bottom - top))
+        paneRects(pane, headers: headers, footers: footers)?.body
     }
 
     /// The join preview of `pane` (view coordinates): the same body fill a tab dropped in its center
     /// shows. A pane drag previews its target with it, so both drags share one preview.
     func joinHighlight(_ pane: PaneID) -> (highlight: CGRect, region: CGRect)? {
         let (headers, footers) = paneChromeBands()
-        guard let body = paneBody(pane, headers: headers, footers: footers),
-              let region = DropZoneGeometry.regionRectInView(for: .pane(pane, .center), offset: scroll.value, geometry: geometry,
-                                                             style: context.style) else { return nil }
+        guard let shown = paneRects(pane, headers: headers, footers: footers), let body = shown.body else { return nil }
         var rect = DropZoneGeometry.classicPaneHighlight(body: body, zone: .center)
         if geometry.scrolls(pane: pane) { rect = rect.intersection(uncoveredRect) }
-        return rect.isNull || rect.isEmpty ? nil : (rect, region)
+        return rect.isNull || rect.isEmpty ? nil : (rect, shown.region)
+    }
+
+    /// `pane`'s center preview rects in view coordinates (its region and its body below its tab bars).
+    private func paneRects(_ pane: PaneID, headers: [PaneID: CGFloat], footers: [PaneID: CGFloat])
+        -> (highlight: CGRect, region: CGRect, body: CGRect?)? {
+        dropAnswers.zoneRules(screen: screenID, geometry: geometry, headers: headers, footers: footers, style: context.style)
+            .rects(for: .pane(pane, .center), offset: scroll.value)
     }
 
     /// The new pane's rect and the final rects of the panes a split of `pane` at `zone` resizes or
@@ -196,6 +193,19 @@ struct DropAnswerMemo {
     private var key: Key?
     var placements: [Target: SplitPlacement] = [:]
     var previews: [Target: ScreenGeometry?] = [:]
+    /// The drop rules' Rust screen (`DropZoneRules`), rebuilt only when its inputs change.
+    private var rules: DropZoneRules?
+
+    /// The drop rules for these inputs: the kept handle while they hold, else a new one.
+    mutating func zoneRules(screen: ScreenID, geometry: ScreenGeometry, headers: [PaneID: CGFloat], footers: [PaneID: CGFloat],
+                            style: LayoutStyle) -> DropZoneRules {
+        if let rules, rules.matches(screen: screen, geometry: geometry, headers: headers, footers: footers, style: style) {
+            return rules
+        }
+        let next = DropZoneRules(screen: screen, geometry: geometry, headers: headers, footers: footers, style: style)
+        rules = next
+        return next
+    }
 
     /// Forgets every answer when the inputs changed.
     mutating func validate(for next: Key) {
