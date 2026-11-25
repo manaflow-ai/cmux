@@ -79,7 +79,7 @@ fn a_bundled_drafts_images_keep_only_what_a_record_names() {
         order: 1,
     };
     c.drafts.insert(mac.id.clone(), draft);
-    assert_eq!(c.image_ids(), [id.clone()], "a move bundles the draft's image");
+    assert_eq!(c.image_ids(), std::slice::from_ref(&id), "a move bundles the draft's image");
     let bundled = c.bundled();
     assert_eq!(bundled["drafts"][0]["images"], json!([image]));
     let stray = json!({"id": id, "mimeType": "x".repeat(500), "extra": "dropped", "width": -1});

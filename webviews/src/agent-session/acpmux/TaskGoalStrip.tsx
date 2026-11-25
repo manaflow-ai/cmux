@@ -86,8 +86,10 @@ function GoalStrip({
   const canControl = provider === "codex";
   const live = goal.status === "running" || goal.status === "active";
   const done = goal.status === "done" || goal.status === "complete";
+  // A live goal is just "Goal": its mark says it runs; only met, paused and stalled are worded
+  // (Leo, 2026-11-23: ""running" doesn't need text. it can usually just be.").
   const status = live
-    ? t("goal.headRunning")
+    ? t("goal.label")
     : done
       ? t("goal.headMet")
       : goal.status === "paused"

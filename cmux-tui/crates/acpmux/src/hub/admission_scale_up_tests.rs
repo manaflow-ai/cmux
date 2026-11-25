@@ -96,12 +96,55 @@ async fn admission_scale_up_stops_at_the_first_host_or_a_terminal_failure() {
     };
     let failed = Answer::Failed { why: "full".into(), terminal: false };
     let runner = answers(vec![("a", failed.clone()), ("b", Answer::Host("h".into()))]);
-    assert_eq!(run_plan(&runner, plan.clone()).await.as_deref(), Some("h"));
+    let ran = run_plan(&runner, plan.clone()).await;
+    assert_eq!(ran.host.as_deref(), Some("h"));
+    assert_eq!((ran.provider.as_deref(), ran.error.as_deref()), (Some("b"), None));
     assert_eq!(*asked.lock().unwrap(), ["a", "b"]);
     asked.lock().unwrap().clear();
     let runner = answers(vec![("a", Answer::Failed { why: "making".into(), terminal: true })]);
-    assert_eq!(run_plan(&runner, plan).await, None);
+    let ran = run_plan(&runner, plan).await;
+    assert_eq!(ran, Ran { host: None, error: Some("making".into()), provider: Some("a".into()) });
     assert_eq!(*asked.lock().unwrap(), ["a"], "a terminal answer ends the chain");
+}
+
+#[tokio::test]
+async fn admission_scale_up_records_its_outcome_for_status() {
+    let (calls, release) = (Arc::new(AtomicUsize::new(0)), Arc::new(tokio::sync::Notify::new()));
+    let scale = ScaleUp::new(held_runner(calls, release.clone()), COOLDOWN);
+    let owner = cmux_scope::Scope::new("test");
+    let start = Instant::now();
+    let idle = scale.status(start);
+    assert_eq!(idle["v"], 1);
+    assert_eq!(idle["state"], "idle");
+    assert!(idle["lastStartedMs"].is_null() && idle["lastHost"].is_null(), "{idle}");
+    assert_eq!(scale.trigger(&owner, one_plan(), start), Trigger::Started);
+    let adding = scale.status(start);
+    assert_eq!(adding["state"], "adding");
+    assert!(adding["lastStartedMs"].is_u64() && adding["lastEndedMs"].is_null(), "{adding}");
+    release.notify_one();
+    settle(&scale).await;
+    let done = scale.status(start + Duration::from_secs(1));
+    assert_eq!(done["state"], "cooling");
+    assert_eq!(
+        (done["lastHost"].as_str(), done["lastProvider"].as_str()),
+        (Some("new-machine"), Some("a"))
+    );
+    assert!(done["lastError"].is_null() && done["lastEndedMs"].is_u64(), "{done}");
+    assert!(done["lastEndedMs"].as_u64() >= done["lastStartedMs"].as_u64());
+    assert_eq!(scale.status(start + COOLDOWN)["state"], "idle");
+    assert!(owner.close(Duration::from_secs(1)).await.joined());
+    // A failed run keeps why, and no host.
+    let failing: Runner = Arc::new(|_p, _b| {
+        Box::pin(async { Answer::Failed { why: "no slot".into(), terminal: false } })
+    });
+    let scale = ScaleUp::new(failing, COOLDOWN);
+    let owner = cmux_scope::Scope::new("test");
+    assert_eq!(scale.trigger(&owner, one_plan(), start), Trigger::Started);
+    settle(&scale).await;
+    let failed = scale.status(start);
+    assert!(failed["lastHost"].is_null(), "{failed}");
+    assert_eq!(failed["lastError"], "no slot");
+    assert!(owner.close(Duration::from_secs(1)).await.joined());
 }
 
 #[test]
