@@ -8,6 +8,8 @@ import Foundation
     /// Rust's shortest gap between two warms of one person (`NONE_GAP_MS` in `spare_warm.rs`; a warm
     /// spare's is 120 s): a warm asked sooner gets the earlier answer replayed.
     public static let gap: Duration = .seconds(10)
+    /// The app's one gate: a Cmd-Tab burst spawns one CLI process (hq#8747).
+    public static let shared = CloudSpareWarmGate()
 
     private var running: Set<String> = []
     private var started: [String: ContinuousClock.Instant] = [:]
