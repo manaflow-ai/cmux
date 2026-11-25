@@ -392,6 +392,12 @@ pub enum Input {
     PeerChiefNote {
         text: String,
     },
+    /// A background spawn's start lines (`Spawner::background_start`):
+    /// steered into the running main turn; after it, only logged (the view
+    /// shows each subagent), so it never starts a turn of its own.
+    SpawnStartNote {
+        text: String,
+    },
     /// `escalate_auth` from subagent `agent` (control.rs): an urgent note.
     EscalateAuth {
         agent: String,
@@ -1983,6 +1989,14 @@ impl Brain {
             }
             Input::WatchFired(fired) => self.watch_fired(*fired),
             Input::PeerChiefNote { text } => self.peer_chief_note(text),
+            Input::SpawnStartNote { text } => {
+                if self.phase == Phase::Running && self.turn_side().is_none() {
+                    self.queue(text, Source::Note);
+                    self.interrupt_for_newer();
+                } else {
+                    (self.log)(&format!("spawn start note after its turn: {text}"));
+                }
+            }
             Input::EscalateAuth {
                 agent,
                 request,
