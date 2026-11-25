@@ -1333,8 +1333,6 @@ struct WorkspacesFilterMenu: View, Equatable {
             }
             .accessibilityIdentifier("workspaces.filter.all")
             ForEach(model.entries) { mac in
-                // A title and a subtitle Text directly in the label: a menu
-                // shows the second as the subtitle (not inside a Label).
                 // The Mac's name and a green (online) or red (offline) dot: no presence or link
                 // words (Leo, 2026-11-24: "red dot green dot when you switch between your computers'
                 // stuff"). The words stay for VoiceOver.
