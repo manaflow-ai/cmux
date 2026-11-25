@@ -48,6 +48,8 @@ serde_json.workspace = true
 syn = { version = "=3.0.6", features = ["full"], optional = true }
 
 [dev-dependencies]
+# Seeded-secret tests: gated clients send to a local capture server.
+cmux-egress = { workspace = true, features = ["capture"] }
 cmux-build-space = { workspace = true, features = ["testing"] }
 cmux-cloud-config.workspace = true
 rustls.workspace = true

@@ -29,7 +29,7 @@ use std::time::{Duration, Instant};
 use bytes::Bytes;
 use cmux_mobile_link::dial::{self, SessionEvents};
 use cmux_mobile_link::testing::{
-    FakeOptions, FakeSignaling, LinkProfile, set_link_profile, shape_by_profile, shaped_counts,
+    FakeOptions, FakeSignaling, LinkProfile, TestTurn, set_link_profile, shape_by_profile, shaped_counts,
 };
 use cmux_mobile_link::{
     Channel, ChannelEvent, DialOptions, Link, LinkConfig, SignalingClient, TransportKind,
@@ -72,15 +72,27 @@ impl Bench {
     }
 
     async fn start_profiled(profile: &str, duress: bool) -> Bench {
-        let profile = LinkProfile::named(profile);
-        let options = DialOptions {
+        Self::start_shaped(LinkProfile::named(profile), duress, None).await
+    }
+
+    /// `start_profiled` with any profile; `turn`: the phone reaches the Mac
+    /// only through its own allocation on this TURN server (relay only).
+    async fn start_shaped(profile: LinkProfile, duress: bool, turn: Option<&TestTurn>) -> Bench {
+        let mut options = DialOptions {
             include_loopback: true,
             impair_inbound: Some(shape_by_profile),
             timeout: Duration::from_secs(40),
             ..DialOptions::default()
         };
         let rtt_ms = profile.rtt_ms;
-        Self::start_with(options, 0, rtt_ms, Some(profile), duress).await
+        let mut bench = Self::start_with(options.clone(), 0, rtt_ms, Some(profile), duress).await;
+        if let Some(turn) = turn {
+            options.ice_servers = vec![turn.ice.clone()];
+            options.turn_tls_roots = Some(std::sync::Arc::clone(&turn.roots));
+            options.relay_only = true;
+            bench.options = options;
+        }
+        bench
     }
 
     async fn start_with(
@@ -148,11 +160,12 @@ impl Bench {
 
     /// A link with an echo channel that carried one frame; `None` when the dial failed.
     async fn link_up(&self) -> Option<(Link, String, Channel)> {
+        let options = DialOptions { timeline: cmux_mobile_link::Timeline::new(), ..self.options.clone() };
         let connected = match dial::connect(
             &self.phone,
             &self.mac_id,
             TransportKind::WireGuard,
-            &self.options,
+            &options,
             LinkConfig::default(),
         )
         .await
@@ -165,6 +178,13 @@ impl Bench {
         };
         let mut channel = connected.link.open("echo", json!({})).await.expect("channel");
         echo(&mut channel, b"before").await;
+        if options.timeline.start().elapsed() > Duration::from_secs(2) {
+            println!(
+                "SLOW_DIAL {} echo={:.0}ms",
+                options.timeline.summary(),
+                options.timeline.start().elapsed().as_secs_f64() * 1e3
+            );
+        }
         Some((connected.link, connected.session_id, channel))
     }
 }
@@ -319,4 +339,255 @@ async fn profiles() {
             set_link_profile(None, 0);
         }
     }
+}
+
+/// The app's foreground with a parked link, as `LinkController` runs it: resume and probe the
+/// link for `hedge`; unanswered, the link becomes the standby (probed again every 250 ms, each
+/// probe bounded by `probe_timeout(1 s)`) and a full redial starts beside it. Whichever answers
+/// first carries the first echo: the standby on the channel it had before the park, the redial on
+/// a new channel. Returns (first echo ms, which won, probe or standby answer ms, roam marks).
+async fn foreground(
+    bench: &Bench,
+    link: &Link,
+    session_id: &str,
+    channel: &mut Channel,
+    hedge: Option<Duration>,
+) -> (f64, &'static str, Option<f64>, serde_json::Value) {
+    let start = Instant::now();
+    assert!(link.resume(), "the park had already ended");
+    dial::wireguard::resume_session(session_id);
+    let hedge = hedge.unwrap_or_else(|| resume_hedge(link));
+    let answered = link.probe(hedge).await.is_ok();
+    let roam = |link_answer: Option<f64>| {
+        let marks = dial::wireguard::roam_timeline(session_id)
+            .map(|timeline| {
+                timeline
+                    .marks()
+                    .into_iter()
+                    .map(|(name, at)| (name, json!(ms(at))))
+                    .collect::<serde_json::Map<_, _>>()
+            })
+            .unwrap_or_default();
+        (link_answer, serde_json::Value::Object(marks))
+    };
+    if answered {
+        let answer = ms(start.elapsed());
+        let (answer, marks) = roam(Some(answer));
+        echo(channel, b"after").await;
+        return (ms(start.elapsed()), "resume", answer, marks);
+    }
+    let standby = async {
+        loop {
+            let timeout = link.probe_timeout(Duration::from_secs(1));
+            if link.probe(timeout).await.is_ok() {
+                return ms(start.elapsed());
+            }
+            if link.is_closed() {
+                std::future::pending::<()>().await;
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    };
+    let redial = bench.link_up();
+    tokio::pin!(standby, redial);
+    tokio::select! {
+        answer = &mut standby => {
+            let (answer, marks) = roam(Some(answer));
+            echo(channel, b"after").await;
+            (ms(start.elapsed()), "standby", answer, marks)
+        }
+        linked = &mut redial => {
+            let first = ms(start.elapsed());
+            let (_, marks) = roam(None);
+            let (fresh, _, _channel) = linked.expect("the redial links up");
+            fresh.close("done");
+            (first, "redial", None, marks)
+        }
+    }
+}
+
+/// The hedge `LinkController` uses on a foreground resume (`PARK_HEDGE_MS` overrides; 1500
+/// is the app's wait before this change).
+fn resume_hedge(link: &Link) -> Duration {
+    link.resume_hedge_after()
+}
+
+fn percentile(values: &[f64], p: f64) -> Option<f64> {
+    let mut sorted = values.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    if sorted.is_empty() {
+        return None;
+    }
+    let rank = ((p / 100.0) * (sorted.len() - 1) as f64).round() as usize;
+    sorted.get(rank).copied()
+}
+
+fn loadavg() -> String {
+    std::fs::read_to_string("/proc/loadavg")
+        .unwrap_or_default()
+        .split_whitespace()
+        .take(3)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// One cell of the park matrix, from the environment (one process per cell: the profile is
+/// process-wide): `PARK_PROFILE` (a cmux-fault name, or `wifi20`: 20 ms round trip, 40 Mbit/s,
+/// no loss), `PARK_DURESS=1`, `PARK_RELAYED=1` (the phone relay only, through a TURN server),
+/// `PARK_DEAD=1` (the Mac's end of the parked session goes dark: the remembered endpoint is
+/// dead), `PARK_SILENT_S` (300), `PARK_N` (10), `PARK_HEDGE_MS` (the app's wait before the
+/// redial; default the app's). `PARK_N` phones park together, stay silent, then come back one
+/// after another (each silent at least `PARK_SILENT_S`), each followed by a plain redial for
+/// comparison. Prints `PARK_CELL {json}`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "measurement"]
+async fn park_cell() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init();
+    let env = |key: &str| std::env::var(key).ok().filter(|value| !value.is_empty());
+    let name = env("PARK_PROFILE").unwrap_or_else(|| "lte".into());
+    let duress = env("PARK_DURESS").is_some_and(|v| v == "1");
+    let relayed = env("PARK_RELAYED").is_some_and(|v| v == "1");
+    let dead = env("PARK_DEAD").is_some_and(|v| v == "1");
+    let silent = Duration::from_secs(env("PARK_SILENT_S").and_then(|v| v.parse().ok()).unwrap_or(300));
+    let samples: usize = env("PARK_N").and_then(|v| v.parse().ok()).unwrap_or(10);
+    let hedge = env("PARK_HEDGE_MS").and_then(|v| v.parse().ok()).map(Duration::from_millis);
+    let profile = if name == "none" {
+        // Unshaped: every datagram at once (the harness's delay path idle).
+        LinkProfile {
+            name: name.clone(),
+            up_kbit: 0,
+            down_kbit: 0,
+            rtt_ms: 0,
+            jitter_ms: 0,
+            loss_percent: 0.0,
+        }
+    } else if name == "wifi20" {
+        LinkProfile {
+            name: name.clone(),
+            up_kbit: 40_000,
+            down_kbit: 40_000,
+            rtt_ms: 20,
+            jitter_ms: 0,
+            loss_percent: 0.0,
+        }
+    } else {
+        LinkProfile::named(&name)
+    };
+    let load_start = loadavg();
+    let turn = if relayed { Some(TestTurn::start().await) } else { None };
+    let bench = Bench::start_shaped(profile, duress, turn.as_ref()).await;
+    // Shaped from the start: the link's smoothed round trip before the park is the profile's,
+    // as on a phone that used the link for a while (three pings seed it).
+    bench.delay(true);
+    let mut parked = Vec::new();
+    for _ in 0..samples {
+        let (link, session_id, channel) = bench.link_up().await.expect("the phone links up");
+        for _ in 0..3 {
+            let _ = link.ping().await;
+        }
+        if bench.duress {
+            channel.send(Bytes::from_static(b"go")).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert!(link.park(Duration::from_secs(600), Duration::from_secs(5)).await.unwrap(), "parked");
+        parked.push((link, session_id, channel));
+    }
+    let srtt_ms: Vec<f64> = parked.iter().map(|(link, ..)| link.rtt().borrow().map_or(-1.0, ms)).collect();
+    tokio::time::sleep(silent).await;
+    let (mut first, mut winners, mut answers, mut runs) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    for (link, session_id, mut channel) in parked {
+        if dead {
+            cmux_mobile_link::dial::wireguard::simulate_network_loss(Some(&session_id), false);
+        }
+        let (first_echo, won, answer, marks) =
+            foreground(&bench, &link, &session_id, &mut channel, hedge).await;
+        link.close("done");
+        first.push(first_echo);
+        winners.push(won);
+        if let Some(answer) = answer {
+            answers.push(answer);
+        }
+        runs.push(json!({"first_echo_ms": first_echo, "won": won, "answer_ms": answer, "roam": marks}));
+    }
+    let mut redials = Vec::new();
+    for _ in 0..samples {
+        if let Some(ms) = redial(&bench).await {
+            redials.push(ms);
+        }
+    }
+    let (delivered, dropped) = shaped_counts();
+    set_link_profile(None, 0);
+    println!(
+        "PARK_CELL {}",
+        json!({"profile": name, "duress": duress, "relayed": relayed, "dead_endpoint": dead,
+               "silent_s": silent.as_secs(), "samples": samples,
+               "hedge_ms": hedge.map(|h| h.as_millis() as u64),
+               "first_echo_ms": {"p50": percentile(&first, 50.0), "p95": percentile(&first, 95.0), "all": first},
+               "won": winners, "link_answer_ms": {"p50": percentile(&answers, 50.0), "p95": percentile(&answers, 95.0)},
+               "redial_ms": {"p50": percentile(&redials, 50.0), "p95": percentile(&redials, 95.0), "all": redials},
+               "runs": runs, "last_rtt_ms_before_park": srtt_ms,
+               "datagrams_delivered": delivered, "datagrams_dropped": dropped,
+               "loadavg_start": load_start, "loadavg_end": loadavg()})
+    );
+}
+
+/// A parked link, unshaped (every datagram at once), ready to foreground: the bench, the link,
+/// its session and its channel. `turn`: the phone reaches the Mac only through it.
+/// The regression tests share the process-wide link shaping: one at a time.
+static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+async fn parked_unshaped(turn: Option<&TestTurn>) -> (Bench, Link, String, Channel) {
+    let profile = LinkProfile {
+        name: "none".into(),
+        up_kbit: 0,
+        down_kbit: 0,
+        rtt_ms: 0,
+        jitter_ms: 0,
+        loss_percent: 0.0,
+    };
+    let bench = Bench::start_shaped(profile, false, turn).await;
+    bench.delay(true);
+    let (link, session_id, channel) = bench.link_up().await.expect("the phone links up");
+    for _ in 0..3 {
+        let _ = link.ping().await;
+    }
+    assert!(link.park(Duration::from_secs(600), Duration::from_secs(5)).await.unwrap(), "parked");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    (bench, link, session_id, channel)
+}
+
+/// The Mac's end of the parked session is gone (the remembered endpoint is dead): the
+/// foreground's first echo comes from the redial, started after the link's own hedge (a few
+/// round trips), not after a fixed 1.5 s.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn dead_endpoint_resume_redials_after_the_rtt_hedge() {
+    let _serial = SERIAL.lock().await;
+    let (bench, link, session_id, mut channel) = parked_unshaped(None).await;
+    dial::wireguard::simulate_network_loss(Some(&session_id), false);
+    let (first_echo, won, _, _) = foreground(&bench, &link, &session_id, &mut channel, None).await;
+    link.close("done");
+    set_link_profile(None, 0);
+    assert_eq!(won, "redial", "the dead link cannot answer");
+    assert!(first_echo < 1_200.0, "first echo {first_echo:.0} ms: the redial waited the fixed 1.5 s");
+}
+
+/// A relayed phone parks past its TURN permission's lifetime (modelled: the server lapses every
+/// permission at once, no 300 s sleep). Its resume still answers on the link within the hedge.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn relayed_resume_after_the_permission_lapses() {
+    let _serial = SERIAL.lock().await;
+    let turn = TestTurn::start().await;
+    let (bench, link, session_id, mut channel) = parked_unshaped(Some(&turn)).await;
+    turn.lapse_permissions();
+    let (first_echo, won, _, marks) = foreground(&bench, &link, &session_id, &mut channel, None).await;
+    link.close("done");
+    set_link_profile(None, 0);
+    println!(
+        "LAPSE first_echo={first_echo:.0}ms won={won} dropped_lapsed={} marks={marks}",
+        turn.dropped_lapsed()
+    );
+    assert!(first_echo < 1_200.0, "first echo {first_echo:.0} ms after the permission lapsed ({won})");
 }
