@@ -178,7 +178,8 @@ enum CacheFixture {
         let (store, directory) = CacheFixture.saved(500)
         defer { try? FileManager.default.removeItem(at: directory) }
         let other = MacDevice(id: "m2", name: "Laptop", isOnline: false)
-        let rows = (0..<5).map { Workspace(id: "w2-\($0)", macID: other.id, title: "two \($0)", directory: "/", tabs: []) }
+        let rows = (0..<5).map { Workspace(id: "w2-\($0)", macID: other.id, title: "two \($0)", directory: "/", tabs: [],
+                                                         lastActivityAt: CacheFixture.savedAt, focusOrder: $0) }
         store.save(LiveSnapshot(teamID: "t2", teamName: "Two", macs: [other], linkedMacID: nil,
                                 workspaces: [other.id: .init(workspaces: rows, savedAt: CacheFixture.savedAt)]), accountID: "user")
         store.flush()
@@ -186,7 +187,7 @@ enum CacheFixture {
         let one = try #require(store.loadFirstScreen(accountID: "user", teamID: "t1"))
         let rest = await store.loadRest(one, accountID: "user")
         #expect(rest["m1"]?.workspaces.count == 500)
-        #expect(store.loadFirstScreen(accountID: "user", teamID: "t2")?.workspaces["m2"]?.workspaces.map(\.id) == rows.map(\.id))
+        #expect(store.loadFirstScreen(accountID: "user", teamID: "t2")?.workspaces["m2"]?.workspaces.map(\Workspace.id) == rows.map(\Workspace.id))
         #expect(store.loadFirstScreen(accountID: "user", teamID: "t3") == nil)
     }
 
