@@ -26,6 +26,8 @@ mod auto_hold;
 pub(crate) use auto_hold::{AUTO_AWAY, AUTO_CLIENT};
 pub(crate) mod additional_dirs;
 pub(crate) mod admission;
+// The per-lane fan-out cap (`lane_fanout.rs`).
+pub(crate) mod lane_fanout;
 // A create with no room here starts on the peer placement picks.
 pub(crate) mod admission_redirect;
 // A create over the cap with nowhere to go asks the fleet for a machine.
@@ -2006,6 +2008,10 @@ impl Hub {
             // runtime-backed hubs; tests that construct one outside Tokio retain a unique Arc so
             // they can configure fields before entering their runtime.
             let _ = hub.hub_ref.set(Arc::downgrade(&hub));
+            // Chats read at start get the synced winners kept for them (`synced.rs`).
+            if !loading {
+                hub.synced_after_start();
+            }
             // Chats made before it read their inboxes through it from now on (`Session::inbox`).
             for session in hub.sessions.lock().unwrap_or_else(|e| e.into_inner()).values() {
                 let _ = session.hub_ref.set(Arc::downgrade(&hub));
@@ -3438,6 +3444,12 @@ impl Hub {
         // Answered once the draft is saved: "the one durable shared draft". A kept change: saved
         // when written, synced with the next acked change or within a second (`meta_save.rs`).
         self.save_meta_kept(session)?;
+        // One edit of the person's synced draft (`hub/synced.rs`); the value already there (a
+        // remote winner applied through here) is none.
+        self.synced_record(
+            synced::draft_key(&session.id),
+            draft.clone().map_or(serde_json::Value::Null, serde_json::Value::String),
+        );
         Ok(draft)
     }
 

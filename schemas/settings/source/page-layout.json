@@ -25,6 +25,7 @@
     {"id": "chiefPet"},
     {"id": "density", "note": "The density tiles, preview and custom density editor (plans/cmux-next/density-DESIGN.md)."},
     {"id": "textSize", "note": "General's first card (David Beyer, 2026-11-20: Settings was overwhelming and had no sidebar font size he could find): one Text Size for the sidebar, tabs, menus and chat (appearance.metrics.chromeFontSize) and the density beside it (appearance.density), in the picker the Set Up cmux card draws too (webviews ui/TextSizePicker)."},
+    {"id": "replayIntro", "note": "Settings > General, right under Text Size: Replay the Intro reopens the Make cmux Yours step on the current settings (the palette's home.makeItYours, run through cmux.app.action.run); the first-run flag is untouched (decision d-eedbe6969c, ask-b9fd9d4f9c)."},
     {"id": "importSuggestions", "note": "What this Mac has that cmux can bring over (CmuxNextImportCards), every card found."},
     {"id": "channels", "note": "Every release channel's recent builds, with the one this Mac runs (Settings > Updates)."},
     {"id": "customizeProgress", "note": "Settings > General's first card, on by default for everyone (Leo 2026-11-22: \"a customizations checklist. actually, this needs to be SOMEWHERE as a default. not just for me.\"): the steps for making cmux your own (theme, look, shortcuts, notifications, agents and models, MCP, GitHub, sidebar, chat, New Tab, ...), n of m done, each linking to where it is done, with a check-off and Dismiss (customize.checklist.enabled). Steps and progress are cmux-customize checklist.rs (`cmux customize checklist`), through `cmux.settings.customize.checklist`."},
@@ -88,7 +89,7 @@
             {"group": "settings.group.announcements"},
             {"group": "settings.group.customizeChecklist"}
           ],
-          "lead": ["customizeProgress", "textSize"],
+          "lead": ["customizeProgress", "textSize", "replayIntro"],
           "actions": ["general"],
           "aliases": ["general"]
         },
@@ -170,7 +171,7 @@
             {"title": {"key": "settings.pageGroup.sidebarWorkspaces", "text": "Sidebar Workspaces"}, "keys": [
               "workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree",
               "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.settleFinished",
-              "sidebar.showAutomaticSessions", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
+              "sidebar.showAutomaticSessions", "sidebar.showAgentSessions", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
               "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown"
             ]},
             {"title": {"key": "settings.pageGroup.sidebarSections", "text": "Sidebar Sections"}, "note": "Which sidebar sections show and which come first (customization matrix row sidebar-sections); their own card so the Sidebar card stays under max_rows_per_card.", "keys": [
