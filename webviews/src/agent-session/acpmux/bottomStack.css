@@ -57,6 +57,19 @@
 .acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer > :not(.acpmux-composer-list-layer) {
   pointer-events: auto;
 }
+/* The asks stack keeps the rows behind it in sight but for what it draws (useBesideStack.ts; Leo,
+   2026-11-17: "this needs your input dismiss row erases things behind it"), so its room passes the
+   pointer to those rows too: a drag there selects their text (gutterSelect.ts), a click reaches
+   them. Only its label, Dismiss and cards take it. Only with See-Through Dock on
+   (`experiments.seeThroughDock`, `data-see-through`); off, the stack takes the pointer as before. */
+.acpmux-main[data-dock="float"] > .acpmux-dock[data-see-through] > .acpmux-asks-stack {
+  pointer-events: none;
+}
+.acpmux-main[data-dock="float"] > .acpmux-dock[data-see-through] > .acpmux-asks-stack > :not(.acpmux-pending-ask),
+.acpmux-main[data-dock="float"] > .acpmux-dock[data-see-through] > .acpmux-asks-stack > .acpmux-pending-ask > :not(.acpmux-pending-ask__head),
+.acpmux-main[data-dock="float"] > .acpmux-dock[data-see-through] > .acpmux-asks-stack :is(.acpmux-pending-ask__label, .acpmux-pending-ask__dismiss) {
+  pointer-events: auto;
+}
 /* The tray of running subagents and background commands (subagents/SubagentTray.tsx), aligned
    with the composer card; in a short pane it gives up its height like the parts below. */
 /* Match the composer's 8px outset below 298px of content width (#28587). */

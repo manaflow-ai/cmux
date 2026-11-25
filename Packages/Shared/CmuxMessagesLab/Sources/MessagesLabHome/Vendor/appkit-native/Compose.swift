@@ -660,7 +660,11 @@ final class ComposeTextView {
     var onEscape: () -> Void { get { view.onEscape } set { view.onEscape = newValue } }
     var text: String { view.string }
     private var scrolled: NSObjectProtocol?
-    init() {
+    /// cmux: tells assistive apps (VoiceOver's cursor) that the field moved or changed size: AppKit posts
+    /// no notice for a view's frame, so VoiceOver kept the field's first frame. Tests pass a recorder.
+    private let announce: (NSView, NSAccessibility.Notification) -> Void
+    init(announce: @escaping (NSView, NSAccessibility.Notification) -> Void = { NSAccessibility.post(element: $0, notification: $1) }) {
+        self.announce = announce
         // cmux: TextKit 1, not Catalyst's TextKit 2: TextKit 2 lays out and draws an edited paragraph
         // whole, so a key at the end of a long one cost the whole paragraph (NSTextView+TextKit1Lines.swift).
         view = FieldTextView(usingTextLayoutManager: false)
@@ -725,7 +729,13 @@ final class ComposeTextView {
     /// The clip at FRAME (host coordinates): the document is at least the clip's height, as wide
     /// as it; a size change keeps the caret line in view (a live resize rewraps the lines).
     func place(_ frame: CGRect) {
-        guard clip.frame != frame else { return }
+        let old = clip.frame
+        guard old != frame else { return }
+        // VoiceOver's cursor follows the field only when it hears of each move and size change.
+        defer {
+            if clip.frame.size != old.size { announce(view, .resized) }
+            if clip.frame.origin != old.origin { announce(view, .moved) }
+        }
         // A live resize that changes only the field's width while the draft is empty: no pixel of
         // the empty field depends on its width (the caret stands at the left inset of an empty
         // left-to-right line; the placeholder is the compose bar's own layer), so the clip keeps its
