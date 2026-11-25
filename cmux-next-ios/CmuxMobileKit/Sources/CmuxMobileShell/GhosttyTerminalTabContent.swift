@@ -567,7 +567,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
 
     private func cardView(_ id: String, slot: TerminalTabSlot) -> AnyView {
         if let cached = cardViews[id], cached.slot == ObjectIdentifier(slot) { return cached.view }
-        let view = AnyView(TerminalTabSlotCard(slot: slot, tabID: id, insets: EdgeInsets(top: 62, leading: 0, bottom: 98, trailing: 0)))
+        let view = AnyView(TerminalTabSlotCard(slot: slot, tabID: id, macID: hostMacs[id],
+                                               insets: EdgeInsets(top: 62, leading: 0, bottom: 98, trailing: 0)))
         cardViews[id] = (ObjectIdentifier(slot), view)
         return view
     }
@@ -679,6 +680,17 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             liveRefreshTask = nil
         }
         wakeLiveRefresh()
+    }
+
+    func captureCard(for tab: WorkspaceTab, fresh: Bool, keep: @escaping @MainActor (UIImage) -> Void) {
+        guard let model = hosts[tab.id]?.model else { return }
+        // Copied in this call while the page is in a window, composed off the main thread
+        // (`captureSnapshotOffMain`, as the grid's opening does): never rendered in the tap.
+        if fresh, model.canCaptureCard { model.captureSnapshotOffMain() }
+        Task { @MainActor [weak model] in
+            guard let model, let image = await model.cardPictureToKeep() else { return }
+            keep(image)
+        }
     }
 
     func observeOutput(_ owner: AnyObject, _ handler: @escaping @MainActor (String?, String) -> Void) {
@@ -914,10 +926,15 @@ struct TerminalTabSlotCard: View {
     let slot: TerminalTabSlot
     /// For the UI tests' face probe (`TabCardFaceRecord`).
     let tabID: String
+    /// The tab's Mac: whose last-known picture (`TabCardSnapshots`) the card falls back to.
+    let macID: String?
     let insets: EdgeInsets
 
     var body: some View {
-        let card = TerminalTabCard(model: slot.host.model, insets: insets)
+        // The tab's last-known picture, observed: a card read from disk after it was built
+        // (`WorkspaceTabCard` warms it as it appears) draws it then.
+        let lastKnown = macID.flatMap { TabCardSnapshots.shared.key(macID: $0, tabID: tabID) }.flatMap { TabCardSnapshots.shared.entry($0).image }
+        let card = TerminalTabCard(model: slot.host.model, insets: insets, lastKnown: lastKnown)
         card
             .id(ObjectIdentifier(slot.host))
             .modifier(TabCardFaceRecord(tabID: tabID, face: "\(card.content)"))

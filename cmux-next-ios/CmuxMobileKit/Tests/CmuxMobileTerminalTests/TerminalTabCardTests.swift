@@ -27,6 +27,27 @@ import Testing
         #expect(TerminalCardContent.choose(sessionStarted: false, hasSnapshot: false,
                                            screenText: nil) == .nothing)
     }
+
+    /// A terminal not hosted this launch, with no saved frame and no screen from the Mac yet,
+    /// draws the picture the phone kept when it was last left, not an empty card (Leo,
+    /// 2026-11-24: "there are too many empty previews in the safari grid thing").
+    @Test func anUnhostedTabWithNothingElseShowsItsLastKnownPicture() {
+        #expect(TerminalCardContent.choose(sessionStarted: false, hasSnapshot: false,
+                                           screenText: nil, hasLastKnown: true) == .lastKnown)
+        #expect(TerminalCardContent.choose(sessionStarted: true, hasSnapshot: false,
+                                           screenText: nil, hasLastKnown: true) == .lastKnown)
+        #expect(!TerminalCardContent.lastKnown.isCurrent, "a picture from before is not shown as current")
+    }
+
+    /// The Mac's screen, a live snapshot and a saved frame all still win over it.
+    @Test func theLastKnownPictureOnlyStandsInForNothing() {
+        #expect(TerminalCardContent.choose(sessionStarted: false, hasSnapshot: false,
+                                           screenText: "$ ls", hasLastKnown: true) == .screenText)
+        #expect(TerminalCardContent.choose(sessionStarted: true, hasSnapshot: true,
+                                           screenText: nil, hasLastKnown: true) == .snapshot)
+        #expect(TerminalCardContent.choose(sessionStarted: false, hasSnapshot: true,
+                                           screenText: nil, hasLastKnown: true) == .savedFrame)
+    }
 }
 
 /// VERIFY-round8 Claim 8 / T-TABS-01: at the first grid open after a launch an

@@ -210,10 +210,14 @@ extension TerminalTabPage {
 public struct TerminalTabCard: View {
     let model: TerminalModel
     let insets: EdgeInsets
+    /// The tab's last-known picture (`TabCardSnapshots`), drawn when the page has no picture and
+    /// the Mac no screen yet (`TerminalCardContent.lastKnown`).
+    let lastKnown: UIImage?
 
-    public init(model: TerminalModel, insets: EdgeInsets) {
+    public init(model: TerminalModel, insets: EdgeInsets, lastKnown: UIImage? = nil) {
         self.model = model
         self.insets = insets
+        self.lastKnown = lastKnown
     }
 
     public var body: some View {
@@ -227,7 +231,8 @@ public struct TerminalTabCard: View {
         let started = model.controller?.started == true
         return TerminalCardContent.choose(sessionStarted: started,
                                           hasSnapshot: model.snapshot != nil, screenText: model.cardScreenText,
-                                          screenTextIsNewer: model.cardScreenTextIsNewer)
+                                          screenTextIsNewer: model.cardScreenTextIsNewer,
+                                          hasLastKnown: lastKnown != nil)
     }
 
     private var cardContent: some View {
@@ -240,8 +245,10 @@ public struct TerminalTabCard: View {
                 switch content {
                 case .screenText:
                     TerminalCardScreenText(text: model.cardScreenText ?? "", topInset: insets.top, width: geo.size.width)
-                case .snapshot, .savedFrame:
-                    if let image = model.snapshot {
+                case .snapshot, .savedFrame, .lastKnown:
+                    // The last-known picture is a copy of an earlier snapshot of this page, so it
+                    // is placed the same way.
+                    if let image = content == .lastKnown ? lastKnown : model.snapshot {
                     let scale = geo.size.width / max(1, image.size.width)
                     // A still holds the rows only (qa11): the card ends just under the
                     // last row, which rests on the dock's top (the key row) at rest.
