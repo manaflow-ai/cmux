@@ -1012,7 +1012,7 @@ export function drawPaneComposer({
                 switchPending: harnessSwitch.view().intent !== undefined,
                 startsChat: Boolean(projectDraft && !snapshot.sessionId),
                 cloudStart: cloudPicked,
-                cloudWake: Boolean(cloudWakeChat && cloudRecovery.state !== "deleted"),
+                cloudWake: Boolean(cloudWakeChat && cloudRecovery.state !== "deleted" && !cloudRecovery.chatGone),
                 sandbox: sandboxing || sandboxPickedNotOffered || (sandboxHoldsChat && !sandboxDraftMoved),
               };
               return client && bindsHeldSendNow(route) ? client.bindSendGesture() : undefined;
@@ -1043,7 +1043,7 @@ export function drawPaneComposer({
                 switchPending: harnessSwitch.view().intent !== undefined,
                 startsChat: Boolean(projectDraft && !snapshot.sessionId),
                 cloudStart: cloudPicked,
-                cloudWake: Boolean(cloudWakeChat && cloudRecovery.state !== "deleted"),
+                cloudWake: Boolean(cloudWakeChat && cloudRecovery.state !== "deleted" && !cloudRecovery.chatGone),
                 sandbox: sandboxing || sandboxPickedNotOffered || (sandboxHoldsChat && !sandboxDraftMoved),
               };
               return client && plainPath && bindsHeldSendNow(route) ? client.bindSendGesture() : undefined;
@@ -1122,7 +1122,13 @@ export function drawPaneComposer({
               // A Cloud chat whose machine is paused or out of reach: the send wakes the machine and
               // waits in the pane under "Waking the machine…", then goes once the chat is back
               // (cloudWake.ts). Enter's gesture resumes the machine; the prompt keeps the send's.
-              if (cloudWakeChat && cloudRecovery.state !== "deleted" && !quick && !snapshot.summary?.watching) {
+              if (
+                cloudWakeChat &&
+                cloudRecovery.state !== "deleted" &&
+                !cloudRecovery.chatGone &&
+                !quick &&
+                !snapshot.summary?.watching
+              ) {
                 setCloudWaking(true);
                 trustHeld.hold(
                   text,

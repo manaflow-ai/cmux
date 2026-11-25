@@ -6088,9 +6088,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The chat itself answered for good: no machine coming back opens it, so a resume ends (cmux#55066).
   const cloudChatSettled =
     snapshot.unavailable !== undefined &&
-    (["deleted", "notFound", "gone", "unreached", "machineDeleted"] as const).some(
-      (reason) => reason === snapshot.unavailable?.reason,
-    );
+    (["deleted", "notFound", "gone", "unreached"] as const).some((reason) => reason === snapshot.unavailable?.reason);
   const cloudRecovery = useCloudChatRecovery({
     cloud: cloudChatIdentity,
     session: snapshot.missingSession ?? snapshot.sessionId,
@@ -7864,7 +7862,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       asleep: cloudRecovery.state === "paused" || chatMachine?.stage === "paused",
       woke: cloudTypeWoke.current,
     });
-    if (!chat || cloudRecovery.state === "deleted" || snapshot.summary?.watching) return;
+    if (!chat || cloudRecovery.state === "deleted" || cloudRecovery.chatGone || snapshot.summary?.watching) return;
     cloudTypeWoke.current = chat;
     setCloudTypeWaking(true);
     cloudRecovery.resume();

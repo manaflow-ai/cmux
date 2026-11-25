@@ -128,7 +128,9 @@ export function useCloudChatRecovery({
     // page then draws "deleted" for a chat that reopens a second later. The page's answer is sampled
     // as each read starts, a second after the recheck before it, so what that recheck found is drawn;
     // only two samples in a row that find the chat gone end the resume (cmux#55066).
-    let recheckedOnce = false;
+    // The read before this one finished its own recheck: only then is the page's answer what that
+    // recheck found, not a snapshot from the middle of one (its peers read, its chats not yet).
+    let lastReadRechecked = false;
     let goneReads = 0;
     // A failed or superseded inventory read says nothing about the accepted wake.
     // Keep the paused card while the machine reconnects.
@@ -141,7 +143,7 @@ export function useCloudChatRecovery({
     // never answers no longer stops the reads for good. The card reads again only while resuming.
     const read = async () => {
       if (disposed || !identity || !active) return;
-      if (resuming && recheckedOnce) {
+      if (resuming && lastReadRechecked) {
         goneReads = settledNow.current ? goneReads + 1 : 0;
         if (goneReads >= 2) {
           finishResume();
@@ -149,6 +151,7 @@ export function useCloudChatRecovery({
           return;
         }
       }
+      lastReadRechecked = false;
       const deadline = performance.now() + readMs;
       try {
         const replyResult = await beforeDeadline(
@@ -171,7 +174,7 @@ export function useCloudChatRecovery({
             retry();
             return;
           }
-          recheckedOnce = true;
+          lastReadRechecked = true;
         }
         if (disposed) return;
         if (next === "deleted") {
