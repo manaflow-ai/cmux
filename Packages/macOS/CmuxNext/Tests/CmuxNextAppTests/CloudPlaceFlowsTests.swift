@@ -33,15 +33,30 @@ import Testing
         /// How often the driver read the chats (each Auto evaluation reads them once).
         var reads = 0
         var turnEnded: (@MainActor (String) -> Void)?
+        /// The signed-in Cloud account and team; `switchOnRun` changes it as the first move starts.
+        var identity: CloudPlaceIdentity? = CloudPlaceIdentity(user: "u1", team: "t1", cloud: "https://cloud.test")
+        var switchOnRun: CloudPlaceIdentity?
         func placeChats() -> [CloudPlaceChat] { reads += 1; return chats }
         func placeRun(_ chat: CloudPlaceChat, toCloud: Bool, machine: CloudPlaceMachine?, trigger: CloudPlaceFlows.Trigger, claims: CloudPlaceClaims) -> CloudPlaceRun {
             runs += 1
+            if let next = switchOnRun { identity = next; switchOnRun = nil }
             if let refusal { return .refused(refusal) }
             return .started({})
         }
         func placeCloudSessions() -> [String] { [] }
         func placeOwnFacts(_ session: String) -> (before: String?, machines: [CloudPlaceOwnMachine]) { (nil, []) }
         func placeOnTurnEnded(_ handler: @escaping @MainActor (String) -> Void) { turnEnded = handler }
+        func placeIdentity() -> CloudPlaceIdentity? { identity }
+        func placeIdentityChangedReason() -> String { "account changed" }
+    }
+
+    private static func local(_ session: String) -> CloudPlaceChat {
+        CloudPlaceChat(id: "tab-\(session)", session: session, title: session.uppercased(), onCloud: false, turnRunning: false, turnStartedAtMs: nil, moving: false)
+    }
+
+    private func rows(_ place: CloudPlaceFlows) -> [[String: Any]] {
+        let object = place.evacuateJSON(canBringBack: 0).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        return object?["chats"] as? [[String: Any]] ?? []
     }
 
     /// Drivers a test started (their Auto watches stay registered with the system).
@@ -220,6 +235,68 @@ import Testing
         #expect(object["direction"] as? String == "toCloud" && object["canBringBack"] as? Int == 2 && object["elapsedMs"] != nil)
         place.evacuationPhase("a", .ended)
         #expect(place.evacuation?.endedMs != nil)
+    }
+
+    /// One bulk run at a time: a second Evacuate or Bring Back All while one runs is refused and leaves the first's
+    /// progress alone (review of #52230 at 7edf8dd6, F3).
+    @Test func aSecondBulkRunWhileOneRunsIsRefused() {
+        let recorder = Recorder(), host = Host()
+        host.chats = [Self.local("a"), Self.local("b")]
+        let place = flows(recorder)
+        let driver = CloudPlaceDriver(place: place, host: host)
+        driver.planBulk = { _ in .init(moves: ["a", "b"], parallel: 1) }
+        #expect(driver.evacuate(sessions: nil) == nil)
+        // The run's worker has not run yet (this test holds the main actor): the run is going.
+        #expect(place.evacuationRunning)
+        #expect(driver.evacuate(sessions: nil) == .bulkRunning)
+        #expect(driver.bringBackAll(sessions: ["a"]) == .bulkRunning)
+        #expect(place.evacuation?.rows.map(\.session) == ["a", "b"])
+    }
+
+    /// A bulk run is bound to the Cloud account and team it started under: when they change mid-run no further chat
+    /// moves, and the chats not started show failed with why rather than vanish (review of #52230 at 7edf8dd6, F2).
+    @Test func aBulkRunStopsWhenTheCloudIdentityChanges() async {
+        let recorder = Recorder(), host = Host()
+        host.chats = [Self.local("a"), Self.local("b"), Self.local("c")]
+        host.switchOnRun = CloudPlaceIdentity(user: "u2", team: "t2", cloud: "https://cloud.test")
+        let place = flows(recorder)
+        let driver = CloudPlaceDriver(place: place, host: host)
+        driver.planBulk = { _ in .init(moves: ["a", "b", "c"], parallel: 1) }
+        #expect(driver.evacuate(sessions: nil) == nil)
+        for _ in 0..<1000 where place.evacuation?.endedMs == nil { await Task.yield() }
+        #expect(place.evacuation?.endedMs != nil)
+        #expect(host.runs == 1)
+        let rows = rows(place).filter { ["b", "c"].contains($0["session"] as? String) }
+        #expect(rows.map { $0["state"] as? String } == ["failed", "failed"])
+        #expect(rows.map { $0["reason"] as? String } == ["account changed", "account changed"])
+        // A new run under the new identity may start.
+        #expect(driver.evacuate(sessions: nil) == nil)
+    }
+
+    /// The same identity throughout: every chat moves.
+    @Test func aBulkRunUnderOneIdentityMovesEveryChat() async {
+        let recorder = Recorder(), host = Host()
+        host.chats = [Self.local("a"), Self.local("b")]
+        let place = flows(recorder)
+        let driver = CloudPlaceDriver(place: place, host: host)
+        driver.planBulk = { _ in .init(moves: ["a", "b"], parallel: 1) }
+        #expect(driver.evacuate(sessions: nil) == nil)
+        for _ in 0..<1000 where place.evacuation?.endedMs == nil { await Task.yield() }
+        #expect(host.runs == 2)
+        #expect(!(place.evacuation?.stopped ?? true))
+    }
+
+    /// A run stopped for a reason shows its dropped chats failed with it; a Cancel shows them cancelled.
+    @Test func aStopWithAReasonReadsFailedAndACancelReadsCancelled() {
+        let place = flows(Recorder())
+        place.beginEvacuation(direction: "toCloud", chats: [("a", "A")])
+        #expect(place.stopEvacuation(reason: "account changed") == [])
+        #expect(rows(place).first?["state"] as? String == "failed")
+        #expect(rows(place).first?["reason"] as? String == "account changed")
+        place.beginEvacuation(direction: "toCloud", chats: [("a", "A")])
+        #expect(place.stopEvacuation() == [])
+        #expect(rows(place).first?["state"] as? String == "cancelled")
+        #expect(rows(place).first?["reason"] == nil)
     }
 
     @Test func idleEvacuateCarriesOnlyTheBringBackCount() throws {

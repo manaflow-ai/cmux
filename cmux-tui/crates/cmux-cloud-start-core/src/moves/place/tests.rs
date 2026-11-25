@@ -367,3 +367,24 @@ fn the_apps_events_parse_as_sent() {
     let again: Flow = serde_json::from_value(kept).expect("the kept flow parses");
     assert!(matches!(again.outcome, Some(Outcome::Live { at_ms: 2000 })));
 }
+
+/// Auto's return move begins with `{"auto":"back"}` as `CloudPlaceDriver.swift` sends it: a trigger
+/// the reducer refused left that move with no flow, so no progress, Cancel or failure state
+/// (review of cmux#52230, F4).
+#[test]
+fn autos_return_move_parses_and_has_a_flow() {
+    let begin: Event = serde_json::from_str(
+        r#"{"event":"begin","session":"s1","direction":"toLocal","trigger":{"auto":"back"},
+            "from":"vm-1","to":"This Mac","atMs":1000}"#,
+    )
+    .expect("Auto's return trigger parses");
+    let (flow, next) = reduce(None, begin);
+    assert_eq!(next, Next::Go);
+    let flow = flow.expect("Auto's return move has a flow");
+    assert_eq!(flow.trigger, Trigger::Auto(AutoReason::Back));
+    assert_eq!(view(&flow, 1_000).state, "moving");
+    assert_eq!(
+        serde_json::to_value(Trigger::Auto(AutoReason::Back)).expect("serializes"),
+        serde_json::json!({ "auto": "back" })
+    );
+}

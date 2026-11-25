@@ -218,11 +218,11 @@ test("an MCP call's verb joins the column, on a group's line and on a lone row a
   expect(lone.querySelector(".cv-tool__verb")?.textContent).toBe("Used");
 });
 
-test("a call that finishes moves its row from Running to Ran in the column", async () => {
+test("a running call adds no Running verb; once it finishes its row joins the column as Ran", async () => {
   const running = call("bun test", "execute", { command: "bun test", status: "in_progress" });
   const container = await render(<ColumnRows row={turn([running])} />);
   const column = () => container.querySelector<HTMLElement>(".cv-tools")!.style.getPropertyValue("--cv-tool-verbs");
-  expect(column()).toBe('"Running"');
+  expect(column()).not.toContain("Running");
   const done = { ...running, tool: { ...running.tool!, status: "completed" } };
   await act(async () => root!.render(<ColumnRows row={{ ...turn([done]), version: 2 }} />));
   expect(column()).toBe('"Ran"');

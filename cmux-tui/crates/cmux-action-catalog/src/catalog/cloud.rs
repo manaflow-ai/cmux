@@ -226,6 +226,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::SESSION_2.optional()],
         targets: &[],
         cli_name: "cloud evacuate",
+        is_person_only: true,
         ..Action::DEFAULT
     },
     Action {
@@ -241,6 +242,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[],
         targets: &[],
         cli_name: "cloud evacuate-cancel",
+        is_person_only: true,
         ..Action::DEFAULT
     },
     Action {
@@ -256,6 +258,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[Argument { name: "sessions", title: t("Localizable", "argument.cloudBringBackAllSessions", "Sessions"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false }],
         targets: &[],
         cli_name: "cloud bring-back-all",
+        is_person_only: true,
         ..Action::DEFAULT
     },
     Action {
@@ -269,6 +272,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[Argument { name: "mode", title: t("Localizable", "argument.chatPlaceMode", "Place"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false }, Argument { name: "queued", title: t("Localizable", "argument.chatPlaceQueued", "Queued Prompts"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false }, Argument { name: "hasDraft", title: t("Localizable", "argument.chatPlaceHasDraft", "Has an Unsent Draft"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false }],
         targets: &["tab"],
         cli_name: "action chat-place-set",
+        is_person_only: true,
         ..Action::DEFAULT
     },
     Action {
@@ -282,6 +286,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[],
         targets: &["tab"],
         cli_name: "action chat-move-cancel",
+        is_person_only: true,
         ..Action::DEFAULT
     },
     Action {
@@ -295,6 +300,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[Argument { name: "queued", title: t("Localizable", "argument.chatPlaceQueued", "Queued Prompts"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false }, Argument { name: "hasDraft", title: t("Localizable", "argument.chatPlaceHasDraft", "Has an Unsent Draft"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false }],
         targets: &["tab"],
         cli_name: "action chat-move-retry",
+        is_person_only: true,
         ..Action::DEFAULT
     },
     Action {

@@ -23,6 +23,18 @@ public struct CloudMoveStrings {
         }
     }
     public static var retry: String { String(localized: "cloud.move.retry", defaultValue: "Retry", table: "Cloud", bundle: .localizedModule) }
+    /// An agent's or a socket's run of a chat place action (Local, Cloud, Auto, Evacuate, Bring Back All, Cancel, Retry).
+    public static var placeIsPersons: String {
+        String(localized: "cloud.place.personOnly", defaultValue: "Only you can move chats between this Mac and Cloud, with a click in cmux.", table: "Cloud", bundle: .localizedModule)
+    }
+    /// A second Evacuate or Bring Back All while one runs.
+    public static var bulkRunning: String {
+        String(localized: "cloud.place.bulkRunning", defaultValue: "Chats are already moving. Wait for that to finish, or cancel it.", table: "Cloud", bundle: .localizedModule)
+    }
+    /// An Evacuate or Bring Back All's chats that never started because the Cloud account or team changed under it.
+    public static var identityChanged: String {
+        String(localized: "cloud.place.identityChanged", defaultValue: "Not moved: the Cloud account or team changed after this started.", table: "Cloud", bundle: .localizedModule)
+    }
     public static var notAChat: String {
         String(localized: "cloud.move.notAChat", defaultValue: "Move to Cloud works on a chat tab.", table: "Cloud", bundle: .localizedModule)
     }
