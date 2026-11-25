@@ -48,7 +48,7 @@ extension UpdaterService {
         let urgency = StagedUpdatePrewarm.Urgency()
         prewarmRun = StagedPrewarmRun(build: build, started: ContinuousClock.now, urgency: urgency)
         log.append("launch pre-warm of \(build): started (\(trigger))")
-        let prewarm = StagedUpdatePrewarm(installation: UpdateInstallPreflight.stagedInstallation(bundleIdentifier: bundleIdentifier),
+        let prewarm = StagedUpdatePrewarm(installations: UpdateInstallPreflight.stagedInstallations(bundleIdentifier: bundleIdentifier),
                                           bundleIdentifier: bundleIdentifier, build: build)
         let runner = prewarmRunner, log = log, work = work
         // The build's first launch records itself as pre-warmed (`cmux app launch-times`); no test writes the person's marker.
