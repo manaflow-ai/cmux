@@ -16,8 +16,9 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"),
         .closesItsWindows)
 struct TopPageTitlebarDragTests {
-    @Test(arguments: [InternalPageID.stats])
-    func aTopPagesTitleRowMovesTheWindowAndItsControlsKeepTheirPress(_ id: InternalPageID) async throws {
+    @Test func aTopPagesTitleRowMovesTheWindowAndItsControlsKeepTheirPress() async throws {
+        // In the body, not `@Test(arguments:)`: the macro reads its arguments off the main actor.
+        let id = InternalPageID.stats
         try await PasswordManagerRouteTests.withApp { services, _ in
             let controller = try #require(services.windows.active)
             let window = try #require(controller.window)
