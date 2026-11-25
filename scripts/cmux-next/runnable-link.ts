@@ -57,7 +57,7 @@ export function projectSetupCommand(): string {
     `rm -rf ${PROJECT_DIR}`,
     `git clone -q --depth 1 --branch ${PROJECT_REF} ${PROJECT_REPO} ${PROJECT_DIR}`,
     `cd ${PROJECT_DIR}`,
-    "npm install --no-audit --no-fund --loglevel=error >/tmp/rl-install.log 2>&1",
+    "NODE_ENV=development npm install --include=dev --no-audit --no-fund --loglevel=error >/tmp/rl-install.log 2>&1",
     `PORT=${SERVICE_PORT} setsid node examples/hello-world >/tmp/rl-service.log 2>&1 < /dev/null &`,
     `for i in $(seq 1 100); do curl -sf -o /dev/null http://127.0.0.1:${SERVICE_PORT}/ && break; sleep 0.1; done`,
     `echo "head=$(git rev-parse HEAD)"`,
@@ -69,7 +69,7 @@ export function projectSetupCommand(): string {
 export function usableCommand(session: string | null): string {
   return [
     `s=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:${SERVICE_PORT}/ || true); echo "service=$s"`,
-    `cd ${PROJECT_DIR} && ./node_modules/.bin/mocha --reporter dot test/app.js >/tmp/rl-smoke.log 2>&1 && echo smoke=1 || echo smoke=0`,
+    `cd ${PROJECT_DIR} && NODE_ENV=test node ./node_modules/mocha/bin/mocha.js --reporter dot test/app.js >/tmp/rl-smoke.log 2>&1 && echo smoke=1 || { echo smoke=0; echo "smoke_tail=$(tail -c 300 /tmp/rl-smoke.log | tr '\\n' ' ')"; echo "node=$(node -v 2>&1)"; }`,
     `echo "head=$(git -C ${PROJECT_DIR} rev-parse HEAD 2>/dev/null)"`,
     session ? `acpmux ls 2>/dev/null | grep -q '${session}' && echo session=1 || echo session=0` : "echo session=skip",
   ].join("\n");
@@ -100,6 +100,7 @@ export const usable = (f: Record<string, string>, head: string) =>
 
 export type OpenRow = {
   run: number;
+  quota_wait_ms?: number;
   via: "link" | "snapshot";
   copy: string | null;
   resolve_ms: number | null;
@@ -114,7 +115,7 @@ export type OpenRow = {
   facts: Record<string, string> | null;
   error: string | null;
 };
-export type BaselineRow = { run: number; machine: string | null; create_ms: number | null; setup_ms: number | null; usable_ms: number | null; total_ms: number | null; facts: Record<string, string> | null; error: string | null };
+export type BaselineRow = { run: number; quota_wait_ms?: number; machine: string | null; create_ms: number | null; setup_ms: number | null; usable_ms: number | null; total_ms: number | null; facts: Record<string, string> | null; error: string | null };
 
 const median = (xs: number[]) => {
   if (!xs.length) return null;
@@ -143,6 +144,20 @@ export function verdict(opens: OpenRow[], baseline: BaselineRow[], meta: Record<
     rows: opens,
     baseline_rows: baseline,
   };
+}
+
+/** Staging's test team sits near its machine cap; a create that hits it waits for room (up to 10 min) instead of
+ * failing the row. Returns the value and the time spent waiting, which the caller leaves out of its phase timing. */
+export async function withRoom<T>(fn: () => Promise<T>, budgetMs = 600_000): Promise<[T, number]> {
+  const t0 = Date.now();
+  for (;;) {
+    try {
+      return [await fn(), Date.now() - t0];
+    } catch (e) {
+      if (!String((e as Error).message).includes("cloud.quota.vm_limit") || Date.now() - t0 > budgetMs) throw e;
+      await sleep(15_000);
+    }
+  }
 }
 
 async function waitUsable(exec: Exec, session: string | null, head: string, budgetMs: number): Promise<Record<string, string>> {
@@ -194,7 +209,7 @@ async function main(): Promise<number> {
   try {
     // Parent: a real project, its service running, an agent session holding the canary as its launch credential.
     const t0 = Date.now();
-    const created = await api.op("cloud.machine.create", { name: `runnable link ${tag} parent`, size: CHAT_START_SIZE }, `${tag}-parent`);
+    const [created] = await withRoom(() => api.op("cloud.machine.create", { name: `runnable link ${tag} parent`, size: CHAT_START_SIZE }, `${tag}-parent`));
     parent = String(created?.machine?.id ?? created?.machine ?? created?.id);
     machines.push(parent);
     await waitMachine(api, parent, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
@@ -254,16 +269,24 @@ async function main(): Promise<number> {
           if (g.status !== 200) throw new Error(`resolve: HTTP ${g.status}`);
         }
         r.resolve_ms = Date.now() - c0;
-        const f0 = Date.now();
+        let quotaWait = 0;
+        let f0 = Date.now();
         if (link) {
-          const f = await http("POST", `${platform}/v1/runnable-links/${link.id}/fork`, { clientKey: `${tag}-open-${run}` }, ph(), 180_000, true);
-          if (f.status !== 200 && f.status !== 201) throw new Error(`fork: HTTP ${f.status} ${JSON.stringify(f.body).slice(0, 200)}`);
+          const [f, waited] = await withRoom(async () => {
+            const f = await http("POST", `${platform}/v1/runnable-links/${link.id}/fork`, { clientKey: `${tag}-open-${run}` }, ph(), 180_000, true);
+            if (f.status !== 200 && f.status !== 201) throw new Error(`fork: HTTP ${f.status} ${JSON.stringify(f.body).slice(0, 200)}`);
+            return f;
+          });
+          quotaWait = waited;
           r.copy = String(f.body?.machine?.id);
         } else {
-          const a = await api.op("cloud.snapshot.restore", { snapshot, name: `runnable link ${tag} open ${run}` }, `${tag}-open-${run}`);
+          const [a, waited] = await withRoom(() => api.op("cloud.snapshot.restore", { snapshot, name: `runnable link ${tag} open ${run}` }, `${tag}-open-${run}`));
+          quotaWait = waited;
           r.copy = String(a?.machine?.id ?? a?.machine ?? a?.id);
         }
         machines.push(r.copy);
+        f0 += quotaWait;
+        r.quota_wait_ms = quotaWait;
         r.fork_call_ms = Date.now() - f0;
         await waitMachine(api, r.copy, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
         r.running_ms = Date.now() - f0;
@@ -277,7 +300,7 @@ async function main(): Promise<number> {
         const u0 = Date.now();
         r.facts = await waitUsable(exec, session, head, 120_000);
         r.usable_ms = Date.now() - u0;
-        r.click_to_usable_ms = Date.now() - c0;
+        r.click_to_usable_ms = Date.now() - c0 - (r.quota_wait_ms ?? 0);
       } catch (e) {
         r.error = scrub(String((e as Error).message), [...secrets, canary]).slice(0, 400);
       } finally {
@@ -308,10 +331,12 @@ async function main(): Promise<number> {
     // Baseline: a fresh machine, clone, install, start, smoke.
     for (let run = 1; run <= baselineRuns; run++) {
       const b: BaselineRow = { run, machine: null, create_ms: null, setup_ms: null, usable_ms: null, total_ms: null, facts: null, error: null };
-      const b0 = Date.now();
+      let b0 = Date.now();
       try {
         await renew();
-        const c = await api.op("cloud.machine.create", { name: `runnable link ${tag} baseline ${run}`, size: CHAT_START_SIZE }, `${tag}-base-${run}`);
+        const [c, waited] = await withRoom(() => api.op("cloud.machine.create", { name: `runnable link ${tag} baseline ${run}`, size: CHAT_START_SIZE }, `${tag}-base-${run}`));
+        b.quota_wait_ms = waited;
+        b0 += waited;
         b.machine = String(c?.machine?.id ?? c?.machine ?? c?.id);
         machines.push(b.machine);
         await waitMachine(api, b.machine, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
