@@ -146,18 +146,18 @@ import {
   hostIsReconnecting,
   hostRefusedTooLarge,
   type HostRestoring,
-  hostRetryStep,
-  HOST_WAKE_EVENTS,
-  hostWakeAsks,
   jitteredDelay,
   lostRetryDelay,
-  lostRetryStep,
   nextRetryDelay,
   offersAcpmuxRestart,
+  hostPlannedRestart,
   quickRetry,
   readHostRestoring,
   troubleSinceAfterLoss,
-  hostPlannedRestart,
+  hostRetryStep,
+  HOST_WAKE_EVENTS,
+  hostWakeAsks,
+  lostRetryStep,
 } from "../hostRetry";
 import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
 import { revealedSubagent } from "../subagents/subagentPanes";
@@ -171,6 +171,7 @@ import { holdCloudAgentPick } from "../cloudAgentPick";
 import { askPermissionFocus } from "../permissions/focusRequest";
 import type { PermissionDecision } from "../permissions/protocol";
 import { planBuildTarget } from "../permissions/planBuild";
+import { forkFirstOffer } from "../direct/permissions";
 import { type PaneSurface, readSurface } from "../paneSurface";
 import { designSelectionChips, designSelectionRemovals } from "../designSelection";
 import { setFloatingState } from "../floatingState";
@@ -1906,7 +1907,7 @@ export function paneSnapshotEffect({
             typeof value === "string" ? value : undefined,
             typeof keepAs === "string" ? keepAs : undefined,
           ),
-        "chat.permission": ({ permissionId, optionId, answers, annotations, sessionId }) =>
+        "chat.permission": ({ permissionId, optionId, answers, annotations, sessionId, forkFirst }) =>
           client.permission(
             String(permissionId),
             optionId === undefined || optionId === null ? undefined : String(optionId),
@@ -1914,6 +1915,7 @@ export function paneSnapshotEffect({
             // The Needs you list answers asks of other chats too.
             typeof sessionId === "string" && sessionId ? sessionId : undefined,
             annotations && typeof annotations === "object" ? (annotations as Record<string, unknown>) : undefined,
+            forkFirstOffer(forkFirst),
           ),
         "chat.plan.build": ({ permissionId, target, sessionId, plan }) =>
           client.planBuild(
