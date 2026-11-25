@@ -440,6 +440,9 @@ pub struct Overlay {
     pub peer_ip: std::net::IpAddr,
 }
 
+/// Runs once the link exists (see [`Dialed::on_link`]).
+pub type OnLink = Box<dyn FnOnce(&Link) + Send>;
+
 /// A dialed or answered transport.
 pub struct Dialed {
     pub stream: Box<dyn LinkStream>,
@@ -462,7 +465,7 @@ pub struct Dialed {
     pub liveness: Option<crate::link::LivenessDatagrams>,
     /// Runs once the link exists (a WireGuard tunnel's lease learns how its
     /// link closes, [`wireguard::dormant`]).
-    pub on_link: Option<Box<dyn FnOnce(&Link) + Send>>,
+    pub on_link: Option<OnLink>,
     /// Both sides listed [`crate::RELIABLE_LANE`].
     pub reliable: bool,
     /// The tunnel's static keys (WireGuard); `None` on WebRTC.
