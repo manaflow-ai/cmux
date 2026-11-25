@@ -86,7 +86,8 @@ public final class PanePictures {
     /// `tab`'s picture at `maxPixelSize`: the kept one while it shows the current content, else a new
     /// `capture` when the schedule says one is due (waiting up to ``waitForDueMs`` for it), else the
     /// kept one. `stamp` is the tab's content stamp (any change means damage; nil: unknown, no damage).
-    /// `capture` returns nil when there is nothing to picture: the kept picture goes too.
+    /// `capture` returns nil when there is nothing to picture now (a hibernated tab with no surface, a frame the system
+    /// purged): the kept picture stays and is drawn, never an empty tile.
     public func picture(_ tab: String, kind: Kind, stamp: UInt64?, maxPixelSize: CGSize,
                         capture: () async -> CGImage?) async -> CGImage? {
         let key = "\(tab)@\(Int(max(maxPixelSize.width, maxPixelSize.height).rounded()))"
@@ -109,8 +110,8 @@ public final class PanePictures {
         slot.due = nil
         let image = await capture()
         slot.due = schedule.finish(generation, image == nil ? .unavailable : .done, now: now())
-        slot.picture = image
-        return image
+        if let image { slot.picture = image }
+        return image ?? slot.picture
     }
 
     /// Forgets `tab`'s pictures and schedules (the tab closed).
