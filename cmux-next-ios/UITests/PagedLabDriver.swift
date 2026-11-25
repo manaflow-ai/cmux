@@ -82,6 +82,14 @@ struct PagedLabDriver {
         return app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'lab.row.'")).firstMatch
     }
 
+    /// Whether `condition` stays true for `seconds` (a bounded wait that fails as soon as it turns
+    /// false: an inverted expectation on its opposite).
+    func staysTrue(for seconds: TimeInterval, _ condition: @escaping () -> Bool) -> Bool {
+        let broken = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !condition() }, object: nil)
+        broken.isInverted = true
+        return XCTWaiter.wait(for: [broken], timeout: seconds) == .completed
+    }
+
     /// How many lab rows the list draws inside its frame, read in one snapshot (no element looked up
     /// again later: under a load the rows move between a lookup and its use).
     func rowsOnScreen() -> Int {

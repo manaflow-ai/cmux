@@ -498,6 +498,11 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         spring.holds = { [weak self] in self?.collectionView.isTracking ?? false }
         spring.apply = { [weak self] y in self?.moveOffset(to: y) }
         spring.willJump = { [weak self] in self?.deliberateJump = true }
+        spring.pinned = { [weak self] in self?.followsNewest ?? false }
+        spring.viewport = { [weak self] in
+            guard let list = self?.collectionView else { return 0 }
+            return list.bounds.height - list.adjustedContentInset.top - list.adjustedContentInset.bottom
+        }
         spring.finished = { [weak self] frames in
             guard let self else { return }
             // The slide ends at the newest end: the list follows it from here.
@@ -1221,7 +1226,9 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         if let push = probe?.pushShift {
             // A frame the person asked for: a jump (deliberateJump), the indicator's slide while it runs
             // (the uncapped spring), or the status bar's scroll to top.
-            let asked = deliberateJump || (spring.isRunning && !spring.capped) || scrollingToTop
+            // ... or the newest edge moving with the content arriving there (SH-11: the reader sees that
+            // content arrive), when the lag bound held the slide.
+            let asked = deliberateJump || (spring.isRunning && !spring.capped) || scrollingToTop || spring.lastStepBounded
             pushMoves.append(.init(move: followed.now - followed.was, tracking: collectionView.isTracking, deliberate: asked))
             deliberateJump = false
             if pushMoves.count > 3 { pushMoves.removeFirst() }

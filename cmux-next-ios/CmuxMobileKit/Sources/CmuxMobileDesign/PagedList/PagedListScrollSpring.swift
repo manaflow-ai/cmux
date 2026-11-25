@@ -22,6 +22,14 @@ final class PagedListScrollSpring {
     var apply: (CGFloat) -> Void = { _ in }
     /// The slide reached its target, after this many display frames.
     var finished: (_ frames: Int) -> Void = { _ in }
+    /// The list follows its newest row (the slide is pinned to the newest edge), read each frame.
+    var pinned: () -> Bool = { false }
+    /// The list's visible height, read each frame (the lag bound is a quarter of it).
+    var viewport: () -> CGFloat = { 0 }
+    /// The last step was held to the lag bound: the edge moved with arriving content (the probe).
+    private(set) var lastStepBounded = false
+    /// The person's jump in progress: its distance at the start, and when it started.
+    private var landingFrom: (start: CGFloat, at: CFTimeInterval)?
     /// The spring is about to jump straight to its goal (no motion: Reduce Motion, or the list's motion
     /// off), which HOME-15 asks for ("slide becomes jump"): the probe does not count that frame as a push.
     var willJump: () -> Void = {}
@@ -62,10 +70,14 @@ final class PagedListScrollSpring {
             // Running already: it carries on (and jumps from here if motion went away). The person's
             // jump takes over an automatic slide uncapped; an automatic one never caps theirs.
             if jump { jumps = true }
-            if !capped { self.capped = false }
+            if !capped {
+                self.capped = false
+                landingFrom = (abs(target() - (current?() ?? position)), CACurrentMediaTime())
+            }
             return
         }
         self.capped = capped
+        landingFrom = capped ? nil : (abs(target() - from), CACurrentMediaTime())
         position = from
         applied = current?()
         velocity = 0
@@ -82,6 +94,8 @@ final class PagedListScrollSpring {
     func stop() {
         link?.invalidate()
         link = nil
+        landingFrom = nil
+        lastStepBounded = false
     }
 
     fileprivate func step(_ link: CADisplayLink) {
@@ -113,8 +127,11 @@ final class PagedListScrollSpring {
             finish(at: goal)
             return
         }
+        let landing = landingFrom.map { (start: $0.start, elapsed: now - $0.at) }
         let next = Self.step(position: position, velocity: velocity, goal: goal, dt: dt, response: response,
-                             maxSpeed: capped ? Self.maxSpeed : nil)
+                             maxSpeed: capped ? Self.maxSpeed : nil,
+                             maxLag: Self.lagBound(pinned: pinned(), viewport: viewport(), landing: landing))
+        lastStepBounded = next.bounded
         if next.settled {
             finish(at: goal)
             return
@@ -156,20 +173,36 @@ final class PagedListScrollSpring {
         return (next, CGFloat(nextV), false)
     }
 
-    /// How far the slide may trail its goal (pt), or nil for no bound. Today: no bound.
-    /// - pinned: the list follows its newest row (the newest edge).
-    /// - viewport: the list's visible height.
-    /// - landing: the person's jump, its distance at the start and seconds since.
+    /// The person's jump lands on the newest row within this long (the spring's own response).
+    static let landing: Double = 0.35
+
+    /// How far the slide may trail its goal (pt), or nil for no bound.
+    /// - pinned: the list follows its newest row (the newest edge). The slide never trails it by more
+    ///   than a quarter of the list (the newest-rows indicator's own threshold), so the newest row stays
+    ///   in view however fast rows arrive; under a flood the spring alone settles about
+    ///   speed x response / pi behind (4000 pt/s: ~445 pt, the bd734f10 pill case).
+    /// - landing: the person's jump, its distance at the start and the seconds since. The bound closes
+    ///   from that distance to the quarter over ``landing``, so the jump lands in time even while the
+    ///   goal moves; a jump the spring makes faster on its own is not slowed.
+    /// - Away from the edge: no bound (the slide runs as before).
     static func lagBound(pinned: Bool, viewport: CGFloat, landing: (start: CGFloat, elapsed: Double)?) -> CGFloat? {
-        nil
+        let quarter = viewport / 4
+        if let landing {
+            return max(quarter, abs(landing.start) * CGFloat(max(0, 1 - landing.elapsed / Self.landing)))
+        }
+        return pinned ? quarter : nil
     }
 
-    /// One step with an optional bound on the lag: the step, then the position held within `maxLag`
-    /// of the goal. `bounded` says the bound moved it (the edge moved with arriving content).
+    /// One step with an optional bound on the lag: the step (capped at `maxSpeed`), then the position
+    /// held within `maxLag` of the goal. `bounded` says the bound moved it: the edge moved with the
+    /// content arriving there, not on the spring's own motion.
     static func step(position: CGFloat, velocity: CGFloat, goal: CGFloat, dt: Double, response: Double,
                      maxSpeed: CGFloat?, maxLag: CGFloat?) -> (position: CGFloat, velocity: CGFloat, settled: Bool, bounded: Bool) {
         let next = step(position: position, velocity: velocity, goal: goal, dt: dt, response: response, maxSpeed: maxSpeed)
-        return (next.position, next.velocity, next.settled, false)
+        guard !next.settled, let maxLag, abs(next.position - goal) > maxLag else {
+            return (next.position, next.velocity, next.settled, false)
+        }
+        return (goal + (next.position > goal ? maxLag : -maxLag), next.velocity, false, true)
     }
 
     private func finish(at goal: CGFloat) {

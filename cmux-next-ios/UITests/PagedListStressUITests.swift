@@ -104,12 +104,12 @@ final class PagedListStressUITests: XCTestCase {
         XCTAssertTrue(pill.waitForExistence(timeout: 10), "\(name): no newest-rows pill under the flood")
         let before = lab.reading
         pill.tap()
-        // Under the flood the person's slide turns into the follow and never settles (40 newest rows
-        // a second keep moving its goal), so no slide is counted and the list keeps moving: run
-        // bd734f10 timed out on that wait and then looked up a row that had moved on. Judge a fixed
-        // window instead: 4 s after the tap (or the pill going, if sooner), read the frames once.
-        let tapped = Date()
-        lab.waitFor("the jump's window", timeout: 6) { !pill.exists || Date().timeIntervalSince(tapped) > 4 }
+        // The jump lands on the newest row within its 0.35 s, and the list keeps the newest row in view
+        // while the flood lasts (the indicator shows only past a quarter screen from it): the pill goes
+        // within 1 s of the tap and does not come back for 3 s (bd734f10: still showing 10 s later).
+        let gone = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !pill.exists }, object: nil)], timeout: 1.0)
+        XCTAssertEqual(gone, .completed, "\(name): the newest row was not on screen within 1 s of the jump (the pill still shows)")
+        XCTAssertTrue(lab.staysTrue(for: 3) { !pill.exists }, "\(name): the list fell behind its newest row under the flood (the pill came back)")
         lab.attach("\(name)-jumped")
         let reading = lab.reading
         let rowsOnScreen = lab.rowsOnScreen()
