@@ -128,6 +128,7 @@ pub mod uniichat_agent;
 pub mod uniichat_login;
 pub(crate) mod unknown_command;
 pub(crate) mod unknown_flag;
+pub mod usage;
 pub mod watch;
 pub mod who_else;
 pub mod worktree;
