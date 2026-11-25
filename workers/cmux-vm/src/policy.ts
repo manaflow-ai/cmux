@@ -95,12 +95,17 @@ export interface PolicyConfig {
 export const NO_VM_COUNT_CAP = Number.MAX_SAFE_INTEGER;
 export const DEFAULT_MAX_VMS = NO_VM_COUNT_CAP;
 /**
- * Dev/test tenants (every tenant off production) keep a cap so a leaked test loop stops early. It is NEXT Max's
- * machines kept (cmux-platform Plan.ts `next_max.max_machines`, paused ones too), the largest plan count, so on
- * development the team's plan is the stop and never this cap: at 20 it refused a company or NEXT Pro team holding
- * 20 machines, most of them paused, below its plan's 100 or 50 (manaflow-ai/cmux#45885).
+ * Dev/test tenants off production have no machine-count cap either, the same as a production product tenant. The
+ * cap was 300 (NEXT Max's machines kept, #45892) so a leaked test loop stopped early, but it stopped the shared
+ * staging test team instead: drills and journeys failed `cloud.quota.vm_limit` at 300 of 300 while the leftovers
+ * waited for their reaper (2026-11-25). What
+ * stops a leak now is what reclaims it, not a count: every dev/test VM pauses after at most DEV_TEST_MAX_IDLE_SECONDS
+ * idle, the agent reaper (src/agents/reaper.ts, every 5 minutes) deletes expired and revoked agent keys' VMs,
+ * cmux-platform's test reaper (CLOUD_TEST_REAP, 6 h on development and staging) deletes test machines, the team's
+ * Cloud plan and spending cap (CLOUD_SPEND_CAP, development and staging) bound a team, and the cloud-journey sweep
+ * deletes its own leftovers before each run. A TENANT_VM_QUOTAS entry still holds one tenant to a number.
  */
-export const DEFAULT_DEV_TEST_MAX_VMS = 300;
+export const DEFAULT_DEV_TEST_MAX_VMS = NO_VM_COUNT_CAP;
 /**
  * A production tenant listed in DEV_TEST_TENANT_IDS (the smoke service) runs on the real account, so a leaked smoke
  * loop still stops at 20 there; only off production does a dev/test tenant get DEFAULT_DEV_TEST_MAX_VMS.
