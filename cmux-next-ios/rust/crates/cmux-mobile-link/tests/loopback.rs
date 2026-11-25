@@ -346,6 +346,43 @@ async fn wireguard_with_udp_blocked_rides_turn_over_tls() {
     assert_eq!(run.binary, 0);
 }
 
+/// The same UDP-blocked link through a real eturnal (not `TestTurn`), the relay we deploy
+/// (`backend/deploy/turn`, RFD 0088). `deploy/turn/test-udp-blocked.sh` starts it with only a TLS
+/// listener and passes `CMUX_ETURNAL_URLS`, `_USER`, `_CREDENTIAL` (the HMAC REST credential `/v1/ice`
+/// mints) and `_CA_DER` (its test certificate); run it with `--ignored`. The phone blocks UDP, so the only
+/// way to a link is TURN over TLS: the test asserts both sides report `turn-tls`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "needs a running eturnal: deploy/turn/test-udp-blocked.sh"]
+async fn wireguard_with_udp_blocked_rides_a_real_eturnal_over_tls() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init();
+    let var = |name: &str| {
+        std::env::var(name).unwrap_or_else(|_| panic!("{name} not set: run deploy/turn/test-udp-blocked.sh"))
+    };
+    let mut roots = rustls::RootCertStore::empty();
+    roots
+        .add(rustls::pki_types::CertificateDer::from(std::fs::read(var("CMUX_ETURNAL_CA_DER")).unwrap()))
+        .unwrap();
+    let ice = cmux_mobile_link::api::IceServer {
+        urls: var("CMUX_ETURNAL_URLS").split(',').map(str::to_owned).collect(),
+        username: Some(var("CMUX_ETURNAL_USER")),
+        credential: Some(var("CMUX_ETURNAL_CREDENTIAL")),
+    };
+    let phone = DialOptions {
+        block_udp: true,
+        ice_servers: vec![ice],
+        turn_tls_roots: Some(std::sync::Arc::new(roots)),
+        ..options()
+    };
+    let run = exercise_turn(phone, options()).await;
+    assert_eq!(run.phone, LinkPath::TurnTls, "{run:?}");
+    assert_eq!(run.mac, Some(LinkPath::TurnTls), "{run:?}");
+    assert!(run.changes.is_empty(), "path flapped: {run:?}");
+    println!("udp-blocked path: {}", run.phone.as_str());
+}
+
 /// The fallback order: TURN over UDP is tried first; when it gets no
 /// allocation (UDP to the TURN server is dropped), TLS takes over.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
