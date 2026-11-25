@@ -227,6 +227,9 @@ class PyFacts:
     sys_path: list[str]  # absolute directories the file puts on sys.path
     globs: list[str]  # absolute glob patterns (a directory's glob / rglob)
     runs: list[str]  # the paths among `paths` the file runs or loads (a subprocess, spec_from_file_location, runpy)
+    # glob patterns of a listing whose base the walker could not evaluate (`root / rel`, `root` a parameter or
+    # `--root`'s value), relative to that unknown root; the walker keeps the ones naming a repository directory
+    rooted_globs: list[str] = field(default_factory=list)
 
 
 class PathEval:
@@ -250,6 +253,12 @@ class PathEval:
             elif isinstance(node, (ast.For, ast.comprehension)) and isinstance(node.target, ast.Name) \
                     and isinstance(node.iter, (ast.Tuple, ast.List)):
                 self.env.setdefault(node.target.id, []).extend(node.iter.elts)
+        for node in nodes:  # `for rel in SOURCE_DIRS:` over a name bound to a tuple or list literal
+            if isinstance(node, (ast.For, ast.comprehension)) and isinstance(node.target, ast.Name) \
+                    and isinstance(node.iter, ast.Name):
+                for value in self.env.get(node.iter.id, []):
+                    if isinstance(value, (ast.Tuple, ast.List)):
+                        self.env.setdefault(node.target.id, []).extend(value.elts)
         self.stack: set[int] = set()
         self.memo: dict[int, list] = {}
 
@@ -343,18 +352,61 @@ class PathEval:
                             for k, v in self.eval(node.func.value) if k == "p" for ks, s in self.eval(args[0]) if ks == "s"]
         return []
 
+    def rooted(self, node, depth: int = 0) -> list[str]:
+        """A directory expression whose root eval cannot resolve, as paths under that unknown root: `root / "a"`
+        gives "a", `(root / rel)` with `rel` from `SOURCE_DIRS` gives each of them, a bare unknown root gives ""."""
+        if depth > 8:
+            return []
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+            if any(k == "p" for k, _ in self.eval(node.left)):
+                return []  # resolved from __file__: eval already has it
+            rights = [v for k, v in self.eval(node.right) if k == "s"]
+            return [os.path.normpath(os.path.join(left, right)) for left in self.rooted(node.left, depth + 1)
+                    for right in rights][:32]
+        if isinstance(node, ast.Name):
+            values = self.env.get(node.id, [])
+            if not values:
+                return [""]  # a parameter
+            out = []
+            for value in values[:8]:
+                out.extend(self.rooted(value, depth + 1))
+            return out or [""]
+        if isinstance(node, ast.Attribute):
+            return [""]  # `self.root`, `repo.root`
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Attribute) and node.func.attr in self.IDENTITY:
+                return self.rooted(node.func.value, depth + 1)
+            return [""]  # `Path(args.root)`
+        return []
+
 
 def python_facts(file_abs: str) -> PyFacts | None:
+    """What FILE_ABS imports, builds as paths, puts on sys.path, globs and runs, or None when it does not parse.
+    Cached on the path and its text: tooling_steps.py's router asks again for every step whose closure holds the file
+    (611 parses of a few hundred files, about half its 10 s), and a file edited in between is parsed afresh."""
     try:
         source = Path(file_abs).read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return None
+    key = (file_abs, source)
+    if key not in _PY_FACTS:
+        _PY_FACTS[key] = _python_facts(file_abs, source)
+    return _PY_FACTS[key]
+
+
+_PY_FACTS: dict[tuple[str, str], "PyFacts | None"] = {}
+
+
+def _python_facts(file_abs: str, source: str) -> PyFacts | None:
+    try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tree = ast.parse(source, file_abs)
-    except (OSError, UnicodeError, SyntaxError, ValueError):
+    except (SyntaxError, ValueError):
         return None
     nodes = list(ast.walk(tree))
     evaluator = PathEval(file_abs, nodes)
-    imports, paths, sys_path, globs, runs = [], [], [], [], []
+    imports, paths, sys_path, globs, runs, rooted_globs = [], [], [], [], [], []
     for node in nodes:
         if isinstance(node, ast.Import):
             imports.extend((alias.name, 0, ()) for alias in node.names)
@@ -374,11 +426,25 @@ def python_facts(file_abs: str) -> PyFacts | None:
                 for element in node.args[0].elts:
                     sys_path.extend(v for k, v in evaluator.eval(element) if k == "p")
             if isinstance(node.func, ast.Attribute) and node.func.attr in ("glob", "rglob") and node.args:
-                for kind, base in evaluator.eval(node.func.value):
-                    for ks, pattern in evaluator.eval(node.args[0]):
-                        if kind == "p" and ks == "s":
-                            prefix = "**/" if node.func.attr == "rglob" else ""
-                            globs.append(os.path.join(base, prefix + pattern))
+                listed = 0
+                if name in ("glob.glob", "glob.iglob"):  # the module's glob: the pattern is the path
+                    for kind, pattern in evaluator.eval(node.args[0]):
+                        if kind == "p":
+                            globs.append(pattern)
+                            listed += 1
+                else:
+                    for kind, base in evaluator.eval(node.func.value):
+                        for ks, pattern in evaluator.eval(node.args[0]):
+                            if kind == "p" and ks == "s":
+                                prefix = "**/" if node.func.attr == "rglob" else ""
+                                globs.append(os.path.join(base, prefix + pattern))
+                                listed += 1
+                if not listed and name not in ("glob.glob", "glob.iglob"):
+                    prefix = "**/" if node.func.attr == "rglob" else ""
+                    for directory in evaluator.rooted(node.func.value):
+                        for ks, pattern in evaluator.eval(node.args[0]):
+                            if directory and ks == "s":
+                                rooted_globs.append(f"{directory}/{prefix}{pattern}")
         elif isinstance(node, ast.Assign) and any(PathEval.dotted(t) == "sys.path" or (
                 isinstance(t, ast.Subscript) and PathEval.dotted(t.value) == "sys.path") for t in node.targets):
             if isinstance(node.value, (ast.List, ast.Tuple)):
@@ -390,7 +456,7 @@ def python_facts(file_abs: str) -> PyFacts | None:
             for arg in [*node.args, *(k.value for k in node.keywords if k.arg in (None, "args", "location", "path"))]:
                 for inner in ast.walk(arg):
                     runs.extend(v for k, v in evaluator.eval(inner) if k == "p")
-    return PyFacts(imports, sorted(set(paths)), sys_path, globs, sorted(set(runs)))
+    return PyFacts(imports, sorted(set(paths)), sys_path, globs, sorted(set(runs)), sorted(set(rooted_globs)))
 
 
 # --------------------------------------------------------------------------------------------- shell
@@ -400,6 +466,7 @@ HEREDOC_SHELL = re.compile(r"(?:^|[\s;&|(])(?:bash|sh|zsh|dash)(?:\s+-\w+)*\s*(?
 QUOTED_LINES_MAX = 400
 
 
+@functools.lru_cache(maxsize=None)  # pure; the router lexes the same script lines once per step that reaches them
 def _quotes_close(line: str) -> bool:
     lexer = shlex.shlex(line, posix=True, punctuation_chars=";&|()<>")
     lexer.whitespace_split = True
@@ -476,7 +543,19 @@ def rooted_run(repo: "Repo", target: str) -> str | None:
 
 
 def shell_words(text: str, script_dir: str | None, env: dict[str, str], unknown: list[str]):
-    """Each command's words once the forms this resolves are substituted; a word left with `$` is dropped."""
+    """Each command's words once the forms this resolves are substituted; a word left with `$` is dropped. Cached on
+    its arguments (the words depend on nothing else): the router lexes a script once per step whose closure holds it."""
+    key = (text, script_dir, tuple(sorted(env.items())))
+    if key not in _SHELL_WORDS:
+        _SHELL_WORDS[key] = tuple(_shell_words(text, script_dir, env))
+    for command in _SHELL_WORDS[key]:
+        yield list(command)
+
+
+_SHELL_WORDS: dict[tuple, tuple[list[str], ...]] = {}
+
+
+def _shell_words(text: str, script_dir: str | None, env: dict[str, str]):
     variables = dict(env)
     logical = re.sub(r"\\\n", " ", text)
     for line in shell_lines(logical):
@@ -781,6 +860,10 @@ class Walker:
             prel = repo.rel(pattern)
             if prel is not None:
                 self.note_unknown(rel, f"lists {prel}", sink)
+        for pattern in facts.rooted_globs:  # a listing under `--root` (the repository when CI runs it)
+            directory = pattern.split("/**/")[0] if "/**/" in pattern else pattern.rsplit("/", 1)[0]
+            if repo.is_dir(directory):
+                self.note_unknown(rel, f"lists {pattern}", sink)
         here = os.path.dirname(absolute)
         search = [here] + sys_path + [cwd]
         for module, level, names in facts.imports:

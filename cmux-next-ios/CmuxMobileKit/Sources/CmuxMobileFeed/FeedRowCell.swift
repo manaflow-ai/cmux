@@ -191,6 +191,7 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
 
         avatar.backgroundColor = .cmuxMobileSurfaceRaised
         avatar.layer.cornerRadius = 20
+        avatar.layer.cornerCurve = .continuous
         avatar.isAccessibilityElement = false
         avatarGlyph.contentMode = .center
         avatarGlyph.tintColor = .label
@@ -267,7 +268,7 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         FeedRowCell.drawAsync(contentView)
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (cell: FeedRowCell, _: UITraitCollection) in
             cell.unread.layer.borderColor = UIColor.cmuxMobileBackground.resolvedColor(with: cell.traitCollection).cgColor
-            if let harness = cell.current?.harness { cell.applyAvatar(harness) }
+            if let current = cell.current { cell.applyAvatar(current.harness, host: current.opensTerminal && AgentAvatarMark.terminalShapeEnabled ? .terminal : .chat) }
         }
     }
 
@@ -329,7 +330,7 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
 
         avatar.frame = layout.avatar
         avatarGlyph.frame = avatar.bounds
-        applyAvatar(item.harness)
+        applyAvatar(item.harness, host: item.opensTerminal && AgentAvatarMark.terminalShapeEnabled ? .terminal : .chat)
         unread.isHidden = item.isRead
         unread.accessibilityElementsHidden = item.isRead
         unread.frame = CGRect(x: layout.avatar.maxX - 9 + 2, y: layout.avatar.minY - 2, width: 9, height: 9)
@@ -758,9 +759,11 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
     /// The sender's avatar (`AgentAvatarMark`): the agent's own mark on a circle tinted with its
     /// color, or a symbol on the raised gray circle. The images are drawn once per harness and
     /// shared, so a row only reads the cache.
-    private func applyAvatar(_ harness: String) {
+    /// A terminal agent's event (`FeedItem.opensTerminal`) sits in a rounded square, a chat's in a circle.
+    private func applyAvatar(_ harness: String, host: AgentAvatarHost) {
         let scale = traitCollection.displayScale
         let rendered = AgentAvatarMark.rendered(harness: harness, side: 40, scale: scale)
+        avatar.layer.cornerRadius = AgentAvatarMark.cornerRadius(side: 40, host: host)
         avatar.backgroundColor = rendered.fill
         avatarGlyph.image = rendered.glyph(dark: traitCollection.userInterfaceStyle == .dark)
     }
@@ -1182,7 +1185,7 @@ final class FeedQuestionCardView: UIView, UITextFieldDelegate {
             let before = row.chosen
             self.onInput?(.click(row: row.row))
             // The selection haptic as a row's choice changes (QuestionCard's `.sensoryFeedback(.selection)`).
-            if before != row.chosen || !before { UISelectionFeedbackGenerator().selectionChanged() }
+            if before != row.chosen || !before { CmuxMobileTheme.standard.haptics.selectionChanged() }
         }, for: .touchUpInside)
         row.isHidden = true
         rows.append(row)
@@ -1242,7 +1245,7 @@ final class FeedQuestionCardView: UIView, UITextFieldDelegate {
             button.addAction(UIAction { [weak self, weak button] _ in
                 guard let self, let id = button?.actionID else { return }
                 if id == "answer" {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    CmuxMobileTheme.standard.haptics.impact(.light, intensity: 1)
                     self.onInput?(.submit)
                 } else {
                     self.onInput?(.nextItem)

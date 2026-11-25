@@ -24,9 +24,10 @@ const broken = (result: SimResult, prefix: string) =>
 // notice or message opens drew "Working for" flush (0px) under it (transcriptGap's "two one-line rows sit
 // flush" rule). Now "Working for", the "Worked for" that replaces it and the live "Thinking" line all stand
 // the gap "Worked for" stands under any one-line row (ROW_GAP_LOOKS.shipped.workedAfterLine, 16, #48591).
+// Rule i (one message is one whole bubble) runs under the same describe, so the a and b tests keep their names.
 describe("chat simulator: (a) a turn's first rows keep their gaps, (b) nothing folds before its turn ends", () => {
   for (const [name, make] of Object.entries(SCENARIOS)) {
-    for (const rule of ["a-", "b-"]) {
+    for (const rule of ["a-", "b-", "i-"]) {
       test(`${name}: rule ${rule.slice(0, 1)}`, () => {
         expect(broken(runSimulation(make()), rule)).toEqual([]);
       });
@@ -191,11 +192,74 @@ test("chat simulator: the sanitizer keeps the shape and drops every word", () =>
   expect(scrubText("## Fix it\n- one")).toMatch(/^## \S+ \S+\n- \S+$/);
 });
 
+for (const terminal of ["turn_end", "turn_result"]) {
+  test(`an assistant row folded at ${terminal} counts as a turn-end fold`, () => {
+    const scenario = longRun(2);
+    if (terminal === "turn_result") {
+      const endSeqs = new Set(scenario.events.filter((event) => event.kind === "turn_end").map((event) => event.seq));
+      scenario.events = scenario.events.filter((event) => !endSeqs.has(event.seq));
+      scenario.steps = scenario.steps.filter((step) => step.type !== "event" || !endSeqs.has(step.seq));
+    }
+    const result = runSimulation(scenario);
+    const folds = result.traces.filter((step) => step.label === terminal).flatMap((step) => step.folds);
+    expect(
+      folds.some((fold) => fold.kind === "assistant" && fold.verdict === "turn-end" && fold.beforeTurnEndMs === 0),
+    ).toBe(true);
+    expect(broken(result, "b-")).toEqual([]);
+  });
+}
+
+test("a prepended date line preserves the reader's place while an opened fold still moves rows below it", () => {
+  const scenario = longRun(4);
+  const before = scenario.steps.length;
+  const afterHour = scenario.steps[0]!.at + 3_600_001;
+  scenario.steps.push(
+    { type: "reader", at: afterHour, label: "first date appears", reader: { scroll: "top" } },
+    { type: "reader", at: afterHour + 1, label: "open first turn", reader: { open: "worked-user-1" } },
+  );
+  const result = runSimulation(scenario);
+  expect(result.traces[before - 1]!.rows?.some((row) => row.kind === "date")).toBe(false);
+  expect(result.traces[before]!.rows?.[0]?.kind).toBe("date");
+  const moved = result.violations.filter((violation) => violation.rule === "d-shift");
+  expect(moved.some((violation) => violation.step === before)).toBe(false);
+  expect(moved.some((violation) => violation.step === before + 1)).toBe(true);
+});
+
 // 300 turns by default (about 3 s); CHAT_SIM_LONG=1 runs 1,800 (10k+ rows, 40 h simulated, about 90 s).
 const LONG = process.env.CHAT_SIM_LONG === "1";
-test(`chat simulator: a ${LONG ? "monstrously " : ""}long run (${LONG ? "10k+" : "1.5k+"} rows, hours of virtual time) runs and keeps rule b`, () => {
+test(`chat simulator: a ${LONG ? "monstrously " : ""}long run (${LONG ? "10k+" : "1.5k+"} rows, hours of virtual time) keeps folds and settled rows stable`, () => {
   const result = runSimulation(longRun(LONG ? 1_800 : 300), { rowsInTraceUpTo: 0 });
   expect(result.recordRows).toBeGreaterThan(LONG ? 10_000 : 1_500);
   expect(result.virtualMs).toBeGreaterThan((LONG ? 30 : 6) * 3_600_000);
   expect(broken(result, "b-")).toEqual([]);
+  expect(broken(result, "d-shift")).toEqual([]);
 }, 300_000);
+
+// Leo, 2026-11-25: "the animation for compaction and a message sent/steered during compaction is weird. the worked for
+// collapsing the compaction and then the next worked for + thinking is weird. layout shifts and awkward looking
+// animations". A /compact turn the person steers while it compacts draws one "Worked for" at every step, under the
+// steer, never over the compaction note: the note and the steer keep their places while the steer's work comes in.
+test("chat simulator: compact-steer: one Worked for, under the steer, at every step", () => {
+  const result = runSimulation(SCENARIOS["compact-steer"]!());
+  let seen = false;
+  for (const step of result.traces) {
+    const own = (step.rows ?? []).filter((row) => row.turn >= 2);
+    const headers = own.filter((row) => row.kind === "worked").length;
+    expect({ step: step.step, headers: Math.min(headers, 2) }).toEqual({
+      step: step.step,
+      headers: Math.min(headers, 1),
+    });
+    const steer = own.findIndex((row) => row.kind === "user" && row.text?.startsWith("then add a test"));
+    const header = own.findIndex((row) => row.kind === "worked");
+    if (header >= 0) {
+      seen = true;
+      expect({ step: step.step, under: steer >= 0 && header > steer }).toEqual({ step: step.step, under: true });
+    }
+  }
+  expect(seen).toBe(true);
+  const last = result.traces
+    .at(-1)!
+    .rows!.filter((row) => row.turn >= 2)
+    .map((row) => row.kind);
+  expect(last.slice(0, 4)).toEqual(["user", "compaction", "user", "worked"]);
+});

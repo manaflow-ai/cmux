@@ -219,6 +219,25 @@ pub trait ReconnectGroupSource: Send + Sync {
     }
 
     async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError>;
+
+    /// A live group already dialed on another route (a warm standby), taken for the redial
+    /// about to start. A recovery tries it before the group that just failed, so a dead route
+    /// is never redialed first. `None` (the default): no standby, redial as before.
+    async fn take_standby(&self) -> Option<StandbyGroup> {
+        None
+    }
+}
+
+/// A warm standby handed to a redial ([`ReconnectGroupSource::take_standby`]).
+pub struct StandbyGroup {
+    pub group: Arc<dyn LinkGroup>,
+    /// How long the redial on it may take before the recovery moves on: a few of its round
+    /// trips, not the whole attempt timeout (a standby found dead must cost little).
+    pub attempt_timeout: Duration,
+    /// When the source's own pass ([`ReconnectGroupSource::next_group`]) starts beside the
+    /// redial on the standby, so a standby that turns out dead already has a group behind it
+    /// (`None`: only after it failed).
+    pub race_after: Option<Duration>,
 }
 
 /// Told how each attempt to reattach an established session's carrier (a
@@ -1185,6 +1204,13 @@ impl ClientConnection {
         let mut in_burst = 0_u32;
         let mut delay = policy.initial_delay;
         let mut group = self.group.read().await.clone();
+        // The path the link was on: a standby on the same one died with it.
+        let failed_path =
+            group.transport_snapshot().await.selected_path.and_then(|path| path.remote);
+        // The link this recovery replaces failed: its QUIC connection would hold the next
+        // stream on the dead path until iroh's 15 s path idle timeout (then a 10 s close), the
+        // ~30 s reconnect the black-hole bench measured. A fresh dial takes one handshake.
+        group.abandon();
         loop {
             if self.closed.load(Ordering::Acquire) {
                 return Err(ConnectionError::Closed);
@@ -1196,8 +1222,45 @@ impl ClientConnection {
             attempt = attempt.saturating_add(1);
             in_burst = in_burst.saturating_add(1);
             self.set_diagnostics_state(ConnectionState::Reconnecting);
-            let attempt_timeout = remaining(policy.attempt_timeout);
+            // A warm standby goes first, on a short bound, with the source's pass started
+            // behind it: the group that just failed is not redialed while one is held.
+            let standby = match &self.reconnect_groups {
+                Some(source) => source.take_standby().await,
+                None => None,
+            };
+            let standby = match standby {
+                Some(standby) if on_path(&standby.group, failed_path.as_deref()).await => {
+                    // Its transport moved it onto the path that just died: trying it would
+                    // spend its bound on a black hole. Closed, and the redial goes as without one.
+                    standby.group.abandon();
+                    None
+                }
+                standby => standby,
+            };
+            let attempt_bound = standby
+                .as_ref()
+                .map_or(policy.attempt_timeout, |standby| standby.attempt_timeout)
+                .min(policy.attempt_timeout);
+            let attempt_timeout = remaining(attempt_bound);
             let attempt_started = tokio::time::Instant::now();
+            let attempt_group =
+                standby.as_ref().map_or_else(|| group.clone(), |standby| standby.group.clone());
+            let behind_at = standby
+                .as_ref()
+                .and_then(|standby| standby.race_after)
+                .filter(|_| self.reconnect_groups.is_some())
+                .map(|after| attempt_started + after);
+            let behind = async {
+                match (behind_at, &self.reconnect_groups) {
+                    (Some(at), Some(source)) => {
+                        tokio::time::sleep_until(at).await;
+                        resolve_reconnect_group(source.as_ref(), policy.attempt_timeout).await
+                    }
+                    _ => std::future::pending().await,
+                }
+            };
+            tokio::pin!(behind);
+            let mut raced: Option<Option<Arc<dyn LinkGroup>>> = None;
             // The attempt's report, owed even when this recovery is dropped:
             // a reader whose `select!` sees the published generation first
             // cancels the receive that runs it, after the new carrier is up.
@@ -1206,17 +1269,22 @@ impl ClientConnection {
             // while it is in flight abandons it.
             network.borrow_and_update();
             let mut network_moved = false;
-            let reconnect = tokio::select! {
-                biased;
-                _ = close_state.changed() => return Err(ConnectionError::Closed),
-                reconnect = tokio::time::timeout(attempt_timeout, self.reconnect_once(group.clone())) => reconnect,
-                // A dial on the network that just went away may hang until
-                // its timeout; drop it and dial on the new one.
-                _ = network.changed() => {
-                    network_moved = true;
-                    Ok(Err(ConnectionError::Link(LinkError::Transport(
-                        "network changed during the redial".into(),
-                    ))))
+            let dial = tokio::time::timeout(attempt_timeout, self.reconnect_once(attempt_group));
+            tokio::pin!(dial);
+            let reconnect = loop {
+                tokio::select! {
+                    biased;
+                    _ = close_state.changed() => return Err(ConnectionError::Closed),
+                    reconnect = &mut dial => break reconnect,
+                    // A dial on the network that just went away may hang until
+                    // its timeout; drop it and dial on the new one.
+                    _ = network.changed() => {
+                        network_moved = true;
+                        break Ok(Err(ConnectionError::Link(LinkError::Transport(
+                            "network changed during the redial".into(),
+                        ))));
+                    }
+                    found = &mut behind, if raced.is_none() => raced = Some(found),
                 }
             };
             let result = match reconnect {
@@ -1227,9 +1295,7 @@ impl ClientConnection {
                     {
                         ConnectionError::ReconnectDeadlineExceeded { attempts: attempt }
                     } else {
-                        ConnectionError::ReconnectAttemptTimedOut {
-                            timeout: policy.attempt_timeout,
-                        }
+                        ConnectionError::ReconnectAttemptTimedOut { timeout: attempt_bound }
                     },
                 ),
             };
@@ -1253,7 +1319,22 @@ impl ClientConnection {
                             last: error.to_string(),
                         });
                     }
-                    if let Some(source) = &self.reconnect_groups {
+                    // A dead or slow standby is dropped with this attempt: the source took it
+                    // out of its slot, so this was its last handle and QUIC closes it on drop.
+                    // The pass already behind the standby is the next group; one not started
+                    // yet is started now (below) instead of waiting out its stagger.
+                    if let Some(standby) = &standby {
+                        // Closed now, not when its last handle drops: until then its transport
+                        // may keep the dead path selected for the peer.
+                        standby.group.abandon();
+                    }
+                    let behind_started =
+                        behind_at.is_some_and(|at| tokio::time::Instant::now() >= at);
+                    if let Some(found) = raced.take() {
+                        if let Some(next) = found {
+                            group = next;
+                        }
+                    } else if let Some(source) = &self.reconnect_groups {
                         let next = tokio::select! {
                             biased;
                             _ = close_state.changed() => return Err(ConnectionError::Closed),
@@ -1270,9 +1351,15 @@ impl ClientConnection {
                                 {
                                     return None;
                                 }
-                                let discovery = resolve_reconnect_group(
-                                    source.as_ref(), policy.attempt_timeout,
-                                );
+                                let discovery = async {
+                                    if behind_started {
+                                        (&mut behind).await
+                                    } else {
+                                        resolve_reconnect_group(
+                                            source.as_ref(), policy.attempt_timeout,
+                                        ).await
+                                    }
+                                };
                                 match recovery_deadline {
                                     Some(deadline) => tokio::time::timeout_at(deadline, discovery).await.unwrap_or(None),
                                     None => tokio::time::timeout(policy.attempt_timeout, discovery).await.unwrap_or(None),
@@ -1282,6 +1369,11 @@ impl ClientConnection {
                         if let Some(next) = next {
                             group = next;
                         }
+                    }
+                    if standby.is_some() && !network_moved {
+                        // The standby try was not this burst's redial: the next one goes now.
+                        in_burst = in_burst.saturating_sub(1);
+                        continue;
                     }
                     if network_moved || network.has_changed().unwrap_or(false) {
                         // A new network starts a new burst at once.
@@ -2085,6 +2177,13 @@ impl From<SessionError> for ConnectionError {
     fn from(error: SessionError) -> Self {
         Self::Session(error)
     }
+}
+
+/// Whether `group`'s selected path is `path` (both known).
+async fn on_path(group: &Arc<dyn LinkGroup>, path: Option<&str>) -> bool {
+    let Some(path) = path else { return false };
+    group.transport_snapshot().await.selected_path.and_then(|selected| selected.remote).as_deref()
+        == Some(path)
 }
 
 #[cfg(test)]

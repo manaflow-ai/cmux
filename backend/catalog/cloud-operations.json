@@ -62582,6 +62582,15 @@
               "max_length": 40
             }
           },
+          "actions_oidc": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 8000
+            }
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -62818,6 +62827,11 @@
           "setup_action": {
             "type": "string",
             "maxLength": 40
+          },
+          "actions_oidc": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8000
           }
         },
         "required": [

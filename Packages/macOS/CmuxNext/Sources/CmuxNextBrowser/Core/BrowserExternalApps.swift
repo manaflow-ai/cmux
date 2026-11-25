@@ -6,9 +6,9 @@ import CmuxNextCompat
 /// click in the main frame, in both engines (cx-d0d.22). A non-gesture
 /// navigation (such as an OAuth return) reaches this path too and must still
 /// ask before opening its app, without inheriting a saved permission from the
-/// previously committed page. A well-known scheme opens in its app at once
-/// from a click; any other asks first in the tab's prompt bar,
-/// inline over the page, never a dialog: Open, Cancel, and "Always allow"
+/// previously committed page. Chromium asks before the first launch for each
+/// site and scheme. WebKit opens well-known schemes immediately after a click.
+/// The tab's prompt bar offers Open, Cancel, and "Always allow"
 /// for the site, remembered (user defaults; never for a page with no
 /// origin, which would share one choice). A scheme no app opens does
 /// nothing. In DEBUG builds launched with
@@ -18,7 +18,7 @@ import CmuxNextCompat
 public final class BrowserExternalApps {
     public static let shared = BrowserExternalApps()
 
-    /// Schemes that open without asking after a click: mail, phone and
+    /// Schemes WebKit opens without asking after a click: mail, phone and
     /// messages, and the apps people open from web pages every day (meetings,
     /// chat, editors).
     static let wellKnownSchemes: Set<String> = [
@@ -46,7 +46,7 @@ public final class BrowserExternalApps {
     /// Opens a main-frame link in its app, or asks first through the tab's
     /// prompt bar. Non-gesture navigations always require the app-opening
     /// prompt, including schemes that open immediately from a click.
-    func open(_ url: URL, from page: URL?, userGesture: Bool = true,
+    func open(_ url: URL, from page: URL?, engine: BrowserEngineKind = .webkit, userGesture: Bool,
               ask: (BrowserPromptKind, String, @escaping (BrowserPromptResponse) -> Void) -> Void) {
         guard let scheme = url.scheme?.lowercased(), let app = NSWorkspace.shared.urlForApplication(toOpen: url) else { return }
         // A non-gesture navigation can be a redirect whose source is the
@@ -54,7 +54,7 @@ public final class BrowserExternalApps {
         // remembered permission. The empty origin also hides "Always allow"
         // for this one-off handoff.
         let site = userGesture ? page.flatMap(PageInfoSite.origin(of:)) ?? "" : ""
-        if userGesture && (Self.wellKnownSchemes.contains(scheme) || alwaysAllowed(scheme, for: site)) {
+        if canOpenWithoutPrompt(scheme, for: site, engine: engine, userGesture: userGesture) {
             return launch(url)
         }
         let name = FileManager.default.displayName(atPath: app.path).replacingOccurrences(of: ".app", with: "")
@@ -71,7 +71,9 @@ public final class BrowserExternalApps {
         }
     }
 
-    private func alwaysAllowed(_ scheme: String, for site: String) -> Bool {
+    func canOpenWithoutPrompt(_ scheme: String, for site: String, engine: BrowserEngineKind, userGesture: Bool) -> Bool {
+        guard userGesture else { return false }
+        if engine == .webkit && Self.wellKnownSchemes.contains(scheme) { return true }
         guard !site.isEmpty else { return false }
         return (defaults.dictionary(forKey: Self.defaultsKey)?[site] as? [String])?.contains(scheme) == true
     }
