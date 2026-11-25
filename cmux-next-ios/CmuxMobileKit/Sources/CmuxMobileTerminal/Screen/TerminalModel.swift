@@ -105,7 +105,9 @@ public final class TerminalModel {
     /// Sends one attachment to the Mac and returns its path there (the
     /// link's `upload` service). Nil hides the attachment menu: without a
     /// Mac to receive them there is nothing honest to attach.
-    public var uploader: (@MainActor (_ payload: LinkUpload.Payload, _ name: String) async throws -> String)?
+    public var uploader: (@MainActor (_ payload: LinkUpload.Payload, _ name: String) async throws -> String)? {
+        didSet { syncAttachmentUploads() }
+    }
     /// The composer shows its `+` menu: a Mac can receive attachments, or
     /// the DEBUG mock stands in for one so layout captures match live (SPEC M4).
     var attachmentsAvailable: Bool {
@@ -143,6 +145,8 @@ public final class TerminalModel {
     /// person sends again or edits (termfix-r13 D5, T-INPUT-17).
     public internal(set) var composerNotice: String?
     @ObservationIgnored private var uploadTask: Task<Void, Never>?
+    @ObservationIgnored private var uploadAttemptID = UUID()
+    @ObservationIgnored private let attachmentPrestager = ComposerAttachmentPrestager()
 
     // Artifacts
     public internal(set) var artifacts: [TerminalArtifact] = []
@@ -393,6 +397,12 @@ public final class TerminalModel {
         if connection != connectionState {
             connectionState = connection
             quietStatus.update(down: !connection.isAttached)
+            if connection.isAttached {
+                syncAttachmentUploads()
+            } else {
+                cancelAttachmentSend()
+                attachmentPrestager.cancelAll()
+            }
         }
         // Attached again: a held composer send went out (or was dropped, which says so
         // first); a later drop must never put already-sent text back.
@@ -910,22 +920,40 @@ public final class TerminalModel {
             return
         }
         let pending = attachments
+        let attemptID = UUID()
+        uploadAttemptID = attemptID
         isUploading = true
         attachmentError = nil
         uploadTask = Task { [weak self] in
             var paths: [String] = []
             for attachment in pending {
                 do {
-                    paths.append(try await uploader(try attachment.payload(), attachment.name))
+                    if let early = self?.attachmentPrestager.claim(attachment) {
+                        do {
+                            paths.append(try await early.task.value)
+                            continue
+                        } catch is CancellationError {
+                            // A cancelled or disconnected prestage is retried below.
+                        } catch {
+                            // A failed early upload is retried while sending.
+                        }
+                    }
+                    let transfer = try attachment.transferPayload()
+                    paths.append(try await uploader(transfer.payload, transfer.name))
                 } catch {
                     guard let self else { return }
+                    guard self.uploadAttemptID == attemptID else { return }
                     self.isUploading = false
+                    self.uploadTask = nil
+                    if error is CancellationError { return }
                     self.attachmentError = "Couldn't send \(attachment.name): \(Self.message(error))"
                     return
                 }
             }
             guard let self else { return }
+            guard self.uploadAttemptID == attemptID else { return }
             self.isUploading = false
+            self.uploadTask = nil
             let submit = ComposerSubmit(attachmentPaths: paths, text: self.composerText, pressReturn: pressReturn)
             let draft = self.composerText
             if pressReturn { self.controller?.noteSent(draft) }
@@ -940,6 +968,16 @@ public final class TerminalModel {
         }
     }
 
+    /// Stops the current send and all early uploads while the link is down or
+    /// the terminal host is being replaced. The attachments remain in the
+    /// composer so a later attach can restart them.
+    public func cancelAttachmentSend() {
+        uploadAttemptID = UUID()
+        uploadTask?.cancel()
+        uploadTask = nil
+        isUploading = false
+    }
+
     static func message(_ error: any Error) -> String {
         (error as? LocalizedError)?.errorDescription ?? String(describing: error)
     }
@@ -947,6 +985,7 @@ public final class TerminalModel {
 
     func addAttachment(_ attachment: ComposerAttachment) {
         attachments.append(attachment)
+        syncAttachmentUploads()
     }
 
     /// A tapped attachment, before sending: every attachment opens full screen, to swipe between.
@@ -957,7 +996,16 @@ public final class TerminalModel {
 
     func removeAttachment(_ id: ComposerAttachment.ID) {
         attachments.removeAll { $0.id == id }
+        syncAttachmentUploads()
         if attachments.isEmpty { attachmentError = nil }
+    }
+
+    fileprivate func syncAttachmentUploads() {
+        guard connectionState.isAttached else {
+            attachmentPrestager.cancelAll()
+            return
+        }
+        attachmentPrestager.sync(attachments, upload: uploader)
     }
 
     func clearAttachmentError() { attachmentError = nil }
