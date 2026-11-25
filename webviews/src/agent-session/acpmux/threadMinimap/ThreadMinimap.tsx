@@ -1673,7 +1673,7 @@ function ThreadMinimapView({
   /// The rail going (a short chat, no room): its keyboard tick, hover and card go with it, so the rail
   /// that comes back draws none of them. Only on the change, so a rail that mounts hidden cools nothing.
   const wasShown = useRef(shown);
-  /// The chat this pane last drew without the rail, with room for one (no prompt yet, the arm off):
+  /// The chat this pane last drew without the rail for want of a prompt (none yet) or the arm (off):
   /// only a rail appearing in it fades in (threadMinimap.css), as a new chat's first prompt does. A
   /// chat opened, switched to or drawn again after a restart, its prompts on the first frame, paints
   /// its rail final, as it paints its rows (Leo, 2026-11-25: "and then the scroll rail re-rednered").
@@ -1684,7 +1684,9 @@ function ThreadMinimapView({
     arrival.current = { sessionId, fade: drawnWithout.current?.sessionId === sessionId };
   const fadeIn = arrival.current?.fade === true;
   useLayoutEffect(() => {
-    drawnWithout.current = !shown && height >= rowPitch ? { sessionId } : undefined;
+    // Read from the chat's prompts and the arm, not the view's height: a restart's first frame can
+    // draw before the view is measured, and its rail, prompts known all along, must not fade.
+    drawnWithout.current = !shown && (arm !== "compact" || known < MIN_PROMPTS) ? { sessionId } : undefined;
   });
   useLayoutEffect(() => {
     const went = wasShown.current && !shown;
