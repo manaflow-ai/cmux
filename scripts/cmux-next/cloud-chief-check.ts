@@ -245,16 +245,21 @@ async function main(): Promise<number> {
       const deadline = Date.now() + 300_000;
       let seen = "";
       const w12 = want.slice(0, 12);
+      // acpmux prints a short commit (`acpmux 1.0.0 (29d6beb60 2026-11-25)`, 9 hex today): match any hex run of
+      // 7+ in the version line as a prefix of the channel's commit, not a fixed 12-char slice.
+      const runsWant = (version: string): boolean =>
+        (version.match(/\b[0-9a-f]{7,40}\b/g) ?? []).some((h) => want.startsWith(h));
       // Only a flip to the channel's build, or a first check that found the image already on it, counts: the
       // status always echoes the channel's commit, so a bare substring match would pass a machine that never moved.
       const onChannel = (out: string): boolean => {
         const [version, status = ""] = out.split("\n---");
-        if (version.includes(w12)) return true;
+        if (runsWant(version)) return true;
         let st: any;
         try { st = JSON.parse(status.slice(status.indexOf("{"))); } catch { return false; }
         if (st?.off) throw new Error(`the machine's updater is off: ${JSON.stringify(st.off)}`);
         const look = st?.state?.look, first = st?.state?.first_ready;
-        return (look?.settled?.commit === w12 && look.settled.outcome === "updated")
+        return st?.state?.applied_commit === want
+          || (look?.settled?.commit === w12 && look.settled.outcome === "updated")
           || look?.swapped?.commit === w12
           || (first?.outcome === "current" && String(first.channel_commit ?? "").startsWith(w12));
       };
