@@ -109,7 +109,12 @@ function Stack({ look, tint = "theme", glass = "host", busy = false }: Props) {
     return made;
   }, []);
   return (
-    <div className="ui-notice-gallery ui-notice-gallery-stage" data-look={look} data-tint={tint} data-busy={busy || undefined}>
+    <div
+      className="ui-notice-gallery ui-notice-gallery-stage"
+      data-look={look}
+      data-tint={tint}
+      data-busy={busy || undefined}
+    >
       {busy && (
         <p className="ui-notice-gallery-busy" aria-hidden="true">
           {BUSY_TEXT}
