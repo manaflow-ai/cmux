@@ -1,5 +1,5 @@
 {
-  "1280px bottom 1 lines": ["off-curve"],
+  "1280px bottom 1 lines": ["move", "off-curve"],
   "1280px bottom 1 lines +image": ["move", "off-curve", "resize"],
   "1280px bottom 30 lines": ["move", "off-curve", "resize"],
   "1280px bottom 30 lines +image": ["move", "off-curve", "resize"],
