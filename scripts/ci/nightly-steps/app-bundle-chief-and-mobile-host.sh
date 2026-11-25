@@ -19,7 +19,18 @@ phase_env=(SRCROOT="$PWD" CONFIGURATION=Release ARCHS="$archs"
 python3 scripts/ci/background_build.py join --state "$state" optchat-chief
 env "${phase_env[@]}" CMUX_NEXT_OPTCHAT_CHIEF_BIN="${CMUX_NEXT_OPTCHAT_CHIEF_PENDING_BIN:?}" \
   CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF=1 scripts/cmux-next/bundle-optchat-chief.sh
-python3 scripts/ci/background_build.py join --state "$state" mobile-host
+# The iPhone host compiles cmux-next-ios/rust: an iOS change that breaks it must not stop the Mac
+# NIGHTLY (Leo, 11-25: "build broke on an iOS change that left a field out of the phone link
+# code are we able to decouple"). With CMUX_MOBILE_HOST_FALLBACK=1 (nightly.yml's nightly-next
+# jobs; release.yml leaves it unset and stays strict) a failed build bundles the newest earlier
+# host instead (mobile-host-fallback.sh) and says so; the iOS break stays red on base CI.
+if ! python3 scripts/ci/background_build.py join --state "$state" mobile-host; then
+  [[ "${CMUX_MOBILE_HOST_FALLBACK:-}" == 1 ]] || exit 1
+  why="cmux-mobile-host did not compile at this commit (an iOS or phone-link change); this NIGHTLY carries the newest earlier host"
+  echo "::warning title=iPhone host from an earlier build::$why"
+  bash scripts/ci/nightly-steps/mobile-host-fallback.sh "$archs" "${CMUX_NEXT_MOBILE_HOST_PENDING_BIN:?}"
+  [[ -z "${GITHUB_STEP_SUMMARY:-}" ]] || { echo "### $why"; sed 's/^/    /' "$CMUX_NEXT_MOBILE_HOST_PENDING_BIN.ref"; } >> "$GITHUB_STEP_SUMMARY"
+fi
 env "${phase_env[@]}" CMUX_NEXT_MOBILE_HOST_BIN="${CMUX_NEXT_MOBILE_HOST_PENDING_BIN:?}" \
   CMUX_NEXT_REQUIRE_MOBILE_HOST=1 scripts/cmux-next/bundle-mobile-host.sh
 python3 scripts/ci/background_build.py join --state "$state" screen-sharing-helper

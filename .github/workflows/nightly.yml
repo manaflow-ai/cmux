@@ -2582,6 +2582,8 @@ jobs:
       - &x34
         name: Bundle the OptChat Chief and the iPhone host
         if: (inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next') && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
+        env:
+          CMUX_MOBILE_HOST_FALLBACK: "1"
         run: bash scripts/ci/nightly-steps/app-bundle-chief-and-mobile-host.sh
 
       - &x35
