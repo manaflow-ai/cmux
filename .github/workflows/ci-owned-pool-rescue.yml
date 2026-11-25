@@ -42,11 +42,12 @@ run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow
 # - ios-screenshots.yml: release.yml calls it with only `contents: read`, so a
 #   job there asking for Actions write would fail the release at parse time
 #   (#12149). Its direct dispatches are rare (no run from 2026-09-23 to 09-25).
-# - nightly.yml: build-nightly-app has no picker either. While
-#   vars.CI_SEED_TRUSTED_POOL names a glaeda-trusted-* pool and
-#   vars.CI_NIGHTLY_TRUSTED_RUNNER a glaeda-runner-* label, attempt 1 of every
-#   push or schedule run on main asks for that one trusted mini, so every such
-#   run is watched (owned_pool_rescue.NIGHTLY_WORKFLOW_PATH).
+# nightly.yml (build-nightly-app has no picker either) is watched by the
+# sweeper, not a job of its own per run: attempt 1 of main's push and schedule
+# runs while NIGHTLY_MAIN_WATCHED, and every nightly-next push
+# (owned_pool_rescue.GitHub.nightly_runs()). A per-run watch held a Blacksmith
+# runner for the whole build: 16 of this workflow's 31 runner-hours from 22:00Z
+# to 00:50Z on 2026-11-21.
 # The side lanes (owned_pool_rescue.SIDE_WORKFLOW_PATHS, every other workflow
 # owned_pool_sources.py finds on main or feat-cmux-next) have no picker and no
 # marker: the sweeper finds each failed run of one by path, which is when a
@@ -66,9 +67,6 @@ on:
   workflow_run:
     workflows:
       - iOS App Store screenshots
-      # nightly.yml: its app build takes the trusted owned pool on attempt 1
-      # of main's push and schedule runs (owned_pool_rescue.NIGHTLY_WORKFLOW_PATH).
-      - Nightly macOS build
       # The DEV publisher's runner job offers verify to an owned Mac on its
       # first workflow_dispatch attempt; watch it for a queue/refusal rescue.
       - cmux NEXT DEV daily
@@ -108,12 +106,13 @@ on:
 permissions: {}
 
 env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   # Renaming the source workflow silently stops every `workflow_run` consumer
   # of it; tests/test_ci_workflow_run_sources.py derives the expected name from
   # this path. The script confirms the run's own `path` again before acting.
   SOURCE_WORKFLOW_PATHS: >-
     .github/workflows/ios-screenshots.yml
-    .github/workflows/nightly.yml
     .github/workflows/cmux-next-dev-daily.yml
     .github/workflows/cmux-next.yml
 
@@ -129,8 +128,8 @@ concurrency:
 jobs:
   rescue:
     name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && 'Sweep runs on persistent pools' || 'Rescue a run stuck on a persistent pool' }}
-    if: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event.action == 'requested' && github.event.workflow_run.path != '.github/workflows/cmux-next.yml' && (github.event.workflow_run.path != '.github/workflows/nightly.yml' && github.event.workflow_run.path != '.github/workflows/ios-screenshots.yml' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event.workflow_run.event) && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || startsWith(vars.CI_LIGHT_LANE_RUNNER, 'glaeda-side-')) || github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml' && github.event.workflow_run.event == 'workflow_dispatch' || github.event.workflow_run.path == '.github/workflows/cmux-next-dev-daily.yml' && github.event.workflow_run.event == 'workflow_dispatch' || github.event.workflow_run.path == '.github/workflows/nightly.yml' && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'schedule') && (github.event.workflow_run.head_branch == 'main' && startsWith(vars.CI_SEED_TRUSTED_POOL, 'glaeda-trusted-') && startsWith(vars.CI_NIGHTLY_TRUSTED_RUNNER, 'glaeda-runner-') || github.event.workflow_run.head_branch == 'nightly-next' && github.event.workflow_run.event == 'push' && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') || !startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') || startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, 'glaeda-trusted-') && startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER, 'glaeda-runner-')))) && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1 || github.event.action == 'completed' && github.event.workflow_run.path == '.github/workflows/cmux-next.yml' && github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.head_repository.full_name == github.repository && (github.event.workflow_run.event == 'workflow_dispatch' && (startsWith(github.event.workflow_run.display_title, 'cmux NEXT DEV daily') || startsWith(github.event.workflow_run.display_title, 'cmux-next tip Swift suite') || startsWith(github.event.workflow_run.display_title, 'cmux-next tip daemon suite')) || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'feat-cmux-next' || github.event.workflow_run.event == 'pull_request')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-fleet-linux-x64' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: polls the Actions API; keeps CI's Linux pool free; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    if: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event.action == 'requested' && github.event.workflow_run.path != '.github/workflows/cmux-next.yml' && (github.event.workflow_run.path != '.github/workflows/ios-screenshots.yml' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event.workflow_run.event) && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || startsWith(vars.CI_LIGHT_LANE_RUNNER, 'glaeda-side-')) || github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml' && github.event.workflow_run.event == 'workflow_dispatch' || github.event.workflow_run.path == '.github/workflows/cmux-next-dev-daily.yml' && github.event.workflow_run.event == 'workflow_dispatch') && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1 || github.event.action == 'completed' && github.event.workflow_run.path == '.github/workflows/cmux-next.yml' && github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.head_repository.full_name == github.repository && (github.event.workflow_run.event == 'workflow_dispatch' && (startsWith(github.event.workflow_run.display_title, 'cmux NEXT DEV daily') || startsWith(github.event.workflow_run.display_title, 'cmux-next tip Swift suite') || startsWith(github.event.workflow_run.display_title, 'cmux-next tip daemon suite')) || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'feat-cmux-next' || github.event.workflow_run.event == 'pull_request')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_RESERVED == '1' && 'cmux-gcp-queue-jit-x64' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: polls the Actions API; keeps CI's Linux pool free; CI_TRUSTED_RUNNER picks the Blacksmith size
     # A sweeper adopts runs for 300 minutes and gives a rescue 40 more to
     # settle, 15 of them for waits through GitHub rate limits (SWEEP_SECONDS,
     # RESCUE_GRACE_SECONDS). A single run's watch is at most 150 minutes plus
@@ -174,6 +173,16 @@ jobs:
           permission-contents: read
           permission-issues: write
           permission-pull-requests: write
+
+      # The cmux-bot installation's hour when this job starts (GET /rate_limit is free), as an
+      # `app-spend-pool:` line HQ's spend publisher sums (scripts/ci/app_spend_mark.py).
+      - name: Read the cmux-bot budget before this job
+        id: app-spend
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/app_spend_mark.py start ci-owned-pool-rescue/rescue
 
       # The rescue reads a failed side-lane run's `needs` graph from its workflow file
       # (owned_pool_rescue.downstream_of_refusals()), which needs PyYAML. Best effort:
@@ -244,6 +253,9 @@ jobs:
           STALL_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           STALL_FLEET_CONTROLLER: ${{ vars.CI_FLEET_CONTROLLER }}
           WATCH_RUN_ID: ${{ inputs.run_id }}
+          # The sweeper watches attempt 1 of main's nightly while it asks for the trusted mini
+          # (owned_pool_rescue.GitHub.nightly_runs()).
+          NIGHTLY_MAIN_WATCHED: ${{ startsWith(vars.CI_SEED_TRUSTED_POOL, 'glaeda-trusted-') && startsWith(vars.CI_NIGHTLY_TRUSTED_RUNNER, 'glaeda-runner-') }}
           SWEEP: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && '1' || '' }}
           # 1: wait for ci-macos.yml's late-placement before calling the run ephemeral.
           LATE_PLACEMENT: ${{ inputs.late }}
@@ -251,3 +263,13 @@ jobs:
           # waits, so its Mac jobs are placed again (owned_pool_rescue.rerun_named()).
           RERUN: ${{ inputs.rerun }}
         run: python3 scripts/ci/owned_pool_rescue.py
+
+      # This job's spend: the pool again and the difference from the reading above (an upper bound, since
+      # every job holding a cmux-bot token spends the same pool).
+      - name: Read the cmux-bot budget after this job
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/app_spend_mark.py end ci-owned-pool-rescue/rescue

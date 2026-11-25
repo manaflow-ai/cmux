@@ -1484,8 +1484,8 @@ if [[ -n "$TAG" && "$PROD_AUTH" -eq 0 ]]; then
 fi
 CMUX_DEV_API_BASE_URL_VALUE="$(cmux_attach_resolve_dev_api_base_url "$CMUX_DEV_ORIGIN")"
 CMUX_IROH_BROKER_BASE_URL_VALUE="${CMUX_DEV_BACKEND_URL:-${CMUX_IROH_BROKER_BASE_URL:-https://cmux-staging.vercel.app}}"
-CMUX_IROH_V2_ENVIRONMENT_VALUE="${CMUX_IROH_V2_ENVIRONMENT:-development}"
-CMUX_IROH_V2_BASE_URL_VALUE="${CMUX_IROH_V2_BASE_URL:-https://cmux-v2-development.debussy.workers.dev}"
+CMUX_IROH_V2_ENVIRONMENT_VALUE="$(cmux_attach_resolve_iroh_v2_environment "$PROD_AUTH")"
+CMUX_IROH_V2_BASE_URL_VALUE="$(cmux_attach_resolve_iroh_v2_base_url "$CMUX_IROH_V2_ENVIRONMENT_VALUE")"
 CMUX_IROH_V2_FORCE_RELAY_VALUE="${CMUX_IROH_V2_FORCE_RELAY:-0}"
 CMUX_AUTH_WWW_ORIGIN_VALUE="$CMUX_DEV_ORIGIN"
 CMUX_WWW_ORIGIN_VALUE="$CMUX_DEV_ORIGIN"

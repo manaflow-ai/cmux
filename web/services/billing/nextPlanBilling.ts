@@ -1,8 +1,9 @@
 // cmux NEXT Cloud subscriptions: the Stack metadata mirror.
 //
-// A NEXT subscription is a user-scoped Stripe row whose `plan` is `next_pro`
-// or `next_max`. While one is active the user's clientReadOnlyMetadata names
-// it in `cmuxNextPlan`, and in `cmuxPlan` unless a classic subscription
+// A NEXT subscription is a user-scoped Stripe row whose `plan` is `next_plus`,
+// `next_pro` or `next_max`, or an App Store `<bundleId>.next_*.monthly`
+// subscription (apple/entitlement.ts). While one is active the user's
+// clientReadOnlyMetadata names the higher of the two in `cmuxNextPlan`, and in `cmuxPlan` unless a classic subscription
 // already holds that key (the classic mirror in pro.ts hands `cmuxPlan` back
 // when the classic plan lapses). An operator grant in `cmuxVmPlan` is never
 // touched here.
@@ -12,11 +13,13 @@ import { and, eq, inArray, isNull } from "drizzle-orm";
 import type { cloudDb } from "../../db/client";
 import { stripeSubscriptions } from "../../db/schema";
 import type { AccountDeletionUserMutationLease } from "../account/deletionLock";
+import { activeAppleNextPlanForUser } from "./apple/entitlement";
 import {
   NEXT_PLAN_IDS,
   NEXT_PLAN_METADATA_KEY,
   higherNextPlanId,
   nextPlanId,
+  nextPlanRank,
   type NextPlanId,
 } from "./nextPlans";
 import {
@@ -36,19 +39,39 @@ export async function activeNextPlanForUser(
   const rows = await db
     .select({ plan: stripeSubscriptions.plan })
     .from(stripeSubscriptions)
-    .where(
-      and(
-        eq(stripeSubscriptions.stackUserId, stackUserId),
-        isNull(stripeSubscriptions.stackTeamId),
-        eq(stripeSubscriptions.scope, "user"),
-        inArray(stripeSubscriptions.plan, NEXT_PLAN_IDS),
-        inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
-      ),
-    )
+    .where(activeNextRows(stackUserId))
     .limit(10);
   let best: NextPlanId | null = null;
   for (const row of rows) best = higherNextPlanId(best, nextPlanId(row.plan));
   return best;
+}
+
+/** The user's best active NEXT subscription with its Stripe ids (the one an upgrade switches), or null. */
+export async function activeNextSubscriptionForUser(
+  db: NextPlanBillingDb,
+  stackUserId: string,
+): Promise<{ plan: NextPlanId; id: string; customerId: string } | null> {
+  const rows = await db
+    .select({ plan: stripeSubscriptions.plan, id: stripeSubscriptions.id, customerId: stripeSubscriptions.customerId })
+    .from(stripeSubscriptions)
+    .where(activeNextRows(stackUserId))
+    .limit(10);
+  type Active = { plan: NextPlanId; id: string; customerId: string };
+  const active = rows.flatMap((row): Active[] => {
+    const plan = nextPlanId(row.plan);
+    return plan ? [{ plan, id: row.id, customerId: row.customerId }] : [];
+  });
+  return active.reduce<Active | null>((best, row) => (best === null || nextPlanRank(row.plan) > nextPlanRank(best.plan) ? row : best), null);
+}
+
+function activeNextRows(stackUserId: string) {
+  return and(
+    eq(stripeSubscriptions.stackUserId, stackUserId),
+    isNull(stripeSubscriptions.stackTeamId),
+    eq(stripeSubscriptions.scope, "user"),
+    inArray(stripeSubscriptions.plan, NEXT_PLAN_IDS),
+    inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
+  );
 }
 
 /**
@@ -81,13 +104,23 @@ export function nextPlanMirrorMetadata(
 /**
  * Writes the NEXT plan mirror under the caller's account-mutation lease.
  * Returns the metadata written, or null when nothing changed.
+ *
+ * `activePlan` is the caller's Stripe NEXT plan. The App Store grants NEXT
+ * plans through the same key, so the user's App Store NEXT plan is combined
+ * with it and the higher wins: a Stripe lapse keeps an App Store grant.
+ * `appleGrant` is the caller's already-read App Store NEXT plan; when omitted
+ * it is read here.
  */
 export async function syncNextPlanMetadata(
   user: ProMetadataCustomer,
   activePlan: NextPlanId | null,
   lease: AccountDeletionUserMutationLease,
+  appleGrant?: NextPlanId | null,
 ): Promise<Record<string, unknown> | null> {
-  const metadata = nextPlanMirrorMetadata(user.clientReadOnlyMetadata, activePlan);
+  const applePlan = appleGrant !== undefined
+    ? appleGrant
+    : user.id ? await activeAppleNextPlanForUser(user.id) : null;
+  const metadata = nextPlanMirrorMetadata(user.clientReadOnlyMetadata, higherNextPlanId(activePlan, applePlan));
   if (!metadata) return null;
   await lease.refresh();
   await user.update({ clientReadOnlyMetadata: metadata as ProMetadataJson });

@@ -12,6 +12,7 @@
   "jobs": {
     "app-host-test-rerun.yml:rerun": {"class": "mac-build", "warm": ["ssd-cas", "actions-cache"]},
     "auth-refresh-tests.yml:auth-refresh-tests": {"class": "mac-test", "warm": [], "exempt": "cold: swift build or test into a fresh .build; no warm source wired yet"},
+    "auto-journey.yml:journey": {"class": "mac-build", "warm": [], "exempt": "cold: a dispatch-only cargo build of cmux-tui from an empty target directory on a Mac; no warm source wired yet"},
     "auto-resume-nightly-notarization.yml:generate-deltas": {"class": "mac-sign", "warm": [], "exempt": "Sparkle deltas from DMGs earlier jobs built and published; compiles nothing"},
     "auto-resume-nightly-notarization.yml:staple-outer": {"class": "mac-sign", "warm": [], "exempt": "signing and notarization only: consumes the app or DMG an earlier job built, compiles nothing"},
     "auto-resume-nightly-notarization.yml:staple-stapled": {"class": "mac-sign", "warm": [], "exempt": "signing and notarization only: consumes the app or DMG an earlier job built, compiles nothing"},
@@ -49,6 +50,7 @@
     "cloud-vm-env-audit.yml:audit": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
     "cloud-vm-guest-install.yml:guest-install": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
     "cloud-vm-image-contract.yml:contract": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
+    "cloud-vm-image-contract.yml:promote": {"class": "linux-js", "warm": [], "exempt": "cold: bun install and the verified Freestyle bake with no dependency cache; no warm source wired yet"},
     "cloudflare-relay.yml:cloudflare-relay": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cmux-cloud-cli.yml:test": {"class": "linux-rust", "warm": [], "exempt": "cold: cargo from an empty target directory; no warm source wired yet"},
     "cmux-next-cua-driver-sdk-publish.yml:build": {"class": "mac-build", "warm": [], "exempt": "cold: cargo build of the upstream SDK in a job-local toolchain and target, once per dispatch of a new release"},

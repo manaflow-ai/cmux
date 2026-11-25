@@ -367,6 +367,27 @@ CAPABILITY_LABELS = ("glaeda-ios-sim",)
 # `glaeda-ios-sim` (queue_janitor.capabilities()).
 SIM_FIRST_LABEL = re.compile(r"glaeda-sim-xcode-[0-9]+(?:\.[0-9]+)*")
 SIM_FIRST_CAPABILITY = "glaeda-ios-sim"
+# The owned Mac fleet's Linux VMs (arm64 Ubuntu 24.04): each runner is a just-in-time runner on a fresh clone of
+# the VM image, takes one job and is then discarded, so a job there leaves nothing for the next one, as on a
+# Blacksmith label. Named one by one, never by pattern: a label here may lead a RUNNER_POOLS pool
+# (runner_pools.owned_ephemeral()), and the janitor's snapshot counts its queue and starts
+# (queue_janitor.pool_load_snapshot(), label_started()) so a full fleet moves its pool to Blacksmith.
+OWNED_EPHEMERAL_LINUX = ("glaeda-linux-arm64",)
+# The owned GCP Linux pool's own label: same-repository x64 work the GCP fleet takes (a reconciler boots a VM per
+# queued job, and the persistent pool's runners carry it too). Blacksmith's runners never take it, so a job naming it
+# runs on our machines only. It may lead an x64 RUNNER_POOLS pool whose jobs need no fresh machine
+# (runner_pools.owned_lead(), spec_problems()); the janitor counts its queue and starts like the label above, so a
+# saturated pool moves to Blacksmith. Leo, 2026-11-21: "i just am like fundamentally opposed to paying for ci when i
+# exist".
+OWNED_GCP_LINUX = ("cmux-fleet-linux-x64",)
+# The Freestyle Linux rung's own label: same-repository x64 work on Freestyle VMs (hq's freestyle-runners.yml makes
+# an 8 vCPU VM per queued job; it never serves a fork's run). It leads (or follows the owned GCP label in) an x64
+# RUNNER_POOLS pool whose jobs need no fresh machine and fit 8 vCPU (runner_pools.owned_freestyle(), spec_problems()):
+# a full Freestyle rung overflows to GCP, then Blacksmith; the janitor counts its queue and starts like the labels above.
+# Leo, 2026-11-19: "We still keep Blacksmith sometimes, but stop fucking relying on it. [...] We could use Freestyle."
+OWNED_FREESTYLE_LINUX = ("cmux-freestyle-linux-x64",)
+# Every owned Linux label a RUNNER_POOLS pool may lead with, and the janitor counts per label.
+OWNED_POOL_LEAD_LINUX = OWNED_EPHEMERAL_LINUX + OWNED_GCP_LINUX + OWNED_FREESTYLE_LINUX
 # A warm key (owned_warm_state.py): a main commit's first 12 hex digits, or
 # `pr-<number>` for a kept build of that pull request.
 WARM_KEY = re.compile(r"[0-9a-f]{12}|pr-[1-9][0-9]{0,8}")
@@ -1275,6 +1296,38 @@ def snapshot_truncated(snapshot: Mapping[str, Any]) -> str:
             "in-flight runs), so its queues are unknown")
 
 
+def starved_pools(snapshot: Any, now: dt.datetime) -> dict[str, int]:
+    """Owned pool -> its oldest wait in minutes, for each owned pool one of whose labels (the pool's own, or its
+    root, side or gui label) the janitor's snapshot lists as starved: a job queued past
+    starved_labels.STARVED_AFTER and none running or started on that label since (the snapshot's `starved`,
+    queue_janitor.py). A snapshot older than MAX_SNAPSHOT_MINUTES, or one without that list, says nothing.
+
+    The picker reads this only when the runners API could not be read: without it an offline mini still
+    counts toward its pool's slots, so a run went on picking a label no runner carried. On 2026-11-25 the
+    routing token got HTTP 403 listing runners and run 45563113767's compile admission waited 66 min on
+    glaeda-root-std-xcode-26.6 with every carrier offline, while the janitor's snapshot already listed the
+    label starved (cmux#55844, cmux#55962)."""
+    out: dict[str, int] = {}
+    if not isinstance(snapshot, Mapping) or not isinstance(snapshot.get("starved"), list):
+        return out
+    age = snapshot_age_minutes(snapshot, now)
+    if age is None or age < -5 or age > MAX_SNAPSHOT_MINUTES:
+        return out
+    for entry in snapshot["starved"]:
+        if not isinstance(entry, Mapping):
+            continue
+        try:
+            waited = int(entry.get("oldest_queued_minutes") or 0)
+        except (TypeError, ValueError):
+            waited = 0
+        # A job asking for several labels is keyed by them joined with "+" (starved_labels.fleet_key()).
+        for label in str(entry.get("label") or "").split("+"):
+            if persistent(label):
+                owner = pool_label(label)
+                out[owner] = max(out.get(owner, 0), waited)
+    return out
+
+
 def snapshot_problem(snapshot: Any, now: dt.datetime) -> str:
     """Why decide() would not read `snapshot` (missing, undated, stale, truncated or without pools), or ""."""
     if not isinstance(snapshot, Mapping) or not snapshot.get("generated_at"):
@@ -2058,6 +2111,13 @@ def choose(
         older = {label: max(0, count - recent.runs().get(label, 0)) for label, count in before.runs().items()}
         snapshot, owned_capacity = live_pools(snapshot, live_owned or {}, owned_capacity, older, live_online,
                                               snapshot_age_minutes(snapshot, now))
+    # Without the runners read, an owned pool the janitor saw starved (a label of it took no job for
+    # STARVED_AFTER while one waited: its carriers are offline or held off) gets no slots, so decide() skips it
+    # and the run takes the next pool in the order, as it would with the runners read and none online.
+    starved = {} if live else {label: waited for label, waited in starved_pools(snapshot, now).items()
+                               if any(pool_label(slot) == label for slot in owned_capacity)}
+    if starved:
+        owned_capacity = {label: count for label, count in owned_capacity.items() if pool_label(label) not in starved}
     # On a pool with gui runners each newer run holds one root runner (its
     # admission), not its whole peak: charging the peak left 0 of 15 root
     # runners for a run while 3 newer runs held 3 (cmux run 36371179217,
@@ -2111,6 +2171,10 @@ def choose(
         choice = Choice("", "", f"{live_only}; no owned pool has room ({choice.reason})")
     if live and persistent(choice.runner):
         choice = dataclasses.replace(choice, reason=f"{choice.reason}; owned machines read live from the runners API")
+    if starved and choice.runner:
+        dark = ", ".join(f"{label} (oldest job waiting {waited} min)" for label, waited in sorted(starved.items()))
+        choice = dataclasses.replace(choice, reason=f"{choice.reason}; skipped starved owned pool(s) {dark}: the "
+                                                    "runners could not be read and the janitor saw no job start there")
     if live_only and choice.runner:
         choice = dataclasses.replace(choice, reason=f"{choice.reason}; no janitor snapshot ({live_only}), so "
                                                     "Blacksmith's queues are unknown")
