@@ -28,6 +28,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Preset { .. }
             | Command::Models { .. }
             | Command::WarmHome { .. }
+            | Command::SpareShapes
             | Command::Reload
             | Command::Schema
             | Command::Defaults { .. }
@@ -213,10 +214,21 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             Ok(())
         }
-        Command::WarmHome { wait } => {
+        Command::WarmHome { wait, shapes } => {
             let client = connect(true).await?;
+            // `HARNESS[:MODEL]`: the model is everything after the first colon.
+            let shapes: Vec<Value> = shapes
+                .iter()
+                .map(|s| match s.split_once(':') {
+                    Some((h, m)) => json!({"harness": h, "model": m}),
+                    None => json!({"harness": s}),
+                })
+                .collect();
             let v = client
-                .request(method::MUX_PREWARM, json!({"reserveHome": true, "wait": wait}))
+                .request(
+                    method::MUX_PREWARM,
+                    json!({"reserveHome": true, "wait": wait, "shapes": shapes}),
+                )
                 .await?;
             if json_out {
                 print_json(&v);
@@ -224,6 +236,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 let state = v.get("state").and_then(Value::as_str).unwrap_or("not accepted");
                 println!("home chat warm: {state}");
             }
+            Ok(())
+        }
+        Command::SpareShapes => {
+            // Read from this machine's own file, no daemon: the shapes a Cloud spare warms for
+            // this person (`warm-home --shape`).
+            print_json(&Value::Array(crate::hub::person_spare_shapes()));
             Ok(())
         }
         Command::Reload => {
