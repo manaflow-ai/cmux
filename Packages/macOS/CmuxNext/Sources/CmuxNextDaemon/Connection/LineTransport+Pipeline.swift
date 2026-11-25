@@ -48,7 +48,7 @@ extension LineTransport {
     /// their replies: requests that do not depend on each other's answers
     /// cost one daemon round trip together instead of one each. The daemon
     /// starts commands serially per connection, so they run in this order.
-    /// One deadline covers the group; each result is that request's reply
+    /// One deadline (silence on the connection, ``TransportProgress``) covers the group; each result is that request's reply
     /// or error, in request order.
     func pipeline(_ lines: [PipelinedLine], timeout: Duration?) async -> [Result<Response, any Error>] {
         var slots: [ReplySlot] = []
@@ -71,7 +71,7 @@ extension LineTransport {
         let timer = DemandTimer(owner: "LineTransport.deadline")
         defer { timer.cancel() }
         if let timeout, !ids.isEmpty {
-            timer.schedule(after: timeout) { [weak self, ids] in
+            progress.arm(timer, quiet: timeout) { [weak self, ids] in
                 for id in ids { self?.expire(id: id, after: timeout) }
             }
         }

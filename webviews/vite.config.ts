@@ -6,6 +6,7 @@ import { cmuxCheckConfig } from "../config/vite-plus/check";
 import { fileURLToPath } from "node:url";
 import { cmuxDevServer, DEV_SERVER_PORT } from "./dev-server/plugins";
 import { viteCacheDir } from "./dev-server/viteCacheDir.mjs";
+import { jsonDevSourceMap } from "./dev-server/jsonDevSourceMap.mjs";
 import { bundleMetafile } from "./scripts/bundle-metafile.mjs";
 import { packedShikiData, UNPACK_MODULE } from "./scripts/packed-shiki-data.mjs";
 
@@ -70,9 +71,12 @@ export default defineConfig({
     ...cmuxDevServer(),
     // React Compiler: Babel by default, Oxc with CMUX_REACT_COMPILER=oxc (reactCompiler.mjs).
     ...reactWithCompiler(),
+    // JSON imports without vite-plus's fallback source map, about 6x their size (dev-server/jsonDevSourceMap.mjs).
+    jsonDevSourceMap(),
     // CMUX_GALLERY_STAGE_CSS=dev: the gallery scans' build keeps the dev server's CSS (vite.config.gallery.ts).
     tailwindcss(process.env.CMUX_GALLERY_STAGE_CSS === "dev" ? { optimize: false } : undefined),
-    // Shiki's grammars and themes stored deflated, inflated on import (CMUX-570, app size).
+    // Shiki's grammars and themes and Monaco's UI strings stored deflated, inflated on import
+    // (CMUX-570, app size).
     packedShikiData(),
     {
       // Vite writes root-absolute script URLs into `diff-page.html` and `markdown-page.html`; make
@@ -273,8 +277,8 @@ function lazyChunkName(id: string): string | null {
   if (shikiTheme) {
     return `shiki-theme-${shikiTheme[1]}`;
   }
-  // What the packed grammars and themes inflate with (packed-shiki-data.mjs): one lazy chunk,
-  // loaded with the first of them, never on a page's first load.
+  // What the packed grammars, themes and Monaco UI strings inflate with (packed-shiki-data.mjs):
+  // one lazy chunk, loaded with the first of them, never on a page's first load.
   if (id === UNPACK_MODULE || id.includes("/node_modules/fflate/")) {
     return "shiki-unpack";
   }

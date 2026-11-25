@@ -7,8 +7,8 @@
 //
 // One chat with a running turn, against the stand-in acpmux (support/papercutChat.ts), through each of
 // his events in order: a wheel scroll up and back down, the turn's calls ending (the live line reads
-// "Thinking"), a foreground subagent starting ("Waiting on 1 subagent") beside a background one in the
-// tray, each of them finishing, and acpmux going quiet until "Waiting for the agent service" shows,
+// "Thinking"), a foreground subagent starting (the live line names it) beside a background one in the
+// tray, each of them finishing, and acpmux going quiet while the pane reconnects,
 // then answering again. Over each event: the composer's React renders (`cmuxAcpmuxDebug.renders()`,
 // with `composer.prop:KEY` naming each prop whose identity changed), whether its editor is still the
 // same DOM node, and every painted frame's composer box (place, size, opacity) and attribute changes on
@@ -110,11 +110,12 @@ await requireBrowserLane("agent-pane-composer-still-on-churn.test.ts", async () 
   const editorNode = (page: Page) =>
     page.evaluate((selector) => {
       const w = window as any;
-      const node = document.querySelector(`.acpmux-main > .acpmux-dock ${selector}`);
+      const node = document.querySelector(selector);
+      if (!node) throw new Error("Composer editor is missing");
       w.__editorNodes ??= [];
       if (!w.__editorNodes.includes(node)) w.__editorNodes.push(node);
       return w.__editorNodes.indexOf(node) as number;
-    }, COMPOSER_EDITOR);
+    }, `${MAIN_DOCK} ${COMPOSER_EDITOR}`);
   /// Starts reading every painted frame's composer box and every attribute or child change on the
   /// composer's own elements (its form, box, field and foot; not the menus or chips that draw inside).
   const watch = (page: Page) =>
@@ -221,15 +222,14 @@ await requireBrowserLane("agent-pane-composer-still-on-churn.test.ts", async () 
           );
         await page.getByText("Thinking", { exact: false }).first().waitFor({ timeout: 20_000 });
       });
-      await step("subagent starts: Waiting on 1 subagent", async () => {
+      const waitingOnAgent = page.getByText(/^Waiting on (?:1 subagent|subagent .+)/).first();
+      await step("subagent starts", async () => {
         spawn("sub-fg", "agent-fg", false);
-        await page.getByText("Waiting on 1 subagent", { exact: false }).first().waitFor({ timeout: 20_000 });
+        await waitingOnAgent.waitFor({ timeout: 20_000 });
       });
       await step("subagent finishes: Thinking", async () => {
         finish("sub-fg", "agent-fg", false);
-        await page.waitForFunction(() => !document.body.innerText.includes("Waiting on 1 subagent"), null, {
-          timeout: 20_000,
-        });
+        await waitingOnAgent.waitFor({ state: "hidden", timeout: 20_000 });
       });
       await step("background subagent finishes", async () => {
         finish("sub-bg", "agent-bg", true);
@@ -246,20 +246,24 @@ await requireBrowserLane("agent-pane-composer-still-on-churn.test.ts", async () 
           await settle(page);
         }
       });
-      await step("acpmux quiet: Waiting for the agent service", async () => {
+      const connects = await page.evaluate(
+        () => (window as any).cmuxAcpmuxDebug.acpLog({ limit: 1 }).stats.connects as number,
+      );
+      await step("acpmux quiet during reconnect", async () => {
+        const watches = pane.methods.filter((method) => method === "_acpmux/watch").length;
         pane.stall(["_acpmux/watch", "_acpmux/attach"]);
         pane.drop();
-        await page.getByText("Waiting for the agent service", { exact: false }).first().waitFor({ timeout: 60_000 });
-        // fixed-wait: the waiting line's clock ticks a few seconds.
+        await pane.sent("_acpmux/watch", watches);
+        // fixed-wait: sample the composer across a sustained wait for the service.
         await page.waitForTimeout(3_000);
       });
       await step("acpmux answers again", async () => {
         pane.stall([]);
-        await page.waitForFunction(() => !document.body.innerText.includes("Waiting for the agent service"), null, {
-          timeout: 30_000,
-        });
-        // fixed-wait: the reattach's rows and summary land.
-        await page.waitForTimeout(1_500);
+        await page.waitForFunction(
+          (before) => (window as any).cmuxAcpmuxDebug.acpLog({ limit: 1 }).stats.connects > before,
+          connects,
+          { timeout: 30_000 },
+        );
       });
       for (const [label, result] of Object.entries(results))
         console.log(`COMPOSER-CHURN ${JSON.stringify({ event: label, ...result, editorNodeBefore: node })}`);
