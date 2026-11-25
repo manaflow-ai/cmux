@@ -33,6 +33,16 @@ def load_job() -> dict:
     return document, document["jobs"][JOB]
 
 
+def assert_literal_sticky_disk_keys(document: dict, path) -> None:
+    # Workflows put steps in jobs and composite actions put them in runs.
+    for container in [*document.get("jobs", {}).values(), document.get("runs", {})]:
+        for step in container.get("steps", []):
+            if str(step.get("uses", "")).startswith("useblacksmith/stickydisk@"):
+                key = step.get("with", {}).get("key")
+                if not isinstance(key, str) or not key or "${{" in key:
+                    raise AssertionError(f"{path} gives a sticky disk a missing or computed key")
+
+
 class TestboxBrokerGuardTests(unittest.TestCase):
     def setUp(self) -> None:
         self.document, self.job = load_job()
@@ -148,12 +158,22 @@ class TestboxBrokerGuardTests(unittest.TestCase):
             )
             # A computed key could still resolve to the Testbox key, so any
             # other sticky disk must use a literal key.
-            for match in re.finditer(r"useblacksmith/stickydisk@[^\n]*\n((?:\s+.*\n)*)", text):
-                self.assertNotRegex(
-                    match.group(1),
-                    r"key:\s*[^\n]*\$\{\{",
-                    f"{path.relative_to(ROOT)} gives a sticky disk a computed key",
-                )
+            if "useblacksmith/stickydisk@" in text:
+                assert_literal_sticky_disk_keys(yaml.safe_load(text), path.relative_to(ROOT))
+
+    def test_computed_keys_are_checked_on_the_action_that_uses_them(self) -> None:
+        disk = {"uses": "useblacksmith/stickydisk@sha", "with": {"key": "fast-checks"}}
+        cache = {"uses": "actions/cache@sha", "with": {"key": "deps-${{ runner.os }}"}}
+        for document in (
+            {"jobs": {"test": {"steps": [disk, cache]}}},
+            {"runs": {"using": "composite", "steps": [disk, cache]}},
+        ):
+            with self.subTest(document=document):
+                disk["with"]["key"] = "fast-checks"
+                assert_literal_sticky_disk_keys(document, "fixture")
+                disk["with"]["key"] = "${{ inputs.disk }}"
+                with self.assertRaisesRegex(AssertionError, "computed key"):
+                    assert_literal_sticky_disk_keys(document, "fixture")
 
     def test_diagnostic_guard_uses_runner_python_without_setup_action(self) -> None:
         document = yaml.safe_load(GUARD_WORKFLOW.read_text(encoding="utf-8"))
