@@ -82,11 +82,6 @@ public final class AgentPaneView: NSView {
     var otherInstallNotice: AgentPaneNotice?
     /// The pane's daemon is another cmux install's (cx-fcaq); the line shows only while a request waits.
     var runsOnOtherInstall = false
-    /// "Not verified as you, reconnecting identity": this pane's connection did not prove the
-    /// person, so its prompts would reach the agent as an unverified sender's.
-    var personUnprovenNotice: AgentPaneNotice?
-    /// Holds the notice back until the state has lasted ``NoticeTiming/connectionQuiet`` (a connection blip says nothing).
-    let personUnprovenHold = QuietHold(owner: "AgentPaneView.personUnproven", delay: NoticeTiming.connectionQuiet)
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
     var remoteApprovalsNotice: AgentPaneNotice?
     var remoteApprovals: AgentPaneRemoteApprovals?
@@ -130,6 +125,8 @@ public final class AgentPaneView: NSView {
     private var uiScaleObservation: Task<Void, Never>?
     /// Hands the old host's document `app.language` on every change (``observeLanguage()``).
     var languageObservation: Task<Void, Never>?
+    /// Tells the page each time this app's acpmux answers a lookup (``observeAcpmuxAnswers()``).
+    var acpmuxAnswerObservation: Task<Void, Never>?
     /// The indicator while Computer use can act as me is on; it has no pill until the grant is on (``showActAsMe(_:)``).
     let actAsMePill = AgentPaneActAsMePill()
     public var zoom: Double = 1 {
@@ -148,6 +145,7 @@ public final class AgentPaneView: NSView {
         state["calls"] = transportPacer?.calls ?? -1
         state["usesPageHost"] = pageEvents != nil
         if let pageEvents { state["provider"] = pageEvents.debugState }
+        state["blank_recovery"] = documentCover.report // ``AgentPaneDocumentCover``'s detector
         return state
     }
     struct QuestionKeyBinding: Equatable {
@@ -184,6 +182,8 @@ public final class AgentPaneView: NSView {
     public internal(set) var lastContextMenu: (point: NSPoint, uptime: TimeInterval)?
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
     public let loadingView = AgentPaneLoadingView()
+    /// The page's last frame over each later document until it paints (`AgentPaneView+DocumentCover`).
+    public let documentCover = AgentPaneDocumentCover()
     /// The chat's own ground under its page, from the turn the pane is made (``AgentPaneGround``).
     let ground = AgentPaneGround()
     /// The page lies outside the window until it draws the chat a tab adopted it for
@@ -200,6 +200,8 @@ public final class AgentPaneView: NSView {
     var chromiumMove: ChromiumMove?
     /// The wait of a moved page held outside the window (`AgentPaneView+MoveCover`); nil when none is held.
     var chromiumMoveWait: ChromiumMoveWait?
+    /// What waits for a moved Chromium page to show (``whenMovedPageShows(_:)``): a pane's paint hold.
+    var movedPageWaiters: [() -> Void] = []
     public private(set) lazy var redraw = page.map { AgentPageRedraw(page: $0) } ?? AgentPageRedraw(webView: webView) // a chat shown again draws first
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
@@ -324,6 +326,10 @@ public final class AgentPaneView: NSView {
             guard let self else { return nil }
             return self.performWithTheme { AgentPageEvent.theme(self.themeTokens, surface: self.surfaceKind)?.value["key"]?.stringValue }
         }
+        pageResources?.agentTheme = { [weak self] in
+            guard let self else { return nil }
+            return self.performWithTheme { AgentPageEvent.theme(self.themeTokens, surface: self.surfaceKind)?.value["agent"] }
+        }
         model.tabRow.supportsNativeTools = pageEvents != nil
         model.onTabRowToolInvoked = { [weak self] id, menuItemID in
             self?.invokeTabRowTool(id, menuItemID: menuItemID)
@@ -369,6 +375,7 @@ public final class AgentPaneView: NSView {
         }
         model.onFramePacing = { [weak self] _ in self?.framePacingSettings() ?? [:] }
         model.onTabKeyChange = { [weak self] in self?.announceTab() }
+        model.onPaintReport = { [weak self] in self?.documentCoverPaintReported() }
         model.onRenderRate = { [weak self] full in
             guard let self, self.renderRate == .adaptive else { return }
             self.rendersAtFullRate = full
@@ -406,6 +413,7 @@ public final class AgentPaneView: NSView {
         observeUIScale()
         observeIconFamily()
         observeLanguage()
+        observeAcpmuxAnswers()
         sessionStatusObservation = AgentPaneSessionStatus.follow(self)
         model.onCloudTeamChange = { [weak self] in self?.evaluateScript(AgentPaneCloudMachines.teamChangeScript) }
         installSessionInfo()
@@ -483,6 +491,7 @@ public final class AgentPaneView: NSView {
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
             languageObservation?.cancel()
+            acpmuxAnswerObservation?.cancel()
             gitHubChangeObservation?.cancel()
             actAsMePill.stop()
             sessionStatusObservation?.cancel()
@@ -510,6 +519,7 @@ public final class AgentPaneView: NSView {
         placeChromiumMove(at: frame)
         ground.place(in: frame, of: self)
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
+        layOutDocumentCover(frame)
         layoutSessionInfo()
         layoutHostGlass()
         // A pane resized or moved under shown toasts: they stay clear of its composer.
@@ -571,6 +581,7 @@ public final class AgentPaneView: NSView {
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
+        model.pageClosed = true // it leaves the live pages (``AgentPageLiveness``)
         // A closed page must not notify the pane that used to host it after it leaves.
         onNativeToolOwnerChange = nil
         // A closed chat leaves its crash group: a sibling's Reload must not reload it.
@@ -585,6 +596,8 @@ public final class AgentPaneView: NSView {
         iconFamilyObservation = nil
         languageObservation?.cancel()
         languageObservation = nil
+        acpmuxAnswerObservation?.cancel()
+        acpmuxAnswerObservation = nil
         sessionStatusObservation?.cancel()
         model.sessionInfo.hostObservation?.cancel()
         model.sessionInfo.hostObservation = nil
@@ -603,7 +616,6 @@ public final class AgentPaneView: NSView {
         if let connection = model.transport.connection { model.transport.close(connection: connection) }
         model.transport.deliver = nil
         model.transport.onOtherInstall = nil
-        model.transport.onPersonProof = nil
         model.transport.recoverPersonProof = nil
         model.transport.onRemoteApprovalsOff = nil
         model.transport.onPeerApprovalsOff = nil

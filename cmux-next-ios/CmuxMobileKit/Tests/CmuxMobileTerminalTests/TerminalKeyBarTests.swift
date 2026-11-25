@@ -145,7 +145,7 @@ import Testing
             .control, .alternate, .command, .shift, .paste, .tab, .escape, .returnKey, .chord("c"), .chord("d"),
             .up, .down, .left, .right, .launcher(.claude), .launcher(.codex), .launcher(.ollama),
         ])
-        #expect(Array(KeyBarKey.row.suffix(3)) == [.zoomOut, .zoomIn, .hideChrome])
+        #expect(Array(KeyBarKey.row.suffix(4)) == [.zoomOut, .zoomIn, .wide, .hideChrome])
         #expect(Set(KeyBarKey.row).count == KeyBarKey.row.count)
         // The compose key is pinned, never in the scroller.
         #expect(!KeyBarKey.row.contains(.composer))
@@ -174,15 +174,6 @@ import Testing
         // Ollama waits for the model name.
         #expect(KeyBarLauncher.ollama.command == "ollama run ")
         #expect(!KeyBarLauncher.ollama.pressesReturn)
-    }
-
-    @Test func keysFadeAtThePinnedKeysOnlyOnceScrolled() {
-        let fade = KeyRowFade()
-        #expect(fade.leadingEdgeAlpha(scrolled: 0) == 1)
-        #expect(fade.leadingEdgeAlpha(scrolled: 12) == 0.5)
-        #expect(fade.leadingEdgeAlpha(scrolled: 200) == 0)
-        // Rubber-band past the start: still no fade.
-        #expect(fade.leadingEdgeAlpha(scrolled: -30) == 1)
     }
 
     @Test func zoomStepsOnePointWithinTheSettingsRange() {

@@ -7,7 +7,8 @@
 //! line goes on the next start) to the app's Sentry project, tagged
 //! `process=cmux-tui`, each line once (a byte offset in `<log>.sent`). The
 //! memory guard's `owner-memory-<session>.jsonl` goes the same way, at start
-//! and right after each alert.
+//! and right after each alert, and so does the interactive client's
+//! `client-hangs.jsonl` (`ui_watchdog`), at client start and right after each hang.
 //!
 //! It sends nothing when: the binary is inside the cmux app (the app sends
 //! them), a managed policy disables telemetry, `DO_NOT_TRACK` or
@@ -140,6 +141,40 @@ pub(super) fn event_for(line: &str, home: Option<&str>) -> Option<Value> {
     }
     let version = text("version").unwrap_or_else(|| DISTRIBUTION_VERSION.to_string());
     let at_ms = record.get("at_ms").and_then(Value::as_u64).unwrap_or_default();
+    if record.get("kind").and_then(Value::as_str) == Some("client-hang") {
+        // A UI-loop hang of the interactive client (ui_watchdog): a warning, one issue per
+        // top frame, with the sampled stack and the waits as extra data.
+        tags.insert("crash_source".into(), json!("client_hang_log"));
+        let list = |key: &str| -> Vec<String> {
+            record
+                .get(key)
+                .and_then(Value::as_array)
+                .map(|items| items.iter().filter_map(Value::as_str).map(scrub).collect())
+                .unwrap_or_default()
+        };
+        return Some(json!({
+            "event_id": uuid::Uuid::new_v4().simple().to_string(),
+            "timestamp": at_ms as f64 / 1000.0,
+            "platform": "native",
+            "level": "warning",
+            "logger": "cmux-tui",
+            "release": format!("cmux-tui@{version}"),
+            "exception": {"values": [{
+                "type": "ClientHang",
+                "value": message,
+                "mechanism": {"type": "ui_watchdog", "handled": true},
+            }]},
+            "message": {"formatted": message},
+            "fingerprint": ["client-hang", location],
+            "tags": tags,
+            "extra": {
+                "duration_ms": record.get("duration_ms"),
+                "backtrace": scrub(record.get("backtrace").and_then(Value::as_str).unwrap_or_default()),
+                "waits": list("waits"),
+                "cancelled": list("cancelled"),
+            },
+        }));
+    }
     if record.get("kind").and_then(Value::as_str) == Some("memory") {
         // A memory guard line (memory_guard.rs): a warning, one issue per
         // release, with the figures as extra data.
@@ -353,7 +388,7 @@ fn send_all(log: &Path, dsn: &Dsn, home: Option<&str>) -> Result<usize, String> 
         .enable_all()
         .build()
         .map_err(|error| format!("runtime: {error}"))?;
-    let client = reqwest::Client::builder()
+    let client = cmux_egress::client_builder("cmux_tui::owner_start::crash_forward")
         .timeout(std::time::Duration::from_secs(10))
         .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
         .build()

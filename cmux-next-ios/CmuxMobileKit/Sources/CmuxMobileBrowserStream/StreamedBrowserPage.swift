@@ -70,6 +70,7 @@ public struct StreamedBrowserPage: View {
                     .accessibilityHidden(true)
                 }
                 status(String(localized: "Loading browser session…"))
+                    .placeholderBound("browser.stream.loading", .milliseconds(2000))
             } else if let notice = model.notice {
                 refusal(notice)
             }
@@ -215,6 +216,7 @@ public struct StreamedBrowserPage: View {
             .padding(.top, 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .accessibilityIdentifier("browser.reconnecting")
+            .placeholderBound("browser.connection.chip", .milliseconds(0))
     }
 }
 
@@ -274,13 +276,19 @@ public struct StreamedBrowserCard: View {
     let placeholder: String
     /// A simulator's frame is shown whole and centred; a page's fills the width from the top.
     let fit: Bool
+    /// A page's insets (`StreamedBrowserPage`'s): its picture sits where the
+    /// page draws it, so the card can stand in for an opening page and the
+    /// live picture replaces it in place. Nil: the picture starts at the top.
+    let insets: EdgeInsets?
     /// The tab's last-known picture, kept across launches: shown until this launch has a frame.
     let lastKnown: CGImage?
 
-    public init(model: StreamedBrowserModel, placeholder: String = "globe", fit: Bool = false, lastKnown: CGImage? = nil) {
+    public init(model: StreamedBrowserModel, placeholder: String = "globe", fit: Bool = false,
+                insets: EdgeInsets? = nil, lastKnown: CGImage? = nil) {
         self.model = model
         self.placeholder = placeholder
         self.fit = fit
+        self.insets = insets
         self.lastKnown = lastKnown
     }
 
@@ -290,6 +298,13 @@ public struct StreamedBrowserCard: View {
             if fit, let image = model.snapshot?.image ?? lastKnown {
                 Color.black
                 Image(decorative: image, scale: 1).resizable().interpolation(.medium).scaledToFit()
+            } else if let image = model.snapshot?.image ?? lastKnown, let insets {
+                // The page's layer: the picture fitted in the area between the insets, on black.
+                Color.black
+                Image(decorative: image, scale: 1).resizable().interpolation(.medium).scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.top, insets.top)
+                    .padding(.bottom, insets.bottom)
             } else if let image = model.snapshot?.image ?? lastKnown {
                 GeometryReader { geo in
                     Image(decorative: image, scale: 1).resizable().interpolation(.medium)
@@ -301,6 +316,7 @@ public struct StreamedBrowserCard: View {
                     .font(.system(size: 72, weight: .light))
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .placeholderBound("tabgrid.stream.icon", .milliseconds(1000))
             }
         }
     }
