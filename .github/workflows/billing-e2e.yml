@@ -8,12 +8,14 @@ name: Billing E2E (development, Stripe test mode)
 # billed overage (model overage at list + 10%). Cleanup cancels both subscriptions and deletes the test clock by id,
 # however the run ends. The script refuses any key but a test key and any sign-in project but development's.
 #
-# The billing-e2e environment holds (names only; values never reach the log):
+# Secrets come from cmux-next-vm-image-dev (feat-cmux-next only by GitHub's branch policy), the environment that
+# already holds the agent test account, so nothing is copied by hand (GitHub secrets are write-only). Names only;
+# values never reach the log:
+#   CMUX_UITEST_STACK_EMAIL, CMUX_UITEST_STACK_PASSWORD  the agent test account (already there)
 #   E2E_STRIPE_TEST_KEY     the development Stripe sandbox's test-mode key (sk_test_ or rk_test_), the one
-#                           cmux-api-development's STRIPE_USAGE_KEY is
+#                           cmux-api-development's STRIPE_USAGE_KEY is (a Worker secret: a maintainer puts it here once)
 #   DEV_BILLING_LEVELS_KEY  cmux-api-development's BILLING_LEVELS_KEY (cmux-platform's development environment,
-#                           cmuxterm-hq's cloud-capture environment)
-#   CMUX_UITEST_STACK_EMAIL, CMUX_UITEST_STACK_PASSWORD  the agent test account (cmux-next-vm-image-dev holds them)
+#                           cmuxterm-hq's cloud-capture environment; a maintainer puts it here once)
 on:
   workflow_dispatch:
     inputs:
@@ -34,7 +36,7 @@ concurrency:
 jobs:
   e2e:
     if: github.ref == 'refs/heads/feat-cmux-next'
-    environment: billing-e2e
+    environment: cmux-next-vm-image-dev
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 60
     env:
@@ -59,7 +61,7 @@ jobs:
       - name: Secrets present
         run: |
           for name in E2E_STRIPE_TEST_KEY E2E_BILLING_LEVELS_KEY E2E_STACK_EMAIL E2E_STACK_PASSWORD; do
-            [ -n "${!name}" ] || { echo "::error::the billing-e2e environment has no ${name}"; exit 1; }
+            [ -n "${!name}" ] || { echo "::error::the cmux-next-vm-image-dev environment has no ${name}"; exit 1; }
           done
       - name: NEXT plan checkout (link, 303, test-mode session read back, expired)
         run: bun backend/scripts/stripe-plan-e2e.ts | tee -a "$RUNNER_TEMP/e2e.log"

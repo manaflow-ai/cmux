@@ -63,6 +63,9 @@ concurrency:
 jobs:
   coalesce:
     if: github.repository == 'manaflow-ai/cmux'
+    # actions: read: base-coalesce lists this workflow's runs to re-run a window whose run failed.
+    permissions:
+      actions: read
     uses: ./.github/workflows/base-coalesce.yml
     with:
       key: fleet-rd-host-macos
