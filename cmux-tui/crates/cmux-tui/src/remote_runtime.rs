@@ -1476,7 +1476,7 @@ async fn wait_for_shutdown_request(mut shutdown: Option<watch::Receiver<bool>>) 
     }
 }
 
-fn ssh_bootstrap_destination(endpoint: &Url) -> anyhow::Result<(String, Option<u16>)> {
+pub(crate) fn ssh_bootstrap_destination(endpoint: &Url) -> anyhow::Result<(String, Option<u16>)> {
     if endpoint.password().is_some() {
         return Err(anyhow!("passwords are not allowed in SSH URLs; use SSH authentication"));
     }

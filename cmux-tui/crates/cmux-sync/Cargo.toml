@@ -12,6 +12,10 @@ workspace = true
 
 [dependencies]
 serde.workspace = true
+# A synced revision is content-addressed: its id is the SHA-256 of its bytes (two_way.rs).
+sha2.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+# The two-way tests merge text by line with a real diff3, as the host does.
+diffy.workspace = true

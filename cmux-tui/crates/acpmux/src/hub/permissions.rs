@@ -564,6 +564,10 @@ impl Hub {
                 if let Some(goal) = update.pointer("/_meta/goal") {
                     m.goal = crate::goal::GoalState::from_value(goal, m.family.as_deref());
                     goal_write = true;
+                    // The agent's own word on its loops (`agent_timer.rs`); a replay is history.
+                    if !replayed {
+                        super::agent_timer::note_agent_goal(session, goal);
+                    }
                 }
                 // A harness title made from the first input stops before a client context
                 // (prompt_context.rs), so a Cmd-I chat titles from the person's words.
