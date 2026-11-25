@@ -133,6 +133,8 @@ public final class TerminalSurfaceView: NSView {
     private var pausedPictureSource: (frame: ObjectIdentifier, seed: UInt32)?
     /// The paused frame being pictured now: it turns volatile only once its picture is taken.
     private var picturing: IOSurface?
+    /// Counts pause pictures started: only the latest render stores its picture or settles its frame's volatility.
+    private var pictureGeneration = 0
 
     /// A downscaled picture (at most ``pausedPictureSide`` px) of the frame the surface showed when it last paused.
     ///
@@ -720,21 +722,33 @@ public final class TerminalSurfaceView: NSView {
     /// forth costs no render.
     private func pictureThenMakeVolatile(_ frame: IOSurface) {
         let source = (frame: ObjectIdentifier(frame), seed: frame.seed)
+        pictureGeneration += 1  // any render still running is stale from here on: it neither stores nor settles
+        let generation = pictureGeneration
         if let last = pausedPictureSource, last.frame == source.frame, last.seed == source.seed, pausedPicture != nil {
+            picturing = nil
             return frame.makeVolatile()
         }
         picturing = frame
         let surface = SendableSurface(surface: frame), side = Self.pausedPictureSide
         Task { [weak self] in  // task-owner: one bounded off-main render per pause; the frame stays non-volatile until it ends
             let picture = await Task.detached(priority: .utility) { TerminalSnapshotRenderer.render(surface, maxPixelSize: side) }.value
-            guard let self else { return }
-            if self.picturing === frame { self.picturing = nil }
+            guard let self, self.pictureGeneration == generation else { return }
+            self.picturing = nil
             if let picture {
                 self.pausedPicture = picture
                 self.pausedPictureSource = source
             }
             if self.volatileFrame === frame { frame.makeVolatile() }
         }
+    }
+
+    /// ``pausedPicture`` when it shows the presented frame as it is now (taken, not in flight, unchanged since):
+    /// nil when the surface paused again since and the picture of that pause is not taken yet.
+    var pausedPictureOfPresentedFrame: CGImage? {
+        guard picturing == nil, let picture = pausedPicture, let frame = presentedFrame,
+              let source = pausedPictureSource, source.frame == ObjectIdentifier(frame), source.seed == frame.seed
+        else { return nil }
+        return picture
     }
 
     /// The presented frame for one reader (hover pictures): a paused surface's volatile frame is

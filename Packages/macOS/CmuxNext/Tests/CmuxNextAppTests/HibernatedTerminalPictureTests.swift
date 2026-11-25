@@ -93,6 +93,35 @@ import Testing
         #expect(services.cache.lastFrames.picture(tab) === paused, "the eviction rendered the purgeable frame instead of keeping the pause picture")
     }
 
+    /// A tab hidden once (pictured then), shown again and run on, then hidden and hibernated in one turn (a capacity
+    /// eviction hides and evicts together): its card shows the newer output, not the earlier pause's picture.
+    @Test func hibernatingRightAsItHidesKeepsTheNewOutputNotAnEarlierPausePicture() async throws {
+        let (services, tab, session, done) = try await Self.terminal(output: "cargo build\r\n   Compiling cmux v0.1.0\r\n")
+        defer { done() }
+        session.isRenderingSuspended = true
+        var deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while session.surfaceView.pausedPicture == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        let earlier = try #require(session.surfaceView.pausedPicture, "the pausing surface took no picture")
+
+        // Shown again, and it draws new output: the earlier picture no longer shows its frame.
+        session.isRenderingSuspended = false
+        let scripted = try #require(session.io as? ScriptedTerminalIO)
+        scripted.send(.output(Data("    Finished dev [unoptimized] target(s) in 4.2s\r\n".utf8)))
+        deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while session.surfaceView.pausedPictureOfPresentedFrame != nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        try #require(session.surfaceView.pausedPictureOfPresentedFrame == nil, "setup: the terminal drew nothing new")
+
+        // Hidden and hibernated in the same turn: this pause's picture is not taken yet.
+        session.isRenderingSuspended = true
+        let removed = services.cache.terminals.removeValue(forKey: tab)
+        let entry = try #require(removed)
+        services.cache.lastFrames.evict(session, key: tab, capacity: 8, atOnce: false)
+        await services.cache.lastFrames.pictureSettled(tab)
+        entry.close()
+        let kept = try #require(services.cache.lastFrames.picture(tab), "the hibernated terminal kept no picture")
+        #expect(kept !== earlier, "hibernation kept the earlier pause's picture, not the newer output")
+    }
+
     @Test func aNewShellsPromptStillHasNoPicture() async throws {
         let (services, tab, session, done) = try await Self.terminal(output: "Last login: Mon Oct 13 09:12:44 on ttys004\r\nyou@mac ~ % ")
         defer { done() }

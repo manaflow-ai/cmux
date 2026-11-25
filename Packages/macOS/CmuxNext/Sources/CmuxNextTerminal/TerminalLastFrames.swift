@@ -108,7 +108,7 @@ public struct TerminalLastFrames {
     /// volatile and purged before the render, so its card drew empty tiles though the pause picture was right there.
     private func keepPicture(of session: TerminalSession, key: String, showsOutput: Bool) {
         guard showsOutput else { return }
-        if let paused = session.surfaceView.pausedPicture { return pictures.keep(key) { paused } }
+        if let paused = session.surfaceView.pausedPictureOfPresentedFrame { return pictures.keep(key) { paused } }
         let side = TerminalEvictedPictures.side
         if let frame = frames[key] {
             pictures.keep(key) { await frame.snapshot(maxPixelSize: side) }
