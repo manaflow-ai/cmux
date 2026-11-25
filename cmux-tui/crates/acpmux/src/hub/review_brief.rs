@@ -45,10 +45,10 @@ impl Hub {
         }
         if let Some(path) = path.filter(|_| fold.seq != before)
             && let Ok(bytes) = serde_json::to_vec(&fold)
-            && let Err(e) = crate::config::write_atomic(&path, &bytes)
         {
-            // The brief is still right; the next open folds again.
-            tracing::debug!(session = %session.id, "review brief not saved: {e}");
+            // Off the request (`disk_writer.rs`). A lost write: the brief is still right; the
+            // next open folds again.
+            crate::config::write_atomic_later(&path, bytes);
         }
         Ok(json!({"sessionId": session.id, "seq": fold.seq, "brief": fold.brief(root)}))
     }

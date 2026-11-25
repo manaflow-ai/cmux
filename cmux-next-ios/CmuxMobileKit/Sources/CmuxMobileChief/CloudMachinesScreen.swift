@@ -31,7 +31,7 @@ public struct CloudMachinesScreen: View {
                         .accessibilityIdentifier("cloudMachines.new")
                 }
             }
-            .refreshable { await model.load() }
+            .refreshable { await model.load(reportFailure: true) }
             .task { await model.load() }
             .sheet(isPresented: $creating) { NewCloudMachineSheet(model: model) }
             .modifier(CloudMachineAlerts(model: model, showsFailure: !model.showsDetail))
@@ -41,9 +41,11 @@ public struct CloudMachinesScreen: View {
     @ViewBuilder private var content: some View {
         switch model.phase {
         case .loading:
+            // placeholder-ok: This personal Cloud list has never answered for this account.
             CmuxSpinner(label: Text("Loading Cloud machines…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("cloudMachines.loading")
+                .placeholderBound("cloud.machines.loading", .milliseconds(2000))
         case .failed(let message):
             ContentUnavailableView {
                 Label("Couldn't load Cloud machines", systemImage: "exclamationmark.triangle")
@@ -78,7 +80,8 @@ public struct CloudMachinesScreen: View {
                         NavigationLink {
                             CloudMachineDetail(model: model, id: machine.id, openChats: openChats)
                         } label: {
-                            CloudMachineRow(machine: machine, busy: model.busyID == machine.id)
+                            CloudMachineRow(machine: machine, busy: model.busyID == machine.id,
+                                            awaitingApproval: model.isAwaitingApproval(machine.id))
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             if machine.status == .running {
@@ -89,7 +92,11 @@ public struct CloudMachinesScreen: View {
                         }
                         .accessibilityIdentifier("cloudMachines.row.\(machine.id)")
                     }
+                    // A new machine held for approval: one quiet row at the end, nothing above it moves.
+                    if model.isAwaitingApproval(CloudMachinesModel.newMachineID) { CloudMachineHeldRow() }
                 }
+            } else if model.isAwaitingApproval(CloudMachinesModel.newMachineID) {
+                Section("Machines") { CloudMachineHeldRow() }
             }
             if !model.archives.isEmpty {
                 Section {
@@ -106,7 +113,7 @@ public struct CloudMachinesScreen: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .overlay {
-            if model.machines.isEmpty && model.archives.isEmpty {
+            if model.machines.isEmpty && model.archives.isEmpty && !model.isAwaitingApproval(CloudMachinesModel.newMachineID) {
                 ContentUnavailableView {
                     Label("No Cloud Machines", systemImage: "cloud")
                 } description: {
@@ -125,6 +132,8 @@ public struct CloudMachinesScreen: View {
 struct CloudMachineRow: View {
     let machine: CloudMachine
     let busy: Bool
+    /// An action on it waits for approval in the Feed: the status reads so, in the same line.
+    var awaitingApproval = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -140,8 +149,32 @@ struct CloudMachineRow: View {
     }
 
     private var subtitle: String {
-        [cloudMachineStatusTitle(machine.status), machine.size.summary, machine.cost(now: .now)]
+        // Held for approval: the short status takes the status's place and the cost gives up its
+        // room, so the line is never longer than it was and the row keeps its height.
+        if awaitingApproval {
+            return [String(localized: "Waiting for approval"), machine.size.summary].filter { !$0.isEmpty }.joined(separator: " · ")
+        }
+        return [cloudMachineStatusTitle(machine.status), machine.size.summary, machine.cost(now: .now)]
             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+}
+
+/// A row's status while an action on it waits for approval in the Feed.
+let cloudMachineAwaitingApprovalTitle = String(localized: "Waiting for approval in your Feed")
+
+/// A new machine held for approval: the Machines row it shows as until it is made.
+struct CloudMachineHeldRow: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            Circle().fill(Color(uiColor: .tertiaryLabel)).frame(width: 8, height: 8).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("New Cloud Machine").font(theme.type.rowTitle).foregroundStyle(theme.colors.label)
+                Text(cloudMachineAwaitingApprovalTitle).font(theme.type.meta).foregroundStyle(theme.colors.label2)
+            }
+            Spacer(minLength: 8)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("cloudMachines.held.new")
     }
 }
 
@@ -211,6 +244,10 @@ struct CloudSnapshotRow: View {
     }
 
     private var detail: String {
+        // Held for approval: said in place of the dates, so the line grows no longer.
+        if model.isAwaitingApproval(snapshot.id) {
+            return [cloudMachineAwaitingApprovalTitle, CloudMachine.Size.gigabytes(snapshot.sizeMB)].joined(separator: " · ")
+        }
         var parts = [CloudMachine.Size.gigabytes(snapshot.sizeMB)]
         if let at = snapshot.createdAt { parts.append(at.formatted(date: .abbreviated, time: .shortened)) }
         if let until = snapshot.archiveUntil { parts.append(String(localized: "kept until \(until.formatted(date: .abbreviated, time: .omitted))")) }
@@ -219,22 +256,17 @@ struct CloudSnapshotRow: View {
     }
 }
 
-/// The page's refusal alert and approval note.
+/// The page's refusal alert. An action held for approval is no alert: its row says so.
 struct CloudMachineAlerts: ViewModifier {
     let model: CloudMachinesModel
     var showsFailure = true
 
     func body(content: Content) -> some View {
         content
-            .alert("Couldn't do that", isPresented: Binding(get: { showsFailure && model.failure != nil }, set: { if !$0 { model.failure = nil } })) {
+            .alert("Couldn't do that", isPresented: Binding(get: { showsFailure && model.shownFailure != nil }, set: { if !$0 { model.dismissFailure() } })) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text(model.failure ?? "")
-            }
-            .alert("Waiting for approval", isPresented: Binding(get: { showsFailure && model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(model.notice ?? "")
+                Text(model.shownFailure ?? "")
             }
     }
 }
@@ -252,7 +284,6 @@ struct NewCloudMachineSheet: View {
                 Section {
                     TextField("Name (optional)", text: $name)
                         .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
                         .accessibilityIdentifier("cloudMachines.new.name")
                 }
                 Section {
@@ -302,7 +333,8 @@ struct CloudMachineDetail: View {
             if let machine = model.machine(id) {
                 List {
                     Section {
-                        LabeledContent("Status", value: cloudMachineStatusTitle(machine.status))
+                        LabeledContent("Status", value: model.isAwaitingApproval(machine.id)
+                                       ? cloudMachineAwaitingApprovalTitle : cloudMachineStatusTitle(machine.status))
                         LabeledContent("Size", value: machine.size.summary)
                         if let cost = machine.cost(now: .now) { LabeledContent("Cost", value: cost) }
                         if let active = machine.lastActiveAt {

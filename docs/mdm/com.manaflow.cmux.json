@@ -299,12 +299,26 @@
       "title" : "Working Status Verbs",
       "type" : "string"
     },
+    "agentPane.display.thinking.glyph" : {
+      "description" : "Dots a look plays while the agent works, as a cmux.particles/1 document.",
+      "title" : "Thinking Glyph",
+      "type" : "string"
+    },
+    "agentPane.display.thinking.glyphSize" : {
+      "default" : 0,
+      "description" : "The dot size of the thinking glyph in Jump to latest. 0 uses the glyph's own size.",
+      "maximum" : 16,
+      "minimum" : 0,
+      "title" : "Jump Button Glyph Size",
+      "type" : "number"
+    },
     "agentPane.display.thinking.jumpButton" : {
       "default" : "arrow",
       "description" : "What the Jump to latest button shows while the agent works.",
       "enum" : [
         "arrow",
-        "dots"
+        "dots",
+        "glyph"
       ],
       "title" : "Jump to Latest While Working",
       "type" : "string"
@@ -606,6 +620,20 @@
       "title" : "Compress Chats Idle For",
       "type" : "number"
     },
+    "agents.chats.coldSegments" : {
+      "default" : false,
+      "description" : "Compresses the older parts of long chats. Run cmux chats warm to undo.",
+      "title" : "Compress Long Chats",
+      "type" : "boolean"
+    },
+    "agents.chats.coldSegmentsLevel" : {
+      "default" : 3,
+      "description" : "Higher levels use less disk and take longer to compress.",
+      "maximum" : 19,
+      "minimum" : 1,
+      "title" : "Long Chat Compression Level",
+      "type" : "number"
+    },
     "agents.chats.discovery" : {
       "default" : true,
       "description" : "Find harness chat folders automatically. When off, only the listed folders are used.",
@@ -828,6 +856,17 @@
       "title" : "Internal Developer Mode",
       "type" : "boolean"
     },
+    "app.keyStyle" : {
+      "default" : "standard",
+      "description" : "Vim moves through lists with j, k, gg, G and /. Emacs uses Control-N, P, F, B, A and E.",
+      "enum" : [
+        "standard",
+        "vim",
+        "emacs"
+      ],
+      "title" : "Key Style",
+      "type" : "string"
+    },
     "app.language" : {
       "default" : "system",
       "description" : "The language of cmux's menus, pages and messages.",
@@ -867,6 +906,16 @@
         "end-everything"
       ],
       "title" : "When Quitting",
+      "type" : "string"
+    },
+    "app.shortcutLayout" : {
+      "default" : "followLayout",
+      "description" : "Keep QWERTY Positions puts shortcuts on the US keys, for Dvorak, Colemak, AZERTY and QWERTZ.",
+      "enum" : [
+        "followLayout",
+        "qwertyPositions"
+      ],
+      "title" : "Keyboard Layout",
       "type" : "string"
     },
     "app.showMenuBarIcon" : {
@@ -3076,23 +3125,7 @@
         "org.keepassxc.KeePassXC",
         "1password",
         "bitwarden",
-        "com.apple.systempreferences",
-        "com.apple.Terminal",
-        "com.googlecode.iterm2",
-        "com.mitchellh.ghostty",
-        "net.kovidgoyal.kitty",
-        "com.github.wez.wezterm",
-        "org.alacritty",
-        "dev.warp.*",
-        "windowsterminal.exe",
-        "cmd.exe",
-        "powershell.exe",
-        "pwsh.exe",
-        "org.gnome.Terminal",
-        "org.gnome.Ptyxis",
-        "org.kde.konsole",
-        "com.cmuxterm.app",
-        "com.cmuxterm.app.*"
+        "com.apple.systempreferences"
       ],
       "description" : "Apps no agent may use, in any mode: an app ID, an ID prefix ending in *, or name: and the app's name.",
       "items" : {
@@ -3162,6 +3195,23 @@
       "default" : false,
       "description" : "Adds Customize Menu… to the end of every right-click menu.",
       "title" : "Show Customize Menu…",
+      "type" : "boolean"
+    },
+    "customize.checklist.done" : {
+      "default" : [
+
+      ],
+      "description" : "The checklist steps you marked done yourself.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Checked Off Customize Steps",
+      "type" : "array"
+    },
+    "customize.checklist.enabled" : {
+      "default" : true,
+      "description" : "Shows the steps for making cmux your own at the top of Settings, with how many are done.",
+      "title" : "Show the Customize cmux Checklist",
       "type" : "boolean"
     },
     "customize.doctorNotice" : {
@@ -3650,6 +3700,12 @@
       "default" : false,
       "description" : "editor.trimTrailingWhitespace",
       "title" : "Remove Trailing Spaces on Save",
+      "type" : "boolean"
+    },
+    "editor.vimMode" : {
+      "default" : false,
+      "description" : "Normal, Insert and Visual modes in the code editor, with the mode shown in its status bar.",
+      "title" : "Vim Keys in the Editor",
       "type" : "boolean"
     },
     "editor.wordBasedSuggestions" : {
@@ -4433,9 +4489,15 @@
       "type" : "string"
     },
     "mobile.allowIPhoneConnections" : {
-      "default" : false,
-      "description" : "The cmux app on your iPhone can open this Mac's workspaces, on the same account.",
+      "default" : true,
+      "description" : "The cmux app on your iPhone, signed in to the same account, can open this Mac's workspaces. You allow each new phone once.",
       "title" : "Allow iPhone Connections",
+      "type" : "boolean"
+    },
+    "mobile.autoApprovePhones" : {
+      "default" : false,
+      "description" : "A new phone signed in to your account connects without asking you first. Other accounts never connect.",
+      "title" : "Approve Phone Requests Automatically",
       "type" : "boolean"
     },
     "mobile.terminalSizing" : {
@@ -4875,6 +4937,17 @@
       "title" : "Timeout",
       "type" : "number"
     },
+    "notifications.toast.style" : {
+      "default" : "standard",
+      "description" : "How toasts and prompts draw: glass, an opaque surface, or flat with a thin edge and no shadow.",
+      "enum" : [
+        "standard",
+        "solid",
+        "flat"
+      ],
+      "title" : "Toast Style",
+      "type" : "string"
+    },
     "palette.aliases" : {
       "default" : {
 
@@ -5264,14 +5337,17 @@
       "type" : "string"
     },
     "sidebar.groupHeader.background" : {
-      "default" : "folder",
+      "default" : "auto",
       "description" : "How a group draws. Folders shows plain folders; Sections shows plain headings.",
       "enum" : [
         "folder",
         "auto",
         "glass",
         "solid",
-        "sections"
+        "sections",
+        "chip",
+        "tree",
+        "card"
       ],
       "title" : "Group Background",
       "type" : "string"
@@ -5536,6 +5612,28 @@
       ],
       "title" : "Section Look",
       "type" : "string"
+    },
+    "sidebar.sections.hidden" : {
+      "default" : [
+
+      ],
+      "description" : "Sidebar sections to hide, by id. The section of the selected workspace always shows.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Hidden Sections",
+      "type" : "array"
+    },
+    "sidebar.sections.order" : {
+      "default" : [
+
+      ],
+      "description" : "Sidebar sections to show first in their part of the sidebar, in this order, by id.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Section Order",
+      "type" : "array"
     },
     "sidebar.sessionTree" : {
       "default" : false,
@@ -6320,7 +6418,7 @@
       "type" : "boolean"
     },
     "tabs.newTabApp" : {
-      "description" : "An extension id that draws New Tab, such as \"local/showcase-newtab\". Unset: cmux's own.",
+      "description" : "An extension that draws over the New Tab composer, by its id, such as \"local/showcase-newtab\". The composer always stays. Not used by the native New Tab page.",
       "title" : "New Tab App",
       "type" : "string"
     },
@@ -6469,6 +6567,12 @@
       },
       "title" : "Program Link Rules",
       "type" : "array"
+    },
+    "terminal.predictiveLocalEcho" : {
+      "default" : true,
+      "description" : "Shows characters you type in a terminal on another machine right away when the link is slow, underlined until the remote confirms them. Local terminals, password prompts and full-screen programs are never predicted.",
+      "title" : "Predictive Local Echo",
+      "type" : "boolean"
     },
     "terminal.term" : {
       "default" : "xterm-256color",
@@ -6657,7 +6761,7 @@
     },
     "updates.installWhenIdle" : {
       "default" : false,
-      "description" : "Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running.",
+      "description" : "Installs a downloaded update and restarts while you are away: no input for the time below, or the screen locked. Never over an unsent message. Agents and their turns keep running.",
       "title" : "Update When Idle",
       "type" : "boolean"
     },

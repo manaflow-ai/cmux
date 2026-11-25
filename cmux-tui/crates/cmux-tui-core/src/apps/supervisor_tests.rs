@@ -190,6 +190,13 @@ fn scripted_app_host() {
                         message: format!("open {}", args["url"]),
                     });
                 }
+                if args.get("action").is_some() {
+                    // A message action (`cmux.chat.action/1`): what it was asked to run on.
+                    send(FromHost::Log {
+                        level: "info".into(),
+                        message: format!("chat-action {args}"),
+                    });
+                }
                 if let Some(gesture) = &gesture {
                     send(FromHost::Log {
                         level: "info".into(),
@@ -1328,6 +1335,8 @@ fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
     assert_eq!(granted["grants"], json!(["terminal:backend", "workspace:read"]));
 }
 
+#[path = "supervisor_chat_action_tests.rs"]
+mod chat_actions;
 #[path = "supervisor_chat_widget_tests.rs"]
 mod chat_widgets;
 #[path = "supervisor_community_tests.rs"]
@@ -1352,6 +1361,8 @@ mod provider_changed;
 mod provider_channel;
 #[path = "supervisor_safe_mode_tests.rs"]
 mod safe_mode;
+#[path = "supervisor_safe_mode_bisect_tests.rs"]
+mod safe_mode_bisect;
 #[path = "supervisor_server_tests.rs"]
 mod servers;
 #[path = "supervisor_signal_source_tests.rs"]
@@ -1387,6 +1398,9 @@ mod activation;
 
 #[path = "supervisor_load_tests.rs"]
 mod under_load;
+
+#[path = "supervisor_git_tests.rs"]
+mod git_installs;
 
 #[path = "supervisor_scale_tests.rs"]
 mod at_scale;

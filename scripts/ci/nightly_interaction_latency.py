@@ -72,10 +72,13 @@ INTERACTIONS = {
     "agent_activity": ("agent-activity-groups", "the agent activity list", ("webviews/src/agent-activity/*",)),
     "markdown_viewer": ("markdown-viewer-stress", "scroll a big markdown file", ("webviews/src/markdown-viewer/*",)),
 }
-# Each bench's web-ui-suite.ts timeout, seconds: the order (cheapest first) and the budget check before a start.
-TIMEOUT_S = {"agent-activity-groups": 30, "edit-turns-stream": 30, "transcript-view-rows": 30, "chat-open": 105,
-             "thread-rail-jump": 90, "all-chats-list": 90, "tool-call-burst": 120, "transcript-scroll-frame": 240,
-             "chat-switch": 255, "transcript-replay": 300, "settled-page": 600, "sidebar-chats-fling": 600,
+# Each bench's timeout here, seconds, passed to web-ui-suite.ts as --timeout-s: the order (cheapest first) and the
+# budget check before a start. The cmux-linux runner is two to three times slower than the perf runner the suite's own
+# timeouts fit (thread-rail-jump and all-chats-list timed out at 90 s and transcript-replay at 300 s on every nightly
+# from 2026-11-22; on a lane VM they take 51, 59 and 145 s), so these are about twice the suite's.
+TIMEOUT_S = {"agent-activity-groups": 30, "edit-turns-stream": 30, "transcript-view-rows": 30, "chat-open": 200,
+             "thread-rail-jump": 240, "all-chats-list": 240, "tool-call-burst": 240, "transcript-scroll-frame": 240,
+             "chat-switch": 450, "transcript-replay": 600, "settled-page": 600, "sidebar-chats-fling": 600,
              "chat-fast-scroll": 900, "markdown-viewer-stress": 900, "composer-typing": 1500}
 TOUCHED_KEEP = 8  # files named per touched interaction
 
@@ -163,7 +166,8 @@ def run(planned: dict, webviews: str, out_dir: str, budget_s: float = WALL_BUDGE
         report = os.path.join(os.path.abspath(out_dir), f"{bench}.json")
         t0 = clock()
         print(f"nightly-interaction-latency: {key} ({bench})", flush=True)
-        p = runner(["bun", "bench/web-ui-suite.ts", "--only", bench, "--out", report], cwd=webviews)
+        p = runner(["bun", "bench/web-ui-suite.ts", "--only", bench, "--timeout-s", str(TIMEOUT_S.get(bench, 600)),
+                    "--out", report], cwd=webviews)
         seconds = round(clock() - t0, 1)
         try:
             with open(report) as f:
@@ -172,8 +176,13 @@ def run(planned: dict, webviews: str, out_dir: str, budget_s: float = WALL_BUDGE
             got = {}
         rows = [r for r in got.get("rows") or [] if isinstance(r, dict) and isinstance(r.get("p95"), (int, float))]
         failed = [f for f in got.get("failed") or [] if isinstance(f, dict)]
-        why = (failed[0].get("why") if failed else None) or (None if rows else f"no rows (exit {p.returncode})")
-        results[key] = {"ok": why is None, "why": why, "rows": rows, "seconds": seconds}
+        # Rows are a measurement even when the bench exited non-zero: a bench fails its own bound (a freeze, a p95
+        # over its budget) after printing the rows that show it, and that slow number is what the board must see, not
+        # a stale one. Its failure is kept as `note`. No rows is the only unmeasured outcome.
+        note = (failed[0].get("why") if failed else None) or (f"exit {p.returncode}" if p.returncode else None)
+        why = None if rows else (note or "no rows")
+        results[key] = {"ok": why is None, "why": why, "note": note if rows else None, "rows": rows,
+                        "seconds": seconds}
     with open(os.path.join(out_dir, "results.json"), "w") as f:
         json.dump(results, f, indent=1)
     return results
@@ -194,7 +203,7 @@ def report(state: dict, planned: dict, results: dict, runner_name: str | None = 
             got = results.get(key) or {"ok": False, "why": "no result (the run step did not finish)"}
             if got.get("ok"):
                 row.update(measured_sha=head, measured_at=at, rows=got.get("rows") or [], runner=runner_name,
-                           seconds=got.get("seconds"))
+                           seconds=got.get("seconds"), note=got.get("note"))
             else:
                 row.update(stale=True, why=got.get("why"), touched_by=ran[key].get("touched_by") or [],
                            stale_since=prev.get("stale_since") or at, stale_sha=prev.get("stale_sha") or head,
@@ -212,7 +221,8 @@ def summary(state: dict) -> str:
         val = (f"{worst['name']} {worst['p95']} / {worst['target']} {worst.get('unit') or 'ms'}" if worst else "-")
         when = str(row.get("measured_sha") or "never")[:12]
         st = (f"STALE since {row['stale_since']} ({row.get('why')}); touched by {', '.join(row['touched_by'][:3])}"
-              if row.get("stale") else "fresh")
+              if row.get("stale") else f"fresh; bench failed its own bound: {row['note']}" if row.get("note")
+              else "fresh")
         lines.append(f"| {row['interaction']} | {row['bench']} | {val} | {when} | {st} |")
     return "\n".join(lines) + "\n"
 
@@ -266,6 +276,22 @@ def fetch_state(repo: str, out_dir: str, token: str) -> bool:
     return False
 
 
+def fetch_state_retrying(repo: str, out_dir: str, token: str, tries: int = 3, sleep=time.sleep, fetch=None):
+    """fetch_state, retried; None when every try failed. An unread state is not "no state": planning from nothing
+    would publish a state with every earlier number gone (run 45207965116: one 403 dropped 8 interactions' last
+    rows), so the job stops instead and the next nightly reads the last state that was published."""
+    fetch = fetch or fetch_state
+    for attempt in range(tries):
+        try:
+            return fetch(repo, out_dir, token)
+        except (OSError, ValueError, zipfile.BadZipFile) as e:
+            print(f"nightly-interaction-latency: state not read, try {attempt + 1} of {tries} ({e})", flush=True)
+            if attempt + 1 < tries:
+                sleep(10 * (attempt + 1))
+    print("nightly-interaction-latency: state not read; publishing nothing, so the last state stays the newest")
+    return None
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -290,11 +316,7 @@ def main(argv=None) -> int:
     rep.add_argument("--runner")
     o = ap.parse_args(argv)
     if o.cmd == "fetch-state":
-        try:
-            fetch_state(o.repo, o.dir, os.environ.get("GH_TOKEN", ""))
-        except (OSError, ValueError, zipfile.BadZipFile) as e:
-            print(f"nightly-interaction-latency: state not read ({e}); every interaction is touched")
-        return 0
+        return 0 if fetch_state_retrying(o.repo, o.dir, os.environ.get("GH_TOKEN", "")) is not None else 1
     if o.cmd == "plan":
         state = load_state(o.state)
         base = state.get("head") or o.before
