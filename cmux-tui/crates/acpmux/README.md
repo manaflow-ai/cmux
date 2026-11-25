@@ -1550,6 +1550,7 @@ opens, so a change applies without a restart (the variable needs the daemon rest
 |---|---|---|---|---|
 | Compact before the cache expires | `agents.cacheCompact.enabled` | `ACPMUX_CACHE_COMPACT=0\|1` | on | on, off |
 | Only above context used (%) | `agents.cacheCompact.minContextPercent` | `ACPMUX_CACHE_COMPACT_MIN_CONTEXT_PERCENT=N` | 30 | 10-95 |
+| Or above context used (tokens) | `agents.cacheCompact.minContextTokens` | `ACPMUX_CACHE_COMPACT_MIN_CONTEXT_TOKENS=N` | 50000 | 10000-500000 |
 | Batch wakes of cold chats | `agents.coldWake.enabled` | `ACPMUX_COLD_WAKE=0\|1` | on | on, off |
 | Compact cold chats before waking (needs batching on) | `agents.coldWake.compact` | `ACPMUX_COLD_WAKE_COMPACT=0\|1` | on | on, off |
 | Compact cold chats above (tokens) | `agents.coldWake.compactAboveTokens` | `ACPMUX_COLD_COMPACT_ABOVE_TOKENS=N` | 50000 | 10000-500000 |
