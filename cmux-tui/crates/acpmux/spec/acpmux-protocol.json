@@ -3393,6 +3393,13 @@
             "null"
           ]
         },
+        "quietHidden": {
+          "description": "True: the client draws nothing of the chat while it is hidden (`visible: false`), so the\nagent's `session/update` stream is left out until `_acpmux/view` shows it, which then sends\none `_acpmux/lagged` naming the chat (`server/view.rs`); default false.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "omitTimeBreakdown": {
           "description": "True from a client that never draws the breakdown (the phone): the reply's `session`\nleaves `timeBreakdown` out whatever its version (`server/requests/time_breakdown_gate.rs`).",
           "type": [
