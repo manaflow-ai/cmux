@@ -378,7 +378,7 @@ def timed_ssh(argv, hold=False, payload=b""):
         pass
     _, _, ru = os.wait4(pr.pid, 0)
     pr.returncode = 0
-    return wall, ru.ru_utime + ru.ru_stime, rss
+    return wall, ru.ru_utime + ru.ru_stime, rss, ru.ru_utime
 
 
 def phases(argv):
@@ -411,6 +411,11 @@ def phases(argv):
     return {"ms_since_spawn": marks, "kex": kex}
 
 
+def with_opts(argv, extra):
+    """argv (wrapper, options..., rest) with extra ssh options right after the wrapper."""
+    return argv[:1] + list(extra) + argv[1:]
+
+
 def handshake(acpmux, reps, style, real_host, keep):
     tmp = tempfile.mkdtemp(prefix="peercost-hs-")
     fleet = Fleet(acpmux, tmp, 1, style)
@@ -428,20 +433,26 @@ def handshake(acpmux, reps, style, real_host, keep):
         def sshd_cpu():
             return cpu_of({fleet.sshd.pid} | set(descendants(fleet.sshd.pid, children_map())))
 
-        def batch(label, make, payload, first):
+        def batch(label, make, payload, first, extra=()):
             """A fresh alias per rep: each login is a first dial (its own key exchange, its own master)."""
             sshd0 = sshd_cpu()
-            rows = [timed_ssh(make(f"peer{first + i:03d}"), payload=payload) for i in range(reps)]
+            rows = [timed_ssh(with_opts(make(f"peer{first + i:03d}"), extra), payload=payload) for i in range(reps)]
             time.sleep(0.5)
             masters = [p for p in fleet.ours(children_map()) if (stat_of(p) or NOSTAT)[3] == "ssh"] if style == "fleet" else []
             cpu = [r[1] for r in rows]
             out[label] = {"client_cpu_ms_median": round(statistics.median(cpu) * 1000, 1),
                           "client_cpu_ms_mean": round(statistics.mean(cpu) * 1000, 1),
+                          "client_user_ms_median": round(statistics.median(r[3] for r in rows) * 1000, 1),
                           "master_cpu_ms_per_login": round(cpu_of(masters) / reps * 1000, 1),
                           "wall_ms_median": round(statistics.median(r[0] for r in rows) * 1000, 1),
                           "far_sshd_cpu_ms_per_login": round((sshd_cpu() - sshd0) / reps * 1000, 1)}
 
         batch("tunnel_login", tun, probe, 1)
+        # What the key exchange costs: the same login with the classic curve25519 exchange instead of the default's
+        # post-quantum hybrid, and the process alone (`ssh -V`: start, libraries, no network).
+        batch("tunnel_login_curve25519", tun, probe, 300, ("-o", "KexAlgorithms=curve25519-sha256"))
+        v = [timed_ssh([SSH, "-V"], payload=b"") for _ in range(reps)]
+        out["ssh_V_process_alone"] = {"cpu_ms_median": round(statistics.median(x[1] for x in v) * 1000, 1)}
         batch("token_read_login", read, b"", 200)
         idle = timed_ssh(tun("peer500"), hold=True)
         out["idle_tunnel_client_rss_mb"] = round(idle[2] / 1024, 2) if idle[2] else None
