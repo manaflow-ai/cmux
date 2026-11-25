@@ -374,6 +374,16 @@ async fn agent_socket_appears(path: &Path) {
     }
 }
 
+/// Auto mode's machine side (`auto_session/machine.rs`), once the agent's Auto mode socket is
+/// there (an agent older than Auto mode has none). It waits for the store to assign this
+/// machine a chat; until then it changes nothing.
+async fn auto_mode(hub: Arc<Hub>) {
+    use crate::auto_session::machine;
+    let cloud = machine::MachineCloud::here();
+    agent_socket_appears(cloud.socket()).await;
+    machine::serve(hub, Arc::new(cloud), machine::chats_root()).await
+}
+
 /// Follows this daemon's own sessions and reports how many are at work while the Cloud agent's
 /// socket is there.
 pub(super) async fn activity_loop(hub: Arc<Hub>) {
@@ -381,6 +391,10 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
     // Off a Cloud machine nothing reads the report: no renew tick and no resume subscription (it
     // keeps the hub's resume tick running) until the agent's socket appears (cmux-ad m9).
     agent_socket_appears(&path).await;
+    // The agent is here. On a Cloud machine, Auto mode's side starts with it.
+    if crate::cloud_host::is_cloud_vm() {
+        hub.scope.spawn_until_cancelled("auto-mode-machine", auto_mode(hub.clone()));
+    }
     let mut events = hub.subscribe();
     let mut resumes = hub.subscribe_resumes();
     let mut person_prompts = hub.subscribe_person_prompts();

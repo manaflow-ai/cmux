@@ -810,6 +810,15 @@ async fn forward_inner(
         }
         bound_page(m, params, &mut p);
         drop_local_kinds(&mut p);
+        // An older peer refuses a fork's own `requestId` (it took one only with a boundary): it
+        // forks once without it, as before (`hub/fork_request.rs`).
+        if m == method::ACP_SESSION_FORK
+            && p.get("beforePromptId").is_none()
+            && !peer.lists(super::fork_through::FORK_REQUEST_FEATURE)
+            && let Some(obj) = p.as_object_mut()
+        {
+            obj.remove("requestId");
+        }
         // This connection's own reopen hears the chat's messages again; the replay comes over
         // the link every viewer here shares (`MessageNotices`).
         if matches!(m, method::SESSION_LOAD | method::SESSION_RESUME) {
