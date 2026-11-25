@@ -24,9 +24,10 @@ const broken = (result: SimResult, prefix: string) =>
 // notice or message opens drew "Working for" flush (0px) under it (transcriptGap's "two one-line rows sit
 // flush" rule). Now "Working for", the "Worked for" that replaces it and the live "Thinking" line all stand
 // the gap "Worked for" stands under any one-line row (ROW_GAP_LOOKS.shipped.workedAfterLine, 16, #48591).
+// Rule i (one message is one whole bubble) runs under the same describe, so the a and b tests keep their names.
 describe("chat simulator: (a) a turn's first rows keep their gaps, (b) nothing folds before its turn ends", () => {
   for (const [name, make] of Object.entries(SCENARIOS)) {
-    for (const rule of ["a-", "b-"]) {
+    for (const rule of ["a-", "b-", "i-"]) {
       test(`${name}: rule ${rule.slice(0, 1)}`, () => {
         expect(broken(runSimulation(make()), rule)).toEqual([]);
       });
