@@ -30,6 +30,8 @@ final class ConnectionHeartbeat: Sendable {
     private let state = Mutex(cmux_heartbeat_new())
     /// Told each change of ``answering``, outside the lock (``observeAnswering(_:)``).
     private let observer = Mutex<(@Sendable (Bool) -> Void)?>(nil)
+    /// The waits ``untilSilent(_:)`` ends at the next not-answering verdict, by id.
+    private let silentWaits = Mutex<(next: UInt64, ends: [UInt64: @Sendable () -> Void])>((0, [:]))
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
         timer = DemandTimer(owner: "DaemonConnection.heartbeat", clock: clock)
@@ -49,6 +51,38 @@ final class ConnectionHeartbeat: Sendable {
 
     private func tell(_ answering: Bool) {
         if let observer = observer.load() { observer(answering) }
+    }
+
+    /// `work`'s value, or nil once this heartbeat finds the daemon not answering while it waits: its
+    /// next verdict past the misses (`heartbeat` x `heartbeatMisses` of silence on `identify`, which
+    /// the daemon answers before its connection's queue), so silence ends the wait and slowness never
+    /// does. Only for a wait with no side effect (the sync barrier's `identify`): `work` goes on to
+    /// its reply or the connection's end unwatched. With no heartbeat running it waits as `work` does.
+    func untilSilent<T: Sendable>(_ work: @escaping @Sendable () async throws -> T) async throws -> T? {
+        let wait = SilentWait<T>()
+        let id = silentWaits.withLock { waits -> UInt64 in
+            waits.next &+= 1
+            waits.ends[waits.next] = { wait.finish(.success(nil)) }
+            return waits.next
+        }
+        defer { _ = silentWaits.withLock { $0.ends.removeValue(forKey: id) } }
+        // task-owner: the request's own wait; ends with its reply or the connection's end
+        Task {
+            do { wait.finish(.success(try await work())) } catch { wait.finish(.failure(error)) }
+        }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { wait.store($0) }
+        } onCancel: {
+            wait.finish(.failure(CancellationError()))
+        }
+    }
+
+    private func endSilentWaits() {
+        let ends = silentWaits.withLock { waits in
+            defer { waits.ends = [:] }
+            return Array(waits.ends.values)
+        }
+        for end in ends { end() }
     }
 
     /// Starts asking on `transport`; a later start (a reconnect) or `stop`
@@ -87,9 +121,47 @@ final class ConnectionHeartbeat: Sendable {
             transport.close()
         case 2:
             if step.tell { tell(step.answering) }
+            if !step.answering { endSilentWaits() }
             schedule(transport, every: interval, misses: limit, run: run)
         default: // a later start or a stop ended the run
             return
         }
+    }
+}
+
+/// One ``ConnectionHeartbeat/untilSilent(_:)`` wait: the first end (the work's, the silence's or the
+/// caller's cancel) resumes it.
+private final class SilentWait<T: Sendable>: Sendable {
+    private enum State {
+        case idle
+        case waiting(CheckedContinuation<T?, any Error>)
+        case ended(Result<T?, any Error>)
+    }
+
+    private let state = Mutex(State.idle)
+
+    func store(_ continuation: CheckedContinuation<T?, any Error>) {
+        let ended: Result<T?, any Error>? = state.withLock { state in
+            if case .ended(let result) = state { return result }
+            state = .waiting(continuation)
+            return nil
+        }
+        if let ended { continuation.resume(with: ended) }
+    }
+
+    func finish(_ result: Result<T?, any Error>) {
+        let waiting: CheckedContinuation<T?, any Error>? = state.withLock { state in
+            switch state {
+            case .ended:
+                return nil
+            case .waiting(let continuation):
+                state = .ended(result)
+                return continuation
+            case .idle:
+                state = .ended(result)
+                return nil
+            }
+        }
+        waiting?.resume(with: result)
     }
 }

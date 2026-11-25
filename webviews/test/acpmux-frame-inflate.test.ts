@@ -24,8 +24,9 @@ describe("who asks for compressed frames", () => {
   });
 
   test("initialize names zlib only when asked, beside what it always sends", () => {
-    expect(initializeParams()._meta.acpmux).toEqual({ peerRowBatches: true });
-    expect(initializeParams(true)._meta.acpmux).toEqual({ peerRowBatches: true, compression: ["zlib"] });
+    const always = { peerRowBatches: true, chunkDeltas: true, sessionChangedDelta: true };
+    expect(initializeParams()._meta.acpmux).toEqual(always);
+    expect(initializeParams(true)._meta.acpmux).toEqual({ ...always, compression: ["zlib"] });
   });
 });
 

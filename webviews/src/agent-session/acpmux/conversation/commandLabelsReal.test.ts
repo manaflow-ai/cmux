@@ -34,9 +34,10 @@ const label = (tool: Tool) => {
   return toolLabel(
     tool,
     "Bash",
-    (command) => t(running ? "tools.runningCommand" : "tools.ranCommand", { command }),
+    (command) => (running ? command : t("tools.ranCommand", { command })),
     undefined,
-    t(running ? "tools.runningUnnamed" : "tools.ranUnnamed"),
+    running ? undefined : t("tools.ranUnnamed"),
+    !running,
   );
 };
 
@@ -206,7 +207,7 @@ test("the live line and a running row name the working step as written, not its 
     true,
   );
   expect(shortCommand(LEO).startsWith("ffmpeg -v error")).toBe(true);
-  expect(label(shell(LEO, { status: "in_progress" })).startsWith("Running ffmpeg -v error")).toBe(true);
+  expect(label(shell(LEO, { status: "in_progress" })).startsWith("ffmpeg -v error")).toBe(true);
   // The setup's assignment stays whole: `K=$(… key | tail -1)` never reads "key …".
   expect(shortCommand(`K=$(scripts/pin.sh key 2>/dev/null | tail -1); echo "$K"`, Number.POSITIVE_INFINITY)).toBe(
     `K=$(scripts/pin.sh key 2>/dev/null | tail -1) …`,
@@ -214,7 +215,7 @@ test("the live line and a running row name the working step as written, not its 
 });
 
 test("a running script and the live line read as a script, never as its heredoc marker", () => {
-  expect(label(shell(ALS, { status: "in_progress" }))).toBe("Running a Python script on als.json");
+  expect(label(shell(ALS, { status: "in_progress" }))).toBe("python3 -");
   const live = (command: string) =>
     toolLabel(shell(command, { status: "in_progress" }), "Bash", (line) => line, undefined, undefined, false);
   for (const [command] of CASES) {
