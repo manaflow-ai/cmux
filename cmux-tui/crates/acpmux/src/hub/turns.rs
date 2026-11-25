@@ -533,6 +533,9 @@ impl Hub {
         let Some(unanswered) = unanswered else {
             return setup.await;
         };
+        if matches!(unanswered, Unanswered::Defer(_)) {
+            admission.listen();
+        }
         tokio::select! {
             biased;
             answer = &mut setup => return answer,
@@ -893,6 +896,7 @@ impl Hub {
             admitted: opts.admitted,
             after_turn: after_turn.is_some(),
             steer_on_start,
+            answer_due: admission.queue_due(),
         };
         // A prompt the queue already holds (restored after a restart or a move, `queue.rs`
         // `start_restored`) has its place and is not accepted again: it lets the order go

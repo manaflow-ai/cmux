@@ -198,6 +198,9 @@ pub(super) struct Slot<'a> {
     /// [`QueuedPrompt::steer_on_start`]: the person's steer to an agent that steers, sent before
     /// the turn it is for showed.
     pub(super) steer_on_start: bool,
+    /// When its sender must have its answer (`prompt_admission.rs`): a prompt that would still
+    /// wait for the turn lock then joins the queue and is accepted as queued. None: it waits.
+    pub(super) answer_due: Option<tokio::time::Instant>,
 }
 
 /// What a queued prompt's task waits on (`enqueue`): its withdrawal, the turn it joined
@@ -308,9 +311,16 @@ impl Hub {
         p: Slot<'_>,
         accept: &mut impl FnMut(Value),
     ) -> Result<(String, bool, TurnGuard<'a>, Arc<PromptRun>), Answer> {
-        let (limits, hold_ms) = {
-            let cfg = self.config.read().await;
-            (QueueLimits::of(&cfg), super::person_hold::hold_ms(&cfg, &session.meta().name))
+        // Read by the answer's due time (`prompt_admission.rs`); past it, the queue's defaults.
+        let cfg = match p.answer_due {
+            Some(due) => tokio::time::timeout_at(due, self.config.read()).await.ok(),
+            None => Some(self.config.read().await),
+        };
+        let (limits, hold_ms) = match cfg {
+            Some(cfg) => {
+                (QueueLimits::of(&cfg), super::person_hold::hold_ms(&cfg, &session.meta().name))
+            }
+            None => (QueueLimits::defaults(), None),
         };
         // Claimed under the queue lock, as `restore_queue` takes them: a turn of agent messages
         // joins only a restored prompt its task claimed (`digest.rs` `take_joined`).
@@ -481,13 +491,23 @@ impl Hub {
                     // too) may have come after this prompt's admission (review of #37284 at
                     // 4dcbe192, F3): it waits until the restore ends or lapses, as an admission
                     // does, and never runs into the seqs the restore needs.
+                    // Its sender hears from it by its due time (`prompt_admission.rs`): a turn
+                    // lock still held then (a turn that has not shown, or a call that never came
+                    // back) leaves it None, and it queues below.
                     let guard = loop {
                         let done = session.restore_done.notified();
                         tokio::pin!(done);
                         done.as_mut().enable();
-                        let guard = session.turn_lock.lock().await;
+                        let lock = session.turn_lock.lock();
+                        let guard = match p.answer_due {
+                            Some(due) => match tokio::time::timeout_at(due, lock).await {
+                                Ok(guard) => guard,
+                                Err(_) => break None,
+                            },
+                            None => lock.await,
+                        };
                         if !self.restore_holds(session) || self.at_4dcb() {
-                            break guard;
+                            break Some(guard);
                         }
                         drop(guard);
                         done.await;
@@ -500,20 +520,25 @@ impl Hub {
                     // only its compaction goes ahead of what the hold queued.
                     let rate_compaction =
                         p.after_turn && super::auto_resume::rate_compaction_runs(session);
-                    if (queue_waits_for(session, p.agent.is_some()) && !rate_compaction)
-                        || Self::rate_holds(session, p.provenance)
-                    {
-                        drop(guard);
-                        // Its `queued` reservation is still counted.
-                        let (waits, position) =
-                            self.enqueue_or_refuse(session, &p, &turn_id, limits)?;
-                        accept(
-                            json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position}),
-                        );
-                        self.persons_prompt_unparks(session, p.agent, p.provenance);
-                        break 'run (waits, None);
+                    let queues = (queue_waits_for(session, p.agent.is_some()) && !rate_compaction)
+                        || Self::rate_holds(session, p.provenance);
+                    match guard {
+                        Some(guard) if !queues => ClaimedTurn::new(session, guard),
+                        guard => {
+                            if guard.is_none() {
+                                tracing::warn!(session = %session.id, prompt = %p.prompt_id, "turn lock not free by the answer's due time: queued");
+                            }
+                            drop(guard);
+                            // Its `queued` reservation is still counted.
+                            let (waits, position) =
+                                self.enqueue_or_refuse(session, &p, &turn_id, limits)?;
+                            accept(
+                                json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position}),
+                            );
+                            self.persons_prompt_unparks(session, p.agent, p.provenance);
+                            break 'run (waits, None);
+                        }
                     }
-                    ClaimedTurn::new(session, guard)
                 };
                 // Claimed before it leaves the count: a prompt that comes between sees one.
                 session.queued.fetch_sub(1, Ordering::SeqCst);

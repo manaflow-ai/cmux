@@ -46,6 +46,8 @@ pub struct Admission {
     committed: AtomicBool,
     acquired: AtomicBool,
     came: Instant,
+    /// Someone waits on its answer and a queued answer serves them ([`Unanswered::Defer`]).
+    listened: AtomicBool,
     session: String,
 }
 
@@ -64,6 +66,7 @@ impl Admission {
             committed: AtomicBool::new(false),
             acquired: AtomicBool::new(false),
             came: Instant::now(),
+            listened: AtomicBool::new(false),
             session: session.id.clone(),
         })
     }
@@ -128,6 +131,16 @@ impl Admission {
     /// When an unanswered prompt is queued instead.
     pub(super) fn answer_due(&self) -> Instant {
         self.came + ANSWER_BOUND
+    }
+
+    /// Someone waits on it, and an answer that it is queued serves them.
+    pub(super) fn listen(&self) {
+        self.listened.store(true, Ordering::SeqCst);
+    }
+
+    /// The due time `queue_slot` keeps to for the turn lock: None when no one waits on it.
+    pub(super) fn queue_due(&self) -> Option<Instant> {
+        self.listened.load(Ordering::SeqCst).then(|| self.answer_due())
     }
 }
 
@@ -256,6 +269,7 @@ impl Hub {
             admitted: d.admitted,
             after_turn: false,
             steer_on_start: false,
+            answer_due: None,
         };
         if let Some(refused) = self.takes_no_prompt(session, &slot) {
             return Err(refused);
