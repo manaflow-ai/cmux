@@ -36,6 +36,10 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "NETCOND_BW_TURNS",
     "NETCOND_BW_SECS",
     "NETCOND_BW_APPS",
+    "NETCOND_AWAY",
+    "NETCOND_LOADS",
+    "NETCOND_CHAT_MAX_TURNS",
+    "NETCOND_DEBUG",
 ]);
 
 #[path = "support/app_ws.rs"]
@@ -268,18 +272,22 @@ impl Link {
         token: &str,
         deadline: Instant,
     ) -> Result<Self, String> {
-        Self::open_with(addr, token, deadline, false).await
+        Self::open_with(addr, token, deadline, App::Ios, false).await
     }
 
-    /// [`Self::open`]; `delta` asks for row changes as `_acpmux/session_patch`
-    /// (`session-changed-delta-v1`).
+    /// The phone's initialize can request compact text chunks and row changes independently.
     async fn open_with(
         addr: std::net::SocketAddr,
         token: &str,
         deadline: Instant,
+        app: App,
         delta: bool,
     ) -> Result<Self, String> {
-        let mut meta = json!({"localAppToken": token});
+        // The phone draws no time breakdown (`AcpmuxHub.swift` `bind`).
+        let mut meta = json!({"localAppToken": token, "omitTimeBreakdown": true});
+        if app == App::IosCompact {
+            meta["chunkDeltas"] = json!(true);
+        }
         if delta {
             meta["sessionChangedDelta"] = json!(true);
         }
@@ -765,6 +773,9 @@ struct TapInner {
     up: std::collections::BTreeMap<String, (u64, u64)>,
     link_down: u64,
     link_up: u64,
+    /// When the first text chunk came (`agent_message_chunk` as `_acpmux/event`, or
+    /// `_acpmux/chunk`), since the last `take`.
+    first_chunk: Option<Instant>,
 }
 
 /// cmux-mobile-link `frame.rs`: `u32 length | u32 channel | u8 type`, payloads split at 256 KiB.
@@ -854,6 +865,11 @@ impl Tap {
             Message::Pong(b) => ("ws:pong".to_owned(), b.len() as u64, 0),
             _ => return,
         };
+        if t.first_chunk.is_none()
+            && (key.ends_with("/agent_message_chunk") || key == method::MUX_CHUNK)
+        {
+            t.first_chunk = Some(Instant::now());
+        }
         Self::add(&mut t.down, key, len);
         t.link_down += link;
     }
@@ -866,6 +882,7 @@ impl Tap {
         t.up.clear();
         t.link_down = 0;
         t.link_up = 0;
+        t.first_chunk = None;
         out
     }
 }
@@ -875,6 +892,9 @@ impl Tap {
 enum App {
     /// cmux-next-ios `AcpmuxHub.swift` (as `Link::open` and `Link::attach`), over the phone's link.
     Ios,
+    /// [`App::Ios`] that asks for compact text chunks (`initialize` `_meta.acpmux.chunkDeltas`,
+    /// `server/chunk_deltas.rs`).
+    IosCompact,
     /// The macOS agent pane (webviews `direct.ts` `initializeParams`, `sessionPages.ts`
     /// `SESSION_PAGE`, `attachParams.ts` `plainAttach` local with `settled`), a WebSocket.
     Macos,
@@ -884,6 +904,7 @@ impl App {
     fn name(self) -> &'static str {
         match self {
             App::Ios => "ios",
+            App::IosCompact => "ios-compact",
             App::Macos => "macos",
         }
     }
@@ -897,8 +918,8 @@ impl Link {
         token: &str,
         deadline: Instant,
     ) -> Result<Self, String> {
-        if app == App::Ios {
-            return Self::open_with(addr, token, deadline, delta).await;
+        if app != App::Macos {
+            return Self::open_with(addr, token, deadline, app, delta).await;
         }
         let mut meta = json!({"peerRowBatches": true, "localAppToken": token});
         if delta {
@@ -933,7 +954,7 @@ impl Link {
         session: &str,
         deadline: Instant,
     ) -> Result<(Instant, Value), String> {
-        if app == App::Ios {
+        if app != App::Macos {
             return self.attach(session, None, deadline).await;
         }
         let settled = self.capabilities.iter().any(|c| c == "settled-attach-v1");
@@ -966,7 +987,7 @@ fn emit_rates(k: &Key, t: &TapInner, wire: (u64, u64), secs: f64, app: App, per_
     let rate = |b: u64| Some((b as f64 * scale).round());
     emit(k, &format!("bytes{unit}_down"), rate(wire.1));
     emit(k, &format!("bytes{unit}_up"), rate(wire.0));
-    if app == App::Ios {
+    if app != App::Macos {
         let pings = if per_min { (secs / 15.0).floor() as u64 * LINK_PING_BYTES } else { 0 };
         emit(k, &format!("link_bytes{unit}_down"), rate(t.link_down + pings));
         emit(k, &format!("link_bytes{unit}_up"), rate(t.link_up + pings));
@@ -992,8 +1013,8 @@ fn window(shaper: &Shaper, link: &Link) -> (TapInner, (u64, u64)) {
 /// idle, a streaming turn and a tool-calling turn, each a fixed window. One `NETCOND` line per
 /// value, `phase` `bw_open|bw_idle|bw_stream|bw_tools`, `scale` the app. Env:
 /// `NETCOND_BW_PROFILE` (lte), `NETCOND_BW_TURNS` (10000 seeded turns), `NETCOND_BW_SECS` (60),
-/// `NETCOND_BW_APPS` (ios,macos; `ios+delta` and `macos+delta` ask for row changes as
-/// `_acpmux/session_patch`, `session-changed-delta-v1`).
+/// `NETCOND_BW_APPS` (ios, ios-compact, macos). The compact phone asks for text chunks.
+/// Append `+delta` to any app to request row changes as `_acpmux/session_patch`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "the bandwidth bench: run with --ignored --nocapture"]
 async fn chat_bytes_per_minute() {
@@ -1032,7 +1053,11 @@ async fn chat_bytes_per_minute() {
             Some(base) => (base, true),
             None => (app_name.as_str(), false),
         };
-        let app = if base == "macos" { App::Macos } else { App::Ios };
+        let app = match base {
+            "macos" => App::Macos,
+            "ios-compact" => App::IosCompact,
+            _ => App::Ios,
+        };
         let scale = if delta { app_name.as_str() } else { app.name() };
         let key = |phase| Key { profile: &name, phase, scale, run: 0, seed: 0 };
         let (shaper, _hop) =
@@ -1060,11 +1085,15 @@ async fn chat_bytes_per_minute() {
 
         // A streaming answer: a chunk every 50 ms (about a model's token rate), for the window.
         let chunks = secs * 20 + 20;
+        let asked = Instant::now();
         let turn = control.prompt(&session, &format!("ticking:{chunks}:50")).await;
         let t0 = Instant::now();
         link.drain(t0 + window_len).await;
         let (t, wire) = window(&shaper, &link);
-        emit_rates(&key("bw_stream"), &t, wire, t0.elapsed().as_secs_f64(), app, true);
+        let k = key("bw_stream");
+        // The prompt to its first chunk on the phone's side of the link.
+        emit(&k, "first_chunk_ms", t.first_chunk.map(|at| ms(at - asked)));
+        emit_rates(&k, &t, wire, t0.elapsed().as_secs_f64(), app, true);
         let _ = control.answer(turn, BOUND).await;
         link.drain(Instant::now() + Duration::from_secs(1)).await;
         let _ = window(&shaper, &link);
@@ -1150,8 +1179,8 @@ async fn session_changed_on_a_long_chat_is_a_small_patch_only_for_a_client_that_
     eprintln!("netcond-delta: {turns} turns seeded in {:?}", seeded.elapsed());
 
     let deadline = Instant::now() + BOUND;
-    let mut old = Link::open_with(addr, &listener.token, deadline, false).await.unwrap();
-    let mut new = Link::open_with(addr, &listener.token, deadline, true).await.unwrap();
+    let mut old = Link::open(addr, &listener.token, deadline).await.unwrap();
+    let mut new = Link::open_with(addr, &listener.token, deadline, App::Ios, true).await.unwrap();
     assert!(
         new.capabilities.iter().any(|c| c == "session-changed-delta-v1"),
         "{:?}",
@@ -1222,5 +1251,241 @@ async fn session_changed_on_a_long_chat_is_a_small_patch_only_for_a_client_that_
     if let Some(spans) = last_old.pointer("/timeBreakdown/spans").and_then(Value::as_array) {
         let held_spans = row.pointer("/timeBreakdown/spans").and_then(Value::as_array);
         assert_eq!(held_spans.map(Vec::len), Some(spans.len()), "timeBreakdown spans");
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Background: the time-away table (Leo, 2026-11-24: "the syncing can arguably happen in the
+// background too, so deltas can be sipped and maintained"; cmux-next-ios/design/
+// background-delta-sync.md). The phone holds the chat at its newest record and its link closes;
+// acpmux gets what a span of time away brings (simulated: the turns are made at once), then the
+// link reopens through the shaper and the chat catches up.
+//
+// Loads: idle, no turns; busy, one agent streaming a turn of ~1 KB (the open bench's turn) every
+// BG_BUSY_TURN_EVERY_S, about one record a second. acpmux keeps every record of a chat (its
+// journal), so nothing is capped by the host; NETCOND_CHAT_MAX_TURNS caps what one span makes
+// (default: none).
+//
+// Phone forms, phase:
+// - before (the phone today, AcpmuxHub.readPages with a gap allowed): initialize and the watch
+//   on the new link, then `_acpmux/attach {afterSeq, beforeSeq, maxBytes}` (tail-first); on a
+//   gap with `hasMore`, the `_acpmux/events` read after the newest page that tells the two Mac
+//   kinds apart, then forward pages while `hasMore`.
+// - after (the cursor form, newest page first): the same attach; the chat is current once the
+//   page reaches the host's `lastSeq` (`pageThrough`), with no confirming read.
+// `catch_up_ms` from the dial to the phone holding the host's newest record.
+// Rows: surface `chat`, scale `<away>-<load>`.
+
+const BG_BUSY_TURN_EVERY_S: u64 = 2;
+/// AcpmuxHub.tailBeforeSeq.
+const TAIL_BEFORE_SEQ: u64 = 1_099_511_627_776;
+
+fn bg_away_secs(label: &str) -> u64 {
+    let (number, unit) = label.split_at(label.len() - 1);
+    let n: u64 = number.parse().unwrap_or_else(|_| panic!("time away {label}: 30s, 10m or 8h"));
+    match unit {
+        "s" => n,
+        "m" => n * 60,
+        "h" => n * 3600,
+        _ => panic!("time away {label}: 30s, 10m or 8h"),
+    }
+}
+
+fn page_seqs(reply: &Value) -> Option<u64> {
+    let newest = rows(reply).into_iter().max();
+    let through = reply["pageThrough"].as_u64();
+    newest.max(through)
+}
+
+/// NETCOND_DEBUG=1: each read's page on stderr.
+fn bg_debug(phase: &str, read: &str, reply: &Value) {
+    if std::env::var_os("NETCOND_DEBUG").is_none() {
+        return;
+    }
+    let page = rows(reply);
+    eprintln!(
+        "netcond-debug {phase} {read}: {} rows {:?}..{:?} hasMore {} pageThrough {} lastSeq {} bytes {}",
+        page.len(),
+        page.first(),
+        page.last(),
+        reply["hasMore"],
+        reply["pageThrough"],
+        reply["lastSeq"],
+        reply.to_string().len()
+    );
+}
+
+/// The chat's catch-up from `after` on a fresh link through `shaper`.
+async fn bg_chat_once(
+    shaper: &Shaper,
+    token: &str,
+    session: &str,
+    after: u64,
+    phase: &str,
+) -> Result<(Duration, u64, bool), String> {
+    shaper.reset_counters();
+    let start = Instant::now();
+    let deadline = start + BOUND;
+    let mut link = Link::open(shaper.addr(), token, deadline).await?;
+    let params = json!({"sessionId": session, "limit": PAGE_SIZE, "kinds": link.kinds(),
+        "eventStream": true, "afterSeq": after, "beforeSeq": TAIL_BEFORE_SEQ,
+        "maxBytes": OPEN_BYTES, "toolOutputMaxBytes": TOOL_OUTPUT_MAX_BYTES});
+    let id = link.post("_acpmux/attach", params).await?;
+    let (_, reply) = link.answer(id, deadline).await?;
+    let last = reply["lastSeq"].as_u64().ok_or(format!("attach has no lastSeq: {reply}"))?;
+    let page = rows(&reply);
+    bg_debug(phase, "attach", &reply);
+    let mut held = page_seqs(&reply).unwrap_or(0).max(after);
+    let mut more = reply["hasMore"] == json!(true);
+    let gap = more && page.first().is_some_and(|first| *first > after + 1);
+    let hit = !more;
+    let mut cursor = page.last().copied();
+    if phase == "before" && gap {
+        // The read that tells a tail-first Mac from a forward-only one.
+        let newest = page.last().copied().unwrap_or(after);
+        let id = link
+            .post(
+                "_acpmux/events",
+                json!({"sessionId": session, "afterSeq": newest,
+                "limit": PAGE_SIZE, "kinds": link.kinds()}),
+            )
+            .await?;
+        let (_, next) = link.answer(id, deadline).await?;
+        bg_debug(phase, "confirm", &next);
+        let events = rows(&next);
+        more = !events.is_empty() && next["hasMore"] == json!(true);
+        held = held.max(page_seqs(&next).unwrap_or(0));
+        cursor = events.last().copied().or(cursor);
+    } else if gap {
+        // Tail-first: the newest page reaches the host's last record; the rest fills behind.
+        more = held < last;
+    }
+    while more && held < last {
+        let Some(from) = cursor else { break };
+        let id = link
+            .post(
+                "_acpmux/events",
+                json!({"sessionId": session, "afterSeq": from,
+                "limit": PAGE_SIZE, "kinds": link.kinds()}),
+            )
+            .await?;
+        let (_, next) = link.answer(id, deadline).await?;
+        bg_debug(phase, "forward", &next);
+        let events = rows(&next);
+        more = !events.is_empty() && next["hasMore"] == json!(true);
+        held = held.max(page_seqs(&next).unwrap_or(0));
+        cursor = events.last().copied();
+    }
+    let took = start.elapsed();
+    if held < last {
+        return Err(format!("the phone holds {held}, the host {last}"));
+    }
+    Ok((took, last.saturating_sub(after), hit))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "the time-away bench: scripts/measure/ios-network-conditions.sh mode=background runs it"]
+async fn chat_background_catch_up_after_time_away() {
+    let scratch = daemon_env::Scratch::new("netcond-bg");
+    let hub = hub(&scratch.path().join("home"));
+    let listener = app_ws::listen(&hub).await;
+    let upstream: std::net::SocketAddr =
+        listener.url.trim_start_matches("ws://").trim_end_matches('/').parse().unwrap();
+    let file = match std::env::var("NETCOND_PROFILES_FILE") {
+        Ok(p) if !p.is_empty() => ProfileFile::load(Path::new(&p)).unwrap(),
+        _ => ProfileFile::builtin(),
+    };
+    let profiles: Vec<LinkProfile> = env_list("NETCOND_PROFILES", &["good-wifi", "lte", "lossy-3"])
+        .iter()
+        .map(|n| file.get(n).unwrap_or_else(|| panic!("no link profile {n}")).clone())
+        .collect();
+    let aways = env_list("NETCOND_AWAY", &["1m", "10m", "1h", "8h"]);
+    let loads = env_list("NETCOND_LOADS", &["idle", "busy"]);
+    let runs = env_u64("NETCOND_RUNS", 5);
+    let seed_base = env_u64("NETCOND_SEED_BASE", 0);
+    let max_turns = env_u64("NETCOND_CHAT_MAX_TURNS", u64::MAX);
+
+    let mut control = Control::new(&hub);
+    let cwd = scratch.path().join("work");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let made = control
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"name": "netcond-bg"}}}),
+        )
+        .await;
+    let session =
+        made["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{made}")).to_owned();
+    // A chat with history before anything is measured (the open bench's 1x).
+    control.seed(&session, 0, BASE_TURNS).await;
+    let mut turns = BASE_TURNS;
+    println!(
+        "NETCOND-FIXTURE background chat: busy = a ~1 KB turn every {BG_BUSY_TURN_EVERY_S} s; \
+         idle = none; turns per span capped at {}",
+        if max_turns == u64::MAX { "none".to_owned() } else { max_turns.to_string() }
+    );
+    let trace = Trace::new();
+    for load in &loads {
+        let busy = load == "busy";
+        for away in &aways {
+            let secs = bg_away_secs(away);
+            let scale = format!("{away}-{load}");
+            let span_turns = if busy { (secs / BG_BUSY_TURN_EVERY_S).min(max_turns) } else { 0 };
+            for run in 0..runs {
+                let seed = seed_base + run;
+                // The phone's cursor: the newest record when it left.
+                let after = {
+                    let deadline = Instant::now() + BOUND;
+                    let probe = async {
+                        let mut link = Link::open(upstream, &listener.token, deadline).await?;
+                        let (_, reply) = link.attach(&session, None, deadline).await?;
+                        reply["lastSeq"].as_u64().ok_or(format!("no lastSeq: {reply}"))
+                    };
+                    match probe.await {
+                        Ok(after) => after,
+                        Err(why) => {
+                            println!("NETCOND-ERROR chat {scale} run {run}: cursor: {why}");
+                            continue;
+                        }
+                    }
+                };
+                let made = Instant::now();
+                control.seed(&session, turns, turns + span_turns).await;
+                turns += span_turns;
+                eprintln!(
+                    "netcond: chat {scale} run {run}: {span_turns} turns in {:?}",
+                    made.elapsed()
+                );
+                for profile in &profiles {
+                    let name = profile.label(None);
+                    let (shaper, _hop) =
+                        match Shaper::start_through(upstream, profile.clone(), None, seed, &trace)
+                            .await
+                        {
+                            Ok(s) => s,
+                            Err(e) => {
+                                println!("NETCOND-ERROR chat {name} {scale}: shaper: {e}");
+                                continue;
+                            }
+                        };
+                    for phase in ["before", "after"] {
+                        let k = Key { profile: &name, phase, scale: &scale, run, seed };
+                        emit(&k, "stale_s", Some(secs as f64));
+                        match bg_chat_once(&shaper, &listener.token, &session, after, phase).await {
+                            Ok((took, behind, hit)) => {
+                                emit(&k, "events_behind", Some(behind as f64));
+                                emit(&k, "catch_up_ms", Some(ms(took)));
+                                emit_bytes(&k, &shaper);
+                                emit(&k, "cursor_hit", Some(f64::from(u8::from(hit))));
+                            }
+                            Err(why) => {
+                                emit(&k, "catch_up_ms", None);
+                                emit_error(&k, "catch_up_ms", &why);
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

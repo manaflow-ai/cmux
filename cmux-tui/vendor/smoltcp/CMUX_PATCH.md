@@ -70,6 +70,15 @@ slow start included, but its RTO returns to the RTT estimate's value instead of
 doubling: the losses were the old route's. With nothing in flight it resends
 nothing.
 
+`Socket::set_retransmit_paused(true)` is for a peer that went silent on purpose
+(cmux-wg's `WgNet::hold`, a phone the OS suspended in the background). Data in
+flight is not resent while paused: no RTO, tail-loss probe or zero-window probe,
+and `poll_at` waits for ingress instead of their deadlines. New data is still
+sent once, and arriving segments are answered. `set_retransmit_paused(false)`
+with data in flight resends at the next poll as `path_changed()` does. The
+detector is `test_retransmit_paused_resends_nothing_until_resumed`, and in
+cmux-wg `a_held_tunnel_does_not_retransmit_unacknowledged_output`.
+
 `Socket::link_repairs_losses()` is for a tunnel that starts repairing its own
 losses below TCP (cmux-wg's ultra mode, which "Auto" turns on at the first
 loss). The losses that turned it on, and any other loss of data already in
@@ -115,6 +124,23 @@ route may carry full segments. Nothing changes on the wire but the segment
 size, so any peer works. cmux-wg turns it on; its detector is
 `cmux-wg/tests/path_mtu.rs`, a 4 MiB transfer at tunnel MTU 1420 over a
 1400 byte IPv6 path that drops longer packets.
+
+A keep-alive probe from the remote (one octet or none, just below the receive
+window) counts as hearing from it for the user timeout. On the passive side
+(the socket listened) it also pushes the socket's own next probe to 1.25
+keep-alive intervals out. Upstream answered the probe but refreshed neither the
+timeout nor the idle timer, so both ends of an idle connection probed on their
+own clocks: two probes and two ACKs per interval. Now the active end keeps
+probing, the passive end only answers, and its timeout is fed by those probes
+as it was by the ACKs of its own. When the remote goes quiet the deferred probe
+goes out as before. Only one side defers: probes that crossed would defer both
+alike, and both would still fire together. The idle refresh that any segment
+triggers never moves a deferred probe earlier: the ACK to a probe of ours that
+crossed the remote's would undo the deferral. Nothing changes on the wire, so
+any peer works. The detectors are
+`test_remote_keep_alive_defers_ours_and_counts_as_heard`,
+`test_remote_keep_alive_deferral_survives_a_crossing_ack` and
+`test_remote_keep_alive_leaves_the_active_sides_beat`.
 
 The changes are in `src/socket/tcp/congestion/cubic.rs` and `src/socket/tcp.rs`,
 each marked `cmux patch`, with tests next to them. Reno's own start is unchanged;

@@ -69,6 +69,13 @@ extension IPhoneHostService {
         let browserHosts: (any MobileHostBrowserHosting)? = IPhoneBrowserHosts.available()
             ? IPhoneBrowserHosts(workRoot: state.appendingPathComponent("browser", isDirectory: true)) : nil
         follow { settings()?.snapshot.mobile.allowIPhoneConnections ?? false }
+        followingAutoApprove?.cancel()
+        // task-owner: lives as long as the app (stop() cancels it); one pass each time the setting turns on
+        followingAutoApprove = Task { [weak self] in
+            for await on in ObservationStream({ settings()?.snapshot.mobile.autoApprovePhones ?? false }) where on {
+                self?.autoApproveWaiting()
+            }
+        }
         defer {
             followWorkspaceFolders()
             followBrowserWorkspaceSource()
@@ -121,6 +128,7 @@ extension IPhoneHostService {
             cloudLinks: cloudLinks ?? { MobileHostCloudLinks() },
             pairingSeed: IPhonePairingSeed.fromEnvironment(processEnvironment),
             devAutoApprove: IPhoneDevAutoApprove.fromLaunch(environment: processEnvironment),
+            autoApprovePhones: { settings()?.snapshot.mobile.autoApprovePhones ?? false },
             macDevTag: IPhoneDevAutoApprove.macDevTag(),
             chief: chief
         )

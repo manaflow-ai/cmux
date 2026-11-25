@@ -56,7 +56,9 @@ public final class TerminalTabHost {
     }
 
     public func prepareCard() {
-        model.captureSnapshot()
+        // Runs in the tabs button's tap: the still is composed off the main
+        // thread, never in the zoom's first frame.
+        model.captureSnapshotOffMain()
         // The grid opens: the page becomes a picture in its card. TabsKit
         // does not lay the page out again until it zooms back in, so it is
         // taken out of accessibility and hit-testing here; the page's next
@@ -96,52 +98,66 @@ public struct TerminalTabPage: View {
     let host: TerminalTabHost
     /// Status bar (top) and toolbar (bottom) over the page.
     let insets: EdgeInsets
+    /// Where the chrome's cover ends this frame (a collapsed top bar's is above `insets.top`):
+    /// the status scrim's height. Nil: `insets.top`.
+    let chromeTop: CGFloat?
     /// The page is settled full screen (no zoom, swipe or open menu).
     let isInteractive: Bool
     /// This page's own identity for the host's size-claim ownership.
     @State private var pageID = UUID()
 
-    public init(host: TerminalTabHost, insets: EdgeInsets, isInteractive: Bool) {
+    public init(host: TerminalTabHost, insets: EdgeInsets, chromeTop: CGFloat? = nil, isInteractive: Bool) {
         self.host = host
         self.insets = insets
+        self.chromeTop = chromeTop
         self.isInteractive = isInteractive
     }
 
     public var body: some View {
         @Bindable var model = host.model
-        EmbeddedTerminalControllerView(host: host, insets: insets, isInteractive: isInteractive)
+        EmbeddedTerminalControllerView(host: host, insets: insets, chromeTop: chromeTop, isInteractive: isInteractive)
             // Zoomed into the grid or mid-swipe, the page is a picture: its
             // composer and key bar are not controls then (R4-3).
             .accessibilityHidden(!isInteractive)
             // Only a page on screen, settled and taking input sizes the Mac's
             // terminal; the grid, a swipe away, another tab or leaving the
             // workspace release it (PROTOCOL.md, "Terminal size claims").
-            .onAppear { host.pageAppeared(pageID, interactive: isInteractive) }
-            .onChange(of: isInteractive) { _, interactive in host.pageSettled(pageID, interactive: interactive) }
-            .onDisappear { host.pageDisappeared(pageID) }
-            .ignoresSafeArea()
+            .onAppear {
+                host.pageAppeared(pageID, interactive: isInteractive)
+                TerminalPageOrientation.shared.page(pageID, shows: isInteractive)
+            }
+            .onChange(of: isInteractive) { _, interactive in
+                host.pageSettled(pageID, interactive: interactive)
+                // Settled, the page turns with the phone; zoomed out, the grid is portrait.
+                TerminalPageOrientation.shared.page(pageID, shows: interactive)
+            }
+            .onDisappear {
+                host.pageDisappeared(pageID)
+                TerminalPageOrientation.shared.page(pageID, shows: false)
+            }
+            // Full bleed top and bottom (the page's own insets place the rows);
+            // sideways, the grid keeps clear of the Dynamic Island and the
+            // corners (no side insets in portrait). The black fills them.
+            .ignoresSafeArea(.all, edges: .vertical)
             .background(Color.black)
-            // Not attached: the page as last seen on this phone, as it was (a
-            // warm surface keeps its own rows, live and scrollable, under
-            // nothing). A skeleton only for a terminal never opened here. No
-            // status over the content or by the composer: the title pill's
-            // subtitle says it after 10 s (`TerminalModel.connectionLine`).
+            // Not attached: the page as last seen on this phone, live. A warm surface keeps its
+            // own rows; a rebuilt or restored one was fed its kept rows (`TerminalModel.seeded`):
+            // both scroll and take keys at full opacity under nothing (Leo, 2026-11-24: "the
+            // entire thing is somehow grayed out and I can't interact with anything at all").
+            // Only a page with no rows of its own yet shows the Mac's screen text or a
+            // skeleton, which take no touches. No status over the content or by the composer:
+            // the title pill's subtitle says it after 10 s (`TerminalModel.connectionLine`).
             .overlay {
                 Group {
-                    if model.connectionState.keepsWarmFrame {
-                        TerminalConnectingView(topInset: insets.top, lastFrame: model.coldFrame, showsPlaceholder: false)
-                            .ignoresSafeArea()
-                            .padding(.bottom, insets.bottom)
-                    } else if !model.connectionState.isAttached || model.coldFrame != nil {
-                        // One view from connecting to live (R2-5): a tab back from
-                        // the warm set or a cold restore shows its last frame at
-                        // once; once attached the frame stays until the live rows
-                        // are drawn, then goes in one frame: a cut, never a fade
-                        // over live rows at other positions (R3-4).
-                        TerminalConnectingView(topInset: insets.top, lastFrame: model.coldFrame)
+                    if Self.showsCover(attached: model.connectionState.isAttached, seeded: model.seeded,
+                                       drewLiveOutput: model.drewLiveOutput, heldFrame: model.coldFrame != nil) {
+                        // Once attached the cover stays until the live rows are drawn, then
+                        // goes in one frame: a cut, never a fade over live rows (R3-4).
+                        TerminalConnectingView(topInset: insets.top, screenText: model.cardScreenText)
                             .ignoresSafeArea()
                             .padding(.bottom, insets.bottom)
                             .transition(.identity)
+                            .placeholderBound("terminal.page.connecting", .milliseconds(2000))
                     }
                 }
                 .allowsHitTesting(isInteractive)
@@ -154,6 +170,16 @@ public struct TerminalTabPage: View {
             .onChange(of: model.showArtifacts) { _, shown in
                 if shown { host.controller.presentArtifacts() } else { host.controller.dismissArtifacts() }
             }
+    }
+}
+
+extension TerminalTabPage {
+    /// Whether the page draws the connecting cover (the Mac's screen text or a skeleton) over
+    /// its surface: only while the surface has no rows of its own, neither fed from the kept
+    /// page nor drawn from the Mac, and never a still picture (it takes no scroll or tap).
+    static func showsCover(attached: Bool, seeded: Bool, drewLiveOutput: Bool, heldFrame: Bool) -> Bool {
+        guard !seeded, !drewLiveOutput else { return false }
+        return !attached || heldFrame
     }
 }
 
@@ -174,19 +200,26 @@ public struct TerminalTabCard: View {
         cardContent.accessibilityHidden(true)
     }
 
+    /// What the card draws: also read by the UI tests' face probe (`TabCardFaceRecord`).
+    public var content: TerminalCardContent {
+        let started = model.controller?.started == true
+        return TerminalCardContent.choose(sessionStarted: started,
+                                          connecting: model.connectionState.cardShowsConnecting(sessionStarted: started),
+                                          hasSnapshot: model.snapshot != nil, screenText: model.cardScreenText,
+                                          screenTextIsNewer: model.cardScreenTextIsNewer)
+    }
+
     private var cardContent: some View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
-                Color(uiColor: (model.hostTheme ?? CmuxMobileTerminalThemes.shared.theme(for: model.hostMacID))?.backgroundColor
-                    ?? CmuxMobileGhosttyApp.background)
-                let started = model.controller?.started == true
-                let content = TerminalCardContent.choose(sessionStarted: started,
-                                                         connecting: model.connectionState.cardShowsConnecting(sessionStarted: started),
-                                                         hasSnapshot: model.snapshot != nil, screenText: model.cardScreenText,
-                                                         screenTextIsNewer: model.cardScreenTextIsNewer)
+                // The page's ground: the Mac's wallpaper under the terminal background's tint, else that background.
+                CmuxMobileBackdrop(background: Color(uiColor: (model.hostTheme
+                        ?? CmuxMobileTerminalThemes.shared.theme(for: model.hostMacID))?.backgroundColor
+                    ?? CmuxMobileGhosttyApp.background))
                 switch content {
                 case .connecting:
                     TerminalConnectingView(topInset: insets.top, lastFrame: model.snapshot)
+                        .placeholderBound("tabgrid.terminal.connecting", .milliseconds(1000))
                 case .screenText:
                     TerminalCardScreenText(text: model.cardScreenText ?? "", topInset: insets.top, width: geo.size.width)
                 case .snapshot, .savedFrame:
@@ -207,9 +240,10 @@ public struct TerminalTabCard: View {
                         .offset(y: crop.imageTop)
                         .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                         .clipped()
-                        // A frame from an earlier launch stands in, dimmed like a page
-                        // that is not live, until the Mac's screen arrives (T-TABS-01).
-                        .opacity(content.isCurrent ? 1 : 0.55)
+                        // A frame from an earlier launch stands in at full strength until the
+                        // Mac's screen arrives (T-TABS-01): never greyed (Leo, 2026-11-24:
+                        // "the graying out of workspaces, nah let's not do that").
+                        .opacity(content.drawnOpacity)
                     }
                 case .placeholder:
                     VStack(alignment: .leading, spacing: 4) {
@@ -225,6 +259,7 @@ public struct TerminalTabCard: View {
                     .padding(.horizontal, 12)
                     .padding(.top, insets.top + 8)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .placeholderBound("tabgrid.terminal.placeholder", .milliseconds(1000))
                 }
             }
         }
@@ -267,6 +302,7 @@ struct TerminalCardScreenText: View {
 struct EmbeddedTerminalControllerView: UIViewControllerRepresentable {
     let host: TerminalTabHost
     let insets: EdgeInsets
+    var chromeTop: CGFloat?
     let isInteractive: Bool
 
     func makeUIViewController(context: Context) -> EmbeddedTerminalContainer {
@@ -278,6 +314,15 @@ struct EmbeddedTerminalControllerView: UIViewControllerRepresentable {
         let controller = container.terminal
         guard controller.parent === container else { return }
         controller.setEmbeddedInsets(UIEdgeInsets(top: insets.top, left: 0, bottom: insets.bottom, right: 0))
+        // The scrim rides the top bar's collapse inside the same SwiftUI animation, so the
+        // band the bar gave back shows the rows under it instead of a solid strip.
+        let scrimTop = chromeTop ?? insets.top
+        if controller.needsChromeTop(scrimTop) {
+            context.animate {
+                controller.setChromeTop(scrimTop)
+                controller.view.layoutIfNeeded()
+            }
+        }
         // Zoomed into the grid or mid-swipe the page is a picture: SwiftUI's
         // `accessibilityHidden` does not reach a representable's UIKit views,
         // so its composer, Return and Scroll to bottom stayed exposed and took
