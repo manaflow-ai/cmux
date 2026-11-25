@@ -3,7 +3,6 @@
 //! prints `REHEARSAL_CASE <name> <total ms> <copy ms> <run ms> <outcome>` for the issue's numbers.
 
 use super::*;
-use std::io::Read as _;
 use std::net::TcpListener;
 use std::path::Path;
 
