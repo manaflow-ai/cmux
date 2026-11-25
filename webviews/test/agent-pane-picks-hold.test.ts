@@ -64,6 +64,18 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
     };
 
     /** The chips once the page has drawn every value the daemon sent: two painted frames later. */
+    /** The pane is on acpmux's socket. Before it, the New Tab draws its pre-connect face (Claude Code's
+     *  models) and a model menu opened then keeps that face after the chip moves to acpmux's default harness
+     *  (Codex here), so a pick made before it looks for a row the open menu never draws (cmux#49831's
+     *  web-browser, run 45561751397: the pane connected 19 s in on a cold runner, the pick timed out at 30 s). */
+    async function connected(page: Page) {
+      await page.waitForFunction(
+        () => (window as any).cmuxAcpmuxDebug?.chatState?.().connection === "connected",
+        undefined,
+        { timeout: 60_000 },
+      );
+    }
+
     async function settled(page: Page) {
       for (let frame = 0; frame < 30; frame++) await page.evaluate(() => window.cmuxPaintFrame());
       return chipValues(page);
@@ -157,6 +169,7 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
           await page.goto(paneUrl(lane.base, lane.daemon));
           await page.locator(".nt-field").waitFor();
           await page.waitForFunction(() => !!document.querySelector(".acpmux-access-trigger"));
+          await connected(page);
           const start = await settled(page);
           note(`new tab: ${JSON.stringify(start)}`);
           await startValueSampler(page);
@@ -205,11 +218,7 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
           // A restart of the daemon: the page loses its socket and reconnects to the new one.
           const before = lane.daemon.connections();
           await lane.daemon.restart();
-          await page.waitForFunction(
-            () => (window as any).cmuxAcpmuxDebug?.chatState?.().connection === "connected",
-            undefined,
-            { timeout: 60_000 },
-          );
+          await connected(page);
           expect(lane.daemon.connections()).toBeGreaterThan(before);
           await settled(page);
           held("daemon restart", await takeValues(page), want);
@@ -222,6 +231,7 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
           await page.goto(paneUrl(lane.base, lane.daemon));
           await page.locator(".nt-field").waitFor();
           await page.waitForFunction(() => !!document.querySelector(".acpmux-access-trigger"));
+          await connected(page);
           note(`second new tab: ${JSON.stringify(await settled(page))}`);
           await startValueSampler(page);
           await takeValues(page);
