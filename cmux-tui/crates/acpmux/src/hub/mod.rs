@@ -104,6 +104,7 @@ mod ephemeral;
 #[cfg(test)]
 mod first_work_tests;
 mod fork;
+mod forward_wait;
 #[cfg(test)]
 mod title_log_tests;
 pub use fork::Retarget;
@@ -927,6 +928,9 @@ pub struct PromptOptions {
     /// An automatic continuation (`auto_resume.rs`): runs only while the chat still ends on
     /// this turn, checked again once it holds the turn lock, else refused unrecorded.
     pub after_turn: Option<String>,
+    /// A fired continuation's generation (`auto_resume.rs` `Pending::generation`): its turn
+    /// starts only while no Stop came since its fire, even once its mark is gone.
+    pub fired: Option<u64>,
     /// `_meta.acpmux.supersede` (`supersede.rs`): the same sender's prompts still queued under
     /// this key leave the queue, replaced by this one.
     pub supersede: Option<String>,
@@ -1552,6 +1556,9 @@ pub struct Hub {
     /// default daemon never starts or links a node without an explicit request.
     #[cfg(all(unix, feature = "tailnet"))]
     pub(crate) tailnet_controller: std::sync::OnceLock<Arc<crate::tailnet::embedded::Controller>>,
+    /// Where each workspace runs now, for the stable tailnet node's front
+    /// (`tailnet/stable_front.rs`), set by `_acpmux/tailnet/placement`.
+    pub(crate) tailnet_placements: Arc<cmux_tailnet_front::PlacementTable>,
     /// Brief identities shared by dispatch, report and MCP clients.
     pub(crate) briefs: dispatch::Briefs,
     /// Every Claude workflow of this daemon's chats (`workflow_index.rs`).
@@ -1925,6 +1932,7 @@ impl Hub {
             pairing: Default::default(),
             #[cfg(all(unix, feature = "tailnet"))]
             tailnet_controller: std::sync::OnceLock::new(),
+            tailnet_placements: Default::default(),
             briefs,
         });
         if let Ok(c) = hub.config.try_read() {
@@ -2036,6 +2044,28 @@ impl Hub {
         );
         let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         sessions.values().filter(|s| s.turn().is_none()).cloned().collect()
+    }
+
+    /// Tests only: `session`'s record of `kind`, heard as the hub's own event.
+    #[cfg(test)]
+    pub(crate) fn emit_for_test(&self, session: &str, kind: &str, msg: Value) {
+        let record = EventRecord {
+            seq: 1,
+            at: 0,
+            dir: "mux".into(),
+            kind: kind.into(),
+            msg,
+            host_seq: None,
+        };
+        let _ = self.events.send(HubEvent {
+            session_id: session.into(),
+            record: Arc::new(record),
+            remote: None,
+            update_line: Default::default(),
+            row: Default::default(),
+            list_seq: 0,
+            peer_batch: false,
+        });
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<HubEvent> {

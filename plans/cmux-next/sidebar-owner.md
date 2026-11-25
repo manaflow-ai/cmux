@@ -50,6 +50,7 @@
 - 2026-11-21 (nx-48363-glow-marks-overlap): Sidebar-Look: user, 2026-11-20 (https://github.com/manaflow-ai/cmux/issues/48363): "it happens for blue notification dot and the red error o, we need to fix this issue". On a hovered workspace row the ✕ and ⋮ never draw over the unread dot, the row badge or the status mark (the red error): the row's display pass (`updateNeedsYouGlow`) no longer sets those marks back to full opacity when the row does not glow, which undid the layout that clears them under the controls. The needs-you glow only clears them, the layout keeps them clear while the row glows, and when the glow stops the layout's hover rules bring them back. The row tracks the marks the glow cleared (`marksHiddenForGlow`), so a glow that ends by a display-only change (secondary selection, drop target) still asks for the layout that restores them. Regression: `SidebarRowCloseClearsMarksTests` (now runs the display pass after the hover layout and checks the unread or error mark returns after the hover).
 - 2026-11-21 (49579-standard-dialog-density): Sidebar-Look: user, 2026-11-21 (https://github.com/manaflow-ai/cmux/issues/49579): "The sidebar's 'cmux Is Up to Date' card uses its own oversized title/body text, padding and radius. Make it, and every similar sidebar/app dialog or toast card, use one standardized type scale and spacing that follows the text density settings." Every card reads one scale, `CmuxNextDesign/CardScale.swift`: `Typography.cardTitle` (TypeScale body step, emphasized), `cardBody`/`cardBodyDigits`/`cardButton` (detail step), `cardCaption` (caption step) and `dialogTitle` (title step), each times the density's text factor and the person's Text Size and Interface Size on the half-point grid (Default 13/12/11, Compact 11.5/11/10, Spacious 15.5/14.5/13), so a card's title sits under the rows' title at every density (it matched them). Spacing: `Metrics.cardPadding` `space4 + space1` (10 pt at Default; supersedes the tip card's 12 of 2026-11-19 and the Update Ready card's 5), `cardTextGap` `space1`, `cardRowGap` `space3`, `cardCornerRadius` concentric from the padding. Moved onto it: the notice cards (update status, tips, asks, announcements, star prompt), Update Ready, Now Playing (was `space3` and the surface corner), the card text buttons, switches and Automatic Updates label, toasts, and dialogs (`Metrics.dialogPadding` `space6`, was a fixed 16 times the text scale). Regression: `CardScaleDensityTests` (every density).
 - 2026-11-22 (a590 pin cuts): Sidebar-Look: Lawrence 2026-11-20: "drastically simplify all parts of the UI"
+- 2026-11-24 (spaces-member-room, #31378): Sidebar-Look: Leo, 2026-11-24: "we also need to fix stupid bugs and usability issues with spaces". A Pinned group's link, tab or app that stores the group's own space draws only in a window on that space; one storing no space or another space still draws wherever its group lists. Move Group to Space takes along the members that stored the old space. Regression: `SidebarSpaceOwnsPinsAndGroupsTests`, `SidebarSpaceReachabilityTests`.
   (plans/cmux-next/ui-simplify.md, Pin: "no drop overlay text"). An empty Pinned's drop zone, the gap a drag opens at
   the top (`SidebarPinZone`), no longer says "Drop here to pin": the gap is the cue, as every other empty section's
   row draws nothing. The zone and the drop are unchanged. Kept, not cut: the filled pin a pinned row leads with (Leo
@@ -1425,6 +1426,17 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 2. Do not take back a look another commit chose in the last week without naming that commit here.
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
+
+## No two icons in a row share a box (2026-11-22)
+
+Leo 2026-11-22T21:56Z, on a tree parent's chevron with the blue dot drawn over the ⋮ beside it: "this too. fucking
+overlapping icons. over 24 hours ago." Target look: at every sidebar width, hovered or not, pinned or not, no two
+drawn icons of a row (the ✕, the ⋮, the pin, a tree chevron, the speaker, the drive button, the dot, the spinner, the
+status badge, a count, a chip) have intersecting frames. Each row kind's layout ends with one pass,
+`NSView.clearMarksMeetingIcons(keep:marks:fades:)`: the controls a person points at keep their box, and a mark meeting
+any icon drawn before it clears until the next layout (workspace rows, group headers, pinned tiles). Tests:
+`SidebarIconsNeverMeetTests` (pairwise frame intersection at the minimum width and above, every close spot, badge
+style, mark set and pose; a gallery at narrow widths).
 
 ## Every button rounds as a tab (2026-11-12)
 
@@ -2826,6 +2838,12 @@ Commits logged without a trailer (the card above):
   (red on feat-cmux-next and on base 19421bb).
   Sidebar-Look: Leo 2026-10-21 "move the magnifying glass a bit lower": one device pixel, no more.
 
+- 2026-11-22 (quiet-connect-cloud): a Cloud machine resuming for an attach (`.resuming`, the record's pending start) is
+  held by the connecting grace (10 s, `SidebarPlaceholderGrace.healsOnItsOwn`) as a connect or reconnect is: a resume of
+  a second or two keeps the header quiet, no "Resuming…" and no spinner; one past the grace says so then. Pausing,
+  Paused and Deleting are not held. Harness: `CloudHeaderQuietTimelineTests` (label exposure ms per scenario).
+  Sidebar-Look: Leo 2026-11-14 "i also want all our connectivity stuff to shut up and load faster/percievably load faster".
+
 - 2026-11-21 (49583, 35f0edfcc6e): every sidebar row symbol (a pinned row's leading pin; a hovered row's Pin/Unpin,
   ⋮, ✕, tree chevron and speaker; a pinned item's ⋮ and Unpin; a group header's ⋮, Unpin and chevron) draws at one
   side, `SidebarStyle.rowSymbolSide`: the image side of the leading pin fitted to the rows' optical square. Before, the
@@ -2842,6 +2860,9 @@ Commits logged without a trailer (the card above):
   on a tab, so the row keeps the tab bar's balance. Fitting every favicon's ink to the glyphs' side had drawn it about
   1.4x smaller than on its tab.
   Sidebar-Look: "the icon sizes should be the same size as the horizontal tabs... the icon sizes need to be kind of standardized"
+- 2026-11-22 (leo-24h-icon-fixes): no two icons in a row share a box: a last layout pass clears any mark meeting a
+  control or an earlier icon. `SidebarIconsNeverMeetTests`.
+  Sidebar-Look: Leo 2026-11-22 "this too. fucking overlapping icons. over 24 hours ago."
 - 2026-11-23 (Updated card, ask-33e37575cb): the "Updated to Nightly" card is one line, "Updated to Nightly" with
   What's New ↗ at its end, at the composer's one-line height (48) and material (the art share over background
   pictures), at the layout grid's card corner (`card-radius`, 16: a third of the box) instead of the composer's

@@ -44,6 +44,12 @@ public enum CmuxMobilePreferences {
         /// Codex or opencode terminal comes as the cells that changed, not its PTY bytes.
         /// Read at each terminal attach (`DaemonTerminalSession.agentCLIHybridDefaultsKey`).
         public static let agentCLIHybrid = "cmuxMobile.settings.agentCLIHybrid"
+        /// Settings → Transport → Quiet Cloud Connections (off by default; Leo, 2026-11-24: "don't
+        /// unilaterally MERGE ui stuff yet ... having people be able to easily toggle" it): on, a Cloud
+        /// list or machine that answers within ``QuietStatusGate/threshold`` never shows its wait, and
+        /// a short outage behind cached Cloud rows shows no alert (Leo, 2026-11-14: "i also want all our
+        /// connectivity stuff to shut the fuck up and load faster/percievably load faster").
+        public static let quietCloudConnect = "cmuxMobile.settings.quietCloudConnect"
         public static let dismissKeyboardAfterSend = "cmuxMobile.settings.dismissKeyboardAfterSend"
         /// Settings → Composer → Swipe Down to Collapse (off by default; `ComposerReturnTextView`).
         public static let swipeDownCollapsesComposer = "cmuxMobile.settings.swipeDownCollapsesComposer"
@@ -73,6 +79,7 @@ public enum CmuxMobilePreferences {
     public static let defaultTerminalChatToggle = false
     /// Off until Leo picks it up (UI merges default-off).
     public static let defaultTerminalPlainScroll = false
+    public static let defaultQuietCloudConnect = false
     public static let defaultTerminalZoomFullScreenApps = false
     public static let defaultDismissKeyboardAfterSend = true
     /// Off until Leo picks it up (2026-11-24: "don't unilaterally MERGE ui stuff yet ... having people be able to
@@ -119,6 +126,14 @@ public enum CmuxMobilePreferences {
         // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
         defaults.object(forKey: Key.terminalPlainScroll) == nil
             ? defaultTerminalPlainScroll : defaults.bool(forKey: Key.terminalPlainScroll)
+    }
+
+    /// Whether Cloud waits and short Cloud outages stay quiet until they last (on), or show at once
+    /// (off, the default). Read each time a Cloud wait starts or a Cloud refresh fails.
+    public static func quietCloudConnect(_ defaults: UserDefaults = .standard) -> Bool {
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
+        defaults.object(forKey: Key.quietCloudConnect) == nil
+            ? defaultQuietCloudConnect : defaults.bool(forKey: Key.quietCloudConnect)
     }
 
     /// Whether a full-screen app shows at the Mac's grid, zoomed, and fits the phone only once
