@@ -1,6 +1,7 @@
 //! Part of the TUI `App`; see `tui/mod.rs`.
 
 use super::*;
+use crate::start_wait::{START_DEADLINE, StartEnd};
 
 impl App {
     // ------------------------------------------------------------ overlays
@@ -197,9 +198,13 @@ impl App {
             params.set_path(&["_meta", "acpmux", "effort"], json!(effort));
         }
         self.status = format!("starting {}…", d.harness);
+        let draft = d.id;
+        let harness = d.harness.clone();
         tokio::spawn(async move {
-            match client.request(method::SESSION_NEW, params).await {
-                Ok(v) => {
+            let start = client.request(method::SESSION_NEW, params);
+            let lost = || client.is_closed();
+            match crate::start_wait::bounded(&harness, START_DEADLINE, start, lost).await {
+                StartEnd::Started(v) => {
                     if let Some(id) = session_route_id(&v) {
                         let _ = tx.send(AppMsg::Created(id.to_owned()));
                         let id = id.to_owned();
@@ -209,12 +214,32 @@ impl App {
                         });
                     }
                 }
-                Err(e) => {
-                    let _ = tx.send(AppMsg::Error(e.to_string()));
-                    let _ = tx.send(AppMsg::DraftFailed);
+                StartEnd::Lost => {
+                    let _ = tx.send(AppMsg::StartLost { draft, text, images });
+                }
+                StartEnd::Failed(why) | StartEnd::TimedOut(why) => {
+                    let _ = tx.send(AppMsg::Error(why));
+                    let _ = tx.send(AppMsg::DraftFailed { draft, images });
                 }
             }
         });
+    }
+
+    /// The draft start that lost its connection (`start_after_reconnect`), again, if that
+    /// draft is still the one shown and not already starting. A draft left meanwhile keeps its
+    /// message in its composer for Enter.
+    pub(crate) fn start_lost_draft_again(&mut self) {
+        let Some((draft, text, images)) = self.start_after_reconnect.take() else { return };
+        match self.draft() {
+            Some(d) if d.id == draft && !d.creating => self.create_from_draft(text, images),
+            _ => {
+                if let Some(d) = self.drafts.iter_mut().find(|d| d.id == draft)
+                    && d.images.is_empty()
+                {
+                    d.images = images;
+                }
+            }
+        }
     }
 
     pub(super) fn open_new_session(&mut self) {
@@ -268,9 +293,11 @@ impl App {
         let client = self.client.clone();
         let tx = self.tx.clone();
         self.status = "starting harness…".into();
+        let harness = agent.clone();
         tokio::spawn(async move {
-            match client.request(method::SESSION_NEW, params).await {
-                Ok(v) => {
+            let start = client.request(method::SESSION_NEW, params);
+            match crate::start_wait::bounded(&harness, START_DEADLINE, start, || false).await {
+                StartEnd::Started(v) => {
                     if let Some(id) = session_route_id(&v) {
                         let _ = tx.send(AppMsg::Created(id.to_owned()));
                         if !first.is_empty() {
@@ -283,9 +310,11 @@ impl App {
                     }
                     let _ = tx.send(AppMsg::Info("session created".into()));
                 }
-                Err(e) => {
-                    let _ = tx.send(AppMsg::Error(e.to_string()));
+                StartEnd::Failed(why) | StartEnd::TimedOut(why) => {
+                    let _ = tx.send(AppMsg::Error(why));
                 }
+                // The form's start is not held: `lost` is never true here.
+                StartEnd::Lost => {}
             }
         });
         self.overlay = Overlay::None;
