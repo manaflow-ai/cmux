@@ -294,6 +294,10 @@ path = "tests/test_ci_ios_conventions_diff.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_ios_kit_base_red.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_ios_loading_placeholders.py"
 lane = "linux-guard"
 
@@ -522,6 +526,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_parallel_artifact_transport.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_persisted_formats.py"
 lane = "linux-guard"
 
 [[test]]

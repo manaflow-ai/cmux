@@ -480,7 +480,7 @@ public final class PaletteController {
     func handleKeyDown(_ event: NSEvent, in window: NSWindow? = nil) -> Bool {
         let window = window ?? event.window
         if model.shortcutRecorder != nil {
-            return shortcutRecorder.handle(PaletteShortcutRecorder.shortcut(for: event), keyCode: event.keyCode, event: event)
+            return shortcutRecorder.handle(PaletteShortcutRecorder.shortcut(for: event, qwerty: registry.matchesQwertyPositions), keyCode: event.keyCode, event: event)
         }
         if Self.inputMethodOwns(event, in: window) { return false }
         // The v2 rail's categories (⌥↑ / ⌥↓), only while a rail shows.

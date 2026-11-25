@@ -3517,10 +3517,13 @@ Release after the merge, and push-attribution names the PR on a red.
 
 Above `app-compile-fleet.if` in `.github/workflows/cmux-next.yml`.
 
-It takes the gateway, or a wider class of it, only while app-compile-placement saw a runner idle
-(gateway_runner). With none idle it does not run: release-compile then runs, and
-macos-placement puts it in the cascade (CASCADE_RUNS), so it takes a free Blacksmith
-slot rather than the queue PR #24155's compile sat in three times on 2026-10-26.
+It runs on cmux-linux whether or not app-compile-placement saw a gateway runner idle: since note-557 its
+runner only reads the verdict the controller posts, so a busy gateway is no reason to skip it. It used to
+run only on an idle reading, and the skip sent the PR to the Mac Release compile: in the 24 h before
+2026-11-25 ~02:00Z, 50 of 114 PR Release compiles (about 950 Mac minutes) were PRs whose only Mac
+reason was this skip. release-compile still runs when this job gives no verdict (unavailable, or skipped
+on a later attempt), and macos-placement still lists it in the cascade (CASCADE_RUNS) when no gateway was
+idle, so that fallback takes a free slot rather than the queue PR #24155's compile sat in three times on 2026-10-26.
 It does not wait for the PR quiet period: its runner only hands the head to the build fleet's
 Linux compile, and the run's group cancels it on a newer push, as does its own group below.
 
@@ -4375,6 +4378,13 @@ tip on a push) refuses a row the base lacks (a unit fixed in place does not free
 without `--base`, judges every unlisted offender and fails a row whose unit no longer offends, whatever file the
 change touched: whether a unit offends depends on files it does not live in (a strings map, a string table). Its own tests run in the same background check.
 
+The same step then prints `--input-block`: each place a view is disabled, loses hit testing or is grayed out on a
+link condition (connecting, reconnecting, reattaching, resuming, offline, disconnected, not attached, the hub not
+ready), on the web pages, the Mac app and the iOS apps (Leo, 2026-11-24, back in the iOS app after minutes in
+another app: "the entire thing is somehow grayed out and I can't interact with anything at all"). It is a report:
+it exits 0 whatever it finds, and the findings are the work queue for the lanes that make input accepted while the
+link comes back. A blocking rule for it needs Leo's own word.
+
 The cmux-next workflow does not run on a change that touches only the phone app, so `cmux-next-ios-kit.yml`'s
 kit-tests job runs the same check over the whole tree (no `--base`: every unlisted offender and every stale row
 fails; a new row is caught by the cmux-next run that any change to the list triggers). The legacy `ios/` app is not
@@ -5115,3 +5125,28 @@ So placement reads the controller's `/v1/status` (`step_queue_wait_p90_seconds.l
 cmux-next-tab-switch.yml's admission. Past 1200 s it lists no fleet job: fast-tier-fleet is skipped and
 `cmux-next fast tier` keeps the route the cascade gave it, with the reason in placement's summary. The
 gateway job still runs nothing but the client. An unreadable status lists the job as before (fail open).
+
+## note-559
+
+Above the fast-tier-cargo job's env in `.github/workflows/cmux-next.yml`, its "List the changed paths" and run
+steps, and `scope()` in `scripts/cmux-next/fast-tier.py`.
+
+Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." A pull request into
+feat-cmux-next runs only the fast tier entries, and the compiles, its change reaches; the full run moved into
+the post-merge batch (suite `fast-tier`, cmux-next-fast-tier-batch.yml), where the judge bisects a red to its
+commit.
+
+`fast-tier.py --changed-files` picks the entries: a cargo entry when the change reaches its crate's inputs in
+affected_jobs.py's crate graph (or the workspace inputs, or fast_tier_cargo_route.py's LINKED); a CmuxNext
+suite when cmux_next_route.py routes the change to it (full, all tests, the fast registry, a priority suite or
+its test targets); another swift package when the change is under it or a local `.package(path:)` it depends
+on; a script entry when the change is under its folder. A cargo compile still runs when the change reaches the
+job's inputs, so a broken build is still caught on the pull request. An unreadable list, the `full-ci` label, a
+change to fast-tier.py, its registry or its quarantine, or a routing error runs every entry.
+
+fast-tier-cargo writes the merge commit's first-parent diff and adds its hash to the job-reuse fingerprint
+(`--extra scope=...`), so a scoped pass is never reused for a full one. The Mac fast tier step
+(ci/steps.toml `mac-fast-tier`) passes `CI_PATHS_FILE` when no FFI repin selected its own suites. Pushes to
+feat-cmux-next still run every entry.
+
+The switch: `vars.CI_FAST_TIER_PR_SCOPE` set to `0` runs every entry on the pull request again (both jobs).
