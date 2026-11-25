@@ -157,7 +157,7 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<RegistryCommit> {
         let Some(extra) = extra else {
             return Ok(self
-                .commit_registry_intent(RegistryIntent::Workspace(intent))?
+                .commit_registry_intent(RegistryIntent::Workspace(Box::new(intent)))?
                 .into_workspace()?
                 .commit);
         };

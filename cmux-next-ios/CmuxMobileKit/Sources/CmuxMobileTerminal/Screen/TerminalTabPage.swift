@@ -56,7 +56,9 @@ public final class TerminalTabHost {
     }
 
     public func prepareCard() {
-        model.captureSnapshot()
+        // Runs in the tabs button's tap: the still is composed off the main
+        // thread, never in the zoom's first frame.
+        model.captureSnapshotOffMain()
         // The grid opens: the page becomes a picture in its card. TabsKit
         // does not lay the page out again until it zooms back in, so it is
         // taken out of accessibility and hit-testing here; the page's next
@@ -134,28 +136,24 @@ public struct TerminalTabPage: View {
             // corners (no side insets in portrait). The black fills them.
             .ignoresSafeArea(.all, edges: .vertical)
             .background(Color.black)
-            // Not attached: the page as last seen on this phone, as it was (a
-            // warm surface keeps its own rows, live and scrollable, under
-            // nothing). A skeleton only for a terminal never opened here. No
-            // status over the content or by the composer: the title pill's
-            // subtitle says it after 10 s (`TerminalModel.connectionLine`).
+            // Not attached: the page as last seen on this phone, live. A warm surface keeps its
+            // own rows; a rebuilt or restored one was fed its kept rows (`TerminalModel.seeded`):
+            // both scroll and take keys at full opacity under nothing (Leo, 2026-11-24: "the
+            // entire thing is somehow grayed out and I can't interact with anything at all").
+            // Only a page with no rows of its own yet shows the Mac's screen text or a
+            // skeleton, which take no touches. No status over the content or by the composer:
+            // the title pill's subtitle says it after 10 s (`TerminalModel.connectionLine`).
             .overlay {
                 Group {
-                    if model.connectionState.keepsWarmFrame {
-                        TerminalConnectingView(topInset: insets.top, lastFrame: model.coldFrame, showsPlaceholder: false)
-                            .ignoresSafeArea()
-                            .padding(.bottom, insets.bottom)
-                    } else if !model.connectionState.isAttached || model.coldFrame != nil {
-                        // One view from connecting to live (R2-5): a tab back from
-                        // the warm set or a cold restore shows its last frame at
-                        // once; once attached the frame stays until the live rows
-                        // are drawn, then goes in one frame: a cut, never a fade
-                        // over live rows at other positions (R3-4).
-                        TerminalConnectingView(topInset: insets.top, lastFrame: model.coldFrame,
-                                               screenText: model.cardScreenText)
+                    if Self.showsCover(attached: model.connectionState.isAttached, seeded: model.seeded,
+                                       drewLiveOutput: model.drewLiveOutput, heldFrame: model.coldFrame != nil) {
+                        // Once attached the cover stays until the live rows are drawn, then
+                        // goes in one frame: a cut, never a fade over live rows (R3-4).
+                        TerminalConnectingView(topInset: insets.top, screenText: model.cardScreenText)
                             .ignoresSafeArea()
                             .padding(.bottom, insets.bottom)
                             .transition(.identity)
+                            .placeholderBound("terminal.page.connecting", .milliseconds(2000))
                     }
                 }
                 .allowsHitTesting(isInteractive)
@@ -168,6 +166,16 @@ public struct TerminalTabPage: View {
             .onChange(of: model.showArtifacts) { _, shown in
                 if shown { host.controller.presentArtifacts() } else { host.controller.dismissArtifacts() }
             }
+    }
+}
+
+extension TerminalTabPage {
+    /// Whether the page draws the connecting cover (the Mac's screen text or a skeleton) over
+    /// its surface: only while the surface has no rows of its own, neither fed from the kept
+    /// page nor drawn from the Mac, and never a still picture (it takes no scroll or tap).
+    static func showsCover(attached: Bool, seeded: Bool, drewLiveOutput: Bool, heldFrame: Bool) -> Bool {
+        guard !seeded, !drewLiveOutput else { return false }
+        return !attached || heldFrame
     }
 }
 
@@ -205,6 +213,7 @@ public struct TerminalTabCard: View {
                 switch content {
                 case .connecting:
                     TerminalConnectingView(topInset: insets.top, lastFrame: model.snapshot)
+                        .placeholderBound("tabgrid.terminal.connecting", .milliseconds(1000))
                 case .screenText:
                     TerminalCardScreenText(text: model.cardScreenText ?? "", topInset: insets.top, width: geo.size.width)
                 case .snapshot, .savedFrame:
@@ -225,9 +234,10 @@ public struct TerminalTabCard: View {
                         .offset(y: crop.imageTop)
                         .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                         .clipped()
-                        // A frame from an earlier launch stands in, dimmed like a page
-                        // that is not live, until the Mac's screen arrives (T-TABS-01).
-                        .opacity(content.isCurrent ? 1 : 0.55)
+                        // A frame from an earlier launch stands in at full strength until the
+                        // Mac's screen arrives (T-TABS-01): never greyed (Leo, 2026-11-24:
+                        // "the graying out of workspaces, nah let's not do that").
+                        .opacity(content.drawnOpacity)
                     }
                 case .placeholder:
                     VStack(alignment: .leading, spacing: 4) {
@@ -243,6 +253,7 @@ public struct TerminalTabCard: View {
                     .padding(.horizontal, 12)
                     .padding(.top, insets.top + 8)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .placeholderBound("tabgrid.terminal.placeholder", .milliseconds(1000))
                 }
             }
         }
