@@ -207,6 +207,15 @@ export const integrationAuthorizeBounce = (url: string, at: { readonly api: () =
   return new Response(null, { status: 302, headers: { Location: `${api}${GITHUB_AUTHORIZE_PATH}?${query}`, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } })
 }
 
+/**
+ * GitHub's redirect after a person saved an installation's settings page directly (its Setup URL): `installation_id`
+ * and `setup_action`, and no `state`, because no connect started it. Nothing is left to finish here, and nobody needs to
+ * sign in to this page: the API hears the change from GitHub itself, and the cmux app reads GitHub again (#55104). The
+ * page says so instead of asking for a sign-in that could not help.
+ */
+export const integrationSavedOnGitHub = (search: { state?: string; installation_id?: string; setup_action?: string; error?: string }): boolean =>
+  !search.state && !search.error && !!search.installation_id && /^[0-9]{1,20}$/.test(search.installation_id) && (search.setup_action === "update" || search.setup_action === "install")
+
 export const integrationCompletionRequest = (state: string, extra: { code?: string; installation_id?: string; setup_action?: string } = {}) => ({
   params: {
     state,

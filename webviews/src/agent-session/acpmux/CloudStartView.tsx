@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { experimentArm } from "../../experiments/experiment";
 import { usePageNow } from "../../ui/pageClock";
 import { cloudStartLook, cloudStartQuietLook } from "./cloudStart.experiment";
@@ -32,7 +32,7 @@ import {
   cloudPlanMachineWords,
 } from "./cloudPlans";
 import { useCloudPlanSubscribe, type CloudPlanSubscribeStore } from "./cloudPlanSubscribe";
-import { useGitHubPicker, type GitHubPickerStore } from "./githubRepos";
+import { gitHubPickerStore, githubFullName, useGitHubPicker, type GitHubPickerStore } from "./githubRepos";
 import "./cloudStart.css";
 import { type ChecklistStep, startupChecklist, type QuietStage, quietStage } from "./cloudStartViewModel";
 import { CLOUD_SIGN_IN_ANSWERS } from "./cloudSignIn";
@@ -479,9 +479,36 @@ function TooBigActions({
 /// A start that connecting GitHub would let go on (`seed.needs_github`: a folder too big to copy whose way is a GitHub
 /// clone, or a picked repository the cmux GitHub App does not reach): Connect GitHub opens the install or its settings
 /// (`github.connect`, the folder menu's own call), then Retry runs the same start. A refused call says why under it.
-function ConnectGitHubAction({ store }: { store?: GitHubPickerStore }) {
+///
+/// The click names the start's repository (#55104), so the API reuses a connection that already covers it or sends the
+/// person through GitHub's authorize page, which comes back to the app. Then the start goes again by itself: at once
+/// when a connection covered it, else once the app says it finished the connection.
+function ConnectGitHubAction({
+  store,
+  repository,
+  onConnected,
+}: {
+  store?: GitHubPickerStore;
+  repository?: string;
+  onConnected?: () => void;
+}) {
   const t = useT();
-  const github = useGitHubPicker(store);
+  const picker = store ?? gitHubPickerStore();
+  const github = useGitHubPicker(picker);
+  const waiting = useRef<(() => void) | undefined>(undefined);
+  const retry = useRef(onConnected);
+  retry.current = onConnected;
+  useEffect(() => () => waiting.current?.(), []);
+  const connect = () => {
+    void picker.connectRepo(githubFullName(repository)).then((outcome) => {
+      if (outcome === "connected") retry.current?.();
+      else if (outcome === "opened" && !waiting.current)
+        waiting.current = picker.afterChange(() => {
+          waiting.current = undefined;
+          retry.current?.();
+        });
+    });
+  };
   return (
     <>
       <button
@@ -489,7 +516,7 @@ function ConnectGitHubAction({ store }: { store?: GitHubPickerStore }) {
         className="acpmux-cloud-ask__button"
         data-role="default"
         data-action="connect-github"
-        onClick={() => github.onConnect()}
+        onClick={connect}
       >
         {t("cloudRepository.connect")}
       </button>
@@ -1006,7 +1033,13 @@ export function CloudStartView({
       )}
       {failed && !planTeamRefusal && !sizeLocked && ((start.retryable && onRetry) || needsGitHub) && (
         <span className="acpmux-cloud-ask__actions">
-          {needsGitHub && <ConnectGitHubAction {...(githubStore ? { store: githubStore } : {})} />}
+          {needsGitHub && (
+            <ConnectGitHubAction
+              {...(githubStore ? { store: githubStore } : {})}
+              {...(start.repository ? { repository: start.repository } : {})}
+              {...(start.retryable && onRetry ? { onConnected: onRetry } : {})}
+            />
+          )}
           {start.retryable && onRetry && (
             <button
               type="button"

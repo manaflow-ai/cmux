@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useEffect, useRef } from "react"
 import { useLoad } from "../../lib/hooks"
-import { AUTHORIZE_REFUSED, integrationAppHandoff, integrationAppHandoffResponse, integrationAuthorizeBounce, integrationCompletionRequest, integrationConfigureLink, integrationReturnLink, integrationTeamHint } from "../../lib/integration-callback"
+import { AUTHORIZE_REFUSED, integrationAppHandoff, integrationAppHandoffResponse, integrationAuthorizeBounce, integrationCompletionRequest, integrationConfigureLink, integrationReturnLink, integrationSavedOnGitHub, integrationTeamHint } from "../../lib/integration-callback"
 import { callbackSearch } from "../../lib/search"
 import { apiUrl, completeIntegration } from "../../lib/server"
 import { setSignedIn, useSignedIn } from "../../lib/session"
@@ -97,6 +97,13 @@ function Callback() {
     return (
       <p className="error">
         This connection link expired. <Link to="/integrations">Start the connection again</Link>.
+      </p>
+    )
+  // Saved on GitHub's own installation page: no connect to finish, so no sign-in to ask for (#55104).
+  if (integrationSavedOnGitHub(search))
+    return (
+      <p>
+        GitHub saved the change. Go back to cmux: it picks up the new access by itself, and you can close this page.
       </p>
     )
   if (signedIn === false)

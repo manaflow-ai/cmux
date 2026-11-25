@@ -164,6 +164,22 @@ const INITIAL: GitHubPickerState = { query: null, truncated: false, loading: fal
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
+/// How a Cloud start card's Connect GitHub ended (``createGitHubPicker`` `connectRepo`).
+export type ConnectOutcome = "opened" | "connected" | "failed" | "busy";
+
+/// `owner/name` from a Cloud start's repository (`owner/name`, `github:owner/name` or a github.com URL); undefined for
+/// anything else, so only a repository name reaches the host's `github.connect`.
+export function githubFullName(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const text = value
+    .trim()
+    .replace(/^github:/i, "")
+    .replace(/^(?:https?:\/\/|git@)github\.com[/:]/i, "")
+    .replace(/\.git$/i, "")
+    .replace(/\/+$/, "");
+  return /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/.test(text) && !/\/\.{1,2}$/.test(text) ? text : undefined;
+}
+
 /// The host's word that GitHub changed under this page (the app finished an install GitHub handed back to it, #46018):
 /// `cmux-github-changed` on the window. Returns the unwatch. With no window (a store a module builds when it loads, read
 /// by bun with no DOM: the gallery's manifest and a server render) there is no host to hear, and nothing to watch.
@@ -267,10 +283,15 @@ export function createGitHubPicker(
       },
     );
   };
+  // One-shot listeners for the next change (`afterChange`): a Cloud start card's Retry once its Connect finished.
+  const afterChanges = new Set<() => void>();
   // The app finished a connection (or a Reconfigure changed it): a menu that read the status reads it again, and its
   // repositories with it, with no restart and no click.
   watchChanged(() => {
     if (state.status !== undefined) readStatus(true);
+    const runs = [...afterChanges];
+    afterChanges.clear();
+    for (const run of runs) run();
   });
   const picker = {
     snapshot: () => state,
@@ -316,6 +337,32 @@ export function createGitHubPicker(
         },
       );
     },
+    /// A Cloud start card's Connect GitHub for `repo` (`owner/name`, #55104): the host asks the API for that
+    /// repository, which reuses a connection that covers it (`connected`) or opens GitHub's page (`opened`), whose
+    /// return the app finishes. Resolves how it ended; a refusal is shown as `connectError`, as `connect`'s.
+    connectRepo(repo: string | undefined): Promise<ConnectOutcome> {
+      if (state.connecting) return Promise.resolve("busy");
+      set({ connectError: undefined, connecting: true });
+      return call("github.connect", repo ? { repo } : {}).then(
+        (reply) => {
+          set({ connecting: false });
+          if ((reply as { opened?: unknown } | null)?.opened === false) {
+            readStatus(true);
+            return "connected";
+          }
+          return "opened";
+        },
+        (error: unknown) => {
+          set({ connecting: false, connectError: errorMessage(error).trim() || translate("composer.githubConnectFailed") });
+          return "failed";
+        },
+      );
+    },
+    /// Runs `run` once, the next time the app says GitHub changed (a connect it finished); returns the cancel.
+    afterChange(run: () => void): () => void {
+      afterChanges.add(run);
+      return () => void afterChanges.delete(run);
+    },
     search: listRepos,
     retry: () => listRepos(state.query),
   };
@@ -325,6 +372,11 @@ export function createGitHubPicker(
 export type GitHubPickerStore = ReturnType<typeof createGitHubPicker>;
 
 let pageStore: GitHubPickerStore | undefined;
+
+/// The page's one store (the folder menu's and every Cloud start card's).
+export function gitHubPickerStore(): GitHubPickerStore {
+  return pagePicker();
+}
 
 function pagePicker(): GitHubPickerStore {
   if (!pageStore) pageStore = createGitHubPicker();

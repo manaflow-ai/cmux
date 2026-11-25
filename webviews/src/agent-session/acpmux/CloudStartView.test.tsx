@@ -11,7 +11,7 @@ import { CloudStartView } from "./CloudStartView";
 import { startupChecklist } from "./cloudStartViewModel";
 import cloudStartGallery from "./CloudStartView.gallery";
 import type { CloudStartProgress } from "./cloudStartProgress";
-import { createGitHubPicker } from "./githubRepos";
+import { createGitHubPicker, githubFullName } from "./githubRepos";
 import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
@@ -704,6 +704,63 @@ test("a start connecting GitHub would fix offers Connect GitHub beside Retry, an
   refuse = true;
   await act(async () => connect?.click());
   expect(container.querySelector("[data-connect-error]")?.textContent).toBe("GitHub isn't set up for this team.");
+});
+
+// #55104: the card's Connect names the start's repository, and the start goes again by itself once connected.
+test("a needs-GitHub start connects for its repository and retries by itself once connected", async () => {
+  const failed = {
+    ...start,
+    state: "failed" as const,
+    retryable: true,
+    code: "seed.needs_github",
+    repository: "github:manaflow-ai/cmuxterm-hq",
+    message: "Connect GitHub so Cloud can clone manaflow-ai/cmuxterm-hq, then retry.",
+  };
+  const asked: Array<[string, Record<string, unknown>]> = [];
+  let reply: unknown = { opened: true };
+  let changed: (() => void) | undefined;
+  const github = createGitHubPicker(
+    async (method, params) => {
+      asked.push([method, params]);
+      if (method === "github.status") return { state: "ready", repos_scope: "all" };
+      if (method === "github.repos.list") return { repos: [] };
+      return reply;
+    },
+    () => () => undefined,
+    () => false,
+    (run) => {
+      changed = run;
+      return () => undefined;
+    },
+  );
+  const container = installDom();
+  let retried = 0;
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<CloudStartView start={failed} onRetry={() => void retried++} githubStore={github} />);
+  });
+  const connect = container.querySelector<HTMLButtonElement>('[data-action="connect-github"]');
+  // GitHub's page opened: nothing retries until the app says it finished the connection.
+  await act(async () => connect?.click());
+  expect(asked[0]).toEqual(["github.connect", { repo: "manaflow-ai/cmuxterm-hq" }]);
+  expect(retried).toBe(0);
+  await act(async () => changed?.());
+  expect(retried).toBe(1);
+  await act(async () => changed?.());
+  expect(retried).toBe(1); // once per click
+  // A connection already covers it: the start goes again at once, with no page.
+  reply = { opened: false };
+  await act(async () => connect?.click());
+  expect(retried).toBe(2);
+});
+
+test("only a GitHub repository name reaches github.connect", () => {
+  expect(githubFullName("manaflow-ai/cmuxterm-hq")).toBe("manaflow-ai/cmuxterm-hq");
+  expect(githubFullName("github:acme/api")).toBe("acme/api");
+  expect(githubFullName("https://github.com/acme/api.git")).toBe("acme/api");
+  expect(githubFullName("git@github.com:acme/api.git")).toBe("acme/api");
+  for (const bad of [undefined, "", "cmuxterm-hq", "https://gitlab.com/acme/api", "acme/api/x", "acme/..", "-acme/api"])
+    expect(githubFullName(bad)).toBeUndefined();
 });
 
 test("a folder too big to copy offers each repository inside it and no folder, never Retry", async () => {
