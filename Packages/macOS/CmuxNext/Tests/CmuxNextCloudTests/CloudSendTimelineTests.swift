@@ -90,5 +90,14 @@ import Testing
         #expect(CloudAgentPrewarm(cwd: "/home/cmux/chats/app-1", harness: "claude", model: nil, mode: nil, served: false) == nil)
         #expect(CloudAgentPrewarm(cwd: nil, harness: "claude", model: nil, mode: nil, served: true) == nil)
         #expect(CloudAgentPrewarm(cwd: "chats/app-1", harness: "claude", model: nil, mode: nil, served: true) == nil)
+        #expect(CloudAgentPrewarm(cwd: "chats/app-1", harness: "claude", model: nil, mode: nil, served: true, servesChatFolder: true) == nil)
+    }
+
+    /// A start with no folder (`cloud start-session` with no `--cwd`, a chat with no project) runs in the chat's own
+    /// `~/chats/<id>`; a daemon that serves the chat folder prewarm makes it and warms the agent there.
+    @Test func aNoFolderStartIsWarmedInTheChatsOwnFolderWhereServed() throws {
+        let prewarm = try #require(CloudAgentPrewarm(cwd: nil, harness: "claude", model: nil, mode: nil, served: true, servesChatFolder: true))
+        #expect(prewarm.cwd == nil && prewarm.harness == "claude")
+        #expect(CloudAgentPrewarm(cwd: nil, harness: "claude", model: nil, mode: nil, served: false, servesChatFolder: true) == nil)
     }
 }

@@ -158,6 +158,7 @@ pub async fn serve(
         "file-preview" => file(&config, &args, &sender, true).await,
         "upload" => upload(&config, &peer, &args, &sender, receiver).await,
         "version" => version(&config, &sender).await,
+        crate::lan::SERVICE => crate::lan::enroll(&peer, &args, &sender).await,
         "machine" => {
             let grants = machine_grants.and_then(Result::ok).unwrap_or_default();
             let name = std::env::var("CMUX_MOBILE_DEVICE_NAME").unwrap_or_else(|_| crate::config::hostname());
@@ -315,6 +316,10 @@ pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
     }
     if config.surface.streams_mac_display() {
         out.push(MAC_DISPLAY);
+    }
+    if crate::lan::running() {
+        // The phone may enroll for the LAN direct path (`lan`, lan.rs).
+        out.push(crate::lan::CAPABILITY);
     }
     out
 }

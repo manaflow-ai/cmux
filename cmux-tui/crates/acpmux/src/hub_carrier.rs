@@ -1191,6 +1191,31 @@ impl HubCarrier {
         !live.is_empty()
     }
 
+    /// A link to `daemon` that rode a kept circuit ended after `silent` with no byte in (a peer
+    /// link dropped for silence): close each kept circuit to `daemon` that heard nothing in that
+    /// window either. The link pinged across it the whole time, so it is dead, and the redial
+    /// opens a fresh circuit at once instead of spending [`mux::ANSWER_SUSPECT`] on an OPEN that
+    /// cannot be answered. A circuit that heard anything in the window (another stream's bytes,
+    /// a keepalive PONG) is alive and kept. Under `ANSWER_SUSPECT` of silence the link proved no
+    /// more than an OPEN would, so nothing is closed. Returns how many circuits it closed.
+    pub async fn close_kept_silent_for(&self, daemon: &str, silent: Duration) -> usize {
+        if silent < mux::ANSWER_SUSPECT {
+            return 0;
+        }
+        let dead: Vec<_> = [&self.kept, &self.direct.kept]
+            .into_iter()
+            .flat_map(|kept| kept.silent_for(daemon, silent))
+            .collect();
+        for mux in &dead {
+            tracing::info!(
+                "hub carrier: a link on a kept circuit heard nothing for {}ms, nor did the circuit; closing it so the redial opens a new one",
+                silent.as_millis()
+            );
+            mux.close().await;
+        }
+        dead.len()
+    }
+
     /// One relay circuit to `daemon` with the Noise handshake done, its key pinned to the
     /// platform's `peer_key`, and how long each step took.
     pub(crate) async fn open_circuit(
@@ -1688,7 +1713,7 @@ impl ServerAuthenticator for PeerKeys {
     }
 }
 
-struct Incoming {
+pub(crate) struct Incoming {
     carrier: Arc<HubCarrier>,
     websocket: SocketAddr,
     allowed: Arc<RwLock<HashSet<[u8; 32]>>>,
@@ -2468,3 +2493,7 @@ mod register_log_tests;
 #[cfg(test)]
 #[path = "hub_carrier_key_lock_tests.rs"]
 mod key_lock_tests;
+
+#[cfg(test)]
+#[path = "hub_carrier_silent_circuit_tests.rs"]
+mod silent_circuit_tests;
