@@ -40,8 +40,16 @@ public enum CloudPlaceRun {
 public nonisolated enum CloudPlaceRefusal: Error, Equatable {
     /// The chat's move runs already: a second never starts beside it.
     case moving
+    /// An Evacuate or Bring Back All runs already: a second never starts beside it (its progress and Cancel are the first's).
+    case bulkRunning
     /// The app refused it at once, with why (the chat's flow shows it failed, with Retry).
     case refused(String)
+}
+
+/// The Cloud identity a move creates machines under: the account, its team and the Cloud it signed in to.
+public struct CloudPlaceIdentity: Equatable, Sendable {
+    public var user: String?, team: String?, cloud: String
+    public init(user: String?, team: String?, cloud: String) { self.user = user; self.team = team; self.cloud = cloud }
 }
 
 /// What the app supplies: its chats, how it runs a move, and what its ledger knows. Everything else is here.
@@ -58,6 +66,10 @@ public protocol CloudPlaceHost: AnyObject {
     func placeOwnFacts(_ session: String) -> (before: String?, machines: [CloudPlaceOwnMachine])
     /// Calls `handler` with the session of every turn that ends.
     func placeOnTurnEnded(_ handler: @escaping @MainActor (String) -> Void)
+    /// The Cloud account and team active now; nil signed out. A bulk run is bound to the one it started under.
+    func placeIdentity() -> CloudPlaceIdentity?
+    /// What a bulk run's chats that never started say when the Cloud account or team changed under it.
+    func placeIdentityChangedReason() -> String
 }
 
 /// The chat place controls' runs and Auto: Swift draws and calls, Rust decides (`cloud_move_place_*`).
@@ -75,6 +87,9 @@ public final class CloudPlaceDriver {
 
     /// How often Auto reads again with no change to wake it.
     static let interval: TimeInterval = 30
+
+    /// Evacuate's plan (Rust's `cloud_move_place_evacuate`); a test supplies its own.
+    var planBulk: (BulkRequest) -> BulkPlan? = { CloudMoveCore().call("place_evacuate", $0, as: BulkPlan.self) }
 
     public init(place: CloudPlaceFlows, host: any CloudPlaceHost) { self.place = place; self.host = host }
 
@@ -128,10 +143,13 @@ public final class CloudPlaceDriver {
     }
 
     /// `cloudEvacuate`: every local chat (or the named ones) to its own VM, as many at once as Rust's plan says.
-    public func evacuate(sessions named: [String]?) { bulk(toCloud: true, sessions: named) }
+    /// Refused (``CloudPlaceRefusal/bulkRunning``) while an Evacuate or Bring Back All runs.
+    @discardableResult
+    public func evacuate(sessions named: [String]?) -> CloudPlaceRefusal? { bulk(toCloud: true, sessions: named) }
 
     /// `cloudBringBackAll`: the chats Evacuate or Auto put on Cloud (or the named ones) back to this Mac, planned and run like Evacuate.
-    public func bringBackAll(sessions named: [String]?) {
+    @discardableResult
+    public func bringBackAll(sessions named: [String]?) -> CloudPlaceRefusal? {
         bulk(toCloud: false, sessions: named ?? place.canBringBack(among: host?.placeCloudSessions() ?? []))
     }
 
@@ -145,16 +163,22 @@ public final class CloudPlaceDriver {
         place.evacuateJSON(canBringBack: place.canBringBack(among: host?.placeCloudSessions() ?? []).count)
     }
 
-    private func bulk(toCloud: Bool, sessions named: [String]?) {
-        struct Item: Encodable { var session: String, at: String, started: Bool, turnRunning: Bool, moving: Bool }
-        struct Request: Encodable { var chats: [Item], selected: [String]?, direction: String }
-        struct Plan: Decodable { var moves: [String], parallel: Int }
+    struct BulkItem: Encodable { var session: String, at: String, started: Bool, turnRunning: Bool, moving: Bool }
+    struct BulkRequest: Encodable { var chats: [BulkItem], selected: [String]?, direction: String }
+    struct BulkPlan: Decodable { var moves: [String], parallel: Int }
+
+    private func bulk(toCloud: Bool, sessions named: [String]?) -> CloudPlaceRefusal? {
+        // One run at a time: a second would replace the first's progress and Cancel would stop only its own moves.
+        if place.evacuationRunning { return .bulkRunning }
         let all = host?.placeChats() ?? []
-        let request = Request(chats: all.map { Item(session: $0.session, at: $0.onCloud ? "cloud" : "local", started: true, turnRunning: $0.turnRunning, moving: $0.moving) },
-                              selected: named, direction: toCloud ? "toCloud" : "toLocal")
-        guard let plan = CloudMoveCore().call("place_evacuate", request, as: Plan.self) else { return }
+        let request = BulkRequest(chats: all.map { BulkItem(session: $0.session, at: $0.onCloud ? "cloud" : "local", started: true, turnRunning: $0.turnRunning, moving: $0.moving) },
+                                  selected: named, direction: toCloud ? "toCloud" : "toLocal")
+        guard let plan = planBulk(request) else { return nil }
         let queue = plan.moves.compactMap { session in all.first { $0.session == session } }
-        guard !queue.isEmpty else { return }
+        guard !queue.isEmpty else { return nil }
+        // The run is bound to the Cloud account and team the person started it under: each new machine is made under the
+        // identity active when its move starts, so a switch mid-run stops it rather than move chats into another account.
+        let identity = host?.placeIdentity()
         place.beginEvacuation(direction: request.direction, chats: queue.map { ($0.session, $0.title) })
         // Up to `plan.parallel` moves at once, each worker taking the next chat as its move ends. Plain tasks sharing
         // one queue, not a task group: the compiler cannot check `group.addTask { @MainActor in }` here.
@@ -163,12 +187,29 @@ public final class CloudPlaceDriver {
             // task-owner: one-shot; ends when no chat is left or the evacuation is stopped.
             Task { @MainActor in
                 while !self.place.evacuationStopped, let chat = pending.next() {
+                    guard self.sameIdentity(identity) else {
+                        // This chat and the others not started stay where they are, shown failed with why (their rows are still
+                        // queued); running moves cancel as Cancel does.
+                        self.stopForIdentityChange()
+                        break
+                    }
                     self.place.evacuationPhase(chat.session, .running)
                     if case .success(let ended) = self.start(chat, toCloud: toCloud, trigger: .evacuate) { await ended() }
                     self.place.evacuationPhase(chat.session, .ended)
                 }
             }
         }
+        return nil
+    }
+
+    /// Whether the Cloud identity active now is the one a run started under.
+    private func sameIdentity(_ identity: CloudPlaceIdentity?) -> Bool { host?.placeIdentity() == identity }
+
+    /// The account or team changed under a bulk run: no queued chat starts, each says why, and each running move is
+    /// cancelled as Cancel cancels it (the reducer says whether it stops).
+    private func stopForIdentityChange() {
+        guard let host else { return }
+        for session in place.stopEvacuation(reason: host.placeIdentityChangedReason()) { place.cancel(session) }
     }
 
     /// The chats a bulk move has not started yet, shared by its workers.

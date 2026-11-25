@@ -65,6 +65,9 @@ extension CloudHandlers {
         bindSSHMove(into: registry, context: context)
         // The chat's place controls (cloud/auto/evacuate): Swift calls and draws, Rust decides (``CloudPlaceDriver``).
         // The page runs them on the chat's tab (`action.run`); an agent never moves a chat this way. Auto starts with them.
+        // Person-only (the catalog's `isPersonOnly`, which the control socket refuses): they upload this Mac's chats and folders
+        // to Cloud, so an agent's run, MCP or any socket run is refused here too, with why. The person's click in the app
+        // (the page's gesture-gated `action.run`, the palette) runs them; Auto's own moves run Move to Cloud and Bring Back directly.
         let place = services.cloud.placeDriver ?? CloudPlaceDriver(place: services.cloud.place, host: services)
         if services.cloud.placeDriver == nil { services.cloud.placeDriver = place; place.start() }
         for id in [AppServices.placeSet, AppServices.placeRetry, AppServices.placeEvacuate, AppServices.placeCancel, AppServices.placeEvacuateCancel, AppServices.placeBringBackAll] {
@@ -72,7 +75,7 @@ extension CloudHandlers {
             // A cancel is never refused.
             let allowed: @MainActor () -> String? = { nil }
             bind(id, registry, reason: cancels ? allowed : reason) { invocation in
-                guard cancels || !CloudMoveAsks.isAgent(invocation) else { throw ActionFailure(message: CloudMoveAskStrings.bringBackIsPersons) }
+                guard !CloudMoveAsks.isAgent(invocation), !invocation.viaControlSocket else { throw ActionFailure(message: CloudMoveStrings.placeIsPersons) }
                 let tab = context.daemonTab(invocation)?.0.id, named = CloudPlaceDriver.named(invocation["sessions"]?.stringValue), row = CloudPlaceDriver.row(named)
                 switch id {
                 case AppServices.placeSet:
@@ -83,8 +86,8 @@ extension CloudHandlers {
                     if let refusal = place.retry(tab: tab, session: row, claims: CloudPlaceClaims(invocation)) { throw ActionFailure(message: refusal.message) }
                 case AppServices.placeCancel: place.cancel(tab: tab, session: row ?? invocation["session"]?.stringValue)
                 case AppServices.placeEvacuateCancel: place.cancelEvacuation()
-                case AppServices.placeBringBackAll: place.bringBackAll(sessions: named)
-                default: place.evacuate(sessions: named)
+                case AppServices.placeBringBackAll: if let refusal = place.bringBackAll(sessions: named) { throw ActionFailure(message: refusal.message) }
+                default: if let refusal = place.evacuate(sessions: named) { throw ActionFailure(message: refusal.message) }
                 }
             }
         }
@@ -188,6 +191,7 @@ extension CloudPlaceRefusal {
     @MainActor var message: String {
         switch self {
         case .moving: CloudMoveStrings.inProgress
+        case .bulkRunning: CloudMoveStrings.bulkRunning
         case .refused(let reason): reason
         }
     }
@@ -281,4 +285,13 @@ extension AppServices: CloudPlaceHost {
     func placeOnTurnEnded(_ handler: @escaping @MainActor (String) -> Void) {
         AgentTurnStateStore.shared.turnEndedObservers.append { session, _ in handler(session) }
     }
+
+    /// The account, team and Cloud a new machine is made under now (as an Always grant is scoped, ``CloudMoveAsks``).
+    func placeIdentity() -> CloudPlaceIdentity? {
+        let auth = cloud.auth
+        guard auth.isSignedIn else { return nil }
+        return CloudPlaceIdentity(user: auth.user?.id, team: auth.teamID, cloud: auth.configuration.apiBaseURL.absoluteString)
+    }
+
+    func placeIdentityChangedReason() -> String { CloudMoveStrings.identityChanged }
 }
