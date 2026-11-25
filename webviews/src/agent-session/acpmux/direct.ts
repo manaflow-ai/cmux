@@ -27,6 +27,7 @@ import { extraFoldersParam, summaryExtraFolders, type ExtraFolderDraft } from ".
 import { parseJsonObjectFrame } from "../../protocol/jsonFrame";
 import { isRetryContinuation, subagentRetryNotice } from "./subagents/retryState";
 import { CACHE_EXPIRY_REASON, isCacheCompaction } from "./conversation/cacheCompaction";
+import { HOOK_CONTINUE, hookContinueOf } from "./conversation/hookContinueKind";
 import type { SwitchPort } from "./harnessSwitch";
 import { OlderPageDelay } from "./conversation/olderPageDelay";
 import { answeredBy, promptAuthor, queuedAuthor, type Participant } from "./multiplayer/participants";
@@ -11143,6 +11144,25 @@ export class AcpmuxDirectClient {
         running.turnId !== this.runningTurnId
       )
         this.rows.placeAfterCurrent(id);
+    } else if (event.kind === "hook_feedback") {
+      // A Stop hook blocked the agent's stop and the turn goes on with its reason (acpmux
+      // `claude_stdio/hook_feedback.rs`): one quiet note where it went on, so the reply after it
+      // reads as the hook's continuation, not a second answer (Leo, 2026-11-22: "if you did get
+      // hooked, i think it should get displayed better").
+      const hookContinue = hookContinueOf(update);
+      if (!hookContinue) return;
+      this.endAssistantSegment();
+      this.streamingActivity = undefined;
+      const id = `hook-${event.seq}`;
+      this.rows.set(id, {
+        id,
+        version: 1,
+        at: event.at,
+        seq: event.seq,
+        kind: HOOK_CONTINUE,
+        ...(this.runningTurnId ? { turnId: this.runningTurnId } : {}),
+        hookContinue,
+      });
     } else if (event.kind === "plan") {
       const plan = planEntries(update.entries);
       const existing = this.planRow ? this.rows.get(this.planRow) : undefined;

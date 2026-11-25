@@ -94,6 +94,8 @@ impl Translator {
         {
             self.turn_output.store(true, Ordering::SeqCst);
         }
+        let mut hook_ask =
+            if kind == "user" { hook_feedback::hook_feedback_update(line) } else { None };
         match kind {
             "system" if sub == "init" => {
                 if let Some(s) = line.get("session_id").and_then(Value::as_str) {
@@ -420,6 +422,8 @@ impl Translator {
                     }
                 }
             }
+            // A Stop hook that blocked: the agent goes on with its reason (`hook_feedback.rs`).
+            "user" if hook_ask.is_some() => out.extend(hook_ask.take().map(&upd)),
             // The summary a compaction leaves: the synthetic user line after
             // its boundary. It is not a prompt; acpmux keeps it as the context
             // a handoff or fallback carries.

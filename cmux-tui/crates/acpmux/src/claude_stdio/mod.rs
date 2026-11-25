@@ -318,6 +318,9 @@ mod foreground_work_tests;
 mod hook_callback;
 #[cfg(test)]
 mod hook_callback_tests;
+mod hook_feedback;
+#[cfg(test)]
+mod hook_feedback_tests;
 mod inbound;
 #[cfg(test)]
 mod initialize_tests;

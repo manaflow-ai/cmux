@@ -9754,6 +9754,54 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   line-height: 18px;
   white-space: nowrap;
 }
+
+/* ---------- Where a Stop hook made the turn go on (HookContinueNote.tsx) ---------- */
+/* The status line: its words, then the hook's reason dimmer, cut to the line (the tooltip has it all). */
+.cv-hook-continue__reason {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cv-text-dim);
+}
+/* The divider arm: a hairline each side of its words, in the tool rows' line height. */
+.cv-hook-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--cv-tool-row-height);
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.cv-hook-divider::before,
+.cv-hook-divider::after {
+  content: "";
+  flex: 1 1 0;
+  border-top: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+}
+/* The chip arm: one small muted pill at the start of the line, above the continued text. */
+.cv-hook-chip-row {
+  display: flex;
+  align-items: center;
+  min-height: var(--cv-tool-row-height);
+}
+.cv-hook-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  line-height: 20px;
+}
+.cv-hook-chip svg {
+  width: 12px;
+  height: 12px;
+}
 /* `morph`'s card (turnEndFold.ts TURN_END_CARD): a tinted surface where a finished turn's folded rows were,
    shrinking into the Worked for line as the rows close over it. Under every row; never hit. */
 .acpmux-fold-card {

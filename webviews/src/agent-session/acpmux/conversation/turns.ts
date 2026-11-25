@@ -52,6 +52,7 @@ import { workedForMessages } from "./workedForMessages.experiment";
 import { bareWorkedTurns } from "./bareWorkedTurns.experiment";
 import { inboxCounts } from "./inboxNotice";
 import { startedTasks, startsTask, TASK_LINE } from "./taskLines";
+import { HOOK_CONTINUE } from "./hookContinueKind";
 import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
@@ -2968,6 +2969,8 @@ const staysOut = (row: AcpmuxRow) =>
   // A move to the fallback harness changes who answers the rest of the turn; folded, nobody would
   // see it happened.
   row.kind === "failover" ||
+  // So does a Stop hook's ask to go on: folded, the reply under the fold reads as a second answer.
+  row.kind === HOOK_CONTINUE ||
   // A recap is about the whole chat, not the turn above it.
   row.kind === "recap" ||
   // So is where the person left off (SinceDivider.tsx): folded, nobody would find it.

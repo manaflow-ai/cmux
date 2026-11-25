@@ -86,6 +86,9 @@ const fn f(from: &'static str, to: &'static str, ty: Ty) -> Field {
     Field { from, to, ty }
 }
 
+/// A Stop hook's notice: its event and, when Claude Code named it, its command.
+const HOOK_FEEDBACK: &[Field] =
+    &[f("hookEvent", "hookEvent", Ty::Str(64)), f("hookName", "hookName", Ty::Str(256))];
 const NOTICE_TEXT: &[&str] = &["text", "error", "reason", "detail"];
 /// The turn-end notice's fields copied as they are. `tokens`, `checkpoint`, `error`, `seq` and
 /// `retry` are computed from the same record (v1.rs `turn_result`), and `continued` from the
@@ -330,6 +333,9 @@ pub(super) const UPDATES: &[Kind] = &[
     code("compaction", "a compaction notice, open while it runs"),
     page("config_option_update"),
     page("current_mode_update"),
+    // A Stop hook blocked the agent's stop and the turn goes on with its reason (acpmux
+    // `claude_stdio/hook_feedback.rs`): a notice where it went on.
+    notice("hook_feedback", HOOK_FEEDBACK),
     code("plan", "the turn's plan row (State::plan)"),
     not("prompt_suggestion", LIVE),
     page("session_info_update"),

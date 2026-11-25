@@ -59,6 +59,8 @@ fn cuts_reply(kind: &str, update: &Value, plan_shown: &mut bool) -> bool {
     match kind {
         "agent_thought_chunk" => update.get("content").is_some_and(has_text),
         "compaction" => true,
+        // A Stop hook's ask to go on: the reply after it is the continuation (`hook_feedback.rs`).
+        "hook_feedback" => true,
         "plan" => match update.get("entries").and_then(Value::as_array) {
             // A cleared list takes the checklist away; the next one is new.
             Some(entries) if entries.is_empty() => {

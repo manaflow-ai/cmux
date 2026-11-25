@@ -114,7 +114,7 @@ pub(super) fn line(
         if let Some(raw) = params.update {
             let update: Update<'_> = input::value(raw)?;
             if update.meta.acpmux.subagent.is_none() {
-                agent(state, &params.meta, &update, &rec.kind, out)?;
+                agent(state, &params.meta, &update, raw, &rec.kind, out)?;
             }
         }
     }
@@ -383,6 +383,7 @@ fn agent(
     state: &mut State,
     params: &Meta<'_>,
     u: &Update<'_>,
+    raw: &RawValue,
     fallback: &str,
     out: &mut Output<'_>,
 ) -> Result<(), Error> {
@@ -479,11 +480,17 @@ fn agent(
                 state.compaction = Some(row);
             }
         }
-        _ => {
-            if kinds::find(kinds::UPDATES, kind).is_none() {
-                state.unknown(kind);
+        _ => match kinds::find(kinds::UPDATES, kind).map(|known| known.draw) {
+            // A notice between replies (a Stop hook's ask to go on): the reply before it ends.
+            Some(kinds::Draw::Row(spec)) => {
+                state.close_text(out);
+                let mut row = state.drawn(&spec, raw, out)?;
+                row.open = false;
+                out.row(&row);
             }
-        }
+            Some(_) => {}
+            None => state.unknown(kind),
+        },
     }
     Ok(())
 }

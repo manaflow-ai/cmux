@@ -18,6 +18,7 @@ import {
   rowPropsWindow,
 } from "../model";
 import { RowFrameCache } from "../conversation/rowFrameCache";
+import { HOOK_CONTINUE } from "../conversation/hookContinueKind";
 import { type ReferenceScope } from "../conversation/bareReferences";
 import { BACKGROUND_TURN } from "../conversation/backgroundTurns";
 import { isEditRow } from "../turnChanges/sessionRows";
@@ -48,6 +49,7 @@ const isStepRow = (row: AcpmuxRow | undefined) =>
     row.kind === "compaction" ||
     row.kind === "failover" ||
     row.kind === "policyUnenforced" ||
+    row.kind === HOOK_CONTINUE ||
     row.kind === "agentPair" ||
     row.kind === BACKGROUND_TURN ||
     (row.kind === "activity" && !isEditRow(row)));

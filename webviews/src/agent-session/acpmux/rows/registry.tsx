@@ -48,6 +48,8 @@ import { PROMPT_COACH } from "../conversation/promptCoach";
 import { PresetApprovalRow } from "./PresetApprovalRow";
 import { PRESET_APPROVAL } from "../conversation/presetApproval";
 import { PolicyUnenforcedRow } from "./PolicyUnenforcedRow";
+import { HookContinueRow } from "./HookContinueRow";
+import { HOOK_CONTINUE } from "../conversation/hookContinueKind";
 import { AgentPairRow } from "./AgentPairRow";
 import { SessionStartRow } from "./SessionStartRow";
 import { NoticeRow } from "./NoticeRow";
@@ -102,6 +104,7 @@ export const defaultRegistry: NativeRegistry = {
   [PROMPT_COACH]: PromptCoachRow,
   [PRESET_APPROVAL]: PresetApprovalRow,
   policyUnenforced: PolicyUnenforcedRow,
+  [HOOK_CONTINUE]: HookContinueRow,
   agentPair: AgentPairRow,
   sessionStart: SessionStartRow,
   sessionOffer: SessionOfferRow,
