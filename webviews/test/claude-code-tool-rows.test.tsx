@@ -140,7 +140,7 @@ test("the legacy split arm cannot restore live token amounts", () => {
 });
 
 // A verb says what a command did (commandActions.ts), so a merge a hook blocked never reads "Merged
-// PR #101": the row reads as its line, and its failure stays on the row as its status word.
+// PR #101". Its label names the attempt, and the status word explains the failure.
 test("a hook-blocked merge row draws no success verb and keeps its failure", async () => {
   const { CommandRow } = await import("../src/agent-session/acpmux/conversation/CommandRow");
   const tool: Tool = {
@@ -153,7 +153,8 @@ test("a hook-blocked merge row draws no success verb and keeps its failure", asy
   };
   const html = renderToStaticMarkup(<CommandRow item={{ kind: "tool", text: "Bash", tool }} />);
   expect(html).not.toContain("Merged");
-  expect(html).toContain("gh pr merge 101");
+  expect(html).toContain(t("commandRules.merging", { target: "#101" }));
+  expect(html).not.toContain("gh pr merge 101");
   expect(html).toContain(t("tools.blockedByHook"));
   const rejected = renderToStaticMarkup(
     <CommandRow
@@ -165,6 +166,7 @@ test("a hook-blocked merge row draws no success verb and keeps its failure", asy
     />,
   );
   expect(rejected).not.toContain("Pushed");
-  expect(rejected).toContain("git push origin main");
+  expect(rejected).toContain(t("commandRules.pushingBranch", { branch: "main" }));
+  expect(rejected).not.toContain("git push origin main");
   expect(rejected).toContain("Exit 1");
 });
