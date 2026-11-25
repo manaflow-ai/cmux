@@ -1056,6 +1056,10 @@ pub mod method {
     /// Auto mode for one chat (`auto_session/surface.rs`): `{sessionId, auto, keepInCloud?}` ->
     /// `{autoSession}`, the chat's row field after the switch.
     pub const MUX_AUTO_SESSION_SET: &str = "_acpmux/auto_session/set";
+    /// Move one chat between Local, Cloud and AutoCloud (`chat_place.rs`): `{sessionId, on,
+    /// reason?}` -> `{status: moved|already|needs_person, from, to, autoSession?, command?, why?}`.
+    /// The person may make any move; a chat's own agent only the ones `chat_place::consent` allows.
+    pub const MUX_CHAT_MOVE: &str = "_acpmux/chat_move";
     /// The changes kept aside when the Cloud took a chat: `{sessionId, action}` with `show` ->
     /// `{files, patch?}`, `apply` or `discard` -> `{autoSession}`.
     pub const MUX_AUTO_SESSION_LEFTOVER: &str = "_acpmux/auto_session/leftover";
