@@ -6506,6 +6506,7 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "keepAs": true,
         "secretId": true,
         "sessionId": true,
         "value": true
@@ -8575,6 +8576,13 @@
           "description": "`_acpmux/sessions` only (a watch refuses it): only the sessions in this status\n(`running`, `ready`, `idle`, `waiting`, `closed`). Empty is no filter.",
           "type": [
             "string",
+            "null"
+          ]
+        },
+        "topLevelOnly": {
+          "description": "`_acpmux/sessions` only (a watch refuses it): exclude side chats (a `side` tag) and\nsessions another chat's agent started (`spawnedBy`, `startedBy`) before pagination: the\nchats a list shows on their own (capability `session-list-top-level-v1`).",
+          "type": [
+            "boolean",
             "null"
           ]
         },
