@@ -10,20 +10,11 @@ import os
 /// model at that grid and shows it at its own grid
 /// (`cmux-terminal-projection`, through CmuxMobileLinkFFI):
 ///
-/// - Primary screen (a shell): the Mac's logical lines re-wrapped at the
-///   phone's columns, as bytes for the phone's surface. This phone never
-///   claims a size for a shell: attach, an app switch, a lock, the keyboard
+/// - Primary screen (a shell, Claude Code inline): the Mac's logical lines
+///   re-wrapped at the phone's columns, as bytes for the phone's surface. This
+///   phone never claims a size: attach, an app switch, a lock, the keyboard
 ///   and a rotation change nothing on the Mac, and a rotation re-wraps here
 ///   at once. The screen sees a session whose grid is the phone's own.
-/// - An inline TUI on the primary screen (Claude Code, Codex: a named
-///   program that is not a shell, drawing with its cursor hidden,
-///   `fit_policy::Foreground::is_tui`), by default: claimed like the
-///   alternate screen while the page claims its size, so the program draws
-///   at the phone's columns. Its rules, boxes and status lines are laid out
-///   for a width; re-wrapped from the Mac's they took a row and a half each
-///   (Leo, 2026-11-25: "the layout calculations too"). The claim goes
-///   ``inlineReleaseDelay`` after the program stops being one (it exits, or
-///   shows its cursor for good), never on a cursor shown inside one redraw.
 /// - Alternate screen (vim, htop), by default: the bytes pass through and the
 ///   phone claims its size while the page claims it (on screen, in the
 ///   foreground); what the Mac drew at its own grid waits for the answer
@@ -69,13 +60,6 @@ public final class TerminalProjectingSession: TerminalSession {
     private var macClaims = false
     /// What the screen was last told.
     private var shownAlternate = false
-    /// An inline TUI is in the foreground of the primary screen (the fit
-    /// policy's foreground, observed after each chunk): the phone claims its
-    /// grid for it as for the alternate screen.
-    private var inlineTUI = false
-    private var inlineRelease: Task<Void, Never>?
-    /// How long an inline TUI's claim outlives the program's last frame as one.
-    static let inlineReleaseDelay: Duration = .seconds(2)
     private var shownGrid: (columns: Int, rows: Int)?
     /// The Mac's session reset its mirror: the replay that follows is shown
     /// as one reset and one chunk, like the Mac's own.
@@ -202,7 +186,6 @@ public final class TerminalProjectingSession: TerminalSession {
     }
     public func stop() {
         fitHoldTimer?.cancel()
-        inlineRelease?.cancel()
         claimHoldDeadline?.cancel()
         claimHoldDeadline = nil
         claimHold = nil
@@ -431,8 +414,7 @@ public final class TerminalProjectingSession: TerminalSession {
             // come back here, in order, with what the primary drew before them.
             if replay { paintScheduled = false }
             let segments = projection.feed(bytes: data, paint: replay)
-            let observed = fit.observe(projection: projection, fallbackProgram: inner.programName)
-            let decision = zooms ? observed : nil
+            let decision = zooms ? fit.observe(projection: projection, fallbackProgram: inner.programName) : nil
             if let decision, decision.changed {
                 log.notice("projection: \(decision.program ?? "the foreground", privacy: .public) \(decision.claims ? "fits the phone (\(decision.reason))" : "keeps the Mac's grid", privacy: .public)")
             }
@@ -450,9 +432,6 @@ public final class TerminalProjectingSession: TerminalSession {
             }
             if !replay { schedulePaint() }
             if let decision { apply(decision) }
-            // After this chunk is shown: a claim's answer (the Mac's reset and replay at the
-            // phone's grid) comes after it.
-            if !zooms { noteInlineTUI(observed.isTui && !projection.isAlternate()) }
             let replies = projection.takeReplies()
             if !replies.isEmpty { inner.sendReply(replies) }
         case .alternateScreen:
@@ -684,31 +663,8 @@ public final class TerminalProjectingSession: TerminalSession {
     /// The phone claims its size for the alternate screen while the page
     /// claims; with ``zooms``, only when the fit policy says so (typed into a
     /// TUI, remembered, or chosen), while the page claims.
-    /// The primary screen has an inline TUI in front (claims at once) or not (released after
-    /// ``inlineReleaseDelay``, so a redraw that shows the cursor between frames costs nothing).
-    private func noteInlineTUI(_ on: Bool) {
-        if on {
-            inlineRelease?.cancel()
-            inlineRelease = nil
-            guard !inlineTUI else { return }
-            inlineTUI = true
-            log.notice("projection: \(self.inner.programName, privacy: .public) draws inline on the primary screen: claiming the phone's grid")
-            updateClaim()
-        } else if inlineTUI, inlineRelease == nil {
-            let delay = Self.inlineReleaseDelay
-            inlineRelease = Task { @MainActor [weak self] in
-                // A bounded grace for the program's next frame, not a synchronization wait.
-                try? await ContinuousClock().sleep(for: delay)
-                guard let self, !Task.isCancelled else { return }
-                self.inlineRelease = nil
-                self.inlineTUI = false
-                self.updateClaim()
-            }
-        }
-    }
-
     private func updateClaim() {
-        let want = zooms ? fit.claims() : pageClaims && (shownAlternate || inlineTUI)
+        let want = zooms ? fit.claims() : pageClaims && shownAlternate
         guard want != macClaims else { return }
         macClaims = want
         if want {
