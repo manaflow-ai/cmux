@@ -54,6 +54,16 @@ class ClassicNightlyPrBuildTest(unittest.TestCase):
         for name in names:
             self.assertTrue(name.endswith("(advisory)"), name)
 
+    def test_gateway_jobs_are_fleet_clients(self) -> None:
+        # The gateway runner's hook refuses any job whose id does not end in
+        # -fleet (run 45709828984: "refused: the gateway runner takes only thin
+        # cmux-ci client jobs" for the job id `swift`).
+        jobs = re.findall(r"^  ([A-Za-z0-9_-]+):\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)", WORKFLOW.split("\njobs:\n", 1)[1], re.M | re.S)
+        gateway = [job for job, body in jobs if "CI_EVAL_STEP_GATEWAY" in body]
+        self.assertTrue(gateway)
+        for job in gateway:
+            self.assertTrue(job.endswith("-fleet"), job)
+
     def test_helper_check_matches_nightly_build(self) -> None:
         self.assertIn("cargo build -p cmux-tui --bin cmux-tui --release --locked", NIGHTLY)
         self.assertIn("cargo check -p cmux-tui --bin cmux-tui --release --locked", WORKFLOW)

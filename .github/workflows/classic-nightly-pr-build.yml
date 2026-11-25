@@ -74,7 +74,10 @@ jobs:
           git -c protocol.version=2 fetch --no-tags --depth=1 --filter=blob:none origin "$HEAD_SHA"
           python3 scripts/ci/classic_nightly_pr_build.py keys --rev "$HEAD_SHA" | tee -a "$GITHUB_OUTPUT"
 
-  swift:
+  # The gateway runner's job-started hook admits only thin cmux-ci clients,
+  # by workflow and job id: an id ending in -fleet is that contract (glaeda
+  # GATEWAY_FLEET_SUFFIX). Under the id `swift` every run was refused there.
+  app-compile-fleet:
     name: classic nightly app compile ${{ matrix.arch }} fleet job (advisory)
     needs: [route]
     if: ${{ needs.route.outputs.swift == 'true' && vars.CI_EVAL_STEP_GATEWAY != '' }}
