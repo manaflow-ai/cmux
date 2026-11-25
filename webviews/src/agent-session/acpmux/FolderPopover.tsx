@@ -202,10 +202,21 @@ export function FolderPopover({
   // The two actions under the list: Add project… and No folder (always there; checked while nothing is
   // picked and no new project is the choice).
   const pinned = sources ? [ACTION_ADD, ...(onNoProject ? [ACTION_NONE] : [])] : onBrowse ? [ACTION_BROWSE] : [];
-  const listValues = useMemo(
+  const rowBlocks = useMemo(
     () => orderedRows({ cloud, cloudRows, githubRows, shown, typed, typedPath }),
     [cloud, cloudRows, githubRows, shown, typed, typedPath],
   );
+  // The order the menu showed at its open, by block (a repository's rows, an added repository, a machine folder):
+  // kept while it stays open with nothing typed. A chat working elsewhere moves its folder to the top of the
+  // recent list, and the chats, folders and repositories arrive after the open: each moved every row under the
+  // pointer ("the folders list keeps changing", cmux#53226). A block that arrives later goes after the kept ones;
+  // a row fills in place. Typing orders by the search; clearing it keeps the order from then on.
+  const [shownOrder, setShownOrder] = useState<readonly string[]>();
+  const keepOrder = open && !typed;
+  const nextOrder = keepOrder ? keptOrder(shownOrder, rowBlocks) : undefined;
+  const blockOrder = nextOrder && sameKeys(nextOrder, shownOrder) ? shownOrder : nextOrder;
+  if (blockOrder !== shownOrder) setShownOrder(blockOrder);
+  const listValues = useMemo(() => orderBlocks(rowBlocks, blockOrder), [rowBlocks, blockOrder]);
   // A heading under other rows opens with a hairline; the list's first row has the field's line over it.
   const dividerOf = (value: string) => (sections.has(value) && value !== listValues[0] ? "" : undefined);
   const suggestions = [...pinned, ...listValues];
@@ -436,16 +447,10 @@ export function FolderPopover({
         title={folder.id}
         data-current={leadCurrent ? "" : undefined}
         data-expanded={disclosure ? String(disclosure.open) : undefined}
-        data-github={repo?.github ? "" : undefined}
       >
-        {repo?.github ? (
-          // A clone of a GitHub repository reads as one, like a repository added as a project.
-          <span className="acpmux-location-action-icon" aria-hidden="true">
-            <GitHubGlyph />
-          </span>
-        ) : (
-          <ProjectBadge project={{ cwd: folder.id, label: folder.label, repo }} />
-        )}
+        {/* A folder on this Mac is a folder, its `origin` on GitHub or not: only a GitHub repository row (one
+            added as a project, `github:owner/name`) shows the GitHub logo (cmux#53226). */}
+        <ProjectBadge project={{ cwd: folder.id, label: folder.label, repo }} />
         <span className="acpmux-menu-text acpmux-location-name">
           <span className="acpmux-menu-label">{group.name}</span>
           {suffix && (
@@ -659,10 +664,11 @@ export function FolderPopover({
   );
 }
 
-/// The list's values in order: each
+/// The list's rows in blocks, in order: each
 /// repository's rows (its lead, New Worktree, its open worktrees) kept together and placed by when its newest
 /// folder was used, the added repositories among them by theirs; with words typed, the folders in the search's
-/// order, the typed path, then the repositories that match. Cloud adds each machine's folders after them.
+/// order, the typed path, then the repositories that match. Cloud adds each machine's folders after them. Each
+/// block is keyed by its first row's value.
 function orderedRows({
   cloud,
   cloudRows,
@@ -677,7 +683,7 @@ function orderedRows({
   shown: ReadonlyMap<string, { group: { key: string; members: readonly FolderChoice[] } }>;
   typed: string;
   typedPath: string | undefined;
-}): string[] {
+}): string[][] {
   const repos: { repo: AddedRepo; block: string[] }[] = [];
   githubRows.forEach((repo, value) => repos.push({ repo, block: [value] }));
   const blocks: { block: string[]; at: number | undefined }[] = [];
@@ -690,12 +696,35 @@ function orderedRows({
     }
     blocks[blocks.length - 1]!.block.push(value);
   });
-  const path = typedPath ? [typedPath] : [];
+  const path = typedPath ? [[typedPath]] : [];
   // Cloud: the machines' own folders under their headings, after the one list.
-  const machines = cloud ? [...cloudRows.keys()] : [];
-  if (typed)
-    return [...blocks.flatMap(({ block }) => block), ...path, ...repos.flatMap(({ block }) => block), ...machines];
-  return [...mergeByRecentUse(blocks, repos).flat(), ...path, ...machines];
+  const machines = cloud ? [...cloudRows.keys()].map((value) => [value]) : [];
+  if (typed) return [...blocks.map(({ block }) => block), ...path, ...repos.map(({ block }) => block), ...machines];
+  return [...mergeByRecentUse(blocks, repos), ...path, ...machines];
+}
+
+/// The blocks' keys in the order `kept` showed them, then the blocks it did not show, in their own order.
+function keptOrder(kept: readonly string[] | undefined, blocks: readonly string[][]): string[] {
+  const keys = blocks.map((block) => block[0]!);
+  if (!kept) return keys;
+  const now = new Set(keys);
+  const order = kept.filter((key) => now.has(key));
+  const had = new Set(order);
+  keys.forEach((key) => {
+    if (!had.has(key)) order.push(key);
+  });
+  return order;
+}
+
+function sameKeys(left: readonly string[], right: readonly string[] | undefined): boolean {
+  return right !== undefined && left.length === right.length && left.every((key, at) => key === right[at]);
+}
+
+/// The blocks' rows in `order` (by each block's key), or in their own order with none.
+function orderBlocks(blocks: readonly string[][], order: readonly string[] | undefined): string[] {
+  if (!order) return blocks.flat();
+  const byKey = new Map(blocks.map((block) => [block[0]!, block]));
+  return order.flatMap((key) => byKey.get(key) ?? []);
 }
 
 /// When a chat here last worked in any of `members`, if one did.

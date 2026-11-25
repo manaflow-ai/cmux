@@ -121,6 +121,8 @@ import { startNewTabTransition } from "./newtab/startTransition";
 import { PendingPaneDraw } from "./paneSnapshotLane";
 import {
   FolderRecency,
+  pickedFolder,
+  startedByPerson,
   folderFields,
   isAgentHome,
   placeFields,
@@ -8987,7 +8989,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   folderLists.current ??= {
     newTab: new SessionsBy(placeFields),
     composer: new SessionsBy(folderFields),
-    recency: new FolderRecency(),
+    recency: new FolderRecency(pickedFolder),
   };
   // The folder menu orders the GitHub repositories added as projects among the folders by these times.
   setFolderUseTimes((folder) => folderLists.current?.recency.usedAt(folder));
@@ -9008,6 +9010,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     for (const session of newTabFolderSessions) {
       if (typeof session.cwd !== "string" || !session.cwd || named.has(session.cwd)) continue;
       if (session.host && session.hostKind !== "local") continue;
+      // Only folders the person picked: a chat an agent or a Chief started names its own (cmux#53226).
+      if (!startedByPerson(session)) continue;
       named.add(session.cwd);
       byPath.set(session.cwd, listed(session.cwd));
     }

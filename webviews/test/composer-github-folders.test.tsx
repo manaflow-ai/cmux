@@ -1256,7 +1256,7 @@ test("one list, most recently used first: an added GitHub repository sits among 
   }
 });
 
-test("a folder that is a clone of an added GitHub repository is its one row, with the GitHub glyph (cmux#53226)", async () => {
+test("a folder that is a clone of an added GitHub repository is its one row, a folder with no GitHub logo (cmux#53226)", async () => {
   const gh = host({ "github.status": ready, "github.repos.list": installed });
   rememberAddedRepo({ fullName: "acme/api", private: true }, 2000);
   rememberAddedRepo({ fullName: "acme/web", private: false }, 1000);
@@ -1280,7 +1280,10 @@ test("a folder that is a clone of an added GitHub repository is its one row, wit
     // Before, the clone was listed as a folder and the repository again under GitHub.
     expect(labels(".ui-combobox-scroll [role=option]")).toEqual(["acme/web", "app", "api"]);
     const clone = listRow("api")!;
-    expect(clone.querySelector("[data-github] .acpmux-location-action-icon svg")).not.toBeNull();
+    expect(clone.querySelector("[data-github]")).toBeNull();
+    expect(clone.querySelector(".acpmux-project-badge")).not.toBeNull();
+    // Only a GitHub repository row (added as a project, no folder here) shows the GitHub logo.
+    expect(listRow("acme/web")?.querySelector("[data-github] .acpmux-location-action-icon svg")).not.toBeNull();
     // A plain folder keeps its own icon.
     expect(listRow("app")?.querySelector("[data-github]")).toBeNull();
     await type("api");
@@ -1368,7 +1371,7 @@ test("with Cloud picked, this Mac's folders and the added repositories are one r
       projectChoices: [
         { cwd: FOLDER, label: "app" },
         { cwd: "/Users/me/notes", label: "notes" },
-        // This Mac's clone of acme/web: its one row, by the folder, with the GitHub glyph.
+        // This Mac's clone of acme/web: its one row, by the folder, with the folder's icon (never the GitHub logo).
         {
           cwd: "/Users/me/src/web",
           label: "web",
@@ -1383,7 +1386,7 @@ test("with Cloud picked, this Mac's folders and the added repositories are one r
     // Before: only GitHub repositories, every one on the account, under a GitHub heading.
     expect(labels(".ui-combobox-scroll [role=option]")).toEqual(["app", "notes", "web"]);
     expect(doc().querySelectorAll(".ui-combobox-scroll [data-section]")).toHaveLength(0);
-    expect(listRow("web")?.querySelector("[data-github] .acpmux-location-action-icon svg")).not.toBeNull();
+    expect(listRow("web")?.querySelector("[data-github]")).toBeNull();
     expect(listRow("notes")?.querySelector("[data-github]")).toBeNull();
     await press(listRow("notes")!);
     expect(picked).toEqual([["/Users/me/notes", undefined]]);
@@ -1405,6 +1408,85 @@ test("Cloud with a GitHub repository on the chip lists that repository and this 
     expect(shown).toContain("acme/web");
     expect(shown).toContain("app");
     expect(shown).toContain("notes");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("the open menu keeps its order while folders arrive and a chat elsewhere moves its folder up; a new one goes last (cmux#53226)", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  let times: Record<string, number> = { [FOLDER]: 3000, "/Users/me/notes": 1000 };
+  setFolderUseTimes((folder) => times[folder]);
+  let setChoices: (next: { cwd: string; label: string }[]) => void = () => {};
+  function Tray() {
+    const github = useGitHubPicker(gh.store);
+    const [choices, set] = useState([
+      { cwd: FOLDER, label: "app" },
+      { cwd: "/Users/me/notes", label: "notes" },
+    ]);
+    setChoices = set;
+    return (
+      <ComposerContext
+        summary={{ sessionId: "", cwd: FOLDER }}
+        projectChoices={choices}
+        onProject={() => {}}
+        onNoProject={() => {}}
+        localName="This Mac"
+        runMode={{ mode: "cloud", onMode: () => {} }}
+        github={github}
+      />
+    );
+  }
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  await act(async () => root.render(<Tray />));
+  try {
+    await openFolderMenu();
+    expect(labels(".ui-combobox-scroll [role=option]")).toEqual(["app", "notes"]);
+    // A chat in notes works (newest now) and the host lists the folders again, newest first, with one more.
+    times = { [FOLDER]: 3000, "/Users/me/notes": 9000, "/Users/me/web": 8000 };
+    await act(async () =>
+      setChoices([
+        { cwd: "/Users/me/notes", label: "notes" },
+        { cwd: "/Users/me/web", label: "web" },
+        { cwd: FOLDER, label: "app" },
+      ]),
+    );
+    await settle();
+    // Before: notes jumped to the top under the pointer.
+    expect(labels(".ui-combobox-scroll [role=option]")).toEqual(["app", "notes", "web"]);
+    // Opened again, the list is in its new order.
+    await act(async () => doc().querySelector<HTMLButtonElement>(".acpmux-location-button")!.click());
+    await settle();
+    await openFolderMenu();
+    expect(labels(".ui-combobox-scroll [role=option]")).toEqual(["notes", "web", "app"]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("folders of chats an agent or a Chief started are never listed; the person's are (cmux#53226)", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  const session = (sessionId: string, cwd: string, extra: Record<string, unknown> = {}) =>
+    ({ sessionId, cwd, harness: "claude", status: "ready", ...extra }) as never;
+  const { root } = await renderTray(
+    {
+      projectChoices: [],
+      sessions: [
+        session("mine", "/Users/me/mine"),
+        session("chief-turn", "/Users/me/.cmux/chief/session", { chiefTurn: { home: "h", participant: "p" } }),
+        session("chief-child", "/private/tmp", { chiefChild: true }),
+        session("child", "/Users/me/agent-made", { startedBy: "mine" }),
+      ],
+    },
+    gh.store,
+  );
+  try {
+    await openFolderMenu();
+    const shown = labels(".ui-combobox-scroll [role=option]");
+    expect(shown).toContain("mine");
+    expect(shown).not.toContain("session");
+    expect(shown).not.toContain("tmp");
+    expect(shown).not.toContain("agent-made");
   } finally {
     await act(async () => root.unmount());
   }

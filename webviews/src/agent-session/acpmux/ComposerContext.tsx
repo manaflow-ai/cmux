@@ -63,7 +63,7 @@ import { ProjectBadge } from "./ProjectBadge";
 import { MacBookGlyph } from "./MacBookGlyph";
 import { projectSuffixes } from "./projectSuffix";
 import { belowCheckout, folderRepo, isMainCheckout, worktreeName, type ProjectRepo } from "./projectRepos";
-import { isAgentHome, projectLabel, SessionsBy } from "./sessionList";
+import { isAgentHome, projectLabel, SessionsBy, startedByPerson } from "./sessionList";
 import { translate as t, useT } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { CloudEnvironmentChip, useCloudEnvironmentControl, type CloudEnvironmentDropUp } from "./CloudEnvironmentChip";
@@ -1540,7 +1540,8 @@ function availableFolders(summary: Summary | undefined, sessions: readonly Sessi
   if (summary && computerId(summary) === computer) add(summary.cwd);
   for (const session of sessions) {
     const sessionComputer = session.peer ?? (session.hostKind === "cloud" ? session.host : "local");
-    if (sessionComputer === computer) add(session.cwd);
+    // Only folders the person picked: an agent's or a Chief's chat names its own (cmux#53226).
+    if (sessionComputer === computer && startedByPerson(session)) add(session.cwd);
   }
   return folders;
 }
