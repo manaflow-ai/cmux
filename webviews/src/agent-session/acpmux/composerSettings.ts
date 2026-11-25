@@ -5,12 +5,13 @@
 // composer's button row offers Show. The page sets the value at once and asks the host to write it
 // (`pane.showContextUsage`, `pane.showDictation`), which pushes it back, also on the next launch.
 // `agentPane.attachmentView` rides the same event as `attachmentView`: how pictures and files show
-// in every composer and in sent messages, "inline" (in the text where each was added, the default),
-// "strip" (in a row) or "both" (in the text and in the row, so every attachment shows in one place
-// with its remove; Leo 2026-10-24: "ALSO show the top displayed attachments alongside the inline
-// attachments ... so you can see it all and close aka delete"). Sent messages draw "both" as
-// "inline". It is only a look: a draft's text, its attachment marks and their order are the same
-// in every view, so switching never changes what is sent. Anything else reads as "inline".
+// in every composer and in sent messages, "strip" (in a row over the text, the default: one place for
+// an attachment, Leo 2026-11-25) or "inline" (in the text where each was added, chosen from the
+// composer's right-click). "both" (text and row, which showed each attachment twice) reads as "strip".
+// It is only a look: a draft's text, its attachment marks and their order are the same in every
+// view, so switching never changes what is sent. Anything else reads as "strip".
+// `agentPane.composerVimKeys` (`composerVimKeys`) is off by default: on, the chat's prompt takes the minimal
+// modal vim of composer/vimKeys.ts (Esc for normal mode); off, the composer never reads those keys.
 // `agentPane.scrollToBottomOnSend` is on by default and preserves the existing send-to-latest
 // behavior. When off, an up-scrolled reader stays anchored while new rows arrive below; a reader at
 // the bottom continues following streaming output.
@@ -26,6 +27,9 @@
 // AgentPaneTunables.harnessSwitchInStartedChat, off by default; no cmux.json key): off, a chat with
 // a message keeps its harness and its model menu lists that harness's models alone (ComposerPickers).
 // `showMachineLoadWarnings` is the user setting for the Computer menu's cached host-health detail.
+// `showOverloadNotice` is `developerTools.overloadNotice` (Settings > Advanced > Developer Tools), off by
+// default (https://github.com/manaflow-ai/cmux/issues/56156): off, the chat never asks acpmux whether this
+// Mac is overloaded and never draws OverloadNotice.tsx's banner; only the host's `true` turns it on.
 // `composerRing` is `agentPane.composerRing` ("context" by default): what the ring at the end of the
 // quiet row shows, the chat's context window or the account's plan usage limits (5-hour, weekly;
 // PlanUsageCard.tsx), picked from the ring's right-click (Leo 2026-11-04: "i guess we can turn that
@@ -44,11 +48,17 @@
 // `emptyChatComposerPosition` is `agentPane.emptyChatComposerPosition` ("bottom" by default): "center"
 // sits a chat's composer in the middle of the pane until its first message (styles.css,
 // [data-empty-chat-composer="center"]). Anything else reads as "bottom".
+// `followUpMode` is `agentPane.followUpMode` ("steer" by default): what Return and Send do with a
+// message sent while an agent that steers is mid-turn, "steer" it into the turn or "queue" it for after
+// (followUpMode.ts); ⌘Return does the other. Anything else reads as "steer".
 // `cloudEnvironments` is the launch flag CLOUD_ENVIRONMENTS_ENABLED (Swift
 // AgentPaneCloudEnvironmentsFlag, read from the bundle's LSEnvironment, else the launch
-// environment; no cmux.json key): on, picking Cloud in a new chat's strip adds the Environment chip
-// (CloudEnvironmentChip.tsx), on Auto. On by default, as the host's flag is: only the host's `false`
-// (CLOUD_ENVIRONMENTS_ENABLED=0 or false) hides it.
+// environment; no cmux.json key): on, a Cloud start names the environment Settings > Cloud > Default
+// Image picked (chatCloudEnvironment.ts). On by default, as the host's flag is: only the host's
+// `false` (CLOUD_ENVIRONMENTS_ENABLED=0 or false) turns it off, and every Cloud start runs on Auto.
+// `cloudLeaseOnOpen` is the launch flag CLOUD_LEASE_ON_OPEN (Swift AgentPaneCloudLeaseOnOpenFlag): on, a
+// composer that opens with Cloud already its target leases its machine at open (cloudComposeReservation.ts
+// `opened`). On by default, as the host's flag is: only the host's `false` (CLOUD_LEASE_ON_OPEN=0) turns it off.
 import { useSyncExternalStore } from "react";
 
 // `symbols`: one row of harness symbols at the top of the model picker, each name on hover (Leo
@@ -56,6 +66,7 @@ import { useSyncExternalStore } from "react";
 // top :("). The others stay as choices.
 export type { HarnessPlacement } from "../../ui/harnessPlacement";
 import type { HarnessPlacement } from "../../ui/harnessPlacement";
+import { readFollowUpMode, type FollowUpMode } from "./followUpMode";
 export type ReasoningSliderStyle = "accent" | "minimal";
 export type AttachmentView = "inline" | "strip" | "both";
 export type NewChatPlace = "local" | "cloud";
@@ -70,6 +81,7 @@ export type ComposerSettings = {
   dictationSource: DictationSource;
   dictationShortcut: string;
   spellChecking: boolean;
+  composerVimKeys: boolean;
   attachmentView: AttachmentView;
   scrollToBottomOnSend: boolean;
   reasoningSlider: boolean;
@@ -78,11 +90,14 @@ export type ComposerSettings = {
   harnessPlacement: HarnessPlacement;
   harnessSwitch: boolean;
   showMachineLoadWarnings: boolean;
+  showOverloadNotice: boolean;
   newChatsIn: NewChatPlace;
   composerRing: ComposerRing;
   composerLook: ComposerLookSetting;
   emptyChatComposerPosition: EmptyChatComposerPosition;
+  followUpMode: FollowUpMode;
   cloudEnvironments: boolean;
+  cloudLeaseOnOpen: boolean;
 };
 
 export const DEFAULT_COMPOSER: ComposerSettings = {
@@ -91,7 +106,8 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   dictationSource: "cmux",
   dictationShortcut: "",
   spellChecking: false,
-  attachmentView: "inline",
+  composerVimKeys: false,
+  attachmentView: "strip",
   scrollToBottomOnSend: true,
   reasoningSlider: false,
   reasoningSliderStyle: "accent",
@@ -99,31 +115,38 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   harnessPlacement: "symbols",
   harnessSwitch: false,
   showMachineLoadWarnings: true,
+  showOverloadNotice: false,
   newChatsIn: "local",
   composerRing: "context",
   composerLook: "auto",
   emptyChatComposerPosition: "bottom",
+  followUpMode: "steer",
   cloudEnvironments: true,
+  cloudLeaseOnOpen: true,
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
 type ComposerFlag =
   | "showContextUsage"
   | "showDictation"
   | "spellChecking"
+  | "composerVimKeys"
   | "reasoningSlider"
   | "plainFooter"
   | "harnessSwitch"
   | "scrollToBottomOnSend"
   | "showMachineLoadWarnings"
-  | "cloudEnvironments";
+  | "showOverloadNotice"
+  | "cloudEnvironments"
+  | "cloudLeaseOnOpen";
 
 /// The host's value; anything it does not know keeps the default.
 export function readComposerSettings(value: unknown): ComposerSettings {
   const raw = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
   const flag = (key: ComposerFlag) => (typeof raw[key] === "boolean" ? raw[key] : DEFAULT_COMPOSER[key]);
   const reasoningSliderStyle: ReasoningSliderStyle = raw.reasoningSliderStyle === "minimal" ? "minimal" : "accent";
-  const attachmentView: AttachmentView =
-    raw.attachmentView === "strip" || raw.attachmentView === "both" ? raw.attachmentView : "inline";
+  // "both" drew every attachment twice, in the text and in the tray (Leo, 2026-11-25: "why are there
+  // both"): it reads as the tray.
+  const attachmentView: AttachmentView = raw.attachmentView === "inline" ? "inline" : "strip";
   return {
     showContextUsage: flag("showContextUsage"),
     showDictation: flag("showDictation"),
@@ -132,6 +155,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
       : "cmux",
     dictationShortcut: typeof raw.dictationShortcut === "string" ? raw.dictationShortcut : "",
     spellChecking: flag("spellChecking"),
+    composerVimKeys: flag("composerVimKeys"),
     attachmentView,
     scrollToBottomOnSend: flag("scrollToBottomOnSend"),
     reasoningSlider: flag("reasoningSlider"),
@@ -143,11 +167,14 @@ export function readComposerSettings(value: unknown): ComposerSettings {
         : "symbols",
     harnessSwitch: flag("harnessSwitch"),
     showMachineLoadWarnings: flag("showMachineLoadWarnings"),
+    showOverloadNotice: flag("showOverloadNotice"),
     newChatsIn: raw.newChatsIn === "cloud" ? "cloud" : "local",
     composerRing: raw.composerRing === "planUsage" ? "planUsage" : "context",
     composerLook: raw.composerLook === "studio" ? "studio" : "auto",
     emptyChatComposerPosition: raw.emptyChatComposerPosition === "center" ? "center" : "bottom",
+    followUpMode: readFollowUpMode(raw.followUpMode),
     cloudEnvironments: flag("cloudEnvironments"),
+    cloudLeaseOnOpen: flag("cloudLeaseOnOpen"),
   };
 }
 

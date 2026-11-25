@@ -14,13 +14,14 @@
 //!    shows the click or the typing.
 //! 5. Screenshots go through [`crate::frame`]; accessibility frames come back
 //!    in the pixels of the agent's latest screenshot of that window.
-//! 6. An acting call returns the window as it is after acting: a wait of at
-//!    most [`Settle::floor`] (cut short by the app's accessibility signal),
-//!    then one screenshot. Only when the app has no watched signals, or
-//!    signalled a change the pixels do not show yet, do more screenshots
-//!    follow until the pixels differ from what the agent last saw, up to
-//!    [`Settle::ceiling`]. Plus its tree. One round trip per step;
-//!    `observe: false` skips it.
+//! 6. An acting call returns the window as it is at once after acting, plus its
+//!    tree, with no wait for the screen (`settle: "openai"`, the default).
+//!    `settle: "adaptive"` waits at most [`Settle::floor`] (cut short by the
+//!    app's accessibility signal), then one screenshot. Only when the app has
+//!    no watched signals, or signalled a change the pixels do not show yet, do
+//!    more screenshots follow until the pixels differ from what the agent last
+//!    saw, up to [`Settle::ceiling`]. One round trip per step; `observe: false`
+//!    skips it.
 //! 7. One audit line per call.
 
 use std::collections::HashMap;

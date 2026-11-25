@@ -116,7 +116,16 @@ export async function deleteLiveVms(): Promise<string[]> {
 /** Network idleness after which Freestyle pauses a harness VM (at most 300 s). */
 export const HARNESS_IDLE_TIMEOUT_SECONDS = 300;
 
-export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: string; snapshotId: string; allowUnprefixed?: boolean }): Promise<{ vm: Vm; vmId: string; createMs: number; t0: number }> {
+/** One inline edge rule at create, as a product create carries it (web/services/vms/drivers/freestyle.ts freestyleEdgeRules). */
+export type CreateTlsRule = {
+  action: "allow";
+  domain: string;
+  source: Record<string, never>;
+  destination: { host: string; port: number };
+  transform: Array<{ headers: Record<string, string> }>;
+};
+
+export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: string; snapshotId: string; allowUnprefixed?: boolean; tlsRules?: CreateTlsRule[] }): Promise<{ vm: Vm; vmId: string; createMs: number; t0: number }> {
   assertResourceName(options.name, options.allowUnprefixed);
   const t0 = Date.now();
   const { vm, vmId } = await fs.vms.create({
@@ -128,6 +137,7 @@ export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: s
     // leave a VM running: Freestyle pauses it after this much network idleness
     // (Lawrence, 2026-10-07). Product machines are created by CloudDO with -1.
     idleTimeoutSeconds: HARNESS_IDLE_TIMEOUT_SECONDS,
+    ...(options.tlsRules?.length ? { tls: { rules: options.tlsRules } } : {}),
   });
   const createMs = Date.now() - t0;
   ledger.record(vmId, "vm", options.name);

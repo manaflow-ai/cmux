@@ -25,6 +25,7 @@ final class ChromeIconButton: ClickableButton {
     /// A menu for right-click and long-press (Back / Forward entries).
     var menuProvider: (() -> NSMenu?)?
     var onPointerEnter: (() -> Void)?  // the pointer came onto it (the Extensions button's bubble is made then)
+    var onDensityChange: (() -> Void)?  // the density changed (the profile button sizes its avatar again)
     private let holdTimer = DemandTimer(owner: "ChromeIconButton.hold")
     private var showedHoldMenu = false
     /// A press opens the button's menu at once instead of on the release (the toolbar's media,
@@ -63,6 +64,7 @@ final class ChromeIconButton: ClickableButton {
             // The tab's ratio on its own side (Lucas 2026-11-15: one shape at every density).
             layer?.cornerRadius = Metrics.buttonCornerRadius(proportionalTo: side(toolbar: toolbar))
             applyIcon()
+            onDensityChange?()
         }
         density.start()
         hover = PointerHover(self) { [weak self] in self?.updateFill(animated: true); if $0 { self?.onPointerEnter?() } }
@@ -104,6 +106,21 @@ final class ChromeIconButton: ClickableButton {
         addSubview(view)
         return view
     }()
+
+    /// A view the button draws in place of its glyph, centered (the profile button's avatar): the glyph hides
+    /// while it is set, and the button keeps the press, the hover fill, the tooltip and the label.
+    var glyphReplacement: NSView? {
+        didSet {
+            guard glyphReplacement !== oldValue else { return }
+            oldValue?.removeFromSuperview()
+            if let view = glyphReplacement {
+                view.translatesAutoresizingMaskIntoConstraints = false
+                addSubview(view)
+                NSLayoutConstraint.activate([view.centerXAnchor.constraint(equalTo: centerXAnchor), view.centerYAnchor.constraint(equalTo: centerYAnchor)])
+            }
+            if isToolbar { glyphView.isHidden = glyphReplacement != nil }
+        }
+    }
 
     /// The glyph the button draws: the toolbar's in ``glyphView``, an overlay's as the cell's image.
     var drawnGlyph: NSImage? { isToolbar ? glyphView.glyph : image }
@@ -229,7 +246,7 @@ final class ChromeIconButton: ClickableButton {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        menuProvider?() ?? super.menu(for: event)
+        NSMenu.withoutSystemItems(menuProvider?() ?? super.menu(for: event))
     }
 
     /// A right-click presses a button whose press opens a menu (the toolbar's

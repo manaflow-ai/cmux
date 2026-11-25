@@ -97,6 +97,17 @@ public final class CloudSetup {
             if case .connection(let id, _) = self { return id }
             return nil
         }
+
+        /// Whether the chat's model calls go somewhere other than this Mac's own gateway (``PersonalGateway``): the
+        /// agent launch carries this Mac's connection credential, or the platform edge serves the organization's key.
+        /// A start then has no gateway to wait for before its first turn. The production probe's starts on such a
+        /// route waited out the gateway's whole 10 s deadline in about one in five runs (2026-11-21).
+        public var servedWithoutMacGateway: Bool {
+            switch self {
+            case .connection, .organization: true
+            case .gateway, .setup, .fallback: false
+            }
+        }
     }
 
     /// The families a Cloud chat runs (the picker's agent, as the gateway names them).
@@ -259,6 +270,19 @@ public final class CloudSetup {
         guard case .setup(_, let model) = snapshot.choice(family: family, model: model, account: nil), !(await gatewayServes(family)) else { return nil }
         let local = snapshot.personal?.contains { $0.enabled && $0.signedIn && !$0.servesCloud && $0.families.contains(family) } == true
         return Refusal(family: family, model: model, localLogin: local)
+    }
+
+    /// Which families a Cloud chat can run now, for the composer's model picker with Cloud picked (`cloud.setupState`):
+    /// true when a start would go on (``refusal(harness:model:)`` is nil), false when it would show Set up Cloud. Nil when
+    /// nothing can be read, so the picker holds nothing back.
+    public func serving() async -> [String: Bool]? {
+        guard let read else { return nil }
+        let snapshot = routed(await read()) // one read for both families
+        var families: [String: Bool] = [:]
+        for family in Self.families {
+            if case .setup = snapshot.choice(family: family, model: nil, account: nil) { families[family] = await gatewayServes(family) } else { families[family] = true }
+        }
+        return families
     }
 
     /// The connections changed: every wait checks again.

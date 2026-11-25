@@ -333,7 +333,7 @@ if [[ "$cpu_load" == 1 ]]; then
   # 4 threads, a quarter second of wall time), 10 s deadline.
   spun=0
   for _ in $(seq 100); do
-    spun="$(ps -o time= -p "$(IFS=,; echo "${spin_pids[*]}")" 2>/dev/null |
+    spun="$(ps -o time= -p "$(IFS=,; echo "${spin_pids[*]-}")" 2>/dev/null |
       awk -F: '{ s = 0; for (i = 1; i <= NF; i++) s = s * 60 + $i; if (s >= 1) n++ } END { print n + 0 }' || true)"
     (( ${spun:-0} >= spinners )) && break
     sleep 0.1

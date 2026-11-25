@@ -36,6 +36,9 @@ pub(in crate::cli) const AGENT_POLICIES: [&str; 3] = ["ask", "approve-reads", "d
 /// What `continue` sends when no text is given.
 pub(in crate::cli) const CONTINUE_TEXT: &str = "Continue.";
 
+/// Codex agent chats must keep working until they can report a result or a blocker.
+pub(in crate::cli) const CODEX_AGENT_CHAT_STOP_CONDITION: &str = "Keep working until the requested task is complete. Report the verified result to Chief, or state what blocks it; a progress update alone is not completion.";
+
 /// A new chat's settings (`chat new` flags).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(in crate::cli) struct NewChat {
@@ -647,8 +650,20 @@ fn session_meta(chat: &NewChat, workspace_key: &str) -> Map<String, Value> {
     }
     if chat.peer.is_none() {
         meta.insert("env".into(), json!({"CMUX_WORKSPACE_ID": uuid_form(workspace_key)}));
+    } else if chat.name.is_some() {
+        // On another machine it keeps its name: a taken one gets a `-N` suffix there, never the
+        // agent's name (acpmux `NewRequest::suffix_taken_name`).
+        meta.insert("ifNameTaken".into(), json!("suffix"));
+    }
+    if chat.harness.as_deref().is_some_and(is_codex_harness) && chat.prompt.is_some() {
+        meta.insert("stopCondition".into(), json!(CODEX_AGENT_CHAT_STOP_CONDITION));
     }
     meta
+}
+
+fn is_codex_harness(harness: &str) -> bool {
+    let lower = harness.trim().to_ascii_lowercase();
+    lower == "codex" || lower.starts_with("codex/") || lower.starts_with("codex-")
 }
 
 /// `chat new`: the chat, its tab, and its first prompt.

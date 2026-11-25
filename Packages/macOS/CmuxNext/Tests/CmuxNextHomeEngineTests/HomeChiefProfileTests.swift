@@ -27,7 +27,7 @@ import Testing
         let card = Self.card()
         let expected: [(String, NSView?, HomeChiefProfileTab)] = [
             ("avatar", card.avatarButton, .details), ("name", card.nameField, .details), ("where it runs", card.place, .details),
-            ("Switch to", card.hostSwitch, .details), ("Primary Chief", card.primaryBox, .details), ("Runs On", card.teleportRow, .details),
+            ("Switch to", card.hostSwitch, .details), ("Primary Chief", card.primaryBox, .details),
             ("Connections", card.connections, .details), ("Vault", card.vault, .details), ("Diagnostics", card.diagnosticsToggle, .details),
             ("diagnostics", card.diagnostics, .details), ("Edit Chief", Self.link("cmux.home.chief.editChief", in: card), .details),
             ("Harness", card.harness, .settings), ("harness hint", card.harnessHint, .settings), ("Model", card.model, .settings),
@@ -62,15 +62,16 @@ import Testing
         #expect(panel.selectedTab == .settings)
     }
 
-    /// The Runs On row says where the Chief runs: the line under the name does not say it again.
-    @Test func theRunsOnRowReplacesTheLineUnderTheName() {
-        let card = Self.card()
-        #expect(!card.place.isHidden)
-        let chip = ChiefTeleportChip(model: ChiefTeleportModel(showing: .thisMac, phase: .idle, destinations: []))
-        card.showTeleport(chip)
-        #expect(card.place.isHidden, "Runs On shows: no second line")
-        card.showTeleport(nil)
-        #expect(!card.place.isHidden)
+    /// Upgrade is the popover's default button only while the Computer tab shows: Return in the name field on
+    /// Details must never open the plans page.
+    @Test func upgradeTakesReturnOnlyOnTheComputerTab() {
+        let panel = HomeChiefProfileView(settings: Self.card())
+        panel.paid = { false }
+        panel.select(.computer)
+        #expect(panel.shownGate == .paywall)
+        #expect(panel.gateButton.keyEquivalent == "\r")
+        panel.select(.details)
+        #expect(panel.gateButton.keyEquivalent.isEmpty)
     }
 
     /// Every Settings row puts its control in one column, whatever the control: the pickers, Can Wake the
@@ -96,16 +97,6 @@ import Testing
         let wake = card.reactionRows.canWake.convert(card.reactionRows.canWake.bounds, to: card).maxX
         let model = card.model.convert(card.model.bounds, to: card).maxX
         #expect(abs(wake - model) < 1, "Can Wake's picker is as wide as Model's")
-        // Runs On (Details) is a field in the same column, as wide and as tall as the pickers.
-        let chip = ChiefTeleportChip(model: ChiefTeleportModel(showing: .thisMac, phase: .idle, destinations: []))
-        card.showTeleport(chip)
-        card.showSection(.details)
-        card.layoutSubtreeIfNeeded()
-        #expect(chip.style == .field)
-        let runsOn = chip.convert(chip.bounds, to: card)
-        #expect(abs(runsOn.minX - column) < 1, "Runs On starts at \(runsOn.minX), not the column's \(column)")
-        #expect(abs(runsOn.maxX - model) < 1, "Runs On is as wide as the pickers")
-        #expect(runsOn.height >= Metrics.controlHeight - 0.5)
     }
 
     /// The control bar spans its width: the status at the leading edge, the button at the trailing edge.
