@@ -714,6 +714,8 @@ struct Numbers {
     stage_produce_ms: Option<f64>,
     stage_carry_ms: Option<f64>,
     delta_bytes: Option<f64>,
+    /// The received-bytes split (`measure`), one metric each.
+    split: Option<[(&'static str, u64); 7]>,
     error: Option<String>,
 }
 
@@ -811,6 +813,7 @@ async fn measure(
 
     // The change.
     s.reset();
+    let split_before = s.row()["received"].clone();
     let start = Instant::now();
     let end = match condition {
         "loss" | "latency" | "long" => s.link.blackout(BLIP),
@@ -840,6 +843,25 @@ async fn measure(
         format!("no fresh content within {} s of the change's end", CONTENT_BOUND.as_secs())
     })?;
     n.resume_ms = Some(ms(at - end));
+    // Where the bytes A's link received from the change to the fresh mark went (JSON text,
+    // after inflate): replay pages, live records dropped while their chat replayed, the rest.
+    // A replaced link starts its counts over.
+    let split_after = s.row()["received"].clone();
+    let get = |v: &Value, k: &str| v[k].as_u64().unwrap_or(0);
+    let replaced = get(&split_after, "text") < get(&split_before, "text");
+    let delta = |k: &str| {
+        let a = get(&split_after, k);
+        if replaced { a } else { a.saturating_sub(get(&split_before, k)) }
+    };
+    n.split = Some([
+        ("rx_text_bytes", delta("text")),
+        ("rx_frame_bytes", delta("frames")),
+        ("replay_bytes", delta("replay")),
+        ("replay_events", delta("replayEvents")),
+        ("gated_live_bytes", delta("gatedLive")),
+        ("gated_live_events", delta("gatedLiveEvents")),
+        ("link_replaced", u64::from(replaced)),
+    ]);
     let picked = picked.await.ok();
     let produced = echo_at(&cb, from_b, &fresh, Duration::from_secs(5)).await;
     let heard =
@@ -865,6 +887,9 @@ fn emit(cell: &Cell, run: u64, seed: u64, n: &Numbers) {
     cell.emit("stage_produce_ms", n.stage_produce_ms, run, seed, e);
     cell.emit("stage_carry_ms", n.stage_carry_ms, run, seed, e);
     cell.emit("delta_bytes", n.delta_bytes, run, seed, e);
+    for (k, v) in n.split.iter().flatten() {
+        cell.emit(k, Some(*v as f64), run, seed, e);
+    }
     cell.emit("fail", Some(if e.is_some() { 1.0 } else { 0.0 }), run, seed, None);
     if let Some(e) = e {
         eprintln!("pairmatrix: {}/{}/{} run {run}: {e}", cell.path, cell.condition, cell.load);

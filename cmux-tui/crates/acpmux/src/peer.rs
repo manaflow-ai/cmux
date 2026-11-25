@@ -609,12 +609,47 @@ pub struct Peer {
 pub struct ReceivedBytes {
     frames: AtomicU64,
     text: AtomicU64,
+    /// Of `text`: replay pages' records (`replay_chat`), and their count.
+    replay: AtomicU64,
+    replay_events: AtomicU64,
+    /// Of `text`: live records of a chat still replaying, carried and dropped (the replay
+    /// carries them again), and their count.
+    gated: AtomicU64,
+    gated_events: AtomicU64,
 }
 
 impl ReceivedBytes {
     fn reset(&self) {
-        self.frames.store(0, Ordering::SeqCst);
-        self.text.store(0, Ordering::SeqCst);
+        for n in [
+            &self.frames,
+            &self.text,
+            &self.replay,
+            &self.replay_events,
+            &self.gated,
+            &self.gated_events,
+        ] {
+            n.store(0, Ordering::SeqCst);
+        }
+    }
+
+    pub(crate) fn add_replay(&self, text: usize) {
+        self.replay.fetch_add(u64::try_from(text).unwrap_or(u64::MAX), Ordering::SeqCst);
+        self.replay_events.fetch_add(1, Ordering::SeqCst);
+    }
+
+    pub(crate) fn add_gated(&self, text: usize) {
+        self.gated.fetch_add(u64::try_from(text).unwrap_or(u64::MAX), Ordering::SeqCst);
+        self.gated_events.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Where this link's received bytes went, for the peer's summary.
+    pub fn split(&self) -> serde_json::Value {
+        let r = |n: &AtomicU64| n.load(Ordering::SeqCst);
+        serde_json::json!({
+            "frames": r(&self.frames), "text": r(&self.text),
+            "replay": r(&self.replay), "replayEvents": r(&self.replay_events),
+            "gatedLive": r(&self.gated), "gatedLiveEvents": r(&self.gated_events),
+        })
     }
 
     fn add(&self, frame: usize, text: usize) {
