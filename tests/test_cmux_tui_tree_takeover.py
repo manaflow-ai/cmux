@@ -15,6 +15,7 @@ import io
 import json
 import sys
 import unittest
+import unittest.mock
 import zipfile
 from pathlib import Path
 
@@ -153,6 +154,32 @@ class OwnerEndedWithoutPublishing(unittest.TestCase):
                                    log=lambda _line: None, fetch_completion=lambda _key: None,
                                    exclude_run=1, quota_only=lambda: True)
         self.assertEqual((dispatched, repo.reruns), (1, []))
+
+    def test_a_compile_error_is_not_taken_over(self):
+        """Like the hand-off and the tree request (#54942): the waiter's re-run builds the same tree key from the same
+        source and fails on the same compile error (2026-11-25: run 45522424589, cmux-wg E0308, about 75 runner-min
+        a re-run). The waiter is told red instead."""
+        repo = Repo([tip_marker("daemon", 1)], [tip_run()])
+        dispatched = notify.notify(repo, repo=REPO, key=KEY, state="failed", reason="error[E0308]",
+                                   log=lambda _line: None, fetch_completion=lambda _key: None,
+                                   exclude_run=1, compile_error=lambda: True)
+        self.assertEqual((dispatched, repo.reruns), (1, []))
+        self.assertEqual(repo.next_dispatches[0]["inputs"]["same_tree_state"], "failed")
+
+    def test_the_same_tree_takeover_skips_an_owner_that_failed_to_compile(self):
+        """cmux-next.yml's same-tree job runs the takeover with --reason naming the owner run: an owner that failed
+        on a compile error is not taken over, and nothing is re-run."""
+        import cmux_tui_tree_request_rerun as request
+        asked: list[str] = []
+        original = request.failed_on_compile_error
+        request.failed_on_compile_error = lambda repo, run_id: asked.append(run_id) or True  # type: ignore
+        try:
+            with unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
+                code = takeover.main(["--repo", REPO, "--commit", TIP, "--key", KEY,
+                                      "--reason", "https://x/actions/runs/42673437035 ended without publishing"])
+        finally:
+            request.failed_on_compile_error = original
+        self.assertEqual((code, asked), (1, ["42673437035"]))
 
     def test_a_fork_runs_marker_starts_no_takeover(self):
         """Review of #39634 (notifier-merge-1): a fork pull request's run executes the fork's workflow file, so
