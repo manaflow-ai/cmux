@@ -185,6 +185,11 @@ export const PAGES = {
       },
       // Settings > Accounts' device sign-in and account list (logins done right).
       { file: "webviews/src/pages/shared/signIn/Localizable.xcstrings" },
+      {
+        // Connect Claude's one click and its progress line, the chat's connect card's own words.
+        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
+        keys: (all) => all.filter((key) => key.startsWith("connect.")),
+      },
     ],
   },
   history: {
