@@ -12,6 +12,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError, mpsc};
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -81,6 +82,43 @@ struct Status {
     exported: Option<serde_json::Map<String, Value>>,
     /// The seed marked its head on the sync barrier and fills the rest.
     head_ready: bool,
+    /// Where the job's time went, its status `timings`: since it began, since `phase` began,
+    /// each phase it left, its whole time once ended, and its thread's git runs and waits
+    /// ([`super::git::take_runs`]).
+    began: Instant,
+    phase_began: Instant,
+    phase_times: Vec<(&'static str, Duration)>,
+    took: Option<Duration>,
+    runs: Value,
+}
+
+impl Status {
+    /// Adds the time since `phase` began to it.
+    fn close_phase(&mut self, now: Instant) {
+        let took = now.duration_since(self.phase_began);
+        let name = self.phase.name();
+        match self.phase_times.iter_mut().find(|(phase, _)| *phase == name) {
+            Some((_, sum)) => *sum += took,
+            None => self.phase_times.push((name, took)),
+        }
+        self.phase_began = now;
+    }
+
+    fn timings(&self) -> Value {
+        let mut phases: Vec<(&'static str, Duration)> = self.phase_times.clone();
+        if self.took.is_none() {
+            phases.push((self.phase.name(), self.phase_began.elapsed()));
+        }
+        let phases: serde_json::Map<String, Value> = phases
+            .into_iter()
+            .map(|(name, took)| (name.to_owned(), json!(took.as_millis())))
+            .collect();
+        json!({
+            "job_ms": self.took.unwrap_or_else(|| self.began.elapsed()).as_millis(),
+            "phases": phases,
+            "git": self.runs,
+        })
+    }
 }
 
 /// One seed.
@@ -106,7 +144,10 @@ impl Job {
     }
 
     pub(super) fn enter(&self, phase: Phase) {
-        self.update(|status| status.phase = phase);
+        self.update(|status| {
+            status.close_phase(Instant::now());
+            status.phase = phase;
+        });
     }
 
     pub(super) fn progress(&self, line: &str) {
@@ -138,6 +179,13 @@ impl Job {
     }
 
     pub(super) fn finish(&self, result: Result<(), Failed>) {
+        let runs = super::git::take_runs();
+        self.update(|status| {
+            let now = Instant::now();
+            status.close_phase(now);
+            status.took = Some(now.duration_since(status.began));
+            status.runs = runs;
+        });
         self.update(|status| match result {
             Ok(()) => status.state = State::Done,
             Err(failed) => {
@@ -164,6 +212,7 @@ impl Job {
                 "total_objects": status.progress.total_objects,
             },
             "notes": status.notes,
+            "timings": status.timings(),
         });
         if status.head_ready
             && let Some(object) = answer.as_object_mut()
@@ -311,6 +360,8 @@ impl GitSeedService {
             Some(_) => None,
             None => Some(place::bundle(&self.roots, &params.bundle, &id)?),
         };
+        let carry =
+            params.carry.as_deref().map(|path| place::carry(&self.roots, path, &id)).transpose()?;
         let job = Arc::new(Job {
             id,
             folder: folder.clone(),
@@ -343,6 +394,7 @@ impl GitSeedService {
             params,
             folder,
             bundle,
+            carry,
             self.roots.clone(),
             self.config.git.clone(),
             credentials,
@@ -483,13 +535,18 @@ impl GitSeedService {
 
     /// `git.seed.hold.end {ok}`: the barrier ready, or left failed; answers the job's status.
     fn hold_end(&self, params: &Value) -> Result<Value, SeedRefusal> {
-        let ok = serde_json::from_value::<hold::JobParams>(params.clone())
-            .ok()
+        let parsed = serde_json::from_value::<hold::JobParams>(params.clone()).ok();
+        let ok = parsed
+            .as_ref()
             .and_then(|params| params.ok)
             .ok_or_else(|| SeedRefusal::bad_request("hold.end needs ok: true or false"))?;
+        let partial = parsed.and_then(|params| params.partial);
+        if partial.as_deref().is_some_and(|reason| !hold::PARTIAL_REASONS.contains(&reason)) {
+            return Err(SeedRefusal::bad_request("hold.end's partial names no known reason"));
+        }
         let (job, owner) = self.running_hold(params)?;
         let (reply, ended) = mpsc::channel();
-        owner.send(hold::Op::End(ok, reply)).map_err(|_| hold_ended())?;
+        owner.send(hold::Op::End(ok, partial, reply)).map_err(|_| hold_ended())?;
         // A copy that could not finish is the job's own failed status, answered below.
         let _finished: Result<(), Failed> = ended.recv().map_err(|_| hold_ended())?;
         let job = self.jobs().by_id.get(&job).cloned().ok_or_else(hold_ended)?;
@@ -562,6 +619,11 @@ impl Status {
             head: None,
             exported: None,
             head_ready: false,
+            began: Instant::now(),
+            phase_began: Instant::now(),
+            phase_times: Vec::new(),
+            took: None,
+            runs: Value::Null,
         }
     }
 }

@@ -6,7 +6,8 @@
 //! Structure comes from the JSON Schema (`cmux-app-host/schema/v2`); the
 //! semantic rules a schema cannot express (publisher ownership, native code
 //! tiers, interface names and options, scope classes, package paths, the
-//! catalog fragment, CLI names and MCP tool names) live in [`rules`],
+//! catalog fragment, CLI names, MCP tool names and `contributes.wallpapers`,
+//! checked with cmux-wallpaper) live in [`rules`],
 //! [`catalog`], [`cli`] and [`package`].
 
 // The crash ratchet keeps this crate at zero production panics
@@ -31,6 +32,7 @@ mod deploy;
 pub mod hidden;
 mod interfaces;
 mod issue;
+mod menus;
 pub mod module_store;
 mod package;
 mod presentation;
@@ -38,6 +40,7 @@ mod rules;
 mod scopes;
 mod toolbar;
 mod web_pane;
+pub mod whats_new;
 
 pub use capabilities::{
     Capabilities, OpCapability, OpClass, OpScope, scope_info, scope_reaches_out,
@@ -49,6 +52,7 @@ pub use cli::{
 };
 pub use interfaces::{KNOWN_HOST_CAPABILITIES, KNOWN_INTERFACES, interface_files};
 pub use issue::{Issue, Severity};
+pub use menus::MENU_TARGETS;
 pub use package::{PackageReport, validate_package, validate_package_file};
 pub use scopes::{SCOPE_CLASSES, ScopeClass, ScopeInfo};
 pub use toolbar::{OVERRIDABLE_TOOLBAR_ITEMS, SIDEBAR_TOGGLE_ITEM, TOOLBAR_VISIBLE_APP_ITEMS};

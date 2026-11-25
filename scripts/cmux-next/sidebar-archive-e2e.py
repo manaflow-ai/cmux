@@ -19,6 +19,7 @@ Usage: sidebar-archive-e2e.py --tag <tag> [--out DIR] [--app PATH]
 import argparse, glob, json, os, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_stable  # noqa: E402
 from tag_teardown import TagTeardown  # noqa: E402
 
 parser = argparse.ArgumentParser()
@@ -165,7 +166,11 @@ def palette_run(query):
         return False
     for ch in query:
         key("space" if ch == " " else ch, target="palette")
-    time.sleep(0.5)  # test harness: let the palette filter settle
+    # Until the palette's filtered listing settled: its own report for a no-op key (forward delete at the
+    # query's end) reads the same several times in a row.
+    if wait_stable(lambda: json.dumps(key("forwarddelete", target="palette") or {}, sort_keys=True, default=str),
+                   "the palette's filtered listing", timeout=8, interval=0.05, raise_on_timeout=False) is None:
+        say("  the palette's listing never settled in 8 s")
     key("return", target="palette")
     return True
 

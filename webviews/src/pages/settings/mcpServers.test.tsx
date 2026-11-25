@@ -41,6 +41,18 @@ test("it lists each saved server with its state, who has it, and the gestures th
   page.unmount();
 });
 
+test("the page says how to connect a service and has the switch for new chats", async () => {
+  const page = await renderPage({ path: "/settings/mcpServers" });
+  await settle();
+  expect(card(page.container).querySelector("[data-mcp-connect-how]")!.textContent).toBe(
+    "To add one, ask an agent in a chat; you approve it there.",
+  );
+  const toggle = page.container.querySelector<HTMLElement>('[data-row-key="agents.mcpServers.enabled"]');
+  expect(toggle).not.toBeNull();
+  expect(toggle!.textContent).toContain("Saved Servers in Agent Chats");
+  page.unmount();
+});
+
 test("Sign In starts that server's sign-in and the row waits for the person", async () => {
   const page = await renderPage({ path: "/settings/mcpServers" });
   await settle();

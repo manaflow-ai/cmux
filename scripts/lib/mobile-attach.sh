@@ -51,17 +51,41 @@ cmux_attach_tag_has_alnum() {
 # Cloud registry/presence instance tags are capped at 64 JavaScript UTF-16
 # units. Slugs are ASCII, so shell character count is the same measurement.
 # Reject instead of truncating because truncation could collapse two tagged
-# builds onto the same instance identity.
+# builds onto the same instance identity. The same slug names a dev build's
+# space on cmux-mobile-api (`X-Cmux-Build-Space: dev:<slug>`,
+# cmux-next-ios/PROTOCOL.md "Build spaces"), which refuses a slug over 64 and
+# `default` the same way, so the two never disagree on a tag.
 cmux_attach_tag_within_cloud_limit() {
   local slug
   slug="$(cmux_attach__slug_raw "$1")"
   (( ${#slug} <= 64 ))
 }
 
+# Tags that already name an app of their own, so no tagged dev build may take one: `default` is the stable
+# app instance (cmux-mobile-api refuses dev:default too); `dev` is cmux Dev (dev.cmux.mobile.dev,
+# cmux-next-ios/scripts/try.sh, whose fallback for an older commit builds in dev:dev); `demo` and `prod` are
+# demo-build.sh's Demo and Production installs (dev.cmux.mobile.demo, dev.cmux.mobile.prod). A Mac tagged
+# one of them would take that app for its own tag's phone, and a hand-off would install over it.
+CMUX_ATTACH_RESERVED_TAGS="default dev demo prod"
+
+# True iff the tag's slug is one of CMUX_ATTACH_RESERVED_TAGS.
+cmux_attach_tag_reserved() {
+  local slug
+  slug="$(cmux_attach__slug_raw "$1")"
+  [[ -n "$slug" && " $CMUX_ATTACH_RESERVED_TAGS " == *" $slug "* ]]
+}
+
 # Validate a dev-build tag before it selects an app bundle, socket, or cloud
 # presence identity. "default" is the stable app instance sentinel, so allowing
 # a dev tag to sanitize to that value would make the dev build impersonate the
 # stable instance even though its bundle and socket are otherwise isolated.
+#
+# A tag must be canonical: its own slug (lowercase ASCII letters, digits and
+# single inner dashes, at most 64). The tag is the build space `dev:<slug>` of
+# its Mac and iPhone builds, and the slug maps foo_bar, foo.bar, Foo-Bar and
+# foo--bar to one space, so two tasks with "different" tags would share one
+# space and pair with each other's builds. Every spelling but the slug itself
+# is refused, with the slug to use instead.
 cmux_attach_validate_dev_tag() {
   local tag="$1" slug
   if ! cmux_attach_tag_has_alnum "$tag"; then
@@ -69,12 +93,23 @@ cmux_attach_validate_dev_tag() {
     return 1
   fi
   slug="$(cmux_attach__slug_raw "$tag")"
-  if [[ "$slug" == "default" ]]; then
-    echo "error: --tag must not sanitize to 'default'; that tag is reserved for the stable app instance" >&2
-    return 1
-  fi
+  case "$slug" in
+    default)
+      echo "error: --tag must not sanitize to 'default'; that tag is reserved for the stable app instance" >&2
+      return 1 ;;
+    dev)
+      echo "error: --tag dev is the cmux Dev app's (dev.cmux.mobile.dev, cmux-next-ios/scripts/try.sh); pick another tag" >&2
+      return 1 ;;
+    demo|prod)
+      echo "error: --tag $slug is demo-build.sh's $([[ $slug == demo ]] && echo Demo || echo Production) install (dev.cmux.mobile.$slug); pick another tag" >&2
+      return 1 ;;
+  esac
   if ! cmux_attach_tag_within_cloud_limit "$tag"; then
     echo "error: --tag must sanitize to at most 64 characters" >&2
+    return 1
+  fi
+  if [[ "$tag" != "$slug" ]]; then
+    echo "error: --tag '$tag' is not a canonical tag: a tag is lowercase letters, digits and single dashes inside, as it is its builds' cloud build space (dev:$slug, which every spelling of it would share); use --tag $slug" >&2
     return 1
   fi
 }

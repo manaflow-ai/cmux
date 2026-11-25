@@ -167,14 +167,19 @@ export function uploadsToFit(
   const fitted = fitPromptBudget(input, attachments, options, budget);
   let total = inlineBytes(promptBlocks(input, fitted, options));
   if (total <= budget) return [];
-  const inline = fitted
-    .filter((chip) => (chip.kind === "image" || chip.kind === "document" || chip.kind === "audio") && chip.data)
-    .sort((a, b) => b.data!.length - a.data!.length);
+  // A text file's or a large paste's contents go inline as text, so they can be what is too large too.
+  const carried = (chip: ComposerAttachment) =>
+    (chip.kind === "image" || chip.kind === "document" || chip.kind === "audio") && chip.data
+      ? chip.data.length + chip.mimeType.length
+      : (chip.kind === "text" || chip.kind === "pasted") && chip.text
+        ? jsonBytes(chip.text)
+        : 0;
+  const inline = fitted.filter((chip) => carried(chip) > 0).sort((a, b) => carried(b) - carried(a));
   const picked: ComposerAttachment[] = [];
   for (const chip of inline) {
     if (total <= budget) break;
     picked.push(chip);
-    total -= chip.data!.length + chip.mimeType.length + jsonBytes(chip.name) + BLOCK_OVERHEAD;
+    total -= carried(chip) + jsonBytes(chip.name) + BLOCK_OVERHEAD;
   }
   return picked;
 }

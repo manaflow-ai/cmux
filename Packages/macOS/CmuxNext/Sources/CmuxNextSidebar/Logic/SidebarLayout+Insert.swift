@@ -34,8 +34,7 @@ nonisolated extension SidebarLayout {
                   Self.isOwnTopRow(rows[previous], in: section) {
             (at, y, sibling) = (previous + 1, rows[previous].maxY + rowSpacing, rows[previous].siblingIndex + 1)
         }
-        // An anchor under "Archive (N)" is an archived group's row there (`appendArchive`), not its node's place.
-        guard let at, position(of: .doneFold(.archive)).map({ at <= $0 }) ?? true else { return false }
+        guard let at else { return false }
         let m = base.resolved(for: o)
         guard m.rowSpacing == rowSpacing else { return false }
         let content = o.rowContent(ws, machine: Self.machineLabel(section, options: o))
@@ -113,9 +112,9 @@ nonisolated extension SidebarLayout {
         return true
     }
 
-    /// Whether `ws` is drawn behind a fold row (Done, archived), out of node order.
+    /// Whether `ws` is drawn behind a fold row (Done, Settled, archived), out of node order.
     private static func folds(_ ws: SidebarWorkspace, _ o: SidebarLayoutOptions) -> Bool {
-        ws.isArchived || (o.foldsDone && ws.taskStatus == .done)
+        ws.isArchived || (o.foldsDone && ws.taskStatus == .done) || o.settles(ws) || o.automates(ws)
     }
 
     private static func folds(_ node: SidebarNode, _ o: SidebarLayoutOptions) -> Bool {

@@ -1,8 +1,11 @@
 //! `fs-v1`: file ops of the session daemon (request file
-//! `daemon-fs-for-cloud.md`). Served on cmux Cloud hosts only (decision
-//! D4): the daemon binary installs an [`FsService`] over the VM home when
-//! it runs on a Cloud host, and only then advertises [`FS_CAPABILITY`].
-//! Everywhere else every `fs.*` op answers `fs.unavailable`.
+//! `daemon-fs-for-cloud.md`). Served on Linux hosts (decision D4, widened
+//! 2026-11-19): the daemon binary installs an [`FsService`] over the home
+//! on a cmux Cloud host ([`Scope::Cloud`]) and on a Linux machine of the
+//! person's own, a lane VM or a CI machine ([`Scope::Owner`]: only the
+//! machine owner's connections may use it, `server::fs_wire`), and only
+//! then advertises [`FS_CAPABILITY`]. A Mac installs none: every `fs.*` op
+//! there answers `fs.unavailable`.
 //!
 //! Every path goes through the descriptor-relative sandbox in [`resolve`]
 //! (no symlink is followed by the kernel; none leaves the roots), writes are
@@ -63,11 +66,42 @@ pub const FS_WRITE_NOFOLLOW_CAPABILITY: &str = "fs-write-nofollow-v1";
 pub const FS_READ_NOFOLLOW_CAPABILITY: &str = "fs-read-nofollow-v1";
 
 static SERVICE: OnceLock<FsService> = OnceLock::new();
+static SCOPE: OnceLock<Scope> = OnceLock::new();
 
-/// Installs the daemon's file owner (once per process; a second call is
-/// ignored and returns false).
+/// Who may use the installed file owner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scope {
+    /// A cmux Cloud host: every peer the link's team policy let reach the daemon.
+    Cloud,
+    /// A machine of the person's own (not a Cloud host): the owner's connections only, the
+    /// local socket (unstamped or stamped owner) and a Native dial signed for the owner. A
+    /// classic paired peer, which has no shell there, never reads or writes its files.
+    Owner,
+}
+
+/// Installs the daemon's file owner for a Cloud host (once per process; a
+/// second call is ignored and returns false).
 pub fn install(service: FsService) -> bool {
-    SERVICE.set(service).is_ok()
+    install_scoped(service, Scope::Cloud)
+}
+
+/// Installs the daemon's file owner for `scope` (once per process; a second
+/// call is ignored and returns false). The scope is published before the
+/// service, so whoever sees the service ([`installed`]) also sees its final
+/// scope: a handler reads the service once, then checks the connection, and
+/// answers from that same read (never a service under a looser policy).
+pub fn install_scoped(service: FsService, scope: Scope) -> bool {
+    if SCOPE.set(scope).is_err() || SERVICE.set(service).is_err() {
+        return false;
+    }
+    true
+}
+
+/// True when the installed file owner serves the machine owner's connections only
+/// ([`Scope::Owner`]).
+#[must_use]
+pub fn owner_only() -> bool {
+    SCOPE.get() == Some(&Scope::Owner)
 }
 
 /// The installed owner, when this daemon serves `fs-v1`.

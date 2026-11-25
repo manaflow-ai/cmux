@@ -84,17 +84,17 @@ PATH="$tmp/fakebin:$PATH" bash "$FIX" --no-fmt --docs-shortcuts --app-host --app
 grep -q '^fixed: regenerated cmux-tui/crates/cmux-app-host/generated/scopes.json' "$tmp/out" || fail "the regenerated app-host file must be reported"
 ! grep -q '^left: cmux-tui/crates/cmux-app-host/generated' "$tmp/out" || fail "the base app-host files must not be reported as waiting"
 git -C "$repo" checkout -q -- .
-# The copies the app bundles follow the regenerated files (sync-app-runtime.sh): f2a158b55281
-# regenerated scopes.json alone and left app platform red on base.
+# The copies the app bundles stay current with the regenerated files (sync-app-runtime.sh): f2a158b55281
+# regenerated scopes.json alone and left app platform red on base, when the app still carried a copy of it.
+# The app carries no scope table now, so a regenerated one leaves the bundled copies as they are.
 bundled=Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform
 cp "$ROOT_DIR/scripts/cmux-next/sync-app-runtime.sh" "$repo/scripts/cmux-next/"
-mkdir -p "$repo/cmux-tui/crates/cmux-app-host/schema/v2"
-echo '{}' > "$repo/cmux-tui/crates/cmux-app-host/schema/v2/scope-classes.json"
 (cd "$repo" && scripts/cmux-next/sync-app-runtime.sh >/dev/null)
 git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm bundled
 PATH="$tmp/fakebin:$PATH" bash "$FIX" --no-fmt --app-host --app-host-committed-exports "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed syncing the bundled copies"
-[[ "$(cat "$repo/$bundled/scopes.json")" == from-stale-export ]] || fail "the bundled scopes.json must follow the regenerated one"
-grep -q "^fixed: synced $bundled/scopes.json" "$tmp/out" || fail "the synced bundled copy must be reported"
+[[ "$(cat "$repo/cmux-tui/crates/cmux-app-host/generated/scopes.json")" == from-stale-export ]] || fail "the regenerated scopes.json must be written"
+[[ ! -e "$repo/$bundled/scopes.json" ]] || fail "the app must carry no copy of the scope table"
+! grep -q "^fixed: synced $bundled/" "$tmp/out" || fail "a regenerated scope table must leave the bundled copies unchanged"
 (cd "$repo" && scripts/cmux-next/sync-app-runtime.sh --check >/dev/null 2>&1) || fail "the bundled copies must be current after the fixer"
 git -C "$repo" checkout -q -- .
 # The read-only webviews job's patch may carry the rebuilt Chief memory
@@ -197,4 +197,19 @@ PATH="$tmp/refbin:$PATH" bash "$FIX" --no-fmt "$repo" > "$tmp/out" 2>&1 || fail 
 [[ "$(cat "$repo/web/data/next-docs/settings-reference.generated.json")" == '{"settings":"new"}' ]] || fail "a stale settings reference must be regenerated without --docs-shortcuts"
 grep -q '^fixed: regenerated web/data/next-docs/settings-reference.generated.json' "$tmp/out" || fail "a regenerated settings reference must be reported"
 grep -qx 'web/scripts/export-next-docs.ts --settings' "$tmp/bun-args" || fail "the settings reference must be made with export-next-docs.ts --settings only"
+# Re-pin markers the regenerated exports settled are deleted with them (step 1a): an actions/ marker
+# whose id both exports now carry, a removal/ marker whose id neither has. The rest stay.
+pin="$tmp/pin"; pgen="$tmp/pin-generated"; mk=cmux-tui/crates/cmux-action-catalog/tests/awaiting-repin
+mkdir -p "$pin/plans/cmux-next" "$pin/$mk/actions" "$pin/$mk/removal" "$pgen/plans/cmux-next"
+for f in actions/landed actions/waiting actions/half removal/gone removal/kept; do echo '# note' > "$pin/$mk/$f"; done
+echo '{"actions":[{"id":"kept"}]}' > "$pin/plans/cmux-next/action-surfaces.json"
+echo '{"actions":[{"id":"kept"}]}' > "$pin/plans/cmux-next/action-catalog.json"
+echo '{"actions":[{"id":"landed"},{"id":"half"},{"id":"kept"}]}' > "$pgen/plans/cmux-next/action-surfaces.json"
+echo '{"actions":[{"id":"landed"},{"id":"kept"}]}' > "$pgen/plans/cmux-next/action-catalog.json"
+git -C "$pin" init -q && git -C "$pin" add -A && git -C "$pin" -c user.name=t -c user.email=t@t commit -qm fixture
+bash "$FIX" --no-fmt --generated "$pgen" "$pin" > "$tmp/out" 2>&1 || fail "the fixer must succeed on settled re-pin markers"
+[[ ! -e "$pin/$mk/actions/landed" ]] || fail "an actions marker both regenerated exports carry must be deleted"
+[[ ! -e "$pin/$mk/removal/gone" ]] || fail "a removal marker neither regenerated export has must be deleted"
+for f in actions/waiting actions/half removal/kept; do [[ -e "$pin/$mk/$f" ]] || fail "the unsettled marker $f must stay"; done
+grep -q "^fixed: deleted $mk/actions/landed" "$tmp/out" || fail "a deleted marker must be reported"
 echo "base autofix: ok"

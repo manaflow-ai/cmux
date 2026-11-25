@@ -7,6 +7,7 @@
 /// message (CloudStartView, cloudStartProgress.ts); the prompt stays in the composer until the chat
 /// opens on the machine.
 
+import { keepCloudLanding, takeCloudLanding, type AutoLanding } from "./autoWhereModel";
 import { shownChatFolder } from "./folderlessCloud";
 import { githubFolderRepo } from "./githubRepos";
 import { isAgentHome } from "./sessionList";
@@ -19,6 +20,7 @@ import type { CloudSize } from "./cloudPlans";
 /// copied and the chat starts in the machine's own home folder (cloudStartFolder).
 export type CloudStart = {
   task: string;
+  autoLanding?: AutoLanding;
   attachments?: ComposerAttachment[];
   cwd?: string;
   home?: boolean;
@@ -236,6 +238,25 @@ export function makeCloudSignInRetry(resume: () => Promise<CloudStartAnswer> | u
   return retry;
 }
 
+/// Whether this page's chat runs on another machine: a Cloud machine's (a new tab or split in a Cloud chat's
+/// workspace, whose handshake names the machine), an SSH machine's, or a chat whose summary names one. Its
+/// new chat already starts on that machine, and the host refuses `cloud.startChat` from it (AgentPaneHandOff
+/// `chatIsElsewhere`, CloudStartChat's runner). Offering Cloud there made Enter end in "Cloud isn't available
+/// for this chat" instead of starting the chat in this pane (cmux#47679): Cloud is never offered or picked there.
+export function pageOnOtherMachine(page: {
+  cloudMachineID?: string | undefined;
+  origin?: string | undefined;
+  summary?: { peer?: string | undefined; hostKind?: string | undefined } | undefined;
+}): boolean {
+  return (
+    page.cloudMachineID !== undefined ||
+    page.origin === "remote" ||
+    page.origin === "peer" ||
+    Boolean(page.summary?.peer) ||
+    page.summary?.hostKind === "cloud"
+  );
+}
+
 /// Why Cloud can't start from this tab yet, before anything goes to the host:
 /// - `cloud_checking`: the host hasn't said yet what this tab holds (`sandbox.checked`: the
 ///   handshake's `sandbox.state` read is out, or didn't answer in its 15 s on a busy Mac). The send
@@ -336,10 +357,15 @@ export async function startCloudChat(
   const plan = currentCloudPlan();
   const planMax = start.planMax ?? (plan.state === "active" ? plan.maxSize : null);
   if (planMax) params.planMax = planMax;
+  if (start.autoLanding) {
+    keepCloudLanding(start.autoLanding, key);
+    params.autoPlaced = true;
+  }
   try {
     await call("cloud.startChat", params);
     return { ok: true };
   } catch (error) {
+    if (start.autoLanding) takeCloudLanding(key);
     const { code, message, userMessage, retryable, details } = (error ?? {}) as {
       code?: unknown;
       message?: unknown;

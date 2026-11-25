@@ -350,7 +350,7 @@ import Testing
         let palette = (0..<16).map { String(format: "#%02x%02x%02x", $0, $0, $0) }
         let shown = MobileHostAppearance(
             background: "#1e1e2e", foreground: "#cdd6f4", palette: palette, selectionBackground: "#585b70",
-            accent: "magenta", backgroundOpacity: 0.9, wallpaper: URL(fileURLWithPath: "/tmp/phone-wallpaper/a.jpg"),
+            accent: "magenta", backgroundOpacity: 0.9, backgroundBlur: -2, wallpaper: URL(fileURLWithPath: "/tmp/phone-wallpaper/a.jpg"),
             wallpaperTintOpacity: 0.62)
         let line = MobileHostLaunch.appearanceLine(shown)
         #expect(line.last == 0x0A)
@@ -363,6 +363,8 @@ import Testing
         #expect(theme["cursor"] == nil)
         #expect(theme["accent"] as? String == "magenta")
         #expect(theme["background_opacity"] as? Double == 0.9)
+        // The window's resolved material, in Ghostty's `background-blur` encoding (-2: clear Liquid Glass).
+        #expect(theme["background_blur"] as? Int == -2)
         let wallpaper = try #require(object["wallpaper"] as? [String: Any])
         #expect(wallpaper["path"] as? String == "/tmp/phone-wallpaper/a.jpg")
         #expect(wallpaper["tint_opacity"] as? Double == 0.62)
@@ -410,7 +412,7 @@ import Testing
     @Test func directoryListsAndRemovesWithTheBearerToken() async throws {
         let base = try #require(URL(string: "https://cmuxMobile.test"))
         let log = RequestLog()
-        let directory = MobileHostDeviceDirectory(baseURL: base) { request in
+        let directory = MobileHostDeviceDirectory(baseURL: base, buildSpace: .nightly) { request in
             await log.add(request)
             if request.httpMethod == "DELETE" {
                 return (Data(), request.url?.lastPathComponent == "b" ? 404 : 200)
@@ -424,7 +426,7 @@ import Testing
         let requests = await log.requests
         #expect(requests.map { "\($0.httpMethod ?? "GET") \($0.url?.path ?? "")" } == ["GET /v1/me/devices", "DELETE /v1/devices/a", "DELETE /v1/devices/b"])
         #expect(requests.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == "Bearer tok" })
-        let failing = MobileHostDeviceDirectory(baseURL: base) { _ in (Data(), 502) }
+        let failing = MobileHostDeviceDirectory(baseURL: base, buildSpace: .nightly) { _ in (Data(), 502) }
         await #expect(throws: MobileHostDeviceDirectory.Failure.status(502)) { try await failing.phones(token: "tok") }
     }
 

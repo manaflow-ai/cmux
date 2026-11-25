@@ -1,10 +1,11 @@
 import { type PaneLanguage, type Translate } from "../i18n";
 import type { TurnTokenSplit } from "../model";
 import { cachedTokens, uncachedTokens } from "../tokenSplit";
+import { intl } from "../../../ui/intl";
 
 /// A token count, compact in the pane's language: 2.1M, 840K, 12.4K.
 export const compactTokens = (language: PaneLanguage, tokens: number) =>
-  new Intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 }).format(tokens);
+  intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 }).format(tokens);
 
 /// "2.1M out": the turn's generated output, compact in the pane's language. Prompt and cache tokens
 /// belong to the context card and the split's "in", and are never folded into this count.
@@ -63,7 +64,7 @@ export const tokenRows = (t: Translate, language: PaneLanguage, split: TurnToken
     ]),
   ),
   ...(split.context ? [t("turn.tokens.contextRow", { tokens: compactTokens(language, split.context) })] : []),
-  ...(split.calls ? [t("turn.tokens.callsRow", { n: new Intl.NumberFormat(language).format(split.calls) })] : []),
+  ...(split.calls ? [t("turn.tokens.callsRow", { n: intl.NumberFormat(language).format(split.calls) })] : []),
 ];
 
 /// A reply time's tooltip: its words on the first line ("Worked for 13s", "Stopped by cmux"), then
