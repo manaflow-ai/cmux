@@ -32,6 +32,7 @@ export function HybridChip({
       form="segments"
       named
       where={placementLine(place, t)}
+      start={place.start}
       onChange={actions.setMode}
       blocked={place.blocked}
       onBlockedClick={blockedAction}
