@@ -176,6 +176,9 @@ pub(super) struct RelayShared {
     confirmed_elsewhere: AtomicBool,
     /// The held carrier's view of the peer's socket.
     peer_online: Mutex<Option<watch::Receiver<bool>>>,
+    /// The newest joined carrier's text side for relay-held sends (RFD 0142
+    /// R8): a new join replaces it, so a hold route follows the redials.
+    hold_port: watch::Sender<Option<super::super::relay::HoldPort>>,
     state: Mutex<RelayClock>,
     asked: tokio::sync::Notify,
 }
@@ -248,6 +251,7 @@ impl Default for RelayShared {
             on_relay: AtomicBool::new(true),
             confirmed_elsewhere: AtomicBool::new(false),
             peer_online: Mutex::new(None),
+            hold_port: watch::Sender::new(None),
             state: Mutex::new(RelayClock {
                 lost: None,
                 since: Instant::now(),
@@ -1103,6 +1107,23 @@ impl Session {
     /// addresses; `relayed_tls`: which of those ride TCP or TLS.
     /// The mapped endpoint (if any, and still among `endpoints`) is labeled
     /// so.
+    /// Announce this side's endpoints again as they stand (after a relay
+    /// join), even when none is new.
+    async fn reannounce(&self) {
+        let _one_at_a_time = self.roaming.lock().await;
+        let endpoints = lock(&self.endpoints).clone();
+        if endpoints.is_empty() || self.closed.load(Ordering::Relaxed) {
+            return;
+        }
+        let (relayed, relayed_tls) = lock(&self.relayed).clone();
+        tracing::debug!(
+            session = self.session_id,
+            count = endpoints.len(),
+            "endpoints go through cmux's relay"
+        );
+        self.announce(endpoints, relayed, relayed_tls);
+    }
+
     fn announce(&self, endpoints: Vec<String>, relayed: Vec<String>, relayed_tls: Vec<String>) {
         if !endpoints.is_empty() {
             lock(&self.endpoints).clone_from(&endpoints);
@@ -1760,6 +1781,16 @@ pub fn relay_held(session_id: &str, dialer: bool) -> Option<bool> {
     find(session_id, dialer).map(|s| s.relay_shared.held())
 }
 
+/// The relay-held send queue's socket for a live session (RFD 0142 R8): the
+/// newest joined relay carrier's [`HoldPort`](super::super::relay::HoldPort),
+/// as it changes (`None` before the first join). `None` without the session.
+pub fn relay_hold_port(
+    session_id: &str,
+    dialer: bool,
+) -> Option<watch::Receiver<Option<super::super::relay::HoldPort>>> {
+    find(session_id, dialer).map(|s| s.relay_shared.hold_port.subscribe())
+}
+
 /// Join cmux's relay whenever this session needs it ([`RelayShared::due`]),
 /// until the session ends. A side that joins on its own (not because the
 /// peer asked or said it would) asks the peer to join too.
@@ -1844,6 +1875,7 @@ async fn run_relay_watch(session: Weak<Session>) {
                     shared.sticky.store(true, Ordering::Relaxed);
                 }
                 *lock(&shared.peer_online) = Some(carrier.peer_online_watch());
+                shared.hold_port.send_replace(Some(carrier.hold_port()));
                 if session.control.send(Control::Relay(carrier)).is_err() {
                     return;
                 }
@@ -1857,6 +1889,13 @@ async fn run_relay_watch(session: Weak<Session>) {
                 // every response is refused and their fixed repeat schedule keeps them in
                 // step until the dial times out.
                 reassert_on_relay(&session, &shared).await;
+                // Disco over the relay (ledger 13h): the peer may know none of
+                // this side's direct endpoints (a signaling path that dropped
+                // them, a peer that met this one on the relay), so they go to
+                // it again through the tunnel. Its upgrade probes then find the
+                // LAN path. The message is the roam announcement older peers
+                // already take.
+                session.reannounce().await;
                 // The peer joins too unless it already does (it asked, or it said it
                 // has no other path). A plan exists only when the peer offered the
                 // relay, so `wg-relay` never reaches a build that does not know it.
