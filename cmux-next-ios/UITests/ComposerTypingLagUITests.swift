@@ -147,7 +147,7 @@ final class ComposerTypingLagUITests: XCTestCase {
         print("TYPINGMATRIX \(String(decoding: data, as: UTF8.self))")
         let cell = "\(surface)\(oneParagraph ? "1p" : "")-\(chars)-\(textKit2 ? "tk2" : wholeDraft ? "before" : "after")"
         // The board's own numbers, kept with the run (stdout is not): the trace below can come
-        // up short when its utility-QoS writer lags under duress.
+        // up short if its writer ever falls behind again.
         let boardJSON = (try? JSONSerialization.data(withJSONObject: ["report": report, "board": board], options: [.sortedKeys]))
             .map { String(decoding: $0, as: UTF8.self) } ?? "{}"
         let boardLog = XCTAttachment(string: boardJSON)
