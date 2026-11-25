@@ -290,6 +290,8 @@ export type HostLists = {
   app_update?: AppUpdateState | null;
   /** Settings > Chief > Voice input: the Debug toggle home.voiceInput; null where it does not exist (Release). */
   voice_input?: { on: boolean } | null;
+  /** Settings > Notifications' first card (cmux#55600): what macOS lets cmux show; null where this launch never asks (automation). */
+  notification_permission?: NotificationPermissionState | null;
   /** Settings > Menus: every right-click menu's rows and the person's arrangement of it. */
   context_menus?: ContextMenusHostState;
   /**
@@ -2428,6 +2430,8 @@ export type SettingsOps = {
   "cmux.settings.language.relaunch": [Record<string, never>, Record<string, never>];
   /** Native: Settings > Chief > Voice input's switch writes home.voiceInput (the person's gesture only). */
   "cmux.settings.voice_input.set": [{ on: boolean }, Record<string, never>];
+  /** Native: Settings > Notifications' Allow: the macOS prompt while not yet asked, else System Settings > Notifications at cmux (the person's gesture only). */
+  "cmux.settings.notification_permission.allow": [Record<string, never>, Record<string, never>];
   /** Native: Settings > Menus saves a menu's arrangement; null (Reset) removes it (the person's gesture only). */
   "cmux.settings.context_menus.set": [{ menu: string; layout: MenuLayout | null }, Record<string, never>];
   /** Native: Settings > Menus turns Customize Menu… at the end of every menu on or off. */
@@ -2770,4 +2774,11 @@ export function revisionNumber(value: unknown): number {
 /** A fresh idempotency key per user write (the v2 owner replays a retried key). */
 export function newIdempotencyKey(): string {
   return `settings-page-${crypto.randomUUID()}`;
+}
+
+/** macOS notification permission for cmux (`notifications.status`): authorization one of not_determined, denied,
+ * authorized, provisional, unknown; `sound` whether macOS plays its banners' sounds (null before the first read). */
+export interface NotificationPermissionState {
+  authorization: string;
+  sound: boolean | null;
 }

@@ -49,8 +49,6 @@ import {
   newIdempotencyKey,
   wireError,
   type AccountsRun,
-  type AllotmentSet,
-  type AllotmentView,
   type AccountsState,
   type AgentsRun,
   type AgentsState,
@@ -60,7 +58,8 @@ import {
   type CloudEnvironmentsState,
   type LibraryListing,
   type LibraryRun,
-  type Standup,
+  type Checklist,
+  type ChecklistFact,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -93,8 +92,6 @@ import {
   type AgentToolsCardState,
   type McpServersRun,
   type McpServersState,
-  type HubRun,
-  type HubState,
   type RowNoteData,
   type AgentSkillsRun,
   type AgentSkillsState,
@@ -104,20 +101,23 @@ import {
   type AgentHooksState,
   type AgentConfigAnswer,
   type AgentConfigRun,
+  type AllotmentSet,
+  type AllotmentView,
+  type HubRun,
+  type HubState,
   type AccountsRunReply,
   type DoctorReport,
   type DoctorRun,
-  type ArchivedRun,
-  type ArchivedState,
-  type ConnectionsRun,
-  type ConnectionsState,
   type TailnetVMReply,
   type AutocloudAction,
   type AutocloudAnswer,
   type AutocloudState,
-  type Checklist,
-  type ChecklistFact,
+  type ConnectionsRun,
+  type ConnectionsState,
+  type ArchivedRun,
+  type ArchivedState,
   type PreviousBuild,
+  type Standup,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -790,6 +790,12 @@ export class SettingsStore {
     const reply = await this.request("cmux.settings.context_menus.show_item", { show });
     await this.refreshHost();
     if (!reply.ok) throw new TransportError(reply.error);
+  }
+
+  /** Settings > Notifications: ask macOS for notification permission, or open its System Settings page. */
+  async allowNotifications(): Promise<void> {
+    await this.request("cmux.settings.notification_permission.allow", {});
+    await this.refreshHost();
   }
 
   /** Settings > Chief > Voice input: turn the message box's mic on or off, then re-read the host lists. */

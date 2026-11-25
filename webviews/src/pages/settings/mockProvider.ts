@@ -24,7 +24,6 @@ import { Session, type EventSourceContext } from "../../protocol/session";
 import {
   settingsPageActions,
   type BrowserProfile,
-  type ComputerUseApproval,
   type HostLists,
   type AccountsCmux,
   type AccountsRow,
@@ -39,8 +38,10 @@ import {
   type DevicesRelay,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
+  type LibraryListing,
+  type LibraryRun,
+  type ChecklistFact,
   type SharesState,
-  type KeysState,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -50,11 +51,7 @@ import {
   type HarnessesState,
   type ProviderAccount,
   type IntegrationsRun,
-  type AgentToolsCardRun,
-  type AgentToolsCardState,
   type IntegrationsState,
-  type McpServersRun,
-  type McpServersState,
   type Diagnostic,
   type Domains,
   type ListRow,
@@ -66,38 +63,41 @@ import {
   type ThemeOverride,
   type WorkspaceBackground,
   type CustomizeTryOn,
-  type LibraryListing,
-  type LibraryRun,
+  type KeysState,
   type ModelsRun,
   type ModelsState,
-  type AgentMcpRun,
-  type AgentMcpState,
-  type AllotmentSet,
-  type AllotmentView,
+  type ComputerUseApproval,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
+  type McpServersRun,
+  type McpServersState,
   type AgentSkillsRun,
   type AgentSkillsState,
+  type AgentMcpRun,
+  type AgentMcpState,
   type AgentHooksRun,
   type AgentHooksState,
   type AgentConfigAgent,
   type AgentConfigRun,
   type AgentConfigState,
-  type AccountsRunReply,
-  type AgentSkillRow,
+  type AllotmentSet,
+  type AllotmentView,
   type HubRun,
   type HubState,
+  type AccountsRunReply,
   type DoctorReport,
   type DoctorRun,
   type LibraryAnswer,
+  type AgentSkillRow,
   type AutocloudAction,
   type AutocloudState,
   type ConnectionsRun,
   type ConnectionsState,
   type ArchivedRun,
   type ArchivedState,
-  type ChecklistFact,
   type PreviousBuild,
 } from "./ops";
-import { rowsByKey, schema, hostRowsByKey } from "./schema";
+import { hostRowsByKey, rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
 import { validate } from "./validate";
 import { MockAgents } from "./mockAgents";
@@ -493,6 +493,12 @@ export class MockSettingsProvider {
         const menus = this.host.context_menus;
         if (menus)
           this.setHost({ ...this.host, context_menus: { ...menus, show_customize_item: params.show === true } });
+        return {};
+      },
+      "cmux.settings.notification_permission.allow": () => {
+        const permission = this.host.notification_permission;
+        if (permission?.authorization === "not_determined")
+          this.setHost({ ...this.host, notification_permission: { authorization: "authorized", sound: true } });
         return {};
       },
       "cmux.settings.voice_input.set": (params) => {
@@ -2328,6 +2334,8 @@ export class MockSettingsProvider {
     },
     // A DEV build: the home.voiceInput tunable exists, on as Leo set it.
     voice_input: { on: true },
+    // NIGHTLY with notifications denied in System Settings (cmux#55600).
+    notification_permission: { authorization: "denied", sound: true },
     context_menus: mockContextMenus(),
     browser_profiles: [
       { id: "p-default", name: "Default", color: null, icon: null, is_default: true, source: null },

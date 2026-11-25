@@ -409,6 +409,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 services?.windows.enterRestoredFullScreens()
                 await services?.paidPlanReturned() // an upgrade's payment page sends the person back here
                 await services?.joinConsent.refresh() // a consent refusal acpmux recorded meanwhile; reads nothing with Labs off
+                await services?.notifications.desktop.refreshPermission() // back from System Settings > Notifications (cmux#55600)
                 if let services { CloudStartChat.warmSpare(services) } // intent, never awaited: the next activation runs at once
             }
         }

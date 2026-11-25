@@ -92,6 +92,9 @@ extension SettingsWindowService {
             section("app_update") { ["app_update": $0.services.updater.settingsPageJSON] },
             // Chief > Voice input: home.voiceInput, null where the tunable does not exist (Release).
             section("voice_input") { _ in ["voice_input": ChiefVoiceInputPageRoute().hostJSON] },
+            // Notifications > macOS Notifications (cmux#55600): null in a launch that never asks. Observed, so a
+            // read (launch, activation, the person's answer) re-sends this section.
+            section("notification_permission") { ["notification_permission": $0.services.notifications.desktop.permissionState.pageJSON] },
             // Settings > Menus: every right-click menu's rows and the person's arrangement of it.
             section("context_menus") { ["context_menus": $0.contextMenusRoute.hostJSON] },
             section("settings_file") { ["settings_file": $0.services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null] },

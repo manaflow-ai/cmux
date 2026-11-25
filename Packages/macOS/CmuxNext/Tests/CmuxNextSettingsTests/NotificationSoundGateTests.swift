@@ -37,6 +37,24 @@ struct NotificationSoundGateTests {
         #expect(recorder.played.count == 3, "after the cooldown a finish sounds again")
     }
 
+    /// cmux#55600 review: with no banner posted (the policy decided none, e.g. `desktop = whenInactive` while cmux is in
+    /// front), "default" played nothing because the player was told a banner would carry it.
+    @Test func aDecisionWithoutABannerPlaysItsDefaultSoundItself() {
+        let recorder = Recorder()
+        let gate = NotificationSoundGate(player: recorder)
+        var unbannered = Self.decision(.finished, sound: "default", volume: 0.6)
+        unbannered.desktop = false
+        gate.playWithoutBanner(unbannered)
+        #expect(recorder.played.count == 1)
+        #expect(recorder.played.first?.name == "default")
+        #expect(recorder.played.first?.banner == false, "no banner carries it")
+        #expect(recorder.played.first?.volume == 0.6)
+        var bannered = Self.decision(.finished, sound: "default")
+        bannered.desktop = true
+        gate.playWithoutBanner(bannered)
+        #expect(recorder.played.count == 1, "a posted banner's sound is the banner's to play")
+    }
+
     @Test func aHeldSoundSilencesItsBannerToo() {
         let clock = Clock()
         let gate = NotificationSoundGate(player: Recorder(), now: { clock.now })

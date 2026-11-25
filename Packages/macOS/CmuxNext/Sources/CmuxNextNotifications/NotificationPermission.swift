@@ -40,10 +40,10 @@ package nonisolated struct NotificationPermission: Equatable, Sendable {
 /// The permission on the system center, which `DesktopNotifier` configured first.
 package nonisolated struct SystemNotificationPermission: NotificationPermissionCenter {
     let bundleID: String?
-    /// The person's answer to a request (for the banners' own record).
-    let onAnswer: @Sendable (Bool) -> Void
+    /// What each read found, and whether it followed a request (DesktopNotifier takes it into its permission state).
+    let onRead: @Sendable (NotificationPermission, _ asked: Bool) -> Void
 
-    package func status() async -> NotificationPermission {
+    private func read() async -> NotificationPermission {
         let settings = await UNUserNotificationCenter.current().notificationSettings()
         let authorization = switch settings.authorizationStatus {
         case .notDetermined: "not_determined"
@@ -63,14 +63,35 @@ package nonisolated struct SystemNotificationPermission: NotificationPermissionC
                                       badge: settings.badgeSetting == .enabled, bundleID: bundleID)
     }
 
+    package func status() async -> NotificationPermission {
+        let permission = await read()
+        onRead(permission, false)
+        return permission
+    }
+
+    /// Asks (the macOS prompt while not yet asked). A denied app makes `requestAuthorization` throw
+    /// `notificationsNotAllowed`: that is an answer, so it reads the denial instead of failing.
     package func request() async throws -> NotificationPermission {
-        let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
-        onAnswer(granted)
-        return await status()
+        do {
+            _ = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+        } catch let error as UNError where error.code == .notificationsNotAllowed {}
+        let permission = await read()
+        onRead(permission, true)
+        return permission
     }
 }
 
 nonisolated struct NotificationPermissionStrings {
+    static var deniedNotice: String {
+        String(localized: "notifications.permission.deniedNotice",
+               defaultValue: "macOS is blocking cmux notifications, so banners and sounds are off.",
+               bundle: .localizedModule)
+    }
+
+    static var openSettings: String {
+        String(localized: "notifications.permission.openSettings", defaultValue: "Open System Settings", bundle: .localizedModule)
+    }
+
     static var unavailable: String {
         String(localized: "notifications.permission.unavailable",
                defaultValue: "This cmux process does not use macOS notifications (an automation or test host, or not the cmux app bundle)",

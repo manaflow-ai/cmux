@@ -48,6 +48,8 @@ final class SettingsPageProvider: PageProvider {
     var sharesRevoke: (@MainActor (String) async throws -> JSONValue)?
     /// Settings > Keys (CmuxNextKeys `SettingsKeys`): its `cmux.settings.keys.*` ops and stream; nil in tests without an app.
     var keys: (any PageProvider)?
+    /// Notifications > macOS Notifications' button: the prompt, or System Settings (cmux#55600).
+    var allowNotifications: (@MainActor () async throws -> Void)?
     var devicesWatching: (@MainActor (Bool) -> Void)?
     /// Settings > Models (`SettingsModels`, cmux-tui/docs/model-connections.md); nil in tests without an app.
     var models: (any PageProvider)?
@@ -342,6 +344,9 @@ final class SettingsPageProvider: PageProvider {
             guard let name = picked else { return ["name": .null] }
             try await write(descriptor, .string(name), by: Self.writer(context)) // concurrency-allow: the settings owner writes through its CmuxConfigFile actor, off the main actor
             return ["name": .string(name)]
+        case "cmux.settings.notification_permission.allow": // Notifications > macOS Notifications (cmux#55600), the person's click
+            guard context.page == PageDescriptor.settings.id, context.userGesture, let allowNotifications else { throw Self.personOnly }
+            try await allowNotifications(); return .object([:])
         default:
             throw PageError.unknownOp(op)
         }
