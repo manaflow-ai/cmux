@@ -94,6 +94,17 @@ impl ResumeRing {
         }
     }
 
+    /// The terminal ended: no viewer resumes a dead stream (`attach.rs` refuses
+    /// one first), so its bytes go now, not when the tab closes. A parked tab
+    /// keeps its dead runtime for as long as it stays, so a ring held until
+    /// then grows the daemon with every tab a day's shows relaunched and the
+    /// freeing tier parked again (docs/findings 2026-11-24-parked-tui-heap-windows).
+    /// The stamp (nonce, epoch, end) stays.
+    pub(crate) fn release(&self) {
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        inner.bytes = VecDeque::new();
+    }
+
     /// A change a viewer holding the old epoch cannot resume across.
     pub(crate) fn bump_epoch(&self) {
         self.inner.lock().unwrap_or_else(|e| e.into_inner()).epoch += 1;
@@ -106,17 +117,29 @@ impl ResumeRing {
 
     /// The bytes after `offset` when the viewer's `(nonce, epoch)` is current
     /// and `offset` is still in the ring; with the stamp they bring it to.
+    #[cfg(test)]
     pub(crate) fn missing_after(
+        &self,
+        held: (u64, u64),
+        offset: u64,
+    ) -> Option<(Vec<u8>, StreamStamp)> {
+        self.missing_within(held, offset, None)
+    }
+
+    /// [`Self::missing_after`], and `None` when more than `max_bytes` are
+    /// missing (counted before any byte is copied).
+    pub(crate) fn missing_within(
         &self,
         (nonce, epoch): (u64, u64),
         offset: u64,
+        max_bytes: Option<u64>,
     ) -> Option<(Vec<u8>, StreamStamp)> {
         let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         if nonce != self.nonce || epoch != inner.epoch || offset > inner.end {
             return None;
         }
         let start = inner.end - inner.bytes.len() as u64;
-        if offset < start {
+        if offset < start || max_bytes.is_some_and(|max| inner.end - offset > max) {
             return None;
         }
         let skip = (offset - start) as usize;
@@ -138,6 +161,16 @@ mod tests {
         assert_eq!(ring.missing_after(held, 2).unwrap().0, b"cd");
         assert_eq!(ring.missing_after(held, 4).unwrap().0, b"");
         assert!(ring.missing_after(held, 5).is_none());
+        {
+            let released = ResumeRing::with_budget(8);
+            released.append(b"abcd");
+            let before = released.stamp();
+            released.release();
+            assert_eq!(released.stamp(), before);
+            assert_eq!(released.inner.lock().unwrap().bytes.capacity(), 0);
+            assert_eq!(released.missing_after((before.nonce, before.epoch), 4).unwrap().0, b"");
+            assert!(released.missing_after((before.nonce, before.epoch), 2).is_none());
+        }
         ring.append(b"efghij");
         // Ten bytes written, the last eight kept: offsets 2.. resume.
         assert_eq!(ring.missing_after(held, 2).unwrap().0, b"cdefghij");
@@ -148,6 +181,18 @@ mod tests {
         ring.bump_epoch();
         assert!(ring.missing_after(held, 110).is_none());
         assert!(ring.missing_after((held.0 ^ 1, ring.stamp().epoch), 110).is_none());
+    }
+
+    #[test]
+    fn a_bounded_resume_refuses_more_missed_bytes_than_its_bound() {
+        let ring = ResumeRing::with_budget(64);
+        ring.append(b"0123456789");
+        let stamp = ring.stamp();
+        let held = (stamp.nonce, stamp.epoch);
+        assert_eq!(ring.missing_within(held, 6, Some(4)).unwrap().0, b"6789");
+        assert!(ring.missing_within(held, 5, Some(4)).is_none());
+        assert_eq!(ring.missing_within(held, 10, Some(0)).unwrap().0, b"");
+        assert_eq!(ring.missing_within(held, 0, None).unwrap().0.len(), 10);
     }
 
     #[test]

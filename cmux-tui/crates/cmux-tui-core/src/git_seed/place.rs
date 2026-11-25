@@ -132,12 +132,23 @@ fn private_dir(id: &str) -> Result<PathBuf, SeedRefusal> {
 /// Opens the uploaded bundle through `fs-v1`'s descriptor walk and copies
 /// it to a fresh private file (mode 0600, created new).
 pub fn bundle(roots: &Roots, path: &str, id: &str) -> Result<BundleCopy, SeedRefusal> {
+    upload_copy(roots, path, id, "bundle")
+}
+
+/// [`bundle`] for a `git-seed-carry-v1` pack: its own private directory, the same walk.
+pub fn carry(roots: &Roots, path: &str, id: &str) -> Result<BundleCopy, SeedRefusal> {
+    upload_copy(roots, path, &format!("{id}-carry"), "carry pack")
+}
+
+fn upload_copy(roots: &Roots, path: &str, id: &str, what: &str) -> Result<BundleCopy, SeedRefusal> {
     use std::os::unix::fs::OpenOptionsExt as _;
     let fs = crate::fs_ops::FsService::new(roots.clone());
     let (mut file, _) = fs.open_file(path).map_err(|error| match error {
         crate::fs_ops::FsError::PermissionDenied => outside(),
-        crate::fs_ops::FsError::NotFound => SeedRefusal::bad_request("no bundle at that path"),
-        _ => SeedRefusal::bad_request("the bundle is not a readable regular file"),
+        crate::fs_ops::FsError::NotFound => {
+            SeedRefusal::bad_request(format!("no {what} at that path"))
+        }
+        _ => SeedRefusal::bad_request(format!("the {what} is not a readable regular file")),
     })?;
     let dir = private_dir(id)?;
     let copy = BundleCopy { path: dir.join("seed.bundle"), dir };
@@ -147,14 +158,14 @@ pub fn bundle(roots: &Roots, path: &str, id: &str) -> Result<BundleCopy, SeedRef
         .mode(0o600)
         .custom_flags(libc::O_NOFOLLOW)
         .open(&copy.path)
-        .map_err(|error| SeedRefusal::bad_request(format!("cannot copy the bundle: {error}")))?;
+        .map_err(|error| SeedRefusal::bad_request(format!("cannot copy the {what}: {error}")))?;
     std::io::copy(&mut file, &mut out).map_err(|error| {
         let code = if error.raw_os_error() == Some(libc::ENOSPC) {
             "seed.disk_full"
         } else {
             "seed.bad_request"
         };
-        SeedRefusal { code, message: format!("cannot copy the bundle: {error}") }
+        SeedRefusal { code, message: format!("cannot copy the {what}: {error}") }
     })?;
     Ok(copy)
 }
