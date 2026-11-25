@@ -252,8 +252,8 @@ fn reset_group_text(state: &State, group: &str, meta: &WriteMeta) -> Result<Stri
     let file = &state.file_root;
     let mut text = state.source.clone();
     for row in rows {
-        let replaced = replaced_by_row(&row.path)
-            .is_some_and(|replaced| value_at(file, &replaced.old).is_some());
+        let replaced =
+            replaced_by_row(&row.path).any(|replaced| value_at(file, &replaced.old).is_some());
         if value_at(file, &row.path).is_none() && !replaced {
             continue;
         }
