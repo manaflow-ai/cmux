@@ -106,14 +106,12 @@ cmux-tui/crates/cmux-browser-host/src/engines.rs	.cache/cmux/	1	move	lane A: Cla
 cmux-tui/crates/cmux-browser-host/src/server.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-classic-import/src/decode.rs	com.cmuxterm.app"	1	keep	the Classic importer's own reads
 cmux-tui/crates/cmux-classic-import/src/decode.rs	join("cmux")	1	keep	the Classic importer's own reads
-cmux-tui/crates/cmux-classic-import/src/ledger.rs	com.cmuxterm.app"	2	keep	the Classic importer's own reads
 cmux-tui/crates/cmux-classic-import/src/source.rs	.local/state/cmux"	2	keep	the Classic importer's own reads
 cmux-tui/crates/cmux-classic-import/src/source.rs	com.cmuxterm.app"	1	keep	the Classic importer's own reads
 cmux-tui/crates/cmux-classic-import/src/source.rs	join("cmux")	2	keep	the Classic importer's own reads
 cmux-tui/crates/cmux-cloud-config/src/auth.rs	.config/cmux/	3	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-cloud-environment/src/client_config.rs	com.cmuxterm.app"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-cloud-environment/src/lib.rs	com.cmuxterm.app"	6	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
-cmux-tui/crates/cmux-cloud-environment/src/state_root.rs	com.cmuxterm.app"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-computer-use/src/platform/linux/mod.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-computer-use/src/policy.rs	com.cmuxterm.app"	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-config/src/managed/mod.rs	com.cmuxterm.app"	1	keep	MDM forced prefs from the legacy domain
@@ -144,7 +142,6 @@ cmux-tui/crates/cmux-tasks/src/owner.rs	.local/state/cmux/	1	move	lane A: Classi
 cmux-tui/crates/cmux-tui-core/src/apps/catalog.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui-core/src/computer_use_host/config.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui-core/src/computer_use_host/macos.rs	com.cmuxterm.app"	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
-cmux-tui/crates/cmux-tui-core/src/computer_use_host/macos.rs	com.cmuxterm.appx	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui-core/src/mux/unowned_hosts.rs	join("cmux")	3	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui-core/src/remote_host/linux_screen.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui-core/src/state/agent_start.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
