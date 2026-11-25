@@ -744,6 +744,9 @@ def check(args) -> int:
         smoke.login_keychain(env)  # this smoke's own CannotRun, which its main reports (ui loads its own copy)
         # Before the launch: the app's acpmux reads the harness folder when it starts, and on a NIGHTLY
         # `cmux harness reload` after the launch did not reach it ("unknown harness l5fake", nightly 4191131679101).
+        # A DEV build (dmg=build) reads harnesses from its own acpmux build home unless the run names its config
+        # root (acpmux ProfileSources::current), so the run names ~/.config, the folder write_harness fills.
+        env["XDG_CONFIG_HOME"] = str(Path(env["HOME"]) / ".config")
         write_harness(env["HOME"], args.fake_agent)
 
     smoke.PREPARE_HOME = prepare

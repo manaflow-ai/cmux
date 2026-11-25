@@ -227,6 +227,36 @@ select {
   padding: 14px 0 6px;
 }
 
+/* The surge card (SurgeCard.tsx): one line above the machine list after a surge. */
+.cloud-surge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--grid-half-step) var(--grid-gap);
+  margin: 0 0 var(--grid-gap);
+  padding: var(--grid-gap) var(--grid-gap);
+  border: 1px solid var(--cloud-separator);
+  border-left: 3px solid var(--cloud-text-2);
+  border-radius: 6px;
+  background: var(--cloud-elevated);
+}
+
+.cloud-surge.is-drained {
+  border-left-color: var(--cloud-ok);
+}
+
+.cloud-surge-title {
+  font-weight: 600;
+}
+
+.cloud-surge-ready {
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-surge-part {
+  font-variant-numeric: tabular-nums;
+}
+
 .cloud-section-title {
   margin: 0;
   font-size: 13px;
@@ -553,6 +583,79 @@ select {
   display: block;
   height: 100%;
   background: var(--cloud-text-2);
+}
+
+/* This month: the total beside the title, one line per meter (amount and its dollars), as-of, the card. */
+.cloud-month {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.cloud-month-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.cloud-month-title {
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--cloud-text-2);
+}
+
+.cloud-month-test {
+  font-size: var(--text-caption);
+  color: var(--cloud-warn);
+}
+
+.cloud-month-total {
+  margin-left: auto;
+  font-size: var(--text-body);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-month-lines {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.cloud-month-line {
+  display: grid;
+  grid-template-columns: minmax(0, 70px) minmax(0, 1fr) minmax(0, max-content);
+  gap: 8px;
+  font-size: var(--text-caption);
+  color: var(--cloud-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-month-line dd {
+  margin: 0;
+}
+
+.cloud-month-usd {
+  text-align: right;
+  color: var(--cloud-text);
+}
+
+.cloud-month-asof,
+.cloud-month-loading {
+  margin: 0;
+  font-size: var(--text-caption);
+}
+
+.cloud-month-failed,
+.cloud-month-payment {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.cloud-month-card {
+  font-variant-numeric: tabular-nums;
 }
 
 .cloud-items {

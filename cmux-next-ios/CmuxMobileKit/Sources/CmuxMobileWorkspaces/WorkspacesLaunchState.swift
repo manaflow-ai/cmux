@@ -34,11 +34,4 @@ public enum WorkspacesLaunchState: Equatable, Sendable {
             return hasMacs ? .content(refreshFailed: false) : .noMacs
         }
     }
-
-    /// The navigation subtitle may say "Updating…" only over rows: on the
-    /// first load the page itself says it is loading (one indicator, not two).
-    public var allowsUpdatingSubtitle: Bool {
-        if case .content(refreshFailed: false) = self { return true }
-        return false
-    }
 }
