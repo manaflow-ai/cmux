@@ -839,8 +839,20 @@ pub(super) fn created_line(params: &Value, result: &Value, global: &GlobalArgs) 
     let title = result.get("title").and_then(Value::as_str).filter(|title| !title.is_empty());
     let status = result.get("status").and_then(Value::as_str).unwrap_or("created");
     let name = title.map_or_else(|| id.to_owned(), |title| format!("{title} ({id})"));
+    // A machine the server made before this request (a warm spare, a same-key replay) is not
+    // "Created": say what it is and when it was made (2026-11-25, a `vm new` that got a VM made
+    // 7 minutes earlier).
+    let made = if result.get("reused").and_then(Value::as_bool) == Some(true) {
+        let when = result.get("created_at").and_then(Value::as_str).unwrap_or("earlier");
+        format!(
+            "Got Cloud VM {name}: {status}. It was made at {when}, before this request \
+             (a ready spare, not a new boot)."
+        )
+    } else {
+        format!("Created Cloud VM {name}: {status}.")
+    };
     Some(format!(
-        "Created Cloud VM {name}: {status}.\n\n\
+        "{made}\n\n\
          Next:\n  \
          open a terminal:  {cmux} vm ssh {id}\n  \
          start an agent:   {cmux} chat --on {target} 'PROMPT'\n  \

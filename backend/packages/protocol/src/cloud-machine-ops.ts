@@ -346,8 +346,8 @@ export const CloudMachineCreate = cloudMutation(
     ttl_seconds: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 300, maximum: 604800 })))
   }),
   MachineResult,
-  ["cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...SPEND_CAP, ...VM_LIMIT, ...PROVIDER, ...LIMITED, ...APPROVAL],
-  "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine. origin {kind?, label, url?, run?, workflow?, lane?} says who started it and ttl_seconds (300 to 604800) when the platform deletes it (expires_at on the machine)." + KEY + APPROVAL_DOC,
+  ["cloud.machine.not_found", "cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...SPEND_CAP, ...VM_LIMIT, ...PROVIDER, ...LIMITED, ...APPROVAL],
+  "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine; cloud.machine.not_found {machine} when the machine it made or claimed is gone before it answers (deleted in between): retry with a new key. origin {kind?, label, url?, run?, workflow?, lane?} says who started it and ttl_seconds (300 to 604800) when the platform deletes it (expires_at on the machine)." + KEY + APPROVAL_DOC,
   "cloud machine create",
   true
 )
