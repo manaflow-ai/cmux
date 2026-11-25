@@ -59,6 +59,9 @@ public final class AcpmuxHub {
     /// coordinator opens a fresh `acpmux` channel on the same link and binds it. Nil: no recovery,
     /// a stalled read fails at its deadline as before.
     @ObservationIgnored public var onStall: (@MainActor () async -> Void)?
+    /// The person sent something on this hub (every prompt passes through ``submit(_:_:)``): a
+    /// Cloud chat reports it as wake on intent's input (`CloudWakeOnIntent`).
+    @ObservationIgnored public var onSubmit: (@MainActor () -> Void)?
     /// The one recovery running now; every stalled read waits on it rather than starting its own.
     @ObservationIgnored var recovering: Task<Void, Never>?
     /// Requests ride out a reconnect (wait for the next ready channel) and retry an idempotent read
@@ -425,6 +428,7 @@ public final class AcpmuxHub {
     /// is written, with the connection that answers it. Waits for a channel that is coming back;
     /// never retried (a submit is a send).
     public func submit(_ method: String, _ params: JSONValue) async throws -> (AcpmuxConnection, Int) {
+        onSubmit?()
         let connection = try await readyConnection()
         return (connection, try await connection.submit(method, params, base: writeBase))
     }

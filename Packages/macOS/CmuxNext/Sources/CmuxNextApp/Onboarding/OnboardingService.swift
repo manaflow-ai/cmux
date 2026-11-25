@@ -54,6 +54,8 @@ final class OnboardingService {
     /// Answers the migration preview; nil presents the native cmux dialog.
     /// Tests inject an answer without creating UI.
     var classicMigrationConfirmation: (@MainActor (ClassicImportPreview) async -> ClassicImportAnswer)?
+    /// The app installs the import of its settings and palette history alongside the settings controller.
+    var importClassicSettings: (@MainActor () async throws -> Void)?
     /// The migration run in flight or last finished: a new run waits for it.
     var classicMigrationRun: Task<ClassicMigrationOutcome, any Error>?
 
@@ -94,13 +96,7 @@ final class OnboardingService {
                 return scan.run().map(\.id)
             }.value
             guard let self else { return }
-            // Classic's saved folders, read by the daemon (`classic_import.plan`) once it is up.
-            let classic = await classicProjectFolders()
-            var seen = Set<String>()
-            projectFolders = (agent + classic).compactMap { path in
-                let normalized = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
-                return seen.insert(normalized).inserted ? normalized : nil
-            }
+            addProjectFolders(agent + (classicFolderDefaults?.stringArray(forKey: Self.classicFoldersKey) ?? []))
         }
         presenter.makeModel = { [weak self] step in
             self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), step: step, choices: $0.firstRunChoices) }
@@ -109,6 +105,30 @@ final class OnboardingService {
             guard let self, let page = pageLeftForSignIn else { return }
             pageLeftForSignIn = nil
             _ = TopPages.show(page, services: services)
+        }
+    }
+
+    var classicFolderDefaults: UserDefaults?
+    private static let classicFoldersKey = "classicImportedProjectFolders"
+
+    /// Remember local project suggestions from the accepted plan in NEXT's defaults.
+    func rememberClassicFolders(in plan: ClassicMigrationPlan) {
+        let folders = plan.workspaces.filter { $0.remote == nil && $0.cloudVM == nil }.flatMap { workspace in
+            [workspace.workingDirectory] + workspace.layout.tabs.compactMap(\.workingDirectory)
+        }
+        guard !folders.isEmpty else { return }
+        var seen = Set<String>()
+        let saved = classicFolderDefaults?.stringArray(forKey: Self.classicFoldersKey) ?? []
+        let combined = (saved + folders).filter { seen.insert($0).inserted }
+        classicFolderDefaults?.set(combined, forKey: Self.classicFoldersKey)
+        addProjectFolders(combined)
+    }
+
+    private func addProjectFolders(_ folders: [String]) {
+        var seen = Set(projectFolders)
+        projectFolders += folders.compactMap { path in
+            let normalized = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
+            return seen.insert(normalized).inserted ? normalized : nil
         }
     }
 
