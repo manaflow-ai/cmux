@@ -90,7 +90,6 @@ SCOPED: dict[str, str] = {
     "coderouter-ci.yml": "coderouter/**",
     "device-hub.yml": "workers/device-hub/**",
     "fleet-artifact-cdn.yml": "workers/fleet-artifacts/**",
-    "ios-reliability-matrix.yml": "cmux-next-ios/rust/** and the vendored smoltcp",
     "ios-review-gate.yml": "cmux-next-ios/AppStoreReview/**, whose Markdown the gate reads",
     "iroh-v2.yml": "workers/iroh-v2/**",
     "relay-tls.yml": "Packages/Shared/CmuxIrohTransport/**",
@@ -472,7 +471,7 @@ class Fallback(unittest.TestCase):
 
     def test_the_labels_are_ci_yml_s(self):
         ci = (WORKFLOWS / "ci.yml").read_text()
-        self.assertIn(docs.label_guard(), ci, "ci.yml's label guard and the fallback's name the same labels")
+        self.assertIn(docs.label_guard(docs.CI_LABELS), ci, "ci.yml's label guard and the fallback's name the same labels")
 
 
 class Units(unittest.TestCase):

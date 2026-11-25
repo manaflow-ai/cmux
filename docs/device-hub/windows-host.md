@@ -1,8 +1,8 @@
 # A Windows PC as a Screen Sharing host
 
-Status: a Windows PC registers, lists and captures (`cmux-rd windows-host`, this change).
-Viewing it from a Mac waits for the serve port in step 4. This note is the plan; the code
-names it where it stops.
+Status: a Windows PC registers, lists, captures and serves viewing sessions (`cmux-rd windows-host`).
+Viewing needs the hub to accept `windows` hosts and the Mac to list them (the companion
+change on lane/screen-share-windows-hub).
 
 ## What runs where today
 
@@ -10,7 +10,7 @@ names it where it stops.
 |---|---|---|---|---|---|
 | Mac | the app (`MacScreenDeviceHub`) | yes | ScreenCaptureKit | CGEvent | yes (`cmux-rd serve`, driven by the app) |
 | Linux | `cmux-rd linux-host enable` | yes (`DevicePlatform.linux`, #43537) | X11 XShm + XDamage; Wayland via the ScreenCast portal (view only) | XTest | yes (`linux-host run` drives `cmux-rd serve`) |
-| Windows | `cmux-rd windows-host enable` | as a Windows device (platform `windows`) | GDI BitBlt (`windows.rs`), DXGI Desktop Duplication probed | SendInput (`windows.rs`) | no: step 4 |
+| Windows | `cmux-rd windows-host enable` | as a Windows device (platform `windows`) | GDI BitBlt (`windows.rs`), DXGI Desktop Duplication probed | SendInput (`windows.rs`) | yes (`windows-host run` drives `cmux-rd serve`, step 4) |
 
 `cmux-rd host` on Windows already streams cmux.rd/1 over a TCP stream (the
 `cmux-rd-windows.yml` live proof: a Mac viewer decodes the Windows desktop over the tailnet).
@@ -18,7 +18,7 @@ What Windows lacks is the device hub path: the secure link and the session loop 
 
 ## 1. Register as `windows`
 
-`cmux-rd windows-host` shares the hub client of `linux-host` (`src/screen_host/`): a P-256
+`cmux-rd windows-host` shares the hub client of `linux-host` (the cmux-hub-host crate): a P-256
 device key, Stack sign-in once at `enable`, `POST /v1/devices` with `platform: "windows"`,
 an anchor so the PC renews its own host session for 30 days with its device key, and the
 User DO socket held by `windows-host run` (online while it runs). The hub accepts `windows`
@@ -35,8 +35,8 @@ or junction in place of a file. Keep it running at logon:
 It must run in the interactive user's session: a service in session 0 cannot capture the
 desktop or inject input into it.
 
-Until step 4 the host never turns sharing on (`share on` refuses with the reason), so no Mac
-offers to view it; a session the hub still hands it is denied or ended at once.
+`enable` turns sharing on and downloads Cisco's OpenH264 into `%LOCALAPPDATA%` (the
+encoder; never bundled). `run` serves each approved session (step 4).
 
 ## 2. Capture
 
@@ -59,25 +59,32 @@ offers to view it; a session the hub still hands it is denied or ended at once.
   probed (`media_foundation_probe`) for a later encoder. The engine (`cmux-rd-engine`:
   frame gate, congestion control, FEC, NACK, exactly-once input) is shared unchanged.
 
-## 4. Serve a hub session (what is missing)
+## 4. Serve a hub session
 
-`cmux-rd serve` and the secure link wait on Unix file descriptors. The port:
+1. `cmux-rd-link`'s `net` driver runs on Windows (`net_windows.rs`): each wake-up is a pair
+   of loopback UDP sockets connected to each other, the driver waits on its socket and its
+   command wake-up with `WSAPoll`, the buffers grow through Winsock's `setsockopt`, and the
+   host candidates are the source addresses the routing table picks for the default route,
+   the tailnet and the private ranges (no `getifaddrs`). `Net::wait` blocks on the event
+   wake-up on every OS; `event_socket()` gives it to a caller's own `WSAPoll`.
+2. `cmux-rd serve` on Windows (`windows_serve.rs`) speaks the Unix `serve`'s JSON lines. A
+   thread reads stdin; the loop waits on the link until the next frame (20 ms at most, for the
+   app's lines). The media is `cmux-rd host`'s Windows session (`windows/session.rs`: GDI,
+   OpenH264, the shared engine, SendInput) over the link instead of a TCP stream. A `view`
+   session gives the engine no input gate and injects nothing.
+3. `windows-host run` drives `serve` per approved ticket with the session code it shares with
+   linux-host in cmux-hub-host: `session.rs` (signaling, the signed answer, candidates both ways),
+   `rd_doc.rs`; and in `src/screen_host/`, `serving.rs` (the hub socket's pushes, consent read every second, one
+   session at a time, a session stopped when the hub link drops) and `requests.rs`
+   (`requests|approve|deny`).
+4. CI: `cmux-rd-windows.yml` runs the link's real-UDP session test on the Windows runner and
+   `cmux-rd windows-serve-selftest` (a `serve` child played by a viewer on the runner, view and
+   control: media arrives, the stop ends it), and uploads the installable `cmux-rd.exe`
+   (features `link,openh264`).
 
-1. `cmux-rd-link` `net` driver (`net.rs`): the wake pipe becomes a connected loopback UDP
-   socket pair, `libc::poll` becomes `WSAPoll` on the socket and the waker,
-   `getifaddrs` becomes `GetAdaptersAddresses` (host candidates), `setsockopt` buffer sizes
-   through `windows-sys` Winsock. `event_fd()` returns a waitable socket on Windows.
-2. `fdwait` / `Carrier::fds` / `Desktop::fd`: a `Wake` abstraction (RawFd on Unix, SOCKET on
-   Windows, waited with WSAPoll); the app's stdin lines come from a reader thread that wakes
-   the loop through the same loopback socket.
-3. A `WindowsDesktop: Desktop` from `GdiCapture` (later Desktop Duplication), `apply_input`
-   and the OpenH264 encoder, with a timer as its readiness source.
-4. `serve.rs`, `carrier.rs`, `stream.rs`, `desktop.rs` built on Windows; `windows-host run`
-   drives `serve` per approved ticket exactly as `linux-host` does (session.rs, rd_doc.rs move
-   to `screen_host` with it); then `share on` turns sharing on, and the window-rules plan
-   (`cmux-window-rules` `screen_share.rs`) and the Mac's viewer list accept `windows` hosts.
-5. CI: `cmux-rd-windows.yml` gains a hub session loopback (the `hub-session-local.py`
-   stand-in for the hub's signaling) on the Windows runner.
+The mouse pointer is drawn into each frame (`GetCursorInfo` and `DrawIconEx` after the
+`BitBlt`, which leaves it out). Not yet: one capture spans the whole screen (no display
+picker), and `max_width` is not applied.
 
 ## Consent
 

@@ -123,6 +123,42 @@ async fn a_silent_peer_still_loses_the_link_within_8_s() {
     assert!(started.elapsed() <= Duration::from_secs(8), "{:?}", started.elapsed());
 }
 
+/// A 5G/LTE handoff: the peer's last frame came 0.5 s after the link opened, then nothing. Its
+/// link was dropped at the first ping tick past the 6 s budget, open + 8 s, 1.5 s after the
+/// budget ran out; most of a direct handoff's 8 s was this wait. It is dropped at the budget.
+#[tokio::test(start_paused = true)]
+async fn a_dead_link_drops_at_its_budget_not_the_next_ping_tick() {
+    use futures_util::SinkExt;
+    use tokio_tungstenite::tungstenite::Message as Frame;
+    let (tx, _rx) = mpsc::channel(8);
+    let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    Arc::get_mut(&mut peer).expect("only this test holds it").timings.handshake =
+        Duration::from_secs(3_600);
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let opened = tokio::time::Instant::now();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    server.send(Frame::Pong(Vec::new().into())).await.unwrap();
+    let ended = tokio::time::timeout(Duration::from_secs(10), serving)
+        .await
+        .expect("the link ends")
+        .unwrap()
+        .expect_err("the link ends with why");
+    assert!(ended.contains("stopped answering"), "{ended}");
+    let budget = peer.timings.silence_budget();
+    let took = opened.elapsed();
+    assert!(took >= budget + Duration::from_millis(500), "dropped before its budget: {took:?}");
+    assert!(
+        took <= budget + Duration::from_millis(600),
+        "dropped {took:?} after open, past its budget"
+    );
+    drop(server);
+}
+
 /// Run 43783279032: the network went for 10 s without a reset and a request went out on the
 /// link. It is dropped within `NETWORK_PROBE` of that request, not after the silence budget.
 #[tokio::test(start_paused = true)]
@@ -486,4 +522,75 @@ async fn a_link_held_by_a_full_hub_queue_is_not_dropped_for_the_peers_silence() 
     assert!(started.elapsed() <= Duration::from_secs(9), "{:?}", started.elapsed());
     busy.abort();
     answering.abort();
+}
+
+/// A peer that reads this side's writes at 64 bytes a second, and a frame that takes about
+/// 30 s to go out: the transport over `Heard` and the frame write under a 5 s send budget.
+async fn send_a_frame_to_a_reader(reads: bool) -> (Result<LinkEnd, String>, usize, Duration) {
+    let (tx, _rx) = mpsc::channel(8);
+    let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    let timings = &mut Arc::get_mut(&mut peer).expect("only this test holds it").timings;
+    timings.send = Duration::from_secs(5);
+    timings.handshake = Duration::from_secs(3_600);
+    let heard = Heard::default();
+    let (ours, mut theirs) = tokio::io::duplex(64);
+    let client = WebSocketStream::from_raw_socket(heard.wrap(ours), Role::Client, None).await;
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let started = tokio::time::Instant::now();
+    let serving =
+        tokio::spawn(async move { link.serve_heard(client, &mut out_rx, Some(heard)).await });
+    let draining = tokio::spawn(async move {
+        let mut got = 0usize;
+        let mut chunk = [0u8; 64];
+        loop {
+            if !reads {
+                // Holds its end open and reads nothing: a peer that stopped reading.
+                tokio::time::sleep(Duration::from_secs(3_600)).await;
+                return got;
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            match theirs.read(&mut chunk).await {
+                Ok(0) | Err(_) => return got,
+                Ok(n) => got += n,
+            }
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let line = format!("{{\"pad\":\"{}\"}}", "x".repeat(2_000));
+    peer.out.try_send(Outbound { epoch: peer.link_epoch(), key: None, line }).unwrap();
+    let ended = tokio::time::timeout(Duration::from_secs(600), serving)
+        .await
+        .expect("the link ends")
+        .unwrap();
+    let took = started.elapsed();
+    let got = if reads {
+        draining.await.unwrap()
+    } else {
+        draining.abort();
+        0
+    };
+    (ended, got, took)
+}
+
+/// Leo, 2026-11-24: "if it's making good progress, it shiukd be allowed to keep going?" A
+/// frame that needs about 30 s on a slow uplink went out in full; before, a fixed send budget
+/// from the write's start cut it off and dropped the link.
+#[tokio::test(start_paused = true)]
+async fn a_slow_frame_write_that_keeps_moving_is_not_cut_off() {
+    let (ended, got, took) = send_a_frame_to_a_reader(true).await;
+    assert!(got >= 2_000, "the whole frame went out ({got} bytes in {took:?}; link: {ended:?})");
+    assert!(took > Duration::from_secs(25), "{took:?}");
+    if let Err(error) = &ended {
+        assert!(!error.contains("stopped reading"), "{error}");
+    }
+}
+
+/// A peer that takes no byte of a frame is still let go at the send budget of silence.
+#[tokio::test(start_paused = true)]
+async fn a_frame_write_that_moves_nothing_still_drops_the_link_at_the_send_budget() {
+    let (ended, _, took) = send_a_frame_to_a_reader(false).await;
+    let error = ended.expect_err("the link ends with why");
+    assert!(error.contains("stopped reading"), "{error}");
+    assert!(took <= Duration::from_secs(12), "{took:?}");
 }
