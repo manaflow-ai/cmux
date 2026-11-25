@@ -14,6 +14,7 @@ import Testing
 
         func core(_ operation: String, _ request: Data) -> Data? {
             guard let object = try? JSONSerialization.jsonObject(with: request) as? [String: Any] else { return nil }
+            if operation == "cloud_computer_status_live" { return nil } // not a move event
             if operation == "cloud_move_place_view" {
                 let state = ["failed": "failed", "live": "live"][events.last ?? ""] ?? "moving"
                 return Data(#"{"state":"\#(state)","n":\#(events.count)}"#.utf8)
