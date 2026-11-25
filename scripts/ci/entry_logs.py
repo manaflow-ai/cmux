@@ -6,7 +6,9 @@ no merge driver (our `cmux-insertions-v1` driver only helps merges on our own ho
 pull requests merged into feat-cmux-next in the 14 days to 2026-11-25 (scripts/ci/conflict_hotspots.py),
 the append-only logs a rule makes every change edit were among the most conflicted files in the repo:
 `plans/cmux-next/sidebar-owner.md` (96 PRs, 47 of them conflict against the base they opened on, 208
-sync merges) and `cmux-next-ios/verify/parity-mac.md` (107 PRs, 29 conflicts, 339 sync merges). Each new
+sync merges), `cmux-next-ios/verify/parity-mac.md` (107 PRs, 29 conflicts, 339 sync merges) and the
+workflow notes (`docs/ci/cmux-next-workflow-notes.md`: 64 PRs, 16 conflicts). 89 of those 92 conflicts
+only added lines, so as new files they would not have conflicted. Each new
 entry is a new file now, so two entries never share a line.
 
 ENTRY_LOGS maps each frozen log to its entry directory. The old file stays as the history: its entries
@@ -32,6 +34,10 @@ from pathlib import Path
 ENTRY_LOGS: dict[str, str] = {
     "plans/cmux-next/sidebar-owner.md": "plans/cmux-next/sidebar-owner/",
     "cmux-next-ios/verify/parity-mac.md": "cmux-next-ios/verify/parity-mac/",
+    # Workflow notes (tests/test_ci_workflow_file_size.py): numbered `## note-N` sections appended at the end, so two
+    # PRs both wrote note-557 at the same line (16 conflicts among 64 PRs for cmux-next.yml's, 5 among 19 nightly's).
+    "docs/ci/cmux-next-workflow-notes.md": "docs/ci/cmux-next-workflow-notes/",
+    "docs/ci/nightly-workflow-notes.md": "docs/ci/nightly-workflow-notes/",
 }
 
 

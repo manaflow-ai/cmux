@@ -31,6 +31,8 @@
           "scripts/git-hooks/pre-push",
           "tests/workflow_jobs.py",
           "docs/mdm/",
+          "docs/ci/cmux-next-workflow-notes.md",
+          "docs/ci/nightly-workflow-notes.md",
           "**/*.xcstrings",
           "scripts/web_lint_prepush.py",
           "scripts/ci/cmux_next_fast_gates.py",
