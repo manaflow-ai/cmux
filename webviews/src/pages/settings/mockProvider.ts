@@ -8,6 +8,7 @@
 // pair, so the page's calls cross the real envelope (call/ok/err/sub/ev).
 import { runMockAgentKeys } from "./mockAgentKeys";
 import { mockHubState, runMockHub } from "./mockHub";
+import { mockConnectionsState, runMockConnections } from "./mockConnections";
 import { mockModels, runMockModels } from "./mockModels";
 import { mockAllotments, runMockAllotment } from "./mockAllotments";
 import { createMockPair } from "../../protocol/adapters/mock";
@@ -26,8 +27,7 @@ import {
   type AccountsCmux,
   type AccountsRow,
   type AccountsRun,
-  type AllotmentSet,
-  type AllotmentView,
+  type AccountsRunReply,
   type AgentsRun,
   type AgentsState,
   type ChannelsProgress,
@@ -70,8 +70,6 @@ import {
   type AgentToolsCardState,
   type McpServersRun,
   type McpServersState,
-  type HubRun,
-  type HubState,
   type AgentSkillsRun,
   type AgentSkillsState,
   type AgentMcpRun,
@@ -81,11 +79,18 @@ import {
   type AgentConfigAgent,
   type AgentConfigRun,
   type AgentConfigState,
-  type AccountsRunReply,
+  type AllotmentSet,
+  type AllotmentView,
+  type ArchivedRun,
+  type ArchivedState,
+  type AgentSkillRow,
   type DoctorReport,
   type DoctorRun,
   type LibraryAnswer,
-  type AgentSkillRow,
+  type HubRun,
+  type HubState,
+  type ConnectionsRun,
+  type ConnectionsState,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -133,6 +138,9 @@ export type MockOptions = {
   doctorRefusal?: string;
   /** A customization being tried on (`cmux customize try`); absent: none. */
   tryOn?: CustomizeTryOn;
+  /** Writes of these keys the daemon refuses with this reason and details (a json row's
+   * `accepted.problems`, as cmux-config's refusal carries them). */
+  refusals?: Record<string, { message: string; details: Record<string, unknown> }>;
 };
 
 /** This Mac joined to a team with the one-line join, every consent switch off. */
@@ -273,6 +281,7 @@ export class MockSettingsProvider {
   private readonly chatFolders: ListRow["folders"];
   private actionRan: boolean;
   private readonly failing: Partial<Record<string, string>>;
+  private readonly refusals: NonNullable<MockOptions["refusals"]>;
   private readonly values = new Map<string, unknown>();
   private readonly managed: Map<string, { value: unknown } & ManagedInfo>;
   private readonly changed = new Set<EventSourceContext>();
@@ -301,6 +310,7 @@ export class MockSettingsProvider {
     this.diagnostics = options.diagnostics ?? [];
     this.domains = options.domains === undefined ? mockDomains : options.domains;
     this.failing = options.failing ?? {};
+    this.refusals = options.refusals ?? {};
     this.actionRan = options.actionRan ?? true;
     this.connected = options.connected ?? true;
     this.tryOn = options.tryOn ?? null;
@@ -663,6 +673,8 @@ export class MockSettingsProvider {
         return { settled: [] };
       },
       "cmux.settings.shares.list": () => this.shares,
+      "cmux.settings.archived.list": () => this.archived,
+      "cmux.settings.archived.run": (params) => this.runArchived(params as ArchivedRun),
       "cmux.settings.customize.library": (params) => this.runLibrary(params as LibraryRun),
       "cmux.settings.keys.list": () => this.keys,
       "cmux.settings.keys.answer": (params) => this.answerKey(params as { request_id?: unknown; value?: unknown }),
@@ -944,6 +956,13 @@ export class MockSettingsProvider {
         this.hub = runMockHub(this.hub, run);
         return {};
       },
+      "cmux.settings.connections.state": () => this.connections,
+      "cmux.settings.connections.run": (params) => {
+        const run = params as ConnectionsRun;
+        if (run.action !== "refresh") this.connectionsRuns.push(run);
+        this.connections = runMockConnections(this.connections, run);
+        return {};
+      },
       "cmux.settings.mcp.state": () => this.mcpServers,
       "cmux.settings.mcp.run": (params) => {
         const run = params as McpServersRun;
@@ -1043,6 +1062,8 @@ export class MockSettingsProvider {
       "cmux.settings.shares.list",
       "cmux.settings.customize.library",
       "cmux.settings.shares.revoke",
+      "cmux.settings.archived.list",
+      "cmux.settings.archived.run",
       "cmux.settings.keys.list",
       "cmux.settings.keys.answer",
       "cmux.settings.keys.decline",
@@ -1058,6 +1079,8 @@ export class MockSettingsProvider {
       "cmux.settings.mcp.state",
       "cmux.settings.hub.state",
       "cmux.settings.hub.run",
+      "cmux.settings.connections.state",
+      "cmux.settings.connections.run",
       "cmux.settings.agentSkills.state",
       "cmux.settings.agentSkills.run",
       "cmux.settings.mcp.run",
@@ -1292,6 +1315,22 @@ export class MockSettingsProvider {
   shares: SharesState = mockShares(Date.now());
   /** Every share the page revoked, in order (tests). */
   shareRevokes: string[] = [];
+
+  /** Settings > Sidebar > Archived Workspaces: two archived workspaces (one in a group) and a link. */
+  archived: ArchivedState = mockArchived();
+  /** Every archived-row action the page ran, in order (tests). */
+  archivedRuns: ArchivedRun[] = [];
+
+  /** Open leaves the row (it stays archived); Restore and Delete take it out of the list. */
+  private runArchived(run: ArchivedRun): { error?: string } {
+    const rows = this.archived.rows ?? [];
+    if (!rows.some((row) => row.kind === run.kind && row.id === run.id))
+      throw new ProtocolError(ProtocolErrorCode.invalidParams, "archived.not_found");
+    this.archivedRuns.push(run);
+    if (run.action !== "open")
+      this.archived = { ...this.archived, rows: rows.filter((row) => !(row.kind === run.kind && row.id === run.id)) };
+    return {};
+  }
 
   private revokeShare(id: string): { share_id: string; state: string } {
     const share = this.shares.shares?.find((row) => row.share_id === id);
@@ -1782,6 +1821,11 @@ export class MockSettingsProvider {
   hub: HubState = mockHubState();
   /** Every Integrations gesture but refresh, in order (the key a Link sent included). */
   hubRuns: HubRun[] = [];
+
+  /** Settings > Connections as the app serves it (`SettingsConnections.state`). */
+  connections: ConnectionsState = mockConnectionsState();
+  /** Every Connections gesture but refresh, in order (a pasted key included). */
+  connectionsRuns: ConnectionsRun[] = [];
 
   /** The person's saved MCP servers as the app serves them (`SettingsMcpServers.state`). */
   mcpServers: McpServersState = {
@@ -2589,6 +2633,8 @@ export class MockSettingsProvider {
 
   private set(key: string, value: unknown): MutationResult {
     this.guard(key);
+    const refusal = this.refusals[key];
+    if (refusal) throw new ProtocolError("cmux.settings.invalid", refusal.message, { details: refusal.details });
     const reason = validate(rowsByKey.get(key)!, value, this.domains ?? undefined);
     if (reason) throw new ProtocolError("cmux.settings.invalid", `${key}: ${reason}`, { details: { key, value } });
     this.values.set(key, value);
@@ -2984,6 +3030,18 @@ export function mockShares(now: number): SharesState {
         guests: [],
         invitees: [],
       },
+    ],
+  };
+}
+
+/** Archived rows as the app lists them, in sidebar order. */
+export function mockArchived(): ArchivedState {
+  return {
+    available: true,
+    rows: [
+      { kind: "workspace", id: "ws-archived-1", title: "Fix the flaky login test", group: null, machine: "This Mac" },
+      { kind: "workspace", id: "ws-archived-2", title: "Release notes draft", group: "Docs", machine: "This Mac" },
+      { kind: "item", id: "itm-archived-link", title: "Design review", group: null, machine: null },
     ],
   };
 }

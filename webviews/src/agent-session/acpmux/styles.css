@@ -50,7 +50,7 @@
 /* One height policy for chat, side chat, New Tab and Cmd-I composers: Claude desktop's 384 px cap (Leo 2026-11-24), then scroll. */
 .acpmux-shell{--acpmux-composer-max-height:calc(384px * var(--cmux-interface-scale, 1))}
 .acpmux-composer{position:relative;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 16px;padding-right:var(--cv-inset-end,var(--cv-inset));font-family:var(--font-ui);-webkit-font-smoothing:antialiased}
-.acpmux-composer-box{position:relative;display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--acpmux-composer-radius);--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);box-shadow:var(--acpmux-card-ring)}
+.acpmux-composer-box{position:relative;display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--acpmux-composer-radius);--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);box-shadow:var(--acpmux-card-ring),var(--acpmux-composer-halo, 0 0 transparent)}
 .acpmux-composer-box button{font:inherit}
 .acpmux-composer-field{display:block;box-sizing:border-box;width:100%;min-height:0;max-height:40vh;margin:0;padding:15px 16px 8px;border:0;outline:0;background:transparent;resize:none;field-sizing:content;font-family:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height);color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text))}
 .acpmux-composer-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
@@ -314,7 +314,7 @@
 .acpmux-newtab-row>.acpmux-icon{margin-block-end:calc((var(--acpmux-newtab-row) - 16px) / 2)}
 .acpmux-newtab-row>.acpmux-newtab-switch{margin-block-end:calc((var(--acpmux-newtab-row) - var(--ds-control-primary) - 2 * var(--ds-space-1)) / 2)}
 /* The field is the chat composer's prompt editor (MarkdownField, markdownField.css), sized as the row's one line: one line keeps the row 56 px tall; a long prompt wraps and grows to the composer's line cap, then scrolls (the New Tab screen's .nt-field). */
-.acpmux-newtab-field.acpmux-md-field{--acpmux-newtab-pad-block:calc((var(--acpmux-newtab-row) - 1lh) / 2);flex:1;min-width:0;align-self:stretch;display:block;box-sizing:border-box;min-height:var(--acpmux-newtab-row);max-height:min(var(--acpmux-composer-max-height, calc(384px * var(--cmux-interface-scale, 1))),50vh);margin:0;padding:var(--acpmux-newtab-pad-block) 0;overflow-x:hidden;overflow-y:auto;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
+.acpmux-newtab-field.acpmux-md-field{--acpmux-newtab-pad-block:calc((var(--acpmux-newtab-row) - 1lh) / 2);flex:1;min-width:0;align-self:stretch;display:block;box-sizing:border-box;min-height:var(--acpmux-newtab-row);max-height:calc(min(var(--acpmux-composer-max-height, calc(384px * var(--cmux-interface-scale, 1))),50vh) - var(--acpmux-attach-band, 0px));margin:0;padding:var(--acpmux-newtab-pad-block) 0;overflow-x:hidden;overflow-y:auto;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
 .acpmux-newtab-field.acpmux-md-field .acpmux-md-root{min-height:1lh;box-sizing:border-box}
 .acpmux-newtab-field.acpmux-md-field .acpmux-md-placeholder{left:0;right:0;top:var(--acpmux-newtab-pad-block);color:var(--acpmux-composer-placeholder)}
 .acpmux-newtab-field.acpmux-md-field .acpmux-md{min-height:1lh;font-size:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;white-space:pre-wrap;overflow-wrap:break-word}
@@ -904,8 +904,8 @@ button.acpmux-edited-file:hover{background:var(--ds-surface-hover)}
 .acpmux-folder-choice-button{padding:0;border:0;background:none;color:var(--agent-accent,inherit);font:inherit;text-decoration:underline;cursor:default}
 /* A New Tab start failure's Details stays on its line until opened (newtab/StartFailure.tsx). */
 .acpmux-start-failure-details:not([open]),.acpmux-start-failure-details:not([open])>summary{display:inline}
-/* Agent question card (question/QuestionCard.tsx), after the Claude app's (Leo 2026-10-19; restyled 2026-11-05 after "kind of ugly"): a "Needs your input" small-radius rect (no capsule: agent-pane-no-capsules) tinted with the mark, holding the Needs you dot over a rounded card whose header strip is the question in regular weight; radio (or checkbox) rows with a regular label and a muted description; Other types inline in a quiet field; Skip and Submit with outlined keycaps (esc, ⌘ ↩) at the bottom right, as the permission card's. The app's gray language otherwise: the highlighted row is a soft fill, Submit is the text color inverted. Previews sit beside the list and wrap under it when narrow. appearance.borders none drops the edge (--acpmux-question-edge). */
-/* Needs your input: one mark for a chat that waits on the user, on every surface (the question card's pill, the Needs you dot, badge and pill, the sidebar and Chief dock marks, the status lines). It is the theme's attention colour, which the app sends as --agent-warning (AgentPaneTheme.swift, tokens.attention), the same Palette.attention the native sidebar, tabs and priority rows draw; never the accent, which a grey-accent theme turns into the idle grey. test/needs-input-mark-color.test.ts reads every surface. */
+/* Agent question card (question/QuestionCard.tsx): the base rows, marks, preview and buttons. The card itself (one look for every ask: header, numbered rows, last row, folded pill) is question/questionCard.css. appearance.borders none drops the edge (--acpmux-question-edge). */
+/* Needs your input: one mark for a chat that waits on the user, on every surface but the question card (its icon and words are grey; question/questionCard.css): the Needs you dot, badge and pill, the sidebar and Chief dock marks, the status lines. It is the theme's attention colour, which the app sends as --agent-warning (AgentPaneTheme.swift, tokens.attention), the same Palette.attention the native sidebar, tabs and priority rows draw; never the accent, which a grey-accent theme turns into the idle grey. test/needs-input-mark-color.test.ts reads every surface. */
 /* The needs-you mark holds 3:1 (a mark's tier); words in it lean 45% toward the text ink, the strongest ink on every ground, so they read as text (test/control-contrast-N.test.ts: the pill's words read 2.7:1; at 35% a yellow attention colour, Kerf's and Paper's, read 4.3:1 on its tint: golden-look-contrast-N.test.ts). */
 :root,.acpmux-shell,.ui-positioner{--acpmux-needs-you-mark:var(--agent-warning,var(--agent-accent,var(--agent-text)));--acpmux-needs-you-ink:color-mix(in srgb,var(--acpmux-needs-you-mark) 55%,var(--agent-text))}
 .acpmux-shell,.ui-positioner{--acpmux-question-bg:color-mix(in srgb,var(--agent-text) 5%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-question-strip:color-mix(in srgb,var(--agent-text) 8%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-question-edge:color-mix(in srgb,var(--agent-text) 12%,transparent);--acpmux-question-hover:color-mix(in srgb,var(--agent-text) 5%,transparent);--acpmux-question-highlight:color-mix(in srgb,var(--agent-text) 8%,transparent);--acpmux-question-input:var(--acpmux-needs-you-mark)}
@@ -917,22 +917,15 @@ button.acpmux-edited-file:hover{background:var(--ds-surface-hover)}
 .acpmux-question-status:focus-visible{outline:none}
 .acpmux-question-status:focus-visible .acpmux-question-status-pill{outline:2px solid color-mix(in srgb,var(--acpmux-question-input) 55%,transparent);outline-offset:1px}
 .acpmux-question-status-chevron{opacity:.7}
-.acpmux-question-status[aria-expanded=false] .acpmux-question-status-chevron{transform:rotate(-90deg)}
 fieldset.acpmux-question{align-self:stretch;display:flex;flex-direction:column;margin:0;min-inline-size:0;padding:0;overflow:hidden;border:var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);border-radius:var(--grid-cards-radius);background:var(--acpmux-question-bg);color:var(--agent-text);font:inherit}
 fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question[aria-busy=true]{opacity:.65}
 .acpmux-question-head{display:flex;align-items:flex-start;gap:var(--ds-space-2);float:left;width:100%;box-sizing:border-box;padding:var(--ds-space-3);border-bottom:var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);background:var(--acpmux-question-strip)}
 .acpmux-question>:where(:not(.acpmux-question-head)){clear:both}
 .acpmux-question-prompt{flex:1;min-width:0;font-size:var(--text-body);line-height:var(--text-body--line-height);font-weight:var(--weight-regular);overflow-wrap:anywhere;letter-spacing:var(--text-body--letter-spacing)}
-.acpmux-question-chip{flex:none;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px;padding:0 var(--ds-space-2);border-radius:var(--ds-radius-control);background:var(--ds-surface-inset);color:var(--agent-soft,var(--agent-text));font-size:var(--text-caption);line-height:var(--text-caption--line-height);font-weight:var(--weight-regular);letter-spacing:var(--text-caption--letter-spacing)}
-.acpmux-question-tabs{display:flex;flex-wrap:wrap;gap:var(--ds-space-1);padding:var(--ds-space-2) var(--ds-space-3) 0}
-.acpmux-question-tab{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:calc(var(--ds-space-1) / 2) var(--ds-space-2);border:0;border-radius:var(--ds-radius-control);background:transparent;color:var(--agent-muted);font:inherit;font-size:var(--text-caption);line-height:var(--text-caption--line-height);letter-spacing:var(--text-caption--letter-spacing)}
-.acpmux-question-tab[data-answered]::before{content:"";display:inline-block;width:5px;height:5px;margin:0 5px 1px 0;border-radius:50%;background:currentColor;vertical-align:middle}
-.acpmux-question-tab:hover{background:var(--acpmux-question-hover)}
-.acpmux-question-tab[aria-current=step]{background:var(--acpmux-question-highlight);color:var(--agent-text)}
 .acpmux-question-body{display:flex;flex-wrap:wrap;gap:var(--ds-space-3);align-items:stretch}
 .acpmux-question[data-preview] .acpmux-question-body{padding-right:var(--ds-space-3)}
-.acpmux-question-tab:focus-visible,.acpmux-question-actions button:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:-2px}
+.acpmux-question-actions button:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:-2px}
 .acpmux-question-text{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
 .acpmux-question-label{line-height:19px;font-weight:var(--weight-regular);overflow-wrap:anywhere}
 .acpmux-question-detail{color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);overflow-wrap:anywhere;letter-spacing:var(--text-detail--letter-spacing)}
@@ -1026,6 +1019,8 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-secret-card-reason{overflow-wrap:anywhere}
 .acpmux-secret-card-private{font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-secret-card-row{display:flex;align-items:center;gap:4px}
+.acpmux-secret-card-keep{display:flex;align-items:center;gap:var(--ds-space-2);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-secret-card-keep input{margin:0}
 .acpmux-secret-card-field{flex:1;min-width:0;height:28px;padding:0 8px;box-sizing:border-box;border:0;border-radius:6px;background:var(--agent-page-bg,var(--acpmux-base));box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-text);font:inherit;outline:none}
 .acpmux-secret-card-field::placeholder{color:var(--acpmux-composer-dim)}
 .acpmux-secret-card-action{flex:none;height:var(--ds-control-row);padding:0 var(--ds-space-3);border:0;border-radius:var(--ds-radius-control);background:none;color:var(--agent-text);font:inherit;font-size:var(--text-control);cursor:default}

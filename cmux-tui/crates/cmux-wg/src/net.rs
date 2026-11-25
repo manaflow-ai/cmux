@@ -28,6 +28,7 @@ use x25519_dalek::{PublicKey, StaticSecret};
 
 use crate::config::{InterfaceAddress, WgConfig};
 pub use crate::error::WgError;
+use crate::handshake_retry::HandshakeRetry;
 use crate::pacing::{DropCounters, Pacer, Priority};
 use crate::probing;
 use crate::stream::WgStream;
@@ -408,6 +409,8 @@ struct Driver {
     /// Bound datagram-service ports.
     datagram_ports: HashMap<u16, mpsc::Sender<Datagram>>,
     watchdog: Watchdog,
+    /// Resends a lost initiation while data waits for the session.
+    handshake_retry: HandshakeRetry,
     /// Give a crossed handshake one REKEY_TIMEOUT to finish before the queue starts another.
     wait_for_handshake_until: Option<Instant>,
     /// When the peer's last authenticated data arrived, and whether it came
@@ -417,8 +420,27 @@ struct Driver {
     wakeups: Arc<AtomicU64>,
     /// A rebind while held owes the peer its reassertion at the release.
     reassert_at_release: bool,
+    /// When this side last sent a handshake initiation of its own (see
+    /// [`INITIATION_PENDING`]).
+    initiated_at: Option<Instant>,
     scratch: Vec<u8>,
 }
+
+/// After this side sent a handshake initiation, a segment queued with no
+/// session does not start another one for this long: boringtun's own
+/// REKEY_TIMEOUT, after which its timer resends. Both sides of a fresh
+/// tunnel initiate at once; each answers the other's initiation, which
+/// clears boringtun's "in progress" mark, and a fresh initiation sent then
+/// replaces the one whose response is already on its way, so that response
+/// is refused. With round trips in flight, and each initiation arriving
+/// once per candidate address the dialer sprays, the two sides did this to
+/// each other until boringtun's rate limit answered with cookies, and the
+/// tunnel came up only at the 5 s retry (lte, 70 ms: 5.6-8.8 s to the first
+/// handshake, every dial). The answer to the first initiation completes it.
+/// Only that case changes: a lost initiation with no crossing one leaves
+/// boringtun's handshake in progress, which already refuses a second
+/// initiation until the retry (`tests/crossed_initiation.rs`).
+const INITIATION_PENDING: Duration = Duration::from_secs(5);
 
 /// A peer silent this long and then heard again counts as a path change for
 /// the tunnel's TCP: a blackout on the same route backs smoltcp's RTO off
@@ -493,11 +515,13 @@ impl Driver {
             auto,
             datagram_ports: HashMap::new(),
             watchdog: Watchdog::default(),
+            handshake_retry: HandshakeRetry::default(),
             wait_for_handshake_until: None,
             last_inbound: None,
             resumed: false,
             wakeups: Arc::new(AtomicU64::new(0)),
             reassert_at_release: false,
+            initiated_at: None,
             scratch: vec![0u8; BUFFER_BYTES + 32],
         })
     }
@@ -520,11 +544,17 @@ impl Driver {
             };
             let watchdog = self.watchdog.deadline(self.pacer.srtt());
             let hello = self.hello_deadline();
+            // A held crossed handshake defers the resend, never busy-wakes.
+            let retry = self
+                .handshake_retry
+                .deadline(self.pacer.srtt())
+                .map(|due| self.wait_for_handshake_until.map_or(due, |end| due.max(end)));
             let next_tick = [
                 self.schedule.next_tick(),
                 self.probe_deadline,
                 self.pace_deadline,
                 watchdog,
+                retry,
                 hello,
                 self.stack.release_deadline(),
             ]
@@ -559,6 +589,7 @@ impl Driver {
             self.wakeups.fetch_add(1, Ordering::Relaxed);
             self.catch_up_timers();
             self.run_watchdog();
+            self.run_handshake_retry();
             match event {
                 Event::Datagram(count, origin) => {
                     // A count past the buffer is not a datagram: drop it.
@@ -568,6 +599,8 @@ impl Driver {
                 }
                 Event::DatagramError(error) => {
                     if is_transient(&error) {
+                        // What the timers sent this pass leaves now.
+                        self.underlay.flush();
                         continue;
                     }
                     self.shutdown();
@@ -712,11 +745,21 @@ impl Driver {
         // Starting again after replying to a crossed initiation would make
         // boringtun discard the state for our own outstanding initiation.
         self.wait_for_handshake_until = self.wait_for_handshake_until.filter(|&end| now < end);
-        if self.tunn.time_since_last_handshake().is_none()
+        // Nor does a side start again within INITIATION_PENDING of its own
+        // last initiation: duplicated copies of a crossed initiation would
+        // otherwise restart both ends until REKEY_TIMEOUT.
+        let no_session = self.tunn.time_since_last_handshake().is_none();
+        if no_session
             && self.pacer.has_queued()
             && self.wait_for_handshake_until.is_none()
+            && self.initiated_at.is_none_or(|at| now.duration_since(at) >= INITIATION_PENDING)
         {
             self.initiate_handshake();
+        }
+        if no_session {
+            self.handshake_retry.set_waiting(now, self.pacer.has_queued());
+        } else {
+            self.handshake_retry.on_session();
         }
         while !self.underlay.backlogged() && self.tunn.time_since_last_handshake().is_some() {
             let (packet, priority) = match self.pacer.pop_classified(now) {
@@ -823,6 +866,8 @@ impl Driver {
                 let moved_peer = matches!(rebind, Rebind::PeerMoved);
                 match rebind {
                     Rebind::Underlay(underlay) => {
+                        // What this pass staged leaves on the old one.
+                        self.underlay.flush();
                         self.underlay.replace(underlay);
                         let max = usize::from(self.config.mtu)
                             .saturating_sub(datagram_ops::DATAGRAM_OVERHEAD);
@@ -830,6 +875,7 @@ impl Driver {
                     }
                     Rebind::Socket(socket) => {
                         let peer = self.underlay.peer_hint();
+                        self.underlay.flush();
                         self.underlay.replace(Box::new(SocketPath::new(socket, peer)));
                     }
                     Rebind::Keep | Rebind::PeerMoved => {}

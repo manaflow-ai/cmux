@@ -57,6 +57,7 @@ GATE_SCRIPTS = {
     "prepush gate": "scripts/cmux-next/prepush-gate.py",
     "crash-class rules": "scripts/ci/crash_class_fast_gate.py",
     "webviews checks": "scripts/ci/fast_gate_webviews_checks.py",
+    "protocol skew": "scripts/ci/protocol_skew_check.py",
 }
 CI_WEB = ROOT / ".github/workflows/ci-web.yml"
 WEBVIEWS_CHECKS = ROOT / "scripts/ci/fast_gate_webviews_checks.py"
@@ -569,12 +570,16 @@ class WorkflowShape(unittest.TestCase):
         for step in steps:
             self.assertFalse(step.get("uses", "").startswith("actions/cache@"), step.get("name"))
         # #51750 reads R2 first (./.github/actions/cache-restore, backend r2), then the GitHub store's restore step.
+        restore = step_named([s for s in steps if not s["name"].endswith(" from R2")], "Restore the Bun package cache")
+        self.assertTrue(restore["uses"].startswith("actions/cache/restore@"))
         for name in ("Restore the Bun package cache", "Restore the pinned lint tools"):
-            restore = step_named([s for s in steps if not s["name"].endswith(" from R2")], name)
-            self.assertTrue(restore["uses"].startswith("actions/cache/restore@"), name)
             r2 = step_named(steps, f"{name} from R2")
             self.assertEqual(r2["uses"], "./.github/actions/cache-restore", name)
             self.assertEqual(r2["with"]["backend"], "r2", name)
+        # The lint tools never change per PR and are off the GitHub store (RFD 0148 row 19): R2 only, and a miss
+        # is prepush-gate.py's sha256-checked download.
+        self.assertEqual([s["name"] for s in steps if s["name"].startswith("Restore the pinned lint tools")],
+                         ["Restore the pinned lint tools from R2"])
 
     def test_the_bun_cache_restore_is_bounded_and_never_left_half_done(self):
         # 2026-11-23: on a Freestyle VM the 710 MB restore ran at about 1 MB/s, and at 600 s its link expired.
@@ -592,6 +597,26 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(steps.index(drop), steps.index(restore) + 1)
         gates = step_named(steps, "Fast gates on the merge")
         self.assertLess(steps.index(drop), steps.index(gates))
+
+    def test_every_step_before_the_gates_is_bounded(self):
+        # 2026-11-23: 255 fast gates jobs sat to the 25-minute limit (about 6.3k runner minutes), each in one setup
+        # step with no bound of its own: a checkout fetch, the base deepen, a cache restore or setup-node's download
+        # from GitHub at Freestyle's ~0.9 MB/s. Each step before the gates ends on its own bound, so the job fails
+        # then, naming the step, and the bounds together leave the gates room inside the job limit.
+        gates_job = job(workflow())
+        steps = gates_job["steps"]
+        gates = steps.index(step_named(steps, "Fast gates on the merge"))
+        total = 0
+        for step in steps[:gates]:
+            with self.subTest(step=step["name"]):
+                self.assertIn("timeout-minutes", step)
+                total += int(step["timeout-minutes"])
+        self.assertLessEqual(total, 40)
+        # Node never comes from GitHub's node-versions releases (setup-node's download): the tool cache or nodejs.org.
+        node = step_named(steps, "Setup Node")
+        self.assertNotIn("uses", node)
+        self.assertEqual(node["run"], "scripts/ci/ensure-setup-node.sh 24.22.1")
+        self.assertLessEqual(int(node["timeout-minutes"]), 3)
 
     def test_the_webviews_checks_are_ci_webs_fail_mode_checks(self):
         # The gate reruns what a pull request's ci-web fails on, so a check that landed after the PR's CI
@@ -774,7 +799,7 @@ class ScriptBehavior(unittest.TestCase):
                "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
                "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
         if barrier is not None:
-            env.update({"FAKE_BARRIER": str(barrier), "FAKE_BARRIER_COUNT": "4"})
+            env.update({"FAKE_BARRIER": str(barrier), "FAKE_BARRIER_COUNT": "5"})
         extra = []
         if budget is not None:
             extra += ["--budget-seconds", str(budget)]
@@ -1213,6 +1238,7 @@ class ScriptBehavior(unittest.TestCase):
         self.assertIn("--new-only", calls["web lint"]["argv"])  # per error over the base, not per job
         self.assertEqual(calls["prepush gate"]["argv"][:4], ["--base", base, "--head", merge])
         self.assertEqual(calls["webviews checks"]["argv"], ["--base", base])
+        self.assertEqual(calls["protocol skew"]["argv"], ["--base", base, "--head", merge])
         ratchet = calls["crash ratchet"]["argv"]
         self.assertEqual(ratchet[:2], ["--script", "scripts/cmux-next/crash_ratchet.py"])
         self.assertEqual(Path(ratchet[ratchet.index("--head") + 1]).resolve(), work.resolve())
@@ -1246,9 +1272,9 @@ class ScriptBehavior(unittest.TestCase):
         result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "true",
                              sleep=0.2, barrier=barrier)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        # The first batch cannot finish until all four markers exist. A serial implementation therefore fails
+        # The first batch cannot finish until all five markers exist. A serial implementation therefore fails
         # deterministically at the barrier instead of relying on a wall-clock threshold that flakes on loaded hosts.
-        self.assertEqual(len(list(barrier.glob("started-*"))), 4)
+        self.assertEqual(len(list(barrier.glob("started-*"))), 5)
         self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
 
     def test_a_zero_budget_stops_every_started_gate_and_still_names_a_critical_path_gate(self):
@@ -1843,6 +1869,14 @@ class WebviewsChecksGate(unittest.TestCase):
         known = type_error("TS2307", "Cannot find module './x.json'.", "src/a.ts:4:21")
         new = self.module.added(known + "error: Failed to resolve vite config: ENOENT\n", known)
         self.assertEqual(new, ["error: Failed to resolve vite config: ENOENT"])
+
+    def test_a_vite_config_stack_frame_keys_without_its_temp_stamp(self):
+        def frames(stamp: str) -> str:
+            return ("error: Failed to resolve vite config: ENOENT\n"
+                    f"    at markdownHost (file:///r/webviews/node_modules/.vite-temp/vite.config.ts.timestamp-{stamp}.mjs"
+                    ":3176:23)\n")
+        self.assertEqual(self.module.added(frames("1795522394672-bd727a4797f8c8"), frames("1795522301234-0a1b2c3d4e5f60")),
+                         [])
 
     def test_a_wrapped_message_compares_whole(self):
         def wrapped(detail: str) -> str:
