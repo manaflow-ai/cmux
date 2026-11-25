@@ -8,12 +8,12 @@
         "key": "settings.group.agentCache",
         "text": "Prompt Cache"
       },
-      "note": "Settings > General > Prompt Cache (Leo, 2026-11-03: \"idk if we maybe also wanna be showing that/opt-in autocompact around that 5min mark\"; \"we ought to make these all accessibly toggle-able ofc\"). Off by default: a compaction is a model call that counts toward usage.",
+      "note": "Settings > General > Prompt Cache (Leo, 2026-11-03: \"idk if we maybe also wanna be showing that/opt-in autocompact around that 5min mark\"; \"we ought to make these all accessibly toggle-able ofc\"). On by default since 2026-11-24 (Leo: \"we need to be compacting arguably BEFORE cache expires...\", \"this can be toggled but... this as a default seems decent.\"): a warm compaction costs about 40% of the cold rewrite of the whole context it saves.",
       "rows": [
         {
           "key": "agents.cacheCompact.enabled",
           "name": "cacheCompactEnabled",
-          "note": "On: an idle Claude chat whose context is over agents.cacheCompact.minContextPercent runs /compact about 30 s before its prompt cache expires (once per idle stretch; never mid-turn, with a prompt queued, or while someone types). Off (the default): acpmux arms no timer.",
+          "note": "On: an idle Claude chat whose context is over agents.cacheCompact.minContextPercent runs /compact about 30 s before its prompt cache expires (once per idle stretch; never mid-turn, with a prompt queued, or while someone types). On by default; off: acpmux arms no timer.",
           "title": {
             "key": "settings.agents.cacheCompact.enabled",
             "text": "Compact Before the Cache Expires"
@@ -23,7 +23,7 @@
             "text": "Compacts an idle Claude chat while its cache is warm, so the next message costs less."
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": [
             "cache",
             "prompt cache",
@@ -53,7 +53,7 @@
             "step": 5,
             "unit": "count"
           },
-          "default": 50,
+          "default": 30,
           "keywords": [
             "cache",
             "compact",

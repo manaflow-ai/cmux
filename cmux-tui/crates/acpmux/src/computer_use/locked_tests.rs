@@ -42,6 +42,47 @@ fn legacy_screen_locked_maps_to_mac_locked() {
 }
 
 #[test]
+fn a_locked_result_names_the_machines_that_can_take_the_call() {
+    let asked = std::cell::Cell::new(0);
+    let machines = || {
+        asked.set(asked.get() + 1);
+        vec!["studio".to_owned(), "cloud-1".to_owned()]
+    };
+    let result =
+        to_mcp_routed(Outcome::Output(ToolOutput::error("mac_locked", "locked")), machines);
+    assert_eq!(asked.get(), 1);
+    assert_eq!(result["_meta"][STATE_META], CODE);
+    let b = body(&result);
+    assert_eq!(b["machines"], json!(["studio", "cloud-1"]));
+    assert!(b["error"].as_str().unwrap().starts_with(MESSAGE));
+    assert!(b["error"].as_str().unwrap().ends_with("Ready to take it now: studio, cloud-1."));
+    let remote = b["routes"].as_array().unwrap().iter().find(|r| r["route"] == "remote").unwrap();
+    assert_eq!(remote["machines"], json!(["studio", "cloud-1"]));
+    assert!(remote["text"].as_str().unwrap().contains("machine \"studio\""));
+    // Unlock and Cloud stay offered.
+    assert_eq!(b["routes"].as_array().unwrap().len(), 3);
+}
+
+#[test]
+fn no_machine_to_route_to_keeps_the_generic_result() {
+    let out = || Outcome::Output(ToolOutput::error("mac_locked", "locked"));
+    assert_eq!(to_mcp_routed(out(), Vec::new), to_mcp(out()));
+}
+
+#[test]
+fn an_unlocked_result_never_asks_for_machines() {
+    let cases = [
+        Outcome::Output(ToolOutput::ok(json!({"ok": true}))),
+        Outcome::Output(ToolOutput::error("app_denied", "denied")),
+        Outcome::Failed { code: "computer_use_unavailable".into(), message: "away".into() },
+    ];
+    for outcome in cases {
+        let result = to_mcp_routed(outcome.clone(), || panic!("asked for machines"));
+        assert_eq!(result, to_mcp(outcome));
+    }
+}
+
+#[test]
 fn other_results_pass_through_unchanged() {
     let cases = [
         Outcome::Output(ToolOutput::error("app_denied", "denied")),

@@ -1566,6 +1566,9 @@ impl State {
                 acked_h: self.acked_h,
                 max_out_id: self.max_out_id,
                 exited,
+                launch_credential: super::LaunchCredential(
+                    crate::agent_credentials::launched_with(&self.spec.env),
+                ),
             });
             self.controller = Some(Controller { id, tx, resumed: false });
             self.last_owner = Some(id);

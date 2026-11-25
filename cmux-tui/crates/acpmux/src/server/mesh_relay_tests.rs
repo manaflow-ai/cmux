@@ -1,6 +1,28 @@
 use super::*;
 use crate::mesh::{AckState, Sender, Target};
 
+/// A block or question sent over the mesh files as that class on the receiver, so an idle
+/// receiver wakes (`hub/inbox.rs`): the sender's inline line (`mesh_send.rs`) parses back.
+#[test]
+fn inline_class_round_trips_the_senders_line() {
+    use crate::prompt_class::PromptClass;
+    for class in PromptClass::ALL {
+        let body =
+            format!("{}\n\nYou stopped on a 529.", super::super::mesh_send::class_line(class));
+        assert_eq!(inline_class(&body), (Some(class), "You stopped on a 529."), "{class}");
+    }
+    assert_eq!(inline_class("[blocker]\nfix it"), (Some(PromptClass::Block), "fix it"));
+}
+
+#[test]
+fn inline_class_leaves_other_texts_whole() {
+    for body in
+        ["plain text", "[block]", "[block]\n\n  ", "[nope]\nx", "see [block]\nx", "[block] x\ny"]
+    {
+        assert_eq!(inline_class(body), (None, body), "{body:?}");
+    }
+}
+
 fn from(host: &str, name: &str) -> InMessage {
     InMessage {
         message_id: "m".into(),

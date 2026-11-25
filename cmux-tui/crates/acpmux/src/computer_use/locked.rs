@@ -9,7 +9,8 @@
 //! The result stays `isError` for the agent (the call did not run) and carries
 //! `_meta["cmux/state"] = "mac_locked"` so a chat can draw it as a state rather than a failure.
 //! [`super::awake`] keeps a Mac from dimming into the lock in the first place (L1); nothing here
-//! unlocks anything.
+//! unlocks anything. [`to_mcp_routed`] names the person's own machines that can take the call now
+//! (L3, the remote route), so the agent moves the call there instead of waiting on the lock.
 
 use cmux_computer_use::ToolOutput;
 use serde_json::{Value, json};
@@ -85,9 +86,43 @@ pub fn map(outcome: Outcome) -> Outcome {
     Outcome::Output(ToolOutput { is_error: true, code: Some(CODE.into()), body, png_base64: png })
 }
 
+/// Names `machines` (the person's machines that can take the call now, design L3's "remote"
+/// route) in a locked result's body: `machines`, the remote route's text and the error line.
+/// Nothing changes when there are none; the generic routes stay.
+fn route_to(body: &mut Value, machines: &[String]) {
+    let Some(first) = machines.first() else { return };
+    let names = machines.join(", ");
+    body["machines"] = json!(machines);
+    body["error"] = format!("{MESSAGE} Ready to take it now: {names}.").into();
+    if let Some(routes) = body["routes"].as_array_mut() {
+        for route in routes.iter_mut().filter(|r| r["route"] == "remote") {
+            route["text"] =
+                format!("Run it on {names}: call the same tool again with machine \"{first}\".")
+                    .into();
+            route["machines"] = json!(machines);
+        }
+    }
+}
+
+/// [`to_mcp`], with the machines that can take the call instead named in a locked result.
+/// `machines` runs only when the call was locked (it asks the daemon, which asks each peer).
+pub fn to_mcp_routed(outcome: Outcome, machines: impl FnOnce() -> Vec<String>) -> Value {
+    let mut outcome = map(outcome);
+    if let Outcome::Output(out) = &mut outcome
+        && out.code.as_deref() == Some(CODE)
+    {
+        route_to(&mut out.body, &machines());
+    }
+    mark(outcome)
+}
+
 /// The MCP `tools/call` result for `outcome`, the locked state marked for the chat.
 pub fn to_mcp(outcome: Outcome) -> Value {
-    let outcome = map(outcome);
+    mark(map(outcome))
+}
+
+/// The MCP result for an already mapped `outcome`, `_meta` marked when it is the locked state.
+fn mark(outcome: Outcome) -> Value {
     let locked = matches!(&outcome, Outcome::Output(out) if out.code.as_deref() == Some(CODE));
     let mut result = outcome.to_mcp();
     if locked && let Some(map) = result.as_object_mut() {

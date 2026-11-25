@@ -1219,13 +1219,18 @@ pub async fn deliver(
     if team && !hub.register_team_work(&session, prompt_id) {
         return None;
     }
+    // The class the sending daemon inlined as the text's first line (`mesh_send.rs` `carried`):
+    // the hub carries text only, so without it a block or question files as fyi and an idle
+    // receiver never starts a turn.
+    let (class, text) =
+        if team { (None, message.body.as_str()) } else { inline_class(&message.body) };
     let body = if team {
         format!(
             "Team message from {}: {}\nThe team hub allows this message to start work; normal session permissions still apply.",
             from_name, message.body
         )
     } else {
-        message.body.clone()
+        text.to_owned()
     };
     let mut request = json!({
         "sessionId": session.id,
@@ -1239,6 +1244,12 @@ pub async fn deliver(
             "startWork": message.start_work,
         }},
     });
+    if let Some(class) = class
+        && let Some(mux) =
+            request.pointer_mut("/_meta/acpmux").and_then(serde_json::Value::as_object_mut)
+    {
+        mux.insert("class".into(), class.as_str().into());
+    }
     // The sending session's id, which its daemon set from the caller it proved
     // (`mesh_send.rs`), for display (`prompt_provenance::FROM_SESSION_ID`). The sender's harness
     // claim comes separately below, never as a bound harness.
@@ -1308,6 +1319,22 @@ fn team_delivery(message: &InMessage, own_user: Option<&str>) -> bool {
 
 fn start_work_allowed(message: &InMessage) -> bool {
     matches!(message.start_work, Some(StartWork::Allowed))
+}
+
+/// The class a relayed text's first line names (`[block]`, `[question]`, `[result]`, `[fyi]`, as
+/// `mesh_send.rs` `class_line` writes it) and the text after that line; no class and the whole
+/// text otherwise.
+fn inline_class(body: &str) -> (Option<crate::prompt_class::PromptClass>, &str) {
+    let (first, rest) = body.split_once('\n').unwrap_or((body, ""));
+    let class = first
+        .trim()
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .and_then(crate::prompt_class::PromptClass::parse);
+    match class {
+        Some(class) if !rest.trim().is_empty() => (Some(class), rest.trim_start_matches('\n')),
+        _ => (None, body),
+    }
 }
 
 #[cfg(test)]
