@@ -1,0 +1,29 @@
+[package]
+name = "cmux-session-cloud"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Cloud-hosted agent session histories: a cold chat's archive, encrypted on the machine, goes to the person's sync blob store and comes back when the chat is opened"
+
+[lints]
+workspace = true
+
+[dependencies]
+cmux-egress.workspace = true
+anyhow.workspace = true
+cmux-session-pack = { path = "../cmux-session-pack" }
+chacha20poly1305 = "0.10"
+getrandom.workspace = true
+hex.workspace = true
+reqwest.workspace = true
+rustls.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+zstd.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

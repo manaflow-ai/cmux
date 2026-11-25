@@ -11,6 +11,8 @@ import { HEADER_ACTIONS } from "./headerActions";
 import { menuKeycap } from "./chatHeaderToolsModel";
 import { readLastKind, repeatKind, writeLastKind, type NewKind } from "./headerTrio";
 import { tooltipProps, useShortcut } from "../shortcuts";
+import { ShortcutKeycaps, useShortcutKeycapsOn } from "../ButtonKeycaps";
+import { ariaKeyshortcuts } from "../shortcutKeycaps";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 
 const KIND_LABELS: Record<NewKind, StringKey> = {
@@ -64,16 +66,22 @@ export function HeaderNewButton({
     make(kind);
   };
   const label = (kind: NewKind) => t(KIND_LABELS[kind]);
+  const faceKey = KIND_ACTIONS[again] ? keys[again] : undefined;
+  // The shortcut-keycaps experiment (off by default) draws the face's key inside it.
+  const faceKeycaps = useShortcutKeycapsOn(faceKey);
   return (
     <div className="acpmux-header-new" data-header-new={again}>
       <button
         type="button"
         className="acpmux-header-tool acpmux-header-new-face"
         aria-label={label(again)}
-        {...tooltipProps(label(again), KIND_ACTIONS[again] ? keys[again] : undefined)}
+        aria-keyshortcuts={faceKeycaps ? ariaKeyshortcuts(faceKey) : undefined}
+        data-keycaps={faceKeycaps ? "" : undefined}
+        {...tooltipProps(label(again), faceKey)}
         onClick={() => run(again)}
       >
         <HeaderIcon name="action.add" size={16} />
+        <ShortcutKeycaps shortcut={faceKey} />
       </button>
       <Menu
         open={open}

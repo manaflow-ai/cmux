@@ -18,7 +18,9 @@ enum ChatNativeRowActions {
             actions.menu = { _ in
                 var items: [UIMenuElement] = [
                     UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = text },
-                    UIAction(title: "Select Text", image: UIImage(systemName: "selection.pin.in.out")) { _ in ChatSelectText.present(text) },
+                    UIAction(title: "Select Text", image: UIImage(systemName: "selection.pin.in.out"), identifier: ChatSelectText.actionID) { _ in
+                        ChatSelectText.present(text)
+                    },
                 ]
                 if isLast {
                     items.append(UIAction(title: "Edit and Resend", image: UIImage(systemName: "pencil")) { _ in context.editAndResend(turnID: turnID) })
@@ -173,6 +175,9 @@ enum ChatPolishMenus {
 /// The prompt's "Select Text" sheet: the whole text, selectable, at medium and large detents.
 @MainActor
 enum ChatSelectText {
+    /// The Select Text rows' identifier: a hold's in-place selection leaves them out of its edit menu.
+    static let actionID = UIAction.Identifier("cmux.agentChat.selectText")
+
     static func present(_ text: String) {
         SelectableTextView(text).present()
     }

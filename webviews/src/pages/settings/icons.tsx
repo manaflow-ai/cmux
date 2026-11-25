@@ -25,6 +25,10 @@ const paths: Record<string, ReactNode> = {
       <path d="M1.8 8h12.4M8 1.8c-2.2 2.4-2.2 10 0 12.4M8 1.8c2.2 2.4 2.2 10 0 12.4" />
     </>
   ),
+  // Settings > Integrations: two chain links (SF Symbol link).
+  link: (
+    <path d="M6.9 9.1a2.6 2.6 0 0 0 3.7 0l2.2-2.2a2.6 2.6 0 0 0-3.7-3.7l-.9.9M9.1 6.9a2.6 2.6 0 0 0-3.7 0L3.2 9.1a2.6 2.6 0 0 0 3.7 3.7l.9-.9" />
+  ),
   house: <path d="M2.4 7.4 8 2.6l5.6 4.8M3.8 6.2v7.2h3V10h2.4v3.4h3V6.2" />,
   // Settings > Customize: two switches, one on, one off (SF Symbol switch.2).
   "switch.2": (
@@ -252,6 +256,8 @@ const paths: Record<string, ReactNode> = {
       <path d="M6.4 1.8V4M9.6 1.8V4M6.4 12v2.2M9.6 12v2.2M1.8 6.4H4M1.8 9.6H4M12 6.4h2.2M12 9.6h2.2" />
     </>
   ),
+  // Settings > Automations: a lightning bolt (an event sets an agent off).
+  bolt: <path d="M9 1.8 3.4 9.2h4.2L7 14.2l5.6-7.4H8.4L9 1.8Z" />,
   // The overflow menu of a row (Settings > Models connections).
   ellipsis: <path d="M3.6 8h.01M8 8h.01M12.4 8h.01" />,
   plus: <path d="M8 3v10M3 8h10" />,

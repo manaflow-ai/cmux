@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextActions
+public import CmuxNextActions
 public import CmuxNextSettings
 import os
 
@@ -11,20 +11,23 @@ import os
 /// runs `openAll` (Settings > Customize).
 @MainActor
 public final class CustomizationsMenu: NSObject, NSMenuDelegate {
+    private let registry: ActionRegistry
     private let settings: @MainActor () -> SettingsController?
     private let openAll: @MainActor () -> Void
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "menu.customizations")
 
-    private init(settings: @escaping @MainActor () -> SettingsController?, openAll: @escaping @MainActor () -> Void) {
+    private init(registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?, openAll: @escaping @MainActor () -> Void) {
+        self.registry = registry
         self.settings = settings
         self.openAll = openAll
     }
 
     /// The submenu's item; it keeps its delegate alive (`representedObject`: `NSMenu.delegate` is weak).
-    public static func item(settings: @escaping @MainActor () -> SettingsController?,
+    public static func item(registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?,
                             openAll: @escaping @MainActor () -> Void) -> NSMenuItem {
-        let owner = CustomizationsMenu(settings: settings, openAll: openAll)
+        let owner = CustomizationsMenu(registry: registry, settings: settings, openAll: openAll)
         let item = NSMenuItem(title: SettingsWindowStrings.customizationsMenu, action: nil, keyEquivalent: "")
+        item.identifier = NSUserInterfaceItemIdentifier("cmux.menu.customizations") // the chat's Customize button finds it
         let menu = NSMenu(title: SettingsWindowStrings.customizationsMenu)
         menu.autoenablesItems = false
         menu.delegate = owner
@@ -47,9 +50,10 @@ public final class CustomizationsMenu: NSObject, NSMenuDelegate {
         for group in SettingsSchema.quickToggleGroups(developerTools: DevTools.isEnabled) {
             menu.addItem(.sectionHeader(title: group.title))
             for descriptor in group.rows {
-                let row = NSMenuItem(title: descriptor.title, action: #selector(flip(_:)), keyEquivalent: "")
-                row.target = self
-                row.representedObject = descriptor.id
+                guard let row = registry.makeArgumentMenuItem(for: "palette.toggleSetting",
+                                                               arguments: ["setting": .string(descriptor.id),
+                                                                           "on": .bool(!(settings?.isOn(descriptor) ?? false))],
+                                                               title: descriptor.title) else { continue }
                 row.toolTip = descriptor.help
                 row.state = settings?.isOn(descriptor) == true ? .on : .off
                 row.isEnabled = settings.map { !$0.isLocked(descriptor) } ?? false
@@ -57,22 +61,9 @@ public final class CustomizationsMenu: NSObject, NSMenuDelegate {
             }
         }
         menu.addItem(.separator())
-        let all = NSMenuItem(title: SettingsWindowStrings.allCustomizations, action: #selector(openAllClicked(_:)), keyEquivalent: "")
-        all.target = self
-        menu.addItem(all)
-    }
-
-    @objc private func flip(_ sender: NSMenuItem) {
-        guard let settings = settings(), let id = sender.representedObject as? String,
-              let descriptor = SettingsSchema.descriptor(for: id.split(separator: ".").map(String.init)) else { return }
-        Task {
-            do {
-                try await settings.flip(descriptor)
-            } catch {
-                Self.logger.error("customizations menu \(id, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-            }
+        if let all = registry.makeMenuItem(for: "settings.customizeMenus") {
+            all.title = SettingsWindowStrings.allCustomizations
+            menu.addItem(all)
         }
     }
-
-    @objc private func openAllClicked(_ sender: NSMenuItem) { openAll() }
 }
