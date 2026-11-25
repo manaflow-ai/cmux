@@ -25495,6 +25495,11 @@ Result<Json> Codec<CreateWorkspaceRequest>::encode(const CreateWorkspaceRequest&
         if (!encoded) return std::move(encoded).error();
         object.emplace("name", std::move(encoded).value());
     }
+    if (!value.name_source.is_absent()) {
+        auto encoded = encode_value(value.name_source);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("name_source", std::move(encoded).value());
+    }
     if (!value.origin.is_absent()) {
         auto encoded = encode_value(value.origin);
         if (!encoded) return std::move(encoded).error();
@@ -25568,6 +25573,16 @@ Result<CreateWorkspaceRequest> Codec<CreateWorkspaceRequest>::decode(const Json&
             auto decoded = decode_value<std::string>(*field_name);
             if (!decoded) return std::move(decoded).error();
             result.name = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_name_source = value.find("name_source");
+    if (field_name_source) {
+        if (field_name_source->is_null()) {
+            result.name_source = Field<NameSource>::null();
+        } else {
+            auto decoded = decode_value<NameSource>(*field_name_source);
+            if (!decoded) return std::move(decoded).error();
+            result.name_source = Field<NameSource>(std::move(decoded).value());
         }
     }
     const Json* field_origin = value.find("origin");
