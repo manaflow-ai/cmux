@@ -334,6 +334,9 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
             return false
         }
     }
-    package.dependencies = [.package(path: "../../Packages/Shared/CMUXAuthCore")]
+    package.dependencies = [
+        .package(path: "../../Packages/Shared/CMUXAuthCore"),
+        .package(path: "../../Packages/Shared/CmuxEgress"),
+    ]
 }
 #endif
