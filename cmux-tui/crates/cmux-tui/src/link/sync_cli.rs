@@ -85,6 +85,8 @@ pub(crate) mod estimate;
 pub(crate) mod offload;
 pub(crate) mod project;
 pub(crate) mod project_back;
+mod project_kept;
+pub(crate) mod project_pin;
 pub(crate) mod size_cap;
 pub(crate) mod skips;
 mod store;
