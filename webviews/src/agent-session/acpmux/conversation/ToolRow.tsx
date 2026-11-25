@@ -16,8 +16,6 @@ import { pathName } from "../chips/paths";
 import { stripsEnvelopeImages, toolImages } from "../toolImages";
 import { toolKind } from "../toolNames";
 import { toolLabel } from "../toolPaths";
-import { ROW_WIDTH, shortCommand } from "./shortCommand";
-import { commandSaid } from "./commandActions";
 import { ReadLabel } from "./ReadLabel";
 import { readFullPath, readPath } from "./readPath";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
@@ -51,9 +49,9 @@ import { callOutput, rowFailed, toolFailure } from "./toolFailure";
 import { RepoRecoveryCard } from "./RepoRecoveryCard";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord, useInStep } from "./toolFailureCauseModel";
-import { ChevronRight } from "./icons";
 import { toolIcon } from "./toolRowModel";
 import { repoRecoveryFor } from "./repoRecoveryCardModel";
+import { DisclosureChevron } from "./DisclosureChevron";
 
 /// One tool call. A call with output opens it below; a
 /// shell call opens to its Shell block, with the command line even before any output, and an
@@ -92,15 +90,19 @@ export const ToolRow = memo(function ToolRow({
   const cwd = useContext(SessionCwdContext);
   const foreground = tool.status === "pending" || tool.status === "in_progress";
   const running = foreground || tool.background?.state === "running";
+  let shownCommand: string | undefined;
   const label = toolLabel(
     tool,
     item.text,
     // A live command is its own shimmered line, so it needs no "Running" word (Leo, 2026-11-23:
     // "running" doesn't need text). Finished commands keep the reader's localized "Ran" lead.
-    (command) => (running ? command : t("tools.ranCommand", { command })),
+    (command) => {
+      shownCommand = command;
+      return running ? command : t("tools.ranCommand", { command });
+    },
     cwd,
     running || asRun ? undefined : t("tools.ranUnnamed"),
-    !asRun && !running,
+    !asRun,
   );
   // Failed by its status or a nonzero exit; in the background, by its status (toolFailure.ts rowFailed).
   const recovery = useMemo(() => repoRecoveryFor(tool), [tool]);
@@ -108,7 +110,8 @@ export const ToolRow = memo(function ToolRow({
   // Why it failed, in a word on the row and one line under it (toolFailure.ts); read only once it failed.
   const failure = useMemo(() => (failed ? toolFailure(tool) : undefined), [failed, tool]);
   // A Write reads as an edit does: "Writing notes.md", then "Wrote notes.md +18" (WriteLabel.tsx).
-  const write = writeCall(tool);
+  const description = !asRun && tool.description?.trim();
+  const write = description ? undefined : writeCall(tool);
   // A shell that went on in the background says how it stands there, and its time once it ended.
   const background = !failed && !foreground && tool.background;
   // How long a finished call took, said in its opened Shell card (a running one's edge counts it,
@@ -117,15 +120,11 @@ export const ToolRow = memo(function ToolRow({
   // How long a running call has run, at the row's edge, counting each second (RunningTime.tsx).
   const runningTime = running && <RunningTime startedAt={tool.startedAt} background={!foreground} />;
   // Only a call with a command line is a shell; an MCP call can also say "execute".
-  const shell = tool.kind === "execute" && Boolean(tool.command);
+  const shell = Boolean(tool.command) && (tool.kind === "execute" || tool.kind === "read");
   // Find counts a shell's whole line: a shortened line is skipped.
   // A label that names what the command did draws no command at all (commandActions.ts), even when
   // its words hold it ("Checked git status"), as on a command row (CommandRow.tsx).
-  const drawsCommand =
-    shell &&
-    (asRun || !commandSaid(t, tool)) &&
-    shortCommand(tool.command ?? "", ROW_WIDTH) === tool.command?.trim() &&
-    label.includes(tool.command?.trim() ?? "");
+  const drawsCommand = shell && shownCommand === tool.command?.trim();
   // A shell prints what it printed. Any other call's result is shown without the JSON envelope a
   // harness wrapped it in and the context a host injects into it (toolResult.ts). Memoize the
   // rendered result so the disclosure and its body agree, including image-only envelopes.
@@ -163,10 +162,9 @@ export const ToolRow = memo(function ToolRow({
   const [clipped, setClipped] = useState(false);
   // A call that returned or wrote images opens to them (`ToolImages`), as the Codex app's does.
   const images = useMemo(() => toolImages(tool), [tool]);
-  // A read of one file says its name alone, its full path on hover, and does not open (ReadLabel.tsx),
-  // whatever tool read it, as the Codex app's reads.
-  const read = write || asRun ? undefined : readPath(tool);
-  const expandable = !read && (hasDetails || clipped || images.length > 0);
+  // Native reads show a file and its path on hover. A shell read also opens to its command and output.
+  const read = description || write || asRun ? undefined : readPath(tool);
+  const expandable = shell || (!read && (hasDetails || clipped || images.length > 0));
   // Label-only rows disclose only actual overflow, not a guessed character count. While open,
   // retain the closed measurement so wrapping does not remove the reader's collapse control.
   useLayoutEffect(() => {
@@ -186,18 +184,32 @@ export const ToolRow = memo(function ToolRow({
     () => (fold.present && opensToFields(tool, failure) ? inputFields(tool.inputSummary) : undefined),
     [fold.present, tool, failure],
   );
+  const code = shownCommand && <code className="cv-command__line">{shownCommand}</code>;
+  const [before, after] = code && !running ? t("tools.ranCommand", { command: "\u0000" }).split("\u0000") : [];
   const words = write ? (
     <WriteLabel tool={tool} write={write} t={t} />
   ) : read ? (
     <ReadLabel path={read} full={readFullPath(read, tool, cwd)} t={t} />
+  ) : code ? (
+    <ToolLabel verb={after ? undefined : before?.trim()} subject={code}>
+      {before}
+      {code}
+      {after}
+    </ToolLabel>
   ) : (
-    <ToolLabel text={label} />
+    <ToolLabel text={label} whole={Boolean(description)} />
   );
   const content = (
     <>
-      <span className="cv-tool__icon">{toolIcon(toolKind(tool))}</span>
+      <span className="cv-tool__icon">{toolIcon(read ? "read" : toolKind(tool))}</span>
       <span ref={labelRef} className="cv-tool__text" data-find-skip={(shell && (open || !drawsCommand)) || undefined}>
         {words}
+        {tool.background && tool.background.state !== "running" && (
+          <span className="cv-command__lead" data-find-skip>
+            {" · "}
+            {t(`bgTask.state.${tool.background.state}`)}
+          </span>
+        )}
         {/* While it runs, a light band crosses these words (ShimmerText.tsx RowShimmer). */}
         {running && <RowShimmer>{words}</RowShimmer>}
         <InlineFailureCause failure={failure} />
@@ -282,7 +294,7 @@ export const ToolRow = memo(function ToolRow({
             onClick={fold.toggle}
           >
             {content}
-            <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
+            <DisclosureChevron open={open} />
           </button>
         ) : (
           <div className={`cv-tool${running ? " is-live" : " is-strong"}`} data-tool-id={tool.id}>
@@ -300,8 +312,7 @@ export const ToolRow = memo(function ToolRow({
       {/* Its images show once the row opens, a small one at its edge until then (ToolVisualRow): a run
           of screenshots stays a list of lines (Lucas, 2026-11-11: "this really really big scroll
           because it has so many images"), as the Codex app's does. */}
-      {/* A read never opens: no body, even with the fold held open (Verbose view, a Find reveal). */}
-      {!read && fold.present && (shell || files.length > 0 || body || fields || images.length > 0) && (
+      {expandable && fold.present && (shell || files.length > 0 || body || fields || images.length > 0) && (
         <div {...fold.bodyProps}>
           {images.length > 0 && <ToolImages sources={images} />}
           {shell ? (
