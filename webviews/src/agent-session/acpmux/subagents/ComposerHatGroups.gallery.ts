@@ -84,6 +84,21 @@ const loneAgent = chat(
   { isWorking: true },
 );
 
+/** Leo's hat, 2026-11-25 12:10Z: two Claude subagents running and nothing else. It read the Claude mark
+ *  and a bare "2" ("did we fix this yet? can you fix this?"); it reads "2 subagents". */
+const twoAgents = chat(
+  [
+    user("Fix the composer hat and the sidebar rows", 6),
+    row(SUBAGENTS, 6, {
+      subagents: [
+        agent("Fix the composer hat", 5, "running"),
+        agent("Remove the sidebar child rows", 4, "running"),
+      ],
+    }),
+  ],
+  { isWorking: true },
+);
+
 /** cmux#56151's hat: a six-step plan at step four, one Claude subagent done, "4 of 6 · Verify in tagged
  *  dev build · 1 subagent done". Its first mark centres on the +, its words start at the prompt's. */
 const planAndDone = chat(
@@ -231,6 +246,21 @@ export default agentPaneEntry({
       },
       snapshot: loneCommand,
       experiments: { "subagent-tray-fold-head": "groups" },
+    },
+    "two-subagents": {
+      note: "Leo's 2026-11-25 hat: two Claude subagents, nothing else. 2 subagents in words, never the mark and a bare 2.",
+      play: async (ctx) => {
+        await show(ctx);
+        groupsHold(ctx, ["agents"]);
+        columnHolds(ctx);
+      },
+      snapshot: twoAgents,
+    },
+    "two-subagents-before": {
+      note: "Before, on the same work: the `tally` arm (the Composer Hat: Two Groups switch off), the mark and a bare 2.",
+      play: show,
+      snapshot: twoAgents,
+      experiments: { "subagent-tray-fold-head": "tally" },
     },
     "lone-subagent": {
       note: "One subagent: its mark and its task.",
