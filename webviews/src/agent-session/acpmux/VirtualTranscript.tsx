@@ -314,9 +314,9 @@ function writeFlow(
   else node.style.setProperty(FLOW_VARS[name], value);
 }
 
-/// A store subscription that hears nothing (Jump up off: the unread state is not read).
 /// No turn held back from the unread line (sinceNews.ts `HeldSpan`).
 const NO_HELD: readonly HeldSpan[] = [];
+/// A store subscription that hears nothing (Jump up off: the unread state is not read).
 const NO_SUBSCRIPTION = () => () => {};
 /// With Jump up off, the unread view it would read: one constant, so a scroll reads no unread state.
 const NO_UNREAD = () => undefined;
