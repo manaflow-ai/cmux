@@ -156,7 +156,9 @@ final class PaneStacksUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore", "-cmux-mobile-demo", demo,
-                                "-AppleInterfaceStyle", dark ? "Dark" : "Light"]
+                                "-AppleInterfaceStyle", dark ? "Dark" : "Light",
+                                // The app's own Appearance setting (RootView applies it to its windows).
+                                "-cmuxMobile.settings.appearance", dark ? "dark" : "light"]
         app.launch()
         return app
     }
