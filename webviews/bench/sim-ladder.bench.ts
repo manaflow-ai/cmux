@@ -100,6 +100,14 @@ const CHROME_ARGS = (flag("--chrome-args") ?? "").split(",").filter(Boolean);
 // --timer-census: count every timer callback a page runs, by the frame that scheduled it, and print the hidden pages'
 // top sources after the last rung (what a hidden chat wakes for).
 const TIMER_CENSUS = argv.includes("--timer-census");
+// --churn-hidden: churn every chat page's list, not only the focused one's. In the app every agent page holds its own
+// daemon connection and hears every listed chat's change; here each page's mock is its own daemon, so without this flag
+// the hidden chats hear no change at all. Off by default, so the ladder's numbers stay comparable across runs.
+const CHURN_HIDDEN = argv.includes("--churn-hidden");
+// --alloc-profile: over each rung's first window, a sampled allocation profile of the chats' shared isolate
+// (HeapProfiler.startSampling on the focused chat, which samples every page of its renderer): bytes allocated per
+// second and the top allocation sites by self size, as SIM-LADDER   alloc lines.
+const ALLOC_PROFILE = argv.includes("--alloc-profile");
 const JSON_OUT = flag("--json");
 // --profile FILE (read above): the fidelity mode. Instead of the ladder, build one scene from a profile of a running app
 // (cmux-app-profile, from leo-workspace tools/perf_sensor.py): its agent pages, browser tabs, listed sessions, change
@@ -327,6 +335,33 @@ async function settle(rootPid: number, focused: Page): Promise<boolean> {
   return false;
 }
 
+type AllocNode = {
+  callFrame: { functionName: string; url: string; lineNumber: number };
+  selfSize: number;
+  children: AllocNode[];
+};
+/// A sampled allocation profile as bytes per second and its top sites: each by its own frame and the two frames above
+/// it, so a site reached from many callers (JSON.parse) is told apart by who called it.
+function printAllocations(profile: { head: AllocNode }, secs: number): void {
+  const sites = new Map<string, number>();
+  let total = 0;
+  const name = (node: AllocNode) =>
+    `${node.callFrame.functionName || "(anon)"}@${node.callFrame.url.split("/").pop()?.split("?")[0] ?? ""}:${node.callFrame.lineNumber + 1}`;
+  const walk = (node: AllocNode, stack: string[]) => {
+    const here = [...stack, name(node)];
+    if (node.selfSize > 0) {
+      total += node.selfSize;
+      const key = here.slice(-3).reverse().join(" < ");
+      sites.set(key, (sites.get(key) ?? 0) + node.selfSize);
+    }
+    for (const child of node.children) walk(child, here);
+  };
+  walk(profile.head, []);
+  console.log(`SIM-LADDER   alloc ${Math.round(total / 1024 / secs)} KB/s sampled over ${secs.toFixed(1)} s`);
+  for (const [key, bytes] of [...sites].sort((a, b) => b[1] - a[1]).slice(0, 25))
+    console.log(`SIM-LADDER   alloc ${Math.round(bytes / 1024 / secs)} KB/s ${key}`);
+}
+
 /// The last rung's load collection (renderer CPU ms), kept for the summary printed at the end.
 let lastLoadMs = 0;
 const loadMs: Record<string, number> = {};
@@ -414,6 +449,8 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
       lastPool = pool;
     }
   })();
+  if (ALLOC_PROFILE) await items[0]!.cdp.send("HeapProfiler.enable");
+  if (ALLOC_PROFILE) await items[0]!.cdp.send("HeapProfiler.startSampling", { samplingInterval: 16384 });
   const thirds: number[] = [];
   let mark = ticks0;
   let markAt = t0;
@@ -431,6 +468,7 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
     return w.__slFrames as number[];
   })) as number[];
   const secs = (performance.now() - t0) / 1000;
+  if (ALLOC_PROFILE) printAllocations((await items[0]!.cdp.send("HeapProfiler.stopSampling")).profile, secs);
   const windowMsPerS = (((mark - ticks0) / ticksPerSecond) * 1000) / ((markAt - t0) / 1000);
   console.log(`SIM-LADDER   cpu thirds ms/s ${thirds.map(Math.round).join(", ")} | window ${Math.round(windowMsPerS)}`);
   const threads = [...threadTicks(pids)]
@@ -642,6 +680,10 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
         throw new Error(`sim-ladder: ${kind} #${index} reads ${state} at ${frames} frames, not hidden`);
       if (FREEZE) await cdp.send("Page.setWebLifecycleState", { state: "frozen" }).catch(() => undefined);
       items.push({ page, cdp, awake: !FREEZE });
+      if (CHURN_HIDDEN && kind === "chats" && hasChurn)
+        void page
+          .evaluate((o) => (window as any).cmuxAcpmuxDebug.sessionChurn(o), { seconds: 3600, changes_per_second: RATE })
+          .catch(() => undefined);
     };
     const startChurn = (rate: number) => {
       if (hasChurn && !churn)
