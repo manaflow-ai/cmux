@@ -37,6 +37,12 @@
 //! NotifyPointerAxisDiscrete and NotifyKeyboardKeycode ([`input_calls`]). RemoteDesktop
 //! version 1 cannot persist a grant, so it is not used (it would ask on every share): such a
 //! desktop is served view only.
+//!
+//! # GNOME: mutter directly, no portal
+//! Where `org.gnome.Mutter.ScreenCast` is on the session bus, [`PortalCapture::start`] skips
+//! the portal and casts through mutter's own interfaces (src/mutter.rs), which need no grant
+//! and show no dialog; viewer input then goes through mutter's RemoteDesktop session. The
+//! portal stays the path on every other compositor.
 
 #[cfg(feature = "portal")]
 use crate::capture::{DamageEvent, Rect};
@@ -840,27 +846,54 @@ impl Default for PortalOpts {
     }
 }
 
-/// Wayland screen capture through the portal, with `capture::Capturer`'s surface.
+/// Where a [`PortalCapture`]'s stream comes from.
+#[cfg(feature = "portal")]
+enum Source {
+    /// An xdg-desktop-portal session (and the connection that keeps it).
+    Portal { portal: ZbusPortal, started: Started },
+    /// mutter's own screen cast (GNOME): no grant, no dialog.
+    Mutter(crate::mutter::MutterSession),
+}
+
+/// Wayland screen capture through mutter or the portal, with `capture::Capturer`'s surface.
 #[cfg(feature = "portal")]
 pub struct PortalCapture {
     pub width: u32,
     pub height: u32,
     stream: PwStream,
-    portal: ZbusPortal,
-    started: Started,
+    source: Source,
 }
 
 #[cfg(feature = "portal")]
 impl PortalCapture {
-    /// Runs the portal handshake (blocking while the consent dialog is up) and starts the
-    /// PipeWire stream; returns once the first picture's format is known.
+    /// Starts the screen cast and its PipeWire stream; returns once the first picture's format
+    /// is known. On GNOME (mutter's ScreenCast on the session bus) mutter casts directly, with
+    /// no dialog; elsewhere the portal handshake runs (blocking while a consent dialog is up).
     pub fn start(opts: PortalOpts) -> Res<Self> {
         let PortalOpts { token_dir, on_state, format_timeout } = opts;
         let mut on_state: Box<dyn FnMut(PortalState) + Send> = on_state.unwrap_or_else(|| {
             Box::new(|s: PortalState| eprintln!("cmux-rd: portal: {}", s.message()))
         });
         on_state(PortalState::Connecting);
-        let mut portal = ZbusPortal::connect()?;
+        let conn = zbus::blocking::Connection::session()
+            .map_err(|e| PortalError::Unavailable(e.to_string()))?;
+        let mutter = crate::mutter::MutterPresence::on(&conn);
+        if crate::capture_backend::WaylandCapture::choose(mutter.screen_cast)
+            == crate::capture_backend::WaylandCapture::Mutter
+        {
+            on_state(PortalState::CreatingSession);
+            let session = crate::mutter::MutterSession::start(conn, mutter, format_timeout)?;
+            // Dropping `session` on a failure here stops it.
+            let stream = PwStream::start(None, session.node_id, format_timeout)?;
+            on_state(PortalState::Streaming { width: stream.width, height: stream.height });
+            return Ok(Self {
+                width: stream.width,
+                height: stream.height,
+                stream,
+                source: Source::Mutter(session),
+            });
+        }
+        let mut portal = ZbusPortal::on(conn)?;
         let stores = match token_dir {
             Some(dir) => Some(TokenStores::in_dir(&dir)),
             None => TokenStores::default_stores(),
@@ -870,7 +903,7 @@ impl PortalCapture {
         let stream = match portal
             .open_pipewire_remote(&started.session)
             .map_err(Into::into)
-            .and_then(|fd| PwStream::start(fd, started.stream.node_id, format_timeout))
+            .and_then(|fd| PwStream::start(Some(fd), started.stream.node_id, format_timeout))
         {
             Ok(s) => s,
             Err(e) => {
@@ -879,12 +912,40 @@ impl PortalCapture {
             }
         };
         on_state(PortalState::Streaming { width: stream.width, height: stream.height });
-        Ok(Self { width: stream.width, height: stream.height, stream, portal, started })
+        let source = Source::Portal { portal, started };
+        Ok(Self { width: stream.width, height: stream.height, stream, source })
     }
 
-    /// Whether this capture's session applies input (a RemoteDesktop session with devices).
+    /// Whether this capture's session applies input (a portal RemoteDesktop session with
+    /// devices, or mutter's RemoteDesktop session).
     pub fn applies_input(&self) -> bool {
-        self.started.kind == SessionKind::RemoteDesktop && self.started.devices != 0
+        match &self.source {
+            Source::Portal { started, .. } => {
+                started.kind == SessionKind::RemoteDesktop && started.devices != 0
+            }
+            Source::Mutter(session) => session.applies_input(),
+        }
+    }
+
+    /// The factor from the stream's pixels to the coordinates pointer motion takes: the
+    /// portal's logical size; mutter maps stream pixels itself.
+    pub fn input_scale(&self) -> (f64, f64) {
+        match &self.source {
+            Source::Portal { started, .. } => {
+                logical_scale(started.stream.size, (self.width, self.height))
+            }
+            Source::Mutter(_) => (1.0, 1.0),
+        }
+    }
+
+    /// Sends one input call through the session.
+    fn notify(&self, call: &InputCall) -> Result<(), PortalError> {
+        match &self.source {
+            Source::Portal { portal, started } => {
+                portal.notify(&started.session, started.stream.node_id, call)
+            }
+            Source::Mutter(session) => session.notify(call),
+        }
     }
 
     /// Readable when [`PortalCapture::drain`] has damage to report.
@@ -906,12 +967,15 @@ impl PortalCapture {
 #[cfg(feature = "portal")]
 impl Drop for PortalCapture {
     fn drop(&mut self) {
-        self.portal.close_session(&self.started.session);
+        // A mutter session stops itself when dropped.
+        if let Source::Portal { portal, started } = &mut self.source {
+            portal.close_session(&started.session);
+        }
     }
 }
 
 /// [`PortalCapture`] as a session's `Desktop`: damage, and the viewer's input through the
-/// RemoteDesktop session (a ScreenCast session drops it: view only).
+/// RemoteDesktop session, the portal's or mutter's (a ScreenCast session drops it: view only).
 #[cfg(feature = "portal")]
 pub struct PortalDesktop {
     cap: PortalCapture,
@@ -933,7 +997,8 @@ pub struct PortalFrames {
     pic: cmux_encode::I420,
 }
 
-/// Runs the portal handshake and opens both halves of the session's desktop.
+/// Starts the screen cast (mutter or the portal) and opens both halves of the session's
+/// desktop.
 #[cfg(feature = "portal")]
 pub fn open_desktop(
     cfg: &crate::stream::SessionCfg,
@@ -960,7 +1025,7 @@ pub fn open_desktop(
         pic: cmux_encode::I420::new(w as usize, h as usize),
         enc,
     };
-    let scale = logical_scale(cap.started.stream.size, (cap.width, cap.height));
+    let scale = cap.input_scale();
     let desktop = PortalDesktop {
         cap,
         damage: Vec::new(),
@@ -1004,10 +1069,8 @@ impl crate::desktop::Desktop for PortalDesktop {
             }
             return Ok(());
         }
-        let session = &self.cap.started.session;
-        let node = self.cap.started.stream.node_id;
         for call in input_calls(event, self.scale) {
-            self.cap.portal.notify(session, node, &call)?;
+            self.cap.notify(&call)?;
             match call {
                 InputCall::Key { code, down: true } => drop(self.keys.insert(code)),
                 InputCall::Key { code, down: false } => drop(self.keys.remove(&code)),
@@ -1020,13 +1083,11 @@ impl crate::desktop::Desktop for PortalDesktop {
     }
 
     fn release_all(&mut self) -> Res<()> {
-        let session = &self.cap.started.session;
-        let node = self.cap.started.stream.node_id;
         for code in std::mem::take(&mut self.keys) {
-            self.cap.portal.notify(session, node, &InputCall::Key { code, down: false })?;
+            self.cap.notify(&InputCall::Key { code, down: false })?;
         }
         for code in std::mem::take(&mut self.buttons) {
-            self.cap.portal.notify(session, node, &InputCall::Button { code, down: false })?;
+            self.cap.notify(&InputCall::Button { code, down: false })?;
         }
         Ok(())
     }
