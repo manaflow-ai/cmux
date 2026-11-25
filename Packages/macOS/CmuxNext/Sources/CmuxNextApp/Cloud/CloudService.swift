@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextApps
 import CmuxNextCloud
 import CmuxNextCloudCredentials
+import CmuxNextCloudPlace
 import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextControl
@@ -73,7 +74,8 @@ final class CloudService {
     /// The local side event subscription for `cloud.link.changed` (app link).
     @ObservationIgnored private var linkEvents: UInt64?
     @ObservationIgnored var portChanged: @MainActor (CloudPortChange) -> Void = { _ in }
-    @ObservationIgnored private lazy var machineWire = CloudMachineWire(apiBaseURL: configuration.ownerAPIBaseURL(), auth: auth) { [weak self] in self?.spareReadiness.prime($0) } // in the install token's team (CloudSpareReadiness.Dependencies.team)
+    @ObservationIgnored var signedIn: @MainActor () -> Void = {} // an account just signed in: the App warms its spare (CloudStartChat.wireSetup), called only in front (CloudSpareReadiness.warmsAtSignIn)
+    @ObservationIgnored private lazy var machineWire = CloudMachineWire(apiBaseURL: configuration.ownerAPIBaseURL(), auth: auth, teams: { [weak self] active in guard let self else { return nil }; return await CloudMoveCLI.wireTeams(binary: self.move.cli, identity: self.installIdentity, active: active) }, onSpareReady: { [weak self] in self?.spareReadiness.prime($0) }) // hears readiness in every team Rust's wireTeams names (the active one and the install token's); primes in the install token's team (CloudSpareReadiness.Dependencies.team)
     @ObservationIgnored private(set) lazy var spareReadiness = CloudSpareReadiness(CloudStartChat.spareReadiness(self)) // the warm spare keyed and linked ahead of its claim
     /// The `credential` provider family on the local daemon (cx-wb5.63):
     /// app servers' Cloud API calls, sent with the install token.
@@ -127,6 +129,10 @@ final class CloudService {
     @ObservationIgnored let moveRetries = CloudMoveRetries(key: "cmux.cloud.moveRetries")
     /// What Retry does for each machine chat whose Bring Back Local stopped, by its tab there.
     @ObservationIgnored let bringBackRetries = CloudMoveRetries(key: "cmux.cloud.bringBackRetries")
+    /// Where each chat runs, its place mode and its move's progress (``CloudPlaceFlows``).
+    @ObservationIgnored let place = CloudPlaceFlows()
+    /// Reads this computer's signals for Auto and runs its moves (started once, with the move actions).
+    @ObservationIgnored var placeDriver: CloudPlaceDriver?
     /// The chats moved from this Mac, for Bring Back Local.
     @ObservationIgnored let movedChats = CloudMovedChats()
     /// Agents' asks to move their chats, and the cards they raise in chats.
@@ -294,7 +300,7 @@ final class CloudService {
             await auth.awaitRestored()
             var scope: String?? // The account and team: a change fences the old link, machine wire and carriers before any await.
             for await accountScope in ObservationStream({ self.auth.isSignedIn ? "\(self.auth.user?.id ?? "")\u{0}\(self.auth.teamID ?? "")" : nil }) {
-                if let previous = scope ?? nil, previous != accountScope { self.desktopStreams.endAll(); self.spareReadiness.reset() }; scope = accountScope // a spare's link made ahead too
+                if let previous = scope ?? nil, previous != accountScope { self.desktopStreams.endAll(); self.spareReadiness.reset() }; let signedInNow = CloudSpareReadiness.warmsAtSignIn(previous: scope, now: accountScope); scope = accountScope // a spare's link made ahead too
                 if accountScope != nil {
                     self.machineWire.stop()
                     // mayCallCloud also fences a managed team that is missing: no socket without its team scope.
@@ -307,6 +313,7 @@ final class CloudService {
                     // The install first: the app server path's first list sends its token through the credential relay.
                     self.capability.drop() // another account's or team's pre-approval never rides on this one's calls
                     await self.installSignedIn()
+                    if signedInNow, NSApplication.shared.isActive { self.signedIn() } // the spare keyed and linked from the sign-in on, not from the first start: an activation before it warmed nothing
                     if self.mayCallCloud { await self.capability.prefetch(self.installIdentity) }
                     self.hands.start(); self.gateway.start()
                     await self.ensureLink()
@@ -333,7 +340,14 @@ final class CloudService {
         // machines while the lid was closed. acpmux is told of the wake too, for its Auto chats.
         observers.append(Task { [weak self] in
             for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.didWakeNotification) {
+                self?.placeDriver?.slept(false)
                 await AcpmuxEnvironment.relaySystemWake(build: LaunchIdentity.current().build) { await self?.refresh(ifOlderThan: .seconds(30)) }
+            }
+        })
+        // Auto starts its moves as the system is about to sleep.
+        observers.append(Task { [weak self] in
+            for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.willSleepNotification) {
+                self?.placeDriver?.slept(true)
             }
         })
         // A sign-out or a team switch (the user signed in may stay) ends start-session asks and
@@ -715,7 +729,7 @@ final class CloudService {
         creating += 1
         defer { creating -= 1 }
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
-        let policy = agentCreatePolicy(), asksFirst = !startedByPerson && policy.asksFirst
+        let policy = agentCreatePolicy(), asksFirst = !startedByPerson && policy.asksFirst; var spare = "spare=unread" // why it took or skipped a spare (Rust's note)
         let idlePause = request.idlePauseMinutes(startedByPerson: startedByPerson, pauseAgentMachines: policy.pauseAgentMachines)
         var machine = try await CloudMachineCap.creating(person: startedByPerson && capCard, cap: { [weak self] error in
             guard case CloudMachineCreateFlow.Failure.upgradeRequired(let reason) = error else { return CloudMachineCap.refusal(error) }
@@ -724,9 +738,9 @@ final class CloudService {
                                                          pause: { [weak self] in try await self?.pauseMachine($0) }) { again in
             var request = request // after a Pause, a new key: the first one's stored answer is the refusal
             if again { request.idempotencyKey = UUID().uuidString }
-            return try await appServerCreate(name: name, startedByPerson: startedByPerson, ownCreate: ownCreate && startedByPerson, asksFirst: asksFirst, askedBy: askedBy, environment: request.environment, creation: creation, request: request, onSent: onSent, persistSent: onAppServerSent)
+            return try await appServerCreate(name: name, startedByPerson: startedByPerson, ownCreate: ownCreate && startedByPerson, asksFirst: asksFirst, askedBy: askedBy, environment: request.environment, creation: creation, request: request, onSent: onSent, persistSent: onAppServerSent, onAnswer: { spare = CloudStartCore().spareNote(answer: $0) })
         }
-        let answeredAt = ContinuousClock.now; logger.info("created machine \(machine.id, privacy: .public)")
+        let answeredAt = ContinuousClock.now; logger.notice("created machine \(machine.id, privacy: .public) \(spare, privacy: .public)")
         try proceed()
         // The machine exists either way: a failed write leaves its idle pause as the server says,
         // and the answer's `persistent` reads false, so the caller can run `cloud set-idle-pause`.

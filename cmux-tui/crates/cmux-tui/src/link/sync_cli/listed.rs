@@ -116,7 +116,6 @@ pub(super) fn add_working(
 pub(super) fn walk_in(
     dir: &place::Dir,
     prefix: &str,
-    enter: &dyn Fn(&str) -> bool,
     visit: &mut dyn FnMut(&str, &place::Dir, &str, place::Entry) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
     for name in dir.names()? {
@@ -127,9 +126,8 @@ pub(super) fn walk_in(
             continue;
         }
         match dir.entry(name)? {
-            place::Entry::Dir if !enter(&relative) => {}
             place::Entry::Dir => match dir.child(name) {
-                Ok(Some(child)) => walk_in(&child, &relative, enter, visit)?,
+                Ok(Some(child)) => walk_in(&child, &relative, visit)?,
                 Ok(None) => {}
                 Err(error) if swapped(&error) => {}
                 Err(error) => return Err(error.into()),

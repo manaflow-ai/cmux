@@ -288,7 +288,15 @@ test("the thinking look's defaults write nothing on the root; out-of-range value
   expect(root.style.getPropertyValue("--cv-shimmer-period")).toBe("1250ms");
   expect(root.style.getPropertyValue("--cv-shimmer-band")).toBe("80px");
   expect(root.dataset.jumpButton).toBe("dots");
-  expect(thinkingLook()).toEqual({ shimmer: "continuous", periodMs: 1250, bandPx: 80, jumpButton: "dots" });
+  expect(thinkingLook()).toEqual({
+    shimmer: "continuous",
+    periodMs: 1250,
+    bandPx: 80,
+    jumpButton: "dots",
+    glyph: null,
+    glyphKey: "",
+    glyphSize: 0,
+  });
   configureThinkingLook({});
   expect(root.style.length).toBe(0);
   expect(root.dataset.jumpButton).toBeUndefined();
