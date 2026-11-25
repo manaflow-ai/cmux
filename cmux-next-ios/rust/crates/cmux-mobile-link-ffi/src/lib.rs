@@ -39,6 +39,7 @@ mod terminal_chat;
 mod terminal_fit;
 mod terminal_prediction;
 mod terminal_projection;
+mod vault;
 mod window_layout;
 
 pub use auto_chats::{
