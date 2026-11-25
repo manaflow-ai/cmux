@@ -195,7 +195,7 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(decision.base, A)
 
     def test_a_yolo_upload_counts_for_the_upload_gap(self):
-        decision = self.plan(runs=[dict(run(B, minutes_ago=30, run_id=3), yolo=True),
+        decision = self.plan(runs=[dict(run(B, minutes_ago=20, run_id=3), yolo=True),
                                    run(A, minutes_ago=8 * 60, run_id=2)])
         self.assertFalse(decision.build)
         self.assertIn("run 3", decision.reason)
