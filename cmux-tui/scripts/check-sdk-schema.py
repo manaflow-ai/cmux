@@ -42,6 +42,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "ExpectAgent": "SendExpectAgent",
     "LayoutSizeWire": "LayoutSizeValue",
     "cmd_workspaces::KnownTree": "ListWorkspacesKnown",
+    "list_workspaces_delta::DeltaCursor": "ListWorkspacesSince",
     "frontend_browser_history::FirstTabParams": "WorkspaceFirstTab",
     "crate::command_context::Intent": "TerminalCommandContextIntent",
     "crate::remote_host::AppPermissions": "RemoteHostAppPermissions",
