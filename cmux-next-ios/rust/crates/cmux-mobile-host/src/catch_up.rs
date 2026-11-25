@@ -485,7 +485,8 @@ async fn acpmux(config: &ServiceConfig, peer: &Peer, request: &Request) -> Acpmu
         let relay = &relay;
         async move {
             let mut side = None;
-            relay.upstream(&mut side, &message.to_string()).await
+            let mut known = crate::services::CanonicalIds::default();
+            relay.upstream(&mut side, &mut known, &message.to_string()).await
         }
     }));
     let Ok(checked) = timeout_at(deadline, checked).await else {

@@ -184,6 +184,13 @@ impl ActivityCache {
         }
     }
 
+    /// Lets go of the built index and the sessions it holds: an eviction needs the map's handle
+    /// to be the last (`hub/evict.rs`).
+    pub(crate) fn drop_built(&self) {
+        lock(&self.built).take();
+        self.invalidate();
+    }
+
     /// The session map lost or replaced a session.
     pub(crate) fn invalidate(&self) {
         self.epoch.fetch_add(1, Ordering::SeqCst);
@@ -304,7 +311,8 @@ impl Hub {
         }
         let built = Arc::new(Built {
             epoch,
-            sessions: sessions.len(),
+            // The count `session_count` compares, evicted chats included (`hub/evict.rs`).
+            sessions: self.session_count(),
             expires_at,
             closed: Arc::new(self.newest(&closed)),
             closed_ids,

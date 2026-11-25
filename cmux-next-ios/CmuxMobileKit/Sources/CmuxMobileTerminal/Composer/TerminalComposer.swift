@@ -26,6 +26,10 @@ struct TerminalComposer: View {
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showCamera = false
     private let voice = AgentVoiceLauncher.shared
+    /// The + menu's Autocorrect toggle, remembered across launches (off by
+    /// default; Settings → Terminal shows the same key).
+    @AppStorage(CmuxMobilePreferences.Key.terminalComposerAutocorrect)
+    private var autocorrect = CmuxMobilePreferences.defaultTerminalComposerAutocorrect
 
     var body: some View {
         #if DEBUG
@@ -40,6 +44,20 @@ struct TerminalComposer: View {
                     .foregroundStyle(.orange)
                     .padding(.leading, TerminalDockMetrics.control + 8)
                     .accessibilityIdentifier("terminal.composer.notSent")
+            } else if model.heldKeyBytes > 0 {
+                // Keys typed before the attach go into whatever the terminal shows after it:
+                // the not-sent row's place says they are pending, with Discard. Gone at the
+                // attach, or when they are dropped (the not-sent notice then).
+                HStack(spacing: 8) {
+                    Label(TerminalConnectionState.inputHeldNotice, systemImage: "clock.arrow.circlepath")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Button("Discard") { model.discardHeldKeys() }
+                        .font(.footnote.weight(.semibold))
+                        .accessibilityIdentifier("terminal.composer.heldKeys.discard")
+                }
+                .padding(.leading, TerminalDockMetrics.control + 8)
+                .accessibilityIdentifier("terminal.composer.heldKeys")
             }
             // No connection line here: a reattach takes no row (Leo,
             // 2026-11-17: "The reconnect takes an extra line"). The state is
@@ -54,8 +72,10 @@ struct TerminalComposer: View {
             }
             GlassEffectContainer(spacing: 0) {
                 HStack(alignment: .bottom, spacing: 8) {
-                    if model.attachmentsAvailable { attachMenu }
-                    if voice.placement == .leading, let source = voiceSource { voiceButton(source) }
+                    attachMenu
+                    // Its own view: whether voice is offered reads the workspace (its agent), which every Mac
+                    // push changes; read here, each push re-rendered the composer and its field mid-typing.
+                    if voice.placement == .leading, let source = model.voiceSource { TerminalComposerVoiceSlot(source: source) }
                     fieldContainer
                 }
             }
@@ -114,47 +134,40 @@ struct TerminalComposer: View {
     /// + as in Messages, Slack, ChatGPT, Claude and Discord: the menu adds
     /// photos, files, a paste and the camera, not only files (a paperclip
     /// reads as "attach a file", Mail's meaning). Classic's order: Photo
-    /// Library, Choose Files, Paste; then Camera.
+    /// Library, Choose Files, Paste; then Camera. Last, the Autocorrect
+    /// toggle (Leo, 2026-11-24: "an autocorect toggle in the terminal
+    /// composer would be good"), so the menu shows even with no Mac to take
+    /// attachments.
     private var attachMenu: some View {
         Menu {
-            Button("Photo Library", systemImage: "photo.on.rectangle") { model.showPhotoPicker = true }
-            Button("Choose Files", systemImage: "folder") { model.showFileImporter = true }
-            Button("Paste", systemImage: "doc.on.clipboard") { pasteFromClipboard() }
-            Section {
-                if TerminalCameraPicker.isAvailable {
-                    Button("Camera", systemImage: "camera") { showCamera = true }
-                } else {
-                    Button {} label: {
-                        Label("Camera", systemImage: "camera")
-                        Text("No camera on this device")
+            if model.attachmentsAvailable {
+                Button("Photo Library", systemImage: "photo.on.rectangle") { model.showPhotoPicker = true }
+                Button("Choose Files", systemImage: "folder") { model.showFileImporter = true }
+                Button("Paste", systemImage: "doc.on.clipboard") { pasteFromClipboard() }
+                Section {
+                    if TerminalCameraPicker.isAvailable {
+                        Button("Camera", systemImage: "camera") { showCamera = true }
+                    } else {
+                        Button {} label: {
+                            Label("Camera", systemImage: "camera")
+                            Text("No camera on this device")
+                        }
+                        .disabled(true)
                     }
-                    .disabled(true)
                 }
+            }
+            Section {
+                Toggle(isOn: $autocorrect) {
+                    Label("Autocorrect", systemImage: "textformat.abc")
+                }
+                .accessibilityIdentifier("terminal.composer.autocorrect")
             }
         } label: {
             ComposerCircleLabel(systemImage: "plus")
         }
-        .buttonStyle(.cmuxPressFillInLabel)
+        .buttonStyle(.cmuxPressGlass)
         .accessibilityLabel("Add Attachment")
         .accessibilityIdentifier("terminal.composer.attach")
-    }
-
-    /// Voice mode on this terminal's agent (replaces classic's dictation
-    /// mic): its replies read aloud, the user's speech typed in as prompts.
-    /// Filled and moving while it runs here; a tap ends it.
-    private func voiceButton(_ source: any AgentVoiceSource) -> some View {
-        let active = voice.isActive(source.voiceSourceID)
-        return Button {
-            voice.toggle(source)
-        } label: {
-            ComposerCircleLabel(systemImage: "waveform",
-                                foreground: active ? AnyShapeStyle(Color.cmuxMobileOnAccent) : AnyShapeStyle(Color.primary.opacity(0.78)),
-                                tint: active ? Color.cmuxMobileAccent : nil)
-                .symbolEffect(.variableColor.iterative, isActive: active)
-        }
-        .buttonStyle(.cmuxPressFillInLabel)
-        .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
-        .accessibilityIdentifier("terminal.composer.voice")
     }
 
     /// The field and its send circle share one rounded glass container; the
@@ -178,22 +191,20 @@ struct TerminalComposer: View {
         // rounded shape clips the cut lines at the corners too.
         .frame(minHeight: TerminalDockMetrics.control, alignment: .top)
         .clipShape(.rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
-        // The terminal theme's own background with a hairline border, not
-        // glass: glass lifted the field lighter than the pane (Leo,
-        // 2026-11-22: "dont draw unnecessary attention by making it light";
-        // the border alone marks it). A flat fill also looks the same at
-        // every height (Leo, 2026-11-21: "the composer brightening up when
-        // you have >3 lines"; TerminalComposerLookUITests: 1, 3, 4, 8 lines).
-        .background(themeBackground, in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
+        // Liquid Glass with a hairline border (Aziz, 2026-11-23: "someone also
+        // changed the composer bar input field and + button to not have a
+        // border and not look as glassy anymore, undo that"; the flat
+        // theme-colored fill came in #50740). Clear glass, not regular:
+        // regular glass changes its material with the shape's size, so the
+        // field turned a lighter gray once a draft passed three lines (Leo,
+        // 2026-11-21); clear glass looks the same at every height
+        // (TerminalComposerLookUITests: 1, 3, 4 and 8 lines).
+        .glassEffect(.clear.interactive(), in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous)
                 .strokeBorder(ComposerChrome.border, lineWidth: 1)
+                .allowsHitTesting(false)
         }
-    }
-
-    /// The pane's background: the Mac's terminal theme, else the app default.
-    private var themeBackground: Color {
-        Color(uiColor: model.hostTheme?.backgroundColor ?? CmuxMobileGhosttyApp.background)
     }
 
     private var fieldRow: some View {
@@ -212,7 +223,8 @@ struct TerminalComposer: View {
                 },
                 onReturn: { send() },
                 shouldInsert: { model.composerShouldInsert($0) },
-                onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil
+                onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil,
+                autocorrect: autocorrect
             )
             primaryButton
                 .padding(.vertical, TerminalDockMetrics.fieldPadding)
@@ -402,18 +414,18 @@ struct ComposerCircleLabel: View {
             .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(foreground)
             .frame(width: TerminalDockMetrics.control, height: TerminalDockMetrics.control)
-            // Off: the pane shows through, ringed like the field (no lighter
-            // glass disc, Leo 2026-11-22). On: a solid accent disc, as send.
-            .cmuxMobilePressBackground(tint ?? Color.clear, in: Circle())
-            .overlay { Circle().strokeBorder(tint == nil ? ComposerChrome.border : .clear, lineWidth: 1) }
+            // A Liquid Glass circle ringed like the field (restored after
+            // #50740 made it a bare ring); on, the glass takes the accent.
+            .glassEffect(tint.map { .regular.tint($0).interactive() } ?? .regular.interactive(), in: .circle)
+            .overlay { Circle().strokeBorder(tint == nil ? ComposerChrome.border : .clear, lineWidth: 1).allowsHitTesting(false) }
             .contentShape(.circle)
     }
 }
 
-/// The composer's quiet chrome on the terminal theme's background.
+/// The composer's chrome around its glass.
 enum ComposerChrome {
-    /// The field's and the + circle's hairline: it alone marks them.
-    static let border = Color.primary.opacity(0.16)
+    /// The field's and the + circle's hairline, over their glass.
+    static let border = Color.primary.opacity(0.22)
     /// The disabled send disc.
     static let idleFill = Color.primary.opacity(0.08)
 }
@@ -563,6 +575,31 @@ struct TerminalCameraPicker: UIViewControllerRepresentable {
         }
 
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
+    }
+}
+
+/// The voice circle, when the tab's agent offers voice (`AgentVoiceSource.voiceAvailable`).
+/// Its own view so what that reads (the store's workspaces, moved by every Mac push)
+/// re-renders this circle alone, never the composer's field (ask-4a87599079).
+private struct TerminalComposerVoiceSlot: View {
+    let source: any AgentVoiceSource
+    private let voice = AgentVoiceLauncher.shared
+
+    var body: some View {
+        if source.voiceAvailable, voice.isAvailable {
+            let active = voice.isActive(source.voiceSourceID)
+            Button {
+                voice.toggle(source)
+            } label: {
+                ComposerCircleLabel(systemImage: "waveform",
+                                    foreground: active ? AnyShapeStyle(Color.cmuxMobileOnAccent) : AnyShapeStyle(Color.primary.opacity(0.78)),
+                                    tint: active ? Color.cmuxMobileAccent : nil)
+                    .symbolEffect(.variableColor.iterative, isActive: active)
+            }
+            .buttonStyle(.cmuxPressGlass)
+            .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
+            .accessibilityIdentifier("terminal.composer.voice")
+        }
     }
 }
 #endif

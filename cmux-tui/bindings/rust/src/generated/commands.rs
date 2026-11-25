@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 9dae40e9a91d9653a152d869db666939b2c8725ede52f1d9338cb1d888180110.
+// cmux-tui mux protocol 12, IR 4e34384345c5952de0733e534f694b5beca2a99236d90b5735bb411ba22aa32c.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -88,6 +88,8 @@ pub struct AttachSurfaceRequest {
     pub replay_history_start: Optional<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub resume_generation: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub resume_max_bytes: Optional<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub resume_offset: Optional<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2275,6 +2277,8 @@ pub struct ListWorkspacesRequest {
     pub known: Optional<T::ListWorkspacesKnown>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub limit: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub since: Optional<T::ListWorkspacesSince>,
 }
 
 #[rustfmt::skip]
@@ -3583,6 +3587,8 @@ pub struct SetClientInfoRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub api_revision: Optional<u32>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub api_version: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub capabilities: Optional<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub device_id: Optional<String>,
@@ -3605,9 +3611,6 @@ pub struct SetClientInfoRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub version: Optional<String>,
 }
-
-#[rustfmt::skip]
-pub type SetClientInfoResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4603,6 +4606,9 @@ impl CmuxClient {
         if !request.resume_generation.is_missing() {
             self.require_capability_field("attach-surface", "terminal-resume-v1")?;
         }
+        if !request.resume_max_bytes.is_missing() {
+            self.require_capability_field("attach-surface", "terminal-resume-bounded-v1")?;
+        }
         if !request.resume_offset.is_missing() {
             self.require_capability_field("attach-surface", "terminal-resume-v1")?;
         }
@@ -5320,6 +5326,9 @@ impl CmuxClient {
             self.require_protocol_field("list-workspaces", 12)?;
             self.require_capability_field("list-workspaces", "list-workspaces-limit-v1")?;
         }
+        if !request.since.is_missing() {
+            self.require_capability_field("list-workspaces", "workspace-list-delta-v1")?;
+        }
         self.execute(&LIST_WORKSPACES_METADATA, &request)
     }
 
@@ -5941,8 +5950,11 @@ impl CmuxClient {
         self.execute(&SET_CELL_PIXELS_METADATA, &request)
     }
 
-    pub fn set_client_info(&mut self, request: SetClientInfoRequest) -> Result<SetClientInfoResult> {
+    pub fn set_client_info(&mut self, request: SetClientInfoRequest) -> Result<T::SetClientInfoResult> {
         if !request.api_revision.is_missing() {
+            self.require_protocol_field("set-client-info", 12)?;
+        }
+        if !request.api_version.is_missing() {
             self.require_protocol_field("set-client-info", 12)?;
         }
         if !request.device_id.is_missing() {
