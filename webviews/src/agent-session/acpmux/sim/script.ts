@@ -212,6 +212,41 @@ export class SimBuilder {
   }
   private incomingSteers = 0;
 
+  /** A background task's end that acpmux sends the agent as a prompt (hub/bg_notify.rs: prompt id
+   *  `bg-done-<task>`, a notice naming the task), and the turn it starts. */
+  bgDone(task: string, description: string, { title, after = 1_000 }: { title?: string; after?: number } = {}): this {
+    this.newTurn();
+    this.promptId = `bg-done-${task}`;
+    const provenance = {
+      kind: "notice",
+      from: "acpmux",
+      fromName: "acpmux",
+      to: this.sessionId,
+      display: "line",
+      notice: {
+        sender: "acpmux",
+        severity: "info",
+        title: title ?? `Background task finished: ${description} (exit 0)`,
+      },
+      bgTaskId: task,
+      bgTaskDescription: description,
+    };
+    this.record(
+      "mux",
+      "user_message",
+      {
+        text: `Background task finished: ${description}`,
+        promptId: this.promptId,
+        turnId: this.turnId,
+        client: "acpmux",
+        _meta: { provenance },
+      },
+      after,
+      `bg done: ${description.slice(0, 40)}`,
+    );
+    return this.started(300);
+  }
+
   /** Another agent's message steered into the running turn (acpmux's `steer: true` `agent_message`): it opens no turn. */
   message(value: string, { fromName = "other-lane", after = 400 } = {}): this {
     const fromSessionId = "sim-0000-0000-0000-0000000000bb";

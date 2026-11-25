@@ -196,6 +196,21 @@ def with_shard1(repo: Path, count: int, selected: set[str] | None, direct: set[s
     return {**own, 1: sorted(f.removeprefix(wa.WEB) for f in mine)}
 
 
+# A pull request's touched tests outside shard 1 run in shard 1's own job when they are this many or fewer: a second
+# job paid its own runner start, checkout, install, bundle build and engines (about 10 of the 17 minutes a median
+# one-file second job took, 891 of them a day) to run a handful of files. More than this keep their own job, so shard 1
+# does not become the long pole. Leo, 2026-11-24: "de facto, im asking for 99% fewer minutes of ci time, period."
+FOLD_MAX = 40
+
+
+def fold_into_shard1(repo: Path, count: int, selected: set[str] | None, direct: set[str],
+                     own: dict[int, list[str]]) -> dict[int, list[str]]:
+    """Shard 1's touched tests plus every test OWN names, as one list for shard 1 alone."""
+    mine = with_shard1(repo, count, selected, direct, {})[1]
+    extra = [f for files in own.values() for f in files]
+    return {1: sorted({*mine, *extra})}
+
+
 def sampled_shards(head_sha: str, count: int) -> list[int]:
     """SAMPLE_COUNT shards from 2 to COUNT, the same for one head commit and different across commits."""
     rest = list(range(2, count + 1))
@@ -245,6 +260,9 @@ def pick(repo: Path, base: str, head: str, count: int) -> tuple[list[int], str, 
     # job pays its own checkout, install and engines before its first test. It takes the lowest picked number.
     first = min(hits)
     own = {first: sorted(f.removeprefix(wa.WEB) for hit in hits.values() for f in hit)}
+    if len(own[first]) <= FOLD_MAX:
+        return ([1], f"{len(direct)} touched tests, {len(own[first])} outside shard 1 folded into shard 1's job",
+                fold_into_shard1(repo, count, selected, direct, own))
     return ([1, first], f"{len(direct)} touched tests, {len(own[first])} outside shard 1 in one job",
             with_shard1(repo, count, selected, direct, own))
 
@@ -430,6 +448,9 @@ def classify(repo: Path, base: str, head: str, count: int) -> tuple[str, list[in
                 with_shard1(repo, count, selected, direct, {}))
     first = min(hits)
     own = {first: sorted(f.removeprefix(wa.WEB) for hit in hits.values() for f in hit)}
+    if len(own[first]) <= FOLD_MAX:
+        return ("sampled", [1], f"{len(direct)} touched tests, {len(own[first])} outside shard 1 folded into shard 1's job",
+                fold_into_shard1(repo, count, selected, direct, own))
     return ("sampled", [1, first], f"{len(direct)} touched tests, {len(own[first])} outside shard 1 in one job",
             with_shard1(repo, count, selected, direct, own))
 

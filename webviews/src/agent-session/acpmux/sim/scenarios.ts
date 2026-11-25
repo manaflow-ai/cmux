@@ -135,6 +135,73 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     return b.turnEnd().build();
   },
 
+  // Leo, 2026-11-25: "this is extremely strange". A background task the last turn started ends 2 minutes later;
+  // its notice opens a turn that only thinks and answers in two sentences. His pane drew "Background task finished",
+  // then "Worked for 2m 28s" with the answer folded inside it: the answer was hidden, and the time ran from far
+  // before the turn's own start.
+  "notice-no-tool-turn": () => {
+    const b = sim(
+      "notice-no-tool-turn",
+      "A background task's end opens a turn of one thought and a two-sentence answer, no tools.",
+    );
+    b.prompt("Run the tests and merge when green.");
+    b.think("Starting the test and merge run in the background.");
+    b.background("bun test && gh pr merge 123", { ms: 140_000 });
+    b.say("The test and merge run is going in the background; I'll report when it ends.");
+    b.turnEnd();
+    b.wait(140_000).backgroundEnds();
+    b.bgDone("bg-call-1", "test+merge 123", { after: 200 });
+    b.think("Already known: the run passed and the PR merged. Nothing else is waiting on it.", { chunks: 3 });
+    b.say("The tests passed and the PR merged. Nothing else is waiting on it.", { chunks: 3 });
+    return b.turnEnd().build();
+  },
+
+  // Leo, 2026-11-25: "there are situations in which i steer RIGHT before you finish a turn but your completed sent
+  // message goes above mine ... worked for above my message and then yours and then boom that's it". Running, rows
+  // draw as they came; ended: the prompt, Worked for, his steer, the answer, the footer.
+  "late-steer": () => {
+    const b = sim(
+      "late-steer",
+      "The person steers while the agent streams its final answer; the turn ends right after.",
+    );
+    b.prompt("Fix the flaky test.");
+    b.think("The test races the timer.");
+    b.tool("bun test flaky.test.ts", { ms: 600 });
+    b.say("Fixed: the test now waits on the timer.", { chunks: 2 });
+    b.steer("also check the other timer test", { after: 50, readMs: 300 });
+    b.say(" It passes 50 runs in a row.", { chunks: 1, after: 60 });
+    return b.turnEnd("completed", 300).build();
+  },
+
+  "late-steer-mid-tool": () => {
+    const b = sim(
+      "late-steer-mid-tool",
+      "The person steers while the agent's last call runs; the call ends, the agent answers, the turn ends.",
+    );
+    b.prompt("Fix the flaky test.");
+    const call = b.nextCallId();
+    b.tool("bun test flaky.test.ts", { open: true });
+    b.steer("also check the other timer test", { after: 400, readMs: 300 });
+    b.toolEnd(call, { ms: 800 });
+    b.say("Fixed: the test now waits on the timer. It passes 50 runs in a row.", { chunks: 3 });
+    return b.turnEnd().build();
+  },
+
+  "late-steer-compaction": () => {
+    const b = sim(
+      "late-steer-compaction",
+      "The person steers while the agent compacts its context at the end of its work; the agent answers, the turn ends.",
+    );
+    b.prompt("Fix the flaky test.");
+    b.tool("bun test flaky.test.ts", { ms: 600 });
+    b.record("in", "compaction", compaction("started"), 300, "compaction started");
+    b.steer("also check the other timer test", { after: 400, readMs: 300 });
+    b.record("in", "compaction", compaction("completed"), 1_200, "compaction completed");
+    b.say("Fixed: the test now waits on the timer. It passes 50 runs in a row.", { chunks: 3 });
+    return b.turnEnd().build();
+  },
+
+  // Leo, 2026-11-21: "the messages and whatever collapsing and stuff, sometimes it does so too soon in the midst of a turn".
   "long-turn-messages": () => {
     const b = sim(
       "long-turn-messages",

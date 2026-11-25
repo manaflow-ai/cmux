@@ -67,6 +67,8 @@ mod change_background;
 #[cfg(unix)]
 mod chat_cd;
 #[cfg(unix)]
+mod chat_move;
+#[cfg(unix)]
 mod chat_send;
 #[cfg(unix)]
 mod chat_start;
@@ -103,8 +105,9 @@ mod cloud_pause_all;
 #[cfg(unix)]
 mod cloud_preflight;
 #[cfg(unix)]
-mod cloud_repo;
+mod cloud_provider;
 #[cfg(unix)]
+mod cloud_repo;
 mod cloud_retention;
 #[cfg(unix)]
 mod cloud_route;
@@ -1033,6 +1036,11 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     if let Some(code) = chat_cd::run_if_requested(args) {
         return code;
     }
+    // `chat move SESSION --on local|cloud|auto`: Local, Cloud or AutoCloud (chat_move.rs).
+    #[cfg(unix)]
+    if let Some(code) = chat_move::run_if_requested(args) {
+        return code;
+    }
     // `chat send` from a coding agent is the agent's message, not the owner's
     // (chief/chat_scope.rs): a Chief's chat is sent here, any other chat runs
     // the app action with its text labelled.
@@ -1095,6 +1103,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_secret::run_if_requested(args))
         .or_else(|| cloud_connect::run_if_requested(args))
         .or_else(|| cloud_team_keys::run_if_requested(args))
+        .or_else(|| cloud_provider::run_if_requested(args))
         .or_else(|| key_broker::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
         .or_else(|| chat_start::hybrid_start::run_if_requested(args))

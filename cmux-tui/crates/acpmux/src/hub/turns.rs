@@ -326,7 +326,9 @@ impl Hub {
                 // (#52381) before it waits for the first run. Held, it kept every later prompt
                 // of the chat from its queue for the whole first run, and that run's own queue
                 // never moved on (a burst of doubled sends answered none of them).
-                drop(opts.prompt_admission.take());
+                if let Some(admission) = opts.admission.take() {
+                    admission.release();
+                }
                 if let Some(f) = opts.on_accepted.take() {
                     // The first run's turn, once it has one (queued or running): the sender of
                     // this copy then knows the prompt was taken. With none yet, the first run
@@ -506,6 +508,10 @@ impl Hub {
         }
     }
 
+    /// A prompt's setup up to its acceptance, bounded (`prompt_admission.rs`): it waits for admission
+    /// and holds it a bounded time, and a prompt someone waits on that has no answer by its due
+    /// time goes into the queue durably, accepted as queued, its setup dropped. A prompt the
+    /// queue holds already takes no admission.
     async fn run_prompt_joined(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -515,17 +521,65 @@ impl Hub {
         mut opts: PromptOptions,
         joined: &super::digest::DigestTurn,
     ) -> Result<Value, RpcError> {
-        // Serialize each prompt's setup through queue admission. In particular, resolving an
+        if Self::queue_holds(session, opts.prompt_id.as_deref()) {
+            let admission = super::prompt_admission::Admission::none(session);
+            return self
+                .run_prompt_admitted(session, blocks, client, steer, opts, joined, &admission)
+                .await;
+        }
+        use super::prompt_admission::{Admission, Unanswered};
+        let unanswered = Unanswered::of(&blocks, client, &mut opts);
+        let admission = opts.admission.take().unwrap_or_else(|| Admission::new(session));
+        let mut setup = Box::pin(async {
+            admission.acquire(session, &self.scope).await;
+            self.run_prompt_admitted(session, blocks, client, steer, opts, joined, &admission).await
+        });
+        let Some(unanswered) = unanswered else {
+            return setup.await;
+        };
+        admission.listen();
+        tokio::select! {
+            biased;
+            answer = &mut setup => return answer,
+            () = tokio::time::sleep_until(admission.answer_due()) => {}
+        }
+        // Past a step it must finish, it finishes: its answer is on its way.
+        if admission.committed() {
+            return setup.await;
+        }
+        // Nothing it did yet needs undoing: its setup is dropped where it waits.
+        let stage = admission.stage_now();
+        drop(setup);
+        admission.release();
+        match unanswered {
+            Unanswered::Defer(deferral) => self.defer_unanswered(session, deferral, stage).await,
+            Unanswered::Guarded(guard) => {
+                guard()?;
+                Err(super::auto_resume::retry_turn::busy())
+            }
+            Unanswered::Busy => Err(super::auto_resume::retry_turn::busy()),
+            Unanswered::SteerUnavailable => Err(super::turn_cap::steer_unavailable(false)),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn run_prompt_admitted(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        blocks: Vec<Value>,
+        client: &str,
+        steer: bool,
+        mut opts: PromptOptions,
+        joined: &super::digest::DigestTurn,
+        admission: &super::prompt_admission::Admission,
+    ) -> Result<Value, RpcError> {
+        // Each prompt's setup is ordered by its admission (`prompt_admission.rs`): resolving an
         // uploaded block can block in a worker, and a later prompt must not claim the chat while
-        // the earlier one is still on its way to the queue. The guard is let go when the prompt
-        // is accepted (a queued one is accepted inside `queue_slot` and then waits there for the
-        // whole turn ahead of it: held that long, the next prompt would never queue), and at
-        // the latest right after `queue_slot`, before the admitted prompt reads its uploads.
-        let prompt_admission = std::sync::Mutex::new(Some(match opts.prompt_admission.take() {
-            Some(guard) => guard,
-            None => session.prompt_admission.clone().lock_owned().await,
-        }));
-        let admitted = || drop(prompt_admission.lock().unwrap_or_else(|e| e.into_inner()).take());
+        // the earlier one is still on its way to the queue. It is let go when the prompt is
+        // accepted (a queued one is accepted inside `queue_slot` and then waits there for the
+        // whole turn ahead of it: held that long, the next prompt would never queue), at the
+        // latest right after `queue_slot`, and in any case when its lease lapses.
+        let admitted = || admission.release();
         #[cfg(test)]
         {
             let seam = self.prompt_admission_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
@@ -544,6 +598,7 @@ impl Hub {
         // Capture this before guard validation: a stop racing the final setup fence must
         // still prevent the prompt from starting.
         let stops = session.stops.load(Ordering::SeqCst);
+        admission.enter("uploads");
         crate::prompt_uploads::resolve_off_runtime(&session.id, web, &mut blocks).await?;
         if let Some(guard) = opts.race_guard.as_ref() {
             guard()?;
@@ -604,6 +659,7 @@ impl Hub {
         let given =
             session.read_meta(|m| m.handle.clone()).filter(|h| crate::session_handle::valid(h));
         let mut accept = |mut v: Value| {
+            admission.commit();
             admitted();
             if let Some(race_guard) = race_guard.as_ref()
                 && let Err(error) = race_guard()
@@ -628,6 +684,7 @@ impl Hub {
         };
         // A prompt that cannot reach any agent (none running, and its folder or harness is gone)
         // is refused before it is recorded (`cold_prompt_check`, after steer-only's refusal).
+        admission.enter("agent");
         let live = match session.child.lock().await.as_ref() {
             Some(child) => child.is_alive().await,
             None => false,
@@ -656,6 +713,9 @@ impl Hub {
             super::inbox::Route::First(first) => Some(first),
             super::inbox::Route::Plain => None,
             super::inbox::Route::Inbox(agent, class) => {
+                admission.enter("inbox");
+                // `inbox_accept` reads the shared config before it calls `accept`, which commits
+                // the admission. Until then the prompt can still be deferred and answered.
                 return Box::pin(self.inbox_accept(
                     session,
                     &blocks,
@@ -753,6 +813,7 @@ impl Hub {
             return Err(super::turn_cap::steer_unavailable(capped));
         }
         if !live {
+            admission.enter("cold_check");
             self.cold_prompt_check(session).await?;
         }
         if steer_now && session.moving().is_some() {
@@ -785,6 +846,9 @@ impl Hub {
             }
             let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
             let steer_id = prompt_id.clone();
+            // Steer setup can still wait on the child or family gate. Its first write and
+            // acceptance happen together, and the acceptance callback commits the admission.
+            admission.enter("steer");
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
             // Boxed: the steer's future stays out of this one, which every prompt's caller holds
             // on its stack (a debug build's test thread has little room).
@@ -845,6 +909,7 @@ impl Hub {
             admitted: opts.admitted,
             after_turn: after_turn.is_some(),
             steer_on_start,
+            answer_due: admission.queue_due(),
         };
         // A prompt the queue already holds (restored after a restart or a move, `queue.rs`
         // `start_restored`) has its place and is not accepted again: it lets the order go
@@ -858,6 +923,8 @@ impl Hub {
         {
             admitted();
         }
+        admission.enter("queue");
+        admission.commit();
         let (turn_id, waiting, mut guard, run) =
             match self.queue_slot(session, slot, &mut accept).await {
                 Ok(slot) => slot,
@@ -1487,6 +1554,9 @@ impl Hub {
         let person = super::prompt_sender::person_turn(&run, provenance.as_ref());
         // Only a person's own turn makes a recap worth asking for (`away_recap.rs`).
         self.recap_turn_started(session, person);
+        // A person waits on this turn's tools: out of background class until it ends
+        // (`cpu_class.rs`, item 6).
+        let lifted = person && child.person_turn(true).await;
         let params = if resumed {
             // The turn the process resumed by itself: adopted, nothing written (`carry.rs`).
             json!({"sessionId": agent_sid, "prompt": [], "_meta": {"carried": true}})
@@ -1529,6 +1599,9 @@ impl Hub {
             },
         )
         .await;
+        if lifted {
+            child.person_turn(false).await;
+        }
         // The account behind this harness is exhausted: move the session
         // onto its fallback profile (the subrouter pool for Claude), which
         // resumes the same agent session, and run the prompt once more.
@@ -1821,6 +1894,10 @@ impl Hub {
             _ => None,
         };
         self.schedule_auto_resume(session, &turn_id, cut);
+        // A turn that ended well says the pool answers again (`auto_resume/capacity_gate.rs`).
+        if result.is_ok() && !detached {
+            self.capacity_gate_answered(session);
+        }
         // A turn that ended well on a capacity fallback puts the chat's own model back
         // (`auto_resume/capacity_failover.rs`).
         if !detached
@@ -3106,6 +3183,8 @@ impl Hub {
             deleted.map_err(|e| RpcError::internal(e.to_string()))?;
             // An earlier run's caller token proves a purged session no more (`caller_registry.rs`).
             self.caller_registry.forget(&session.id);
+            // Its chat secrets go with it (`chat_secrets.rs`).
+            crate::chat_secrets::clear(&session.id);
             #[cfg(test)]
             {
                 let seam = self.purge_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
