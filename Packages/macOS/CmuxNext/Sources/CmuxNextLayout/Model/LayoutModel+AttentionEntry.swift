@@ -30,7 +30,7 @@ extension LayoutModel {
     public func enterAttention(_ pane: PaneID, click: Bool = false) -> Bool {
         guard let mark = attention[pane], readsAttentionOnEntry(pane, click) else { return false }
         enteredAttention[pane] = mark.generation
-        if DesignSettings.shared.attention.flashesOnRead { attentionReadByEntry.insert(pane) }
+        if DesignSettings.shared.attention.flashesOnRead { attentionReadByEntry.insert(pane) } else if holdsAttentionUntilShown { attentionWhileHeld[pane] = nil } // no blink: it goes unseen under the hold
         attention[pane] = nil
         return true
     }
