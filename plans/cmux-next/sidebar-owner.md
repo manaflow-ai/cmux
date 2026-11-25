@@ -2838,6 +2838,12 @@ Commits logged without a trailer (the card above):
   (red on feat-cmux-next and on base 19421bb).
   Sidebar-Look: Leo 2026-10-21 "move the magnifying glass a bit lower": one device pixel, no more.
 
+- 2026-11-22 (quiet-connect-cloud): a Cloud machine resuming for an attach (`.resuming`, the record's pending start) is
+  held by the connecting grace (10 s, `SidebarPlaceholderGrace.healsOnItsOwn`) as a connect or reconnect is: a resume of
+  a second or two keeps the header quiet, no "Resuming…" and no spinner; one past the grace says so then. Pausing,
+  Paused and Deleting are not held. Harness: `CloudHeaderQuietTimelineTests` (label exposure ms per scenario).
+  Sidebar-Look: Leo 2026-11-14 "i also want all our connectivity stuff to shut up and load faster/percievably load faster".
+
 - 2026-11-21 (49583, 35f0edfcc6e): every sidebar row symbol (a pinned row's leading pin; a hovered row's Pin/Unpin,
   ⋮, ✕, tree chevron and speaker; a pinned item's ⋮ and Unpin; a group header's ⋮, Unpin and chevron) draws at one
   side, `SidebarStyle.rowSymbolSide`: the image side of the leading pin fitted to the rows' optical square. Before, the
