@@ -188,6 +188,12 @@ impl Mux {
         *self.heard.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// Set when the circuit last heard a record (tests: a circuit silent for a while).
+    #[cfg(test)]
+    pub(crate) fn heard_at(&self, at: Instant) {
+        *self.heard.lock().unwrap_or_else(|e| e.into_inner()) = at;
+    }
+
     async fn send(&self, kind: u8, id: u32, payload: &[u8]) -> Result<(), String> {
         if self.is_closed() {
             return Err("the kept circuit closed".into());
@@ -675,6 +681,12 @@ impl KeptCircuits {
                 );
             }
         }
+    }
+
+    /// The live kept circuits to `daemon` that heard no record at all for `silent`: no byte on
+    /// any stream, no keepalive PONG.
+    pub(crate) fn silent_for(&self, daemon: &str, silent: Duration) -> Vec<Arc<Mux>> {
+        self.live(daemon).into_iter().filter(|mux| mux.heard().elapsed() >= silent).collect()
     }
 
     /// The live kept circuits to `daemon` open now, cheap first.

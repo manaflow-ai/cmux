@@ -62,6 +62,34 @@ class FixtureTests(unittest.TestCase):
         self.assertTrue((folder / ".git").is_dir())
         self.assertEqual((folder / matrix.FIRST_PASS_LEFT).stat().st_size, matrix.HUGE_PLAIN_BYTES)
 
+    def test_projection_kinds_build_with_small_overrides(self):
+        args = matrix.parse_args(["--cli", "/bin/true", "--out", str(self.root / "out"),
+                                  "--projection-kinds", "--projection-big-files", "12",
+                                  "--projection-sparse-bytes", "4096"])
+        self.assertEqual(set(matrix.PROJECTION_KINDS), {
+            "bare-folder", "public-remote", "private-remote", "local-only-repo", "huge-monorepo",
+            "build-output", "symlinks"})
+        for kind in matrix.PROJECTION_KINDS:
+            folder, note = matrix.build_fixture(kind, self.root, args, "")
+            self.assertIsNotNone(folder, (kind, note))
+        self.assertEqual((self.root / "huge-monorepo/build-image.bin").stat().st_size, 4096)
+        self.assertTrue((self.root / "build-output/Cargo.toml").is_file())
+        self.assertTrue((self.root / "symlinks/dangling-link").is_symlink())
+
+    def test_projection_verdict_allows_expected_upper_layer_changes(self):
+        cell = {"projection": True, "start_exit": 0, "hash_match": False, "git_match": False,
+                "reply": {"form_ok": True, "word_ok": True, "canary_in_reply": False},
+                "agent_actions_ok": True, "machine_killed": True,
+                "estimate": {"mode": "whole"}}
+        self.assertEqual(matrix.verdict(cell, "c"), "pass")
+
+    def test_cli_measurement_fields_are_read_from_nested_answers(self):
+        answer = {"stages_ms": {"steps": [{"step": "send", "ms": 50},
+                                              {"step": "first_text", "ms": 250}]},
+                  "copy": {"bytes": 1234}}
+        self.assertEqual(matrix.first_text_ms(answer["stages_ms"]), 250)
+        self.assertEqual(matrix.copy_bytes(answer), (1234, "copy.bytes"))
+
     def test_a_first_pass_cell_must_leave_its_big_file_on_the_mac(self):
         cell = {"workspace": "huge-repo", "agent": "claude", "start_exit": 0, "hash_match": True,
                 "reply": {"form_ok": True, "word_ok": True, "canary_in_reply": False, "text": "MATRIX_OK"},

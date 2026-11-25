@@ -191,7 +191,8 @@ export const MAX_REVOKED_INSTALLS = 100
  * unknown, so a dropped install's token and key stay refused. withInstallAuthority drops its
  * incarnation in the same commit.
  */
-export const pruneRevokedInstalls = (state: UserState, keep: number = MAX_REVOKED_INSTALLS): UserState => {
+export const pruneRevokedInstalls = (input: UserState, keep: number = MAX_REVOKED_INSTALLS): UserState => {
+  const state = dropOrphanPresenceKeys(input)
   const revoked = Object.values(state.installs).filter((i) => i.revoked_at !== null)
   if (revoked.length <= keep) return state
   const held = new Set([
@@ -212,6 +213,23 @@ export const pruneRevokedInstalls = (state: UserState, keep: number = MAX_REVOKE
     if (keys) delete keys[i.id]
   }
   return { ...state, installs, grants, ...(state.confirm && keys ? { confirm: { ...state.confirm, presence_keys: keys } } : {}) }
+}
+
+/**
+ * Drops revoked presence keys whose install is gone from the head. evictStaleInstalls used to revoke
+ * a victim's key and then delete the install, leaving the revoked key (a JWK and its audit fields)
+ * behind for good: the probe account's head refilled with them after cmux-platform#1843's eviction
+ * landed and sign-in answered owner.state_full again (11-25). Every lookup treats a missing install
+ * as unknown, so such a key could never be used again. A live key is never dropped here.
+ */
+export const dropOrphanPresenceKeys = (state: UserState): UserState => {
+  const keys = state.confirm?.presence_keys
+  if (!state.confirm || !keys) return state
+  const orphans = Object.entries(keys).filter(([install, k]) => k.revoked_at !== null && !state.installs[install]).map(([install]) => install)
+  if (orphans.length === 0) return state
+  const next = { ...keys }
+  for (const install of orphans) delete next[install]
+  return { ...state, confirm: { ...state.confirm, presence_keys: next } }
 }
 
 /**
@@ -254,7 +272,8 @@ export const evictStaleInstalls = (state: UserState, now: number, incoming = 1, 
     if (grants[cur.grant]?.grantee === cur.id) delete grants[cur.grant]
     next = { ...r.state, installs, grants }
   }
-  return { state: next, outbox, evicted: victims.map((i) => i.id) }
+  // Each victim's presence key goes with its install: a revoked key with no install is dead weight.
+  return { state: dropOrphanPresenceKeys(next), outbox, evicted: victims.map((i) => i.id) }
 }
 
 /**
