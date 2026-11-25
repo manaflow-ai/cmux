@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { LIVE_THINKING, WORKED, toggleTurnFold, turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
 import { viewFolds } from "../src/agent-session/acpmux/conversation/viewFolds";
+import { endsTurn } from "../src/agent-session/acpmux/conversation/turnEndFold";
 
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,
@@ -252,7 +253,9 @@ test("a reply-only turn another agent's message started keeps each final reply",
     text: "[notice] the PR merged",
     incoming: {
       kind: "inbox",
-      notice: { threads: [{ threadId: "t", label: "pr/1", from: ["peer"], count: 1, blocker: false, promptIds: ["p"] }] },
+      notice: {
+        threads: [{ threadId: "t", label: "pr/1", from: ["peer"], count: 1, blocker: false, promptIds: ["p"] }],
+      },
     },
   } as Partial<AcpmuxRow>);
   const first = row("first", "assistant", { at: 2_000, text: "The hold is gone.", assistantPhase: "final_answer" });
@@ -265,4 +268,21 @@ test("a reply-only turn another agent's message started keeps each final reply",
     expect(view.rows.filter((entry) => entry.id === "first")).toHaveLength(1);
     expect(view.rows.filter((entry) => entry.id === "second")).toHaveLength(1);
   }
+});
+
+// Leo, 2026-11-25: "i think there's a 2-step animation where 1. you write and finish writing your message and
+// 2. it does the aggressive all-tool fold. we should just combine both". The final answer's first text is
+// the fold's moment: the turn-end motion (turnEndFold.ts) plays there, as the reply comes in, not after it.
+test("the final answer's first text plays the turn-end fold while the reply streams", () => {
+  const before = turnViewFrom(work, new Set(), options);
+  const final = turnViewFrom([...work, answer], new Set(), options, before);
+  expect(endsTurn(before.rows, final.rows)).toBe(true);
+  // Its end then has nothing left to fold: the summary takes the live line's place, one step.
+  const done = turnViewFrom([...work, { ...answer, streaming: false }, summary], new Set(), {
+    ...options,
+    working: false,
+  });
+  expect(done.rows.filter((row) => row.kind !== "turnSummary").map((row) => row.id)).toEqual(
+    final.rows.filter((row) => row.id !== LIVE_THINKING).map((row) => row.id),
+  );
 });
