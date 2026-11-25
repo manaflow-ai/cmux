@@ -264,6 +264,6 @@ export function advanceMockClaudeToken(state: ModelsState, fail = false, label?:
   return {
     ...state,
     personal: { ...state.personal, connections: [...connections, added] },
-    claudeToken: { attempt: null, phase: null, error: null },
+    claudeToken: { attempt: null, phase: null, error: null, saved: true },
   };
 }

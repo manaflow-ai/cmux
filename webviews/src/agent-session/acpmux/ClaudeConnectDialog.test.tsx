@@ -266,6 +266,42 @@ test("Connect opens the inline card already signing in; its progress line follow
   expect(card()).toBeNull();
 });
 
+test("Cancel on the inline card is not a save: the row keeps Connect, never Connected", async () => {
+  function Host() {
+    const [progress, put] = useState<ConnectProgress>({ phase: null, error: null });
+    const host: ClaudeConnect = {
+      needed: true,
+      progress,
+      begin: async () => put({ phase: "signing_in", error: null }),
+      cancel: () => put({ phase: null, error: null }),
+    };
+    return (
+      <ClaudeConnectContext.Provider value={host}>
+        <Picker />
+      </ClaudeConnectContext.Provider>
+    );
+  }
+  function Picker() {
+    const { row, card } = useClaudeConnectFlow();
+    return (
+      <>
+        {row && <ClaudeConnectRow name="Claude Code" connected={row.connected} onConnect={row.onConnect} />}
+        {card}
+      </>
+    );
+  }
+  const doc = await mount(<Host />);
+  const row = () => doc.querySelector<HTMLElement>(".acpmux-connect-claude-row");
+  const card = () => doc.querySelector<HTMLElement>("[data-connect-card]");
+  await act(async () => row()!.querySelector("button")!.click());
+  await nextFrame();
+  await act(async () => card()!.querySelector<HTMLButtonElement>('[data-connect-action="cancel"]')!.click());
+  await nextFrame();
+  expect(card()).toBeNull();
+  expect(row()?.hasAttribute("data-connected")).toBe(false);
+  expect(row()?.textContent).not.toContain("Connected");
+});
+
 test("the card shows the host's error with Try again, and Cancel withdraws a running sign-in", async () => {
   let begun = 0;
   let cancelled = 0;
