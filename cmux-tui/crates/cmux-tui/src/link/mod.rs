@@ -606,15 +606,25 @@ fn serve_lock(state: &LinkState) -> anyhow::Result<std::fs::File> {
 }
 
 /// The `server.json` a link reads its owner session from: `--server-config
-/// PATH`, else the user-mode `~/.config/cmux/server.json`; none without HOME.
+/// PATH`, else the user-mode `~/.config/cmux/server.json` (on macOS
+/// `~/.config/cmux-next/server.json`, unless an older install keeps
+/// `~/.config/cmux`: cmux_server_core::layout::macos_user_dir, the layout's own answer);
+/// none without HOME.
 pub(super) fn server_config_path(flags: &Flags) -> Option<PathBuf> {
     match flags.get("--server-config") {
         Some(path) => Some(PathBuf::from(path)),
         // Shortcut: duplicates the user-mode layout of cmux-server-core; use
         // its layout code when the next Cargo WINDOW allows the dependency
         // (bead cx-uu3).
-        None => std::env::var_os("HOME")
-            .map(|home| PathBuf::from(home).join(".config/cmux/server.json")),
+        None => std::env::var_os("HOME").map(|home| {
+            let home = PathBuf::from(home);
+            let dir = if cfg!(target_os = "macos") {
+                cmux_server_core::layout::macos_user_dir(&home, false)
+            } else {
+                cmux_server_core::layout::MACOS_USER_LEGACY_DIR
+            };
+            home.join(".config").join(dir).join("server.json")
+        }),
     }
 }
 
@@ -629,7 +639,7 @@ pub(super) fn read_server_config(path: Option<&Path>) -> anyhow::Result<Option<V
 }
 
 /// The owner session block of `server.json` (`--server-config PATH`, else
-/// the user-mode `~/.config/cmux/server.json`) from its `bytes`; none when
+/// the user-mode one, [`server_config_path`]) from its `bytes`; none when
 /// absent. An invalid block stops the link instead of serving with a guess.
 fn owner_session(
     path: Option<&Path>,

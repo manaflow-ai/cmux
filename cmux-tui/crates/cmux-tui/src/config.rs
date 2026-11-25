@@ -1,5 +1,5 @@
-//! TUI configuration: `~/.config/cmux/cmux-tui.json`, falling back to legacy
-//! `mux.json` when present (override the path with `CMUX_TUI_CONFIG`, or
+//! TUI configuration: `~/.config/cmux/cmux-tui.json` (`~/.config/cmux-next/`
+//! on macOS), falling back to legacy `mux.json` when present (override the path with `CMUX_TUI_CONFIG`, or
 //! legacy `CMUX_MUX_CONFIG`), with colors seeded from the user's Ghostty config
 //! where sensible.
 //!

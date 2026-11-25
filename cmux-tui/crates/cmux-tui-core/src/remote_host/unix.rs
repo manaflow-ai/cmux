@@ -22,6 +22,8 @@ mod capture_platform;
 mod capture_tests;
 #[path = "computer_use_lifecycle.rs"]
 mod computer_use_lifecycle;
+#[path = "computer_use_preview_place.rs"]
+mod computer_use_preview_place;
 
 #[cfg(any(target_os = "linux", test))]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -188,6 +190,9 @@ struct Inner {
     /// Set while the daemon's `preview/watch` connection to the worker is
     /// open (computer_use_lifecycle.rs).
     preview_watching: std::sync::atomic::AtomicBool,
+    /// Where each session's preview card sits and whether it shows
+    /// (computer_use_preview_place.rs).
+    preview_places: Mutex<computer_use_preview_place::PreviewPlaces>,
     /// The verified app's own grants (memory only; the app reports them again on connect).
     app_permissions: Mutex<Option<super::AppPermissions>>,
 }
