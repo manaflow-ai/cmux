@@ -381,6 +381,7 @@ async fn keystroke_run(profile: &str, seed: u64, flood: bool) -> Result<Vec<f64>
     } else {
         None
     };
+    let (wire_from, _) = wire_now();
     tokio::time::sleep(Duration::from_millis(200)).await;
     let mut samples = Vec::new();
     for i in 0..40u32 {
@@ -403,6 +404,8 @@ async fn keystroke_run(profile: &str, seed: u64, flood: bool) -> Result<Vec<f64>
         if got != FLOOD_BYTES {
             return Err(format!("flood delivered {got} of {FLOOD_BYTES} bytes"));
         }
+        let (wire_to, _) = wire_now();
+        eprintln!("MEASURE_WIRE {} seed={seed}", wire_to - wire_from);
     }
     phone.connected.link.close("done");
     Ok(samples)

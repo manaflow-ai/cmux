@@ -862,6 +862,7 @@ impl UltraUnderlay {
                 self.fold_loss();
                 self.window.above_one_percent()
             }
+            Some(Priority::Bulk) if std::env::var("MEASURE_BULK_REPAIR").is_ok_and(|v| v == "off") => false,
             _ => true,
         }
     }
