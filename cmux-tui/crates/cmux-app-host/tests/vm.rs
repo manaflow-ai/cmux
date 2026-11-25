@@ -535,10 +535,10 @@ mod apps {
             "{:?}",
             h.logs
         );
-        let before = h.kept.len();
-        h.eval(r#"(() => { cmux.state("big", "")[1]("x".repeat(70000)); return 0 })()"#);
-        assert_eq!(h.kept.len(), before);
-        assert!(h.logs.iter().any(|(l, m)| l == "warn" && m.contains("byte cap")), "{:?}", h.logs);
+        let mut b = Harness::new(&app("return {}"));
+        b.eval(r#"(() => { cmux.state("big", "")[1]("x".repeat(70000)); return 0 })()"#);
+        assert!(b.kept.is_empty(), "{:?}", b.kept.len());
+        assert!(b.logs.iter().any(|(l, m)| l == "warn" && m.contains("byte cap")), "{:?}", b.logs);
 
         let big: serde_json::Map<String, Value> =
             (0..300).map(|i| (format!("k{i}"), json!(1))).collect();
