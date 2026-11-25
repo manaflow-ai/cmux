@@ -2544,9 +2544,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
-        .testTarget(
-            name: "CmuxNextTabsTests",
+        .executableTarget(
+            name: "CmuxNextTabPolicyCheck",
             dependencies: ["CmuxNextTabs"],
+            path: "Tests/CmuxNextTabPolicyCheck",
             swiftSettings: uiSwiftSettings
         ),
         .target(
