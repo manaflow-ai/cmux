@@ -1290,7 +1290,7 @@ impl Hub {
         if session.moving().is_some() {
             return Err(moving_error(session));
         }
-        self.remove_queued_by(session, prompt_id, None, editor, from_agents_only)
+        self.remove_queued_by(session, prompt_id, None, editor, from_agents_only, None)
     }
 
     /// Takes a waiting prompt out of the queue before its turn starts; its `session/prompt` then
@@ -1307,7 +1307,7 @@ impl Hub {
         prompt_id: &str,
         reason: Option<&str>,
     ) -> bool {
-        self.remove_queued_by(session, prompt_id, reason, None, false)
+        self.remove_queued_by(session, prompt_id, reason, None, false, None)
             .is_ok_and(|w| w == Withdrawn::Removed)
     }
 
@@ -1320,11 +1320,14 @@ impl Hub {
         reason: Option<&str>,
         editor: crate::author::Editor<'_>,
         from_agents_only: bool,
+        expected_turn_id: Option<&str>,
     ) -> Result<Withdrawn, RpcError> {
         // Taken out and logged under one lock (`QUEUE_KINDS`): a change and its record are one
         // step, so nothing rebuilt from the log between them loses it (`log_load.rs`).
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let Some(i) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
+        let Some(i) = queue.iter().position(|q| {
+            q.prompt_id == prompt_id && expected_turn_id.is_none_or(|turn| q.turn_id == turn)
+        }) else {
             return Ok(Withdrawn::NotWaiting);
         };
         let Some(item) = queue.get(i) else { return Ok(Withdrawn::NotWaiting) };
@@ -1597,24 +1600,37 @@ impl Hub {
                     }
                     prompt_ledger::prune(&mut ledger);
                     drop(ledger);
-                    // Refused before its turn (its harness is gone, or it may not start under
-                    // the chat's control): it leaves the queue, so the prompts behind it still
-                    // run, and its `prompt_refused` says why, so it never just disappears. Only
-                    // this copy: a turn that ran it and failed may have put it back under a new
-                    // turn id (`digest.rs` `requeue_unread`), and that one waits on.
-                    let waiting = || {
-                        let queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
-                        queue.iter().any(|w| w.turn_id == q.turn_id)
-                    };
-                    if let Err(e) = result
-                        && waiting()
-                        && hub.remove_queued(&session, &q.prompt_id)
-                    {
-                        tracing::warn!(session = %session.id, prompt = %q.prompt_id, "restored prompt refused: {}", e.message);
-                        let msg = json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "error": e.message, "data": e.data});
-                        hub.append(&session, "mux", "prompt_refused", msg);
-                    }
+                    hub.settle_restored_run(&session, &q, result);
                 });
+            }
+        }
+    }
+}
+
+impl Hub {
+    /// Settles only the queue incarnation that this restored run started.
+    pub(super) fn settle_restored_run(
+        &self,
+        session: &Arc<Session>,
+        q: &QueuedPrompt,
+        result: Result<Value, RpcError>,
+    ) {
+        let remove = |reason| {
+            self.remove_queued_by(session, &q.prompt_id, reason, None, false, Some(&q.turn_id))
+                .is_ok_and(|w| w == Withdrawn::Removed)
+        };
+        match result {
+            Err(e) => {
+                if remove(None) {
+                    tracing::warn!(session = %session.id, prompt = %q.prompt_id, "restored prompt refused: {}", e.message);
+                    let msg = json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "error": e.message, "data": e.data});
+                    self.append(session, "mux", "prompt_refused", msg);
+                }
+            }
+            Ok(_) => {
+                if remove(Some("taken")) {
+                    tracing::info!(session = %session.id, prompt = %q.prompt_id, "restored prompt taken without its turn: it leaves the queue");
+                }
             }
         }
     }

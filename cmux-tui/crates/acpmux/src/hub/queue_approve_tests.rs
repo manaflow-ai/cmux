@@ -413,6 +413,93 @@ async fn an_approval_keeps_the_approvers_rules_across_a_restart() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A stale restored success must not remove a replacement that reuses the prompt id.
+#[tokio::test]
+async fn stale_restored_success_preserves_requeued_prompt() {
+    let hub = memory_hub();
+    let session = hub
+        .new_session(crate::hub::NewRequest {
+            cwd: Some(std::env::temp_dir()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    insert(&hub, &session, "same-prompt", None);
+    let stale = session.queue()[0].clone();
+    session.queue.lock().unwrap()[0].turn_id = "replacement-turn".into();
+
+    hub.settle_restored_run(&session, &stale, Ok(json!({"stopReason": "end_turn"})));
+
+    let queue = session.queue();
+    assert_eq!(queue.len(), 1, "the replacement prompt was removed");
+    assert_eq!(queue[0].turn_id, "replacement-turn");
+    assert_eq!(session.queued.load(Ordering::SeqCst), 1);
+    assert!(
+        !hub.events(&session.id, 0, 10_000)
+            .unwrap()
+            .iter()
+            .any(|e| { e.kind == "queue_removed" && e.msg["promptId"] == "same-prompt" })
+    );
+    hub.shutdown_all().await;
+}
+
+/// A stale restored refusal must preserve a replacement with the same prompt id too.
+#[tokio::test]
+async fn stale_restored_failure_preserves_requeued_prompt() {
+    let hub = memory_hub();
+    let session = hub
+        .new_session(crate::hub::NewRequest {
+            cwd: Some(std::env::temp_dir()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    insert(&hub, &session, "same-prompt", None);
+    let stale = session.queue()[0].clone();
+    session.queue.lock().unwrap()[0].turn_id = "replacement-turn".into();
+
+    hub.settle_restored_run(&session, &stale, Err(RpcError::invalid_params("harness refused")));
+
+    let queue = session.queue();
+    assert_eq!(queue.len(), 1, "the replacement prompt was removed");
+    assert_eq!(queue[0].turn_id, "replacement-turn");
+    assert_eq!(session.queued.load(Ordering::SeqCst), 1);
+    assert!(
+        !hub.events(&session.id, 0, 10_000)
+            .unwrap()
+            .iter()
+            .any(|e| { e.kind == "prompt_refused" && e.msg["promptId"] == "same-prompt" })
+    );
+    hub.shutdown_all().await;
+}
+
+/// A matching restored result still removes its queue entry.
+#[tokio::test]
+async fn matching_restored_success_removes_current_prompt() {
+    let hub = memory_hub();
+    let session = hub
+        .new_session(crate::hub::NewRequest {
+            cwd: Some(std::env::temp_dir()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    insert(&hub, &session, "same-prompt", None);
+    let current = session.queue()[0].clone();
+
+    hub.settle_restored_run(&session, &current, Ok(json!({"stopReason": "end_turn"})));
+
+    assert!(session.queue().is_empty(), "the current restored prompt stayed queued");
+    assert_eq!(session.queued.load(Ordering::SeqCst), 0);
+    assert!(
+        hub.events(&session.id, 0, 10_000)
+            .unwrap()
+            .iter()
+            .any(|e| { e.kind == "queue_removed" && e.msg["promptId"] == "same-prompt" })
+    );
+    hub.shutdown_all().await;
+}
+
 /// A hub whose session store is memory, for tests that queue prompts directly.
 fn memory_hub() -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
