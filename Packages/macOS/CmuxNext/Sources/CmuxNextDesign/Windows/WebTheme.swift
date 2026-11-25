@@ -64,6 +64,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// The filled personality slots (``ThemeDecorations/payload``): `data-cmux-decoration-<slot>` on
     /// `<html>`, which the page draws. Empty sends no `decorations` key at all.
     public let decorations: [String: String]
+    /// Wallpaper lighting is on and has a light (``WallpaperLight``): `data-wallpaper-light` on `<html>`, under which
+    /// the glass reads the `--wl-*` variables this theme carries.
+    public let wallpaperLight: Bool
     /// The `experiments.*` switches that are on, by name (``DesignSettings/experiments``):
     /// `window.cmuxExperimentSettings`, which webviews/src/experiments/hostSettings.ts maps to
     /// experiment arms, and a `cmux-experiment-settings` event when it changes. Empty sends no
@@ -228,6 +231,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             .merging(SidebarRowTokens.current.rowCSSVariables(pageZoom: DesignSettings.shared.uiScale)) { own, _ in own }
             // Every button's corner, the tab's (Metrics.buttonCornerRadius): `--ds-radius-control` reads it.
             .merging(["--cmux-button-radius": SidebarCardMetrics.px(Metrics.buttonCornerRadius / max(DesignSettings.shared.uiScale, 0.01))]) { own, _ in own }
+            // Wallpaper lighting (glass.css WALLPAPER LIGHTING): the key window's light, empty while off.
+            .merging(BackdropImageStore.shared.light.cssVariables) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
         let colors = ColorTransition.current
         transition = ["duration": colors.cssDuration, "easing": colors.cssEasing, "space": colors.space.rawValue]
@@ -241,6 +246,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         glassLevels = DesignSettings.shared.previousGlass ? Self.glassLevelsPrevious : "current"
         decorations = ThemeDecorations.current.payload
         fontSmoothing = Self.pageSmoothing(DesignSettings.shared.fontSmoothing, native: .chrome)
+        wallpaperLight = BackdropImageStore.shared.light.pageStyle != nil
         experiments = DesignSettings.shared.experiments
         appFont = Self.appFontStack(DesignSettings.shared.appFont)
     }
@@ -287,6 +293,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
                                      "workingLook": workingLook, "motion": motion, "glass": glass, "glassLevels": glassLevels, "fontSmoothing": fontSmoothing,
                                      "appFont": appFont]
         if !decorations.isEmpty { object["decorations"] = decorations }
+        if wallpaperLight { object["wallpaperLight"] = true }
         if !experiments.isEmpty { object["experiments"] = experiments }
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
@@ -451,6 +458,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           if (payload.glassLevels === 'previous') root.setAttribute('data-glass-levels', 'previous');
           else if (payload.glassLevels) root.removeAttribute('data-glass-levels');
           if (payload.fontSmoothing) root.setAttribute('data-cmux-font-smoothing', payload.fontSmoothing);
+          root.toggleAttribute('data-wallpaper-light', !!payload.wallpaperLight);
           // appearance.appFont: one :root rule over the page's own --font-ui (desktop.css), under its
           // inline styles (a chat Interface Font the person picked). Empty: the page's own.
           var appFont = typeof payload.appFont === 'string' ? payload.appFont : '';
