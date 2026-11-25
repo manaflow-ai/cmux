@@ -702,7 +702,7 @@ pub struct Session<'a> {
 }
 
 impl Session<'_> {
-    async fn post(&self, route: &str, body: Value) -> Result<Value, Failure> {
+    async fn post(&self, route: &str, op: &str, body: Value) -> Result<Value, Failure> {
         let segments = ["v1", route];
         let path = path_text(&segments);
         let reply = self
@@ -712,7 +712,7 @@ impl Session<'_> {
                 self.http.url(&segments, &[]),
                 Some(Body::Json(body)),
                 None,
-                Duration::from_secs(60),
+                chief_request_timeout(op),
                 &path,
             )
             .await?;
@@ -735,14 +735,20 @@ impl Session<'_> {
     }
 }
 
+fn chief_request_timeout(op: &str) -> Duration {
+    // Provisioning can keep the create response open for over two minutes on a cold machine.
+    // Match the five-minute create budget in cloud-journey.ts.
+    Duration::from_secs(if op == "cloud.machine.create" { 300 } else { 60 })
+}
+
 impl Cloud for Session<'_> {
     async fn op(&self, op: &str, params: Value, key: &str) -> Result<Value, Failure> {
         let body = json!({ "op": op, "params": params, "idempotency_key": key, "origin": "user" });
-        self.post("ops", body).await
+        self.post("ops", op, body).await
     }
 
     async fn read(&self, op: &str, params: Value) -> Result<Value, Failure> {
-        self.post("read", json!({ "op": op, "params": params })).await
+        self.post("read", op, json!({ "op": op, "params": params })).await
     }
 
     async fn exec(&self, machine: &str, command: &str) -> Result<(i64, String, String), Failure> {

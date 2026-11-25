@@ -3,6 +3,13 @@ use std::collections::{HashMap, VecDeque};
 
 use super::*;
 
+#[test]
+fn only_provisioning_uses_the_cold_create_deadline() {
+    assert_eq!(chief_request_timeout("cloud.machine.create"), Duration::from_secs(300));
+    assert_eq!(chief_request_timeout("chief.create"), Duration::from_secs(60));
+    assert_eq!(chief_request_timeout("cloud.machine.get"), Duration::from_secs(60));
+}
+
 /// A Cloud with one person: machines by idempotency key, the probes the machine answers in order
 /// (the last one repeats) and every call made.
 #[derive(Default)]
