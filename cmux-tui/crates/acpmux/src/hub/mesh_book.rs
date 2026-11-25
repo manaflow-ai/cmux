@@ -23,8 +23,10 @@ pub(crate) struct MeshBook {
     /// The book reads so far: a row no read lists now has an older one (`Bare::read`).
     reads: u64,
     /// Each machine listed, by its hub `daemonId` (its node key: what the hub carrier dials and
-    /// what its Noise handshake proves), to its host. Kept whole by each read (`mine_by_key`).
-    /// Only the hub carrier reads it.
+    /// what its Noise handshake proves), to its host. Kept whole by each read (`mine_by_key`),
+    /// an ssh peer's machine too: the carrier is that machine's route when its ssh is down.
+    /// Only the hub carrier reads it; the app's workspace targets leave ssh peers out
+    /// (`mesh_book_route_machines`).
     #[cfg(feature = "hub-carrier")]
     machines: BTreeMap<String, String>,
 }
@@ -75,6 +77,7 @@ struct Fields<'a> {
     model: Option<&'a str>,
     agent_session_id: Option<&'a str>,
     host_build: Option<&'a str>,
+    handle: Option<&'a str>,
 }
 
 impl<'a> Fields<'a> {
@@ -90,6 +93,9 @@ impl<'a> Fields<'a> {
             model: s.model.as_deref().filter(|m| !m.is_empty()),
             agent_session_id: s.agent_session_id.as_deref().filter(|a| !a.is_empty()),
             host_build: s.host_build.as_deref().filter(|b| !b.is_empty()),
+            // Only a given handle: a derived one is every reader's to derive, and an invalid one
+            // is no handle at all (`session_handle::valid`).
+            handle: s.handle.as_deref().filter(|h| crate::session_handle::valid(h)),
         }
     }
 }
@@ -109,6 +115,7 @@ struct Bare {
     model: Option<String>,
     agent_session_id: Option<String>,
     host_build: Option<String>,
+    handle: Option<String>,
     read: u64,
 }
 
@@ -126,6 +133,7 @@ impl Bare {
             model: own(fields.model),
             agent_session_id: own(fields.agent_session_id),
             host_build: own(fields.host_build),
+            handle: own(fields.handle),
             read,
         }
     }
@@ -142,6 +150,7 @@ impl Bare {
             model: self.model.as_deref(),
             agent_session_id: self.agent_session_id.as_deref(),
             host_build: self.host_build.as_deref(),
+            handle: self.handle.as_deref(),
         }
     }
 
@@ -183,7 +192,8 @@ pub(crate) fn mine(
 /// The keys every session row lists, from this machine or another: a hub row lists each one,
 /// null when the hub does not say, so no reader drops or misfiles a chat for a missing key (Leo,
 /// 2026-11-22: "my gui chats are not showing yet").
-pub(crate) const ROW_KEYS: [&str; 10] = [
+#[cfg(test)]
+pub(crate) const ROW_KEYS: [&str; 11] = [
     "name",
     "nameGiven",
     "title",
@@ -193,6 +203,7 @@ pub(crate) const ROW_KEYS: [&str; 10] = [
     "harness",
     "agentSessionId",
     "hostBuild",
+    "handle",
     "status",
 ];
 
@@ -210,6 +221,7 @@ fn row_of(session_id: &str, fields: &Fields<'_>) -> Value {
         model,
         agent_session_id,
         host_build,
+        handle,
     } = *fields;
     json!({
         "sessionId": session_id,
@@ -223,6 +235,11 @@ fn row_of(session_id: &str, fields: &Fields<'_>) -> Value {
         "harness": harness,
         "agentSessionId": agent_session_id,
         "hostBuild": host_build,
+        // Its given handle (`acpmux rename ... --handle`), which `resolve`, `send` and `locate`
+        // match (`peer_row::Hot`) and `ls` shows; null for a derived one, which readers derive
+        // from the id (`session_handle::display`, `session_handle::matches`).
+        "handle": handle,
+        "displayName": handle,
         "status": state,
         // A waiting session waits on its person: listed with the asks (`pendingOnly`).
         "pendingPermissions": u64::from(state == "waiting"),
@@ -240,11 +257,15 @@ impl Hub {
         own_user: &str,
         own_daemon: Option<&str>,
     ) {
-        let ssh: std::collections::HashSet<String> =
-            self.peers.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
+        let ssh: std::collections::HashSet<String> = self.peers.load().keys().cloned().collect();
         let skip = |host: &str| ssh.contains(host);
+        // Every one of this person's other machines keeps its carrier route, an ssh peer's too
+        // (no skip): the carrier is how `remote.pipe` (`tools/carrier-pipe`, ssh's ProxyCommand)
+        // reaches a machine when its ssh is the thing that is down. Skipping ssh peers here made
+        // every fleet lane VM an ssh peer of the controller `machine.unknown` on the carrier
+        // (2026-11-22). Only the session rows below leave ssh peers out, so none is listed twice.
         #[cfg(feature = "hub-carrier")]
-        self.set_mesh_book_machines(mine_by_key(&book, own_user, own_daemon, &skip));
+        self.set_mesh_book_machines(mine_by_key(&book, own_user, own_daemon, &|_| false));
         let (hosts, sessions) = mine(book, own_user, own_daemon, &skip);
         self.set_mesh_book(hosts, sessions);
     }
@@ -268,6 +289,17 @@ impl Hub {
     pub(crate) fn mesh_book_machines(&self) -> Vec<(String, String)> {
         let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
         book.machines.iter().map(|(key, host)| (key.clone(), host.clone())).collect()
+    }
+
+    /// The machines of [`Self::mesh_book_machines`] no ssh peer of this daemon already names:
+    /// the app's workspace targets (`_acpmux/machine_routes`), where an ssh peer's machine is
+    /// listed by its ssh row, not twice.
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) fn mesh_book_route_machines(&self) -> Vec<(String, String)> {
+        let ssh: std::collections::HashSet<String> = self.peers.load().keys().cloned().collect();
+        let mut machines = self.mesh_book_machines();
+        machines.retain(|(_, host)| !ssh.contains(host));
+        machines
     }
 
     /// Replace the hub rows: watching clients hear each one that appeared, changed or left, and
@@ -348,7 +380,7 @@ impl Hub {
         // because it is an ssh peer now keeps its one origin, which the peer's link states.
         if !came.is_empty() || !left.is_empty() {
             let ssh: std::collections::HashSet<String> =
-                self.peers.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
+                self.peers.load().keys().cloned().collect();
             for host in left.iter().filter(|host| !ssh.contains(*host)) {
                 self.events.origin_tee(host, OriginState::Removed, now);
             }
@@ -410,22 +442,52 @@ impl Hub {
 
     /// The machines the hub lists for this person, as `peers` lists an ssh peer: connected, with
     /// their session count and newest heartbeat.
+    /// With each one's last health reading through the hub and when it came (`hub_health.rs`),
+    /// as a direct peer's row carries its link's (`health`, `healthAt`), so placement weighs it.
     pub(super) fn mesh_book_hosts(&self) -> Vec<Value> {
-        let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
-        book.hosts
-            .iter()
-            .map(|(host, seen)| {
-                let count = book.rows.values().filter(|(_, r)| &r.peer == host).count();
-                json!({
-                    "name": host,
-                    "connected": true,
-                    "state": "connected",
-                    "via": "hub",
-                    "lastSeen": seen,
-                    "sessions": count,
+        let mut rows: Vec<Value> = {
+            let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
+            book.hosts
+                .iter()
+                .map(|(host, seen)| {
+                    let count = book.rows.values().filter(|(_, r)| &r.peer == host).count();
+                    json!({
+                        "name": host,
+                        "connected": true,
+                        "state": "connected",
+                        "via": "hub",
+                        "lastSeen": seen,
+                        "sessions": count,
+                    })
                 })
-            })
-            .collect()
+                .collect()
+        };
+        // Taken after the book's lock is let go: the two are never held together.
+        let health = self.hub_health.lock().unwrap_or_else(|e| e.into_inner());
+        for row in &mut rows {
+            let Some(name) = row.get("name").and_then(Value::as_str) else { continue };
+            if let Some((at, reading)) = health.reading(name)
+                && let Some(fields) = row.as_object_mut()
+            {
+                fields.insert("health".into(), reading);
+                fields.insert("healthAt".into(), json!(at));
+            }
+        }
+        rows
+    }
+
+    /// A session the hub lists on machine `host`, the one a machine read goes through: the hub
+    /// takes a read only when it names one session (cmux-platform `Core.ts`, `mesh.invalid: a read
+    /// names one session by sessionId or name`), and the far daemon answers a health read before
+    /// it looks the session up (`mesh_read.rs` `HOST_HEALTH`). None when it lists none there.
+    pub(crate) fn mesh_book_session_on(&self, host: &str) -> Option<String> {
+        let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
+        let prefix = format!("{host}/");
+        book.rows
+            .range(prefix.clone()..)
+            .take_while(|(key, _)| key.starts_with(&prefix))
+            .map(|(_, (_, r))| r.receipt.mux_session_id.clone())
+            .find(|id| !id.is_empty())
     }
 
     /// The session id of the one hub row `key` names: its bare id, `HOST/ID` or `HOST/name`.
@@ -434,10 +496,27 @@ impl Hub {
         let mut found = book.rows.iter().filter_map(|(qualified, (_, r))| {
             let id = r.receipt.mux_session_id.as_str();
             let name = r.summary.name();
-            (key == id || key == qualified || name == Some(key)).then(|| id.to_owned())
+            (key == id || key == qualified || name == Some(key) || names_by_handle(r, key))
+                .then(|| id.to_owned())
         });
         let id = found.next()?;
         found.next().is_none().then_some(id)
+    }
+
+    /// The hub row `key` names by its handle, bare (`Mango`) or on its machine (`HOST/Mango`),
+    /// as `(host, id)` when one row only does. The hub and the far daemon know a chat by its id
+    /// and name, never its handle, so a send or read through the hub names it by id
+    /// (`mesh_send.rs`, `mesh_read.rs`).
+    pub(crate) fn mesh_book_handle(&self, key: &str) -> Option<(String, String)> {
+        let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
+        let mut found = book
+            .rows
+            .values()
+            .map(|(_, r)| r)
+            .filter(|r| names_by_handle(r, key))
+            .map(|r| (r.peer.clone(), r.receipt.mux_session_id.clone()));
+        let row = found.next()?;
+        found.next().is_none().then_some(row)
     }
 
     /// Whether the hub lists machine `host` for this person.
@@ -457,6 +536,17 @@ impl Hub {
             .map(|r| &r.peer);
         let host = hosts.next()?.clone();
         hosts.next().is_none().then_some(host)
+    }
+}
+
+/// Whether `key` names hub row `r` by its handle (`session_handle::matches`: its given one, or
+/// the one derived from its id), bare or as `HOST/HANDLE` with the row's machine.
+fn names_by_handle(r: &RemoteSession, key: &str) -> bool {
+    let id = r.receipt.mux_session_id.as_str();
+    let handle = r.summary.handle();
+    match key.strip_prefix(r.peer.as_str()).and_then(|rest| rest.strip_prefix('/')) {
+        Some(rest) => crate::session_handle::matches(handle, id, rest),
+        None => crate::session_handle::matches(handle, id, key),
     }
 }
 

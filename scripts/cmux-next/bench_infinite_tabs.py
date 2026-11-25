@@ -27,10 +27,19 @@ Headlines (INFTABS lines, and one PERF_ROW JSON line each for the perf cron):
   renderer_mb_per_tab  (Chromium renderer RSS at full - at empty) / tabs: a hibernated tab's renderer cost
   switch_mounted_ms    the app's own time from the restore to the page being back (debug.surfaces wakes)
   switch_live_ms       from the switch request to the page answering script with its scroll back
-  snapshot_covered     the share of those wakes a kept last frame covered (the app reports that a
-                       snapshot covered the pane, not yet when it was drawn: the last-frame time is
-                       bounded above by switch_mounted_ms until the app reports it)
+  switch_picture_ms    the app's own time from the restore to the pane holding the tab's last frame,
+                       decoded (debug.surfaces wakes picture_ms; it draws in the next frame). Absent
+                       for a wake whose placeholder showed none: no kept frame, or the page was back first
+  snapshot_covered     the share of those wakes a kept last frame covered
 INFTABS-KIND lines give each process kind at empty and full (count, RSS, footprint, CPU, wakeups).
+INFTABS-RENDERER lines give each Chromium renderer at full: its pid, RSS, footprint and peak, its distinguishing
+ps args (--renderer-client-id, extension) and the live pages it hosts with their owning tab (renderers.list).
+--app-vm: INFTABS-APPVM lines give the app process's `vmmap --summary`, `footprint` and `heap --sortBySize` at empty
+and at full, so the two diff region by region (the app is Chromium's browser process and PartitionAlloc is its
+default malloc zone: Swift, AppKit and Chromium allocations all land in "App-Specific Tag 14"). --app-stacks also
+launches the app with MallocStackLogging=lite and prints INFTABS-APPSTACK lines at full: `malloc_history -callTree
+-invert` of every live block that went through malloc (Swift, Objective-C, CoreFoundation; Chromium's own operator
+new goes straight to PartitionAlloc and is not in it), so Tag 14 minus its total is Chromium's own.
 
 Measurement only, never a gate. macOS only, a fleet Mac, never a laptop (DEV or bench build: it reads
 debug.surfaces):
@@ -45,6 +54,7 @@ import json
 import os
 import shutil
 import signal
+import subprocess
 import sys
 import time
 
@@ -52,6 +62,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory as bm  # noqa: E402
 import bench_power as bp  # noqa: E402
 import bench_workspace_hibernation as bw  # noqa: E402
+from state_wait import StateWaitTimeout, wait_stable, wait_until  # noqa: E402
 
 ROWS: list[dict] = []
 # A ratio's denominator is at least its noise floor (as infinite-items.py): an empty app at 0.00 % CPU divides by nothing.
@@ -77,7 +88,11 @@ def counts(sock: str) -> dict:
             "hibernated_workspaces": status.get("hibernated_workspaces"), "workspace_pages": status.get("workspace_pages"),
             "hibernated_pages": len(sleep.get("hibernated") or []), "frozen_pages": len(sleep.get("frozen") or []),
             "chat_pages": len(sleep.get("chat_pages") or []), "snapshots": sleep.get("snapshots"),
-            "snapshot_mb": round((sleep.get("snapshot_bytes") or 0) / 1048576, 1), "exemptions": len(sleep.get("exemptions") or {})}
+            "snapshot_mb": round((sleep.get("snapshot_bytes") or 0) / 1048576, 1), "exemptions": len(sleep.get("exemptions") or {}),
+            # The pictures live on disk; this is what is still in RAM (writes in flight).
+            "snapshot_memory_mb": round((sleep.get("snapshot_memory_bytes") or 0) / 1048576, 1),
+            # Why a hibernated page has no last frame: dropped by the snapshot store's budget, or never kept one (by cause).
+            "snapshot_evicted": sleep.get("snapshot_evicted"), "snapshot_missing": sleep.get("snapshot_missing")}
 
 
 def phase(pid: int, bundle: str, sock: str, label: str, items: int, seconds: float, report: dict) -> dict:
@@ -90,6 +105,145 @@ def phase(pid: int, bundle: str, sock: str, label: str, items: int, seconds: flo
           f"wakeups_per_s={result['total_wakeups_per_s']} counts={json.dumps(result['app_counts'])}", flush=True)
     report["phases"][label] = result
     return result
+
+
+def settled(pid: int, bundle: str, sock: str, label: str, limit_s: float, want=None) -> None:
+    """Until `want()` holds (when given), then the app's processes and counts read the same for about 3 s."""
+    if want is not None and not wait_until(want, label, timeout=limit_s, interval=1.0, raise_on_timeout=False):
+        print(f"   {label}: not reached within {round(limit_s)} s; measuring anyway counts={json.dumps(counts(sock))}",
+              file=sys.stderr)
+
+    def read():
+        return counts(sock), sorted(bm.owned(pid, bundle))
+    try:
+        wait_stable(read, f"the app before {label}", timeout=limit_s, interval=0.5, reads=7)
+    except StateWaitTimeout as error:
+        print(f"   {error}; measuring anyway", file=sys.stderr)
+
+
+RENDERER_RSS: dict = {}
+
+
+def renderer_footprints(pid: int, bundle: str, step: str = "") -> list[float]:
+    """Every Chromium renderer's footprint now (MB), largest first: no window, one read per process. Its resident
+    sizes at the same read go to RENDERER_RSS[step]."""
+    rows = bm.sample(pid, bundle, "chat-heap", 0)["processes"]
+    RENDERER_RSS[step] = sorted((r["rss_mb"] for r in rows if r["kind"] == "cef-renderer"), reverse=True)
+    return sorted((r["footprint_mb"] for r in rows if r["kind"] == "cef-renderer"), reverse=True)
+
+
+def wait_collector_quiet(app: bm.App, quiet_s: float = 80, bound_s: float = 300) -> dict:
+    """Waits until the cmux page collector saw no page close for `quiet_s`, so "full" is the steady state.
+
+    Hidden chats are still released through the settle, and the collector's quiet check runs 60 s after the
+    newest close (`CEFPageRendererGC.quietDelay`): a window that starts 45 s after the build measured the renderer
+    before that check (hq#21221: `quiet_checks 1` only after the window, 113 MB of garbage in the number).
+    An app without the readout (`page_gc` in `debug.cef_pages`) waits nothing."""
+    started = time.monotonic()
+    closes, since, stats = None, started, None
+    while time.monotonic() - started < bound_s:
+        stats = (app.call("debug.cef_pages", timeout=30) or {}).get("page_gc")
+        if not isinstance(stats, dict):
+            break
+        if stats.get("closes") != closes:
+            closes, since = stats.get("closes"), time.monotonic()
+        elif time.monotonic() - since >= quiet_s:
+            break
+        time.sleep(10)  # test script: the collector's own timers run, nothing to wake on
+    found = {"waited_s": round(time.monotonic() - started), "page_gc": stats}
+    print(f"INFTABS-QUIET {json.dumps(found)}", flush=True)
+    return found
+
+
+def chat_heap(app: bm.App, pid: int, bundle: str, label: str, away: str | None = None, back: str | None = None) -> list[dict]:
+    """What the renderer of cmux's own pages holds in JS, and what a full collection and then a purge give back.
+
+    One cmux page per renderer (cmux pages share one renderer per site, so every page of it answers for the whole
+    isolate): its heap (`Runtime.getHeapUsage`: V8 used/total, Blink's Oilpan, backing stores) and its DOM counters
+    (`Memory.getDOMCounters`: documents counts detached ones not yet collected), then `HeapProfiler.collectGarbage`
+    and the same reads, then a critical `Memory.simulatePressureNotification` (PartitionAlloc discards its free
+    pages) and the same reads, with every renderer's footprint at each step. Read after the measured window: it
+    collects and purges, so it runs where no number after it is a memory number of this phase.
+    Settles whether a hibernated chat's memory is still reachable (used stays high, or documents stay above the
+    live pages) or garbage the renderer keeps mapped (used drops, footprint does not).
+    With `away` (a workspace that shows no cmux page), it then goes there for 20 s and reads again (step `away`),
+    then back to `back`: on the Linux stand-in (webviews/bench/chat-pages-memory.bench.ts PURGE_EXPERIMENT=1) the
+    garbage 30 closed chats left (blink_gc 85 -> 16 MB, malloc 95 -> 77 MB) went back only once the renderer had
+    no visible page; a collection and a critical notice with one shown gave back nothing."""
+    listed = app.call("debug.cef_pages", timeout=30) or {}
+    print(f"INFTABS-CHATHEAP label={label} page_gc={json.dumps(listed.get('page_gc'))}", flush=True)
+    pages = listed.get("pages")
+    if not isinstance(pages, list):
+        print(f"INFTABS-CHATHEAP label={label} error=no-debug.cef_pages", flush=True)
+        return []
+    own = [p for p in pages if isinstance(p, dict) and "browser" in p and str(p.get("origin", "")).startswith("cmux-page://")]
+    by_renderer: dict = {}
+    for page in own:
+        clients = sorted(int(c) for c in (page.get("renderer_clients") or []) if isinstance(c, (int, float)))
+        by_renderer.setdefault(clients[0] if clients else ("page", page["browser"]), []).append(page)
+
+    def call(browser, method: str, params: dict | None = None, timeout: float = 30) -> dict:
+        reply = app.call("debug.cef_page_devtools", {"browser": browser, "method": method, "params": params or {}}, timeout=timeout)
+        if reply.get("error") or not isinstance(reply.get("result"), str):
+            return {"error": str(reply.get("error") or "no reply")[:120]}
+        try:
+            return json.loads(reply["result"]) or {}
+        except ValueError as error:
+            return {"error": str(error)[:120]}
+
+    def read(browser) -> dict:
+        heap, dom = call(browser, "Runtime.getHeapUsage"), call(browser, "Memory.getDOMCounters")
+        mb = lambda key: round(heap[key] / bm.MB, 1) if isinstance(heap.get(key), (int, float)) else None  # noqa: E731
+        return {"used_mb": mb("usedSize"), "total_mb": mb("totalSize"), "embedder_mb": mb("embedderHeapUsedSize"),
+                "backing_mb": mb("backingStorageSize"), "documents": dom.get("documents"), "nodes": dom.get("nodes"),
+                "listeners": dom.get("jsEventListeners"), "error": heap.get("error") or dom.get("error")}
+
+    rows = []
+    for renderer, members in by_renderer.items():
+        browser = min(p["browser"] for p in members)
+        row = {"renderer": renderer, "pages": len(members), "hidden": sum(1 for p in members if p.get("hidden")),
+               "paths": sorted({str(p.get("path") or "/") for p in members}), "before": read(browser)}
+        rows.append((browser, row))
+    steps = {"before": renderer_footprints(pid, bundle, "before")}
+    for browser, row in rows:
+        call(browser, "HeapProfiler.collectGarbage", timeout=60)
+    # sleep-ok: no signal says a collection's freed pages went back to the OS; the read after it is the result
+    time.sleep(2)
+    steps["gc"] = renderer_footprints(pid, bundle, "gc")
+    for browser, row in rows:
+        row["gc"] = read(browser)
+    if rows:
+        call(rows[0][0], "Memory.simulatePressureNotification", {"level": "critical"})  # reaches every process
+    # sleep-ok: no signal says a pressure notice's discards landed; the read after it is the result
+    time.sleep(3)
+    steps["purge"] = renderer_footprints(pid, bundle, "purge")
+    for browser, row in rows:
+        row["purge"] = read(browser)
+    order = ["before", "gc", "purge"]
+    if away and rows:
+        app.action("goToWorkspace", workspace=away)
+        # sleep-ok: the 20 s with no page shown is the experiment (the renderer lets its free pages go, on Linux)
+        time.sleep(20)
+        steps["away"] = renderer_footprints(pid, bundle, "away")
+        shown = (app.call("debug.cef_pages", timeout=30) or {}).get("pages") or []
+        hidden = {p.get("browser"): bool(p.get("hidden")) for p in shown if isinstance(p, dict)}
+        for browser, row in rows:
+            row["away"] = {**read(browser), "hidden_pages": sum(1 for p in by_renderer[row["renderer"]] if hidden.get(p["browser"]))}
+        order.append("away")
+        if back:
+            app.action("goToWorkspace", workspace=back)
+    out = []
+    for browser, row in rows:
+        fields = " ".join(f"{step}_{key}={value}" for step in order
+                          for key, value in row[step].items() if value is not None)
+        print(f"INFTABS-CHATHEAP label={label} renderer={row['renderer']} browser={browser} pages={row['pages']} "
+              f"hidden={row['hidden']} paths={','.join(row['paths'])} {fields}", flush=True)
+        out.append(row)
+    print(f"INFTABS-CHATHEAP label={label} renderer_footprints_mb "
+          + " ".join(f"{step}={json.dumps(values[:4])}" for step, values in steps.items()), flush=True)
+    print(f"INFTABS-CHATHEAP label={label} renderer_rss_mb "
+          + " ".join(f"{step}={json.dumps(RENDERER_RSS.get(step, [])[:4])}" for step in steps), flush=True)
+    return out
 
 
 def new_workspace(app: bm.App) -> str | None:
@@ -117,9 +271,12 @@ def build_workspace(app: bm.App, sock: str, chats: bm.FakeChats | None, index: i
             print(f"   workspace {index}: terminal: {made['error']}", file=sys.stderr)
     pages = []
     for url in urls:
-        page = bw.created_tab(app.run("openBrowser.chromium", url=url))
+        # Shown, as a person's open is: a page opened behind (the CLI's script origin) is never on screen, so it
+        # has no leave picture and hibernates with no last frame.
+        opened = app.action("openBrowser.chromium", focus=True, url=url)
+        page = bw.created_tab(opened)
         if page is None:
-            print(f"   workspace {index}: no page for {url}", file=sys.stderr)
+            print(f"   workspace {index}: no page for {url}: {opened.get('error') or opened}", file=sys.stderr)
             continue
         # The page answers script only once it loaded: a page hibernated before that has no last frame to keep.
         if bw.evaluate(sock, page, bw.SET_SCROLL) is None:
@@ -177,7 +334,8 @@ def wake(app: bm.App, sock: str, entry: dict) -> dict:
     own = bw.wait_for(lambda: next((w for w in reversed(hibernation(sock).get("wakes") or [])
                                     if w.get("tab") == page["tab"] and w.get("loaded_ms") is not None), None), 3) if asleep else None
     if own:
-        row.update({"mounted_ms": own.get("mounted_ms"), "loaded_ms": own.get("loaded_ms"), "snapshot": own.get("snapshot")})
+        row.update({"picture_ms": own.get("picture_ms"), "mounted_ms": own.get("mounted_ms"), "loaded_ms": own.get("loaded_ms"),
+                    "snapshot": own.get("snapshot")})
     print(f"INFTABS-WAKE {json.dumps(row)}", flush=True)
     return row
 
@@ -188,6 +346,44 @@ def kinds_table(empty: dict, full: dict):
         print(f"INFTABS-KIND kind={kind} n={e.get('count', 0)}->{f.get('count', 0)} rss_mb={e.get('rss_mb', 0)}->{f.get('rss_mb', 0)} "
               f"footprint_mb={e.get('footprint_mb', 0)}->{f.get('footprint_mb', 0)} cpu_pct={e.get('cpu_pct', 0)}->{f.get('cpu_pct', 0)} "
               f"wakeups_per_s={e.get('wakeups_per_s', 0)}->{f.get('wakeups_per_s', 0)}", flush=True)
+
+
+RENDERER_ARG_KEYS = ("renderer-client-id", "extension", "site", "origin", "cmux", "process-per")
+
+
+def renderers(app: bm.App, pid: int, bundle: str, sample: dict) -> list[dict]:
+    """One row per Chromium renderer at `sample`: its distinguishing ps args and the live pages the app says
+    it hosts. `renderers.list` (Release too) names each helper's `--renderer-client-id` and each live page's
+    renderer clients and owning tab; `debug.cef_pages` (bench or DEV build) is the fallback, without owners."""
+    commands = {p: cmd for p, (kind, cmd) in bm.owned(pid, bundle).items() if kind == "cef-renderer"}
+    listed = app.call("renderers.list", {"interval_ms": 0}, timeout=30) or {}
+    pages = listed.get("pages")
+    if not isinstance(pages, list):
+        pages = (app.call("debug.cef_pages", timeout=30) or {}).get("pages") or []
+    clients = {h.get("pid"): h.get("client") for h in listed.get("helpers") or [] if isinstance(h, dict)}
+    rows = []
+    for row in (r for r in sample["processes"] if r["kind"] == "cef-renderer"):
+        args = [a for a in commands.get(row["pid"], "").split() if a.startswith("--") and any(k in a for k in RENDERER_ARG_KEYS)]
+        client = clients.get(row["pid"]) or next((int(a.split("=", 1)[1]) for a in args
+                                                 if a.startswith("--renderer-client-id=") and a.split("=", 1)[1].isdigit()), None)
+        hosted = []
+        for page in pages:
+            if client is None or client not in (page.get("renderer_clients") or []):
+                continue
+            url = str(page.get("url") or page.get("origin") or "").split("?", 1)[0] + (page.get("path") or "")
+            owner = page.get("owner") or {}
+            hosted.append({"url": url[:100], "hidden": bool(page.get("hidden")), "browser": page.get("browser"),
+                           "owner": f"{owner.get('kind')}:{owner.get('tab')}" if owner else None})
+        rows.append({"pid": row["pid"], "rss_mb": row["rss_mb"], "footprint_mb": row["footprint_mb"],
+                     "max_footprint_mb": row.get("max_footprint_mb"), "client": client, "args": args, "pages": hosted})
+    unplaced = [p.get("url") or p.get("origin") for p in pages if not p.get("renderer_clients")]
+    for row in rows:
+        print(f"INFTABS-RENDERER pid={row['pid']} rss_mb={row['rss_mb']} footprint_mb={row['footprint_mb']} "
+              f"peak_footprint_mb={row['max_footprint_mb']} args={' '.join(row['args']) or '-'} "
+              f"pages={json.dumps(row['pages'])}", flush=True)
+    print(f"INFTABS-RENDERER live_pages={len(pages)} source={'renderers.list' if 'helpers' in listed else 'debug.cef_pages'} "
+          f"no_renderer={json.dumps(unplaced)}", flush=True)
+    return rows
 
 
 def summarize(args, report: dict, made: list[dict]) -> dict:
@@ -213,8 +409,13 @@ def summarize(args, report: dict, made: list[dict]) -> dict:
         "renderer_mb_per_tab": round((renderer(full).get("rss_mb", 0) - renderer(empty).get("rss_mb", 0)) / max(1, pages), 4),
         "hibernated_pages": full["app_counts"]["hibernated_pages"], "hibernated_workspaces": full["app_counts"]["hibernated_workspaces"],
         "live_terminals": full["app_counts"]["live_terminals"], "chat_pages": full["app_counts"]["chat_pages"],
-        "snapshot_mb": full["app_counts"]["snapshot_mb"],
+        "snapshot_mb": full["app_counts"]["snapshot_mb"], "snapshots": full["app_counts"]["snapshots"],
+        "snapshot_memory_mb": full["app_counts"]["snapshot_memory_mb"],
+        "snapshot_evicted": full["app_counts"]["snapshot_evicted"], "snapshot_missing": full["app_counts"]["snapshot_missing"],
         "switches": len(rows), "switches_hibernated": len(woken),
+        "switch_picture_p50_ms": bw.percentile([r.get("picture_ms") for r in woken], 0.5),
+        "switch_picture_p95_ms": bw.percentile([r.get("picture_ms") for r in woken], 0.95),
+        "switch_pictures": sum(1 for r in woken if r.get("picture_ms") is not None),
         "switch_mounted_p50_ms": bw.percentile([r.get("mounted_ms") for r in woken], 0.5),
         "switch_mounted_p95_ms": bw.percentile([r.get("mounted_ms") for r in woken], 0.95),
         "switch_loaded_p50_ms": bw.percentile([r.get("loaded_ms") for r in woken], 0.5),
@@ -228,6 +429,32 @@ def summarize(args, report: dict, made: list[dict]) -> dict:
     return summary
 
 
+def app_memory(pid: int, label: str, args, report: dict):
+    """--app-vm and --app-stacks at phase `label`, after its measured window (vmmap, heap and malloc_history suspend
+    the app while they read it). Printed, and kept in the report under `app_vm`."""
+    got = {}
+    if args.app_vm:
+        got = bm.app_vm(pid)
+        for tool, out in got.items():
+            for line in out.get("lines") or [f"error={out.get('error') or out.get('stderr', '')[-200:]!r}"]:
+                print(f"INFTABS-APPVM {label} {tool} | {line.rstrip()}")
+    if args.app_stacks and label == "full":
+        try:
+            proc = subprocess.run(["malloc_history", str(pid), "-callTree", "-invert", "-ignoreThreads", "-chargeSystemLibraries"],
+                                  capture_output=True, text=True, timeout=600)
+            lines = proc.stdout.splitlines()
+            got["malloc_history"] = {"rc": proc.returncode, "lines": lines[: args.app_stacks], "total_lines": len(lines),
+                                     "stderr": proc.stderr[-600:]}
+        except (OSError, subprocess.TimeoutExpired) as e:
+            got["malloc_history"] = {"error": str(e)[:300]}
+        out = got["malloc_history"]
+        for line in out.get("lines") or [f"error={out.get('error') or out.get('stderr', '')[-200:]!r}"]:
+            print(f"INFTABS-APPSTACK {label} | {line.rstrip()}")
+    if got:
+        report.setdefault("app_vm", {})[label] = got
+    sys.stdout.flush()
+
+
 def run(argv: list[str]) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--app", required=True)
@@ -238,9 +465,14 @@ def run(argv: list[str]) -> int:
     parser.add_argument("--heap-mb", type=int, default=20, help="each page's stand-in heap while it is awake")
     parser.add_argument("--lag", type=int, default=2, help="a workspace is hibernated once the build is this many past it")
     parser.add_argument("--wake", type=int, default=20, help="hibernated pages shown again and timed")
-    parser.add_argument("--settle", type=float, default=45, help="seconds before each measured phase")
+    parser.add_argument("--settle", type=float, default=45, help="the app settles (state, not a timer) before each measured phase within max(120, 2 x this) seconds")
     parser.add_argument("--measure", type=float, default=30, help="idle seconds of CPU and wakeups in each phase")
     parser.add_argument("--config", default="{}", help="cmux.json settings merged over the run's own")
+    parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
+                        help="an environment variable for the app (repeatable), e.g. CMUX_NEXT_TUI_TERMINAL_HOST_MODEL=holder")
+    parser.add_argument("--app-vm", action="store_true", help="the app process's vmmap, footprint and heap at empty and full")
+    parser.add_argument("--app-stacks", type=int, default=0, metavar="LINES",
+                        help="launch with MallocStackLogging=lite; print LINES lines of the live-allocation call tree at full")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
     if sys.platform != "darwin":
@@ -256,16 +488,26 @@ def run(argv: list[str]) -> int:
     bundle = os.path.realpath(args.app)
     signal.signal(signal.SIGTERM, bm.interrupted)
     bp.wipe_state(bundle)
-    pid, sock, scratch = bm.launch(bundle, config)
+    if any("=" not in pair or not pair.split("=", 1)[0] for pair in args.env):
+        raise SystemExit("bench-infinite-tabs: --env takes NAME=VALUE")
+    extra_env = dict(pair.split("=", 1) for pair in args.env)
+    if args.app_stacks:
+        extra_env.setdefault("MallocStackLogging", "lite")  # malloc_history needs the live blocks' stacks
+    pid, sock, scratch = bm.launch(bundle, config, extra_env=extra_env)
     app = bm.App(bundle, sock)
     report = {"app": bundle, "config": config, "phases": {}, "wakes": [],
-              "asked": {"tabs": args.tabs, "workspaces": args.workspaces, "chats": args.chats, "heap_mb": args.heap_mb}}
+              "asked": {"tabs": args.tabs, "workspaces": args.workspaces, "chats": args.chats, "heap_mb": args.heap_mb},
+              "env": extra_env}
     made: list[dict] = []
     tally = {"workspace_refused": 0, "tab_asked": 0, "tab_refused": 0}
     status = 1
+    pages_checked = False
     try:
-        time.sleep(args.settle)  # test script: the launched app settles before its empty sample
+        # The launched app has settled once its processes (helpers up) and counts hold still.
+        settled(pid, bundle, sock, "the empty sample", max(120.0, 2 * args.settle))
         phase(pid, bundle, sock, "empty", 0, args.measure, report)
+        app_memory(pid, "empty", args, report)
+        report["chat_heap_empty"] = chat_heap(app, pid, bundle, "empty")  # after the window: the empty app's own floor
         chats = bm.FakeChats(app, bundle, args.fake_agent) if args.chats else None
         started = time.monotonic()
         for index in range(args.workspaces):
@@ -275,6 +517,14 @@ def run(argv: list[str]) -> int:
             entry = build_workspace(app, sock, chats if index < args.chats else None, index, urls)
             if entry:
                 made.append(entry)
+            # No page of the first ten asked opened: the app has no Chromium engine or refuses the open, and
+            # the hour that follows would measure another mix. Stop here with the reason printed above.
+            asked_pages = (index + 1) * args.tabs // args.workspaces
+            if asked_pages >= 10 and not pages_checked:
+                pages_checked = True
+                if not any(e["pages"] for e in made):
+                    print(f"bench-infinite-tabs: none of the first {asked_pages} pages opened; stopping", file=sys.stderr)
+                    return 3
             if len(made) > args.lag and not made[-1 - args.lag].get("asked"):
                 made[-1 - args.lag]["asked"] = True
                 hibernate(app, sock, made[-1 - args.lag], tally)
@@ -294,9 +544,38 @@ def run(argv: list[str]) -> int:
         report["hibernate_tally"] = tally
         print(f"INFTABS-BUILT workspaces={len(made)} pages={sum(len(e['pages']) for e in made)} build_s={report['build_s']} "
               f"hibernate={json.dumps(tally)}", flush=True)
-        time.sleep(args.settle)  # test script: renderers exit, idle agents hibernate, the app settles
+        # Every page asked to hibernate is hibernated (or exempt) and every workspace not refused is hibernated,
+        # then renderers have exited once the app's processes and counts hold still.
+        tabs = {page["tab"] for entry in made for page in entry["pages"]}
+        want_workspaces = len(made) - tally["workspace_refused"]
+
+        def all_asleep():
+            sleep = hibernation(sock)
+            done = set(sleep.get("hibernated") or []) | set((sleep.get("exemptions") or {}).keys())
+            return tabs <= done and (bw.surfaces(sock).get("hibernated_workspaces") or 0) >= want_workspaces
+        settled(pid, bundle, sock, "the full sample", max(120.0, 2 * args.settle), want=all_asleep)
+        report["collector_quiet"] = wait_collector_quiet(app)
+        # Who runs in the idle window (the app's wakeup ledger, its threads' CPU, Chromium's pump counters, live
+        # pages, a stack sample after it), and where the biggest kinds keep their memory: the numbers a fix starts from.
+        attribution = bm.Attribution(app, pid, bundle, kinds=("app", "cef-gpu"))
+        pump_before = (app.call("debug.cef", timeout=30) or {}).get("pump") or {}
+        attribution.start()
         full = phase(pid, bundle, sock, "full", len(made) + sum(len(e["pages"]) for e in made), args.measure, report)
+        found = attribution.finish()
+        app_memory(pid, "full", args, report)
+        pump_after = (app.call("debug.cef", timeout=30) or {}).get("pump") or {}
+        pump = {key: round(value - pump_before.get(key, 0), 3) for key, value in pump_after.items()
+                if isinstance(value, (int, float)) and not isinstance(value, bool)}
+        report["full_attribution"] = {**found, "pump_delta": pump}
+        bm.print_attribution("full", found)
+        print(f"PERF-ATTR full pump window_s={found['window_s']} delta={json.dumps(pump)}", flush=True)
         kinds_table(report["phases"]["empty"], full)
+        report["full_renderers"] = renderers(app, pid, bundle, full)
+        bm.print_vmmap(full, "app,cef-renderer,tui-daemon")
+        # After full's window and its vmmap, before the switches: what the chat renderer still holds, and what a
+        # collection and a purge give back (the switches after it start from a collected renderer).
+        away = next((entry["workspace"] for entry in made if entry["kind"] == "terminal"), None)
+        report["chat_heap_full"] = chat_heap(app, pid, bundle, "full", away=away, back=front)
         with_pages = [entry for entry in made if entry["pages"]]
         step = max(1, len(with_pages) // max(1, args.wake))
         for entry in with_pages[::step][: args.wake]:
@@ -316,6 +595,8 @@ def run(argv: list[str]) -> int:
         perf_row("wakeups_per_s", summary["wakeups_per_s"], "1/s")
         perf_row("wakeups_empty_per_s", summary["wakeups_empty_per_s"], "1/s")
         perf_row("renderer_mb_per_tab", summary["renderer_mb_per_tab"], "MB")
+        if summary["switch_pictures"]:
+            perf_row("switch_picture_ms", summary["switch_picture_p50_ms"], "ms", summary["switch_picture_p95_ms"])
         perf_row("switch_mounted_ms", summary["switch_mounted_p50_ms"], "ms", summary["switch_mounted_p95_ms"])
         perf_row("switch_live_ms", summary["switch_live_p50_ms"], "ms", summary["switch_live_p95_ms"])
         if summary["switches_hibernated"]:

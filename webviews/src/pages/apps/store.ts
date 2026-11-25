@@ -9,21 +9,21 @@ import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import { fromDetail, listCatalog, listInstalled, listUpdates, type WireDetail } from "./wire";
 import {
   categories,
-  featuredApps,
   filterApps,
+  keepUnchangedApps,
   listedInStore,
   parseRoute,
-  type BrowseStyle,
   type CardStyle,
+  type StoreLayout,
+  type StoreTab,
+  featuredApps,
+  type BrowseStyle,
   type DiscoverShelf,
   type ExamplesStyle,
   type ListingStyle,
-  type StoreLayout,
-  type StoreTab,
 } from "./model";
 import {
   AppsOps,
-  CUSTOMIZE_ACTION,
   OPEN_ACTION,
   type AppDetail,
   type AppIconRef,
@@ -35,6 +35,7 @@ import {
   type LogLine,
   type WireAsset,
   type WireLogs,
+  CUSTOMIZE_ACTION,
 } from "./types";
 
 export type Connection = "connecting" | "connected" | "disconnected";
@@ -125,6 +126,9 @@ export class AppsStore {
    * timeout never installs or toggles twice. Success, a refusal or a declined sheet ends it.
    */
   private readonly pendingKeys = new Map<string, string>();
+  // A mutation already waiting on its native confirmation: a second click on Install (or on any
+  // other mutation) while the first sheet loads joins that call instead of asking again.
+  private readonly inFlight = new Map<string, Promise<void>>();
 
   constructor(
     private readonly client: PageClient | null,
@@ -253,7 +257,15 @@ export class AppsStore {
           .catch((error: unknown) => ({ result: undefined, error })),
       ]);
       if (generation !== this.generation) return;
-      const listed = catalog.apps.filter(listedInStore);
+      // The icons already loaded go on first, so a listing that did not change keeps its object
+      // (and its memoized card) across the reload.
+      const listed = keepUnchangedApps(
+        this.snapshot.catalog,
+        catalog.apps.filter(listedInStore).map((app) => {
+          const icon = this.withIcon(app.id, app.icon);
+          return icon === app.icon ? app : { ...app, icon };
+        }),
+      );
       // Installed rows carry no icon: they take their listing's.
       const iconOf = new Map(listed.map((app) => [app.id, app.icon]));
       const installedRows = installed.apps
@@ -549,9 +561,16 @@ export class AppsStore {
       return icon === app.icon ? app : { ...app, icon };
     };
     const { catalog, visible, installed, detail } = this.snapshot;
+    // A visible listing is its catalog object, patched once: the next reload keeps the same one.
+    const patched = new Map<CatalogApp, CatalogApp>();
+    const nextCatalog = catalog.map((app) => {
+      const next = patch(app);
+      if (next !== app) patched.set(app, next);
+      return next;
+    });
     this.set({
-      catalog: catalog.map(patch),
-      visible: visible.map(patch),
+      catalog: patched.size ? nextCatalog : catalog,
+      visible: patched.size ? visible.map((app) => patched.get(app) ?? patch(app)) : visible,
       installed: installed.map(patch),
       detail: detail ? patch(detail) : detail,
     });
@@ -642,8 +661,9 @@ export class AppsStore {
     if (generation === this.generation) this.showIcons();
   }
 
-  // Mutations. Install, uninstall, update and grant changes show a native confirmation in the
-  // host; the page waits for the owner's answer and re-reads.
+  // Mutations. The Install click is the consent (its required scopes only; the listing shows
+  // them before the click), so an install shows no card; uninstall, update and grant changes show
+  // a native confirmation in the host. The page waits for the owner's answer and re-reads.
 
   install(app: string): Promise<void> {
     return this.intent(AppsOps.install, { app, grant_optional: false });
@@ -696,7 +716,23 @@ export class AppsStore {
     );
   }
 
-  private async intent(
+  private intent(
+    op: string,
+    params: Record<string, unknown>,
+    options: { reread?: boolean; mutation?: boolean } = {},
+  ): Promise<void> {
+    if (options.mutation === false) return this.run(op, params, options);
+    const action = `${op}\u0000${JSON.stringify(params)}`;
+    const pending = this.inFlight.get(action);
+    if (pending) return pending;
+    const call = this.run(op, params, options).finally(() => {
+      if (this.inFlight.get(action) === call) this.inFlight.delete(action);
+    });
+    this.inFlight.set(action, call);
+    return call;
+  }
+
+  private async run(
     op: string,
     params: Record<string, unknown>,
     { reread = true, mutation = true }: { reread?: boolean; mutation?: boolean } = {},

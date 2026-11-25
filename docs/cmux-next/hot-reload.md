@@ -45,7 +45,7 @@ puts the change into a side copy and writes before and after screenshots, a vide
 (`hot-verify.py plan --source dir:. --app APP` first says whether it needs a build).
 
 `cmux customize library status` says which layers are on, `library refresh` pulls each one's newest build (a fork's only when you run `use` again), and
-`library off --all` turns every code layer off. Rust hot-apply into a Developer ID NIGHTLY takes the
+`library off --all` turns every code layer off, and `cmux customize doctor` lists every layer left on and every customization file that does not load, is skipped, overrides another or sits in the wrong folder, as the app's notice does. Rust hot-apply into a Developer ID NIGHTLY takes the
 tree's Team-signed copy, which CI publishes a few minutes after the tree; until then it is held back. Agents follow the same loop through the
 [cmux-hot-loop skill](../../skills/cmux-hot-loop/SKILL.md). Which layers swap, why, and how often each applies:
 cmuxterm-hq [docs/design/cmux-next-hot-swap-layers.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/design/cmux-next-hot-swap-layers.md)
@@ -312,6 +312,32 @@ takes the dev build). At 0f92b5e9 the first PR applied 10.87 s after try-pr star
 70 functions, a 135 ms load into the running copy), and its red went from 6 to 180,171 pixels with no relaunch.
 `scripts/measure/try-pr-side-instance.sh` times a set of PRs from the command to the PR's page
 loading in the side instance.
+
+#### Background by default
+
+A side instance opens parked: `side-instance.sh launch` (and so `try-pr.sh`, `hot-verify.py look` and `cmux app
+try`) puts the copy's windows on a virtual display no person looks at, "cmux parked windows"
+(`scripts/cmux-next/park-display.m`), and starts the app with `CMUX_NEXT_NO_ACTIVATE=1` (it never activates and no
+window of it becomes key) and `CMUX_NEXT_TEST_WINDOW_SCREEN` set to that display. An agent trying a change on a
+person's Mac draws nothing on their screens and takes no focus. Leo, 2026-11-22: "when you guys are testing stuff
+on [a test Mac], if you're trying to capture or whatever, ideally you guys are in some sort of background, maybe."
+
+The park display sits below and right of the person's displays, touching the bottom-right one at an 8-point corner
+(macOS keeps displays contiguous), for this login session only. It goes when the copy stops (`side-instance.sh stop`
+or the copy's pid ending). Windows there still draw, so a window shot (`screencapture -l WINDOW`, CuaDriver's
+`get_window_state`) and a window recording (`media/record-window.swift`) see them; a capture of the main display
+does not. Where the copy opens:
+
+| | windows | focus |
+|---|---|---|
+| `--parked` (default) | the park display | never |
+| `--shown` | the person's screens, behind the front app | not taken |
+| `--front` | the person's screens, in front | taken: for a person who asked to look |
+
+`CMUX_SIDE_PLACEMENT=parked|shown|front` sets the default (`CMUX_SIDE_PLACEMENT=front cmux app try .` to watch a try yourself). `try-pr.sh` takes `--shown` and `--front` through.
+`hot-verify.py look --kit` launches `--shown` (the kit records the main display), as does
+`scripts/measure/try-pr-side-instance.sh` (it shoots the display). With no clang or no console session the park
+display cannot be made, and the copy opens `--shown`, which `launch` says.
 
 ### An agent's loop: apply, probe, roll back
 
@@ -618,6 +644,33 @@ digests differ only in what a hot apply swaps, so `plan` compares the two files 
 `"via": "published keys"`. It skips the fetch of SHA and the tree and web key computation. Nothing in
 the plan reads a checkout, so it is the step a `cmux` CLI command in any build can take next. Commits
 without keys (before this, or a branch) are planned from the diff as before.
+
+## Share your build with a teammate
+
+Send a line, not a bundle. The best line is a commit: once your change is on feat-cmux-next,
+`cmux app try <sha>` runs it in the other person's cmux the cheapest way there is, with nothing to
+upload. For anything else, `cmux app share` writes the line for you:
+
+```sh
+cmux app share                      # the cmux DEV build you run (or --app APP): prints one line to send
+cmux app share | pbcopy             # the line alone goes to stdout
+cmux app try '<the line's link>'    # on the other Mac: the build opens beside their cmux
+```
+
+- A clean commit on feat-cmux-next becomes `cmux app try <sha>`; nothing is uploaded.
+- Any other build (local changes, an unmerged commit, `--bundle`) is zipped and uploaded to the team
+  build cache, and the line is `cmux app try https://.../v1/tags/share-...?backend=<env>`. The other Mac
+  downloads it, checks its sha256 and signature, unpacks it under `~/Applications/cmux Shared/`, sets a
+  DEV build's Cloud backend to the sender's, and opens it. Their own cmux is not touched.
+- The sign-in never travels: it lives in the sender's keychain, and no login or token is read or sent.
+  Each person signs in with their own account; the backend in the link takes them to the same Cloud.
+- The cache comes from `--store`, `CMUX_APP_SHARE_STORE` or `~/.config/cmux/app-share.json`
+  (`{"store": "https://..."}`), which the team's HQ menu bar app writes. HQ's menu has
+  **Share this build…**, which runs the same command and copies the line.
+
+Why not AirDrop a zipped `.app`: most dev builds are signed ad hoc, so Gatekeeper blocks the
+quarantined copy on the other Mac, and the sign-in stays behind anyway. A build `cmux app try`
+downloads carries no quarantine, so it runs.
 
 ## Every merge, no checkout
 

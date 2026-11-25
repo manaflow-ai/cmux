@@ -605,7 +605,7 @@ class HotKeys(unittest.TestCase):
         subprocess.run(["rm", "-rf", str(self.tmp)])
 
     def publish(self, sha, **changed):
-        keys = {"schema": 1, "commit": sha, "tree_key": "1" * 40, "web": "0" * 64, "web_key": "2" * 64, "web_abi": 3,
+        keys = {"schema": 2, "commit": sha, "tree_key": "1" * 40, "web": "0" * 64, "web_key": "2" * 64, "web_abi": 3,
                 "shell": "3" * 64, "ffi": "4" * 64, "helpers": "5" * 64, **changed}
         (self.tmp / "keys" / f"{sha}.json").write_text(json.dumps(keys))
 
@@ -705,6 +705,25 @@ class HotKeys(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(json.loads(done.stdout)["parts"], ["rust"])
 
+    def test_keys_sorted_by_other_rules_fall_back_to_the_diff(self):
+        # A live_apply.py rule change moves files between digests: the two records do not compare.
+        self.publish(self.base, rules="a" * 64)
+        self.publish(FIX, rules="b" * 64)
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--base", self.base, "--app", str(self.tmp / "none")],
+                              capture_output=True, text=True, env=self.env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        plan = json.loads(done.stdout)
+        self.assertNotIn("via", plan)
+        self.assertEqual(plan["parts"], ["rust"])  # cmux#37155's real diff
+        self.publish(FIX, rules="a" * 64)
+        code, plan, err = self.plan()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(plan["via"], "published keys")
+
+    def test_the_keys_name_the_rules_that_sorted_them(self):
+        hot = load_hot("hot_apply_rules_digest_under_test")
+        self.assertRegex(hot.rules_digest(), r"^[0-9a-f]{64}$")
+
     def test_equal_keys_are_a_no_op(self):
         self.publish(self.base)
         self.publish(FIX)
@@ -714,7 +733,7 @@ class HotKeys(unittest.TestCase):
 
     def test_a_missing_or_malformed_key_file_falls_back_to_the_diff(self):
         self.publish(self.base)
-        (self.tmp / "keys" / f"{FIX}.json").write_text(json.dumps({"schema": 1, "commit": FIX}))
+        (self.tmp / "keys" / f"{FIX}.json").write_text(json.dumps({"schema": 2, "commit": FIX}))
         done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--base", self.base, "--app", str(self.tmp / "none")],
                               capture_output=True, text=True, env=self.env)
         self.assertEqual(done.returncode, 0, done.stderr)
@@ -1321,6 +1340,80 @@ class PinCompatibility(unittest.TestCase):
             with contextlib.suppress(Exception):
                 self.hot.command_apply(args)
             fetched.assert_called_once()
+
+
+class StringCatalogs(unittest.TestCase):
+    """A string catalog gen-strings.mjs reads is web: the bundle built for a commit carries its words."""
+
+    # gen-strings.mjs names a one-file-per-key table by its directory (scripts/cmux-next/string_catalogs.py); an
+    # edit is to one key's file in it.
+    WEB_TABLE = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d"
+    WEB_CATALOG = f"{WEB_TABLE}/settings.demo.title.xcstrings"
+    SWIFT_CATALOG = "Packages/macOS/CmuxNext/Sources/CmuxNextOnlySwift/Localizable.xcstrings"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="hot-apply-strings-")
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name)
+        self.hot = load_hot("hot_apply_strings_under_test")
+        self.git("init", "-q")
+        self.git("config", "user.email", "t@example.com")
+        self.git("config", "user.name", "t")
+        gen = self.repo / "webviews/scripts/pages/gen-strings.mjs"
+        gen.parent.mkdir(parents=True)
+        gen.write_text(f'export const PAGES = {{ settings: {{ catalogs: [{{ file: "{self.WEB_TABLE}" }}] }} }};\n')
+        (self.repo / "webviews/src").mkdir(parents=True)
+        (self.repo / "webviews/src/web-abi.json").write_text('{"abi": 3}\n')
+        for catalog in (self.WEB_CATALOG, self.SWIFT_CATALOG):
+            (self.repo / catalog).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / catalog).write_text("{}\n")
+        self.base = self.commit()
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit(self, *edited):
+        for path in edited:
+            (self.repo / path).write_text(f"{path} edited\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "fixture", "--allow-empty")
+        return self.git("rev-parse", "HEAD")
+
+    def plan(self, sha):
+        return self.hot._plan(self.repo, self.repo / "unused.app", sha, False, self.base)
+
+    def test_a_catalog_the_web_pages_read_applies_with_the_web_and_says_translations_wait(self):
+        plan = self.plan(self.commit(self.WEB_CATALOG))
+        self.assertEqual(plan["parts"], ["web"])
+        self.assertNotIn("strings", plan["left"])
+        self.assertTrue(any("Swift's translations wait for the next build" in n and self.WEB_CATALOG in n
+                            for n in plan["notes"]), plan["notes"])
+
+    def test_a_swift_only_catalog_stays_left(self):
+        plan = self.plan(self.commit(self.SWIFT_CATALOG))
+        self.assertEqual(plan["parts"], [])
+        self.assertEqual(plan["left"]["strings"], [self.SWIFT_CATALOG])
+
+    def test_both_split_and_a_web_abi_the_app_lacks_keeps_the_web_catalog(self):
+        sha = self.commit(self.WEB_CATALOG, self.SWIFT_CATALOG)
+        plan = self.plan(sha)
+        self.assertEqual(plan["parts"], ["web"])
+        self.assertEqual(plan["left"]["strings"], [self.SWIFT_CATALOG])
+        (self.repo / "webviews/src/web-abi.json").write_text('{"abi": 4}\n')
+        plan = self.plan(self.commit(self.WEB_CATALOG))
+        self.assertEqual(plan["parts"], [])
+        self.assertIn("web ABI", plan["left"])
+
+    def test_the_keys_put_a_web_catalog_in_the_web_digest_and_a_swift_one_in_the_shell_digest(self):
+        sha = self.commit(self.WEB_CATALOG)
+        swift = self.commit(self.SWIFT_CATALOG)
+        with mock.patch.object(self.hot, "_tree_key", return_value="1" * 40), \
+                mock.patch.object(self.hot, "_web_key", return_value="2" * 64):
+            base, web, only_swift = (self.hot.hot_keys(self.repo, c) for c in (self.base, sha, swift))
+        self.assertNotEqual(web["web"], base["web"])
+        self.assertEqual(web["shell"], base["shell"])
+        self.assertEqual(only_swift["web"], web["web"])
+        self.assertNotEqual(only_swift["shell"], web["shell"])
 
 
 class WebCache(unittest.TestCase):
