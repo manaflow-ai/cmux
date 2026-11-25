@@ -82,6 +82,8 @@ export function readLatest(reply: unknown, asked: number): { frame?: TurnFrame; 
 }
 
 export const turnFramesParams = (sessionId: string, turnId: string) => ({ sessionId, turnId });
+/// One frame with its whole picture: the list leaves `full` out to keep the reply small.
+export const frameFullParams = (sessionId: string, turnId: string, index: number) => ({ sessionId, turnId, index });
 export const latestFrameParams = (sessionId: string, sinceSeq: number) => ({ sessionId, sinceSeq });
 
 /// What the pane provides: the frames of the turn that holds a row, and the live read.
@@ -90,4 +92,7 @@ export type TurnFramesReader = {
   version?: string;
   peek(rowId: string): { frames: TurnFrame[] } | undefined;
   read(rowId: string): Promise<TurnFrame[]>;
+  /// Frame `index`'s whole picture (a data URL), fetched when the image viewer opens it; undefined
+  /// when the daemon has none, and the viewer keeps the thumb.
+  full?(rowId: string, index: number): Promise<string | undefined>;
 };
