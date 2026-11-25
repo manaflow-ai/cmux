@@ -107,6 +107,8 @@ const transcript = Array.from({ length: 400 }, (_, i) => {
 class FakeAcpmux {
   sessions = Array.from({ length: SESSIONS }, (_, n) => summary(n + 1));
   watches = 0;
+  /// `_acpmux/watch {enabled: false}`: a hidden pane's pause, answered `{}` as acpmux does.
+  pauses = 0;
   readyState = 0;
   onopen: (() => void) | null = null;
   onerror: (() => void) | null = null;
@@ -121,9 +123,12 @@ class FakeAcpmux {
   send(raw: string): void {
     const message = JSON.parse(raw) as { id?: number; method: string; params?: Record<string, unknown> };
     if (message.id === undefined) return;
-    if (message.method === "_acpmux/watch") this.watches += 1;
-    const result =
-      message.method === "initialize"
+    const pause = message.method === "_acpmux/watch" && message.params?.enabled === false;
+    if (pause) this.pauses += 1;
+    else if (message.method === "_acpmux/watch") this.watches += 1;
+    const result = pause
+      ? {}
+      : message.method === "initialize"
         ? { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [] } } }
         : message.method === "_acpmux/watch"
           ? { sessions: this.sessions }
@@ -347,6 +352,8 @@ test("showing a hidden pane refreshes discarded summaries on its existing connec
     flushFrames();
     expect(snapshots()).toBe(before);
     expect(socket.watches).toBe(watches);
+    // Hidden, it turned its list watch off: acpmux sends it no other chat's change until it shows.
+    expect(socket.pauses).toBe(1);
     setVisibility("visible");
     for (let i = 0; i < 5; i++) {
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -358,6 +365,57 @@ test("showing a hidden pane refreshes discarded summaries on its existing connec
     );
     setVisibility("visible");
     expect(socket.watches).toBe(watches + 1);
+  } finally {
+    client.close();
+    setVisibility("visible");
+  }
+});
+
+// Every page of the app hears every chat's change: with 100 chats open each busy chat cost every
+// hidden page a frame decoded, logged and dropped (Leo, 2026-11-25: "the goal is infinity chats").
+// Hidden, the page pauses its watch once, and the many changes that still come (from an acpmux
+// that ignores the pause) neither send another request nor draw; shown, it reads the list once.
+test("a hidden pane pauses its list watch once and reads the list once when shown", async () => {
+  const { socket, client, snapshots } = await openPane();
+  try {
+    const watches = socket.watches;
+    setVisibility("hidden");
+    expect(socket.pauses).toBe(1);
+    expect((client as any).sessionPages.paused).toBe(true);
+    const before = snapshots();
+    for (let round = 0; round < 10; round++) {
+      burst(socket, 30, round);
+      flushFrames();
+    }
+    expect(socket.pauses).toBe(1);
+    expect(socket.watches).toBe(watches);
+    expect(snapshots()).toBe(before);
+    setVisibility("visible");
+    for (let i = 0; i < 5; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      flushFrames();
+    }
+    expect(socket.watches).toBe(watches + 1);
+    expect((client as any).sessionPages.paused).toBe(false);
+    // Hidden again: paused again.
+    setVisibility("hidden");
+    expect(socket.pauses).toBe(2);
+  } finally {
+    client.close();
+    setVisibility("visible");
+  }
+});
+
+test("a hidden pane with an offered child keeps its list watch on", async () => {
+  const { socket, client } = await openPane();
+  try {
+    (client as any).addOffer(
+      { offerId: "kept-child", title: "Child task", outcome: "accepted", childSessionId: id(2), childStatus: "idle" },
+      1,
+    );
+    setVisibility("hidden");
+    burst(socket, 5, 0);
+    expect(socket.pauses).toBe(0);
   } finally {
     client.close();
     setVisibility("visible");

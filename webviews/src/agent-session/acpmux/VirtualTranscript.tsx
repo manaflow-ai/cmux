@@ -156,9 +156,9 @@ import {
   playTurnEnd,
   settleTurnEnd,
   TURN_END_ATTR,
-  turnEndRecap,
   type TurnEndCapture,
   type TurnEndFold,
+  turnEndRecap,
 } from "./conversation/turnEndFold";
 import { installGutterSelect, type HeldRow } from "./conversation/gutterSelect";
 import {
@@ -170,7 +170,7 @@ import {
   type ChatFind,
   rowHolds,
 } from "./conversation/chatFind";
-import { LIVE_THINKING, NEXT_STEP, THINKING, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
+import { LIVE_THINKING, THINKING, foldCovers, turnFooterFrom, retryTargetIn, NEXT_STEP } from "./conversation/turns";
 import { createLiveLinePulse } from "./conversation/liveLinePulse";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
@@ -223,6 +223,8 @@ import { NO_ROWS, rowKind, FOLLOW_BOTTOM_DEADBAND_PX, SCROLL_ANCHOR_SETTLE_MS } 
 import { focusRoute } from "../../ui/focusRoute";
 import { continuesLiveResize, LIVE_RESIZE_MS, stepLiveResize } from "./conversation/liveResizeStep";
 import { DOCK_NOTICE } from "./noticeSlotModel";
+import { ThinkingGlyph } from "./conversation/ThinkingGlyph";
+import { useLiveGlyphTrigger } from "./conversation/thinkingGlyphModel";
 import {
   type DrawnHeight,
   type ReportDrawn,
@@ -243,8 +245,8 @@ import {
   arrivedAtTail,
   TokenRows,
   newestPromptId,
-  noReplyCame,
   broughtSentPrompt,
+  noReplyCame,
 } from "./transcript/arrivals";
 import {
   scrollRangeIn,

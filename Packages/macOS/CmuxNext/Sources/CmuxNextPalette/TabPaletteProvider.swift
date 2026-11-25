@@ -39,7 +39,7 @@ public final class TabPaletteProvider: PaletteProvider {
                 symbol: symbol,
                 section: Self.section,
                 keywords: [PaletteStrings.tabKeyword],
-                primary: PaletteCommand(id: "select", title: PaletteStrings.switchToTab, symbol: "return", effect: .perform {
+                primary: PaletteCommand(id: "select", title: PaletteStrings.switchToTab, symbol: "return", namesRow: true, effect: .perform {
                     source.selectTab(id: id)
                 }),
                 secondary: [
