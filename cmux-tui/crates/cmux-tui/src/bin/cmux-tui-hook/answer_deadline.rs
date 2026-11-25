@@ -89,7 +89,7 @@ pub(super) fn answer(write: impl FnOnce()) {
     if LATE.load(Ordering::SeqCst) {
         // The deadline passed while this answer was written: it was the
         // answer, and nothing after it may hold the agent.
-        timer::exit_now();
+        timer::finish();
     }
 }
 
@@ -100,10 +100,10 @@ fn on_due() {
             if EMPTY_OBJECT.load(Ordering::SeqCst) {
                 timer::write_stdout(b"{}\n");
             }
-            timer::exit_now();
+            timer::finish();
         }
         Err(WRITING) => LATE.store(true, Ordering::SeqCst),
-        Err(_) => timer::exit_now(),
+        Err(_) => timer::finish(),
     }
 }
 
@@ -146,7 +146,7 @@ mod timer {
         }
     }
 
-    pub(super) fn exit_now() -> ! {
+    pub(super) fn finish() -> ! {
         // SAFETY: _exit(2) ends the process without running destructors or
         // atexit handlers, as a signal handler must.
         unsafe { libc::_exit(0) }
@@ -173,9 +173,11 @@ mod timer {
         let _ = stdout.flush();
     }
 
-    pub(super) fn exit_now() -> ! {
+    /// Ends nothing here: the answer is written and every later one is
+    /// dropped (`answer` sees ANSWERED); the helper's own bounded waits end
+    /// the process.
+    pub(super) fn finish() {
         let _ = std::io::stdout().lock().flush();
-        std::process::exit(0)
     }
 }
 
