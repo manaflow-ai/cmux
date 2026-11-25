@@ -45,15 +45,19 @@ extension CloudService {
         return (record, CloudMachineStats(state: record.status.rawValue))
     }
 
-    /// One `cloud.machine.create` (or `cloud.environment.boot` for `environment`) through ``CloudMachineCreateFlow``, with the
+    /// One `cloud.machine.create` through ``CloudMachineCreateFlow`` (`environment`: the platform's ensure, ``CloudMoveCLI/machineInEnvironment(_:key:platform:access:)``), with the
     /// request's one idempotency key (cmuxterm-hq#4709): the creation's Retry sends the same key to the same team on the same route,
     /// so a create whose answer was lost answers its first machine instead of making a second. `ownCreate`: the person's own gesture
-    /// started it, so a fresh key goes straight to the Cloud API as the person (``CloudMachineRequest/createRoute(personsOwnCreate:team:)``).
+    /// started it, so a fresh key goes straight to the Cloud API as the person (``CloudMachineRequest/createRoute(personsOwnCreate:team:)``). `onAnswer` hears the whole answer.
     func appServerCreate(name: String?, startedByPerson: Bool, ownCreate: Bool = false, asksFirst: Bool = true, askedBy: String?, environment: String? = nil,
                          creation: CloudMachineCreation?, request: CloudMachineRequest,
                          onSent: @escaping @MainActor @Sendable () async -> Void,
-                         persistSent: (@MainActor @Sendable (String, CloudCreateRoute) async throws -> Void)? = nil) async throws -> CloudMachine {
+                         persistSent: (@MainActor @Sendable (String, CloudCreateRoute) async throws -> Void)? = nil, onAnswer: @MainActor (JSONValue) -> Void = { _ in }) async throws -> CloudMachine {
         let pinned = creation?.request ?? request, identity = installIdentity
+        if let environment, let cli = move.cli {
+            await onSent(); let id = try await CloudMoveCLI(binary: cli).machineInEnvironment(environment, key: pinned.idempotencyKey, platform: configuration.artifactsAPIBaseURL()?.absoluteString, access: try await auth.tokens().access)
+            if let name, !name.isEmpty { try? await renameMachine(id, to: name) }; return try await machineRecord(id)
+        }
         let currentTeam: @Sendable () async throws -> String = { MacInstallIdentity.team(ofToken: try await identity.installToken()) ?? "" }
         // The team the relay's create bills: the install token's team claim, captured now (the direct route sends it as
         // `x-cmux-team`). A Retry stays with the first send's team and route, and is refused if the token now bills another team.
@@ -76,7 +80,7 @@ extension CloudService {
                                            approved: pinned.approvedRequest, onApproved: { [weak creation] in creation?.markApproved($0, key: pinned.idempotencyKey) },
                                            answering: pinned.answeringRequest, onAnswering: { [weak creation] in creation?.markAnswering($0, key: pinned.idempotencyKey) },
                                            gate: pinned.wasSent ? .allowed : createGate, environment: environment, request: pinned,
-                                           madeRoom: { [weak self] in self?.madeRoom?(CloudMachine(next: $0)?.title ?? $0["name"]?.stringValue ?? "") })
+                                           madeRoom: { [weak self] in self?.madeRoom?(CloudMachine(next: $0)?.title ?? $0["name"]?.stringValue ?? "") }, answered: onAnswer)
         } catch let failure as CloudAppOpFailure where CloudStartCore().isDefinitiveRefusal(failure) {
             // The key's stored answer is this refusal; only an uncertain outcome keeps the key. A cancelled
             // attempt (a Retry already started, with this same key) leaves the key to that Retry.
@@ -86,7 +90,7 @@ extension CloudService {
             // The direct route refused before the op ran (no usable session, an older server): the relay takes it with a NEW key, never this one (a caller that keeps the key in its own ledger, `persistSent`, takes the new key from it).
             var relay = pinned; relay.idempotencyKey = UUID().uuidString; creation?.renewKey(replacing: pinned.idempotencyKey)
             return try await appServerCreate(name: name, startedByPerson: startedByPerson, asksFirst: asksFirst, askedBy: askedBy, environment: environment,
-                                             creation: creation, request: relay, onSent: onSent, persistSent: persistSent)
+                                             creation: creation, request: relay, onSent: onSent, persistSent: persistSent, onAnswer: onAnswer)
         }
         guard let machine = CloudMachine(next: record) else { throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "the create answered no machine") }
         return machine
@@ -108,13 +112,9 @@ extension CloudService {
         return try await appServerApprovedCall(op, args: .object(args), confirm: { true }).recordID(record, op: op)
     }
 
-    /// The team's Cloud environments; throws when the list fails (`cloud new-machine --environment NAME` refuses it).
+    /// The team's Cloud environments (`/v1/cloud-environments`); throws when the list fails (`cloud new-machine --environment NAME` refuses it).
     func appServerEnvironmentOptions() async throws -> [CloudWorkspaceSetupWizard.EnvironmentOption] {
-        let answer = try await appOps("cloud.environment.list", .object([:]), nil, .script)
-        return (answer["environments"]?.arrayValue ?? []).compactMap { value in
-            guard let id = value["id"]?.stringValue, let name = value["name"]?.stringValue else { return nil }
-            return CloudWorkspaceSetupWizard.EnvironmentOption(id: id, name: name)
-        }
+        try await CloudEnvironmentRequest.names(connection: machines.local.connection, platform: configuration.artifactsAPIBaseURL(), accessToken: try await installIdentity.accessToken(team: try await auth.accessTokenTeam(requested: nil)).accessToken).map { .init(id: $0.id, name: $0.name) }
     }
 
     /// The approval-aware flow every person-confirmed app-server op runs through; `run` sends each

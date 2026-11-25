@@ -33,6 +33,79 @@ use super::*;
 
 pub(in crate::hub) mod revive;
 
+/// The refusal of a prompt for session `name` whose folder `cwd` is gone: `session.folder_missing`,
+/// naming the folder in its message and data. Retryable: a folder can come back (put back
+/// by hand, a worktree recreated), so a sender's outbox keeps the message and sends it again
+/// (`server/outbox.rs` `next`); a retry while it is still gone costs one stat (`gone`).
+pub(crate) fn folder_missing(name: &str, cwd: &std::path::Path, what: &str) -> RpcError {
+    use super::outbox::FOLDER_MISSING;
+    RpcError::internal(format!("{FOLDER_MISSING}: the folder of {name} ({}) {what}", cwd.display()))
+        .with_data(json!({
+            "reason": FOLDER_MISSING,
+            "folder": cwd,
+            "retryable": true,
+        }))
+}
+
+/// Folders found gone after every way back was tried (no archive to restore, no recorded worktree
+/// or its recreate failed for a reason a retry does not change): a later prompt for a session in
+/// one, with the same worktree record, is refused after one stat, with no archive read and no git,
+/// until the folder exists again. A daemon restart forgets them, so the full check runs once more.
+pub(in crate::hub) mod gone {
+    use crate::git_state::WorktreeOrigin;
+    use std::collections::HashMap;
+    use std::path::{Path, PathBuf};
+    use std::sync::{LazyLock, Mutex};
+
+    struct Gone {
+        worktree: Option<WorktreeOrigin>,
+        /// The refusal's words after the folder (`folder_missing`).
+        what: String,
+    }
+
+    /// Bounded: cleared whole past this many folders (each is then checked in full once more).
+    const MAX: usize = 1024;
+
+    static GONE: LazyLock<Mutex<HashMap<PathBuf, Gone>>> = LazyLock::new(Default::default);
+    /// Full checks of a missing folder (`Hub::folder_ready`), by folder: what a test counts.
+    static FULL: LazyLock<Mutex<HashMap<PathBuf, u64>>> = LazyLock::new(Default::default);
+
+    fn gone() -> std::sync::MutexGuard<'static, HashMap<PathBuf, Gone>> {
+        GONE.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The refusal's words for `cwd` when it was found gone with this worktree record.
+    pub(in crate::hub) fn known(cwd: &Path, worktree: &Option<WorktreeOrigin>) -> Option<String> {
+        gone().get(cwd).filter(|g| g.worktree == *worktree).map(|g| g.what.clone())
+    }
+
+    pub(in crate::hub) fn mark(cwd: &Path, worktree: &Option<WorktreeOrigin>, what: &str) {
+        let mut gone = gone();
+        if gone.len() >= MAX && !gone.contains_key(cwd) {
+            gone.clear();
+        }
+        gone.insert(cwd.to_owned(), Gone { worktree: worktree.clone(), what: what.to_owned() });
+    }
+
+    pub(in crate::hub) fn forget(cwd: &Path) {
+        gone().remove(cwd);
+    }
+
+    pub(in crate::hub) fn count_full(cwd: &Path) {
+        let mut full = FULL.lock().unwrap_or_else(|e| e.into_inner());
+        if full.len() >= MAX && !full.contains_key(cwd) {
+            full.clear();
+        }
+        *full.entry(cwd.to_owned()).or_default() += 1;
+    }
+
+    /// How many times a prompt for a session in `cwd` ran the full check (archive read, worktree
+    /// recreate) while the folder was missing.
+    pub fn full_checks(cwd: &Path) -> u64 {
+        FULL.lock().unwrap_or_else(|e| e.into_inner()).get(cwd).copied().unwrap_or(0)
+    }
+}
+
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicU64;
@@ -149,18 +222,29 @@ impl Hub {
     /// Starts the daemon's one cleanup worker: on each wake (a status
     /// change, and once now for the start) it runs a pass when one is due
     /// (`spacing`) and none runs. It holds the hub weakly and ends with it.
-    pub(crate) fn care_worker(self: &Arc<Self>) {
+    /// Supervised (`crate::supervise`): a pass that panics starts the worker again, which wakes
+    /// itself once so the pass that panicked is tried again; before, the panic ended the worker
+    /// and no pass ran until the daemon restarted.
+    pub(crate) fn care_worker(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
         let hub = Arc::downgrade(self);
         *CARE.why.lock().unwrap_or_else(|e| e.into_inner()) = "startup";
         CARE.wake.notify_one();
-        tokio::spawn(async move {
-            loop {
-                CARE.wake.notified().await;
-                let Some(hub) = hub.upgrade() else { return };
-                let why = *CARE.why.lock().unwrap_or_else(|e| e.into_inner());
-                hub.care_if_due(why).await;
+        let mut again = false;
+        crate::supervise::restarting("worktree care", &self.fatal, move || {
+            if std::mem::replace(&mut again, true) {
+                CARE.wake.notify_one();
             }
-        });
+            let hub = hub.clone();
+            async move {
+                loop {
+                    CARE.wake.notified().await;
+                    let why = *CARE.why.lock().unwrap_or_else(|e| e.into_inner());
+                    crate::supervise::panic_point("worktree care", why);
+                    let Some(hub) = hub.upgrade() else { return };
+                    hub.care_if_due(why).await;
+                }
+            }
+        })
     }
 
     async fn care_if_due(&self, why: &'static str) {
@@ -258,6 +342,8 @@ impl Hub {
                     &home, &configs,
                 )),
                 open: Arc::new(cmux_worktree_care::procs::open_inside),
+                // A recorded session on the Desktop: no git there unasked (LAUNCH-NO-TCC-PROMPTS).
+                guarded: Arc::new(crate::protected_folders::in_protected_location),
                 settings: CareSettings::default(),
                 apply,
                 pressure: None,
@@ -374,14 +460,32 @@ impl Hub {
         Ok(())
     }
 
+    /// How many times a prompt for a session in `cwd` ran the full folder check (archive read,
+    /// worktree recreate) while the folder was missing; a retry after that costs one stat.
+    #[doc(hidden)]
+    pub fn folder_missing_full_checks(&self, cwd: &std::path::Path) -> u64 {
+        gone::full_checks(cwd)
+    }
+
     /// Before a prompt for a session with no running agent is taken: its folder, restored when
-    /// cleanup reclaimed it, or a refusal naming the folder when it is still gone (a worktree
-    /// removed by hand). The refusal is retryable, so an outbox delivery (`server/outbox.rs`)
-    /// keeps the message and sends it again once the folder is back; a harness started in a
+    /// cleanup reclaimed it or recreated when it was a recorded worktree (`revive_folder`), or a
+    /// refusal naming the folder when it is still gone (a worktree removed by hand, a probe
+    /// folder under /tmp). The refusal is retryable, so an outbox delivery (`server/outbox.rs`)
+    /// keeps the message and sends it again once the folder is back; while it stays gone, each
+    /// retry is one stat (`gone`): no archive read, no git, no harness. Only acpmux's own temporary
+    /// folder, which never comes back, is refused for good. A harness started in a
     /// missing folder failed the turn after it was taken, as `spawn harness process: No such
     /// file or directory`.
     async fn folder_ready(&self, session: &Arc<Session>) -> Result<(), RpcError> {
-        self.care_restore_for(session).await;
+        let meta = session.meta();
+        if tokio::fs::try_exists(&meta.cwd).await.unwrap_or(true) {
+            gone::forget(&meta.cwd);
+        } else if let Some(what) = gone::known(&meta.cwd, &meta.worktree) {
+            return Err(folder_missing(&meta.name, &meta.cwd, &what));
+        } else {
+            gone::count_full(&meta.cwd);
+        }
+        let archived = self.care_restore_for(session).await;
         self.revive_folder(session, &CARE.restoring).await?;
         let meta = session.meta();
         // A folder that cannot be read (its permissions) fails at the start as before.
@@ -394,7 +498,12 @@ impl Hub {
         // the refusal is final, so an outbox or relayed delivery is refused once, its sender told
         // why, instead of being tried again every minute forever. Any other folder may come back
         // (a worktree removed by hand and made again), so its refusal stays retryable.
-        if meta.worktree.is_none() && crate::agent::session_tmp::holds(&meta.cwd) {
+        #[cfg(unix)]
+        let session_tmp = crate::agent::session_tmp::holds(&meta.cwd);
+        // Session temp folders are a unix-only part of acpmux (`agent::session_tmp`).
+        #[cfg(not(unix))]
+        let session_tmp = false;
+        if meta.worktree.is_none() && session_tmp {
             return Err(RpcError::internal(format!(
                 "session.folder_missing: the folder of {} ({}) was a temporary folder and is gone \
                  for good, so its agent cannot start again; start a new chat, or archive this one \
@@ -410,23 +519,21 @@ impl Hub {
                 "temporary": true,
             })));
         }
-        Err(RpcError::internal(format!(
-            "session.folder_missing: the folder of {} ({}) no longer exists; it was moved or \
-             removed (or a file took its place), so its agent cannot start until it is back",
-            meta.name,
-            meta.cwd.display()
-        ))
-        .with_data(json!({
-            "reason": "session.folder_missing",
-            "folder": meta.cwd,
-            "retryable": true,
-        })))
+        let what = "no longer exists; it was moved or removed (or a file took its place), so its \
+                    agent cannot start until it is back";
+        // An archive whose restore failed is read again next time: that may work.
+        if !archived && !tokio::fs::try_exists(&meta.cwd).await.unwrap_or(true) {
+            gone::mark(&meta.cwd, &meta.worktree, what);
+        }
+        Err(folder_missing(&meta.name, &meta.cwd, what))
     }
 
-    async fn care_restore_for(&self, session: &Arc<Session>) {
+    /// Restores the folder of `session` from cleanup's archive when it is missing and one holds
+    /// it. Whether an archive for it was found (restored or not).
+    async fn care_restore_for(&self, session: &Arc<Session>) -> bool {
         let cwd = session.meta().cwd.clone();
         if tokio::fs::try_exists(&cwd).await.unwrap_or(true) {
-            return;
+            return false;
         }
         let _one = CARE.restoring.lock().await;
         let restored = tokio::task::spawn_blocking(move || {
@@ -451,7 +558,7 @@ impl Hub {
         })
         .await;
         let (kind, detail) = match restored {
-            Ok(None) => return,
+            Ok(None) => return false,
             Ok(Some((id, Ok(restored)))) => (
                 "worktree_restored",
                 json!({"archive": id, "path": restored.path, "notes": restored.notes}),
@@ -462,6 +569,7 @@ impl Hub {
             Err(error) => ("worktree_restore_failed", json!({"error": error.to_string()})),
         };
         self.append(session, "mux", kind, detail);
+        true
     }
 }
 
@@ -488,5 +596,41 @@ mod care_tests {
         }));
         assert!(caught.is_err());
         assert!(Running::claim(&flag).is_some(), "the panic cleared it");
+    }
+
+    /// #54378: a care pass that panicked ended the daemon's one cleanup worker for good. The
+    /// supervised worker starts again and takes a next wake (a second armed panic holds it there,
+    /// so the test runs no real pass over this machine's worktrees).
+    #[tokio::test]
+    async fn a_care_pass_that_panics_starts_the_worker_again() {
+        let root = std::env::temp_dir().join(format!("acpmux-care-{}", uuid::Uuid::now_v7()));
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Local;
+        let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, &root).unwrap());
+        crate::supervise::arm_panic("worktree care", "startup");
+        crate::supervise::arm_panic("worktree care", "startup");
+        let worker = hub.care_worker();
+        // Each pass counts once per arming. The wake and its reason are process-wide, so a test
+        // running beside this one may take the wake or change its reason: it is sent again until
+        // the pass after the panic counts.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let mut again = false;
+        while !again && std::time::Instant::now() < deadline {
+            again = crate::supervise::passed(
+                "worktree care",
+                "startup",
+                4,
+                std::time::Duration::from_millis(200),
+            )
+            .await;
+            if !again {
+                *CARE.why.lock().unwrap_or_else(|e| e.into_inner()) = "startup";
+                CARE.wake.notify_one();
+            }
+        }
+        worker.abort();
+        assert!(again, "the worker never ran again after its pass panicked");
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

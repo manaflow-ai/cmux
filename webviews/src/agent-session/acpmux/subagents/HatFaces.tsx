@@ -3,9 +3,12 @@ import type { Translate } from "../i18n";
 import { AgentIdentity } from "./AgentIdentity";
 import { SUBAGENT_FALLBACK } from "./agentIdentityModel";
 import { agentTone } from "./agentTones";
+import { PHASE_DWELL_MS } from "./hatStep";
+import { useDwell } from "./HatStepSlot";
 import { endedInFailure, type TrayItem } from "./runningTray";
 import { STATE_LABEL } from "./subagentGroupModel";
 import { subagentTaskLabel } from "./subsessions";
+import { useGlideAround } from "./trayMotion";
 
 /// One subagent's icon in the folded hat header (Leo, 2026-11-22: "show a lot of icons (of subagents)
 /// and be able to thumb through them when my cursor is hovering over them to be able to parse who's
@@ -46,7 +49,7 @@ export function hatFaces(
     ...items.map((item) => [item, false] as const),
     ...finished.map((item) => [item, true] as const),
   ]) {
-    if (item.kind === "command" || seen.has(item.id)) continue;
+    if (item.kind === "command" || item.kind === "turn" || seen.has(item.id)) continue;
     seen.add(item.id);
     if (item.kind === "agent") {
       const { agent } = item;
@@ -135,10 +138,16 @@ export function HatFaces({
   onOpenSession?: (sessionId: string) => void;
 }) {
   const cap = narrow ? FACE_CAP_NARROW : FACE_CAP;
-  const rest = arm === "fan" ? Math.min(cap, size + (faces.length - 1) * FACE_FAN_STEP) : cap;
-  const layout = faceLayout(faces.length, size, rest);
+  // How many icons the row is laid out for is held as the header's words are (hatStep.ts, 1.6 s), so
+  // twenty subagents joining at once widen the row once, not twenty times, and the words after it glide
+  // to their new place once (SubagentTray `useGlide`). The icons drawn are always the newest list's.
+  const count = Math.min(faces.length, useDwell(faces.length, PHASE_DWELL_MS));
+  const rest = arm === "fan" ? Math.min(cap, size + (count - 1) * FACE_FAN_STEP) : cap;
+  const layout = faceLayout(count, size, rest);
+  // The row's new width and the words' glide land in the same commit (trayMotion.tsx `useGlideAround`).
+  useGlideAround(layout.width);
   // The fan spreads to the spread arm's layout on hover, drawn over the header so nothing moves.
-  const open = arm === "fan" ? faceLayout(faces.length, size, FACE_CAP) : layout;
+  const open = arm === "fan" ? faceLayout(count, size, FACE_CAP) : layout;
   const shown = faces.slice(0, layout.shown);
   const click = (face: HatFace) => (event: MouseEvent) => {
     event.stopPropagation();
@@ -184,7 +193,7 @@ export function HatFaces({
             data-tooltip-side="top"
             onClick={click(face)}
           >
-            <AgentIdentity harness={face.harness} tone={face.tone} size={size} fallback={face.icon} />
+            <AgentIdentity harness={face.harness} tone={face.tone} size={size} fallback={face.icon} plain />
           </span>
         ))}
       </span>

@@ -12,7 +12,7 @@
   --ui-hover: var(--cmux-hover, color-mix(in srgb, var(--ui-fg) 6%, transparent));
   --ui-selected: var(--cmux-selection, color-mix(in srgb, var(--ui-fg) 10%, transparent));
   /* A highlighted menu, combobox or list row (desktop.css): hover's family, a touch stronger. */
-  --ui-row: var(--cmux-row-focus, color-mix(in srgb, var(--ui-fg) 10%, transparent));
+  --ui-row: var(--menu-hover-fill, var(--cmux-row-focus, color-mix(in srgb, var(--ui-fg) 10%, transparent)));
   --ui-row-bar: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
   --ui-row-pressed: var(--cmux-pressed, color-mix(in srgb, var(--ui-fg) 12%, transparent));
   --ui-surface: var(--cmux-elevated-background, Canvas);
@@ -28,7 +28,8 @@
    and pressed cells). A host that maps --ui-row itself (the agent pane's accent wash) does not load
    this file. */
 :where(.ui-popup.ui-menu, .ui-popup.ui-context-menu) {
-  --ui-row: var(--cmux-hover, color-mix(in srgb, var(--ui-fg) 5%, transparent));
+  /* A look's --menu-hover-fill (README "Menu tokens a look sets") still reaches a menu's row here. */
+  --ui-row: var(--menu-hover-fill, var(--cmux-hover, color-mix(in srgb, var(--ui-fg) 5%, transparent)));
 }
 /* The chrome around the controls keeps the arrow. A button (.ui-button) and a drill row (role
    option) are not in this list: a rule here comes after the shared pointing-hand rule and would
@@ -113,7 +114,7 @@
 .ui-menu-shortcut {
   margin-inline-start: auto;
   padding-inline-start: 20px;
-  color: var(--ui-fg-2);
+  color: var(--menu-shortcut-color, var(--ui-fg-2));
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-caption--letter-spacing);
@@ -129,11 +130,11 @@
 
 .ui-menu-item[data-disabled],
 .ui-menu-item:disabled {
-  opacity: var(--ds-disabled-opacity, 0.6);
+  opacity: var(--menu-disabled-opacity, var(--ds-disabled-opacity, 0.6));
 }
 
 .ui-menu-item-destructive {
-  color: var(--cmux-app-danger, var(--agent-danger, var(--ui-fg)));
+  color: var(--menu-destructive, var(--cmux-app-danger, var(--agent-danger, var(--ui-fg))));
 }
 
 .ui-context-menu-backdrop {
@@ -239,16 +240,16 @@
 .ui-menu-group-label,
 .ui-drill-section {
   padding: 6px 8px 2px;
-  color: var(--ui-fg-2);
-  font-size: var(--text-caption);
-  font-weight: var(--weight-emphasis);
+  color: var(--menu-label-color, var(--ui-fg-2));
+  font-size: var(--menu-label-size, var(--text-caption));
+  font-weight: var(--menu-label-weight, var(--weight-emphasis));
   letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .ui-separator {
   height: 1px;
   margin: 4px 2px;
-  background: var(--ui-line);
+  background: var(--menu-separator, var(--ui-line));
 }
 
 /* A long menu's search field (MenuSearchField): a row-high field above its rows. */

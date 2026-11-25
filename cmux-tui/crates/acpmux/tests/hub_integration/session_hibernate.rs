@@ -48,6 +48,11 @@ pub(super) async fn rig_with_store(policy: PermissionPolicy) -> Rig {
     rig_in(policy, false, &[("FAKE_CODEX_STORE", "1")]).await
 }
 
+/// A rig whose fake harness runs with `env` too (fake_agent.py's modes: `FAKE_CLAUDE_STEER`...).
+pub(super) async fn rig_with_env(policy: PermissionPolicy, env: &[(&str, &str)]) -> Rig {
+    rig_in(policy, false, env).await
+}
+
 /// A rig whose store is on disk, so `Rig::restart` brings its chats back in a new daemon.
 pub(super) async fn rig_on_disk(policy: PermissionPolicy) -> Rig {
     rig_in(policy, true, &[]).await

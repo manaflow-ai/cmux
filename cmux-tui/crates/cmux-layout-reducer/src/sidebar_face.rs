@@ -235,6 +235,10 @@ pub struct Face<'a> {
     pub bucket_tab: Option<usize>,
     /// The tab whose agent the row names (`agentTab`).
     pub agent: Option<usize>,
+    /// The agent of `agent` runs in a terminal: that tab is a terminal (local
+    /// or remote) its agent's hooks report on, not an agent chat
+    /// ([`agent_in_terminal`]). False with no agent tab.
+    pub agent_in_terminal: bool,
     pub notice: Option<Notice>,
     pub kind: Kind,
     pub row_kind: RowKind,
@@ -530,6 +534,12 @@ pub fn listed_kind(tab: &Tab<'_>) -> ListedKind {
     }
 }
 
+/// A terminal agent's tab: a terminal, local or remote, whose agent's hooks
+/// report on it, and not an agent chat (a Conversation tab, or `chat`).
+pub fn agent_in_terminal(tab: &Tab<'_>) -> bool {
+    matches!(tab.kind, TabKind::Pty | TabKind::RemoteTerminal) && tab.agent.is_some() && !tab.chat
+}
+
 /// The newest agent update or notification of one tab; 0 for none.
 pub fn last_activity(tab: &Tab<'_>) -> u64 {
     tab.agent_updated_ms.max(tab.notification_created_ms)
@@ -542,6 +552,7 @@ pub fn face<'a>(workspace: &Workspace<'a>, context: &Context<'_>) -> Face<'a> {
     let label = workspace.label_tab(front, home);
     let face = workspace.face_tab(home);
     let folder_tab = workspace.folder_tab(label, home);
+    let agent = workspace.agent_tab();
     // Group by Folder's bucket: the front tab's folder, else any tab's.
     let bucket_tab = front
         .filter(|index| workspace.tabs.get(*index).is_some_and(|tab| tab.cwd.is_some()))
@@ -581,7 +592,10 @@ pub fn face<'a>(workspace: &Workspace<'a>, context: &Context<'_>) -> Face<'a> {
         front_chat: workspace.chat_tab(front),
         folder_tab,
         bucket_tab,
-        agent: workspace.agent_tab(),
+        agent,
+        agent_in_terminal: agent
+            .and_then(|index| workspace.tabs.get(index))
+            .is_some_and(agent_in_terminal),
         notice: if context.shows_unread { workspace.notice() } else { None },
         kind: kind(face.and_then(|index| workspace.tabs.get(index))),
         row_kind: workspace.row_kind(),

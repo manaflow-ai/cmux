@@ -756,7 +756,7 @@ export function HomeChannelsPage({
                             strings={strings}
                             placeholder={format("composer.placeholder", place)}
                             label={format("composer.placeholder", name)}
-                            disabled={!online}
+                            held={!online}
                             people={mentionable}
                             onEditLast={() => {
                               const last = lastEditable(
