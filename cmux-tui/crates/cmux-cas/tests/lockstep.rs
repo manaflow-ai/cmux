@@ -5,8 +5,8 @@
 //! it adds fields version 1 has no tag for (a Bao outboard on `DATA`, a bloom on `HAVE`, a
 //! deadline on `WANT`) and a message kind version 1 does not know (`PATCH?`).
 
-use cmux_cas::wire::{Frame, KIND_DATA, KIND_HAVE, KIND_NOPE, KIND_WANT, tag};
 use cmux_cas::peer::{accept, respond};
+use cmux_cas::wire::{Frame, KIND_DATA, KIND_HAVE, KIND_NOPE, KIND_WANT, tag};
 use cmux_cas::wire::{Message, VERSION};
 use cmux_cas::{Id, Store};
 
@@ -59,7 +59,11 @@ impl V2Peer {
     }
 
     fn patch(&self, base: Id, target: Id) -> Frame {
-        Frame { version: V2, kind: KIND_PATCH, fields: vec![(tag::IDS, [base.0, target.0].concat())] }
+        Frame {
+            version: V2,
+            kind: KIND_PATCH,
+            fields: vec![(tag::IDS, [base.0, target.0].concat())],
+        }
     }
 
     /// The v2 answer to a WANT: v1's DATA fields plus an outboard v1 never heard of.
@@ -161,7 +165,12 @@ fn lockstep_v1_unknown_field_inside_a_known_message_is_ignored() {
         Message::Have { version: VERSION, root: Some(Id([1; 32])), ids: vec![Id([2; 32])] },
         Message::Want { version: VERSION, ids: vec![Id([3; 32])], priority: 4 },
         Message::Data { version: VERSION, id: Id([5; 32]), bytes: b"x".to_vec() },
-        Message::Nope { version: VERSION, ids: vec![Id([6; 32])], kind: None, reason: "gone".into() },
+        Message::Nope {
+            version: VERSION,
+            ids: vec![Id([6; 32])],
+            kind: None,
+            reason: "gone".into(),
+        },
     ] {
         let mut frame = m.to_frame();
         frame.fields.insert(0, (200, b"from the future".to_vec()));

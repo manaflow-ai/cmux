@@ -265,7 +265,9 @@ impl Message {
 }
 
 fn one_id(bytes: &[u8]) -> Result<Id> {
-    <[u8; 32]>::try_from(bytes).map(Id).map_err(|_| format!("an id of {} bytes, not 32", bytes.len()).into())
+    <[u8; 32]>::try_from(bytes)
+        .map(Id)
+        .map_err(|_| format!("an id of {} bytes, not 32", bytes.len()).into())
 }
 
 fn ids(bytes: &[u8]) -> Result<Vec<Id>> {
@@ -282,7 +284,11 @@ mod tests {
 
     fn all() -> Vec<Message> {
         vec![
-            Message::Have { version: VERSION, root: Some(Id([1; 32])), ids: vec![Id([2; 32]), Id([3; 32])] },
+            Message::Have {
+                version: VERSION,
+                root: Some(Id([1; 32])),
+                ids: vec![Id([2; 32]), Id([3; 32])],
+            },
             Message::Have { version: VERSION, root: None, ids: vec![] },
             Message::Want { version: VERSION, ids: vec![Id([4; 32])], priority: 2 },
             Message::Data { version: VERSION, id: Id([5; 32]), bytes: b"chunk".to_vec() },
