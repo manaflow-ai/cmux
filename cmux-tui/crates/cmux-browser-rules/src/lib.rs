@@ -13,11 +13,16 @@
 //! - [`links`]: what a link click does (the gesture of a click, the person's
 //!   `browser.links.*` mapping), where Chromium's link requests go (`CEFLinkClicks`) and the one
 //!   decision for every window Chromium wants to open (`CEFWindowPolicy`).
+//! - [`profiles`]: browser profiles: which profile a new tab gets (`BrowserProfileCascade`), the
+//!   profile ids, records and book (naming, ordering, validation, deletion tombstones), a
+//!   profile's proxy as the engines take it, the deleted profiles' cleanup and the off-the-record
+//!   profiles' lifetime (`OffTheRecordProfiles`).
 
 pub mod address;
 pub mod calculator;
 pub mod links;
 pub mod ops;
+pub mod profiles;
 
 #[cfg(test)]
 mod address_tests;
@@ -25,3 +30,5 @@ mod address_tests;
 mod calculator_tests;
 #[cfg(test)]
 mod links_tests;
+#[cfg(test)]
+mod profiles_tests;
