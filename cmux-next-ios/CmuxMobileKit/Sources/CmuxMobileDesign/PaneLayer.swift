@@ -159,8 +159,11 @@ final class PaneLayerController: UIViewController {
                let underMinX = PaneLayerGeometry.presentedMinX(of: under.view, in: navigation.view) {
                 let target = min(0, underMinX)
                 shift(bar, by: max(-width, min(width, target - ownMinX)))
-                barMinX = target
             }
+            // Clip and fade by where the bar is drawn this frame (UIKit's paused transition
+            // animations on the bar win over a model change until they end).
+            _ = barMinX
+            barMinX = PaneLayerGeometry.presentedMinX(of: bar, in: navigation.view) ?? barMinX
             mask(bar, to: visible, in: navigation.view, barMinX: barMinX)
             PaneLayerProbe.shared?.sample(bar: bar, root: navigation.view, paneSpan: paneSpan)
             graceUntil = pane === top ? now + 0.6 : 0
@@ -238,20 +241,21 @@ final class PaneLayerController: UIViewController {
         }
         for index in fadedGlass.indices {
             let view = fadedGlass[index].view
-            // Fade the group only where nobody else changed it since the last frame.
-            guard abs(view.alpha - fadedGlass[index].set) < 0.002 else { continue }
             let span = view.convert(view.bounds, to: bar)
             let minX = barMinX + span.minX
             let maxX = barMinX + span.maxX
             let room = min(minX - visible.lowerBound, visible.upperBound - maxX)
             let alpha = fadedGlass[index].alpha * max(0, min(1, room / 24))
+            // UIKit's own bar animation in the transition (paused under a swipe) would draw its
+            // opacity over ours: this transition's opacity is ours.
+            if view.layer.animation(forKey: "opacity") != nil { view.layer.removeAnimation(forKey: "opacity") }
             if abs(view.alpha - alpha) >= 0.002 { view.alpha = alpha }
             fadedGlass[index].set = alpha
         }
     }
 
     private func unfadeGlass() {
-        for entry in fadedGlass where abs(entry.view.alpha - entry.set) < 0.002 { entry.view.alpha = entry.alpha }
+        for entry in fadedGlass { entry.view.alpha = entry.alpha }
         fadedGlass = []
     }
 
@@ -260,7 +264,7 @@ final class PaneLayerController: UIViewController {
             link?.invalidate()
             maskedBar?.layer.mask = nil
             shiftedBar?.transform = .identity
-            for entry in fadedGlass where abs(entry.view.alpha - entry.set) < 0.002 { entry.view.alpha = entry.alpha }
+            for entry in fadedGlass { entry.view.alpha = entry.alpha }
         }
     }
 }

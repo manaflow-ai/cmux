@@ -165,7 +165,9 @@ public final class WholePageProbe {
                 let over = min(frame.maxX, shown.upperBound) - max(frame.minX, shown.lowerBound)
                 if over > bar {
                     bar = over
-                    barName = Self.name(layer)
+                    let drawn = layer.presentation() ?? layer
+                    barName = "\(Self.name(layer))@\(Int(frame.minX)),\(Int(frame.width))a\(String(format: "%.2f", drawn.opacity))"
+                        + "anim\(layer.animationKeys()?.joined(separator: "+") ?? "-")[\(Self.path(layer, in: barLayer))]"
                 }
             }
         }
