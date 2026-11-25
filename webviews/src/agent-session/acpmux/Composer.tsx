@@ -7,14 +7,14 @@ import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
   useEffect,
-  useId,
   useImperativeHandle,
-  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
+  useInsertionEffect,
+  useId,
 } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal, flushSync } from "react-dom";
@@ -29,10 +29,10 @@ import {
   MAX_IMAGE_BYTES,
   placeInline,
   withoutInlineTokens,
+  inlineTokenSpans,
   type ComposerAttachment,
   type DroppedKind,
   type KnownPaths,
-  inlineTokenSpans,
 } from "./attachments";
 import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
@@ -503,6 +503,8 @@ type Props = {
   onConnect?(kind: ConnectKind): void;
   /// A started chat's Move to Cloud or Bring Back Local (see ComposerContext), as `offloads` lists them.
   onOffload?(kind: OffloadKind): void;
+  /// The place control, for a started chat (see ComposerContext).
+  placeControl?: React.ReactNode;
   offloads?: readonly OffloadKind[];
   /// Why each offered move would refuse now (see ComposerContext).
   offloadReasons?: OffloadReasons;
@@ -797,6 +799,7 @@ function ComposerFrame({
   onBrowseFolder,
   onConnect,
   onOffload,
+  placeControl,
   offloads,
   offloadReasons,
   onRefreshMachines,
@@ -2826,6 +2829,7 @@ function ComposerFrame({
       onBrowseFolder={onBrowseFolder}
       onConnect={onConnect}
       {...(onOffload ? { onOffload } : {})}
+      {...(placeControl ? { placeControl } : {})}
       {...(offloads ? { offloads } : {})}
       {...(offloadReasons ? { offloadReasons } : {})}
       summary={snapshot.summary}

@@ -387,14 +387,100 @@ jobs:
         run: |
           echo "Mac exports left to run $SERVER/actions/runs/$BUSY_RUN, whose pushed-exports or Mac job was already queued or running; the next run's changes include this run's." | tee -a "$GITHUB_STEP_SUMMARY"
 
+  # The action exports on a Linux runner of our own pool (Leo, 2026-11-25: "if it works on linux and is at least as
+  # fast if not faster, then we ought to just go ahead"): base-autofix-action-exports.sh at the newest tip, as the
+  # Mac job ran it, with scripts/cmux-next/regenerate-action-exports-linux.sh as its regeneration (CmuxNext's action
+  # model files built against cmux-action-catalog at the app's CCmuxAppFFI pin: about 15 s of build, where the Mac's
+  # whole-package `swift test` build took about 14 min). It ends green and `verified` says whether it made them;
+  # when it did not, action-exports below regenerates them on a Mac and says so.
+  action-exports-linux:
+    name: action exports (Linux)
+    needs: [action-areas, pushed-exports]
+    if: needs.action-areas.outputs.actions == 'true' && needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true' && needs.pushed-exports.outputs.hit != 'true' && (vars.CMUX_ACTION_EXPORTS_LINUX || 'on') != '0'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 30
+    container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
+    defaults:
+      run:
+        shell: bash
+    permissions:
+      contents: read
+    outputs:
+      exports: ${{ steps.actions.outcome == 'success' && steps.actions.outputs.exports == 'true' && steps.upload.outcome == 'success' && 'true' || 'false' }}
+      verified: ${{ steps.actions.outcome == 'success' && (steps.actions.outputs.exports != 'true' || steps.upload.outcome == 'success') && 'true' || 'false' }}
+      # The commit the action exports were made at (the newest tip when their inputs moved).
+      actions_made_at: ${{ steps.actions.outputs.made_at }}
+    # NEXT's cache writer (feat-cmux-next only), for judge-action-exports.sh --publish, as the Mac job had it.
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    env:
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+    steps:
+      # git before the checkout, or it downloads a tarball the script cannot move to the newest tip.
+      - name: Install git, python3 and curl
+        timeout-minutes: 5
+        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends git python3 curl ca-certificates
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Trust the checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Set up pinned cmux-tui Rust
+        id: rust
+        continue-on-error: true
+        timeout-minutes: 8
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Regenerate the action exports
+        id: actions
+        if: steps.rust.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          # The regeneration is read from the checkout the script moves to (the newest tip's copy).
+          CMUX_ACTIONS_REGENERATE="$GITHUB_WORKSPACE/scripts/cmux-next/regenerate-action-exports-linux.sh" \
+            scripts/cmux-next/base-autofix-action-exports.sh "$RUNNER_TEMP/action-exports" origin feat-cmux-next \
+            | tee "$RUNNER_TEMP/action-exports.txt"
+          echo "made_at=$(sed -n 's/^made at: //p' "$RUNNER_TEMP/action-exports.txt")" >> "$GITHUB_OUTPUT"
+          if grep -q '^regenerated: ' "$RUNNER_TEMP/action-exports.txt"; then
+            echo "exports=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Keep the fresh action exports for pull requests on that commit
+        if: steps.actions.outcome == 'success' && steps.actions.outputs.made_at != ''
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          MADE_AT: ${{ steps.actions.outputs.made_at }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        run: scripts/cmux-next/judge-action-exports.sh --publish "$MADE_AT" "$RUNNER_TEMP/action-exports" "$GITHUB_SHA"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        id: upload
+        if: steps.actions.outcome == 'success' && steps.actions.outputs.exports == 'true'
+        continue-on-error: true
+        timeout-minutes: 5
+        with:
+          name: action-exports-linux
+          path: ${{ runner.temp }}/action-exports
+          if-no-files-found: error
+          retention-days: 1
+
   # Regenerates the action exports and the settings exports on a Mac with a
   # read-only token and hands them to autofix as the action-exports artifact
   # (files at their repository paths).
   # Only when the push's packed exports (pushed-exports) could not be taken.
   action-exports:
     name: action exports (Mac)
-    needs: [action-areas, pushed-exports]
-    if: (needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true') && needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true' && needs.pushed-exports.outputs.hit != 'true'
+    needs: [action-areas, pushed-exports, action-exports-linux]
+    # The action exports only as action-exports-linux's fallback (it logs why), and the settings exports.
+    if: ${{ !cancelled() && ((needs.action-areas.outputs.actions == 'true' && needs.action-exports-linux.outputs.verified != 'true') || needs.action-areas.outputs.settings == 'true') && needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true' && needs.pushed-exports.outputs.hit != 'true' }}
     # No concurrency group: a queued job keeps its place. Cancelling a running one meant that with
     # merges minutes apart no Mac export ever finished (2026-10-19), and replacing a pending one did
     # the same once the Mac runners were saturated: each job waited minutes for a runner and the next
@@ -505,9 +591,15 @@ jobs:
       # few minutes, so exports made at the run's commit were held on every push (2026-10-21). It
       # starts on the tip when the area moved meanwhile, regenerates once, and leaves the checkout at
       # the run's commit; base-autofix-push.sh lands the exports as progress when the area moved again.
+      - name: Say why the Mac makes the action exports
+        if: needs.action-areas.outputs.actions == 'true' && needs.action-exports-linux.outputs.verified != 'true'
+        env:
+          LINUX_RESULT: ${{ needs.action-exports-linux.result }}
+        run: echo "::warning title=mac fallback::action exports (Linux) did not make the action exports (job ${LINUX_RESULT:-not run}); regenerating them on this Mac."
+
       - name: Regenerate the action exports
         id: actions
-        if: needs.action-areas.outputs.actions == 'true'
+        if: needs.action-areas.outputs.actions == 'true' && needs.action-exports-linux.outputs.verified != 'true'
         continue-on-error: true
         timeout-minutes: 40
         env:
@@ -751,7 +843,7 @@ jobs:
     name: autofix feat-cmux-next
     # The other repairs still run when the webviews formatting or the Mac
     # action exports job fails or is skipped.
-    needs: [window, action-areas, webviews-fmt, action-exports, pushed-exports]
+    needs: [window, action-areas, webviews-fmt, action-exports-linux, action-exports, pushed-exports]
     if: >-
       ${{ !cancelled() && needs.window.outputs.run == 'true' && github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
     # A running repair finishes and lands on whatever feat-cmux-next is by then
@@ -762,7 +854,7 @@ jobs:
     # the finished exports' autofix while it queued behind one of them (2026-10-21). Its push
     # races theirs safely (base-autofix-push.sh reads the tip and retries).
     concurrency:
-      group: cmux-next-base-autofix-${{ github.ref_name }}${{ (needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.exports || needs.action-exports.outputs.exports) == 'true' && format('-exports-{0}', github.run_id) || '' }}
+      group: cmux-next-base-autofix-${{ github.ref_name }}${{ ((needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.exports || needs.action-exports.outputs.exports) == 'true' || needs.action-exports-linux.outputs.exports == 'true') && format('-exports-{0}', github.run_id) || '' }}
       cancel-in-progress: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     # 20 minutes of repair and push, plus the compile gate's wait (base-autofix-compile-gate.sh, 40 min) when a repair changes Swift.
@@ -828,7 +920,7 @@ jobs:
           node-version: "24.22.1"
 
       - name: Setup Bun
-        if: steps.areas.outputs.shortcuts == 'true' || steps.areas.outputs.apphost == 'true' || (needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.exports || needs.action-exports.outputs.exports) == 'true' || steps.areas.outputs.cloud == 'true'
+        if: steps.areas.outputs.shortcuts == 'true' || steps.areas.outputs.apphost == 'true' || (needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.exports || needs.action-exports.outputs.exports) == 'true' || needs.action-exports-linux.outputs.exports == 'true' || steps.areas.outputs.cloud == 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -926,6 +1018,14 @@ jobs:
           name: action-exports
           path: ${{ runner.temp }}/action-exports
 
+      # The Linux job's action exports, into the same folder (the Mac's artifact then holds only settings exports).
+      - name: Download the action exports made on Linux
+        if: needs.action-exports-linux.outputs.exports == 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: action-exports-linux
+          path: ${{ runner.temp }}/action-exports
+
       # scripts/cmux-next/base-autofix-repair.sh turns the areas into base-autofix.sh's repairs (including
       # the source-derived daemon capability export; it dumps
       # the package manifest for the CI target graph in the Swift 6.2 container); the push step runs
@@ -940,7 +1040,7 @@ jobs:
           APPHOST: ${{ steps.areas.outputs.apphost }}
           ACTIONS: ${{ steps.areas.outputs.actions }}
           SETTINGS: ${{ steps.areas.outputs.settings }}
-          EXPORTS_VERIFIED: ${{ needs.pushed-exports.outputs.hit == 'true' || needs.action-exports.outputs.verified }}
+          EXPORTS_VERIFIED: ${{ needs.pushed-exports.outputs.hit == 'true' || needs.action-exports-linux.outputs.verified == 'true' || needs.action-exports.outputs.verified }}
           SETTINGS_VERIFIED: ${{ needs.pushed-exports.outputs.hit == 'true' || needs.action-exports.outputs.settings_verified }}
           RATCHETS: ${{ steps.areas.outputs.ratchets }}
           CLOUD: ${{ steps.areas.outputs.cloud }}
@@ -1070,7 +1170,7 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
           # A taken pack's exports are this commit's own (pushed-exports made_at is the run's commit).
           SETTINGS_MADE_AT: ${{ needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.made_at || needs.action-exports.outputs.settings_made_at }}
-          ACTIONS_MADE_AT: ${{ needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.made_at || needs.action-exports.outputs.actions_made_at }}
+          ACTIONS_MADE_AT: ${{ needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.made_at || needs.action-exports-linux.outputs.actions_made_at || needs.action-exports.outputs.actions_made_at }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           CMUX_BASE_AUTOFIX_REPAIR: scripts/cmux-next/base-autofix-repair.sh
         run: |
