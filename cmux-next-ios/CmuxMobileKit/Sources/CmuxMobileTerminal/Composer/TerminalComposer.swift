@@ -37,47 +37,25 @@ struct TerminalComposer: View {
         // The before rows: the body read the draft (onChange, the send button), as on base.
         let _ = ComposerReturnTextView.measuresWholeDraft ? model.composerText.isEmpty : false
         #endif
+        // The notice, the held-keys row and the attachment error float over the terminal just above the row and take
+        // no height: a card that grew for them moved `bottomStack`, and with it the terminal's bottom inset, the
+        // prompt and the grid (Leo 2026-11-24: "this thing's shifting affects the composer at the bottom ... we need
+        // to have more things decoupled from possible shifts"; same rule as the connection chip, #49316).
+        // No connection line here: a reattach takes no row (Leo, 2026-11-17: "The reconnect takes an extra line").
+        // The state is the title pill's subtitle and Reconnect is in the page menu, both only past the quiet bound
+        // (`TerminalModel.connectionLine`).
         VStack(alignment: .leading, spacing: 6) {
-            if let notice = model.composerNotice {
-                Label(notice, systemImage: "exclamationmark.arrow.circlepath")
-                    .font(.footnote)
-                    .foregroundStyle(.orange)
-                    .padding(.leading, TerminalDockMetrics.control + 8)
-                    .accessibilityIdentifier("terminal.composer.notSent")
-            } else if model.heldKeyBytes > 0 {
-                // Keys typed before the attach go into whatever the terminal shows after it:
-                // the not-sent row's place says they are pending, with Discard. Gone at the
-                // attach, or when they are dropped (the not-sent notice then).
-                HStack(spacing: 8) {
-                    Label(TerminalConnectionState.inputHeldNotice, systemImage: "clock.arrow.circlepath")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    Button("Discard") { model.discardHeldKeys() }
-                        .font(.footnote.weight(.semibold))
-                        .accessibilityIdentifier("terminal.composer.heldKeys.discard")
-                }
-                .padding(.leading, TerminalDockMetrics.control + 8)
-                .accessibilityIdentifier("terminal.composer.heldKeys")
-            }
-            // No connection line here: a reattach takes no row (Leo,
-            // 2026-11-17: "The reconnect takes an extra line"). The state is
-            // the title pill's subtitle and Reconnect is in the page menu,
-            // both only past the quiet bound (`TerminalModel.connectionLine`).
-            if let error = model.attachmentError {
-                Label(error, systemImage: "exclamationmark.circle")
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                    .padding(.leading, TerminalDockMetrics.control + 8)
-                    .accessibilityIdentifier("terminal.composer.attachmentError")
-            }
             GlassEffectContainer(spacing: 0) {
                 HStack(alignment: .bottom, spacing: 8) {
                     attachMenu
-                    if voice.placement == .leading, let source = voiceSource { voiceButton(source) }
+                    // Its own view: whether voice is offered reads the workspace (its agent), which every Mac
+                    // push changes; read here, each push re-rendered the composer and its field mid-typing.
+                    if voice.placement == .leading, let source = model.voiceSource { TerminalComposerVoiceSlot(source: source) }
                     fieldContainer
                 }
             }
         }
+        .overlay(alignment: .topLeading) { floatingNotes }
         .padding(.horizontal, TerminalDockMetrics.horizontalInset)
         // Always its own height, never the hosting view's current one (kept
         // from #41900): the hosting view takes a taller row's height a pass
@@ -123,6 +101,44 @@ struct TerminalComposer: View {
         }
     }
 
+    /// The not-sent notice and the attachment error, drawn over the terminal above the card (its top edge is their
+    /// bottom edge), never in the card's stack: they take no height and move nothing.
+    @ViewBuilder private var floatingNotes: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if let notice = model.composerNotice {
+                Label(notice, systemImage: "exclamationmark.arrow.circlepath")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+                    .allowsHitTesting(false)
+                    .accessibilityIdentifier("terminal.composer.notSent")
+            } else if model.heldKeyBytes > 0 {
+                // Keys typed before the attach go into whatever the terminal shows after it: this row says they are
+                // pending, with Discard (the one tappable note). Gone at the attach, or when they are dropped.
+                HStack(spacing: 8) {
+                    Label(TerminalConnectionState.inputHeldNotice, systemImage: "clock.arrow.circlepath")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .allowsHitTesting(false)
+                    Button("Discard") { model.discardHeldKeys() }
+                        .font(.footnote.weight(.semibold))
+                        .accessibilityIdentifier("terminal.composer.heldKeys.discard")
+                }
+                .accessibilityIdentifier("terminal.composer.heldKeys")
+            }
+            if let error = model.attachmentError {
+                Label(error, systemImage: "exclamationmark.circle")
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .allowsHitTesting(false)
+                    .accessibilityIdentifier("terminal.composer.attachmentError")
+            }
+        }
+        .padding(.leading, TerminalDockMetrics.control + 8)
+        .padding(.bottom, 4)
+        .fixedSize(horizontal: false, vertical: true)
+        .alignmentGuide(.top) { $0[.bottom] }
+    }
+
     /// The terminal's agent, when voice mode can run on it.
     private var voiceSource: (any AgentVoiceSource)? {
         guard let source = model.voiceSource, source.voiceAvailable else { return nil }
@@ -163,27 +179,9 @@ struct TerminalComposer: View {
         } label: {
             ComposerCircleLabel(systemImage: "plus")
         }
-        .buttonStyle(.cmuxPressFillInLabel)
+        .buttonStyle(.cmuxPressGlass)
         .accessibilityLabel("Add Attachment")
         .accessibilityIdentifier("terminal.composer.attach")
-    }
-
-    /// Voice mode on this terminal's agent (replaces classic's dictation
-    /// mic): its replies read aloud, the user's speech typed in as prompts.
-    /// Filled and moving while it runs here; a tap ends it.
-    private func voiceButton(_ source: any AgentVoiceSource) -> some View {
-        let active = voice.isActive(source.voiceSourceID)
-        return Button {
-            voice.toggle(source)
-        } label: {
-            ComposerCircleLabel(systemImage: "waveform",
-                                foreground: active ? AnyShapeStyle(Color.cmuxMobileOnAccent) : AnyShapeStyle(Color.primary.opacity(0.78)),
-                                tint: active ? Color.cmuxMobileAccent : nil)
-                .symbolEffect(.variableColor.iterative, isActive: active)
-        }
-        .buttonStyle(.cmuxPressFillInLabel)
-        .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
-        .accessibilityIdentifier("terminal.composer.voice")
     }
 
     /// The field and its send circle share one rounded glass container; the
@@ -207,22 +205,20 @@ struct TerminalComposer: View {
         // rounded shape clips the cut lines at the corners too.
         .frame(minHeight: TerminalDockMetrics.control, alignment: .top)
         .clipShape(.rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
-        // The terminal theme's own background with a hairline border, not
-        // glass: glass lifted the field lighter than the pane (Leo,
-        // 2026-11-22: "dont draw unnecessary attention by making it light";
-        // the border alone marks it). A flat fill also looks the same at
-        // every height (Leo, 2026-11-21: "the composer brightening up when
-        // you have >3 lines"; TerminalComposerLookUITests: 1, 3, 4, 8 lines).
-        .background(themeBackground, in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
+        // Liquid Glass with a hairline border (Aziz, 2026-11-23: "someone also
+        // changed the composer bar input field and + button to not have a
+        // border and not look as glassy anymore, undo that"; the flat
+        // theme-colored fill came in #50740). Clear glass, not regular:
+        // regular glass changes its material with the shape's size, so the
+        // field turned a lighter gray once a draft passed three lines (Leo,
+        // 2026-11-21); clear glass looks the same at every height
+        // (TerminalComposerLookUITests: 1, 3, 4 and 8 lines).
+        .glassEffect(.clear.interactive(), in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous)
                 .strokeBorder(ComposerChrome.border, lineWidth: 1)
+                .allowsHitTesting(false)
         }
-    }
-
-    /// The pane's background: the Mac's terminal theme, else the app default.
-    private var themeBackground: Color {
-        Color(uiColor: model.hostTheme?.backgroundColor ?? CmuxMobileGhosttyApp.background)
     }
 
     private var fieldRow: some View {
@@ -432,18 +428,18 @@ struct ComposerCircleLabel: View {
             .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(foreground)
             .frame(width: TerminalDockMetrics.control, height: TerminalDockMetrics.control)
-            // Off: the pane shows through, ringed like the field (no lighter
-            // glass disc, Leo 2026-11-22). On: a solid accent disc, as send.
-            .cmuxMobilePressBackground(tint ?? Color.clear, in: Circle())
-            .overlay { Circle().strokeBorder(tint == nil ? ComposerChrome.border : .clear, lineWidth: 1) }
+            // A Liquid Glass circle ringed like the field (restored after
+            // #50740 made it a bare ring); on, the glass takes the accent.
+            .glassEffect(tint.map { .regular.tint($0).interactive() } ?? .regular.interactive(), in: .circle)
+            .overlay { Circle().strokeBorder(tint == nil ? ComposerChrome.border : .clear, lineWidth: 1).allowsHitTesting(false) }
             .contentShape(.circle)
     }
 }
 
-/// The composer's quiet chrome on the terminal theme's background.
+/// The composer's chrome around its glass.
 enum ComposerChrome {
-    /// The field's and the + circle's hairline: it alone marks them.
-    static let border = Color.primary.opacity(0.16)
+    /// The field's and the + circle's hairline, over their glass.
+    static let border = Color.primary.opacity(0.22)
     /// The disabled send disc.
     static let idleFill = Color.primary.opacity(0.08)
 }
@@ -593,6 +589,31 @@ struct TerminalCameraPicker: UIViewControllerRepresentable {
         }
 
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
+    }
+}
+
+/// The voice circle, when the tab's agent offers voice (`AgentVoiceSource.voiceAvailable`).
+/// Its own view so what that reads (the store's workspaces, moved by every Mac push)
+/// re-renders this circle alone, never the composer's field (ask-4a87599079).
+private struct TerminalComposerVoiceSlot: View {
+    let source: any AgentVoiceSource
+    private let voice = AgentVoiceLauncher.shared
+
+    var body: some View {
+        if source.voiceAvailable, voice.isAvailable {
+            let active = voice.isActive(source.voiceSourceID)
+            Button {
+                voice.toggle(source)
+            } label: {
+                ComposerCircleLabel(systemImage: "waveform",
+                                    foreground: active ? AnyShapeStyle(Color.cmuxMobileOnAccent) : AnyShapeStyle(Color.primary.opacity(0.78)),
+                                    tint: active ? Color.cmuxMobileAccent : nil)
+                    .symbolEffect(.variableColor.iterative, isActive: active)
+            }
+            .buttonStyle(.cmuxPressGlass)
+            .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
+            .accessibilityIdentifier("terminal.composer.voice")
+        }
     }
 }
 #endif

@@ -63,6 +63,11 @@ impl Checkout {
         &self.refs.root
     }
 
+    /// The checkout's git folder ([`Repository::git_dir`]).
+    pub fn git_dir(&self) -> &Path {
+        self.refs.git_dir()
+    }
+
     /// What HEAD is on, as the branch headers of `git status --porcelain=v2
     /// --branch` give it.
     pub fn head(&self) -> Result<BranchHeaders, GitFailure> {
