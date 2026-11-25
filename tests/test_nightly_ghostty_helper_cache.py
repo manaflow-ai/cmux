@@ -181,6 +181,54 @@ class FindTests(unittest.TestCase):
                 self.assertEqual(found is not None, key_of_a == "same")
 
 
+
+class GitInputKeyTests(unittest.TestCase):
+    """The key comes from git (no REST quota) and equals the contents API's key (cmux#50192)."""
+
+    def repo(self, tmp: str) -> tuple[str, dict[str, str]]:
+        import subprocess
+        def git(*args: str, data: str | None = None) -> str:
+            return subprocess.run(["git", "-C", tmp, *args], input=data, check=True, capture_output=True,
+                                  text=True).stdout.strip()
+        git("init", "-q")
+        ids = {"ghostty": "1" * 40}
+        git("update-index", "--add", "--cacheinfo", f"160000,{ids['ghostty']},ghostty")
+        for path in reuse.INPUT_FILES:
+            ids[path] = git("hash-object", "-w", "--stdin", data=f"echo {path}\n")
+            git("update-index", "--add", "--cacheinfo", f"100755,{ids[path]},{path}")
+        tree = git("write-tree")
+        sha = git("-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", tree, "-m", "t")
+        return sha, ids
+
+    def test_git_key_equals_the_contents_api_key_and_spends_no_rest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sha, ids = self.repo(tmp)
+            api = {f"/repos/{REPO}/contents/ghostty?ref={sha}": {"type": "submodule", "sha": ids["ghostty"]}}
+            for path in reuse.INPUT_FILES:
+                api[f"/repos/{REPO}/contents/{reuse.urllib.parse.quote(path)}?ref={sha}"] = {"type": "file", "sha": ids[path]}
+            cwd = Path.cwd()
+            import os
+            os.chdir(tmp)
+            try:
+                with mock.patch.object(reuse.download, "api_json", side_effect=AssertionError("REST read")):
+                    from_git = reuse.input_key(REPO, sha, "")
+                with mock.patch.object(reuse, "git_input_ids", return_value=None), \
+                        mock.patch.object(reuse.download, "api_json", side_effect=lambda path, token: api[path]):
+                    from_api = reuse.input_key(REPO, sha, "")
+            finally:
+                os.chdir(cwd)
+            self.assertEqual(from_git, from_api)
+
+    def test_a_commit_git_cannot_reach_falls_back_to_rest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            import os
+            cwd = Path.cwd()
+            os.chdir(tmp)
+            try:
+                self.assertIsNone(reuse.git_input_ids("nobody/none", "2" * 40, ""))
+            finally:
+                os.chdir(cwd)
+
 class WorkflowTests(unittest.TestCase):
     def test_helper_never_takes_a_hosted_mac_and_skips_compile_on_hit(self):
         jobs = yaml.safe_load(nightly_expand((ROOT / ".github/workflows/nightly.yml").read_text()))["jobs"]

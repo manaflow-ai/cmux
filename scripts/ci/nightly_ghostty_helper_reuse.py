@@ -24,12 +24,14 @@ not an error: the workflow builds the helper on a Mac.
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import importlib.util
 import os
 from pathlib import Path
 import re
 import struct
+import subprocess
 import sys
 import tempfile
 import urllib.error
@@ -53,8 +55,53 @@ SHA = re.compile(r"[0-9a-f]{40}")
 CPU = {0x0100000C: "arm64", 0x01000007: "x86_64"}
 
 
+def git_input_ids(repo: str, sha: str, token: str) -> dict[str, str] | None:
+    """The ghostty gitlink and input blob ids at sha from git, or None.
+
+    Git's object ids are the ids the contents API returns, so the key is the
+    same either way. Git reads spend none of the installation's REST quota,
+    which the publish and failure-page steps share (cmux#50192: one 403 from
+    this lookup cost a whole nightly its reuse). A commit the checkout lacks
+    is fetched trees-only over git's own transport.
+    """
+    paths = ("ghostty", *INPUT_FILES)
+
+    def run(*args: str) -> subprocess.CompletedProcess:
+        env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+        if token:
+            basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+            env.update(GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="http.https://github.com/.extraheader",
+                       GIT_CONFIG_VALUE_0=f"AUTHORIZATION: basic {basic}")
+        return subprocess.run(["git", *args], capture_output=True, text=True, timeout=120, env=env)
+
+    try:
+        if run("cat-file", "-e", f"{sha}^{{commit}}").returncode != 0:
+            fetched = run("fetch", "--quiet", "--no-tags", "--depth=1", "--filter=blob:none",
+                          f"https://github.com/{repo}.git", sha)
+            if fetched.returncode != 0:
+                return None
+        listed = run("ls-tree", "--full-tree", sha, "--", *paths)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if listed.returncode != 0:
+        return None
+    ids = {}
+    for line in listed.stdout.splitlines():
+        meta, _, path = line.partition("\t")
+        parts = meta.split()
+        if len(parts) == 3 and SHA.fullmatch(parts[2]):
+            ids[path] = (parts[1], parts[2])
+    if ids.get("ghostty", ("",))[0] != "commit" or any(ids.get(p, ("",))[0] != "blob" for p in INPUT_FILES):
+        return None
+    return {path: ids[path][1] for path in paths}
+
+
 def input_key(repo: str, sha: str, token: str) -> str:
     """Hash of everything the helper's bytes depend on at commit sha."""
+    ids = git_input_ids(repo, sha, token)
+    if ids is not None:
+        lines = [SCHEMA, f"ghostty={ids['ghostty']}"] + [f"{path}={ids[path]}" for path in INPUT_FILES]
+        return hashlib.sha256("\n".join(lines).encode()).hexdigest()
     quote = urllib.parse.quote
     ghostty = download.api_json(f"/repos/{repo}/contents/ghostty?ref={sha}", token)
     if ghostty.get("type") != "submodule" or not SHA.fullmatch(ghostty.get("sha", "")):
