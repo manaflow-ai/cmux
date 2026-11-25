@@ -258,7 +258,9 @@ fn measure_add_repository_cold_and_warm() {
     let repo = url.trim_start_matches("https://github.com/").trim_end_matches(".git").to_owned();
     let params = |folder: &Path| json!({ "folder": folder, "url": url, "repo": repo, "ref": null, "lfs": false });
     let finish = |service: &GitSeedService, job: &str| {
-        let deadline = Instant::now() + Duration::from_secs(1800);
+        let started = Instant::now();
+        let deadline = started + Duration::from_secs(1800);
+        let mut said = started;
         loop {
             let status = service.call("git.seed.status", &json!({ "job": job })).unwrap();
             if status["state"] != "running" {
@@ -266,6 +268,14 @@ fn measure_add_repository_cold_and_warm() {
                 return status;
             }
             assert!(Instant::now() < deadline, "{status}");
+            // A line every 30 s, so a stall reads apart from a slow clone.
+            if said.elapsed() >= Duration::from_secs(30) {
+                said = Instant::now();
+                println!(
+                    "WAIT job={job} after={:.0}s status={status}",
+                    started.elapsed().as_secs_f64()
+                );
+            }
             std::thread::sleep(Duration::from_millis(100));
         }
     };
@@ -296,6 +306,7 @@ fn measure_add_repository_cold_and_warm() {
         }
         (seconds, own + mirror_after.saturating_sub(mirror_before), rx, states.join(","))
     };
+    let begin = |name: &str, run: usize| println!("START mode={name} run={run}");
     let row = |name: &str,
                run: usize,
                (seconds, bytes, rx, states): (f64, u64, Option<u64>, String)| {
@@ -307,15 +318,22 @@ fn measure_add_repository_cold_and_warm() {
     };
     println!("URL {url} runs={runs} crowd={crowd}");
     for run in 1..=runs {
+        begin("off", run);
         row("off", run, add(&None, 1));
         let mirrors = Some(home.join(&format!("mirrors-{run}")));
+        begin("cold", run);
         row("cold", run, add(&mirrors, 1));
+        begin("warm", run);
         row("warm", run, add(&mirrors, 1));
     }
-    row(&format!("off-x{crowd}"), 1, add(&None, crowd));
-    let mirrors = Some(home.join("mirrors-crowd"));
-    row(&format!("cold-x{crowd}"), 1, add(&mirrors, crowd));
-    row(&format!("warm-x{crowd}"), 1, add(&mirrors, crowd));
+    if crowd > 1 {
+        let mirrors = Some(home.join("mirrors-crowd"));
+        for (name, mirrors) in [("off", None), ("cold", mirrors.clone()), ("warm", mirrors)] {
+            let name = format!("{name}-x{crowd}");
+            begin(&name, 1);
+            row(&name, 1, add(&mirrors, crowd));
+        }
+    }
 }
 
 /// The bytes of the files under `path`.
