@@ -14,6 +14,12 @@ struct Fake {
     status: RefCell<Vec<&'static str>>,
     /// What `cloud.plan.get` answers: `None` is a failed read.
     plan: RefCell<Option<Value>>,
+    /// Every exec's command text, in order.
+    commands: RefCell<Vec<String>>,
+    /// Every write: `(path, mode, bytes)`.
+    writes: RefCell<Vec<(String, u32, Vec<u8>)>>,
+    /// What the turn credential's install answers; `None` is `changed`.
+    turn_answer: RefCell<Option<(i64, String, String)>>,
 }
 
 impl Fake {
@@ -77,7 +83,12 @@ impl Cloud for Fake {
     }
 
     async fn exec(&self, _machine: &str, command: &str) -> Result<(i64, String, String), Failure> {
-        let kind = if command.contains("python3 -I") {
+        self.commands.borrow_mut().push(command.to_owned());
+        let kind = if command.contains("chief-turn.env") {
+            "turn"
+        } else if command.contains("systemctl restart") {
+            "restart"
+        } else if command.contains("python3 -I") {
             "probe"
         } else if command.contains("cloud pair") {
             "pair"
@@ -92,7 +103,26 @@ impl Cloud for Fake {
             let next = if probes.len() > 1 { probes.pop_front() } else { probes.front().cloned() };
             return Ok((0, next.unwrap_or_else(|| json!({})).to_string(), String::new()));
         }
+        if kind == "turn" {
+            return Ok(self
+                .turn_answer
+                .borrow()
+                .clone()
+                .unwrap_or_else(|| (0, "changed\n".into(), String::new())));
+        }
         Ok((0, "ok\n".into(), String::new()))
+    }
+
+    async fn write(
+        &self,
+        _machine: &str,
+        path: &str,
+        data: &[u8],
+        mode: u32,
+    ) -> Result<(), Failure> {
+        self.calls.borrow_mut().push(format!("write {path}"));
+        self.writes.borrow_mut().push((path.to_owned(), mode, data.to_vec()));
+        Ok(())
     }
 
     async fn pause(&self, _duration: Duration) {}
@@ -107,6 +137,7 @@ fn start(until_machine: bool) -> Start {
         api: "https://api.example".into(),
         until_machine,
         keep_awake: false,
+        turn: None,
     }
 }
 
@@ -349,6 +380,15 @@ impl Cloud for Recording {
     async fn exec(&self, machine: &str, command: &str) -> Result<(i64, String, String), Failure> {
         self.fake.exec(machine, command).await
     }
+    async fn write(
+        &self,
+        machine: &str,
+        path: &str,
+        data: &[u8],
+        mode: u32,
+    ) -> Result<(), Failure> {
+        self.fake.write(machine, path, data, mode).await
+    }
     async fn pause(&self, duration: Duration) {
         self.fake.pause(duration).await;
     }
@@ -418,4 +458,201 @@ async fn a_rerun_whose_plan_read_fails_finds_the_machine_the_first_run_made() {
     let third = run(&cloud, &start(true)).await.unwrap();
     assert_eq!(first["machine"], third["machine"]);
     assert_eq!(cloud.fake.machines.borrow().len(), 1);
+}
+
+// A made-up token: what the tests look for in every command, error and Debug text.
+const TOKEN: &str = "sk-ant-oat01-test_SECRET.value~123+/=";
+
+fn credential() -> TurnCredential {
+    let tail = json!({ "env": { "CLAUDE_CODE_OAUTH_TOKEN": TOKEN } }).to_string();
+    TurnCredential::from_tail(tail.as_bytes()).unwrap().unwrap()
+}
+
+fn with_turn() -> Start {
+    Start { turn: Some(credential()), ..start(false) }
+}
+
+fn paired(active: bool) -> Vec<Value> {
+    let mut probe = done();
+    probe["active"] = json!(active);
+    vec![probe]
+}
+
+fn no_secret_in_commands(fake: &Fake) {
+    for command in fake.commands.borrow().iter() {
+        assert!(!command.contains(TOKEN), "a command carries the token");
+        assert!(!command.contains("sk-ant"), "a command carries the token");
+    }
+}
+
+#[tokio::test]
+async fn with_no_credential_the_start_writes_nothing_and_answers_as_before() {
+    let fake = Fake::default();
+    fake.probes(paired(false));
+    let answer = run(&fake, &start(false)).await.unwrap();
+    assert!(fake.writes.borrow().is_empty());
+    assert!(!fake.commands.borrow().iter().any(|c| c.contains("chief-turn.env")));
+    assert_eq!(fake.count("exec restart"), 0);
+    assert_eq!(fake.count("exec host"), 1);
+    assert!(answer.get("turn_credential").is_none());
+    // An already running host is left alone.
+    let fake = Fake::default();
+    fake.probes(paired(true));
+    let answer = run(&fake, &start(false)).await.unwrap();
+    assert!(fake.writes.borrow().is_empty());
+    assert_eq!(fake.count("exec "), 1); // the probe alone
+    assert!(answer.get("turn_credential").is_none());
+}
+
+#[tokio::test]
+async fn a_credential_is_written_in_the_body_then_installed_before_the_host_starts() {
+    let fake = Fake::default();
+    fake.probes(paired(false));
+    let answer = run(&fake, &with_turn()).await.unwrap();
+    assert_eq!(answer["turn_credential"], "changed");
+    assert_eq!(answer["stage"], "done");
+    let writes = fake.writes.borrow();
+    assert_eq!(writes.len(), 1);
+    let (path, mode, data) = &writes[0];
+    assert_eq!(path, chief_turn::TURN_ENV_STAGE);
+    assert_eq!(*mode, 0o600);
+    assert_eq!(
+        String::from_utf8(data.clone()).unwrap(),
+        format!("OPTCHAT_CHIEF_TURN_CREDENTIALS=1\nCLAUDE_CODE_OAUTH_TOKEN={TOKEN}\n")
+    );
+    let calls = fake.calls();
+    let write = calls.iter().position(|c| c.starts_with("write ")).unwrap();
+    let install = calls.iter().position(|c| c == "exec turn").unwrap();
+    let host = calls.iter().position(|c| c == "exec host").unwrap();
+    assert!(write < install && install < host);
+    // A host that was not running is started, never restarted.
+    assert_eq!(fake.count("exec restart"), 0);
+    no_secret_in_commands(&fake);
+}
+
+#[tokio::test]
+async fn a_running_host_restarts_only_when_the_credential_changed() {
+    let fake = Fake::default();
+    fake.probes(paired(true));
+    let answer = run(&fake, &with_turn()).await.unwrap();
+    assert_eq!(answer["turn_credential"], "changed");
+    assert_eq!(fake.count("exec restart"), 1);
+    assert_eq!(fake.count("exec host"), 0);
+    no_secret_in_commands(&fake);
+
+    let fake = Fake::default();
+    fake.probes(paired(true));
+    *fake.turn_answer.borrow_mut() = Some((0, "same\n".into(), String::new()));
+    let answer = run(&fake, &with_turn()).await.unwrap();
+    assert_eq!(answer["turn_credential"], "same");
+    assert_eq!(fake.count("exec restart"), 0);
+    assert_eq!(fake.count("exec host"), 0);
+}
+
+#[tokio::test]
+async fn a_failed_install_names_no_secret_and_starts_nothing() {
+    let fake = Fake::default();
+    fake.probes(paired(false));
+    *fake.turn_answer.borrow_mut() =
+        Some((1, String::new(), "install: cannot stat: No such file".into()));
+    let error = run(&fake, &with_turn()).await.unwrap_err();
+    let text = format!("{error:?} {error}");
+    assert!(text.contains("chief.machine_exec"));
+    assert!(!text.contains(TOKEN));
+    assert_eq!(fake.count("exec host"), 0);
+
+    // An answer that is neither `changed` nor `same` is refused, not guessed.
+    let fake = Fake::default();
+    fake.probes(paired(true));
+    *fake.turn_answer.borrow_mut() = Some((0, "ok\n".into(), String::new()));
+    let error = run(&fake, &with_turn()).await.unwrap_err();
+    assert!(format!("{error:?}").contains("chief.turn_credential"));
+    assert_eq!(fake.count("exec restart"), 0);
+}
+
+#[test]
+fn the_install_makes_a_root_only_folder_and_file_and_says_whether_it_changed() {
+    let script = chief_turn::install_script();
+    assert!(script.contains("mkdir -p /run/cmux-chief"));
+    assert!(script.contains("chown root:root /run/cmux-chief"));
+    assert!(script.contains("chmod 0700 /run/cmux-chief"));
+    assert!(script.contains(&format!(
+        "install -m 0600 -o root -g root {} /run/cmux-chief/turn.env.next",
+        chief_turn::TURN_ENV_STAGE
+    )));
+    assert!(script.contains("cmp -s /run/cmux-chief/turn.env.next /run/cmux-chief/turn.env"));
+    assert!(script.contains("echo same") && script.contains("echo changed"));
+    // The stage is removed whatever happens.
+    assert!(script.starts_with(&format!("trap 'rm -f {}", chief_turn::TURN_ENV_STAGE)));
+    // On tmpfs.
+    assert!(chief_turn::TURN_ENV_FILE.starts_with("/run/"));
+    assert!(chief_turn::TURN_ENV_STAGE.starts_with("/dev/shm/"));
+}
+
+#[test]
+fn the_tail_gives_the_first_claude_credential_or_none() {
+    assert_eq!(TurnCredential::from_tail(b"").unwrap(), None);
+    assert_eq!(TurnCredential::from_tail(b" \n").unwrap(), None);
+    let key = json!({ "env": { "ANTHROPIC_API_KEY": "sk-ant-api03-abc" } }).to_string();
+    let parsed = TurnCredential::from_tail(key.as_bytes()).unwrap().unwrap();
+    assert_eq!(parsed.name(), "ANTHROPIC_API_KEY");
+    assert_eq!(
+        parsed.env_file().as_str(),
+        "OPTCHAT_CHIEF_TURN_CREDENTIALS=1\nANTHROPIC_API_KEY=sk-ant-api03-abc\n"
+    );
+    // Another harness's connection, or none: no turn credential, the start as without one.
+    for other in [json!({ "env": { "OPENAI_API_KEY": TOKEN } }), json!({ "env": {} })] {
+        assert_eq!(TurnCredential::from_tail(other.to_string().as_bytes()).unwrap(), None);
+    }
+    // A connection's whole env: the first Claude name wins, the rest stays behind.
+    let both =
+        json!({ "env": { "ANTHROPIC_API_KEY": "sk-ant-api03-abc", "CLAUDE_CODE_OAUTH_TOKEN": TOKEN,
+                                "ANTHROPIC_BASE_URL": "https://example.invalid" } })
+        .to_string();
+    let parsed = TurnCredential::from_tail(both.as_bytes()).unwrap().unwrap();
+    assert_eq!(parsed.name(), "CLAUDE_CODE_OAUTH_TOKEN");
+    assert!(!parsed.env_file().contains("ANTHROPIC"));
+    let refused = [
+        json!({ "env": { "CLAUDE_CODE_OAUTH_TOKEN": format!("{TOKEN} x") } }),
+        json!({ "env": { "CLAUDE_CODE_OAUTH_TOKEN": format!("{TOKEN}\nEVIL=1") } }),
+        json!({ "env": { "CLAUDE_CODE_OAUTH_TOKEN": format!("{TOKEN}$HOME") } }),
+        json!({ "env": { "CLAUDE_CODE_OAUTH_TOKEN": "" } }),
+        json!({ "env": { "CLAUDE_CODE_OAUTH_TOKEN": 7 } }),
+        json!({ "env": { "CLAUDE_CODE_OAUTH_TOKEN": TOKEN }, "other": TOKEN }),
+        json!([TOKEN]),
+    ];
+    for tail in refused {
+        let error = TurnCredential::from_tail(tail.to_string().as_bytes()).unwrap_err();
+        let text = format!("{error:?} {error}");
+        assert!(!text.contains(TOKEN), "a refusal carries the token");
+    }
+    // Not JSON at all: the parser's message (which can quote the input) is not passed on.
+    let error = TurnCredential::from_tail(format!("{{\"env\": {TOKEN}").as_bytes()).unwrap_err();
+    assert!(!format!("{error:?} {error}").contains(TOKEN));
+}
+
+#[test]
+fn a_credential_and_a_start_with_one_never_print_the_value() {
+    let credential = credential();
+    assert_eq!(format!("{credential:?}"), "TurnCredential(CLAUDE_CODE_OAUTH_TOKEN = <redacted>)");
+    let start = with_turn();
+    assert!(!format!("{start:?}").contains(TOKEN));
+    assert!(!format!("{start:#?}").contains(TOKEN));
+}
+
+#[test]
+fn the_fallback_unit_reads_both_env_files_as_the_image_unit_does() {
+    let unit = fallback_unit("/usr/local/bin/optchat-chief");
+    let lines = |text: &str| -> Vec<String> {
+        text.lines().filter(|l| l.starts_with("EnvironmentFile=")).map(str::to_owned).collect()
+    };
+    let expected =
+        vec!["EnvironmentFile=-/etc/cmux/chief.env", "EnvironmentFile=-/run/cmux-chief/turn.env"];
+    assert_eq!(lines(&unit), expected);
+    // The image's own unit, where the source tree has it.
+    let image = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../images/cmux-vm/chief/cmux-chief.service");
+    if let Ok(text) = std::fs::read_to_string(image) {
+        assert_eq!(lines(&text), expected);
+    }
 }

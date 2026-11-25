@@ -81,7 +81,7 @@ import Testing
     // MARK: Switch progress
 
     @Test func eachStepReadsWhatIsHappeningAndKeepsItsOrder() {
-        #expect(BuildSwitchProgress(build: "1", stage: .download, fraction: 0.426).label == "Downloading… 42%")
+        #expect(BuildSwitchProgress(build: "1", stage: .download, fraction: 0.426).label == "Downloading… \u{2007}42%")
         #expect(BuildSwitchProgress(build: "1", stage: .download).label == "Downloading…")
         #expect(BuildSwitchProgress(build: "1", stage: .verify).label == "Checking the download…")
         #expect(BuildSwitchProgress(build: "1", stage: .stores).label == "Checking it can open your sessions…")

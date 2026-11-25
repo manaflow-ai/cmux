@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.updates.channel.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stable gets builds that ran a week without problems; Canary and Dev get them first."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stable erhält Builds, die eine Woche ohne Probleme liefen; Canary und Dev erhalten sie zuerst."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stable reçoit les builds qui ont tourné une semaine sans problème ; Canary et Dev les reçoivent en premier."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تحصل Stable على الإصدارات التي عملت أسبوعًا دون مشكلات؛ وتحصل عليها Canary وDev أولًا."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stable recibe compilaciones que funcionaron una semana sin problemas; Canary y Dev las reciben primero."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stable 取得已穩定執行一週的版本；Canary 與 Dev 會更早取得。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stable 获得已稳定运行一周的版本；Canary 和 Dev 最先获得。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stable은 일주일 동안 문제 없이 실행된 빌드를 받고, Canary와 Dev는 먼저 받습니다."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stable は 1 週間問題なく動いたビルドを受け取ります。Canary と Dev は先に受け取ります。"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stable recebe builds que rodaram uma semana sem problemas; Canary e Dev os recebem primeiro."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stable получает сборки, которые неделю работали без проблем; Canary и Dev получают их первыми."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stable riceve build che hanno funzionato una settimana senza problemi; Canary e Dev le ricevono prima."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stable отримує збірки, що тиждень працювали без проблем; Canary і Dev отримують їх першими."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stable dobija buildove koji su sedmicu radili bez problema; Canary i Dev ih dobijaju prvi."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stable dostaje kompilacje, które działały tydzień bez problemów; Canary i Dev dostają je pierwsze."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stable bir hafta sorunsuz çalışmış sürümleri alır; Canary ve Dev onları önce alır."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stable nhận bản dựng đã chạy ổn định một tuần; Canary và Dev nhận trước."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stable ได้รับบิลด์ที่ทำงานได้ดีมาแล้วหนึ่งสัปดาห์ Canary และ Dev ได้รับก่อน"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stable får bygg som har kjørt en uke uten problemer; Canary og Dev får dem først."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stable ទទួលបានកំណែដែលដំណើរការមួយសប្ដាហ៍ដោយគ្មានបញ្ហា; Canary និង Dev ទទួលបានវាមុនគេ។"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stable får builds, der har kørt en uge uden problemer; Canary og Dev får dem først."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

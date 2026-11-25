@@ -520,3 +520,55 @@ fn each_link_action_has_its_own_help() {
     assert!(super::asks_help(&["--install".into(), "x".into(), "-h".into()]));
     assert!(!super::asks_help(&["--".into(), "--help".into()]));
 }
+
+/// The link reads the `server.json` the server's own layout writes: macOS's
+/// `~/.config/cmux-next` for a new install, `~/.config/cmux` while an older
+/// install keeps it (and only until cmux-next has one), Linux's `cmux`.
+#[test]
+fn server_config_path_follows_the_server_layout() {
+    use super::server_config_path_in;
+    use cmux_server_core::layout::{LayoutEnv, layout};
+    use cmux_server_core::{InstallMode, Platform};
+    let home = std::env::temp_dir().join(format!("cmux-link-server-config-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(&home).unwrap();
+    let server = || {
+        let env = LayoutEnv {
+            home: Some(home.to_str().unwrap().to_owned()),
+            uid: Some(501),
+            ..LayoutEnv::default()
+        };
+        std::path::PathBuf::from(
+            layout(InstallMode::User, Platform::MacOs, &env).unwrap().config_file.as_str(),
+        )
+    };
+    let link = || server_config_path_in(None, Some(&home), true).unwrap();
+
+    assert_eq!(link(), home.join(".config/cmux-next/server.json"));
+    assert_eq!(link(), server());
+
+    std::fs::create_dir_all(home.join(".config/cmux")).unwrap();
+    std::fs::write(home.join(".config/cmux/server.json"), "{}").unwrap();
+    assert_eq!(link(), home.join(".config/cmux/server.json"), "an older install keeps its file");
+    assert_eq!(link(), server());
+
+    std::fs::create_dir_all(home.join(".config/cmux-next")).unwrap();
+    std::fs::write(home.join(".config/cmux-next/server.json"), "{}").unwrap();
+    assert_eq!(
+        link(),
+        home.join(".config/cmux-next/server.json"),
+        "cmux-next's file wins once there"
+    );
+    assert_eq!(link(), server());
+
+    assert_eq!(
+        server_config_path_in(None, Some(&home), false).unwrap(),
+        home.join(".config/cmux/server.json")
+    );
+    assert_eq!(
+        server_config_path_in(Some("/x/server.json"), Some(&home), true).unwrap(),
+        std::path::PathBuf::from("/x/server.json")
+    );
+    assert_eq!(server_config_path_in(None, None, true), None);
+    std::fs::remove_dir_all(&home).unwrap();
+}
