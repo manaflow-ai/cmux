@@ -82,14 +82,8 @@ impl Hub {
                             "prior workflow task launch is uncertain; resume cannot execute it twice",
                         ));
                     }
-                    let previous = self.bg_list(&session);
-                    let previous =
-                        previous.get("tasks").and_then(Value::as_array).and_then(|rows| {
-                            rows.iter().find(|row| {
-                                row.get("id").and_then(Value::as_str) == Some(previous_id.as_str())
-                            })
-                        });
-                    if previous.is_some_and(|row| {
+                    let previous = self.bg_task_view(&session, &previous_id);
+                    if previous.as_ref().is_some_and(|row| {
                         matches!(
                             row.get("state").and_then(Value::as_str),
                             Some("running" | "exited")

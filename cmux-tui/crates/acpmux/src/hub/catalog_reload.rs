@@ -93,6 +93,8 @@ impl Hub {
                 auto_evacuate,
                 default_permission_mode,
                 remote_daemon,
+                lane_gh_broker,
+                direct_port,
                 notify_command,
                 disk_low_bytes,
                 agent_inbox,
@@ -185,6 +187,11 @@ impl Hub {
             // The next circuit asking for the cmux-tui remote daemon reads it
             // (`cmux_tui_service.rs`): `acpmux config --set remote_daemon=...` serves it at once.
             current.remote_daemon = remote_daemon;
+            // The next broker stream reads it (`hub_carrier_broker.rs`).
+            current.lane_gh_broker = lane_gh_broker;
+            // The carrier binds its direct port at its start (`hub_carrier_direct.rs`); a
+            // restart applies a change.
+            current.direct_port = direct_port;
             // Each of these is read where it is used, so the next use follows the file.
             current.notify_command = notify_command;
             current.disk_low_bytes = disk_low_bytes;
@@ -276,6 +283,8 @@ mod tests {
                 swap_mb: Some(2048),
                 tasks_max: Some(8192),
                 sessions_tasks_max: Some(131_072),
+                lanes: Some(6),
+                disk_mb: Some(8192),
                 cpu_class: Some(crate::cpu_class::CpuClass::Normal),
             },
             SessionResourceConfig::default(),

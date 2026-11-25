@@ -32,6 +32,7 @@
 mod config;
 mod device;
 mod error;
+mod handshake_retry;
 mod mesh;
 mod mesh_driver;
 mod mesh_paths;
@@ -75,6 +76,7 @@ pub use pacing::Priority;
 pub use probe_schedule::{PathWatch, ProbeConfig, WatchStep};
 pub use single_path::MIN_SEND_BUFFER;
 pub use stream::WgStream;
+pub use tcp_stack::STREAM_WINDOW_ENV;
 pub use timers::TimerSchedule;
 pub use ultra::{UltraMode, UltraStats, is_parity as is_ultra_parity};
 pub use ultra_auto::UltraChoice;
