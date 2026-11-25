@@ -51,7 +51,9 @@ loop() {
       wait
     done' sh "$ROUNDS" "$JOBS" "$ITERS" &
   local pid=$!
-  ( sleep "$CAP"; kill -KILL -- "-$pid" 2>/dev/null ) &
+  # The watchdog keeps no copy of our stdout: the caller reads this function through $(...), and an
+  # orphaned `sleep` holding that pipe made every cell last the full cap.
+  ( sleep "$CAP"; kill -KILL -- "-$pid" 2>/dev/null ) >/dev/null 2>&1 &
   local dog=$!
   wait "$pid"; local rc=$?
   kill "$dog" 2>/dev/null; wait "$dog" 2>/dev/null
