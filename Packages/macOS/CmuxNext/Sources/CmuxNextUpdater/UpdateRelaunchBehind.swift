@@ -17,8 +17,9 @@ public import Foundation
     /// ends, opening nothing). Once the app ended, the helper waits for the installer's exit
     /// (`caffeinate -w`, the kernel's exit event; no polling), then `open -g` starts the bundle
     /// (the installed build, or the previous one Sparkle put back when the install failed) with
-    /// ``reopenArgument``, so either build starts behind. Any arguments after the reopen argument
-    /// are `open` options (``RelaunchHome/openArguments(environment:accountHome:)``, so an app in a
+    /// ``reopenArgument``, so either build starts behind. An empty reopen argument (``arguments(app:installerJob:behind:openOptions:)``
+    /// with `behind: false`, an update relaunch in a custom home) opens it in front instead, as Sparkle's relaunch
+    /// would. Any arguments after the reopen argument are `open` options (``RelaunchHome/openArguments(environment:accountHome:)``, so an app in a
     /// custom home comes back in it); a launch in the account's own home has none.
     public nonisolated static let script = #"""
     installer=$(/bin/launchctl list "$1" 2>/dev/null | /usr/bin/sed -n 's/^[[:space:]]*"PID" = \([0-9][0-9]*\);$/\1/p')
@@ -30,7 +31,8 @@ public import Foundation
     /usr/bin/caffeinate -w "$installer" || exit 1
     reopen=$2
     shift 2
-    exec /usr/bin/open -g "$@" "$0" --args "$reopen"
+    [ -n "$reopen" ] && exec /usr/bin/open -g "$@" "$0" --args "$reopen"
+    exec /usr/bin/open "$@" "$0"
     """#
 
     /// How long the app waits for the helper's installer lookup before it gives up and stays.
@@ -51,10 +53,11 @@ public import Foundation
     }
 
     /// The helper's argv: `sh -c SCRIPT APP JOB REOPEN_ARGUMENT [OPEN_OPTION...]`, the options
-    /// being the running app's home (``RelaunchHome``), none for the account's own home.
-    public nonisolated static func arguments(app: URL, installerJob: String,
+    /// being the running app's home (``RelaunchHome``), none for the account's own home. With
+    /// `behind: false` the reopen argument is empty and the app opens in front.
+    public nonisolated static func arguments(app: URL, installerJob: String, behind: Bool = true,
                                              openOptions: [String] = RelaunchHome.openArguments()) -> [String] {
-        ["/bin/sh", "-c", script, app.path, installerJob, UpdateRelaunchFocus.reopenArgument] + openOptions
+        ["/bin/sh", "-c", script, app.path, installerJob, behind ? UpdateRelaunchFocus.reopenArgument : ""] + openOptions
     }
 
     private let arguments: [String]
@@ -62,8 +65,9 @@ public import Foundation
     private var helper: (pid: pid_t, writeEnd: Int32)?
     private var declined: (@MainActor () -> Void)?
 
-    public init(app: URL, bundleIdentifier: String) {
-        arguments = Self.arguments(app: app, installerJob: Self.installerJobLabel(bundleIdentifier: bundleIdentifier))
+    /// `behind: false` reopens the app in front (an update relaunch in a custom home, ``RelaunchHome``).
+    public init(app: URL, bundleIdentifier: String, behind: Bool = true) {
+        arguments = Self.arguments(app: app, installerJob: Self.installerJobLabel(bundleIdentifier: bundleIdentifier), behind: behind)
     }
 
     /// Starts the helper and, once it found Sparkle's installer, asks `willQuit` (which rechecks

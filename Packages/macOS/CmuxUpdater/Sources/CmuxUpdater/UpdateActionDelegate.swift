@@ -43,6 +43,20 @@ public protocol UpdateActionDelegate: AnyObject {
     /// update as the app exits, with no relaunch of its own. False lets Sparkle install and
     /// relaunch, as a click does.
     func updaterQuitsForAutomaticInstall(build: String) -> Bool
+
+    /// Whether the app runs in a home LaunchServices would not give back (`HOME` other than the
+    /// account's, or `CFFIXED_USER_HOME` set, as in the release rollback drill's throwaway home).
+    /// Sparkle relaunches through LaunchServices, which starts the new build with the login
+    /// session's environment, so in such a home every relaunch goes through
+    /// ``updaterReopensInItsHome(build:declined:)`` instead.
+    var updaterRunsInCustomHome: Bool { get }
+
+    /// Sparkle is about to install `build` and relaunch the app, which runs in a custom home
+    /// (``updaterRunsInCustomHome``). The host quits and reopens itself in that home; Sparkle
+    /// installs as the app exits, with no relaunch of its own. `declined` runs when the host could
+    /// not (nothing quit, the app keeps running): the update stays staged, and Sparkle still
+    /// installs it when the app quits.
+    func updaterReopensInItsHome(build: String, declined: @escaping @MainActor () -> Void)
 }
 
 extension UpdateActionDelegate {
@@ -60,4 +74,10 @@ extension UpdateActionDelegate {
 
     /// Hosts that do not reopen themselves let Sparkle relaunch.
     public func updaterQuitsForAutomaticInstall(build: String) -> Bool { false }
+
+    /// Hosts that never run in a custom home let Sparkle relaunch.
+    public var updaterRunsInCustomHome: Bool { false }
+
+    /// Hosts that cannot reopen themselves decline.
+    public func updaterReopensInItsHome(build: String, declined: @escaping @MainActor () -> Void) { declined() }
 }

@@ -589,3 +589,80 @@ private final class HeldBlockersHost: UpdateActionDelegate {
 private final class CallCounterBox: @unchecked Sendable {
     var count = 0
 }
+
+/// Host that runs in a custom home (the release rollback drill's throwaway home) and records
+/// each time it is asked to quit and reopen itself there.
+@MainActor
+private final class CustomHomeHost: UpdateActionDelegate {
+    var blockers = UpdateRelaunchBlockers.empty
+    var reopens: [String] = []
+    var declines = false
+    func updaterRequestsRetryCheckForUpdates() {}
+    func updaterWillRelaunchApplication() { Issue.record("Sparkle's relaunch must not run in a custom home") }
+    func updaterRelaunchBlockers() -> UpdateRelaunchBlockers { blockers }
+    var updaterRunsInCustomHome: Bool { true }
+    func updaterReopensInItsHome(build: String, declined: @escaping @MainActor () -> Void) {
+        reopens.append(build)
+        if declines { declined() }
+    }
+}
+
+/// Drill 12 (2026-11-25, hq synthetic probe release-rollback-drill): a click install in the drill's
+/// throwaway home relaunched through Sparkle, and LaunchServices started the new build with
+/// HOME=/Users/cmux, so it wrote the account's real cmux folders. In a custom home Sparkle never
+/// relaunches: the host quits and reopens itself there, at once or when a hold ends.
+@MainActor
+@Suite struct CustomHomeRelaunchTests {
+    private let item = SUAppcastItem(dictionary: [
+        "title": "cmux 0.64.17",
+        "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
+        "enclosure": ["url": "https://example.com/cmux.zip", "length": "1024",
+                      "sparkle:version": "0.64.17", "sparkle:shortVersionString": "0.64.17"],
+    ])!
+
+    @Test func aClickInACustomHomeReopensThroughTheHostNotSparkle() {
+        let harness = Harness()
+        let host = CustomHomeHost()
+        harness.controller.driver.actionDelegate = host
+        harness.controller.holdsUserInstalls = false
+        let installs = CallCounterBox()
+        #expect(harness.controller.driver.handleShouldPostponeRelaunch(item: item, installHandler: { installs.count += 1 }),
+                "Sparkle's relaunch is postponed for good: the app quits and Sparkle installs as it exits")
+        #expect(installs.count == 0)
+        #expect(host.reopens == ["0.64.17"])
+    }
+
+    @Test func aHeldRelaunchInACustomHomeReopensThroughTheHostWhenReleased() {
+        let harness = Harness()
+        let host = CustomHomeHost()
+        host.blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 0)
+        harness.controller.driver.actionDelegate = host
+        let installs = CallCounterBox()
+        harness.controller.driver.relaunchIsAutomatic = true
+        #expect(harness.controller.driver.handleShouldPostponeRelaunch(item: item, installHandler: { installs.count += 1 }))
+        #expect(harness.controller.driver.relaunchGate.isWaiting)
+        #expect(host.reopens.isEmpty, "the gate still holds the relaunch")
+
+        harness.controller.installStagedUpdate()
+
+        #expect(installs.count == 0)
+        #expect(host.reopens == ["0.64.17"])
+    }
+
+    @Test func aDeclinedReopenStaysStagedAndAClickAsksAgain() {
+        let harness = Harness()
+        let host = CustomHomeHost()
+        host.declines = true
+        harness.controller.driver.actionDelegate = host
+        harness.controller.holdsUserInstalls = false
+        let installs = CallCounterBox()
+        #expect(harness.controller.driver.handleShouldPostponeRelaunch(item: item, installHandler: { installs.count += 1 }))
+        guard case .installing(let staged) = harness.model.state, staged.isAutoUpdate else {
+            Issue.record("a declined reopen must leave the update staged for a click: \(harness.model.state)")
+            return
+        }
+        staged.retryTerminatingApplication()
+        #expect(installs.count == 0, "Sparkle's relaunch never runs in a custom home")
+        #expect(host.reopens == ["0.64.17", "0.64.17"])
+    }
+}

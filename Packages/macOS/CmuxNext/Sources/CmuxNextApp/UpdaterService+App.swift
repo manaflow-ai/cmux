@@ -23,6 +23,12 @@ extension UpdaterService {
             services?.quit.onQuitRefused = { behind.quitRefused() }
             behind.start(willQuit: willQuit, declined: declined, inFront: inFront)
         }
+        // An update relaunch in a custom home (RelaunchHome): the app quits and reopens itself in front, in that home.
+        reopenInHome = { [weak services] willQuit, declined in
+            let helper = UpdateRelaunchBehind(app: Bundle.main.bundleURL, bundleIdentifier: Bundle.main.bundleIdentifier ?? "", behind: false)
+            services?.quit.onQuitRefused = { helper.quitRefused() }
+            helper.start(willQuit: willQuit, declined: declined, inFront: declined)
+        }
         onNextQuitRefused = { [weak services] action in services?.quit.onQuitRefused = action }
         let activity = UpdateAgentActivity(environment: QuitAgents.environment(services))
         relaunchBlockers = { [weak self, weak services, activity] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }

@@ -189,6 +189,33 @@ import Testing
                                                  app.path, "--args", UpdateRelaunchFocus.reopenArgument])
     }
 
+    /// An update relaunch in a custom home that Sparkle would have done (a click, drill 12's install-bad): the
+    /// helper opens the app in front, with no reopen-behind argument, and keeps the home.
+    @Test func frontHelperReopensACustomHomeInFront() throws {
+        let app = URL(fileURLWithPath: "/Applications/cmux NEXT.app")
+        let drill = "/private/tmp/walk home/it's \(UUID().uuidString)"
+        let options = RelaunchHome.openArguments(environment: ["HOME": drill, "CFFIXED_USER_HOME": drill], accountHome: "/Users/ci")
+        let arguments = UpdateRelaunchBehind.arguments(app: app, installerJob: "job", behind: false, openOptions: options)
+        #expect(try Self.openArgv(arguments) == ["/usr/bin/open", "--env", "HOME=\(drill)", "--env", "CFFIXED_USER_HOME=\(drill)", app.path])
+    }
+
+    /// Restart to Update for a build already on disk reopens through its own helper, which keeps a custom home too.
+    @Test func installedBuildRelaunchKeepsACustomHome() throws {
+        let app = URL(fileURLWithPath: "/Applications/cmux NEXT.app")
+        let drill = "/private/tmp/walk home/it's \(UUID().uuidString)"
+        let options = RelaunchHome.openArguments(environment: ["HOME": drill, "CFFIXED_USER_HOME": drill], accountHome: "/Users/ci")
+        let exited = try RelaunchHomeShell.run(["/bin/sh", "-c", "/usr/bin/true & echo $!; wait"])
+        let pid = try #require(exited.first.flatMap { pid_t($0) })
+        let arguments = InstalledBuildRelaunch.arguments(bundle: app, pid: pid, openOptions: options)
+        let script = arguments[2].replacingOccurrences(of: "exec /usr/bin/open", with: #"exec /usr/bin/printf '%s\n' /usr/bin/open"#)
+        #expect(try RelaunchHomeShell.run([arguments[0], arguments[1], script] + arguments.dropFirst(3))
+                == ["/usr/bin/open", "--env", "HOME=\(drill)", "--env", "CFFIXED_USER_HOME=\(drill)", app.path])
+        let own = InstalledBuildRelaunch.arguments(bundle: app, pid: pid, openOptions: [])
+        let ownScript = own[2].replacingOccurrences(of: "exec /usr/bin/open", with: #"exec /usr/bin/printf '%s\n' /usr/bin/open"#)
+        #expect(try RelaunchHomeShell.run([own[0], own[1], ownScript] + own.dropFirst(3)) == ["/usr/bin/open", app.path],
+                "a launch in the account's own home gets the open argv it always had")
+    }
+
     /// Runs the helper's steps after the installer's exit, with `printf` in place of
     /// `/usr/bin/open`; returns the argv `open` would get, one element per line.
     private static func openArgv(_ arguments: [String]) throws -> [String] {

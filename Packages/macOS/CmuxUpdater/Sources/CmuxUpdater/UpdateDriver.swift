@@ -317,7 +317,40 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// `true` to hold the relaunch until `installHandler` is invoked (see ``UpdateRelaunchGate``).
     /// Hosts that preserve sessions set `holdsUserInstalls` to false, which bypasses every
     /// blocker, including automatic-install idle checks.
+    ///
+    /// In a custom home (``UpdateActionDelegate/updaterRunsInCustomHome``) Sparkle never relaunches:
+    /// its relaunch would start the new build in the account's real home. Whenever Sparkle would
+    /// relaunch (at once, or when a hold ends), the host quits and reopens itself in its home
+    /// instead, and Sparkle installs as the app exits.
     func handleShouldPostponeRelaunch(item: SUAppcastItem? = nil, installHandler: @escaping () -> Void) -> Bool {
+        guard let item, actionDelegate?.updaterRunsInCustomHome == true else {
+            return decideRelaunch(item: item, installHandler: installHandler)
+        }
+        let reopen = reopenInHome(item)
+        if !decideRelaunch(item: item, installHandler: reopen) { reopen() }
+        return true
+    }
+
+    /// The relaunch of `item` in a custom home: the host quits and reopens itself there. When it
+    /// cannot, the update shows as staged and a click tries again; Sparkle's own relaunch never runs.
+    private func reopenInHome(_ item: SUAppcastItem) -> () -> Void {
+        { [weak self] in
+            guard let self else { return }
+            self.log.append("update relaunch: the app runs in a custom home; it quits and reopens itself there, Sparkle installs as it exits")
+            self.actionDelegate?.updaterReopensInItsHome(build: item.versionString, declined: { [weak self] in
+                guard let self else { return }
+                self.log.append("update relaunch: the app could not reopen itself in its home; staged, Sparkle installs it when the app quits")
+                self.setState(.installing(.init(
+                    isAutoUpdate: true,
+                    retryTerminatingApplication: { [weak self] in self?.reopenInHome(item)() },
+                    dismiss: {}
+                )))
+            })
+        }
+    }
+
+    /// The relaunch decision (gates and holds) of ``handleShouldPostponeRelaunch(item:installHandler:)``.
+    private func decideRelaunch(item: SUAppcastItem?, installHandler: @escaping () -> Void) -> Bool {
         let automatic = relaunchIsAutomatic
         relaunchIsAutomatic = false
         var isAutoUpdate = false
