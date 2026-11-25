@@ -221,6 +221,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-browser-rules"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-build-space"
 version = "0.1.0"
 dependencies = [
@@ -467,6 +475,7 @@ name = "cmux-layout-reducer-ffi"
 version = "0.1.0"
 dependencies = [
  "cmux-bookmarks-core",
+ "cmux-browser-rules",
  "cmux-cloud-config",
  "cmux-cloud-handlers",
  "cmux-cloud-machine",
