@@ -197,6 +197,10 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::PATH.optional(), args::MACHINE.optional()],
         targets: &["tab"],
         cli_name: "cloud move",
+        // A run with `wait` (`cmux cloud move --wait`, the prod move probe) gets `action.run`'s result
+        // deadline (40 s), not the 2 s control one: on a busy Mac the run expired queued at 1999 ms
+        // and the move never started (prod move probe, 2 of 24 h, 11-24 19:43Z, 23:47Z).
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -211,6 +215,10 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "move", 1).folder("move")], ..SurfacePlan::DEFAULT },
         targets: &["tab"],
         cli_name: "cloud bring-back",
+        // A run with `wait` (`cmux cloud move --wait`, the prod move probe) gets `action.run`'s result
+        // deadline (40 s), not the 2 s control one: on a busy Mac the run expired queued at 1999 ms
+        // and the move never started (prod move probe, 2 of 24 h, 11-24 19:43Z, 23:47Z).
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {

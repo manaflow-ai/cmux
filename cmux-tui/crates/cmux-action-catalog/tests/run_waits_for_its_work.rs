@@ -33,3 +33,14 @@ fn pause_and_resume_wait_for_the_server() {
         assert!(action.waits_for_result, "{id} must wait for the server's answer");
     }
 }
+
+/// `cmux cloud move` and `cmux cloud bring-back` run with `wait` (`agent_move_cloud.rs`, the prod
+/// move probe). With the 2 s control deadline a busy Mac answered `action.run did not finish
+/// within 1999 ms` and the move never landed (prod move probe 11-24 19:43Z and 23:47Z).
+#[test]
+fn a_move_run_gets_the_result_deadline() {
+    for id in ["cloudMove", "cloudBringBack"] {
+        let action = find(id).unwrap_or_else(|| panic!("{id} is in the catalog"));
+        assert!(action.waits_for_result, "{id} must get action.run's result deadline");
+    }
+}

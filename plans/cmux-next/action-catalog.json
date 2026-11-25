@@ -83042,7 +83042,7 @@
       "title" : "Move to Cloud",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
-      "waitsForResult" : false
+      "waitsForResult" : true
     },
     {
       "arguments" : [
@@ -83120,7 +83120,7 @@
       "title" : "Bring Back Local",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
-      "waitsForResult" : false
+      "waitsForResult" : true
     },
     {
       "arguments" : [
