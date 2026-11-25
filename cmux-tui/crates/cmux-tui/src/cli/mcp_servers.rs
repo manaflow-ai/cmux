@@ -530,8 +530,10 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         [h, rest @ ..] if h == "mcp-servers" => rest,
         _ => return None,
     };
-    if rest.first().is_some_and(|a| a == "loopback-serve") {
-        return Some(super::mcp_loopback::serve_main(&rest[1..]));
+    if let [verb, serve_args @ ..] = rest {
+        if verb == "loopback-serve" {
+            return Some(super::mcp_loopback::serve_main(serve_args));
+        }
     }
     if rest.is_empty()
         || rest.iter().any(|a| a == "--help" || a == "-h")
