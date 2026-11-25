@@ -787,7 +787,9 @@ extension AgentPaneRequest {
         case "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove",
              "git.worktree.setup.run":
             self = AgentPaneGitWrite(method: method, params: params).map(AgentPaneRequest.gitWrite) ?? .invalidGit(method)
-        case "transport.open": self = .transportOpen
+        case "transport.open":
+            let early = (params?["initialize"] as? [String: Any]).flatMap(AcpmuxRequestIds.earlyInitializeFrame(params:))
+            self = .transportOpen(earlyInitialize: early.flatMap { $0.utf8.count <= Self.maximumEarlyInitializeBytes ? $0 : nil })
         case "transport.gesture":
             var refusal: String?
             let intent = AgentPaneGestureIntent(gestureParams: params, refusal: &refusal)

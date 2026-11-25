@@ -1241,6 +1241,11 @@ try {
   const serveBridge = async (page: Page) => {
     const sockets = new Map<number, WebSocket>();
     const pipes = new Map<number, { up: LinkPipe; down: LinkPipe }>();
+    // The host's early initialize per connection (Swift AcpmuxRequestIds `adoptEarlyInitialize`):
+    // its params, its answer once it came, and the page id its answer goes to once the page's own
+    // initialize took it.
+    const EARLY_ID = "cmux-early-initialize";
+    const early = new Map<number, { params: string; answer?: Record<string, unknown>; pageID?: unknown }>();
     let next = 0;
     let delivery = Promise.resolve();
     const push = (event: { connection: number; frames?: string[]; closed?: { code: number; reason: string } }) => {
@@ -1283,7 +1288,22 @@ try {
         socket.addEventListener("message", (event) => {
           const frame = String(event.data);
           load.bytesDown += Buffer.byteLength(frame);
-          down.send(frame, (arrived) => push({ connection, frames: [arrived] }));
+          down.send(frame, (arrived) => {
+            const held = early.get(connection);
+            if (held && arrived.includes(EARLY_ID)) {
+              const reply = JSON.parse(arrived) as Record<string, unknown>;
+              if (reply.id === EARLY_ID) {
+                if (held.pageID === undefined) {
+                  held.answer = reply;
+                  return;
+                }
+                early.delete(connection);
+                push({ connection, frames: [JSON.stringify({ ...reply, id: held.pageID })] });
+                return;
+              }
+            }
+            push({ connection, frames: [arrived] });
+          });
         });
         socket.addEventListener("close", (event) => {
           if (!sockets.delete(connection)) return;
@@ -1295,13 +1315,33 @@ try {
           });
           pipes.delete(connection);
         });
+        // The page's initialize params: sent now as the host's own initialize, as the app does.
+        if (params?.initialize && typeof params.initialize === "object") {
+          early.set(connection, { params: JSON.stringify(params.initialize) });
+          const frame = JSON.stringify({ jsonrpc: "2.0", id: EARLY_ID, method: "initialize", params: params.initialize });
+          up.send(frame, (sent) => socket.readyState === WebSocket.OPEN && socket.send(sent));
+        }
         return { ok: true, value: { connection } };
       }
       const socket = sockets.get(Number(params.connection));
       if (method === "transport.send") {
         if (!socket) return { ok: false, code: "transport.closed", message: "closed" };
         const pipe = pipes.get(Number(params.connection));
-        for (const frame of (params.frames as string[] | undefined) ?? [])
+        let frames = (params.frames as string[] | undefined) ?? [];
+        // The page's own initialize with the same params takes the early one's answer.
+        const held = early.get(Number(params.connection));
+        if (held && held.pageID === undefined && frames[0]?.includes('"initialize"')) {
+          const first = JSON.parse(frames[0]) as { id?: unknown; method?: unknown; params?: unknown };
+          if (first.method === "initialize" && JSON.stringify(first.params) === held.params) {
+            frames = frames.slice(1);
+            held.pageID = first.id;
+            if (held.answer) {
+              early.delete(Number(params.connection));
+              push({ connection: Number(params.connection), frames: [JSON.stringify({ ...held.answer, id: first.id })] });
+            }
+          }
+        }
+        for (const frame of frames)
           if (pipe) pipe.up.send(frame, (sent) => socket.readyState === WebSocket.OPEN && socket.send(sent));
           else socket.send(frame);
         return { ok: true, value: null };

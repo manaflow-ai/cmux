@@ -378,6 +378,17 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                     awaited += 1
                     answers += 1
                     page.append(fresh)
+                case .early(let object):
+                    // The host's own initialize (``AcpmuxRequestIds/earlyInitializePageID``): read as
+                    // the page's would be (the person challenge first), and kept until the page's own
+                    // initialize takes it (``AgentPaneTransport/drain()``).
+                    let method = AcpmuxPaneMethods.initialize
+                    readChallenge(object)
+                    options.observe(object, replyTo: method)
+                    sessions.observe(object)
+                    sessions.observeFolder(object, replyTo: method)
+                    if wire != nil { sessions.observeTabSession(object, replyTo: method) }
+                    _ = decisions.observe(object, replyTo: method)
                 case .complete(let object, let pageID, let subject):
                     switch AgentPaneAgentReply.step(object, pageID: pageID, subject: subject, sessions: sessions,
                                                     canSend: agentReplies != nil) {

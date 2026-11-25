@@ -25,11 +25,11 @@ enum AgentPaneTransportReply {
         case .gitStage(let stage): return await AgentPaneGitStage.reply(to: stage, in: model)
         case .gitPullRequest(let pullRequest): return await AgentPaneGitPullRequest.reply(to: pullRequest, in: model)
         case .githubRepository(let cwd): return AgentPaneReply.success(["repository": (await AgentPaneGitHubRepository.read(at: cwd)).map { $0 as Any } ?? NSNull()])
-        case .transportOpen:
+        case .transportOpen(let earlyInitialize):
             guard let connection = model.pendingConnection else { return AgentPaneModel.transportFailure(.noConnection) }
             model.pendingConnection = nil
             do {
-                return AgentPaneReply.success(["connection": try await model.transport.open(connection)])
+                return AgentPaneReply.success(["connection": try await model.transport.open(connection, earlyInitialize: earlyInitialize)])
             } catch {
                 return AgentPaneModel.transportFailure(error)
             }

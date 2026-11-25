@@ -5,6 +5,7 @@
 // now asks both (chatSnapshot/earlyOpen.ts), and the bundle takes those answers once instead of asking again.
 import { afterAll, afterEach, beforeAll, expect, jest, test } from "bun:test";
 import { BridgeSocket } from "../src/agent-session/acpmux/bridgeSocket";
+import { initializeParams } from "../src/agent-session/acpmux/initializeParams";
 import { postNative } from "../src/agent-session/acpmux/native";
 import { resetPageHostClientForTests } from "../src/agent-session/acpmux/pageHost";
 import {
@@ -37,11 +38,13 @@ type Envelope = { t: string; id: number; op: string; params?: Record<string, unk
 /// handshake (as the Swift host keeps one connection per handshake), and records every call.
 function pageHost(options: { refuse?: boolean; handshake?: Promise<void> } = {}) {
   const ops: string[] = [];
+  const params: Record<string, unknown>[] = [];
   let pending: number | undefined;
   let next = 7;
   const postMessage = async (message: Envelope) => {
     if (message.t !== "call") return { t: "ok", id: message.id, value: null };
     ops.push(message.op);
+    params.push(message.params ?? {});
     if (message.op === "cmux.agent.handshake") {
       await options.handshake;
       if (options.refuse) return { t: "err", id: message.id, code: "host_unavailable", message: "starting" };
@@ -57,8 +60,16 @@ function pageHost(options: { refuse?: boolean; handshake?: Promise<void> } = {})
     return { t: "ok", id: message.id, value: null };
   };
   scope.webkit = { messageHandlers: { cmuxPage: { postMessage } } };
-  return { ops };
+  return { ops, params };
 }
+
+test("the boot's socket hands the host the bundle's initialize params, so the host asks while the bundle loads", async () => {
+  const host = pageHost();
+  askEarlyOpen();
+  await settle();
+  expect(host.ops).toEqual(["cmux.agent.handshake", "cmux.agent.transport.open"]);
+  expect(host.params[1]?.initialize).toEqual(initializeParams());
+});
 
 const settle = async () => {
   for (let i = 0; i < 10; i++) await Promise.resolve();

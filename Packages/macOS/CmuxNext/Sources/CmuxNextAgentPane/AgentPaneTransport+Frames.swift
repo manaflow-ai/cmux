@@ -192,6 +192,20 @@ extension AgentPaneTransport {
                 complete(.stop(.staleConnection))
                 continue
             }
+            // The page's own initialize takes the host's early one's answer (``AcpmuxRequestIds/adoptEarlyInitialize(_:)``):
+            // the bundle's handshake costs no round trip after it loads.
+            if sentFirst, ids.earlyInitializeOutstanding, let first = entry.frames.first {
+                switch ids.adoptEarlyInitialize(first) {
+                case .none: break
+                case .answered(let reply):
+                    socket.inject(reply)
+                    complete(.sent)
+                    continue
+                case .waiting:
+                    complete(.sent)
+                    continue
+                }
+            }
             var texts: [String] = []
             for waiting in pending {
                 guard waiting.connection == entry.connection, texts.count < Self.framesPerPass else { break }
