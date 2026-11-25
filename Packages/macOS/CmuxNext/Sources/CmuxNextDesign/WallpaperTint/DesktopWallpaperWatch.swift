@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+package import CmuxNextDesignTokens
 import CmuxNextWakeups
 import Foundation
 
@@ -107,6 +108,9 @@ public final class DesktopWallpaperWatch {
     /// Bumped each time the desktop shows something new after the first reading: a view showing
     /// the Desktop Wallpaper background reloads it once per bump (``BackdropImageStore``).
     public private(set) var generation = 0
+    /// Bumped with each new reading, the first one included: observed (unlike ``generation``), so
+    /// the iPhone's copy of what a see-through window shows follows the desktop (`ThemePhone`).
+    package let revision = BackdropRevision()
     /// Samples taken (tests).
     private(set) var sampleCount = 0
     /// `appearance.wallpaperTint`: the tint leans toward the picture, and pictures are sampled,
@@ -116,6 +120,18 @@ public final class DesktopWallpaperWatch {
             guard tintEnabled != oldValue else { return }
             // Off: a sample under way finishes into the cache but publishes nothing.
             if !tintEnabled || !sampleIfNeeded() { refreshViews() }
+        }
+    }
+
+    /// The light this watch's desktop field feeds (``BackdropImageStore/light``).
+    weak var light: WallpaperLight?
+    /// `appearance.wallpaperLighting`: pictures are sampled for their light field (``WallpaperLight``) even with
+    /// the tint off. Turning it on lights the UI with the picture shown now (sampled once if it was not yet).
+    public var lightingEnabled = false {
+        didSet {
+            guard lightingEnabled != oldValue else { return }
+            light?.desktopDidChange(lightingEnabled ? tint?.light : nil)
+            if lightingEnabled { sampleIfNeeded() }
         }
     }
 
@@ -242,6 +258,7 @@ public final class DesktopWallpaperWatch {
     /// app's window owner calls it from its window delegate, for its own windows only: an
     /// app-wide window observer woke on every menu, tooltip and panel too (#25308).
     public func windowDidChange() {
+        light?.windowDidMove()
         guard !observers.isEmpty else { return }
         // A window moved to another display shows that display's picture at once.
         for view in views.allObjects { view.desktopScreenMayHaveChanged() }
@@ -249,7 +266,7 @@ public final class DesktopWallpaperWatch {
     }
 
     /// The picture of the last reading; nil before the first one lands (or without a screen).
-    var picture: DesktopPicture? { current?.picture }
+    package var picture: DesktopPicture? { current?.picture }
 
     /// What the desktop of `screen` shows; the main screen's when that screen has no reading yet,
     /// nil before the first reading lands.
@@ -320,6 +337,7 @@ public final class DesktopWallpaperWatch {
         if current != nil { generation += 1 }
         current = reading
         screens = next.screens
+        revision.bump()
         // The Desktop Wallpaper art reloads now, not only once the color lands.
         if !sampleIfNeeded() { refreshViews() }
     }
@@ -362,7 +380,7 @@ public final class DesktopWallpaperWatch {
     /// true: the views re-applied), else one sample off the main actor, when none is under way.
     @discardableResult
     private func sampleIfNeeded() -> Bool {
-        guard tintEnabled || samplesForGroups, let reading = current, published != reading, !isHidden() else { return false }
+        guard tintEnabled || samplesForGroups || lightingEnabled, let reading = current, published != reading, !isHidden() else { return false }
         if let known = colors[reading] {
             publish(known, for: reading)
             return true
@@ -400,6 +418,7 @@ public final class DesktopWallpaperWatch {
         published = reading
         if let color { defaults?.set([color.red, color.green, color.blue], forKey: Self.lastTintKey) }
         if samplesForGroups { DesignSettings.shared.groupWallpaperTint = color }
+        light?.desktopDidChange(color?.light)
         refreshViews()
         if changed { for follower in followers.allObjects { (follower as? DesktopWallpaperColorFollower)?.desktopWallpaperColorDidChange() } }
     }
@@ -495,6 +514,7 @@ public final class DesktopWallpaperWatch {
             else { return nil }
             var tint = WallpaperTint.average(of: image)
             tint?.bands = WallpaperTint.bands(of: image, count: Self.bandCount)
+            tint?.light = WallpaperLightField.read(image)
             return tint
         }.value
     }

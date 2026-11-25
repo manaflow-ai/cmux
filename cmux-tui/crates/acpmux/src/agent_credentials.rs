@@ -289,6 +289,22 @@ fn recovered_in(vars: &BTreeMap<&str, &str>) -> Option<AgentCredential> {
     AgentCredential::parse(&serde_json::json!({"env": {name: value}})).ok()
 }
 
+/// The launch credential's variables in the env an agent was started with ([`MARKER`] and the
+/// variable it names), which its agent host keeps and says to a daemon that adopts it
+/// (`agent_host::LaunchCredential`). Empty when it was not launched on one.
+pub fn launched_with(env: &[(String, String)]) -> Vec<(String, String)> {
+    let vars: BTreeMap<&str, &str> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let Some(credential) = recovered_in(&vars) else { return Vec::new() };
+    let mut out = vec![(MARKER.to_owned(), credential.names().collect::<Vec<_>>().join(","))];
+    out.extend(credential.env);
+    out
+}
+
+/// [`recovered`] over the variables an agent host said ([`launched_with`]).
+pub fn recovered_from_launch(env: &[(String, String)]) -> Option<AgentCredential> {
+    recovered_in(&env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect())
+}
+
 /// [`recovered`] for the running process `pid` (this daemon's adopted agent), read through the
 /// one-pid env reader `agent_host::tree::environ` (the env its exec was given). Linux only:
 /// elsewhere (and when its env cannot be read) None.
@@ -577,6 +593,21 @@ mod tests {
 
     fn environ(pairs: &[(&str, &str)]) -> Vec<u8> {
         pairs.iter().flat_map(|(k, v)| format!("{k}={v}\0").into_bytes()).collect()
+    }
+
+    #[test]
+    fn the_host_says_only_the_launch_credential_and_never_shows_its_value() {
+        let c =
+            AgentCredential::parse(&json!({"env": {CLAUDE_OAUTH: "sk-ant-oat01-abc"}})).unwrap();
+        let (mut argv, mut e) = (vec!["claude".to_owned()], env(&[("HOME", "/home/cmux")]));
+        assert!(apply(&c, "claude", &mut argv, &mut e));
+        let spec_env: Vec<(String, String)> = e.into_iter().collect();
+        let said = launched_with(&spec_env);
+        assert!(said.iter().all(|(k, _)| k != "HOME"), "only the credential's variables: {said:?}");
+        assert_eq!(recovered_from_launch(&said), Some(c));
+        let shown = format!("{:?}", crate::agent_host::LaunchCredential(said));
+        assert!(!shown.contains("sk-ant-oat01-abc"), "{shown}");
+        assert!(launched_with(&[("HOME".into(), "/h".into())]).is_empty());
     }
 
     #[test]

@@ -31,6 +31,9 @@ type DisplayPart = {
   size?: number;
   pageCount?: number;
   companionOf?: number;
+  /// A video's picture size (its host read), kept so its sent tile has its box after a reload.
+  width?: number;
+  height?: number;
   source?: AttachmentSource;
 };
 export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
@@ -61,9 +64,15 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
       ...(a.mimeType ? { mimeType: a.mimeType } : {}),
       ...knownSize(a),
       ...(a.pageCount ? { pageCount: a.pageCount } : {}),
+      ...(a.video ? { width: a.video.width, height: a.video.height } : {}),
       ...(a.source ? { source: a.source } : {}),
     });
-    if (a.kind === "image")
+    if (a.kind === "image") {
+      const src = a.data ? `data:${a.mimeType};base64,${a.data}` : undefined;
+      // Its size from its bytes (the header the composer's tile read), so the sent row is laid out
+      // and drawn at its final shape from the send, never a square that reshapes once it decodes
+      // (Leo, 2026-11-07: "know beforehand the size we're going to go for").
+      const shape = src ? knownImageSize(src) : undefined;
       parts.push({
         kind: "image",
         id: a.id,
@@ -72,10 +81,11 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
         mimeType: a.mimeType,
         name: a.name,
         ...placed,
-        ...(a.data ? { src: `data:${a.mimeType};base64,${a.data}` } : {}),
+        ...(src ? { src } : {}),
+        ...(shape ? { width: shape.width, height: shape.height } : {}),
         ...(a.source ? { source: a.source } : {}),
       });
-    else {
+    } else {
       const first = blocks[0];
       parts.push({
         kind,
@@ -87,7 +97,7 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
         ...(text ? { text } : {}),
         ...(a.pageCount ? { pageCount: a.pageCount } : {}),
         ...("uri" in first ? { uri: first.uri } : {}),
-        ...(a.video ? { video: a.video } : {}),
+        ...(a.video ? { video: a.video, width: a.video.width, height: a.video.height } : {}),
         ...(a.source ? { source: a.source } : {}),
       } as PromptContentPart);
     }
@@ -151,6 +161,7 @@ export function normalizePromptContentPart(value: unknown): PromptContentPart | 
       ? { size: raw.size }
       : {}),
     ...(typeof raw.pageCount === "number" ? { pageCount: raw.pageCount } : {}),
+    ...(positiveInteger(raw.width) && positiveInteger(raw.height) ? { width: raw.width, height: raw.height } : {}),
     ...(Number.isSafeInteger(raw.companionOf) && Number(raw.companionOf) >= 0
       ? { companionOf: Number(raw.companionOf) }
       : {}),
@@ -158,6 +169,8 @@ export function normalizePromptContentPart(value: unknown): PromptContentPart | 
     ...sourceField(raw.source),
   } as PromptContentPart;
 }
+
+const positiveInteger = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) > 0;
 
 /// `{source}` when acpmux kept a valid one with the part, else nothing.
 function sourceField(value: unknown) {
@@ -486,9 +499,14 @@ export function stripFileDisplay(
     )
       return [{ kind: "file", blockIndex, name: block.name, companionOf: blockIndex - 1 }];
     const file = block.type === "resource_link" ? links.get(block.uri) : undefined;
-    // A video keeps its own display; it carries only its source.
-    if (file?.mimeType.startsWith("video/"))
-      return file.source ? [{ kind: "file", blockIndex, source: file.source }] : [];
+    // A video keeps its own display; it carries only its source and its picture's size, so its
+    // sent tile has its box after a reload (conversation/sentVideos.ts).
+    if (file?.mimeType.startsWith("video/")) {
+      const size = file.video ? { width: file.video.width, height: file.video.height } : {};
+      return file.source || file.video
+        ? [{ kind: "file", blockIndex, ...size, ...(file.source ? { source: file.source } : {}) }]
+        : [];
+    }
     return file
       ? [
           {
@@ -497,6 +515,7 @@ export function stripFileDisplay(
             name: file.name,
             ...(file.mimeType ? { mimeType: file.mimeType } : {}),
             ...(file.mimeType || file.size > 0 ? { size: file.size } : {}),
+            ...(file.video ? { width: file.video.width, height: file.video.height } : {}),
             ...(file.source ? { source: file.source } : {}),
           },
         ]
