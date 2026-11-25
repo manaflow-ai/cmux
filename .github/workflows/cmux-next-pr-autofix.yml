@@ -158,6 +158,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           filter: blob:none
+          sparse-checkout-cone-mode: false
           sparse-checkout: |
             scripts/cmux-next
             scripts/ci/cargo_affected.py
