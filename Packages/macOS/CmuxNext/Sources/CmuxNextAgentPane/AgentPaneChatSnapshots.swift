@@ -27,6 +27,9 @@ public final class AgentPaneChatSnapshots {
     nonisolated static let global = "__cmuxChatSnapshot"
     /// The page's global for the theme key it gets now (chatSnapshot/shared.ts `SNAPSHOT_THEME_GLOBAL`).
     nonisolated static let themeGlobal = "__cmuxChatSnapshotTheme"
+    /// The page's global for the pane theme values it gets now (chatSnapshot/shared.ts
+    /// `SNAPSHOT_AGENT_THEME_GLOBAL`): a copy drawn under another theme takes their `--agent-*` colors.
+    nonisolated static let agentThemeGlobal = "__cmuxChatSnapshotAgentTheme"
     /// The page's global for the prompt its composer showed when the copy (or the miss) was written
     /// (chatSnapshot/restoredDraft.ts `RESTORED_DRAFT`): the next document's composer holds it from
     /// its first frame, whether or not a copy draws (Leo, 2026-11-22: "composer dips down then goes
@@ -152,7 +155,8 @@ public final class AgentPaneChatSnapshots {
     /// `sessionId`'s copy, or to null when there is none (or no chat, or it may not be kept), then
     /// calls the page's boot, which draws it (chatSnapshot/boot.ts). `read` is that chat's copy
     /// already being read (``AgentPageResources``), so the answer waits on no second read.
-    func script(for sessionId: String?, allowed: Bool, themeKey: String? = nil, read: Task<JSONValue?, Never>? = nil) async -> Data {
+    func script(for sessionId: String?, allowed: Bool, themeKey: String? = nil, agentTheme: JSONValue? = nil,
+                read: Task<JSONValue?, Never>? = nil) async -> Data {
         var kept: JSONValue?
         if allowed, let sessionId, !sessionId.isEmpty {
             let cache = AgentPaneTailCache.shared
@@ -161,12 +165,13 @@ public final class AgentPaneChatSnapshots {
             // A sign-out while it read: what was read is no one's to serve.
             if generation != cache.generation || !cache.acceptsTails { kept = nil }
         }
-        return script(for: sessionId, allowed: allowed, themeKey: themeKey, kept: kept)
+        return script(for: sessionId, allowed: allowed, themeKey: themeKey, agentTheme: agentTheme, kept: kept)
     }
 
     /// ``script(for:allowed:themeKey:read:)`` once the chat's copy is read: `kept` is what the store
     /// holds for it, nil for none.
-    func script(for sessionId: String?, allowed: Bool, themeKey: String?, kept: JSONValue?) -> Data {
+    func script(for sessionId: String?, allowed: Bool, themeKey: String?, agentTheme: JSONValue? = nil,
+                kept: JSONValue?) -> Data {
         var text = "self.\(Self.global)="
         // Why there is none, for the page's own record (chatSnapshot/live.ts `chatSnapshotReport`).
         var why = "kept"
@@ -186,6 +191,10 @@ public final class AgentPaneChatSnapshots {
         // The theme the page gets now: a copy drawn under another one is not drawn.
         text += ";self.\(Self.themeGlobal)="
         JSONValue.string(themeKey ?? "").appendCompactText(to: &text)
+        // Its colors too: the pane's own theme reaches the page only with the handshake, so a copy
+        // drawn under another theme of the same appearance would draw the old one's until the swap.
+        text += ";self.\(Self.agentThemeGlobal)="
+        (agentTheme ?? .null).appendCompactText(to: &text)
         // The page's boot (chatSnapshot/shared.ts `SNAPSHOT_BOOT_GLOBAL`), absent until it ran: it
         // then reads the globals itself.
         // The restored tab's identity is available before its daemon handshake. This is only

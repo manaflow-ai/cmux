@@ -8,7 +8,7 @@
 # MODE: fmt (cargo fmt --check), clippy (-D warnings), test [FILTER] (cargo nextest, a
 # failed test reruns once alone: see workspace_tests), or all [FILTER];
 # test FILTER SCOPE: SCOPE names where the filter's tests are, so cargo builds only those test
-# binaries: crate names with commas (cmux-tui-core,cmux-git) or one CRATE:TARGET (see crate_scope);
+# binaries: crate names with commas (cmux-tui-core,cmux-git) or one CRATE:TARGET (CRATE:lib for unit tests; see crate_scope);
 # panic: the "Rust panic ratchet" step of cmux-tui.yml's Linux lint job, the same two commands
 # (cargo clippy --lib --bins with rust_panic_ratchet.py --flags, then rust_panic_ratchet.py
 # --clippy-json; plans/cmux-next/rust-panic-free.md), so a merge batch or train can judge its tree
@@ -148,7 +148,9 @@ if [[ -n "$shard" ]]; then
 fi
 # test FILTER SCOPE (a third argument) names where the filter's tests are: crate names with commas
 # (-p for each), or one CRATE:TARGET for one integration test target (cmux-tui:startup_timings is
-# cmux-tui/crates/cmux-tui/tests/startup_timings.rs: -p cmux-tui --test startup_timings). cargo
+# cmux-tui/crates/cmux-tui/tests/startup_timings.rs: -p cmux-tui --test startup_timings; CRATE:lib is
+# the library's unit tests, -p CRATE --lib, so a unit test of a big crate like acpmux skips its ~40
+# test binaries, whose cold build overran a 143 GiB pool slot, 2026-11-25). cargo
 # then builds the test binaries of that scope only; a filtered run of the whole workspace builds
 # every test binary of every crate to run a few tests. A filter that matches no test of the scope
 # is red (--no-tests=fail). No third argument: the whole workspace, as before. (2026-11-16)
@@ -165,7 +167,12 @@ if [[ -n "$crate_scope" ]]; then
   fi
   scope_name='[A-Za-z0-9][A-Za-z0-9_-]{0,63}'
   if [[ "$crate_scope" =~ ^($scope_name):($scope_name)$ ]]; then
-    test_scope=(-p "${BASH_REMATCH[1]}" --test "${BASH_REMATCH[2]}")
+    if [[ "${BASH_REMATCH[2]}" == lib ]]; then
+      # CRATE:lib is the crate's library unit tests (cargo --lib); cargo has no test target named lib.
+      test_scope=(-p "${BASH_REMATCH[1]}" --lib)
+    else
+      test_scope=(-p "${BASH_REMATCH[1]}" --test "${BASH_REMATCH[2]}")
+    fi
   elif [[ "$crate_scope" =~ ^$scope_name(,$scope_name){0,7}$ ]]; then
     test_scope=()
     IFS=, read -r -a scope_crates <<<"$crate_scope"
@@ -178,6 +185,9 @@ if [[ -n "$crate_scope" ]]; then
 fi
 umask 022
 root="$(pwd -P)"
+# Resolved before any cd: BASH_SOURCE is relative when the step runs
+# `bash scripts/ci/cmux-tui-rust-check.sh` from the repo root.
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 # Public CI keeps the step-private target directory. HQ marks managed workers
 # with CMUX_FLEET_WORKER_TRUSTED and supplies this reviewed resolver so the
 # pinned cmux-tui toolchain can reuse a stable target directory.
@@ -466,7 +476,7 @@ load_base_red() {
 # scripts/ci/install-nextest.sh holds the pin and the checksummed install (one place to bump it);
 # every other caller -- the fast-checks Rust setup, acpmux-lib-under-load.sh, affected_tests_measure.sh
 # -- shares it, so no two of them can run a different cargo-nextest.
-nextest_installer="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/install-nextest.sh"
+nextest_installer="$script_dir/install-nextest.sh"
 nextest_version="$(bash "$nextest_installer" --print-version)"
 ensure_nextest() {
   local have dir

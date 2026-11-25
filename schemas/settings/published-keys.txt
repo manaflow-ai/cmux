@@ -212,6 +212,7 @@ appearance.surfaces.tabBar.opacity
 appearance.surfaces.terminal.color
 appearance.surfaces.terminal.opacity
 appearance.tabBarBackground
+appearance.terminalCellBackgrounds
 appearance.theme
 appearance.themeEdits
 appearance.themeFile
@@ -298,6 +299,7 @@ chief.subagentSidebar
 chief.subagentSidebarHideWords
 chief.subagentSidebarMinWords
 chief.subagentSidebarShowWords
+cloud.agentMemory.follow
 cloud.agentsStartWithoutAsking
 cloud.newWorkspaceFolder
 cloud.newWorkspacesInCloud
@@ -544,6 +546,7 @@ phone.cloudReplica
 phone.keepAwake
 phone.startSessions
 picker.pinned
+presence.live
 remote.enabled
 remote.endSharingOnQuit
 remote.screenSharingProfile
@@ -613,6 +616,7 @@ sidebar.showAutomaticSessions
 sidebar.showChats
 sidebar.showColors
 sidebar.showCounts
+sidebar.showLiveToggle
 sidebar.showLocalMachine
 sidebar.showNewWorkspaceChooser
 sidebar.showProfileControl

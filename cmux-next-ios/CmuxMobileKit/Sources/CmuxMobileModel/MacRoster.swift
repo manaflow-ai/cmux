@@ -11,10 +11,9 @@ import Foundation
 /// listed once by its most recently active build. The others are that Mac's
 /// other builds (`otherBuilds`), still listed in Settings → Devices.
 ///
-/// The build this phone picked, or was sent to by that build's pairing code
-/// (`preferring`, the team's remembered Mac), stands for its computer while it
-/// is online: a phone that scanned a dev build's code stays on that build
-/// instead of whichever other build of the computer sorts first.
+/// The build this phone picked (`preferring`, the team's remembered Mac) stands
+/// for its computer while it is online: a phone that picked a dev build stays on
+/// that build instead of whichever other build of the computer sorts first.
 ///
 /// A name is never an identity: several Macs can share one (they stay apart,
 /// with the `MacNameDisambiguation` tag), and a Mac that sent no machine id is
@@ -66,8 +65,13 @@ public struct MacRoster: Equatable, Sendable {
     /// Every team's Macs as one list, one build per computer across the teams (Settings → Terminal →
     /// Terminal Size When Shared): the active team's picked build stands for its computer, as the
     /// coordinator focuses it.
-    public static func acrossTeams(_ teams: [Team], activeTeamID: String) -> [MacDevice] {
-        MacRoster(teams.flatMap(\.macs), preferring: teams.first { $0.id == activeTeamID }?.pickedMacID).visible
+    public static func acrossTeams(_ teams: [Team], activeTeamID: String, including directory: [MacDevice] = []) -> [MacDevice] {
+        var macs = teams.flatMap(\.macs)
+        if !directory.isEmpty {
+            var known = Set(macs.map(\.id))
+            macs += directory.filter { known.insert($0.id).inserted }
+        }
+        return MacRoster(macs, preferring: teams.first { $0.id == activeTeamID }?.pickedMacID).visible
     }
 
     /// The computer a Mac record belongs to: its owner and machine id, or the

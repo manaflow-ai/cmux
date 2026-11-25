@@ -24,7 +24,7 @@
 #   AGENT-QUOTA row arm=A agents=K trial=N calls=C wall_s=W correct=X/K
 # correct counts the agents whose last reply says the checks passed.
 set -u
-arms=without,skill,shipped agents=1,6 trials=3 ci_seconds=300 model=claude-opus-5-5 acpmux="" keep=0
+arms=without,skill,shipped agents=1,6 trials=3 ci_seconds=300 model=claude-opus-5-5 acpmux="" keep=""
 for kv in "$@"; do
   case "$kv" in
     arms=*|agents=*|trials=*|ci_seconds=*|model=*|acpmux=*|keep=*) eval "${kv%%=*}=\${kv#*=}";;
@@ -36,8 +36,10 @@ repo=$(cd "$here/../.." && pwd)
 [ -x "$acpmux" ] || { echo "agent-quota: acpmux=PATH (a build of this checkout) is required" >&2; exit 2; }
 command -v claude >/dev/null || { echo "agent-quota: claude is not on PATH" >&2; exit 2; }
 work=$(mktemp -d "${TMPDIR:-/tmp}/agent-quota.XXXXXX")
-# keep=1 keeps the transcripts and call logs under $work for reading afterwards.
-trap 'if [ "${keep:-0}" != 1 ]; then rm -rf -- "$work"; fi' EXIT
+# The scratch folder holds every arm's transcripts: keep=1 (or AGENT_QUOTA_KEEP, the form feat-cmux-next's own
+# fix of this red took) leaves it for reading, anything else removes it on every exit (a crash, a TERM from the
+# bench runner, ENOSPC), so a failed run leaks nothing.
+trap '[ -n "${keep:-}${AGENT_QUOTA_KEEP:-}" ] || rm -rf -- "$work"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 mkdir -p "$work/bin" "$work/plugin/.claude-plugin" "$work/plugin/skills/cmux-quota"
@@ -82,7 +84,7 @@ trial() { # ARM K N
   echo "AGENT-QUOTA row arm=$arm agents=$k trial=$n calls=$calls wall_s=$wall correct=$ok/$k"
 }
 
-echo "AGENT-QUOTA-MACHINE host=$(hostname -s) os=$(uname -s) model=$model ci_seconds=$ci_seconds work=$work"
+echo "AGENT-QUOTA-MACHINE host=$(hostname -s) os=$(uname -s) model=$model ci_seconds=$ci_seconds work=$work${keep:+ (kept)}"
 for k in ${agents//,/ }; do
   for arm in ${arms//,/ }; do
     for n in $(seq 1 "$trials"); do trial "$arm" "$k" "$n"; done

@@ -14,9 +14,11 @@ enum AddMachineCardSpec {
     static func spec(runs: AddMachineRuns, candidates: AddMachineDialog.Candidates, values: [String: CmuxDialogValue]) -> CmuxDialogSpec {
         let mode = runs.request.mode
         let adding = mode == .add
-        func card(_ title: String, lines: [String] = [], fields: [CmuxDialogField] = [], buttons: [CmuxDialogButton]) -> CmuxDialogSpec {
-            CmuxDialogSpec(usesTransientMaterial: true, title: title, lines: lines, fields: fields, buttons: buttons,
-                           identifier: "cmux.addMachine.card")
+        // No icon column: the title says what the card is, so the fields take the card's whole width (Leo: "a symbol
+        // making space for ABSOLUTLEY NOTHING"). What a line under the title would explain shows on its info circle.
+        func card(_ title: String, info: String? = nil, fields: [CmuxDialogField] = [], buttons: [CmuxDialogButton]) -> CmuxDialogSpec {
+            CmuxDialogSpec(usesTransientMaterial: true, title: title, fields: fields, buttons: buttons, leadsWithIcon: false,
+                           info: info, identifier: "cmux.addMachine.card")
         }
         guard let run = runs.run else {
             let destination = values[ID.destination]?.text ?? ""
@@ -35,7 +37,7 @@ enum AddMachineCardSpec {
                 fields.append(.choice(id: ID.candidate, label: AddMachineStrings.tailnet, options: options, selected: picked?.id ?? ""))
             default: break
             }
-            return card(AddMachineStrings.title, lines: [AddMachineStrings.subtitle], fields: fields, buttons: [
+            return card(AddMachineStrings.title, info: AddMachineStrings.subtitle, fields: fields, buttons: [
                 CmuxDialogButton(id: ID.cancel, title: AddMachineStrings.cancel, role: .cancel),
                 // Return always reaches Add; the card dims it while the field holds no host ssh takes, and Add does nothing then.
                 CmuxDialogButton(id: ID.add, title: AddMachineStrings.add, role: .default),
@@ -58,7 +60,7 @@ enum AddMachineCardSpec {
                 ? [done(.cancel), CmuxDialogButton(id: ID.openWorkspace, title: AddMachineStrings.openWorkspace, role: .default,
                                                    isEnabled: run.machineID != nil)]
                 : [done(.default)]
-            return card(AddMachineStrings.ready(run.name), lines: adding ? [AddMachineStrings.readyDetail] : [], fields: [.steps(steps)],
+            return card(AddMachineStrings.ready(run.name), info: adding ? AddMachineStrings.readyDetail : nil, fields: [.steps(steps)],
                         buttons: buttons)
         case .failed:
             let title = adding ? AddMachineStrings.addFailed(run.name) : AddMachineStrings.checkFailed(run.name)
