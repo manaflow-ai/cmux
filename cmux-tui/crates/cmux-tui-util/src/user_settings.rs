@@ -223,13 +223,14 @@ pub enum UltraConnection {
 }
 
 /// Settings' Tailscale carrier policy (`transport.tailnetCarrier`). The
-/// default is deliberately off until a LocalAPI snapshot is available.
+/// default is direct-only: a race reads the cached LocalAPI snapshot from
+/// memory, so a missing or hung tailscaled adds no candidate and no wait.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TailnetCarrier {
     /// Do not add Tailscale addresses to races.
-    #[default]
     Off,
     /// Add only paths tailscaled currently reports as direct.
+    #[default]
     DirectOnly,
     /// Accepted for forward compatibility. Relayed paths remain excluded by
     /// the race helper until their cost is measured.
@@ -244,7 +245,8 @@ pub fn tailnet_carrier_from_config_text(text: &str) -> TailnetCarrier {
     match document.pointer("/transport/tailnetCarrier").and_then(Value::as_str) {
         Some("direct-only") | Some("direct_only") => TailnetCarrier::DirectOnly,
         Some("on") => TailnetCarrier::On,
-        _ => TailnetCarrier::Off,
+        Some("off") => TailnetCarrier::Off,
+        _ => TailnetCarrier::default(),
     }
 }
 
@@ -255,7 +257,8 @@ pub fn tailnet_carrier() -> TailnetCarrier {
         return match value.trim() {
             "direct-only" | "direct_only" => TailnetCarrier::DirectOnly,
             "on" => TailnetCarrier::On,
-            _ => TailnetCarrier::Off,
+            "off" => TailnetCarrier::Off,
+            _ => TailnetCarrier::default(),
         };
     }
     if cfg!(test) {
@@ -688,14 +691,21 @@ mod tests {
     }
 
     #[test]
-    fn tailnet_carrier_is_off_unless_direct_only_or_on_is_named() {
+    fn tailnet_carrier_is_direct_only_unless_off_or_on_is_named() {
         use super::TailnetCarrier::{DirectOnly, Off, On};
         use super::tailnet_carrier_from_config_text as carrier;
-        assert_eq!(carrier(""), Off);
+        assert_eq!(carrier(""), DirectOnly);
+        assert_eq!(carrier("{}"), DirectOnly);
         assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"direct-only"}}"#), DirectOnly);
         assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"on"}}"#), On);
-        assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"bogus"}}"#), Off);
-        assert_eq!(carrier("{not json"), Off);
+        assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"off"}}"#), Off);
+        assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"bogus"}}"#), DirectOnly);
+        assert_eq!(carrier("{not json"), DirectOnly);
+        assert_eq!(
+            super::tailnet_carrier(),
+            DirectOnly,
+            "unit tests never read the developer's file"
+        );
     }
 
     #[test]
