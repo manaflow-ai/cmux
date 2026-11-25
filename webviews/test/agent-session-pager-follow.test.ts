@@ -238,3 +238,66 @@ test("an older acpmux is asked as before", async () => {
   ]);
   expect(bare.pager.fresh(3)).toBe(true);
 });
+
+// A hidden page pauses its watch (direct.ts `pauseListWhileHidden`): acpmux sends it no other chat's
+// change, and the selected chat's notices that still come leave the cursor where the pause froze
+// it, so the page shown follows from there: one read of the rows changed while hidden.
+test("a paused watch keeps its cursor and the next read follows from it", async () => {
+  const { calls, pager, client } = scripted(
+    [],
+    { sessions: [row("a", 3), row("b", 2)], listSeq: 5, listEpoch: "e1" },
+    {},
+    {
+      follow: true,
+      sessions: [row("b", 9, { title: "renamed while hidden" })],
+      gone: [],
+      listSeq: 12,
+      listEpoch: "e1",
+      more: false,
+    },
+  );
+  await listed(pager, client);
+  calls.length = 0;
+  expect(pager.pause()).toBe(true);
+  expect(pager.paused).toBe(true);
+  // Paused already: no second request.
+  expect(pager.pause()).toBe(false);
+  // The selected chat's change still comes, newer than the rows held, and is kept, but the cursor stays.
+  expect(pager.fresh(11)).toBe(true);
+  const shown = await pager.first();
+  expect(calls).toEqual([
+    { method: "_acpmux/watch", params: { enabled: false, limit: 1 } },
+    { method: "_acpmux/watch", params: { enabled: true, limit: 200, afterSeq: 5, listEpoch: "e1" } },
+  ]);
+  expect(pager.paused).toBe(false);
+  expect(shown?.sessions.find((s) => s.sessionId === "b")?.title).toBe("renamed while hidden");
+});
+
+test("a read waits for the pause still out, so acpmux turns the watch on after it", async () => {
+  const order: string[] = [];
+  let answerPause: (value: unknown) => void = () => {};
+  const pager = new SessionPager<Row>(async (_method, params) => {
+    order.push(params.enabled === false ? "off" : "on");
+    if (params.enabled === false) return new Promise((resolve) => (answerPause = resolve));
+    return { sessions: [row("a", 3)], listSeq: 5, listEpoch: "e1" };
+  });
+  pager.follows = true;
+  expect(pager.pause()).toBe(true);
+  const reading = pager.first();
+  await Promise.resolve();
+  expect(order).toEqual(["off"]);
+  answerPause({});
+  const first = await reading;
+  expect(order).toEqual(["off", "on"]);
+  expect(first?.sessions.map((s) => s.sessionId)).toEqual(["a"]);
+  expect(pager.paused).toBe(false);
+});
+
+test("a watch is not paused while a list is being read", async () => {
+  let answer: (value: unknown) => void = () => {};
+  const pager = new SessionPager<Row>(() => new Promise((resolve) => (answer = resolve)));
+  const reading = pager.first();
+  expect(pager.pause()).toBe(false);
+  answer({ sessions: [], listSeq: 1, listEpoch: "e1" });
+  await reading;
+});

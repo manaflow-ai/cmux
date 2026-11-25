@@ -42,7 +42,11 @@ import Testing
     @Test(.enabled(if: Self.appleUserDefaults)) func launchArgumentSeedsSetupCompleteInsteadOfPinningIt() throws {
         let suite = "cmuxMobile.tests.developer-options.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        let key = "cmuxMobile.setupComplete"
+        // The argument domain is the process's, read by every suite: a launch value on the real
+        // key here showed "NO" to AccountPreferencesTests running beside it (#53107; the
+        // intermittent read in #50907). The same seeding runs on a key only this test reads.
+        #expect(DeveloperOptions.launchSeededKeys.contains("cmuxMobile.setupComplete"))
+        let key = "cmuxMobile.tests.setupComplete.\(UUID().uuidString)"
         let original = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
         defer {
             defaults.setVolatileDomain(original, forName: UserDefaults.argumentDomain)
@@ -56,7 +60,7 @@ import Testing
         defaults.set(true, forKey: key)
         #expect(!defaults.bool(forKey: key))
 
-        DeveloperOptions.seedLaunchArguments(into: defaults)
+        DeveloperOptions.seedLaunchArguments(into: defaults, keys: [key])
 
         #expect(!defaults.bool(forKey: key), "the launch value is the starting value")
         defaults.set(true, forKey: key)
@@ -69,7 +73,8 @@ import Testing
     @Test func storedKeysCoverTheDeveloperPage() {
         let keys = Set(DeveloperOptions.storedKeys)
         #expect(keys.isSuperset(of: [DeveloperOptions.mockDataKey, DeveloperOptions.launchDemoKey, DeveloperOptions.relayOnlyKey,
-                                     DeveloperOptions.blockUDPKey, DeveloperOptions.forceRelayKey]))
+                                     DeveloperOptions.blockUDPKey, DeveloperOptions.forceRelayKey,
+                                     DeveloperOptions.proxyOnlyKey, DeveloperOptions.dropWireGuardKey]))
     }
 
     #if DEBUG

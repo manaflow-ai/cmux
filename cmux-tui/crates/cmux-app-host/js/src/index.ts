@@ -2,7 +2,7 @@
 // Load order: this file, then the app's `main` (an IIFE that sets
 // `__cmuxAppExports`), then the host calls `__cmuxAppInit`. ABI: ../ABI.md.
 
-import { cmux, CmuxError, createCmux, deliverEvent, fireTimer, log, resolveCall, sharedMembers, state, type Native } from "./cmux.ts"
+import { call, cmux, CmuxError, createCmux, deliverEvent, fireTimer, log, resolveCall, sharedMembers, state, type Native } from "./cmux.ts"
 import { installCompat } from "./compat-sidebar-data.ts"
 import { menuHandler, mount, mountExists, nodeRecord, sendPendingOps, setSceneSink, unmount } from "./materialize.ts"
 import { act, palette, paletteCancel, paletteDetail, paletteOpen, setPaletteScopes } from "./palette.ts"
@@ -13,7 +13,7 @@ import { watch, deliverWatch } from "./watch.ts";
 const g = globalThis as Record<string, unknown>
 /** Each widget mount's now() clock, set by `__cmuxAppTick`. */
 const widgetClocks = new Map<string, Write<number>>()
-export const RUNTIME_VERSION = "1.3.0"
+export const RUNTIME_VERSION = "1.5.0"
 
 const exportsOf = (): Record<string, unknown> => (g.__cmuxAppExports as Record<string, unknown> | undefined) ?? {}
 
@@ -95,9 +95,18 @@ function install() {
           widgetClocks.set(mountId, setNow)
           ctx.now = now
         }
+        // `cmux.pane/1` (the daemon gives every pane mount `args`, null when no open waits): the open's
+        // arguments, `close(result)` to answer the opener, `onOpen` and `onClose` (pane_flow.rs).
+        const opened: Array<(args: unknown) => void> = []
+        if (ctx && typeof ctx === "object" && "args" in ctx) {
+          ctx.close = (result?: unknown) => call("app.pane.close", { mount: mountId, result: result ?? null })
+          ctx.onOpen = (fn: (args: unknown) => void) => void opened.push(fn)
+          ctx.onClose = (fn: () => void) => onCleanup(fn)
+        }
         state.context = ctx
         state.mount = mountId
         mount(mountId, () => render(ctx), ctx)
+        if (ctx?.args != null) for (const fn of opened) fn(ctx.args)
         state.context = null
         state.mount = null
       })
