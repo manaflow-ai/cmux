@@ -1,0 +1,62 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["light", "light"],
+    ["light", "dark"],
+    ["light", "busy"],
+    ["dark", "none"],
+    ["dark", "light"],
+    ["dark", "dark"],
+    ["dark", "busy"]
+  ],
+  "shots": [
+    {
+      "name": "toast-radius-3-variants",
+      "entry": "ui.notice",
+      "variant": "corners",
+      "widthName": "wide",
+      "width": 1200,
+      "height": 320,
+      "deviceScaleFactor": 2,
+      "clip": ".ui-notice-corners",
+      "margin": 16,
+      "arms": { "now": "" }
+    },
+    {
+      "name": "toast-radius-3-variants-material",
+      "entry": "ui.notice",
+      "variant": "corners-material",
+      "widthName": "wide",
+      "width": 1200,
+      "height": 320,
+      "deviceScaleFactor": 2,
+      "clip": ".ui-notice-corners",
+      "margin": 16,
+      "arms": { "now": "" }
+    },
+    {
+      "name": "toast-stack",
+      "entry": "ui.notice",
+      "variant": "stack",
+      "widthName": "wide",
+      "width": 760,
+      "height": 400,
+      "deviceScaleFactor": 2,
+      "clip": ".ui-notice-gallery-stage",
+      "margin": 16,
+      "arms": { "now": "" }
+    },
+    {
+      "name": "toast-stack-material",
+      "entry": "ui.notice",
+      "variant": "stack-material",
+      "widthName": "wide",
+      "width": 760,
+      "height": 400,
+      "deviceScaleFactor": 2,
+      "clip": ".ui-notice-gallery-stage",
+      "margin": 16,
+      "arms": { "now": "" }
+    }
+  ]
+}

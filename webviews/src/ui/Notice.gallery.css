@@ -62,3 +62,45 @@
 .ui-notice-gallery[data-tint="popover"] .ui-notice {
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-popover-tint), transparent);
 }
+
+/* The toast's corner candidates (Notice.gallery.tsx `Corners`): each column sets only the toast
+   role's radius, so a toast's corner is one role value. 9 is the role's own and sets nothing. */
+.ui-notice-corners {
+  flex-direction: row;
+  align-items: flex-start;
+  max-width: none;
+}
+.ui-notice-corner {
+  flex: none;
+}
+.ui-notice-corner[data-radius="16"] {
+  --surface-toast-radius: var(--ds-radius-2xl);
+}
+.ui-notice-corner[data-radius="12"] {
+  --surface-toast-radius: var(--ds-radius-xl);
+}
+.ui-notice-corner-cell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  margin: 0;
+}
+.ui-notice-corner-toasts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--ds-space-2);
+}
+.ui-notice-corner-label {
+  color: var(--cmux-text, CanvasText);
+  font-size: var(--text-detail);
+  font-weight: var(--weight-emphasis);
+  line-height: var(--text-detail--line-height);
+}
+.ui-notice-corner-sizes {
+  display: flex;
+  flex-direction: column;
+  color: var(--cmux-text-secondary, GrayText);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}

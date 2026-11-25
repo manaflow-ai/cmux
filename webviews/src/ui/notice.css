@@ -20,12 +20,14 @@
   box-sizing: border-box;
   min-width: 0;
   /* Concentric with its buttons (Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons
-     inside"): one padding on the top, the bottom and the trailing side, the corner the button corner plus it,
-     the text the corner's radius in. */
+     inside"): one padding on the top, the bottom and the trailing side, the text the button corner plus it
+     in. The corner is that same sum capped at the toast role's radius (--surface-toast-radius, from
+     schemas/surface-roles): 8 + 8 is 16, half a one-line toast's 34, a capsule, so the role's 9 wins and a
+     look that sets the role repaints every toast (Leo 2026-11-22: "the toast is this awkward pill glass"). */
   --concentric-padding: var(--ds-space-2);
   padding: var(--concentric-padding) var(--concentric-padding) var(--concentric-padding)
     calc(var(--ds-radius-control) + var(--concentric-padding));
-  border-radius: calc(var(--ds-radius-control) + var(--concentric-padding));
+  border-radius: min(calc(var(--ds-radius-control) + var(--concentric-padding)), var(--surface-toast-radius));
   color: var(--ui-notice-ink);
   font-family: var(--font-ui);
   font-size: var(--text-body);
@@ -51,8 +53,9 @@
   --ui-notice-mark: var(--agent-accent, var(--cmux-accent, currentColor));
 }
 
-/* An inline notice is a card on the grid (leo-workspace design/grid.md 5.6): padding 12, radius 12,
-   its action row 8 under the text, all scaled by the interface scale. */
+/* An inline notice is a card on the grid (leo-workspace design/grid.md 5.6): padding 12, its action
+   row 8 under the text, all scaled by the interface scale. It sits in the content, not over it, so it
+   keeps the uncapped concentric corner, not the toast role's. */
 .ui-notice[data-placement="inline"] {
   --concentric-padding: var(--grid-cards-padding, var(--ds-space-3));
   gap: var(--grid-gap, var(--ds-space-2));
@@ -110,7 +113,7 @@
 }
 
 .ui-notice-title {
-  font-weight: var(--weight-emphasis, 600);
+  font-weight: var(--weight-emphasis);
   overflow-wrap: anywhere;
 }
 .ui-notice[data-kind="error"] .ui-notice-title {
@@ -165,7 +168,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--ds-space-2);
-  min-height: 24px;
+  min-height: var(--ds-control-compact);
   color: var(--ui-notice-ink-2);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
@@ -175,7 +178,7 @@
   color: var(--ui-notice-ink);
 }
 .ui-notice-check-box {
-  --ui-notice-check-size: 14px;
+  --ui-notice-check-size: var(--ds-icon-14);
   flex: none;
   display: grid;
   place-items: center;
@@ -183,7 +186,7 @@
   height: var(--ui-notice-check-size);
   padding: 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ui-notice-ink) 36%, transparent);
   background: transparent;
   color: var(--cmux-on-accent, Canvas);
@@ -193,8 +196,8 @@
   background: var(--agent-accent, var(--cmux-accent, currentColor));
 }
 .ui-notice-check-box:focus-visible {
-  outline: 1.5px solid var(--ui-ring, currentColor);
-  outline-offset: 2px;
+  outline: var(--cmux-focus-ring-width) solid var(--ui-ring, currentColor);
+  outline-offset: var(--grid-half-step);
 }
 
 /* The stack: bottom centre over its surface, newest at the bottom, above the composer when the host
@@ -204,7 +207,7 @@
   position: absolute;
   inset-inline: 0;
   bottom: var(--ui-notice-stack-bottom, var(--ds-space-5));
-  z-index: var(--layer-toast, 900);
+  z-index: var(--layer-toast);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -222,7 +225,7 @@
   flex: none;
   align-self: center;
   padding: 0 var(--ds-space-1);
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: color-mix(in srgb, var(--ui-notice-ink) 10%, transparent);
   color: var(--ui-notice-ink-2);
   font-size: var(--text-detail);
@@ -239,7 +242,7 @@
 .ui-notice-stack[data-layout="stacked"] {
   --ui-notice-deck-width: 360px;
   --ui-notice-deck-shadow-room: var(--ds-space-5);
-  --ui-notice-deck-motion: var(--cmux-motion-standard, 180ms);
+  --ui-notice-deck-motion: var(--cmux-motion-standard);
   --ui-notice-deck-ease: var(--ui-enter-ease, cubic-bezier(0.2, 0, 0, 1));
   top: var(--ui-notice-stack-top, var(--ds-space-4));
   display: block;
@@ -254,7 +257,7 @@
 .ui-notice-anchor {
   position: absolute;
   bottom: 0;
-  width: min(var(--ui-notice-deck-width, 360px), 100%);
+  width: min(var(--ui-notice-deck-width), 100%);
   pointer-events: none;
 }
 .ui-notice-anchor[data-row="top"] {
@@ -283,14 +286,14 @@
      reach would be scrollable overflow of whatever pane holds it (a top deck under a pane's header
      scrolled the pane by its offset; test/agent-pane-short-pane-composer.test.ts). The deck is as
      tall as what it shows, so a card is inside it except while it comes, goes or is held. */
-  inset: calc(-1 * var(--ui-notice-deck-shadow-room, 24px)) calc(-1 * var(--ui-notice-deck-shadow-room, 24px)) 0;
+  inset: calc(-1 * var(--ui-notice-deck-shadow-room)) calc(-1 * var(--ui-notice-deck-shadow-room)) 0;
   margin: 0;
   padding: 0;
   list-style: none;
   pointer-events: none;
 }
 .ui-notice-deck[data-edge="top"] > .ui-notice-deck-cards {
-  inset: 0 calc(-1 * var(--ui-notice-deck-shadow-room, 24px)) calc(-1 * var(--ui-notice-deck-shadow-room, 24px));
+  inset: 0 calc(-1 * var(--ui-notice-deck-shadow-room)) calc(-1 * var(--ui-notice-deck-shadow-room));
 }
 .ui-notice-deck[data-clip] > .ui-notice-deck-cards {
   overflow: hidden;
@@ -298,7 +301,7 @@
 .ui-notice-deck-card {
   --ui-notice-deck-origin: 50% 100%;
   position: absolute;
-  inset-inline: var(--ui-notice-deck-shadow-room, 24px);
+  inset-inline: var(--ui-notice-deck-shadow-room);
   bottom: 0;
   contain: layout;
   transform-origin: var(--ui-notice-deck-origin);
@@ -351,7 +354,7 @@
 .ui-notice-deck-card[data-phase="leaving"] {
   pointer-events: none;
   /* An exit is shorter than its entrance (ui/presence.ts). */
-  transition-duration: var(--cmux-motion-micro, 120ms);
+  transition-duration: var(--cmux-motion-micro);
 }
 
 /* Drag (anchors.ts): the card follows the pointer with no transition; let go, it settles on the
@@ -368,7 +371,7 @@
   transition: none;
 }
 .ui-notice-deck-card[data-settling] {
-  transition-duration: var(--cmux-motion-large, 240ms);
+  transition-duration: var(--cmux-motion-large);
   transition-timing-function: var(--cmux-ease-spring, var(--ui-notice-deck-ease));
 }
 .ui-notice-deck-card[data-phase="fly"] {
@@ -386,13 +389,13 @@
 .ui-notice-anchor-ghost {
   position: absolute;
   width: min(96px, 30%);
-  height: var(--ds-space-6, 32px);
+  height: var(--ds-space-6);
   border: 1px dashed color-mix(in srgb, var(--agent-text, var(--cmux-text, CanvasText)) 28%, transparent);
   border-radius: var(--role-toast-radius);
   pointer-events: none;
   transition:
-    background-color var(--cmux-motion-quick, 80ms),
-    border-color var(--cmux-motion-quick, 80ms);
+    background-color var(--cmux-motion-quick),
+    border-color var(--cmux-motion-quick);
 }
 .ui-notice-anchor-ghost[data-anchor="top-left"] {
   translate: 0 0;
