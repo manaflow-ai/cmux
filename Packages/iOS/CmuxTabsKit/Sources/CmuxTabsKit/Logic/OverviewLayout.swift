@@ -1,4 +1,8 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 
 /// Tab overview grid geometry (Mobile Safari, device-measured on an
 /// iPhone 17 Pro Max): two columns (more on a wider page, `columns`) with 16 pt insets and gutter, card
@@ -113,6 +117,16 @@ struct OverviewLayout: Equatable, Sendable {
     /// the gaps around a card as that card; nil outside every slot.
     func slot(at point: CGPoint) -> Int? {
         (0..<count).first { card($0).insetBy(dx: -8, dy: -16).contains(point) }
+    }
+
+    /// This layout holding at least `index + 1` cards. The zoom's card end
+    /// and the live page's card take the grid's own layout through this, so
+    /// they land on the slot the grid draws (one tab plus the new tab's
+    /// placeholder is two cards, not the lone centred card).
+    func holding(_ index: Int) -> OverviewLayout {
+        var grid = self
+        grid.count = max(count, index + 1)
+        return grid
     }
 
     func zoomEndpoint(_ index: Int, contentOrigin: CGPoint?, fallbackOffset: CGFloat) -> CGRect {

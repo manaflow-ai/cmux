@@ -729,6 +729,20 @@ class ReportedFailuresAreAllNamed(unittest.TestCase):
         broken = ["failures:", "    a::one", "    a::two", "some output", "test result: FAILED. 0 passed; 2 failed"]
         self.assertTrue(self.unnamed(*broken))
 
+    def test_nested_cargo_counts_stay_in_their_own_invocation(self):
+        parent = "test result: FAILED. 0 passed; 2 failed; 0 ignored"
+        child = "test result: FAILED. 0 passed; 1 failed; 0 ignored"
+        lines = ["running 2 tests", "test outer::one ... FAILED", "test outer::two ... FAILED",
+                 "running 1 test", "test child::one ... FAILED", child, parent]
+        self.assertEqual(self.unnamed(*lines), [])
+        # Neither invocation can borrow the other's unused names to cover a missing identity.
+        child_short = lines.copy()
+        child_short[-2] = child.replace("1 failed", "2 failed")
+        self.assertEqual(self.unnamed(*child_short), [child_short[-2]])
+        parent_short = lines.copy()
+        parent_short[-1] = parent.replace("2 failed", "3 failed")
+        self.assertEqual(self.unnamed(*parent_short), [parent_short[-1]])
+
     def test_the_recorded_fixtures_name_every_failure_they_report(self):
         for path in sorted(FIXTURES.glob("*.log")):
             with self.subTest(fixture=path.name):
@@ -1514,6 +1528,45 @@ class WebviewTestsAcrossJobs(unittest.TestCase):
         # A replay with no head re-run holds no run of the head.
         self.assertEqual(reds.web_head_part("\n".join([merge_parent, replay(charged=[named])])), "")
         self.assertEqual(reds.web_failures("\n".join([merge_parent, replay(charged=[named])])).timed_out, set())
+
+    def test_a_replay_cut_at_its_stop_compares_its_unknown_tests_with_the_base(self):
+        # cmux#54692 (job 138764620789): the first replay stopped at CMUX_WEB_TEST_STOP_AT with 593 head reds it never
+        # reached, deferred to the merge gate as `unknown`, and 0 charged. Their "base result unavailable" warnings are
+        # no base verdict: each unknown test is compared with the base's runs, never cleared, and the head re-run's
+        # flake alone never decides the replay.
+        unknown, flake = f"{CAPSULES} > {CAPSULE_TEST}", "test/composer-footer-plain.test.ts > rests flat"
+
+        def verdict(*names, kind):
+            return log(*[f"webview test red step ({kind}): {name}" for name in names])
+
+        def cut_replay(unknowns):
+            first = log(*[f"##[warning]{name}" for name in [*unknowns, flake]],
+                        "0 webview test steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed")
+            final = log(*[f"##[warning]{name}" for name in [*unknowns, flake]],
+                        "0 webview test steps red on this change, 0 red on the base too, 1 flaky on the base, 0 fixed",
+                        f"{len(unknowns)} webview test steps have no base result (deferred to the merge gate)")
+            return "\n".join([first, verdict(*unknowns, kind="unknown"), log("re-running alone on the head:"),
+                              web_job(("test/composer-footer-plain.test.ts", [("rests flat", "boom", 9)])),
+                              final, verdict(flake, kind="flaky"), verdict(*unknowns, kind="unknown")])
+
+        text = cut_replay([unknown])
+        found = reds.web_failures(text)
+        self.assertEqual(found.unknown, {unknown})
+        self.assertNotIn(unknown, found.shared)
+        self.assertEqual(found.charged, set())
+        head = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        same = [web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))]
+        self.assertFalse(reds.classify_web_window([text, head], iter([("run 1", same)])).own)
+        # The base passes it (its red is the change's), or fails it another way: the replay is the change's own.
+        for base in ([web_job(("test/composer-footer-plain.test.ts", [("rests flat", "boom", 9)]))],
+                     [web_job((CAPSULES, [(CAPSULE_TEST, "expect(received).toEqual(expected)", 140)]))]):
+            with self.subTest(base=base[0][-80:]):
+                judged = reds.classify_web_window([text, head], iter([("run 1", base)]))
+                self.assertTrue(judged.own)
+                self.assertIn("agent-pane-no-capsules", " ".join(judged.reasons))
+        # A head shard log that never printed the unknown test's error is no match either.
+        self.assertTrue(reds.classify_web_window([text, web_job((CAPSULES, [(CAPSULE_TEST, None)]))],
+                                                 iter([("run 1", same)])).own)
 
     def test_a_replay_compares_only_what_its_final_verdict_charged_in_a_shared_file(self):
         # Review F2 on #38380: the head failed A and B in one file; the final verdict charged A only (B passed alone).

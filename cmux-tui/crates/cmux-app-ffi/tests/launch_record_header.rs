@@ -64,9 +64,27 @@ fn launch_record_c_layout_and_exports_match_rust() {
         screen_frame_height,
         appearance,
         appearance_follows_system,
-        fullscreen
+        fullscreen,
+        sidebar_width
     );
     check!(CmuxLaunchSidebarInput, id, title, icon_key);
+    // The C writers' signatures, as the Rust exports declare them.
+    let _: unsafe extern "C" fn(
+        *const std::ffi::c_char,
+        *const CmuxLaunchWindowInput,
+        usize,
+        *const CmuxLaunchSidebarInput,
+        usize,
+        *const std::ffi::c_char,
+        *const std::ffi::c_char,
+        u64,
+    ) -> bool = cmux_launch_record::cmux_launch_record_write_registry;
+    c.push_str(
+        "_Static_assert(_Generic(&cmux_launch_record_write_registry, \
+         bool (*)(const char *, const CmuxLaunchWindowInput *, uintptr_t, \
+         const CmuxLaunchSidebarInput *, uintptr_t, const char *, const char *, uint64_t): 1, \
+         default: 0), \"cmux_launch_record_write_registry signature\");\n",
+    );
     std::fs::write(&source, c).unwrap();
     let output = Command::new("cc")
         .arg("-std=c11")
