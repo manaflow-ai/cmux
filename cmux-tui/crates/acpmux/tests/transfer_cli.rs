@@ -80,7 +80,7 @@ impl Daemon {
         policy: &str,
     ) -> Self {
         let peer = target.map(|target| (target.home.clone(), target.socket.clone()));
-        Self::spawn_full(tag, peer, harness_env, "fake", false, vars, policy).await
+        Self::spawn_full(tag, peer, harness_env, "fake", false, None, vars, policy).await
     }
 
     /// Where the daemon tagged `tag` lives, known before it starts (two daemons that are each
@@ -95,7 +95,7 @@ impl Daemon {
     /// A daemon whose peer `target` is the daemon at `peer` (home, socket), its agent started
     /// with `agent_env`.
     async fn spawn(tag: &str, peer: Option<(PathBuf, PathBuf)>, agent_env: Value) -> Self {
-        Self::spawn_inner(tag, peer, agent_env, "fake", false).await
+        Self::spawn_inner(tag, peer, agent_env, "fake", false, None).await
     }
 
     /// [`Self::spawn`], with the test agent under the harness name `harness`.
@@ -105,7 +105,7 @@ impl Daemon {
         agent_env: Value,
         harness: &str,
     ) -> Self {
-        Self::spawn_inner(tag, peer, agent_env, harness, false).await
+        Self::spawn_inner(tag, peer, agent_env, harness, false, None).await
     }
 
     /// [`Self::spawn`]; `linked`: it serves its WebSocket port too, so the daemon whose peer
@@ -116,7 +116,20 @@ impl Daemon {
         agent_env: Value,
         linked: bool,
     ) -> Self {
-        Self::spawn_inner(tag, peer, agent_env, "fake", linked).await
+        Self::spawn_inner(tag, peer, agent_env, "fake", linked, None).await
+    }
+
+    /// [`Daemon::spawn`], and with `link` (this daemon's WebSocket port, the peer's, a one-way
+    /// delay in milliseconds) the daemon listens there and its own peer link to `target` runs
+    /// over the stand-in `ssh -W`, so a chat on the peer is reached from this daemon as the app
+    /// reaches it.
+    async fn spawn_linked(
+        tag: &str,
+        peer: Option<(PathBuf, PathBuf)>,
+        agent_env: Value,
+        link: Option<(u16, u16, u64)>,
+    ) -> Self {
+        Self::spawn_inner(tag, peer, agent_env, "fake", false, link).await
     }
 
     async fn spawn_inner(
@@ -125,8 +138,9 @@ impl Daemon {
         agent_env: Value,
         harness: &str,
         linked: bool,
+        link: Option<(u16, u16, u64)>,
     ) -> Self {
-        Self::spawn_full(tag, peer, agent_env, harness, linked, &[], "approve-all").await
+        Self::spawn_full(tag, peer, agent_env, harness, linked, link, &[], "approve-all").await
     }
 
     /// [`Self::spawn_inner`], with `vars` in the daemon's env and `policy` its permission policy.
@@ -137,6 +151,7 @@ impl Daemon {
         agent_env: Value,
         harness: &str,
         linked: bool,
+        link: Option<(u16, u16, u64)>,
         vars: &[(&str, &str)],
         policy: &str,
     ) -> Self {
@@ -152,8 +167,13 @@ impl Daemon {
         }
         let path = peer.map(|(peer_home, peer_socket)| {
             config["peers"] = json!({"target": {"url": "ssh://target"}});
-            session_move::fake_ssh(&home, &peer_home, &peer_socket)
+            let link = link.map(|(_, port, delay)| (port, delay));
+            session_move::fake_ssh(&home, &peer_home, &peer_socket, link)
         });
+        if let Some((port, ..)) = link {
+            config["websocket"] =
+                json!({"listen": format!("127.0.0.1:{port}"), "token": "5a".repeat(32)});
+        }
         std::fs::write(home.join("config.json"), config.to_string()).expect("config");
         let mut command = daemon_env::command(&home, daemon_env::Agents::StandIn, &[]);
         if let Some(path) = path {
@@ -234,6 +254,8 @@ mod session_move_as;
 mod session_move_ask;
 #[path = "transfer_cli/session_move_follow.rs"]
 mod session_move_follow;
+#[path = "transfer_cli/session_move_history.rs"]
+mod session_move_history;
 #[path = "transfer_cli/session_move_live.rs"]
 mod session_move_live;
 #[path = "transfer_cli/session_move_reachable.rs"]

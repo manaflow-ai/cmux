@@ -333,6 +333,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                             launch.reuse,
                             interactive,
                             args.host.is_none(),
+                            args.host
+                                .as_deref()
+                                .is_some_and(|host| host.eq_ignore_ascii_case("auto")),
                         ),
                     )
                     .await?
@@ -361,6 +364,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             if let Some(h) = &host {
                 meta["peer"] = json!(h);
+            }
+            if placed {
+                meta["autoPlace"] = json!(true);
             }
             if args.force_admit {
                 meta["forceAdmit"] = json!(true);
@@ -474,6 +480,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // refused the create before making anything (`refused_before_create`).
             let mut reconnects = 0;
             let (v, reused, lost_race) = loop {
+                // An Auto start may wait for a machine being added: say so when it begins.
+                if placed {
+                    client.print_admission_waiting();
+                }
                 match find_or_create(
                     &client,
                     deadline,
@@ -592,7 +602,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     )
                     .await?;
                     if !json_out {
-                        warn_host_pressure(&accepted);
+                        warn_host_pressure(&accepted, crate::cli::host_budget::Done::Started);
                     }
                 }
                 show()?;
@@ -629,7 +639,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 )
                 .await?;
                 if !json_out {
-                    warn_host_pressure(&accepted);
+                    warn_host_pressure(&accepted, crate::cli::host_budget::Done::Started);
                 }
             }
             if let Err(mut open_error) = show() {
@@ -792,6 +802,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             tag,
             dry_run,
             notice,
+            gather,
         } => {
             if let Some(delivery) = status {
                 let client = before_deadline(deadline, &delivery, connect(true)).await?;
@@ -853,8 +864,21 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // An agent's send, or one with --class, goes to this daemon's outbox and returns
             // once it is on disk there; the daemon delivers it however slow the peer or loaded
             // the machine (`send_queues`).
+            // `--gather` (`hub/cold_wake.rs`): a named sender's message that can wait for the
+            // receiver's batch, refused here as the daemon would refuse it.
+            if gather {
+                let fire =
+                    notice.as_ref().and_then(|n| n.0.get("severity")).and_then(Value::as_str)
+                        == Some("fire");
+                if let Some(refused) =
+                    crate::hub::cold_wake::gather_refusal(agent, relay_class, fire, false)
+                {
+                    return Err(errors::AppError::usage(refused.message).into());
+                }
+                prompt_id.gather = true;
+            }
             let no_wait = send_queues(SendWait {
-                no_wait,
+                no_wait: no_wait || gather,
                 wait: wait || quiet || timeout.is_some(),
                 classed,
                 agent: agent || crate::cli::sender::in_an_agent_harness(),

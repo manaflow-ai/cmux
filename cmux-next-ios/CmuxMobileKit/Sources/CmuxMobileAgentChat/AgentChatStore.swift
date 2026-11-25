@@ -222,7 +222,8 @@ public final class AgentChatStore {
     /// The source is still reading the chat's history from the Mac
     /// (``AgentSessionSource/loadsHistory``, then ``AgentSessionEvent/historyLoading(_:)``). With no
     /// turns yet the chat shows a loading state, never the empty new-chat screen; with turns it
-    /// shows them (kept from before) and says it is updating.
+    /// shows them (kept from before) and says nothing while it catches up (Leo, 2026-11-24:
+    /// "they dont need to know that it's updating before they KNOW it's updating").
     public private(set) var isLoadingHistory = false
     /// The first message this phone is sending has not shown in the transcript yet (New Task):
     /// the chat still says it is starting. Read live: the source's note goes once the send ends.
@@ -387,6 +388,9 @@ public final class AgentChatStore {
     /// The newest change was a replayed batch: views that animate on a value change
     /// (the permission bar, the queue) draw it in place.
     @ObservationIgnored public private(set) var lastChangeWasReplay = false
+    /// The same attach replay can be delivered again after a reconnect. Equal batches do not
+    /// change the transcript, so they must not bump ``revision`` or redraw its rows.
+    @ObservationIgnored private var lastReplayBatch: [AgentSessionEvent]?
     /// Set by the composer when it took its place without motion (the chat opened on its
     /// history): the bottom stack's next height lands at once too (then cleared).
     @ObservationIgnored var placeBottomStackInstantly = false
@@ -409,8 +413,9 @@ public final class AgentChatStore {
     /// grid card and the subagent screens share them).
     @ObservationIgnored public let diffs = ChatDiffCache()
 
-    /// Says when a dropped or catching-up chat may show its line (after 10 s);
-    /// its rows stay on screen the whole time.
+    /// Says when a dropped chat may show its line, or a chat with nothing kept its slow-load
+    /// words (after 10 s); kept rows stay on screen the whole time, and a catch-up over them
+    /// shows no line (``connectionLine``).
     @ObservationIgnored public let quietStatus: QuietStatusGate
 
     /// The chat's one quiet status line by the composer: nil while live and for the first
@@ -423,7 +428,9 @@ public final class AgentChatStore {
     }
 
     /// Feeds ``quietStatus`` from the link state: the session's own status, or a source that can't
-    /// reach its Mac (``loadingText`` says "Connecting" for either once the bound passes).
+    /// reach its Mac (``loadingText`` says "Connecting" for either once the bound passes). A
+    /// history still loading on a live link does not feed it: its spinner says nothing, since a
+    /// waiting word there is the limbo Leo asked to drop (2026-11-24, #54994).
     private func updateQuietStatus() {
         quietStatus.update(down: summary.status == .disconnected || source.isOffline)
     }
@@ -435,7 +442,10 @@ public final class AgentChatStore {
         self.isStarting = source.isStarting
         self.quietStatus = quietStatus
         quietStatus.update(down: source.summary.status == .disconnected || source.isOffline)
-        let stream = source.events()
+        // What the source already holds (a kept transcript) goes in now, so the chat's first
+        // frame draws it; the rest streams in.
+        let (head, stream) = source.eventsWithHead()
+        for event in head { receive(event) }
         task = Task { [weak self] in
             for await event in stream {
                 guard let self else { return }
@@ -497,6 +507,13 @@ public final class AgentChatStore {
         if self[keyPath: keyPath] != value { self[keyPath: keyPath] = value }
     }
 
+    /// The session's status, written only when it changes: every reader of `summary`
+    /// (the composer's placeholder and harness name among them) re-renders on a write,
+    /// and the daemon re-sends the same status with each turn event (ask-4a87599079).
+    private func setStatus(_ status: AgentSessionSummary.Status) {
+        if summary.status != status { summary.status = status }
+    }
+
     nonisolated static func openPermission(_ turn: AgentTurn) -> PermissionRecord? {
         for case .permission(let record) in turn.items.reversed() where record.resolution == nil {
             return record
@@ -552,6 +569,7 @@ public final class AgentChatStore {
         let chunks = pendingChunks
         pendingChunks = []
         chunkFlushes += 1
+        lastReplayBatch = nil
         for chunk in Self.merged(chunks) { applyEvent(chunk) }
         refreshDerived(lastTurnOnly: true)
         updateQuietStatus()
@@ -587,6 +605,11 @@ public final class AgentChatStore {
     public var effortOption: ACPConfigOption? { configOptions.first(where: \.isEffort) }
 
     // MARK: Intents
+
+    /// The composer's attachments changed: the source may start sending files ahead of Send.
+    public func composerAttachmentsChanged(_ attachments: [AgentAttachment]) {
+        source.prestageAttachments(attachments)
+    }
 
     /// `denyingPermission`: the message is "Reply instead" for the pending
     /// permission (SPEC 6.5): deny it so the agent goes on, and send the
@@ -976,6 +999,9 @@ public final class AgentChatStore {
     }
 
     func apply(_ event: AgentSessionEvent) {
+        // Anything applied since a replay (a refused Full-access switch, a mode pick) may have
+        // moved the state that replay sets, so the next equal replay applies again.
+        if case .batch = event {} else { lastReplayBatch = nil }
         applyEvent(event)
         spillIfOffScreen()
         refreshDerived()
@@ -985,6 +1011,10 @@ public final class AgentChatStore {
 
     private func applyEvent(_ event: AgentSessionEvent) {
         if !spilledTurnIDs.isEmpty, replaysSpilledTurn(event) { return }
+        if case .batch(let events) = event {
+            guard events != lastReplayBatch else { return }
+            lastReplayBatch = events
+        }
         revision &+= 1
         lastChangeWasReplay = false
         placeBottomStackInstantly = false
@@ -1073,7 +1103,7 @@ public final class AgentChatStore {
                 $0.startedAt = at
                 $0.status = .running
             }
-            summary.status = .running
+            setStatus(.running)
         case .retrying(let attempt, let maxAttempts, let status):
             guard let index = turns.indices.last, turns[index].status == .running else { return }
             turns[index].retry = AgentTurn.Retry(attempt: attempt, maxAttempts: maxAttempts, status: status)
@@ -1125,7 +1155,7 @@ public final class AgentChatStore {
                 }
             }
             currentMessageID = nil
-            summary.status = .idle
+            setStatus(.idle)
         case .update(let update):
             // The model answered: the retry is over.
             switch update {
@@ -1138,11 +1168,11 @@ public final class AgentChatStore {
         case .permissionRequest(let request):
             guard takeOpenAsk(request.id) else { return }
             appendItem(.permission(PermissionRecord(request: request)))
-            summary.status = .waiting
+            setStatus(.waiting)
         case .question(let question):
             guard takeOpenAsk(question.id) else { return }
             appendItem(.question(question))
-            summary.status = .waiting
+            setStatus(.waiting)
         case .permissionDecision(let permissionId, let optionId, let answers):
             approvingOptionID = nil
             decidedAsks.insert(permissionId)
@@ -1171,16 +1201,16 @@ public final class AgentChatStore {
                 }
                 return .permission(record)
             }
-            summary.status = turns.last?.status == .running ? .running : .idle
+            setStatus(turns.last?.status == .running ? .running : .idle)
         case .elevationRequest(let ask):
             pendingElevation = ask
             sendingElevation = false
-            summary.status = .waiting
+            setStatus(.waiting)
         case .elevationDecision(let id):
             guard pendingElevation?.id == id else { break }
             pendingElevation = nil
             sendingElevation = false
-            summary.status = turns.last?.status == .running ? .running : .idle
+            setStatus(turns.last?.status == .running ? .running : .idle)
         case .questionAnswered(let questionId, let answer):
             decidedAsks.insert(questionId)
             updateItems { item in
@@ -1188,14 +1218,16 @@ public final class AgentChatStore {
                 question.state = .answered(answer)
                 return .question(question)
             }
-            summary.status = turns.last?.status == .running ? .running : .idle
+            setStatus(turns.last?.status == .running ? .running : .idle)
+        // The daemon re-sends these with every attach and turn; a write of the same value
+        // still re-renders every reader (the composer's model and mode menus).
         case .modelsAvailable(let models, let current):
-            self.models = models
-            currentModelID = current
+            assign(\.models, models)
+            assign(\.currentModelID, current)
         case .modesAvailable(let modes, let current):
-            offeredModes = modes
-            self.modes = ACPMode.phoneChoices(modes, current: current, fullAccess: fullAccess)
-            currentModeID = current
+            assign(\.offeredModes, modes)
+            assign(\.modes, ACPMode.phoneChoices(modes, current: current, fullAccess: fullAccess))
+            assign(\.currentModeID, current)
         case .earlierHistory(let earlier):
             sourceHasEarlier = earlier
             refreshEarlierHistory()
@@ -1213,12 +1245,12 @@ public final class AgentChatStore {
         case .gapPage(let events, let done):
             fillGap(events, done: done)
         case .fullAccess(let on):
-            fullAccess = on
+            assign(\.fullAccess, on)
             // The refusal said Full access was off; a connection that says it is on ends it.
             if on, clientError == Self.fullAccessOffNotice || clientError == Self.fullAccessOffPromptNotice { clientError = nil }
-            modes = ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on)
+            assign(\.modes, ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on))
         case .status(let status):
-            summary.status = status
+            setStatus(status)
             if status != .disconnected, wantsBookmarks { loadBookmarks() }
             // A dropped link can lose the request before the daemon accepts it, with
             // no error or retry record to clear the in-flight tap on reattach.
@@ -1800,7 +1832,11 @@ public final class AgentChatStore {
                 markdown += text
                 turns[last].items[item] = .message(id: id, markdown: markdown)
             } else {
-                turns[last].items.append(.message(id: messageId ?? UUID().uuidString, markdown: text))
+                // The same message going on after a row of its own between (an image it sent)
+                // takes a new id: two rows never share one.
+                var id = messageId ?? UUID().uuidString
+                if turns[last].items.contains(where: { $0.id == "m-\(id)" }) { id += "-#\(turns[last].items.count)" }
+                turns[last].items.append(.message(id: id, markdown: text))
             }
             currentMessageID = messageId
             startsNewAttempt = false
@@ -1841,14 +1877,14 @@ public final class AgentChatStore {
             }
             turns[turns.count - 1] = turn
         case .availableCommands(let commands):
-            availableCommands = commands
+            assign(\.availableCommands, commands)
         case .currentMode(let mode):
-            currentModeID = mode
-            modes = ACPMode.phoneChoices(offeredModes, current: mode, fullAccess: fullAccess)
+            assign(\.currentModeID, mode)
+            assign(\.modes, ACPMode.phoneChoices(offeredModes, current: mode, fullAccess: fullAccess))
         case .configOptions(let options):
-            configOptions = options
+            assign(\.configOptions, options)
         case .usage(let used, let size):
-            usage = (used, size)
+            if usage?.used != used || usage?.size != size { usage = (used, size) }
         case .sessionInfo(let title):
             if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty { sessionTitle = title }
         }
