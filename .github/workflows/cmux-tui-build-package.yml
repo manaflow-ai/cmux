@@ -69,6 +69,14 @@ on:
         required: false
         default: true
         type: boolean
+      # The nightly tree's caller (cmux-tui-artifacts.yml) sets it: plan-build and package take the nightly's
+      # reserved cmux-gcp-nightly-x64 on attempt 1, so no pull request job queues ahead of them (RFD 0021,
+      # route by need). Every other caller leaves it false and keeps cmux-linux.
+      nightly_runner:
+        description: "Run plan-build and package on the nightly's reserved Linux label (attempt 1)"
+        required: false
+        default: false
+        type: boolean
       macos_runner:
         description: "Optional macOS runner label override"
         required: false
@@ -165,7 +173,7 @@ env:
 jobs:
   plan-build:
     name: select binary targets
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.nightly_runner && github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
@@ -597,9 +605,12 @@ jobs:
       # Off Blacksmith the GitHub store above misses (it is full and churns in minutes), so the dependency
       # builds of the three shipped legs that run on pool hosts (aarch64-apple-darwin built on Linux, and both
       # musl targets) come from R2, as the fast tier's do. Why: docs/ci/cmux-next-workflow-notes.md#note-210c
+      # The Cloud machine channel's thin musl legs (build-machine-channel, lto=thin, on cmux-linux) too, under
+      # their own key (LEG carries the lto): they had no warm start off Blacksmith and built cold, 17-18 min
+      # of a 22.6 min aarch64 leg in run 45443556021 (2026-11-24), which the channel point waits for.
       - name: Key the cargo build in R2
         id: r2-cargo-key
-        if: ${{ github.repository == 'manaflow-ai/cmux' && !startsWith(runner.name, 'blacksmith') && runner.os == 'Linux' && ((matrix.cross == true && !matrix.darwin_on_linux && inputs.lto != 'thin') || matrix.darwin_on_linux) && steps.fat-warm-x86_64.outcome != 'success' && steps.fat-warm-aarch64.outcome != 'success' && steps.fat-warm-darwin-aarch64.outcome != 'success' }}
+        if: ${{ github.repository == 'manaflow-ai/cmux' && !startsWith(runner.name, 'blacksmith') && runner.os == 'Linux' && ((matrix.cross == true && !matrix.darwin_on_linux) || matrix.darwin_on_linux) && steps.fat-warm-x86_64.outcome != 'success' && steps.fat-warm-aarch64.outcome != 'success' && steps.fat-warm-darwin-aarch64.outcome != 'success' }}
         continue-on-error: true
         env:
           LEG: ${{ matrix.target }}-${{ inputs.lto }}
@@ -1479,7 +1490,7 @@ jobs:
         needs.build.result == 'success' &&
         (!inputs.include_windows || needs.build-windows.result == 'success')
       }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.nightly_runner && github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 30
     permissions:
       contents: read

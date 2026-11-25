@@ -292,7 +292,10 @@ def value_of(raw: object, context: dict[str, object]) -> object:
 def load_yaml(path: Path) -> dict:
     import yaml  # PyYAML: the guard venv and the Linux runners have it.
 
-    loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    # libyaml's loader when the wheel has it: the pure-Python one took 16 of the registry check's 31 s over 465
+    # workflow files (2026-11-24), on every tooling-tests run. Both build the same documents (tests/test_pr_test_lanes.py).
+    loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+    loaded = yaml.load(path.read_text(encoding="utf-8"), Loader=loader)
     return loaded if isinstance(loaded, dict) else {}
 
 

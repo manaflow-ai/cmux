@@ -344,6 +344,23 @@ pub(crate) fn progress_text(r: &Value) -> String {
     line
 }
 
+/// `session info`'s `move:` line for a move whose target has not said whether it took the
+/// chat (`moveUndecided`): since when, and once the chat is offered back, how to take it.
+pub(crate) fn move_undecided_line(info: &Value, now_ms: u64) -> Option<String> {
+    let u = info.get("moveUndecided").filter(|u| u.is_object())?;
+    let since = u.get("since").and_then(Value::as_u64)?;
+    let ago = duration_text(now_ms.saturating_sub(since) as f64 / 1000.0);
+    let id = info.get("sessionId").and_then(Value::as_str).unwrap_or("CHAT");
+    Some(if u.get("offeredAt").and_then(Value::as_u64).is_some() {
+        format!(
+            "move:      undecided: its target has not answered for {ago}; take the chat back \
+             here with `acpmux session move --abort --take-back {id}`"
+        )
+    } else {
+        format!("move:      undecided: its target has not answered for {ago}; still asking")
+    })
+}
+
 /// `session info`'s `move:` line, while a move of the chat reports.
 pub(crate) fn move_progress_line(info: &Value) -> Option<String> {
     let r = info.get("moveProgress").filter(|r| r.is_object())?;
@@ -353,6 +370,19 @@ pub(crate) fn move_progress_line(info: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_undecided_move_reads_as_a_line_that_offers_the_chat_back_once_offered() {
+        assert_eq!(move_undecided_line(&json!({"moveUndecided": null}), 0), None);
+        let asking = json!({"sessionId": "s1",
+                            "moveUndecided": {"transferId": "t", "since": 1_000, "offeredAt": null}});
+        let line = move_undecided_line(&asking, 121_000).unwrap();
+        assert!(line.contains("still asking") && !line.contains("take-back"), "{line}");
+        let offered = json!({"sessionId": "s1",
+                             "moveUndecided": {"transferId": "t", "since": 1_000, "offeredAt": 600_000}});
+        let line = move_undecided_line(&offered, 601_000).unwrap();
+        assert!(line.contains("--abort --take-back s1"), "{line}");
+    }
 
     #[test]
     fn progress_reads_as_a_line() {
