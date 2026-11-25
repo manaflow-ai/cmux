@@ -38,7 +38,7 @@
  *   bun scripts/cmux-next/auto-journey.ts --backend staging --cleanup DIR
  */
 import { spawn, type ChildProcess } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -396,7 +396,12 @@ async function main(): Promise<number> {
       git(["commit", "--quiet", "-m", "auto journey local commit"]);
       writeFileSync(path.join(work, "uncommitted.txt"), "uncommitted on the Mac\n");
       meta.mac_head = git(["rev-parse", "HEAD"]);
-      const created = await S.call("session/new", { cwd: work, mcpServers: [], _meta: { acpmux: { harness: HARNESS, policy: "approve-all" } } });
+      const created = await S.call("session/new", { cwd: work, mcpServers: [], _meta: { acpmux: { harness: HARNESS, policy: "approve-all" } } }).catch((e: unknown) => {
+        // The daemon's own words about the profile folder, so a refused harness names its cause.
+        const harnessLines = readFileSync(path.join(out, "daemon.log"), "utf8").split("\n").filter((l) => /harness|profile/i.test(l)).slice(-6).join(" / ").slice(0, 700);
+        const folder = path.join(home, ".config", NEXT_DIR, "harnesses");
+        throw new Error(`${e instanceof Error ? e.message : String(e)}; ${folder}: [${existsSync(folder) ? readdirSync(folder).join(",") : "missing"}]; daemon log: ${harnessLines || "no harness lines"}`);
+      });
       const sid = String(created.sessionId);
       const set = await S.call("_acpmux/auto_session/set", { sessionId: sid, auto: true });
       if (set?.autoSession?.auto !== true) throw new Error(`Auto did not go on: ${short(set)}`);
