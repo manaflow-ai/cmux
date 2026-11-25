@@ -318,6 +318,7 @@ fn brace_statements(text: &str, keyword: &str) -> Vec<BraceStatement> {
 }
 
 /// The `export * from "spec"` statements of a file.
+#[cfg(test)]
 fn star_exports(text: &str) -> Vec<String> {
     text.lines()
         .filter_map(|l| l.trim().strip_prefix("export * from "))
@@ -768,6 +769,7 @@ fn is_component_name(name: &str) -> bool {
 }
 
 /// The kit barrel's re-export targets that are not compiled in.
+#[cfg(test)]
 pub(super) fn barrel_misses() -> Vec<String> {
     let text = source(BARREL).unwrap_or_default();
     brace_statements(text, "export")
