@@ -1363,6 +1363,14 @@ pub fn new_session_watching(
     keep_waiting: &mut dyn FnMut(Duration) -> bool,
 ) -> Result<String, String> {
     let mut meta = session_meta(spec, preset);
+    // A Cloud machine's Chief: its own Claude sessions sign in with the host's credential, as a
+    // Cloud chat's launch does (turn_credential.rs). Only here, at the send: `session_meta` has
+    // other readers.
+    if let Some(credentials) =
+        crate::turn_credential::meta_for(spec, crate::turn_credential::current())
+    {
+        meta["credentials"] = credentials;
+    }
     let deadline = if waits_on_harness(spec) {
         START_WAIT_CEILING
     } else {

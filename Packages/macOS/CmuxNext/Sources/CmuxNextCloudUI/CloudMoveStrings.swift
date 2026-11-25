@@ -119,6 +119,19 @@ public struct CloudMoveStrings {
         String(format: String(localized: "cloud.move.unknownMachine", defaultValue: "cmux can't confirm who owns %@, so the chat stays on this Mac.",
                               table: "Cloud", bundle: .localizedModule), machine)
     }
+    /// The machine's chat service was restarting (`agent_transfer.unavailable`): the CLI waited to its
+    /// deadline and gave the chat back, so nothing moved and the same move may work again.
+    /// The folder's last changes did not reach the other machine (`sync_failed`: it did not answer
+    /// in time, say), so the chat stayed frozen where it was; a Retry moves it again.
+    public static var lastChangesFailed: String {
+        String(localized: "cloud.move.lastChangesFailed", defaultValue: "The folder's last changes didn't copy, so the chat stayed where it was. Retry to move it.",
+               table: "Cloud", bundle: .localizedModule)
+    }
+
+    public static func restarting(_ machine: String) -> String {
+        String(format: String(localized: "cloud.move.restarting", defaultValue: "%@ is restarting, so the chat stayed where it was. Retry in a moment.",
+                              table: "Cloud", bundle: .localizedModule), machine)
+    }
     public static func unreachable(_ machine: String) -> String {
         String(format: String(localized: "cloud.move.unreachable", defaultValue: "Lost the connection to %@ during the move. Retry to finish it.",
                               table: "Cloud", bundle: .localizedModule), machine)
@@ -136,6 +149,11 @@ public struct CloudMoveStrings {
     }
     public static func moveFailed(_ detail: String) -> String {
         String(format: String(localized: "cloud.move.failedPlain", defaultValue: "Couldn't move the chat. %@", table: "Cloud", bundle: .localizedModule), detail)
+    }
+    /// A move to the person's own machine whose chosen agent login could not be read: it stays here.
+    public static func loginFailed(_ machine: String, _ detail: String) -> String {
+        String(format: String(localized: "cloud.move.loginFailed", defaultValue: "The chat stays here: your agent login for %1$@ couldn't be read: %2$@",
+                              table: "Cloud", bundle: .localizedModule), machine, detail)
     }
     public static func tabFailed(_ machine: String, _ detail: String) -> String {
         String(format: String(localized: "cloud.move.tabFailed", defaultValue: "The chat moved to %1$@, but its tab didn't open: %2$@",

@@ -171,7 +171,7 @@ await requireBrowserLane("agent-pane-edited-head-toggle-browser.test.ts", async 
   /// Waits until the card shows `count` inline diffs (the fold may animate its close).
   const inlineDiffs = (page: Page, count: number) =>
     page.waitForFunction(
-      (n) => document.querySelectorAll(".acpmux-edited .acpmux-edited-diff .cv-edit-diff").length === n,
+      (n) => document.querySelectorAll(".acpmux-edited .acpmux-edited-stack .cv-edit-diff").length === n,
       count,
       { timeout: 10_000 },
     );
@@ -240,7 +240,7 @@ await requireBrowserLane("agent-pane-edited-head-toggle-browser.test.ts", async 
     await inlineDiffs(page, 1);
     expect(
       await page
-        .locator(".acpmux-edited-diff .cv-edit-diff__header")
+        .locator(".acpmux-edited-stack .cv-edit-diff__header")
         .getByRole("button", { name: "Open in Changes", exact: true })
         .count(),
     ).toBe(1);
