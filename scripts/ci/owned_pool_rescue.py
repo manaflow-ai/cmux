@@ -561,6 +561,8 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/nightly-next-launch-smoke.yml",
     # feat-cmux-next only; calls pr-pipeline.yml, whose ios job takes the ios-runner pool picker's output.
     ".github/workflows/pr-router.yml",
+    # feat-cmux-next only; its build job takes the pool picker job route's output.
+    ".github/workflows/ios-sim-linux-build.yml",
     ".github/workflows/macos-cross-parity.yml",
     ".github/workflows/relay-tls.yml",
     ".github/workflows/remote-daemon.yml",
