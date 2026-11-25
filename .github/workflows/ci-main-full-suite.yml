@@ -45,7 +45,7 @@ jobs:
     # A completed full-suite run on main is what starts the next one, so the
     # gate always finds either nothing in flight or the run it must wait for.
     if: ${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.path == '.github/workflows/ci.yml')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 20
     # Never cancel a running gate: it holds the slot until its dispatched run
     # exists, so two gates never both see "nothing in flight". GitHub drops

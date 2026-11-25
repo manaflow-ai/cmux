@@ -56,7 +56,7 @@ jobs:
   preflight:
     outputs:
       source_sha: ${{ steps.source.outputs.sha }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     defaults:
       run:
         working-directory: web
