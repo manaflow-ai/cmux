@@ -27,6 +27,7 @@ fn view(epoch: u64, last_seq: u64) -> SessionView {
         created_at: 0,
         updated_at: 0,
         lease_expires_at: 0,
+        moving: None,
     }
 }
 
