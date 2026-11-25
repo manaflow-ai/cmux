@@ -2602,14 +2602,15 @@ async function cleanupTagMode(tag: string, backend: Backend, email: string | und
 /**
  * The run as one synthetic-probe result row (cmuxterm-hq tools/fleet-reconcilers/probes.py): ok only when a reply
  * was read back, with the existing ms from send to completed reply; otherwise fail with the first failed step.
- * Real-model runs separately carry create-to-streamed-first-text and cumulative phase marks.
+ * Both legs carry create-to-streamed-first-text and cumulative phase marks; the row's `model` says which leg, and
+ * cmuxterm-hq's cloud_journey_probe.py files each leg under its own probe, so a stub time never joins the real one.
  */
 export function probeRow(probe: string, steps: Step[], run?: string, at = new Date(), context?: { backend: string; model: "real" | "stub"; run_attempt?: number }, extra: ProbeExtra = {}): Record<string, unknown> {
   const send = steps.find((s) => s.step === "send chat");
   const reply = steps.find((s) => s.step === "reply");
   const failed = steps.find((s) => s.status === "fail");
   const ready = readyMs(steps);
-  const fields = context?.model === "real" ? [...steps].reverse().find((s) => s.fields)?.fields : undefined;
+  const fields = context ? [...steps].reverse().find((s) => s.fields)?.fields : undefined;
   const { failure_facts, ...spare } = extra;
   const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}), ...(ready === null ? {} : { ready_ms: ready }), ...context, ...fields, ...spare };
   if (reply?.status === "pass" && send) return { ...base, outcome: "ok", ms: send.ms + reply.ms };
@@ -3317,6 +3318,26 @@ CMUX_JOURNEY_START`;
 
 /** The guest's own cmux-tui (cloud_start_chat.rs GUEST_PRELUDE): the build the machine's acpmux runs. */
 const GUEST = 'export HOME="${HOME:-/home/cmux}"; cd "$HOME" 2>/dev/null || cd /; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; ';
+/**
+ * A guest command timed on the guest: its own run, apart from the exec route's trip to the machine and back, which a
+ * person's app never takes (it talks to acpmux over the carrier). The time is printed on its own line after the
+ * command, so a heredoc's terminator stays alone on its line.
+ */
+export function guestTimed(command: string): string {
+  return `__cmux_t0=$(date +%s%N)\n${command}\necho "@@guest_ms $(( ($(date +%s%N) - __cmux_t0) / 1000000 ))"`;
+}
+
+/** The ms guestTimed printed, or null. */
+export function guestMs(stdout: string): number | null {
+  const m = /@@guest_ms (\d+)/.exec(stdout);
+  return m ? Number(m[1]) : null;
+}
+
+/** "; on the guest N ms (the rest is the exec route)" for a step's detail, or "" with no time. */
+export function guestDetail(ms: number | null): string {
+  return ms === null ? "" : `; on the guest ${ms} ms (the rest is the exec route)`;
+}
+
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 /**
@@ -3337,6 +3358,23 @@ export function claudeTranscriptModelsProgram(id: string): string {
 /** The models a {@link claudeTranscriptModelsProgram} printout names, `<synthetic>` (Claude Code's own notices) left out. */
 export function transcriptModels(stdout: string): string[] {
   return [...new Set([...stdout.matchAll(/"model":"([^"]+)"/g)].map((m) => m[1]!).filter((m) => m !== "<synthetic>"))];
+}
+
+/**
+ * The models a claude session ran, read from what ran: `acp session info` only names its agentSessionId, and every
+ * assistant message's `model` in that Claude transcript is the answer. Passes only when each one is `asked` (or a
+ * dated `asked-...` id); the session record naming `asked` counts for nothing (a pooled agent on another model ran
+ * under a record that named the asked one, cmux#40383).
+ */
+export async function sessionModelVerdict(exec: Exec, session: string, asked: string): Promise<string> {
+  const r = await exec(`${GUEST}"$c" acp --json session info ${shq(session)} 2>&1`, 45_000);
+  const asid = /"agentSessionId"\s*:\s*"([^"]+)"/.exec(r.stdout)?.[1];
+  if (!asid) throw new Error(`asked ${asked}; acp session info names no agentSessionId: ${r.stdout.slice(-200)}`);
+  const t = await exec(`${GUEST}${claudeTranscriptModelsProgram(asid)}`, 45_000);
+  const ran = transcriptModels(t.stdout);
+  if (!ran.length) throw new Error(`asked ${asked}; the session's Claude transcript (${asid}) names no model`);
+  if (ran.some((m) => m !== asked && !m.startsWith(`${asked}-`))) throw new Error(`asked ${asked}; the agent ran ${ran.join(", ")}`);
+  return `asked ${asked}; the agent ran ${ran.join(", ")} (its Claude transcript)`;
 }
 
 /** --machine: stop an earlier run's model stub and drop its endpoint from Claude Code's settings (and Codex's stub provider). */
@@ -5087,9 +5125,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
       throw new Error(`no reply within ${chatBudget / 1000} s; last: ${last.slice(-300)}`);
     };
-    const send = async (text: string) => {
-      const r = await exec(`${GUEST}printf '%s' ${shq(text)} | "$c" acp send --no-wait ${shq(session)} - 2>&1; echo "@@exit $?"`, 60_000);
+    const send = async (text: string): Promise<number | null> => {
+      const r = await exec(guestTimed(`${GUEST}printf '%s' ${shq(text)} | "$c" acp send --no-wait ${shq(session)} - 2>&1; echo "@@exit $?"`), 60_000);
       if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
+      return guestMs(r.stdout);
     };
     // The model requests the stub logged for real turns (streamed, not a title or topic side request).
     const stubTurns = async (): Promise<any[]> => {
@@ -5160,7 +5199,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       await J.step(`start agent (${agent})`, async () => {
         if (launchCredential) {
           // The first prompt follows session/new on the same acpmux link, as the app's first send does.
-          const r = await exec(`${GUEST}${launchCredentialStartProgram(session, agent, "CLAUDE_CODE_OAUTH_TOKEN", login, prompt)}`, 120_000);
+          const r = await exec(guestTimed(`${GUEST}${launchCredentialStartProgram(session, agent, "CLAUDE_CODE_OAUTH_TOKEN", login, prompt)}`), 120_000);
           const id = /@@session (\S+)/.exec(r.stdout)?.[1];
           if (!id) throw new Error(scrub(r.stdout.slice(-400) || r.stderr.slice(-400), [login]));
           J.firstText.mark("session_ready");
@@ -5169,7 +5208,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           // One exec carries both: send and sent fall at its return, after session_ready, as the trace's spans read them.
           J.firstText.mark("send");
           J.firstText.mark("sent");
-          return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start` };
+          return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
         }
         const r = await exec(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`, 120_000);
         if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
@@ -5180,9 +5219,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       await J.step("send chat", async () => {
         if (promptedWithStart) return { value: null, detail: `${prompt.slice(0, 80)} (went with the agent's start, on its link)` };
         J.firstText.mark("send");
-        await send(prompt);
+        const onGuest = await send(prompt);
         J.firstText.mark("sent");
-        return { value: null, detail: prompt.slice(0, 80) };
+        return { value: null, detail: `${prompt.slice(0, 80)}${guestDetail(onGuest)}` };
       });
       await J.step("reply", async () => {
         const last = await awaitReply().catch(async (e: Error) => {
@@ -5235,15 +5274,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       // the harness offers (so it named the asked model even when a pooled agent ran another one: a second chat
       // on one machine asked claude-sonnet-5-5 and ran claude-haiku-5-5, and this step passed, 2026-11-10).
       if (askedModel && !modelStub && harness === "claude") {
-        await J.step("session model", async () => {
-          const r = await exec(`${GUEST}"$c" acp --json session info ${shq(session)} 2>&1`, 45_000);
-          const asid = /"agentSessionId"\s*:\s*"([^"]+)"/.exec(r.stdout)?.[1];
-          if (!asid) throw new Error(`asked ${askedModel}; acp session info names no agentSessionId: ${r.stdout.slice(-200)}`);
-          const t = await exec(`${GUEST}${claudeTranscriptModelsProgram(asid)}`, 45_000);
-          const ran = transcriptModels(t.stdout);
-          if (!ran.length) throw new Error(`asked ${askedModel}; the session's Claude transcript (${asid}) names no model`);
-          if (ran.some((m) => m !== askedModel && !m.startsWith(`${askedModel}-`))) throw new Error(`asked ${askedModel}; the agent ran ${ran.join(", ")}`);
-          return { value: null, detail: `asked ${askedModel}; the agent ran ${ran.join(", ")} (its Claude transcript)` };
+        await J.step("session model", async () => ({ value: null, detail: await sessionModelVerdict(exec, session, askedModel) }));
+        // Production 2026-11-10: a second chat on the same machine ran the model of the chat before it (acpmux served it
+        // the pooled agent spawned on that model, cmux#40383). A chat on another model must run that model.
+        await J.step("second chat's model (same machine)", async () => {
+          const other = askedModel.includes("haiku") ? "claude-sonnet-5-5" : "claude-haiku-5-5";
+          const second = `${session}-m2`;
+          const r = await exec(`${GUEST}"$c" acp ensure ${shq(second)} -m ${shq(`${harness}/${other}`)} --json 2>&1; echo "@@exit $?"`, 120_000);
+          if (!/@@exit 0\s*$/.test(r.stdout)) throw new Error(`acp ensure -m ${harness}/${other}: ${r.stdout.slice(-400)}`);
+          // One turn, so its transcript names the model that answered it.
+          const sent = await exec(`${GUEST}printf '%s' 'Reply with the word ok.' | "$c" acp send --no-wait ${shq(second)} - 2>&1; echo "@@exit $?"`, 60_000);
+          if (!/@@exit 0\s*$/.test(sent.stdout)) throw new Error(`acp send to ${second}: ${sent.stdout.slice(-400)}`);
+          const waited = await exec(`${GUEST}"$c" acp wait ${shq(second)} --timeout 120 >/dev/null 2>&1; echo "@@wait $?"`, 150_000);
+          const wait = /@@wait (\d+)/.exec(waited.stdout)?.[1];
+          if (wait !== "0") throw new Error(`the second chat's turn did not end cleanly (acp wait exit ${wait ?? "none"})`);
+          return { value: null, detail: await sessionModelVerdict(exec, second, other) };
         });
       }
       if (modelStub && provider) {

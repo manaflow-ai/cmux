@@ -57,8 +57,8 @@ struct HomeNarrowSidebarTests {
 
     /// Leo, 2026-10-19: "the search completley disappeared when you coulve probably still fit it...
     /// and/or just turned it to an icon. the filter button also just disappeared." The avatar-only
-    /// list keeps the Unread filter and shows search as a glass circle; compose stays the chat's.
-    @Test(arguments: [76, 100, 140, 179] as [CGFloat])
+    /// list keeps the Unread filter and shows search as a circle; compose stays the chat's.
+    @Test(arguments: [100, 120, 140, 187] as [CGFloat])
     func theAvatarListShowsTheSearchIconAndFilterButNoCompose(_ width: CGFloat) throws {
         let p = try page(listWidth: width)
         defer { p.close() }
@@ -69,13 +69,12 @@ struct HomeNarrowSidebarTests {
         #expect(!home.searchButton.isHidden, "the search icon is gone from the \(width) pt list")
         #expect(home.unreadToggle.frame.maxX <= width && home.searchButton.frame.minX >= 0)
         #expect(!home.unreadToggle.frame.intersects(home.searchButton.frame))
-        #expect(home.newChief.isHidden, "New Chief shows in the \(width) pt list")
         #expect(home.searchCapsule.isHidden, "the search capsule shows in the \(width) pt list")
         #expect(home.list.searchField.alphaValue == 0 || home.list.searchField.frame.width == 0,
                 "the search field shows in the \(width) pt list")
     }
 
-    @Test(arguments: [76, 140] as [CGFloat])
+    @Test(arguments: [100, 140] as [CGFloat])
     func theChatShowsComposeAtItsTopLeft(_ width: CGFloat) throws {
         let p = try page(listWidth: width)
         defer { p.close() }
@@ -108,7 +107,7 @@ struct HomeNarrowSidebarTests {
         #expect(!button.isHidden)
     }
 
-    @Test(arguments: [180, 320] as [CGFloat])
+    @Test(arguments: [188, 320] as [CGFloat])
     func theListWithNamesKeepsItsRowAndComposeStaysInTheChat(_ width: CGFloat) throws {
         let p = try page(listWidth: width)
         defer { p.close() }

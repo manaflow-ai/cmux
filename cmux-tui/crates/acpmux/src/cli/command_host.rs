@@ -54,7 +54,20 @@ pub enum PeerCmd {
     /// memory pressure (avg60), available memory, swap, OOM kills, free disk,
     /// whether a turn runs here, and a build or test that is running. Reads
     /// only; never starts a daemon. Fields it cannot read are left out.
-    Load,
+    /// `--watch`: sample once a second and print one JSON line each time a line
+    /// is crossed (memory available under 25% / 10%, an OOM kill, CPU saturated
+    /// 5 minutes, disk under 10% or 2 GiB), until stdout closes.
+    Load {
+        /// Sample once a second and print an event line when a line is crossed.
+        #[arg(long)]
+        watch: bool,
+        #[command(flatten)]
+        lines: crate::host_load_watch::Lines,
+    },
+    /// One walk of the home directory for `load`'s disk split (`disk_usage.rs`); `load` starts
+    /// it in the background when the last split is old.
+    #[command(name = "disk-walk", hide = true)]
+    DiskWalk,
     /// The shadow admission verdict (cmuxterm-hq#7342) for host readings on
     /// stdin: one JSON object, or an array of them, in; the verdict (or an
     /// array of verdicts) out, as JSON. Pure: reads no host and starts no
@@ -383,6 +396,11 @@ pub enum VaultCmd {
     },
     /// Remove a kept key (`keep`) from this machine.
     Drop { name: String },
+    /// List every secret this user's processes and files can reach, by name and
+    /// path only (never a value), and exit 1 when anything but the owner's
+    /// harness login or this machine's own identity is reachable (exit 2: the
+    /// audit could not see everything). A Cloud chat's VM runs it after a move.
+    Audit,
 }
 
 #[derive(Subcommand)]

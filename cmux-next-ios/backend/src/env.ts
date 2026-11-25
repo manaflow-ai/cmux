@@ -1,3 +1,5 @@
+import type { LinkRelay } from "./link-relay.ts"
+import type { HubRelay } from "./hub-relay.ts"
 import type { TeamHub } from "./team-hub.ts"
 
 export interface Env {
@@ -10,6 +12,17 @@ export interface Env {
    */
   readonly STACK_PROJECTS: string
   readonly TEAM_HUB: DurableObjectNamespace<TeamHub>
+  /** The link's WebSocket relay (src/link-relay.ts): one object per link session. */
+  readonly LINK_RELAY: DurableObjectNamespace<LinkRelay>
+  /** `off` refuses every relay join with 503 `relay_off` (the kill switch; PROTOCOL.md "WebSocket relay"). */
+  readonly LINK_RELAY_MODE?: string
+  /** What one user may relay per minute across all sessions, MiB (default 480: src/relay-access.ts). */
+  readonly LINK_RELAY_USER_MIB_PER_MIN?: string
+  /** Test only (ENVIRONMENT=test): `1` makes the hub's relay budget call throw (an overloaded hub). */
+  readonly LINK_RELAY_TEST_BUDGET_ERROR?: string
+  /** The three-way hub (RFD 0142 R6): "off" refuses every hub join with 503 hub_off; clients keep their per-source path. */
+  readonly HUB_RELAY: DurableObjectNamespace<HubRelay>
+  readonly HUB_RELAY_MODE?: string
   /** Absent in tests: the memory store is used instead. */
   /** PlanetScale MySQL cmux-next-vitess (readwriter) through Hyperdrive; absent in tests (memory store). */
   readonly PS_MYSQL?: Hyperdrive

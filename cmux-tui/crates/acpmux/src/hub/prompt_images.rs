@@ -23,7 +23,7 @@ fn dir() -> PathBuf {
 }
 
 /// The records that name a prompt's images.
-const NAMING_KINDS: [&str; 3] = ["user_message", "queued", "queue_updated"];
+pub(super) const NAMING_KINDS: [&str; 3] = ["user_message", "queued", "queue_updated"];
 
 /// The type a kept file's bytes are, from their magic number: PNG, JPEG, GIF, WebP, BMP, TIFF,
 /// HEIC/HEIF, AVIF and PDF. `None` for anything else (an SVG is text: its record names it).
@@ -189,9 +189,16 @@ pub(super) fn restore_images(bundle: &std::path::Path) -> std::io::Result<usize>
             continue;
         }
         crate::home_fs::create_dirs(dir())?;
-        let tmp = dir().join(format!(".{id}.moving"));
-        crate::home_fs::write(&tmp, &bytes)?;
-        std::fs::rename(&tmp, &dest)?;
+        // Written aside under a name of its own and renamed, as `keep_indexed` does: two moves
+        // arriving with one image never write the same partial file, and the rename goes
+        // through the folder this daemon holds (`home_fs`).
+        let partial = dir().join(format!("{id}.{}.partial", uuid::Uuid::now_v7()));
+        let written = write_owner_only(&partial, &bytes)
+            .and_then(|()| crate::home_fs::rename(&partial, &dest));
+        if let Err(e) = written {
+            let _ = crate::home_fs::remove_file(&partial);
+            return Err(e);
+        }
         kept += 1;
     }
     Ok(kept)
@@ -216,14 +223,15 @@ fn decode(block: &Value) -> Option<(Vec<u8>, Value)> {
     let id: String = sha2::Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
     let mime = block.get("mimeType").and_then(Value::as_str).unwrap_or("image/png");
     let mut named = json!({"id": id, "mimeType": mime});
-    if let Some(name) = block.get("name").and_then(Value::as_str) {
-        named.set("name", json!(name));
-    }
-    // Its pixel size from the header, so the chat reserves the image's exact box before the bytes
-    // load and a decoded image never moves a row (agent-transcript-clean-slate.md, step 2).
-    if let Some((width, height)) = acpmux_book::image_dims::image_dims(&bytes) {
+    // Its pixel size from the header, as a browser draws it (EXIF orientation applied), so every
+    // view reserves the image's own box before it reads the bytes and a decoded image never moves
+    // a row (`image_size.rs`; agent-transcript-clean-slate.md, step 2).
+    if let Some((width, height)) = super::image_size::pixel_size(&bytes) {
         named.set("width", json!(width));
         named.set("height", json!(height));
+    }
+    if let Some(name) = block.get("name").and_then(Value::as_str) {
+        named.set("name", json!(name));
     }
     Some((bytes, named))
 }
@@ -660,16 +668,18 @@ impl Hub {
         set_inline_parts(&mut msg, ordered);
         super::session::mark_pasted(&mut msg, blocks);
         // The immutable cmux snapshot is saved in metadata and can be appended again
-        // by turns.rs. Only unrecorded client context prevents Retry/restart replay.
+        // by turns.rs. Only unrecorded client context prevents Retry/restart replay; the tools
+        // note follows from the words, and a rebuild adds it again (`tool_mentions.rs`).
         let mut saved_context = Vec::new();
         crate::context_inventory::append_snapshot(
             session.meta().cmux_context.as_deref(),
             &mut saved_context,
         );
-        if blocks
-            .iter()
-            .any(|block| crate::prompt_context::is_context(block) && !saved_context.contains(block))
-        {
+        if blocks.iter().any(|block| {
+            crate::prompt_context::is_context(block)
+                && !saved_context.contains(block)
+                && !crate::tool_mentions::is_own_note(block, blocks)
+        }) {
             msg.set("hiddenContext", Value::Bool(true));
         }
         // Purged once its creator is done: the log keeps no long body (`ephemeral.rs`).

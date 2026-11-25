@@ -23,6 +23,7 @@
       "agent": "settable",
       "keys": [
         "agentPane.links.openCitationsInEditor",
+        "cloud.autoCloud",
         "window.titlebar"
       ]
     },
@@ -100,6 +101,7 @@
         "sidebar.side",
         "sidebar.look",
         "sidebar.style",
+        "sidebar.drawnMenus",
         "sidebar.spacesPosition",
         "sidebar.spacesVisibility",
         "tabs.newTabTemplate"
@@ -377,6 +379,7 @@
         "focusRing.showWhenSinglePane",
         "appearance.statusIndicator.style",
         "appearance.statusIndicator.animation",
+        "appearance.statusIndicator.iconSet",
         "appearance.statusIndicator.size",
         "appearance.statusIndicator.thickness",
         "appearance.statusIndicator.color",
@@ -388,6 +391,7 @@
         "terminal.fontFamily",
         "terminal.fontSize",
         "terminal.term",
+        "terminal.predictiveLocalEcho",
         "sidebar.sectionLook",
         "sidebar.sections.hidden",
         "sidebar.sections.order",
@@ -502,7 +506,8 @@
     {
       "agent": "settable",
       "keys": [
-        "labs.previewFeatures"
+        "labs.previewFeatures",
+        "labs.appStore"
       ]
     },
     {
@@ -517,8 +522,11 @@
       "why": "Experiments are taste prototypes of how a surface looks (looks only), each off by default.",
       "keys": [
         "experiments.glassToolbarGroups",
+        "experiments.composerButtonsVisible",
         "experiments.composerV2",
         "experiments.hoverLook",
+        "experiments.seeThroughDock",
+        "experiments.attachmentTypeIcons",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
         "experiments.menuStyleV2",
@@ -723,6 +731,7 @@
         "sidebar.workspaceRow.log",
         "sidebar.workspaceRow.notification",
         "sidebar.workspaceRow.secondLineOrder",
+        "sidebar.workspaceRow.statusPlacement",
         "sidebar.workspaceRow.lines",
         "sidebar.workspaceRow.linesByKind",
         "sidebar.workspaceRow.linesByAgent",
@@ -826,6 +835,8 @@
         "agentPane.display.fullWidth",
         "agentPane.display.vscodeMinimap",
         "agentPane.display.pinnedPlan",
+        "agentPane.display.environmentCard",
+        "agentPane.display.changesPill",
         "agentPane.display.finishSound",
         "agentPane.display.sendPop",
         "agentPane.display.trayTucked",
@@ -863,7 +874,10 @@
         "agentPane.display.rail.side",
         "agentPane.display.rail.show",
         "agentPane.display.rail.control",
-        "agentPane.display.commandLabels"
+        "agentPane.display.commandLabels",
+        "agentPane.display.layout.messages",
+        "agentPane.display.layout.composer",
+        "agentPane.display.layout.header"
       ]
     },
     {
@@ -1582,6 +1596,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "Whether acpmux edits Claude Code's own config to add its inbox relay: a person's agent config changes only when the person says so, and an agent must not decide which of its messages Claude Code runs.",
+      "keys": [
+        "agents.claudeCodeInboxRelay"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "Computer Use: what agents may do with the person's apps. An agent must never widen (or even change) its own access, so every computerUse.* key is the person's alone.",
       "keys": [
         "computerUse.mode",
@@ -1617,6 +1638,13 @@
       "keys": [
         "sessions.keepAwake",
         "sessions.keepAwakeForCommands"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether a locked Mac stays up on battery for agents is the person's call too.",
+      "keys": [
+        "sessions.keepAwakeWhenLocked"
       ]
     },
     {
@@ -1722,6 +1750,13 @@
       ]
     },
     {
+      "agent": "network",
+      "why": "Whether remote connections may use a Tailscale carrier changes network egress, so only the person enables it.",
+      "keys": [
+        "transport.tailnetCarrier"
+      ]
+    },
+    {
       "agent": "userOnly",
       "keys": [
         "phone.keepAwake"
@@ -1740,6 +1775,13 @@
       "why": "On, a phone signed in to the same account can open this Mac's terminals and agents.",
       "keys": [
         "mobile.allowIPhoneConnections"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, a new phone on the same account reaches this Mac's terminals and agents without the person's Allow.",
+      "keys": [
+        "mobile.autoApprovePhones"
       ]
     },
     {
@@ -1790,6 +1832,15 @@
       "why": "Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.",
       "keys": [
         "remote.ultra"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Where a new Screen Sharing session's quality, frame rate and bitrate start; the toolbar still changes each session.",
+      "keys": [
+        "remoteDesktop.quality",
+        "remoteDesktop.maxFps",
+        "remoteDesktop.maxBitrateMbps"
       ]
     },
     {
