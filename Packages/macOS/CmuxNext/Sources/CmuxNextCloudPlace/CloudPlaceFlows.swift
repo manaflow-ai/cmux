@@ -75,6 +75,9 @@ public final class CloudPlaceFlows {
     public private(set) var views: [String: Data] = [:]
     /// Each session's place mode (`local`, `cloud`, `auto`), kept across launches; none is Auto's default off.
     public private(set) var modes: [String: String] = [:]
+    /// Sessions whose move landed and whose card has had its moment: the header leaves its `move` out, so a remounted
+    /// page never shows a finished move again. The view stays for Evacuate's rows; the next move's begin shows it again.
+    public private(set) var settled: Set<String> = []
 
     /// Each session's flow, as the reducer last returned it.
     @ObservationIgnored private var flows: [String: Data] = [:]
@@ -94,9 +97,13 @@ public final class CloudPlaceFlows {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let modesKey: String
     @ObservationIgnored private let clock: @Sendable () -> UInt64
+    /// How long a landed move's card stays in the header after its work ended (the page's own linger, `MoveProgress.tsx`).
+    @ObservationIgnored private let liveLinger: Duration
 
-    public init(defaults: UserDefaults = .standard, key: String = "cmux.cloud.placeModes", core: Core? = nil, clock: (@Sendable () -> UInt64)? = nil) {
+    public init(defaults: UserDefaults = .standard, key: String = "cmux.cloud.placeModes", core: Core? = nil, clock: (@Sendable () -> UInt64)? = nil,
+                liveLinger: Duration = .milliseconds(2500)) {
         self.defaults = defaults
+        self.liveLinger = liveLinger
         modesKey = key
         self.core = core ?? { operation, request in CloudStartCore().callData(operation, request) }
         self.clock = clock ?? { UInt64(ProcessInfo.processInfo.systemUptime * 1000) }
@@ -135,6 +142,7 @@ public final class CloudPlaceFlows {
         guard let session else { return .go }
         flows[session] = nil
         cancelled.remove(session)
+        settled.remove(session)
         started[session] = (auto: { if case .auto = trigger { true } else { false } }(), evacuate: trigger == .evacuate, toCloud: toCloud)
         return report(session, ["event": "begin", "session": session, "direction": toCloud ? "toCloud" : "toLocal", "trigger": trigger.json,
                                 "from": from, "to": to, "cargo": cargo.json, "atMs": nowMs])
@@ -205,12 +213,21 @@ public final class CloudPlaceFlows {
     /// Registers what stops the session's move; ends with ``finished(_:)``.
     public func onCancel(_ session: String?, _ stop: @escaping () -> Void) { if let session { stoppers[session] = stop } }
 
-    /// The move's work ended (any way): its stopper goes.
+    /// The move's work ended (any way): its stopper goes. A move that landed leaves the header once its card has shown it
+    /// (``settled``); a failed or cancelled one stays, with its Retry, until the next move begins.
     public func finished(_ session: String?) {
         guard let session else { return }
         stoppers[session] = nil
         started[session] = nil
         cancelled.remove(session)
+        guard state(of: session) == "live" else { return }
+        let linger = liveLinger
+        // task-owner: one linger; it settles the card unless the chat's next move runs (or failed) by then.
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: linger)
+            guard let self, self.state(of: session) == "live" else { return }
+            self.settled.insert(session)
+        }
     }
 
     /// Whether a flow of `session` is moving now (the reducer's own state, read from the kept view).
@@ -255,7 +272,7 @@ public final class CloudPlaceFlows {
         guard let session else { return nil }
         var place: [String: Any] = ["mode": mode(of: session, onCloud: onCloud), "at": onCloud ? "cloud" : "local"]
         if let cloudName { place["cloudName"] = cloudName }
-        if let view = views[session], let move = try? JSONSerialization.jsonObject(with: view) { place["move"] = move }
+        if !settled.contains(session), let view = views[session], let move = try? JSONSerialization.jsonObject(with: view) { place["move"] = move }
         return try? JSONSerialization.data(withJSONObject: place, options: [.sortedKeys])
     }
 }

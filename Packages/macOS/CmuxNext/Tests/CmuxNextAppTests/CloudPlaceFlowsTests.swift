@@ -1,3 +1,4 @@
+import CmuxNextBridge
 import Foundation
 @testable import CmuxNextCloudPlace
 import Testing
@@ -13,7 +14,10 @@ import Testing
 
         func core(_ operation: String, _ request: Data) -> Data? {
             guard let object = try? JSONSerialization.jsonObject(with: request) as? [String: Any] else { return nil }
-            if operation == "cloud_move_place_view" { return Data((events.last == "failed" ? #"{"state":"failed"}"# : #"{"state":"moving"}"#).utf8) }
+            if operation == "cloud_move_place_view" {
+                let state = ["failed": "failed", "live": "live"][events.last ?? ""] ?? "moving"
+                return Data(#"{"state":"\#(state)","n":\#(events.count)}"#.utf8)
+            }
             let event = (object["event"] as? [String: Any])?["event"] as? String ?? ""
             lock.withLock { names.append(event) }
             let next = event == "cancel" && stopOnCancel ? "stop" : "go"
@@ -26,7 +30,10 @@ import Testing
         var chats = [CloudPlaceChat(id: "tab", session: "s", onCloud: false, turnRunning: false, turnStartedAtMs: nil, moving: false)]
         var refusal: String?
         var runs = 0
-        func placeChats() -> [CloudPlaceChat] { chats }
+        /// How often the driver read the chats (each Auto evaluation reads them once).
+        var reads = 0
+        var turnEnded: (@MainActor (String) -> Void)?
+        func placeChats() -> [CloudPlaceChat] { reads += 1; return chats }
         func placeRun(_ chat: CloudPlaceChat, toCloud: Bool, machine: CloudPlaceMachine?, trigger: CloudPlaceFlows.Trigger, claims: CloudPlaceClaims) -> CloudPlaceRun {
             runs += 1
             if let refusal { return .refused(refusal) }
@@ -34,12 +41,20 @@ import Testing
         }
         func placeCloudSessions() -> [String] { [] }
         func placeOwnFacts(_ session: String) -> (before: String?, machines: [CloudPlaceOwnMachine]) { (nil, []) }
-        func placeOnTurnEnded(_ handler: @escaping @MainActor (String) -> Void) {}
+        func placeOnTurnEnded(_ handler: @escaping @MainActor (String) -> Void) { turnEnded = handler }
     }
 
-    private func flows(_ recorder: Recorder) -> CloudPlaceFlows {
+    /// Drivers a test started (their Auto watches stay registered with the system).
+    static var started: [CloudPlaceDriver] = []
+
+    private func flows(_ recorder: Recorder, liveLinger: Duration = .milliseconds(2500)) -> CloudPlaceFlows {
         let defaults = UserDefaults(suiteName: "CloudPlaceFlowsTests.\(UUID().uuidString)")!
-        return CloudPlaceFlows(defaults: defaults, core: { recorder.core($0, $1) }, clock: { 1 })
+        return CloudPlaceFlows(defaults: defaults, core: { recorder.core($0, $1) }, clock: { 1 }, liveLinger: liveLinger)
+    }
+
+    private func move(_ place: CloudPlaceFlows, _ session: String) -> Any? {
+        place.placeJSON(session: session, onCloud: false, cloudName: nil)
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["move"]
     }
 
     @Test func reportsEveryStepInOrder() throws {
@@ -55,7 +70,7 @@ import Testing
         place.step("s", "release")
         place.live("s")
         #expect(recorder.events == ["begin", "step", "target", "step", "step", "step", "step", "step", "live"])
-        #expect(place.state(of: "s") == "moving")
+        #expect(place.state(of: "s") == "live")
         #expect(place.placeJSON(session: "s", onCloud: true, cloudName: "vm") != nil)
     }
 
@@ -114,6 +129,68 @@ import Testing
         #expect(driver.setMode("cloud", tab: nil, session: "s") == .moving)
         #expect(driver.retry(tab: nil, session: "s") == .moving)
         #expect(host.runs == 2)
+    }
+
+    /// A mode picked while the chat moves is refused and leaves the mode alone: Local picked while a local chat moves to
+    /// Cloud never reads `mode: local, at: cloud` once the move lands (review of #52230 at 37033a59, F1).
+    @Test func aModePickedMidMoveIsRefusedAndKeepsTheMode() {
+        let recorder = Recorder(), host = Host()
+        let place = flows(recorder)
+        let driver = CloudPlaceDriver(place: place, host: host)
+        #expect(driver.setMode("cloud", tab: nil, session: "s") == nil)
+        // The move's Task has not run yet (this test holds the main actor): it is in flight.
+        #expect(driver.setMode("local", tab: nil, session: "s") == .moving)
+        #expect(driver.setMode("auto", tab: nil, session: "s") == .moving)
+        #expect(place.mode(of: "s") == "cloud")
+        #expect(host.runs == 1)
+    }
+
+    /// Auto reads its chats as soon as it starts (chats kept on Auto across a relaunch), and again at once when a turn
+    /// ends, not only at the next tick or system signal (review of #52230 at 37033a59, F2).
+    @Test func autoEvaluatesAtStartAndWhenATurnEnds() async {
+        let recorder = Recorder(), host = Host()
+        let place = flows(recorder)
+        place.setMode("auto", of: "s")
+        let driver = CloudPlaceDriver(place: place, host: host)
+        // Kept for the process: the signals' power watch holds an unretained pointer to them.
+        Self.started.append(driver)
+        driver.start()
+        #expect(host.reads >= 1)
+        let before = host.reads
+        host.turnEnded?("s")
+        for _ in 0..<1000 where host.reads == before { await Task.yield() }
+        #expect(host.reads > before)
+    }
+
+    /// Auto's rule reads the prompts waiting behind a chat's turn: acpmux's summary names them (`queued`), and a chat
+    /// carries that count to the rule instead of 0 (review of #52230 at 37033a59, F3).
+    @Test func aChatsQueuedPromptsReachAuto() {
+        #expect(AgentChatDetail.of(summary: ["sessionId": "s", "queued": 2])?.queued == 2)
+        #expect(AgentChatDetail.of(summary: ["sessionId": "s"])?.queued ?? 0 == 0)
+        #expect(CloudPlaceChat(id: "t", session: "s", onCloud: false, turnRunning: false, turnStartedAtMs: nil, moving: false, queued: 3).queued == 3)
+    }
+
+    /// A move that landed leaves the header once its card had its moment, so a remounted page never shows it again; a
+    /// failed one keeps its card and Retry; the next move shows its own (review of #52230 at 37033a59, F4).
+    @Test func aLandedMoveLeavesTheHeaderAndAFailedOneStays() async {
+        let recorder = Recorder()
+        let place = flows(recorder, liveLinger: .zero)
+        place.begin(session: "s", toCloud: true, trigger: .person, from: "Mac", to: "", cargo: .init())
+        place.live("s")
+        place.finished("s")
+        #expect(move(place, "s") != nil)
+        for _ in 0..<1000 where move(place, "s") != nil { await Task.yield() }
+        #expect(move(place, "s") == nil)
+        #expect(place.state(of: "s") == "live")
+        place.begin(session: "s", toCloud: false, trigger: .person, from: "vm", to: "Mac", cargo: .init())
+        #expect(move(place, "s") != nil)
+
+        place.begin(session: "t", toCloud: true, trigger: .person, from: "Mac", to: "", cargo: .init())
+        place.failed("t", reason: "no machine")
+        place.finished("t")
+        for _ in 0..<50 { await Task.yield() }
+        #expect(place.state(of: "t") == "failed")
+        #expect(move(place, "t") != nil)
     }
 
     @Test func modesPersist() {
