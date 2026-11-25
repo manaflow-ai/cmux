@@ -138,6 +138,16 @@ pub fn local_link_remove(instance: String) {
     });
 }
 
+/// The phone changed network: every ad it holds was seen on the old one, so forget them all (the
+/// browser re-reports the ones still live). A dial then skips the dead hub instead of spending
+/// [`LOCAL_DIAL_BOUND`] on it.
+pub fn local_link_forget_all() {
+    with_state(|state| {
+        state.peers.clear();
+        state.instances.clear();
+    });
+}
+
 /// The phone paired with Mac `mac_device_id`, whose identity public key is `identity_public_key`
 /// (nil: forget the key). Its ad is then trusted only with the key tag of that key. The key is the
 /// bytes the Mac hashes for its tag: its X9.63 identity key as lowercase hex (`MacPins`), so a
@@ -368,5 +378,23 @@ mod tests {
         local_link_remove("Mac R".into());
         assert!(local_link_wants_resolve("Mac R".into(), ad));
         local_link_pair("mac-R".into(), None);
+    }
+
+    #[test]
+    fn a_network_change_forgets_every_ad() {
+        let _table = table();
+        let tag = local::key_tag(b"roam-key");
+        let ad = txt(&[("id", "mac-roam"), ("v", "1"), ("k", &tag)]);
+        let here = vec![LocalEndpoint { host: "10.0.0.9".into(), port: 4000 }];
+        local_link_pair("mac-roam".into(), Some(b"roam-key".to_vec()));
+        assert!(local_link_observe("Mac Roam".into(), ad.clone(), here.clone()));
+        assert!(local_link_nearby("mac-roam".into()));
+        local_link_forget_all();
+        assert!(!local_link_nearby("mac-roam".into()), "a dial must not wait on the old LAN's hub");
+        // The browser re-reports a live one.
+        assert!(local_link_observe("Mac Roam".into(), ad, here));
+        assert!(local_link_nearby("mac-roam".into()));
+        local_link_remove("Mac Roam".into());
+        local_link_pair("mac-roam".into(), None);
     }
 }

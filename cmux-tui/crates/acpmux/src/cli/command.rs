@@ -253,6 +253,10 @@ pub enum Command {
     /// files, what the session this shell runs in edited lately.
     #[command(name = "who-else", aliases = aliases::WHO_ELSE)]
     WhoElse(crate::cli::who_else::WhoElseArgs),
+    /// Byte channels between agents, here or on a peer: `listen SERVICE` prints each channel's
+    /// bytes, `open [HOST] SERVICE` sends stdin and prints what comes back, like netcat.
+    #[command(subcommand)]
+    Channel(crate::cli::channel::ChannelCommand),
     /// What turns on this machine cost, whatever harness ran them: totals, then one line per
     /// repository, pull request, day, person, workspace, vendor, model or account.
     #[command(aliases = aliases::LEDGER)]
@@ -1099,7 +1103,8 @@ pub enum Command {
         /// permission mode every new chat starts in, `permissions.codex=ask` for
         /// one harness, `session.memory_mb=6144`, `session.swap_mb=2048`,
         /// `session.tasks_max=8192`, `session.sessions_tasks_max=131072`,
-        /// `session.cpu_class=normal` or `remote_daemon=127.0.0.1:PORT`). A value the
+        /// `session.cpu_class=normal`, `remote_daemon=127.0.0.1:PORT` or
+        /// `lane_gh_broker=~/.cache/lane-gh-broker/broker.sock`). A value the
         /// daemon would refuse to start with is refused and config.json is left as it was:
         /// `transport.wireguard=true` needs `transport.wireguardStatic` in config.json first.
         /// The hub carrier (`cmux remote ... --via-machine`) needs no setting here: a joined
