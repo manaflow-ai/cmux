@@ -57,22 +57,22 @@ struct Fake {
     caller_terminal: Option<String>,
     /// What `Backend::focus` answers.
     focus: Option<Value>,
-    /// The app's `computer_use.status` through `Backend::app_caller`; no
-    /// app caller when unset.
-    computer_use: Option<Value>,
-    /// The card's answer to `permissions.request`; `granted` when unset.
-    setup_outcome: Option<Value>,
     /// The app's `cloud.machines` answer; an app without it answers `{ran: true}`.
     cloud_machines: Option<Value>,
     /// The server was started on another session (`--session`, `--socket`).
     other_session: bool,
-    /// `{method, params, thread}` of each request the app caller got.
-    app_calls: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
+    /// The app's `action.run` answers by action (id or CLI name): its `result`, or its error.
+    action_answers: BTreeMap<String, Result<Value, Value>>,
+    /// What `Backend::chief_computer` answers (the Chief's attached machine id).
+    chief_computer: Option<String>,
     /// Successive answers to `tab.list`, before `resource_result`.
     tab_lists: RefCell<std::collections::VecDeque<Value>>,
     /// The requests `Backend::resource_sender` sent (a live file's reloads); no sender
     /// when unset.
     reloads: Option<std::sync::Arc<std::sync::Mutex<Vec<Value>>>>,
+    /// `Backend::resource_job`: a terminal wait sent from its own thread answers
+    /// `resource_result` after this long; none (a wait on the server's thread) when unset.
+    wait_job: Option<Duration>,
     sent: RefCell<Vec<Value>>,
 }
 
@@ -184,6 +184,10 @@ impl Backend for Fake {
         !self.other_session
     }
 
+    fn chief_computer(&self) -> Option<String> {
+        self.chief_computer.clone()
+    }
+
     fn resource_sender(&self) -> Option<live_file::Sender> {
         let reloads = self.reloads.clone()?;
         Some(std::sync::Arc::new(move |plan: RequestPlan| {
@@ -192,20 +196,18 @@ impl Backend for Fake {
         }))
     }
 
-    fn app_caller(&self) -> Option<computer_use_gate::AppCaller> {
-        let status = self.computer_use.clone()?;
-        let outcome = self.setup_outcome.clone().unwrap_or_else(|| json!({"outcome": "granted"}));
-        let calls = self.app_calls.clone();
-        Some(std::sync::Arc::new(move |method: &str, params: Value, _timeout: Duration| {
-            calls.lock().unwrap().push(json!({"method": method, "params": params,
-                "thread": format!("{:?}", std::thread::current().id())}));
-            match method {
-                "computer_use.status" => Ok(status.clone()),
-                "permissions.request" => Ok(outcome.clone()),
-                // Restart Computer Use Helper (`cua_recovery.rs`).
-                "action.run" => Ok(json!({"ran": true})),
-                other => panic!("unexpected app call {other}"),
-            }
+    fn resource_job(&self, _session: Option<&str>) -> Option<ResourceJob> {
+        let delay = self.wait_job?;
+        let answer = self.resource_result.clone().unwrap_or_else(|| json!({}));
+        Some(Box::new(move |plan, _prefixes| {
+            assert!(matches!(
+                plan.operation,
+                super::super::command::WireOperation::Typed(
+                    ResourceOperation::TerminalWait | ResourceOperation::TerminalWaitExit
+                )
+            ));
+            std::thread::sleep(delay);
+            Ok(answer)
         }))
     }
 
@@ -302,6 +304,11 @@ impl Backend for Fake {
                 return Err(CallFailure::local(FailureKind::NotRun, "app.timeout", "no answer"));
             }
         }
+        let scripted = if method == "action.run" {
+            params["action"].as_str().and_then(|action| self.action_answers.get(action)).cloned()
+        } else {
+            None
+        };
         self.sent.borrow_mut().push(json!({
             "kind": "app",
             "method": method,
@@ -340,6 +347,17 @@ impl Backend for Fake {
                               "retryable": true}),
                 idempotency_key: Some("open-viewer-app-key".into()),
             });
+        }
+        match scripted {
+            Some(Ok(result)) => return Ok(json!({"result": result})),
+            Some(Err(error)) => {
+                return Err(CallFailure {
+                    kind: FailureKind::Rejected,
+                    error,
+                    idempotency_key: None,
+                });
+            }
+            None => {}
         }
         match method {
             "action.list" => Ok(self.actions.clone()),
@@ -861,7 +879,9 @@ fn agents_snapshot_rejects_invalid_pagination_before_reading_owners() {
 fn the_server_refuses_unless_cmux_json_enables_it() {
     let directory = tempfile::tempdir().expect("temp dir");
     let path = directory.path().join("cmux.json");
-    assert!(refusal(&path).is_some(), "a missing file is off");
+    assert!(refusal(&path).is_none(), "a missing file is on (agents.cmuxMcp is on by default)");
+    std::fs::write(&path, r#"{"agents": {"cmuxMcp": "off"}}"#).unwrap();
+    assert!(refusal(&path).is_some(), "the setting off and no mcp.enabled is off");
     std::fs::write(&path, r#"{"mcp": {"enabled": false}}"#).unwrap();
     assert!(refusal(&path).is_some());
     std::fs::write(&path, r#"{"mcp": {"enabled": "yes"}}"#).unwrap();
@@ -877,13 +897,112 @@ fn the_server_refuses_unless_cmux_json_enables_it() {
     assert!(server.backend.sent.borrow().is_empty(), "nothing reached an owner");
 }
 
+/// The off server's reason names the setting the person actually changes:
+/// Settings > Agents > cmux Tools for Agents in cmux (On), or
+/// `cmux settings set agents.cmuxMcp on --confirm`, not `mcp.enabled` (the
+/// switch this flow never sets). An explicit `"mcp": {"enabled": false}` is
+/// named as itself. Read outside an agent chat, in every locale.
+#[test]
+fn the_refusal_names_the_setting_the_person_turns_on() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let path = directory.path().join("cmux-next.json");
+    // No file, no key or `ask`: on by default, so nothing refuses.
+    for text in [None, Some("{}"), Some(r#"{"agents": {"cmuxMcp": "ask"}}"#)] {
+        match text {
+            Some(text) => std::fs::write(&path, text).unwrap(),
+            None => drop(std::fs::remove_file(&path)),
+        }
+        assert_eq!(refusal_for(&path, Caller::Outside, None), None, "{text:?}");
+        assert_eq!(refusal_for(&path, Caller::AgentChat, None), None, "{text:?}");
+    }
+    for text in [r#"{"agents": {"cmuxMcp": "off"}}"#, r#"{"agents.cmuxMcp": "off"}"#] {
+        std::fs::write(&path, text).unwrap();
+        let message = refusal_for(&path, Caller::Outside, None).expect("off");
+        assert!(message.contains("agents.cmuxMcp on --confirm"), "{message}");
+        assert!(!message.contains("mcp.enabled"), "{message}");
+        assert!(message.contains(&path.display().to_string()), "{message}");
+    }
+    std::fs::write(&path, r#"{"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": false}}"#).unwrap();
+    let message = refusal_for(&path, Caller::Outside, None).expect("off");
+    assert!(message.contains("\"mcp\": {\"enabled\": false}"), "{message}");
+    let [english, _] = messages::all();
+    assert!(
+        english
+            .disabled
+            .contains("choose On in cmux Settings > Agents > cmux Tools for Agents in cmux")
+    );
+    for messages in messages::all() {
+        assert!(messages.disabled.contains("cmux settings set agents.cmuxMcp on --confirm"));
+        assert!(messages.disabled.contains("{path}") && messages.switched_off.contains("{path}"));
+        for text in [messages.usage, messages.disabled] {
+            assert!(!text.contains("mcp.enabled"), "{text}");
+        }
+    }
+}
+
+/// While the server is off, `cmux mcp serve` still completes the MCP
+/// handshake (before, it exited first and Claude Code showed only
+/// CONNECTION_CLOSED): `initialize` succeeds with the reason as its
+/// instructions, `tools/list` offers one tool that says it, and every call,
+/// of any name, answers the reason as an error and runs nothing.
+#[test]
+fn the_off_server_completes_the_handshake_and_answers_every_call_with_the_reason() {
+    let reason = "cmux's tools are off: choose On";
+    let server = off::Off::new(reason.to_owned());
+    let init = server
+        .handle(&json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                        "params": {"protocolVersion": "2025-06-18", "capabilities": {}}}))
+        .unwrap();
+    assert_eq!(init["result"]["protocolVersion"], "2025-06-18", "{init}");
+    assert_eq!(init["result"]["serverInfo"]["name"], "cmux");
+    assert_eq!(init["result"]["instructions"], reason);
+    assert_eq!(
+        server.handle(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"})),
+        None
+    );
+    let list = server.handle(&json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})).unwrap();
+    let tools = list["result"]["tools"].as_array().unwrap();
+    assert_eq!(tools.len(), 1, "{list}");
+    assert_eq!(tools[0]["name"], off::TOOL);
+    assert_eq!(tools[0]["description"], reason);
+    for name in [off::TOOL, "workspace_list", "cmux_exec", "cu_click"] {
+        let call = server
+            .handle(&json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                            "params": {"name": name, "arguments": {}}}))
+            .unwrap();
+        assert_eq!(call["result"]["isError"], true, "{call}");
+        assert_eq!(call["result"]["content"][0]["text"], reason, "{call}");
+        assert_eq!(call["result"]["structuredContent"]["error"]["code"], "mcp.disabled");
+        assert_eq!(call["result"]["structuredContent"]["state"], "not_run", "{call}");
+    }
+    let ping = server.handle(&json!({"jsonrpc": "2.0", "id": 4, "method": "ping"})).unwrap();
+    assert_eq!(ping["result"], json!({}));
+    let other =
+        server.handle(&json!({"jsonrpc": "2.0", "id": 5, "method": "resources/list"})).unwrap();
+    assert_eq!(other["error"]["code"], -32601, "{other}");
+}
+
 #[test]
 fn jsonc_comments_and_trailing_commas_are_dropped_outside_strings() {
     let text = "{\"url\": \"https://a//b/*c*/\", // note\n \"list\": [1, 2,], /* x */ }";
     let value: Value = serde_json::from_str(&config::strip_jsonc(text)).expect("valid JSON");
     assert_eq!(value, json!({"url": "https://a//b/*c*/", "list": [1, 2]}));
-    assert_eq!(config::enabled_in("").ok(), Some(false));
-    assert_eq!(config::enabled_in("{\"mcp\": {}}").ok(), Some(false));
+    // No key: on, as `agents.cmuxMcp` is on by default.
+    assert_eq!(config::enabled_in("").ok(), Some(true));
+    assert_eq!(config::enabled_in("{\"mcp\": {}}").ok(), Some(true));
+}
+
+#[test]
+fn cmux_tools_in_coding_agents_turn_the_server_on_unless_mcp_enabled_says_otherwise() {
+    assert_eq!(config::enabled_in(r#"{"agents": {"cmuxMcp": "on"}}"#).ok(), Some(true));
+    assert_eq!(config::enabled_in(r#"{"agents.cmuxMcp": "on"}"#).ok(), Some(true));
+    assert_eq!(config::enabled_in(r#"{"agents": {"cmuxMcp": "ask"}}"#).ok(), Some(true));
+    assert_eq!(config::enabled_in(r#"{"agents": {"cmuxMcp": "off"}}"#).ok(), Some(false));
+    // The person's own switch wins over the setting.
+    let both = r#"{"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": false}}"#;
+    assert_eq!(config::enabled_in(both).ok(), Some(false));
+    let both = r#"{"agents": {"cmuxMcp": "off"}, "mcp": {"enabled": true}}"#;
+    assert_eq!(config::enabled_in(both).ok(), Some(true));
 }
 
 fn fake_env(
@@ -1619,13 +1738,18 @@ mod agent_wait;
 
 mod caller_scope;
 mod catalog;
+mod cloud_agent_tools;
+mod cloud_connect;
 mod cloud_workspace_list;
+mod computer_use;
 mod keys;
 mod live_open;
 mod machine_catalog;
 mod retained;
 mod settings;
+mod slides;
 mod terminal_wait_timeout;
+mod wait_head_of_line;
 
 fn code_mode_server(fake: Fake) -> Server<Fake> {
     let mut server = Server::new(fake, None);
@@ -1721,6 +1845,18 @@ fn code_mode_lists_only_exec_and_a_script_reaches_every_tool() {
     assert_eq!(both["isError"], true, "{both}");
     let other = call(&mut server, "cmux_exec", json!({"source": "return 1;"}));
     assert_eq!(other["isError"], true, "{other}");
+}
+
+/// A script makes more calls than the old limit of 2000; past the call log's length they are
+/// only counted.
+#[test]
+fn code_mode_scripts_make_more_calls_than_the_old_limit() {
+    let mut server = code_mode_server(Fake::with_actions());
+    let script = "for (let i = 0; i < 2100; i++) { await cmux.workspace_list({}); } return 1;";
+    let ran = call(&mut server, "cmux_exec", json!({"script": script}));
+    assert_eq!(ran["isError"], false, "{ran}");
+    assert_eq!(ran["structuredContent"]["calls"], 2100);
+    assert_eq!(ran["structuredContent"]["result"], 1);
 }
 
 #[test]
@@ -1927,9 +2063,6 @@ fn the_subsession_servers_instructions_name_real_cmux_tools() {
 
 #[path = "upstream_tests.rs"]
 mod upstream_tests;
-
-#[path = "cua_recovery_tests.rs"]
-mod cua_recovery_tests;
 
 /// With no app, a link an agent opens keeps the daemon's `workspace.open_url`:
 /// the app's `browser.open_split` cannot run without the app (review of the

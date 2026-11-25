@@ -20,13 +20,14 @@ import Testing
     final class Intake: ChatIntents {
         var takes = true
         var taken: [NSPasteboard] = []
+        var picks = 0
         func threadMovedByUser() {}
         func messageLink(_ id: ID) -> String? { nil }
         func send() -> String? { nil }
         func react(_ ref: MessagesLabHome.PartRef, _ kind: MessagesLabHome.Reaction.Kind) {}
         var canReact: Bool { false }
         var canReply: Bool { false }
-        func pickAttachments() {}
+        func pickAttachments() { picks += 1 }
         func takeAttachments(from pasteboard: NSPasteboard) -> Bool {
             guard takes else { return false }
             taken.append(pasteboard)
@@ -150,6 +151,28 @@ import Testing
         #expect(p.field.string == "Hello world")
     }
 
+    /// The box holds the keyboard by the time the window is asked to come forward. A host whose window,
+    /// when it becomes key with no click, gives the keys back to its own last focus target reads the
+    /// first responder there: cmux's `ChildPageFocus.keysReturned` gave them to a browser page in another
+    /// pane, whose page window took them, and the box stayed first responder of a window that was not
+    /// key (Lawrence 2026-11-19: "i just put image here, and i had to click; it did not auto focus on
+    /// the text input area"). With the box first, the host's focus already follows it: no page takes
+    /// the keys back.
+    @Test func theBoxHoldsTheKeyboardBeforeTheWindowComesForward() {
+        var heldAtForward: [Bool] = []
+        var field: FieldTextView?
+        let p = pane { window in heldAtForward.append(field != nil && window.firstResponder === field) }
+        field = p.field
+        p.window.makeFirstResponder(p.host.scrollView.document)
+        let pb = board()
+        defer { pb.releaseGlobally() }
+
+        #expect(p.controller.takeDrop(pb))
+
+        #expect(heldAtForward == [true], "the window came forward before the box held the keyboard: \(heldAtForward)")
+        #expect(p.window.firstResponder === p.field)
+    }
+
     /// A drop the intake refuses moves nothing: no focus, no window.
     @Test func aRefusedDropLeavesFocusAlone() {
         var forwarded = 0
@@ -172,5 +195,29 @@ import Testing
         p.controller.focusComposeForTyping()
         #expect(p.window.firstResponder === p.field)
         #expect(p.field.selectedRange().location == (p.field.string as NSString).length)
+    }
+
+    /// The "+" asks the host through `plusClicked(anchor:)`; a host with no + menu (this one)
+    /// gets the file picker, as before.
+    @Test func thePlusButtonFallsBackToThePicker() {
+        let p = pane()
+        p.host.fieldChrome.onPlus()
+        #expect(p.intake.picks == 1)
+    }
+
+    /// A + menu text row goes in at the caret, replacing the selection, exactly as copied (no
+    /// smart quotes), and the draft follows.
+    @Test func insertedTextReplacesTheSelectionVerbatim() {
+        let p = pane()
+        type("Hello world", in: p)
+        p.field.setSelectedRange(NSRange(location: 6, length: 5))
+        // Typing would curl these quotes and join the dashes; an inserted copy keeps them.
+        p.field.isAutomaticQuoteSubstitutionEnabled = true
+        p.field.isAutomaticDashSubstitutionEnabled = true
+        p.controller.insertIntoCompose("\"there\" -- ok")
+        #expect(p.field.string == "Hello \"there\" -- ok")
+        #expect(p.controller.store?.state.ui.draft.text == "Hello \"there\" -- ok")
+        #expect(p.field.selectedRange() == NSRange(location: (p.field.string as NSString).length, length: 0))
+        #expect(p.window.firstResponder === p.field)
     }
 }

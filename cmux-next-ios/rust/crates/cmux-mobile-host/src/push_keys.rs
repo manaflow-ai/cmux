@@ -7,6 +7,10 @@
 //! identity key ([`PushKeys::for_paired`]): a removed or re-keyed phone gets
 //! no sealed push. The file (`<state>/push-keys.json`, mode 0600) holds
 //! public keys only.
+//!
+//! There is no cap on how many phones it remembers: a key is set only after
+//! `auth` passes for a phone the person paired, and removing that phone
+//! removes its key, so the map is as large as the phones the person paired.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -16,17 +20,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::pairing::DeviceTrust;
 
-/// At most this many phones are remembered (more than a person pairs).
-const LIMIT: usize = 64;
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Entry {
     identity_key: String,
     push_key: String,
-    /// The order it was last set in: the one set longest ago goes first past the limit.
-    #[serde(default)]
-    updated: u64,
 }
 
 /// Paired phones' push keys, by phone device id.
@@ -58,17 +56,7 @@ impl PushKeys {
         if keys.get(phone).is_some_and(|e| e.identity_key == identity_key && e.push_key == push_key) {
             return;
         }
-        let next = keys.values().map(|e| e.updated).max().unwrap_or(0) + 1;
-        let entry =
-            Entry { identity_key: identity_key.to_owned(), push_key: push_key.to_owned(), updated: next };
-        if keys.len() >= LIMIT && !keys.contains_key(phone) {
-            // Drop the one set longest ago; it comes back on that phone's next link.
-            if let Some(oldest) =
-                keys.iter().min_by_key(|(id, e)| (e.updated, (*id).clone())).map(|(id, _)| id.clone())
-            {
-                keys.remove(&oldest);
-            }
-        }
+        let entry = Entry { identity_key: identity_key.to_owned(), push_key: push_key.to_owned() };
         keys.insert(phone.to_owned(), entry);
         self.save(&keys);
     }
@@ -153,19 +141,27 @@ mod tests {
     }
 
     #[test]
-    fn past_the_limit_the_key_set_longest_ago_goes() {
+    fn every_paired_phone_keeps_its_push_key_however_many() {
+        // Past the old cap of 64, the key set longest ago was dropped and that
+        // phone got the generic banner instead of its sealed content.
         let keys = PushKeys::memory();
-        // "p00" sorts first but was set again last: "p01" is the oldest now.
-        for i in 0..LIMIT {
-            keys.set(&format!("p{i:02}"), "id", "push");
+        let phones: Vec<String> = (0..200).map(|i| format!("p{i:03}")).collect();
+        for phone in &phones {
+            keys.set(phone, "id", &format!("push-{phone}"));
         }
-        keys.set("p00", "id", "push-new");
-        keys.set("zz", "id", "push");
-        let paired = keys.for_paired(&trust(&[("p00", "id"), ("p01", "id"), ("zz", "id")]));
-        assert_eq!(
-            paired,
-            vec![("p00".to_owned(), "push-new".to_owned()), ("zz".to_owned(), "push".to_owned())]
-        );
+        let paired: Vec<(&str, &str)> = phones.iter().map(|p| (p.as_str(), "id")).collect();
+        let sealed = keys.for_paired(&trust(&paired));
+        assert_eq!(sealed.len(), 200);
+        assert_eq!(sealed[0], ("p000".to_owned(), "push-p000".to_owned()));
+    }
+
+    #[test]
+    fn a_file_from_before_still_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("push-keys.json");
+        std::fs::write(&path, r#"{"p1":{"identityKey":"id1","pushKey":"push1","updated":7}}"#).unwrap();
+        let keys = PushKeys::load(path);
+        assert_eq!(keys.for_paired(&trust(&[("p1", "id1")])), vec![("p1".to_owned(), "push1".to_owned())]);
     }
 
     #[test]

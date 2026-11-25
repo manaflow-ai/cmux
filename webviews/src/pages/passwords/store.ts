@@ -5,7 +5,7 @@
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { OWNER_SENTENCE, userMessage } from "../shared/userMessage";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
-import type { SortMode } from "./model";
+import { keepUnchanged, type SortMode } from "./model";
 import {
   PasswordCodes,
   PasswordOps,
@@ -183,9 +183,10 @@ export class PasswordsStore {
         profiles: state.profiles,
         profile,
         sections,
-        passwords: passwords?.passwords ?? [],
-        passkeys: passkeys?.passkeys ?? [],
-        exceptions: exceptions?.exceptions ?? [],
+        // Unchanged rows keep their objects, so the page's memoized rows draw only the changed ones.
+        passwords: keepUnchanged(this.snapshot.passwords, passwords?.passwords ?? []),
+        passkeys: keepUnchanged(this.snapshot.passkeys, passkeys?.passkeys ?? []),
+        exceptions: keepUnchanged(this.snapshot.exceptions, exceptions?.exceptions ?? []),
       });
     } catch (error) {
       if (generation !== this.generation) return;

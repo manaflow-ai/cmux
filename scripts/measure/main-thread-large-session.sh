@@ -70,7 +70,7 @@ for session in "${session_list[@]}"; do
     --json "$out/$session/report.json" --input real "${extra[@]}" ${rest[@]+"${rest[@]}"} || true
   reports+=("$session=$out/$session/report.json")
 done
-python3 - "$out/report.json" "${reports[@]}" <<'PY'
+python3 - "$out/report.json" ${reports[@]+"${reports[@]}"} <<'PY'
 import json, os, platform, subprocess, sys
 merged = {"host": os.uname().nodename, "macos": platform.mac_ver()[0], "sessions": {}}
 for item in sys.argv[2:]:

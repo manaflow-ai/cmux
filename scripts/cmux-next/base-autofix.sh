@@ -58,6 +58,13 @@
 #     lock stale through a path dependency: eb4f3eb1d94 (a direct push) changed
 #     cmux-tui/Cargo.toml, and cmux-app-ffi's lock failed --locked on every pull
 #     request until #40883. Only Cargo.lock files are written.
+#   - the iPhone app's uniffi Swift bindings: rewrites
+#     cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift from
+#     cmux-mobile-link-ffi (scripts/ios-ffi-bindings.sh, a host cargo build; with --ios-ffi).
+#     Only that file is written.
+#   - undeclared pull request jobs: each job no router declares its inputs to is
+#     recorded as runs-always in scripts/ci/job-inputs-always.json
+#     (scripts/ci/job_inputs.py fix; with --job-inputs). Only that file is written.
 # Dependency order: the docs shortcuts and app-host files are rewritten from
 # action-surfaces.json, so they run after --generated copied the regenerated
 # exports in. With --unverified-exports (the exports' inputs changed but their
@@ -75,10 +82,10 @@
 # Prints one line per change ("fixed: ..."), skip ("skipped (frozen): ...") or
 # repair left to a person ("left: ...").
 #
-# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--no-fmt] REPO
+# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--ios-ffi] [--job-inputs] [--no-fmt] REPO
 set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-generated="" package_dump="" sdk=0 capabilities=0 docs_shortcuts=0 app_host=0 app_host_committed=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" locks=0 fmt=1
+generated="" package_dump="" sdk=0 capabilities=0 docs_shortcuts=0 app_host=0 app_host_committed=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" locks=0 ios_ffi=0 job_inputs=0 fmt=1
 while (( $# > 1 )); do
   case "$1" in
     --generated) generated="$2"; shift 2 ;;
@@ -95,11 +102,13 @@ while (( $# > 1 )); do
     --cloud-clients) cloud_clients=1; shift ;;
     --webviews-fmt-patch) webviews_patch="$2"; shift 2 ;;
     --locks) locks=1; shift ;;
+    --ios-ffi) ios_ffi=1; shift ;;
+    --job-inputs) job_inputs=1; shift ;;
     --no-fmt) fmt=0; shift ;;
-    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--no-fmt] REPO" >&2; exit 2 ;;
+    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--ios-ffi] [--job-inputs] [--no-fmt] REPO" >&2; exit 2 ;;
   esac
 done
-repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--no-fmt] REPO}" && pwd)"
+repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--ios-ffi] [--job-inputs] [--no-fmt] REPO}" && pwd)"
 frozen_list="$script_dir/base-autofix-frozen.txt"
 
 frozen() { # repository-relative path -> 0 when frozen; a "!" line exempts a path
@@ -125,6 +134,43 @@ if [[ -n "$generated" && -d "$generated" ]]; then
     cp "$file" "$repo/$rel"
     echo "fixed: regenerated $rel"
   done < <(find "$generated" -type f -print0 | sort -z)
+fi
+
+# 1a. Re-pin markers the regenerated action exports settled. A marker under the action catalog's
+# tests/awaiting-repin/ says the pinned app FFI does not match the crate yet (swift_parity.rs); once the
+# re-pin lands, the regenerated exports carry the change and swift_parity fails until the marker goes.
+# The re-pin rarely deletes it, so the exports could never land and every base autofix run failed in its
+# test step for hours on 11-21 (debug.envSecretsPlayground): an actions/<id> marker goes when both
+# exports have the id, a removal/<id> marker when neither does. Only with both exports regenerated here.
+markers=cmux-tui/crates/cmux-action-catalog/tests/awaiting-repin
+if [[ -n "$generated" && -f "$generated/plans/cmux-next/action-surfaces.json" && -f "$generated/plans/cmux-next/action-catalog.json" && -d "$repo/$markers" ]]; then
+  while IFS= read -r stale; do
+    [[ -n "$stale" ]] || continue
+    if frozen "$stale"; then echo "skipped (frozen): $stale"; continue; fi
+    rm -f "$repo/$stale"
+    echo "fixed: deleted $stale (the regenerated exports carry the re-pin)"
+  done < <(python3 -I - "$repo" "$markers" <<'PY'
+import json, os, sys
+repo, markers = sys.argv[1], sys.argv[2]
+ids = []
+for name in ("action-surfaces.json", "action-catalog.json"):
+    try:
+        with open(os.path.join(repo, "plans/cmux-next", name)) as f:
+            rows = json.load(f)["actions"]
+        ids.append({row["id"] for row in rows if isinstance(row, dict) and isinstance(row.get("id"), str)})
+    except (OSError, ValueError, KeyError, TypeError):
+        sys.exit(0)  # an export that is not the real shape: settle nothing
+def marked(kind):
+    d = os.path.join(repo, markers, kind)
+    return sorted(n for n in os.listdir(d) if not n.startswith(".")) if os.path.isdir(d) else []
+for id in marked("actions"):
+    if all(id in s for s in ids):
+        print(f"{markers}/actions/{id}")
+for id in marked("removal"):
+    if not any(id in s for s in ids):
+        print(f"{markers}/removal/{id}")
+PY
+  )
 fi
 
 # 1b. The CI target graph, from the checkout's own generator.
@@ -284,8 +330,7 @@ if (( app_host )) && [[ -f "$repo/$app_host_gen" ]]; then
 fi
 
 # 1e3. The defaults snapshot, from the action and settings exports
-# (scripts/ci/defaults_guard.py). Rewriting it never passes the defaults guard:
-# a changed default still needs a SHIP review receipt or a call owner's approval on the pull request.
+# (scripts/ci/defaults_guard.py snapshot).
 defaults_snapshot=schemas/defaults/cmux-next.json
 if (( unverified_exports || unverified_settings )); then
   waits=()
@@ -452,6 +497,39 @@ if (( locks )); then
     python3 -I "$script_dir/cargo-locks.py" fix --repo "$repo" | grep -E '^(fixed|left): ' || true
   else
     echo "left: Cargo locks not checked (no cargo on PATH)"
+  fi
+fi
+
+# 5a. The iPhone app's uniffi Swift bindings (scripts/ios-ffi-bindings.sh), after the locks it builds with. Every
+# base merge that touched the FFI crate used to leave the committed copy one side's or stale, and a person rebuilt
+# it by hand on a Linux box and pushed the diff. Leo: "you need to stop acting like "ok let me do that
+# now" but fix the underlying problems. always. this goes for everybody".
+if (( ios_ffi )) && [[ -f "$repo/scripts/ios-ffi-bindings.sh" ]]; then
+  ffi_swift=cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift
+  if frozen "$ffi_swift"; then
+    echo "skipped (frozen): $ffi_swift (scripts/ios-ffi-bindings.sh)"
+  elif ! command -v cargo >/dev/null 2>&1; then
+    echo "left: $ffi_swift not regenerated (no cargo on PATH)"
+  else
+    ffi_log="$(mktemp)"
+    if out="$(bash "$repo/scripts/ios-ffi-bindings.sh" 2>"$ffi_log")"; then
+      grep '^fixed: ' <<<"$out" || true
+    else
+      echo "left: scripts/ios-ffi-bindings.sh failed: $(tail -n 1 "$ffi_log")"
+    fi
+    rm -f "$ffi_log"
+  fi
+fi
+
+# 6. Undeclared pull request jobs (scripts/ci/job_inputs.py fix): a job no router declares is recorded in
+# scripts/ci/job-inputs-always.json as running on every pull request, with the paths its steps read, never refused.
+# The fixer writes only that file. Leo, 2026-11-21: "we have auto fixers and we have the fucking like proper fucking
+# routers ourselves."
+if (( job_inputs )) && [[ -f "$script_dir/../ci/job_inputs.py" ]]; then
+  if out="$(python3 -I "$script_dir/../ci/job_inputs.py" --root "$repo" fix 2>&1)"; then
+    sed -n 's/^added: \(.*\)/fixed: recorded \1 as runs-always in scripts\/ci\/job-inputs-always.json/p; s/^dropped: \(.*\)/fixed: dropped \1 from scripts\/ci\/job-inputs-always.json/p' <<<"$out"
+  else
+    echo "left: job_inputs.py fix failed: $(tail -n 1 <<<"$out")"
   fi
 fi
 exit 0

@@ -287,6 +287,25 @@ mod tests {
         assert!(v["failed"].as_str().unwrap().contains("not signed"), "{v}");
     }
 
+    /// A starved daemon can receive the renewal after its short-lived hook has exited.
+    /// Its missing process tree must not suppress an independently proven retry for five minutes.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn renew_hook_with_a_gone_caller_keeps_the_next_proof_available() {
+        let hub = hub();
+        let dir = tempfile::tempdir().unwrap();
+        let sock = dir.path().join("inbox.sock");
+        let mut caller = std::process::Command::new("true").spawn().unwrap();
+        let pid = caller.id();
+        caller.wait().unwrap();
+        let params = json!({"name": "desktop", "renew": true, "socket": sock, "token": "test"});
+        let req = crate::hub::register::RegisterRequest::from_params(&params).unwrap();
+        let reply = hub.register_caller(pid, req).await.unwrap();
+        assert_eq!(reply["retryable"], true);
+        assert!(reply["renewed"].is_null());
+        assert!(matches!(hub.auto_answer(&crate::config::home(), &sock, "test"), Step::Go(_)));
+    }
+
     /// The answer comes before any proof: a caller no Claude Code process runs (pid 1 here,
     /// which the proof would refuse as `register.no_session`) is told of its waiting code.
     #[tokio::test]
@@ -303,6 +322,7 @@ mod tests {
             token: Some("tok-early".into()),
             code: None,
             auto,
+            renew: false,
         };
         let v = hub.register_caller(1, req(true)).await.unwrap();
         assert_eq!(v, json!({"pending": true, "resent": false, "name": "claude-desktop-0badc0de"}));

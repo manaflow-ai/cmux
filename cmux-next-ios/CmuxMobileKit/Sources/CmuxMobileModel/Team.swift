@@ -6,6 +6,8 @@ public struct Team: Identifiable, Hashable, Sendable {
     public var name: String
     public var appearance: TeamAppearance
     public var macs: [MacDevice]
+    /// The Mac this phone picked in this team (the coordinator's remembered Mac): on a computer with several cmux builds, the one listed for it (``MacRoster``).
+    public var pickedMacID: String?
 
     /// The account's personal space (PROTOCOL.md "Personal space"): just you,
     /// so it has no invites.
@@ -151,17 +153,22 @@ public struct MacDevice: Identifiable, Hashable, Sendable, Codable {
     /// Who registered the Mac (nil when not known: mock data, older snapshots).
     public var ownerUserID: String?
     /// The computer it runs on (PROTOCOL.md "Devices"): the same for every cmux
-    /// build on one Mac, so ``MacRoster`` lists that Mac once. Nil when the Mac
-    /// never said (an older host); a name is never used instead.
+    /// build of one account on one Mac. Lists do not group by it (``MacRoster``
+    /// lists each build as its own Mac). Nil when the Mac never said (an older host).
     public var machineID: String?
+    /// How long the cmux service had not heard the Mac's heartbeat when it last said, in ms,
+    /// kept only past ``MacReachability/freshMillis`` (PROTOCOL.md "Mac freshness") and rounded
+    /// down to 10 s, so a healthy Mac's every poll changes nothing. Nil: fresh, offline or unknown.
+    public var quietMs: Int?
 
     public init(id: String, name: String, isOnline: Bool, lastSeenAt: Date? = nil, ownerUserID: String? = nil,
-                machineID: String? = nil) {
+                machineID: String? = nil, quietMs: Int? = nil) {
         self.id = id
         self.name = name
         self.isOnline = isOnline
         self.lastSeenAt = lastSeenAt
         self.ownerUserID = ownerUserID
         self.machineID = machineID
+        self.quietMs = isOnline ? MacReachability.lateQuiet(quietMs) : nil
     }
 }

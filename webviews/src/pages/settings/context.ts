@@ -1,6 +1,6 @@
 import { createContext, useContext, useRef, useSyncExternalStore } from "react";
 import type { AnyRouter } from "@tanstack/react-router";
-import type { ManagedInfo } from "./ops";
+import type { ManagedInfo, RowNoteData } from "./ops";
 import { HARNESS_PLACEMENT_KEY } from "../../ui/harnessPlacement";
 import { managedOf, valueOf, type RowError, type SettingsState, type SettingsStore } from "./store";
 
@@ -32,6 +32,13 @@ export function useSettingsState(): SettingsState {
   return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
 }
 
+/** `key`'s value while a preview of it shows (a slider mid-drag), else undefined (store.liveValue). */
+export function useLiveValue(key: string | null): unknown {
+  const store = useStore();
+  const read = () => (key === null ? undefined : store.liveValue(key));
+  return useSyncExternalStore(store.subscribeLive, read, read);
+}
+
 /**
  * The part of the page's state `select` picks; the component renders only when `equal` says that
  * part changed (a write to one key renders that key's row, not every row on the page).
@@ -60,6 +67,7 @@ export type RowState = {
   customized: boolean;
   managed: ManagedInfo | null;
   diagnostics: string[] | undefined;
+  notes: RowNoteData[] | undefined;
   error: RowError | undefined;
   connected: boolean;
   readable: boolean;
@@ -73,6 +81,7 @@ export function useRowState(key: string): RowState {
       customized: state.rows.get(key)?.customized ?? false,
       managed: managedOf(state, key),
       diagnostics: state.diagnostics.get(key),
+      notes: state.notes.get(key),
       error: state.errors.get(key),
       connected: state.connected,
       readable: state.readable && (key !== HARNESS_PLACEMENT_KEY || state.host !== null),
@@ -81,7 +90,7 @@ export function useRowState(key: string): RowState {
   );
 }
 
-function shallowEqual<T extends object>(a: T, b: T): boolean {
+export function shallowEqual<T extends object>(a: T, b: T): boolean {
   for (const key in a) if (!Object.is(a[key], b[key])) return false;
   return true;
 }

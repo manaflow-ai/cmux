@@ -103,6 +103,7 @@ extension TabStripView {
         // An opening tab first shows where it opens from; the move takes it to its slot.
         if !starts.isEmpty { place(starts, mapping: mappingBefore) }
         applyFrames(move: move, scrollFrom: mappingBefore)
+        noteNaturalWidth()
     }
 
     /// ``isCrowded`` from the layout just made. Closing mode's pretend width keeps the tabs as they
@@ -375,9 +376,8 @@ extension TabStripView {
         framedCells = FramedCells(basis: cellFrameBasis(mapping: mapping), trailing: trailing, count: cells.count)
         let buttonWidth = metrics.newTabButtonWidth
         let buttonX = tabsClip.frame.minX + min(trailing - offset, viewportWidth) + newTabLeadingGap
-        // Square, centered on the tabs: it keeps its size when the tabs are shorter. The split look's `+ ⌄` is a tab's
-        // height, so its hover is a tab's band (Lucas 2026-11-12: "same height and roundness as tabs").
-        let buttonHeight = NewTabButtonView.frameHeight(split: newTabButton.splitSegment, side: buttonWidth, tabHeight: tabHeight)
+        // A tab's height in every look (`Metrics.tabBarControlSide`), the pane ⋮'s too, centered on the tabs.
+        let buttonHeight = NewTabButtonView.frameHeight
         let buttonFrame = CGRect(x: pixel(buttonX), y: pixel(tabY + (tabHeight - buttonHeight) / 2), width: buttonWidth, height: buttonHeight)
         let buttonFrom = newTabButton.frame.origin
         newTabButton.frame = buttonFrame

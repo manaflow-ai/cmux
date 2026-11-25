@@ -1,5 +1,9 @@
 import CMUXMobileCore
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 public import Foundation
 
 /// Broker quota buckets mirrored by the native trust-broker client.

@@ -5,15 +5,8 @@
   font-size: var(--text-content);
   line-height: var(--text-title--line-height);
 }
-.acpmux-edited .acpmux-edited-actions {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: var(--ds-space-3);
-  margin-inline-start: auto;
-}
 .acpmux-edited .acpmux-edited-title .acpmux-diff-counts,
-.acpmux-edited :is(.acpmux-edited-undo, .acpmux-review-changes) {
+.acpmux-edited .acpmux-edited-undo {
   font-size: var(--text-content);
   letter-spacing: normal;
 }
@@ -23,17 +16,15 @@
   letter-spacing: normal;
 }
 
+/* The card level (design/chat-surfaces.md): the page's ink over clear, as every transcript card, never the
+   page colour (opaque in an opaque window, clear in a see-through one); its head is the card itself. */
 div.acpmux-edited {
-  background: var(--agent-page-bg);
+  background: var(--ds-surface-card);
 }
-.acpmux-edited .acpmux-edited-head {
-  background: color-mix(in srgb, var(--agent-text) 3%, transparent);
-}
+/* The glyph's tile is the inset level, one step over the card: never the page colour mixed with black,
+   which drew a dark hole over a see-through window's picture. */
 .acpmux-edited .acpmux-edited-icon {
-  background: light-dark(
-    color-mix(in srgb, var(--agent-page-bg) 94%, black),
-    color-mix(in srgb, var(--agent-page-bg) 68%, black)
-  );
+  background: var(--ds-surface-inset);
   box-shadow: none;
   color: var(--agent-muted);
 }
@@ -55,44 +46,55 @@ div.acpmux-edited {
   flex: 0 1000 auto;
   color: var(--agent-muted);
 }
-.acpmux-edited-summary {
-  all: unset;
-  position: relative;
-  display: grid;
+
+/* The head's words and Undo (cardFit.css): one line while the card is wide, Undo under the words
+   when it is narrow, its icon alone when narrower still. The name ends in an ellipsis, its whole
+   path in its tooltip; nothing is drawn over it (Leo, 2026-11-22: "overlapping text via the buttosn
+   when the pane is small"). */
+.acpmux-edited .acpmux-edited-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.acpmux-edited .acpmux-edited-name {
   max-width: 100%;
-  min-width: 0;
-  border-radius: var(--ds-radius-control);
+}
+/* The one sign that the card opens; the whole head is its target (headerToggle.ts). */
+.acpmux-edited-head[data-interactive]:hover:not(:has(button:not(.acpmux-edited-toggle):hover)) .acpmux-edited-chevron {
+  color: var(--agent-text);
+}
+/* A file row of a card for several files opens its diff under it, its chevron at the row's end. */
+.acpmux-edited .acpmux-edited-file-chevron {
+  flex: none;
   color: var(--agent-muted);
-  cursor: default;
-  font-size: var(--text-content);
-  line-height: inherit;
 }
-.acpmux-edited-summary > span {
-  grid-area: 1 / 1;
-  min-width: 0;
+/* The diff opened inside the card, drawn as an opened edit call's (EditDiff), inset from the card's edges. */
+.acpmux-edited .acpmux-edited-diff {
+  padding: 0 var(--ds-space-2) var(--ds-space-2);
 }
-.acpmux-edited-summary-link {
+.acpmux-edited .acpmux-edited-diff > .cv-edit-diff {
+  margin: var(--ds-space-2) 0 0;
+}
+
+/* A Markdown file's row: the row's own button (its diff) and, at its end, Open (its Markdown page),
+   inside the row's 36px so editedCardHeight holds. A row without a diff keeps Open inside itself. */
+.acpmux-edited-line {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-1);
-  opacity: 0;
-  white-space: nowrap;
+  padding-inline-end: var(--ds-space-3);
 }
-.acpmux-edited-summary-link > svg {
+.acpmux-edited-line > .acpmux-edited-file {
+  flex: 1;
+  min-width: 0;
+}
+.acpmux-edited .acpmux-edited-open {
   flex: none;
+  margin-inline-start: var(--ds-space-2);
 }
-/* The counts and "View changes" swap at once, with no fade (Lucas, 2026-11-14). */
-.acpmux-edited-head:hover .acpmux-edited-summary-counts,
-.acpmux-edited-head:has([data-popup-open]) .acpmux-edited-summary-counts,
-.acpmux-edited-summary:focus-visible .acpmux-edited-summary-counts {
-  opacity: 0;
-}
-.acpmux-edited-head:hover .acpmux-edited-summary-link,
-.acpmux-edited-head:has([data-popup-open]) .acpmux-edited-summary-link,
-.acpmux-edited-summary:focus-visible .acpmux-edited-summary-link {
-  opacity: 1;
-}
-.acpmux-edited-summary:focus-visible {
-  outline: var(--cmux-hairline) solid var(--ds-color-focus);
-  outline-offset: var(--ds-space-1);
+
+/* A narrow card (the chat beside a page, #47831's air-blue capture): the title clips to its own box with an
+   ellipsis, and Undo folds under it, then to its glyph, by cardFit.css's widths. Those query the card (.cv-fit),
+   so the head is no container of its own: as one, it was the narrower box the card's widths read. */
+.acpmux-edited .acpmux-edited-title > * {
+  max-width: 100%;
+  min-width: 0;
 }
