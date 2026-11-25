@@ -63,20 +63,23 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
       console.log(line);
     };
 
-    /** The chips once the page has drawn every value the daemon sent: two painted frames later. */
-    /** The pane is on acpmux's socket. Before it, the New Tab draws its pre-connect face (Claude Code's
-     *  models) and a model menu opened then keeps that face after the chip moves to acpmux's default harness
-     *  (Codex here), so a pick made before it looks for a row the open menu never draws (cmux#49831's
-     *  web-browser, run 45561751397: the pane connected 19 s in on a cold runner, the pick timed out at 30 s). */
-    async function connected(page: Page) {
+    /**
+     * The chips once the page has drawn every value the daemon sent. The page paints its chips
+     * before its acpmux link is up (a guess from the bundled catalog: Opus 5.5 on a Linux runner),
+     * so first wait for the link (model.ts linkUp: not "disconnected", not "connecting…") and
+     * for acpmux's harness list in the composer, then for painted frames.
+     */
+    async function settled(page: Page) {
       await page.waitForFunction(
-        () => (window as any).cmuxAcpmuxDebug?.chatState?.().connection === "connected",
+        () => {
+          const state = (window as any).cmuxAcpmuxDebug?.chatState?.();
+          const connection = String(state?.connection ?? "disconnected");
+          const up = connection !== "disconnected" && !connection.startsWith("connecting");
+          return up && (state?.composerInputs?.catalog?.length ?? 0) > 0;
+        },
         undefined,
         { timeout: 60_000 },
       );
-    }
-
-    async function settled(page: Page) {
       for (let frame = 0; frame < 30; frame++) await page.evaluate(() => window.cmuxPaintFrame());
       return chipValues(page);
     }
@@ -169,7 +172,6 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
           await page.goto(paneUrl(lane.base, lane.daemon));
           await page.locator(".nt-field").waitFor();
           await page.waitForFunction(() => !!document.querySelector(".acpmux-access-trigger"));
-          await connected(page);
           // The page draws a start before it has connected to acpmux (its own catalog's first
           // harness, Claude Code); the New Tab under test is the one acpmux names: its default
           // harness (Codex) on Codex's default model.
@@ -222,7 +224,11 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
           // A restart of the daemon: the page loses its socket and reconnects to the new one.
           const before = lane.daemon.connections();
           await lane.daemon.restart();
-          await connected(page);
+          await page.waitForFunction(
+            () => (window as any).cmuxAcpmuxDebug?.chatState?.().connection === "connected",
+            undefined,
+            { timeout: 60_000 },
+          );
           expect(lane.daemon.connections()).toBeGreaterThan(before);
           await settled(page);
           held("daemon restart", await takeValues(page), want);
@@ -235,7 +241,6 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
           await page.goto(paneUrl(lane.base, lane.daemon));
           await page.locator(".nt-field").waitFor();
           await page.waitForFunction(() => !!document.querySelector(".acpmux-access-trigger"));
-          await connected(page);
           note(`second new tab: ${JSON.stringify(await settled(page))}`);
           await startValueSampler(page);
           await takeValues(page);

@@ -10,6 +10,7 @@
 // code size, else the default. Sizes and width never follow the viewer: the two views have their
 // own defaults, and an upgrade must not move anyone's chat. Code follows the terminal font
 // (`--cmux-diff-code-font-family`) unless a code font is set.
+import { COMPACT_SHORT_TURNS_KEY, setCompactShortTurns } from "./conversation/compactShortTurns";
 import {
   DEFAULT_RAIL_SHOW,
   isRailShow,
@@ -666,6 +667,8 @@ export function setChatDisplay(value: unknown): void {
   const subagentOf = raw[SUBAGENT_OF_KEY] === true;
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
+  // Read by turns.ts at shaping time and part of each turn's cache key, so a change shapes the turns again.
+  setCompactShortTurns(raw[COMPACT_SHORT_TURNS_KEY] === true);
   // The pop's gate: written only when the setting changes, so a page that set its own
   // `data-send-pop` (the gallery's variants, the benches' arms) keeps it.
   const sendPop = raw[SEND_POP_KEY] === true;
