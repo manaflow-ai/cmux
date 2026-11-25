@@ -258,6 +258,30 @@
           ]
         },
         {
+          "key": "experiments.quietButtons",
+          "note": "Design D2 (cmuxterm-hq docs/design/design-system-decisions/D-icons-buttons-accent-motion-keyhints.md): Quiet is the default button kind. With it on, a shared web <Button> given no variant draws Quiet (no plate and no outline at rest, the hover fill under the pointer, the pressed fill while held; webviews ui/Button.tsx defaultButtonVariant) instead of today's subtle rest plate. A button that names its variant is unchanged. Off by default; off keeps today's buttons.",
+          "title": {
+            "key": "settings.experiments.quietButtons",
+            "text": "Quiet Buttons"
+          },
+          "help": {
+            "key": "settings.experiments.quietButtons.help",
+            "text": "Buttons draw no background until you hover over them."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "button",
+            "buttons",
+            "hover",
+            "quiet",
+            "plate"
+          ]
+        },
+        {
           "key": "experiments.agentBadges",
           "note": "Taste build 5 (2026-11-19): agent counts and status on the tab strip and the sidebar, drawn natively (CmuxNextTabs TabCell+CountPill, CmuxNextSidebar WorkspaceRowView+AgentPill; DesignSettings.agentBadges). An agent chat tab shows a neutral count pill (unread plus a pending approval) in a slot always as wide as \"99+\", so no tab moves; a sidebar row shows one tinted status pill (Running, Needs approval, Done) in a slot as wide as the widest label. Off by default; off keeps today's marks.",
           "title": {
