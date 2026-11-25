@@ -373,14 +373,9 @@ impl Hub {
                         // The journal belongs to the restore until its last page. A sender
                         // waiting for an answer may retry the same id after the restore.
                         match p.answer_due {
-                            Some(due) => {
-                                tokio::time::timeout_at(due, done).await.map_err(|_| {
-                                    Err(RpcError::deadline_exceeded(
-                                        "prompt waiting for journal restore",
-                                        super::prompt_admission::ANSWER_BOUND,
-                                    ))
-                                })?
-                            }
+                            Some(due) => tokio::time::timeout_at(due, done)
+                                .await
+                                .map_err(|_| Err(super::prompt_admission::restore_deadline()))?,
                             None => done.await,
                         }
                         continue;
