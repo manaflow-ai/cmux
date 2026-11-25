@@ -73,6 +73,7 @@
         "sidebar.showTimestamps",
         "sidebar.settleFinished",
         "sidebar.showAutomaticSessions",
+        "sidebar.showAgentSessions",
         "sidebar.showColors",
         "sidebar.showLocalMachine",
         "workspaceColors.indicatorStyle"

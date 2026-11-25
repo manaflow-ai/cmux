@@ -132,7 +132,7 @@ import Testing
 
     @Test func aFoldOnAChatWithOnlySubagentsSurvivesTheSave() {
         let defaults = UserDefaults(suiteName: "SidebarSubagentRowsTests-\(UUID().uuidString)")!
-        let tree = SidebarSessionTree(defaults: defaults)
+        let tree = SidebarSessionTree(defaults: defaults, showsStarted: true)
         tree.state = SidebarSessionTreeState(parents: [WorkspaceID("lane"): WorkspaceID("chief")])
         tree.toggle(Self.chat, keeping: [Self.chat])
         #expect(tree.collapsed.contains(Self.chat))
