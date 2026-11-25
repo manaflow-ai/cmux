@@ -61,6 +61,29 @@ describe("a provider capacity refusal", () => {
   });
 });
 
+// Production 2026-11 (https://github.com/manaflow-ai/cmux/issues/39766):
+// Freestyle answered pause and exec with 429 TOO_MANY_REQUESTS in ~0.2 s and
+// resume with 429 INFRASTRUCTURE_OVERLOADED after ~130 s, and each was
+// answered as the operator-fault 502. A 429 is the provider asking us to come
+// back later: the same retryable capacity 503 as a 409 placement refusal.
+describe("a provider rate limit or overload", () => {
+  const tooManyRequests = () => new FreestyleApiError(429, { code: "TOO_MANY_REQUESTS", message: "too many requests" });
+  const overloaded = () => new FreestyleApiError(429, { code: "INFRASTRUCTURE_OVERLOADED", message: "infrastructure overloaded: VM start capacity queue wait expired" });
+  const cases: Array<[string, string, Record<string, unknown>, (provider: FreestyleProvider) => Promise<unknown>]> = [
+    ["pause", "429 TOO_MANY_REQUESTS", { pause: async () => { throw tooManyRequests(); } }, (provider) => provider.pause("vm-1")],
+    ["exec", "429 TOO_MANY_REQUESTS", { exec: async () => { throw tooManyRequests(); } }, (provider) => provider.exec("vm-1", "true", { timeoutMs: 1_000 })],
+    ["resume", "429 INFRASTRUCTURE_OVERLOADED", { start: async () => { throw overloaded(); } }, (provider) => provider.resume("vm-1")],
+  ];
+  test.each(cases)("a %s refused with %s answers the retryable capacity 503", async (operation, _label, vms, run) => {
+    const cause = await failure(() => run(providerWith(vms)));
+    const { response, payload } = await answer(operation, cause);
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("30");
+    expect(payload).toMatchObject({ error: "vm_provider_capacity", retryable: true });
+    expect(isOperatorFaultVmError({ error: String(payload.error), status: response.status })).toBe(false);
+  });
+});
+
 describe("a machine-state conflict", () => {
   test("an exec on a machine that is still starting answers 409 with a wait-and-retry action", async () => {
     const provider = providerWith({ exec: async () => { throw stillStarting(); } });
