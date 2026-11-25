@@ -86,7 +86,6 @@ cmux-tui/crates/acpmux/src/daemon/app_orphan.rs	com.cmuxterm.app"	10	move	lane A
 cmux-tui/crates/acpmux/src/daemon/app_orphan.rs	com.cmuxterm.appx	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/acpmux/src/hand/policy.rs	.config/cmux"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/acpmux/src/hub/route_switch.rs	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
-cmux-tui/crates/acpmux/src/hub/stale_host_respawn.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/acpmux/src/hub/turn_shots.rs	join("cmux")	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/acpmux/src/login_env.rs	.config/cmux"	4	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/acpmux/src/login_env.rs	.config/cmux/	3	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
