@@ -531,7 +531,8 @@
       "agent": "settable",
       "keys": [
         "labs.previewFeatures",
-        "labs.appStore"
+        "labs.appStore",
+        "labs.commentThreads"
       ]
     },
     {
@@ -560,6 +561,7 @@
         "experiments.terminalAgentMark",
         "experiments.menuStyleV2",
         "experiments.menuRowStates",
+        "experiments.composerHatGroups",
         "experiments.toastsV2",
         "experiments.expandedEditsEstimate",
         "experiments.foldSummaryCounts",
