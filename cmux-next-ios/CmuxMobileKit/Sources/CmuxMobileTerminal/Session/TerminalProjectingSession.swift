@@ -62,7 +62,6 @@ public final class TerminalProjectingSession: TerminalSession {
         inner.setClaimsSize(false)
     }
 
-    }
 
     public var programName: String { inner.programName }
     public var isAlternateScreen: Bool { projection.isAlternate() }
@@ -113,7 +112,6 @@ public final class TerminalProjectingSession: TerminalSession {
     public func sendTypedAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool {
         let sent = inner.sendTypedAndSubmit(text, notSent: notSent, maybeSent: maybeSent)
         return sent
-    }
     }
     public func stop() {
         inner.stop()
@@ -309,7 +307,6 @@ public final class TerminalProjectingSession: TerminalSession {
         emit(segments)
     }
 
-    }
 
     /// The page's size claim: the phone claims nothing while it projects.
     public func setClaimsSize(_ claims: Bool) {}
