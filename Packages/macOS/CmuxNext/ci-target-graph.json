@@ -387,6 +387,7 @@
         "CmuxNextTabs",
         "CmuxNextTaskManagerPage",
         "CmuxNextTerminal",
+        "CmuxNextTerminalComments",
         "CmuxNextTerminalFind",
         "CmuxNextTerminalGeometry",
         "CmuxNextUpdater",
@@ -1303,7 +1304,8 @@
         "CmuxNextCompat",
         "CmuxNextDaemonService",
         "CmuxNextPages",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
@@ -2427,6 +2429,17 @@
       "packages": [
         "CmuxGhosttyKit"
       ]
+    },
+    "CmuxNextTerminalComments": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTerminalComments",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextDaemonService",
+        "CmuxNextDesign",
+        "CmuxNextDiff"
+      ],
+      "packages": []
     },
     "CmuxNextTerminalFind": {
       "kind": "regular",
