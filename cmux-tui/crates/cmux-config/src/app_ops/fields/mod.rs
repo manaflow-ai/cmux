@@ -13,13 +13,23 @@
 //!   `contexts` are the menu names the app has; each layout is `{items, hidden}`, an item a key string,
 //!   `"-"` or `{key, title?, items}`.
 //!
+//! Part 3, schema-driven the same way (every list, range and default is read from the schema):
+//! - `fields.sidebar_sections` `{root}` answers `{values, rowDiagnosticsAt, diagnostics}`: `values` is every
+//!   `sidebar.*` section key (and `presence.live`, `workspaceColors.indicatorStyle`) by dotted key, resolved.
+//! - `fields.workspace_row` `{root}` answers `{values: {shown, secondLineOrder, overrides, statusPlacement}}`.
+//! - `fields.sidebar_border` `{root, defaultShows?}` answers `{values: {shows, width}}`;
+//!   `fields.sidebar_surface` `{root}` answers `{value}`; `fields.sidebar_look` `{root}` answers `{look}`.
+//! - `fields.pane_toolbar_buttons` and `fields.browser_toolbar_buttons` `{root}` answer `{pinned}`.
+//!
 //! A diagnostic is `{kind: "invalid_value", path, message}`.
 
 mod column;
 mod context_menus;
 mod reader;
+mod sidebar;
 #[cfg(test)]
 mod tests;
+mod toolbar;
 
 use serde_json::{Value, json};
 
@@ -35,6 +45,13 @@ pub fn call(op: &str, request: &Value) -> Option<Result<Value, OpError>> {
         "fields.status_behavior" => with_root(request, status_behavior),
         "fields.column_layout" => with_root(request, column::column_layout),
         "fields.context_menus" => context_menus::op(request),
+        "fields.sidebar_sections" => with_root(request, sidebar::sidebar_sections),
+        "fields.workspace_row" => with_root(request, sidebar::workspace_row),
+        "fields.sidebar_border" => sidebar::sidebar_border(request),
+        "fields.sidebar_surface" => with_root(request, sidebar::sidebar_surface),
+        "fields.sidebar_look" => with_root(request, sidebar::sidebar_look),
+        "fields.pane_toolbar_buttons" => with_root(request, toolbar::pane),
+        "fields.browser_toolbar_buttons" => with_root(request, toolbar::browser),
         _ => return None,
     })
 }

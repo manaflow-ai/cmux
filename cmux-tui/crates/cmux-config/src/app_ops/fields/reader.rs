@@ -169,3 +169,21 @@ impl Reader {
         }
     }
 }
+
+/// The values the schema row `key` offers, in the row's order (the order Swift's `allCases` and
+/// `values` lists use, which an `expected one of` message prints).
+pub(crate) fn choices_of(key: &str) -> Vec<String> {
+    let Some(row) = Schema::embedded().row(key) else { return vec![] };
+    row.raw()
+        .get("choices")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter().filter_map(|c| c.get("value")?.as_str().map(String::from)).collect()
+        })
+        .unwrap_or_default()
+}
+
+/// `"a", "b", "c"`: how a message lists names.
+pub(crate) fn quoted(names: &[String]) -> String {
+    names.iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(", ")
+}
