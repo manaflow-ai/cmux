@@ -580,3 +580,32 @@ fn a_chats_newest_page_with_the_panes_budget_stays_constant_with_history() {
     assert!(before_10x > after_10x, "10x history: {before_10x} vs {after_10x}");
     assert!(after_10x <= budgeted[0].1.max(131_072) + 4096, "the budgeted page grew: {budgeted:?}");
 }
+
+/// The app's tail-first ask (`beforeSeq` past the end) of a chat whose log ends in records of a
+/// kind it did not ask for: the page holds to `lastSeq`, so the phone never reads again to confirm
+/// it is current. It used to stop at the page's newest transcript record, short of `lastSeq`.
+#[test]
+fn the_newest_page_asked_past_the_end_holds_to_the_logs_last_record() {
+    let (root, hub) = sparse_tail_chat(3);
+    let last = 203;
+    for limit in [400, 10] {
+        let mut ask = newest_transcript_page();
+        ask["limit"] = json!(limit);
+        let page = handle(&hub, method::MUX_EVENTS, &ask, None).unwrap();
+        assert_eq!(page["lastSeq"], json!(last), "{page}");
+        assert_eq!(*seqs(&page).last().unwrap(), 200, "the filler after it is not transcript");
+        assert_eq!(page["pageThrough"], json!(last), "limit {limit}: {}", page["hasMore"]);
+    }
+    // A page of older records, or a forward one with more to read, holds to its own last record.
+    for extra in [json!({"beforeSeq": 150}), json!({"beforeSeq": last}), json!({"afterSeq": 0})] {
+        let mut ask = newest_transcript_page();
+        ask.as_object_mut().unwrap().remove("beforeSeq");
+        ask["limit"] = json!(10);
+        ask.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        let page = handle(&hub, method::MUX_EVENTS, &ask, None).unwrap();
+        let held = seqs(&page);
+        assert_eq!(page["pageThrough"], json!(held.last().unwrap()), "{extra}");
+        assert!(*held.last().unwrap() < last, "{extra}");
+    }
+    let _ = std::fs::remove_dir_all(root);
+}

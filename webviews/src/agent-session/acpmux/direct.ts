@@ -20,6 +20,7 @@ import { chatTaskListOf, type ChatTaskList } from "./chatTaskList";
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
 import { sameJson } from "./sameJson";
 import { autoResumeAttempt, autoResumeStatus } from "./autoResumeStatus";
+import { readCapacityWait } from "./capacityWait";
 import { extraFoldersParam, summaryExtraFolders, type ExtraFolderDraft } from "./extraFolders";
 import { parseJsonObjectFrame } from "../../protocol/jsonFrame";
 import { isRetryContinuation, subagentRetryNotice } from "./subagents/retryState";
@@ -387,6 +388,7 @@ export {
   textFromContent,
   appendThought,
 } from "./direct/toolItems";
+import { unknownParamRefused, withoutParam } from "./relaySkew";
 export { permissionFromMessage, permissionDiffs, permissionPlan } from "./direct/permissions";
 export {
   queuedMessage,
@@ -4081,7 +4083,7 @@ export class AcpmuxDirectClient {
     }
     this.emit("resyncing");
     void this.permissions.refresh().catch(() => {});
-    this.readMissedAfterLag(sessionId, this.selectionGeneration, this.lastSeq, 0);
+    this.readMissedAfterLag(sessionId, this.selectionGeneration, lagCursor(params, this.lastSeq), 0);
   }
 
   /// The host's hidden episode (`hiddenHole`): its start notes where the chat stops being whole; its end, once the
@@ -5870,7 +5872,14 @@ export class AcpmuxDirectClient {
       waitsForSlot(method, params) ? send : undefined,
     );
     this.budget.admit(id, method, send, params);
-    return result;
+    // An older relay that refused a key it does not know (relaySkew.ts, cmux#55066): the same request
+    // without it, as a newer relay sends it on. Each try drops one key the request carries, so it ends.
+    return result.catch((error: unknown) => {
+      const key = unknownParamRefused(error, params);
+      if (key === undefined) throw error;
+      this.wire.lifecycle("relay refused an unknown param, sent again without it", { method, key });
+      return this.request(method, withoutParam(params, key), deadline, maySend);
+    });
   }
 
   /// Whether `method` is one a chat open waits on (`CHAT_OPEN_METHODS`). An acpmux that follows the
@@ -8032,8 +8041,12 @@ export class AcpmuxDirectClient {
     return loading;
   }
 
-  /// A rail jump to a prompt newer than the window (`laterPrompts`): one read of the page that starts at the
-  /// prompt, by its seq, which becomes the window; nothing between is read. True once the prompt is held.
+  /// A rail jump to a prompt newer than the window (`laterPrompts`): the page that starts at the prompt, by its
+  /// seq, becomes the window, with the whole turns of the rest page just before it read in the same round trip;
+  /// nothing further between is read. True once the prompt is held.
+  /// The page before: a window that started at the prompt put the view at its top edge, so the transcript's older
+  /// check read that page right after, and its fold was a second heavy commit before the prompt painted (a rail
+  /// click on a later prompt took 254-338 ms, bench/chat-fast-scroll.bench.ts, rail_click_paint p95).
   private async jumpNewer(seq: number): Promise<boolean> {
     const left = this.newerLeft;
     const sessionId = this.selectedSessionId;
@@ -8041,6 +8054,15 @@ export class AcpmuxDirectClient {
     if (this.loadingNewer) await this.loadingNewer.catch(() => undefined);
     if (this.newerLeft !== left || seq <= left.after) return this.loadThrough(seq);
     const generation = this.selectionGeneration;
+    const kinds = ["transcript", ...(this.localOrigin ? PRESET_APPROVAL_KINDS : [])];
+    // A failed read of the page before costs only the room above: the jump lands as it did without it.
+    const before = this.typed("_acpmux/events", {
+      sessionId,
+      beforeSeq: seq,
+      limit: OLDER_REST_PAGE_RECORDS,
+      maxBytes: OLDER_REST_PAGE_BYTES,
+      kinds,
+    }).catch(() => undefined);
     let result: any;
     try {
       result = await this.typed("_acpmux/events", {
@@ -8048,16 +8070,23 @@ export class AcpmuxDirectClient {
         afterSeq: seq - 1,
         limit: OLDER_PAGE_RECORDS,
         maxBytes: OLDER_PAGE_BYTES,
-        kinds: ["transcript", ...(this.localOrigin ? PRESET_APPROVAL_KINDS : [])],
+        kinds,
       });
     } catch {
       return false;
     }
+    const prior = await before;
     if (this.closed || this.newerLeft !== left || generation !== this.selectionGeneration) return false;
     const page = records(result?.events)
       .filter((event) => event.seq >= seq)
       .sort((a, b) => a.seq - b.seq);
     if (page[0]?.seq !== seq) return false;
+    // The page before, from its first whole turn on, so the window still folds from a turn's start.
+    const older = records(prior?.events)
+      .filter((event) => event.seq > 0 && event.seq < seq)
+      .sort((a, b) => a.seq - b.seq);
+    const start = older.length === 0 ? -1 : startsTurn(older[0]!) ? 0 : newerCut(older, 0, () => Infinity);
+    const above = start >= 0 ? older.slice(start) : [];
     // The window's prompts stay on the rail as earlier ones.
     for (const head of this.promptsHeldIn(-Infinity, Infinity)) this.shedPrompts.set(head.seq, head);
     this.shedPromptsVersion += 1;
@@ -8068,7 +8097,7 @@ export class AcpmuxDirectClient {
       left.after = page.at(-1)!.seq;
       left.fold = undefined;
     }
-    this.events = page;
+    this.events = above.length > 0 ? [...above, ...page] : page;
     this.turnOpener = undefined;
     this.historyExhausted = false;
     this.historyEpoch += 1;
@@ -11429,7 +11458,10 @@ export class AcpmuxDirectClient {
       type: "snapshot",
       protocolVersion: 1,
       ...(this.replayThrough === undefined
-        ? { autoResume: autoResumeStatus(summary?.retry, this.autoResumedAttempt) }
+        ? {
+            autoResume: autoResumeStatus(summary?.retry, this.autoResumedAttempt),
+            capacityWait: readCapacityWait(summary?.capacityWait),
+          }
         : {}),
       rows: publishedRows,
       ...(this.supersededRowIds.size > 0
@@ -11459,6 +11491,9 @@ export class AcpmuxDirectClient {
         : {}),
       origin: this.origin,
       ...(this.listedSessions ? { listedSessions: true as const } : {}),
+      ...(this.listedSessions && !this.fedMode && !this.replayMode && !this.sessionPages.holdsAll
+        ? { sessionsWindowed: true as const }
+        : {}),
       ...(this.drewKeptTail ? { drewKeptTail: true as const } : {}),
       ...(this.peerCopy
         ? {
@@ -17153,6 +17188,19 @@ function pageShown(): boolean {
 /// What acpmux hears as `visible`, so a turn that ends while they are away is unread.
 function readerHere(): boolean {
   return pageShown() && (pageAttention()?.present() ?? true);
+}
+
+/// Where a lag's read of what acpmux left out starts: the page's cursor, or the notice's `afterSeq`
+/// when that is older. A chat hidden with `quietHidden` hears no `session/update` while hidden but
+/// still hears its turn ends and status, which move the cursor past the chunks it never got; the
+/// show's `_acpmux/lagged {reason: "hidden", afterSeq}` names where the first one left out was
+/// (acpmux server/view.rs), so the read gets every chunk back in order (`fetchMissedEvents` merges
+/// by seq, so records the page already has are not drawn twice).
+export function lagCursor(params: unknown, lastSeq: number): number {
+  const afterSeq = (params as { afterSeq?: unknown } | null | undefined)?.afterSeq;
+  return typeof afterSeq === "number" && Number.isFinite(afterSeq) && afterSeq >= 0
+    ? Math.min(lastSeq, afterSeq)
+    : lastSeq;
 }
 
 /// JSON-RPC's method-not-found code: a daemon that predates the method.
