@@ -285,7 +285,22 @@ await requireBrowserLane("agent-pane-steer-send-hat-one-frame.test.ts", async ()
       } else rowStill += 1;
     }
     const upDown = Math.round(Math.min(down, up) * 10) / 10;
-    return { frames: frames.length, hatGapFrames, hatHeightFrames, hatGoneFrames, hatMoves, rowMoves, upDown };
+    // The frame the composer first moved and the frame the hat first drew (an idle send's hat comes in).
+    const boxMoved = frames.findIndex(
+      (frame, index) => index > 0 && Math.abs(frame.box - frames[index - 1]!.box) > 0.5,
+    );
+    const hatShown = frames.findIndex((frame) => frame.hatBottom !== undefined);
+    return {
+      frames: frames.length,
+      hatGapFrames,
+      hatHeightFrames,
+      hatGoneFrames,
+      hatMoves,
+      rowMoves,
+      upDown,
+      boxMoved,
+      hatShown,
+    };
   }
 
   const LINES = ["Hat line one", "Hat line two", "Hat line three", "Hat line four", "Hat line five"];
@@ -300,7 +315,7 @@ await requireBrowserLane("agent-pane-steer-send-hat-one-frame.test.ts", async ()
         timeout: 180_000,
       });
       await page.getByText("History paragraph 13.").waitFor();
-      await page.locator(".acpmux-running-tray").first().waitFor({ timeout: 120_000 });
+      if (!idle) await page.locator(".acpmux-running-tray").first().waitFor({ timeout: 120_000 });
       // fixed-wait: the opened chat settles (its fades end) before the frames under test.
       await page.waitForTimeout(800);
       const field = page.locator(".acpmux-composer-box .ProseMirror").first();
@@ -314,6 +329,12 @@ await requireBrowserLane("agent-pane-steer-send-hat-one-frame.test.ts", async ()
       await sample(page);
       await page.keyboard.press("Enter");
       await page.locator(".cv-user__bubble", { hasText: "Hat line five" }).first().waitFor({ timeout: 120_000 });
+      if (idle)
+        await page
+          .locator(".acpmux-running-tray")
+          .first()
+          .waitFor({ timeout: 20_000 })
+          .catch(() => {});
       // fixed-wait: the send's motion comes to rest.
       await page.waitForTimeout(900);
       const frames = await stop(page);
@@ -324,6 +345,8 @@ await requireBrowserLane("agent-pane-steer-send-hat-one-frame.test.ts", async ()
           console.log(`HAT_FRAME ${name} ${index} ${JSON.stringify(frame)}`);
       await page.close();
       expect(report.frames).toBeGreaterThan(30);
+      // An idle send is read, not judged here: its hat comes in with the turn.
+      if (idle) return;
       expect(report.hatGoneFrames).toBe(0);
       expect(report.hatGapFrames).toBe(0);
       expect(report.hatHeightFrames).toBe(0);
