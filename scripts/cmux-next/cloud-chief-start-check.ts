@@ -105,7 +105,7 @@ async function chiefReply(api: Api, conversation: string, chief: string, seen: S
     for (const m of rows) {
       const who = String(m?.author ?? m?.sender ?? m?.sender_id ?? "");
       const id = String(m?.id ?? m?.message_id ?? m?.seq ?? "");
-      if (who !== chief || seen.has(id)) continue;
+      if (who !== chief || !id || seen.has(id)) continue;
       const text = rowText(m);
       if (!text.trim()) continue;
       seen.add(id);
