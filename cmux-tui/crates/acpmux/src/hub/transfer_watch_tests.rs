@@ -1,6 +1,5 @@
 //! RFD 0063 item 4: a move whose target the hub knows deleted ends on the watch's next ask,
-//! given back here with reason `target_deleted`, with no offer to the person first. The ask is
-//! made only for a bundle read to its end; one that was not is given back `stalled` unasked.
+//! given back here with reason `target_deleted`, with no offer to the person first.
 
 use super::*;
 use crate::config::{Config, StoreMode};
@@ -62,16 +61,6 @@ async fn a_move_whose_target_is_known_deleted_is_given_back_with_no_offer() {
     }
     assert_eq!(fully_read(&dir), Some(true));
     test_seam::set(&transfer_id, TargetSays::Deleted);
-    // The target read the bundle to its end, so only it can say whether the chat landed: the
-    // watch asks it (here, the hub's answer). A bundle not read to its end is given back
-    // `stalled` without an ask (`end_stalled_move`), so this marks every file read.
-    let dir = super::transfers_dir().join(&transfer_id);
-    assert_eq!(fully_read(&dir), Some(false), "the bundle was not exported");
-    let bundle = std::fs::read_dir(&dir).unwrap().flatten().find(|e| e.path().is_dir());
-    let files = super::bundle_files(&bundle.unwrap().path()).unwrap();
-    let read: String = files.iter().map(|(path, _)| format!("{path}\n")).collect();
-    std::fs::write(dir.join("read"), read).unwrap();
-    assert_eq!(fully_read(&dir), Some(true));
     hub.set_transfer_lease(Duration::from_secs(1));
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
