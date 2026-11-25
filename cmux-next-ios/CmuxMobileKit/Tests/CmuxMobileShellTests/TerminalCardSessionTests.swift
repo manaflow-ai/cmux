@@ -16,9 +16,10 @@ import Testing
         let workspace = try #require(store.workspaces.first { $0.tabs.contains { $0.kind == .terminal } })
         let tab = try #require(workspace.tabs.first { $0.kind == .terminal })
         var requests = 0
+        var availableSession: (any TerminalSession)?
         source.sessionProvider = { _, _ in
             requests += 1
-            return PendingTerminalSession(macName: "Mac", programName: "zsh")
+            return availableSession
         }
 
         _ = source.card(for: tab, in: workspace)
@@ -34,6 +35,10 @@ import Testing
                         context: TerminalTabContext(safeAreaInsets: .init(), isInteractive: true,
                                                     isZoomGestureActive: false, reportScroll: { _ in }))
         #expect(requests == 1)
+
+        availableSession = PendingTerminalSession(macName: "Mac", programName: "zsh")
+        source.liveDataChanged()
+        #expect(requests == 2)
         source.reset()
     }
 }

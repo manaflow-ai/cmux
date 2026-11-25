@@ -276,7 +276,16 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // A page still asks for its live session, and `liveDataChanged()` upgrades
         // this placeholder in place when the page becomes live.
         let live = attachLive ? sessionProvider?(tab, workspace.macID) : nil
-        if let host = hosts[tab.id], live == nil { return host }
+        if let host = hosts[tab.id], live == nil {
+            // A card-only placeholder becomes a page placeholder when the page
+            // opens while the Mac is still unavailable. Re-register it so the
+            // next live-data publish can attach the page in place.
+            if attachLive {
+                upgrade.built(tabID: tab.id, workspaceID: workspace.id, live: false, upgradable: true)
+                placeholderTabs[tab.id] = (tab, workspace)
+            }
+            return host
+        }
         if live != nil { liveTabs.insert(tab.id) }
         // A placeholder replaced by the live session: its frame carries over,
         // and it stops.
