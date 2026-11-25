@@ -1120,16 +1120,18 @@ fn remembered_place(doc: &Doc, item: &Item, machine: &str) -> Option<Target> {
         Some(before) => {
             Target { section: section.into(), parent, before: Some(before), ..Target::default() }
         }
-        None => match anchor {
-            Some(anchor) => Target {
+        None => match (remembered.get("order").is_some(), anchor) {
+            // Every remaining sibling after the anchor was pinned, so this
+            // item belongs at the end of the restored run.
+            (true, _) => Target { section: section.into(), parent, ..Target::default() },
+            (false, Some(anchor)) => Target {
                 section: section.into(),
                 parent,
                 after: Some(anchor.id.clone()),
                 ..Target::default()
             },
-            None => {
-                let index = remembered.get("order").is_none().then_some(0);
-                Target { section: section.into(), parent, index, ..Target::default() }
+            (false, None) => {
+                Target { section: section.into(), parent, index: Some(0), ..Target::default() }
             }
         },
     };
