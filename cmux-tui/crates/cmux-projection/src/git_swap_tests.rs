@@ -119,14 +119,20 @@ fn repo(pushed: usize, bytes: usize) -> Repo {
     sh(&mac, &["commit", "--quiet", "-am", "unpushed two"]);
     std::fs::write(mac.join("README.md"), "staged\n").unwrap();
     sh(&mac, &["add", "README.md"]);
-    sh(&mac, &["update-ref", "-d", "refs/remotes/origin/main"]);
     sh(&mac, &["gc", "--quiet"]);
     let base = sh(&mac, &["rev-parse", "HEAD"]).trim().to_owned();
     let staged = sh(&mac, &["ls-files", "--stage"]).split_whitespace().nth(1).unwrap().to_owned();
     std::fs::write(mac.join(".git/cmux-carry.base"), format!("{base}\n")).unwrap();
     let mut pack = Command::new("git");
     pack.current_dir(&mac)
-        .args(["pack-objects", "--revs", "--stdout", "-q", "--delta-base-offset"])
+        .args([
+            "pack-objects",
+            "--filter=blob:none",
+            "--revs",
+            "--stdout",
+            "-q",
+            "--delta-base-offset",
+        ])
         .stdin(Stdio::piped())
         .stdout(std::fs::File::create(mac.join(".git/cmux-carry.pack")).unwrap())
         .stderr(Stdio::piped());
@@ -260,13 +266,13 @@ fn unpushed_commits_survive_the_swap() {
     let link = std::fs::read_link(p.at.path().join(".git")).unwrap();
     assert_eq!(link, local);
     // The same repository as the Mac's: HEAD, log, refs, the staged change, the unpushed file.
-    let after = view(p.at.path()).unwrap();
-    assert!(after.contains("unpushed two") && !after.contains("unpushed one"));
-    // The carried base and staged blob are local, while the depth-1 boundary intentionally keeps
-    // older commits on the projected repository until the user asks for more history.
+    assert_eq!(view(p.at.path()).unwrap(), before);
+    assert!(before.contains("unpushed two") && before.contains("unpushed one"));
+    // The unpushed commits' objects are local, not promised by the remote: the remote never
+    // had them, and the swapped repository reads them with the remote gone.
     std::fs::rename(&repo.public, repo.public.with_extension("gone")).unwrap();
-    let show = sh(p.at.path(), &["show", "HEAD:unpushed.txt"]);
-    assert_eq!(show, "only on the mac, twice\n");
+    let show = sh(p.at.path(), &["show", "HEAD~1:unpushed.txt"]);
+    assert_eq!(show, "only on the mac\n");
     let status = sh(p.at.path(), &["-c", "core.checkStat=minimal", "status", "--porcelain"]);
     assert_eq!(status, "M  README.md\n");
     // A second run finds the swap done (the link is in the upper layer).
@@ -287,7 +293,7 @@ fn a_git_reading_through_the_swap_sees_one_repository() {
         .current_dir(p.at.path())
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .stdin(std::process::Stdio::piped())
-        .stdout(Stdio::piped())
+        .stdout(std::process::Stdio::piped())
         .spawn()
         .unwrap();
     let projected = p.at.path().join(".git");

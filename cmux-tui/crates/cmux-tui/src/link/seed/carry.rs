@@ -38,14 +38,30 @@ fn max_bytes() -> u64 {
 /// Writes the depth-1 pack of `base` from the repository at `folder` to `out`; its bytes.
 /// `Err` (why) when it cannot or should not be carried: the seed then goes without it.
 pub fn pack(folder: &Path, base: &str, out: &Path) -> Result<u64, String> {
+    pack_with_filter(folder, base, out, false)
+}
+
+/// Writes the projection carry pack: commits and trees for the depth-one base, plus explicit
+/// staged blobs, while leaving ordinary base blobs to the public promisor or projected fallback.
+/// A projected start needs the repository shape immediately; it does not need to retransmit every
+/// large blob the Mac can already serve or a public remote can provide.
+pub fn pack_projection(folder: &Path, base: &str, out: &Path) -> Result<u64, String> {
+    pack_with_filter(folder, base, out, true)
+}
+
+fn pack_with_filter(folder: &Path, base: &str, out: &Path, blobless: bool) -> Result<u64, String> {
     if git::optional(git::at(folder).args(["config", "--get", "extensions.partialClone"])).is_some()
     {
         return Err("the repository is a partial clone".into());
     }
     let file = std::fs::File::create(out).map_err(|error| format!("cannot write: {error}"))?;
     let mut command = git::at(folder);
+    command.args(["pack-objects"]);
+    if blobless {
+        command.arg("--filter=blob:none");
+    }
     command
-        .args(["pack-objects", "--revs", "--stdout", "-q", "--delta-base-offset"])
+        .args(["--revs", "--stdout", "-q", "--delta-base-offset"])
         .stdin(Stdio::piped())
         .stdout(file)
         .stderr(Stdio::piped());

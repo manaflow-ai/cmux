@@ -506,12 +506,12 @@ pub(crate) fn restart(
     remote: &str,
     chat: &str,
 ) -> anyhow::Result<Result<Value, NotProjected>> {
-    if enabled()
-        && let Some(on) = projected_at(remote)
-        && on.local == local
-        && machine_id(socket).unwrap_or_default() == on.machine
-    {
-        stop_server(remote)?;
+    if enabled() {
+        if let Some(on) = projected_at(remote) {
+            if on.local == local && machine_id(socket).unwrap_or_default() == on.machine {
+                stop_server(remote)?;
+            }
+        }
     }
     start(socket, local, remote, chat)
 }
@@ -550,8 +550,10 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
             other => folder = Some(PathBuf::from(other)),
         }
     }
-    if store_handed && let Err(error) = super::store::take_handoff(&mut std::io::stdin().lock()) {
-        eprintln!("cmux link project: no store for the listing: {error:#}");
+    if store_handed {
+        if let Err(error) = super::store::take_handoff(&mut std::io::stdin().lock()) {
+            eprintln!("cmux link project: no store for the listing: {error:#}");
+        }
     }
     let socket = socket.context("--socket is required")?;
     let at = at.context("--at is required")?;
@@ -839,10 +841,10 @@ fn redial(
     encoded: &[u8],
     revision: Option<&Value>,
 ) -> (anyhow::Result<(BufReader<UnixStream>, Value)>, bool) {
-    if let Some(quiet) = quiet_socket(socket)
-        && let Ok(stream) = UnixStream::connect(&quiet)
-    {
-        return (ask(stream, name, at, encoded, revision), true);
+    if let Some(quiet) = quiet_socket(socket) {
+        if let Ok(stream) = UnixStream::connect(&quiet) {
+            return (ask(stream, name, at, encoded, revision), true);
+        }
     }
     (dial(socket, name, at, encoded, revision), false)
 }
@@ -1024,10 +1026,11 @@ fn list_with_carry(folder: &Path, carry: Option<&CarryFiles>) -> anyhow::Result<
     Ok(Listed { manifest, served, links: set.links })
 }
 
-/// Builds the carry files only for the opt-in projection swap. A repository without a commit, or
-/// one that is itself a partial clone, simply keeps its projected `.git` and continues normally.
+/// Builds the carry files for the default-on projection swap. The live git probes make carry
+/// opportunistic, so a repository without a commit, or one that is itself a partial clone, simply
+/// keeps its projected `.git` and continues normally.
 fn projection_carry(folder: &Path) -> Option<CarryFiles> {
-    if !std::env::var_os("CMUX_PROJECTION_GIT_SWAP").is_some_and(|value| value == "1") {
+    if !cmux_projection::git_swap::enabled() {
         return None;
     }
     let output = |args: &[&str]| {
@@ -1057,7 +1060,7 @@ fn projection_carry(folder: &Path) -> Option<CarryFiles> {
         return None;
     }
     let pack_path = folder_out.join("carry.pack");
-    if carry::pack(folder, &base, &pack_path).is_err() {
+    if carry::pack_projection(folder, &base, &pack_path).is_err() {
         let _ = std::fs::remove_dir_all(&folder_out);
         return None;
     }

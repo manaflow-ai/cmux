@@ -49,6 +49,14 @@ pub const CARRY_PACK: &str = "cmux-carry.pack";
 pub const CARRY_BASE: &str = "cmux-carry.base";
 /// How many times a moving Mac state is copied again before the swap gives up for now.
 const ATTEMPTS: usize = 3;
+
+/// Whether projected git carry is enabled. Carry is on by default so projection starts can use
+/// the sender's local objects. Set `CMUX_PROJECTION_GIT_SWAP=off` to disable it for a diagnosis.
+#[must_use]
+pub fn enabled() -> bool {
+    !std::env::var_os("CMUX_PROJECTION_GIT_SWAP")
+        .is_some_and(|value| value.to_string_lossy().eq_ignore_ascii_case("off"))
+}
 /// What in `.git` leaves the repository on projection: git is mid-operation, or the state is one
 /// the copy does not carry.
 const UNSWAPPABLE: [&str; 9] = [
@@ -245,6 +253,25 @@ pub fn prepare_carry(
         set.args(["config", key, value]);
         output(set)?;
     }
+    // A reachable public remote supplies the already-pushed history bloblessly. The carry pack
+    // still supplies the Mac's tip and staged objects; if this probe cannot authenticate, keep
+    // the carry path self-contained and fetch the projected repository below instead.
+    let seed_url = seed_remote(projected).map(|(_, url)| url);
+    let seed_url = if let Some(url) = seed_url.as_deref() {
+        for (key, value) in [
+            ("extensions.partialClone", SEED_REMOTE),
+            (&format!("remote.{SEED_REMOTE}.url"), url),
+            (&format!("remote.{SEED_REMOTE}.promisor"), "true"),
+            (&format!("remote.{SEED_REMOTE}.partialclonefilter"), "blob:none"),
+        ] {
+            let mut set = git(local);
+            set.args(["config", key, value]);
+            output(set)?;
+        }
+        fetch_remote(projected, local).ok().map(|_| url)
+    } else {
+        None
+    };
     write_atomic(&local.join("shallow"), format!("{base}\n").as_bytes())?;
     index_carry(local, pack)?;
     let mut check = git(local);
@@ -258,9 +285,14 @@ pub fn prepare_carry(
     commit.args(["rev-parse", "--verify", &format!("{base}^{{commit}}")]);
     output(commit)?;
 
+    // The carried pack is intentionally depth one.  Remove that temporary boundary before
+    // asking the projected repository for its refs, otherwise fetch treats the carried tip as
+    // complete and silently drops every parent commit from the machine's visible history.
+    let _ = std::fs::remove_file(local.join("shallow"));
+
     let mut fingerprint_now = before;
     for _ in 0..ATTEMPTS {
-        copy_mac_state(projected, local, None)?;
+        copy_mac_state(projected, local, seed_url)?;
         match fingerprint(projected)? {
             Some(after) if after == fingerprint_now => return Ok(after),
             Some(after) => fingerprint_now = after,
