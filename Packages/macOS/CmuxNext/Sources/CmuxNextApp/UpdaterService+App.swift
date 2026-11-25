@@ -17,12 +17,7 @@ extension UpdaterService {
     /// "Simulate pending update" (DEV and NIGHTLY; elsewhere it stays off).
     func attach(sheet: UpdateSheetController, services: AppServices, simulating: @escaping @MainActor @Sendable () -> Bool) {
         presentUpdateUI = { [weak services] in sheet.present(in: services?.windows.active?.window) }
-        relaunchBehind = { [weak services] willQuit, declined, inFront in
-            let behind = UpdateRelaunchBehind(app: Bundle.main.bundleURL, bundleIdentifier: Bundle.main.bundleIdentifier ?? "")
-            // A quit the user refuses (a quit dialog's Cancel) stops the helper and stages the update again.
-            services?.quit.onQuitRefused = { behind.quitRefused() }
-            behind.start(willQuit: willQuit, declined: declined, inFront: inFront)
-        }
+        useReopenHelpers(app: Bundle.main.bundleURL, bundleIdentifier: Bundle.main.bundleIdentifier ?? "") { [weak services] stop in services?.quit.onQuitRefused = { stop() } }
         onNextQuitRefused = { [weak services] action in services?.quit.onQuitRefused = action }
         let activity = UpdateAgentActivity(environment: QuitAgents.environment(services))
         relaunchBlockers = { [weak self, weak services, activity] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
