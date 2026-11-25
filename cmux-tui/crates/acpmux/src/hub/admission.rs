@@ -969,11 +969,11 @@ mod tests {
             Some(OverCap { live, max, machine: machine.into(), source: source.into() })
         };
         for (machine, max) in [("huge-blue", 12), ("cmux16", 3), ("big-red", 6), ("air-blue", 3)] {
-            assert_eq!(
-                at(machine, max as usize - 1),
-                Verdict::default(),
-                "{machine} under its cap"
-            );
+            let last = at(machine, max as usize - 1);
+            assert_eq!((&last.under_floor, &last.over), (&None, &None), "{machine} under its cap");
+            // Taking the last free slot is marked for the warm spare, and warns nothing.
+            assert_eq!(last.last_slot, over(machine, max as usize - 1, max), "{machine} last slot");
+            assert_eq!(at(machine, max as usize - 2), Verdict::default(), "{machine} has room");
             for live in [max as usize, 16] {
                 let v = at(machine, live);
                 assert_eq!(v.under_floor, None, "{machine} at {live}: a cap never refuses");
