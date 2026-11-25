@@ -68,7 +68,7 @@ fn hub_refuses_a_key_in_argv_and_bad_arguments() {
     }
     assert!(parse_err("call stripe.* ").contains("not an action"));
     assert!(parse_err("call stripe.refund.create --args [1]").contains("JSON object"));
-    assert!(parse_err("call stripe.refund.create --invocation-id short").contains("8 to 128"));
+    assert!(parse_err("call stripe.refund.create --invocation-id abc").contains("8 to 128"));
     assert!(parse_err("audit --limit 0").contains("1 to 200"));
     assert!(parse_err("audit --limit 201").contains("1 to 200"));
     assert!(parse_err("audit --before 0").contains("seq"));
@@ -76,6 +76,27 @@ fn hub_refuses_a_key_in_argv_and_bad_arguments() {
     assert!(parse_err("connections extra").contains("unexpected"));
     assert!(parse_err("frobnicate").contains("unknown verb"));
     assert!(parse_err("rule").contains("rule add"));
+}
+
+#[test]
+fn hub_call_named_args() {
+    let verb =
+        parse_ok(r#"call test.run --enabled true --tag=--draft --label="true" --list [1,2]"#);
+    let request = request_of(&verb);
+    assert_eq!(
+        request.body.unwrap()["args"],
+        json!({
+            "enabled": true, "tag": "--draft", "label": "true", "list": [1, 2],
+        })
+    );
+    for input in [
+        "call test.run --amount",
+        "call test.run --amount --charge ch_1",
+        "call test.run --amount 100 --amount 200",
+        "call test.run --args {} --amount 100",
+    ] {
+        assert!(parse(&words(input), &no_env).is_err(), "{input}");
+    }
 }
 
 #[test]

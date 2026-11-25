@@ -1,3 +1,4 @@
+#if canImport(SwiftUI)
 public import SwiftUI
 
 /// Two-line toolbar title text with stable row slots.
@@ -65,3 +66,4 @@ public struct MobileCompactToolbarTitleStack: View {
     private static let subtitleRowHeight: CGFloat = 12
     private static let rowSpacing: CGFloat = 1
 }
+#endif

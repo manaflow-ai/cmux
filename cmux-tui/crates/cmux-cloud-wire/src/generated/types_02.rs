@@ -4,6 +4,40 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    ConcurrencyOnLimit {
+        Queue = "queue",
+        Skip = "skip",
+    }
+}
+
+wire_enum! {
+    ConfirmLevel {
+        Strict = "strict",
+        DestructiveOnly = "destructive-only",
+        Off = "off",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Connection {
+    pub id: ConnectionId,
+    pub owner: TeamId,
+    pub created_by: UserId,
+    pub provider: IntegrationProvider,
+    pub account: Option<ConnectionAccount>,
+    pub scopes_requested: Vec<String>,
+    pub scopes_granted: Vec<String>,
+    pub status: ConnectionStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_detail: Option<String>,
+    pub sharing: ConnectionSharing,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resources: Option<ConnectionResources>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ConnectionAccount {
     pub key: String,
@@ -862,39 +896,3 @@ pub struct HomeReactionKindVariant2 {
 
 /// SHA-256 of the bytes, lowercase hex.
 pub type HomeSha256 = String;
-
-/// A styled range of a text part, in UTF-16 code units.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeTextRun {
-    pub start: i64,
-    pub length: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mention: Option<ParticipantId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub link: Option<String>,
-}
-
-/// title, owner and resolution of a thread root. The thread reads as resolved only while no live reply has a seq above resolved.seq: a new reply reopens it.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeThreadState {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub owner: Option<ParticipantId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resolved: Option<HomeThreadStateResolved>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeThreadStateResolved {
-    pub by: ParticipantId,
-    pub at: Timestamp,
-    pub seq: i64,
-}
-
-wire_enum! {
-    HomeThreadStatus {
-        Open = "open",
-        Resolved = "resolved",
-    }
-}

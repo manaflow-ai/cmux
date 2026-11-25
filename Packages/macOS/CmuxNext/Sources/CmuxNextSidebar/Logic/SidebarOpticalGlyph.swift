@@ -6,9 +6,10 @@ import CoreGraphics
 /// sizes. Each image was fitted by its square, so a picture with a transparent margin drew its ink smaller, and the
 /// text column, fixed after the square, left a wider gap after that smaller ink.
 ///
-/// The rule sizes the drawn ink, not the image: the ink's height is `target` (its width for a very wide glyph), it centers in the `target` square
-/// starting at `leading`, and its middle sits on `centerY`. Every glyph then shares one center line: a wide glyph fills
-/// the square edge to edge, and a tall narrow one (the pin) centers under it, not on its left edge
+/// The rule sizes the drawn ink, not the image: the ink's height is `target` (its width for a very wide glyph), and its
+/// middle sits on `centerY`. A glyph as wide as the `target` square or wider starts its ink on `leading`, the left edge
+/// text-only titles start on (Lucas 2026-11-24: Home's house had centered and spilled 0.5 pt left of the globe and the
+/// red traffic light); a narrower one (the pin) centers in the square, not on its left edge
 /// (https://github.com/manaflow-ai/cmux/issues/42431). Pure, so the rule is tested without views.
 nonisolated struct SidebarOpticalGlyph: Equatable, Sendable {
     /// The side of the square every glyph's ink fills along its larger dimension.
@@ -32,9 +33,9 @@ nonisolated struct SidebarOpticalGlyph: Equatable, Sendable {
         let snap = { (value: CGFloat) in (value * max(1, scale)).rounded() / max(1, scale) }
         // The scale that puts the image's width on the pixel grid, nearest the one that sizes the ink to `target`.
         let k = max(1 / max(1, scale), snap(imageSize.width * target / extent)) / imageSize.width
-        // The ink centers in the square: a glyph wider than tall (fitted by height) spills evenly past both sides, so the
-        // pin still centers under Home's house.
-        let x = leading + (target - ink.width * k) / 2 - ink.minX * k
+        // A narrow ink centers in the square; a wide one (Home's house, fitted by its height) starts on `leading` and runs
+        // past the square's trailing edge only, so every left edge shares the one line.
+        let x = leading + max(0, target - ink.width * k) / 2 - ink.minX * k
         let y = flipped ? centerY - ink.midY * k : centerY - (imageSize.height - ink.midY) * k
         return CGRect(x: snap(x), y: snap(y), width: snap(imageSize.width * k), height: snap(imageSize.height * k))
     }
