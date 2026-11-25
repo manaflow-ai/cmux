@@ -148,7 +148,7 @@ mod tests {
     fn note(trimmer: &Trimmer) {
         trimmer.activity.fetch_add(1, Ordering::Relaxed);
         if !trimmer.armed.swap(true, Ordering::AcqRel) {
-            drop(trimmer.lock.lock().unwrap());
+            drop(trimmer.lock.lock().unwrap_or_else(PoisonError::into_inner));
             trimmer.wake.notify_one();
         }
     }
