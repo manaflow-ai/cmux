@@ -990,6 +990,11 @@ path = "tests/test_verify_local.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_view_shell_patch_compile.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_view_shell_patch_compile.py"
+
+[[test]]
 path = "tests/test_vm_scp.py"
 lane = "legacy"
 
