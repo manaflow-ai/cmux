@@ -272,7 +272,7 @@ impl ChatPromptOutbox {
         self.inner().outbox.wrote(&prompt_id);
     }
 
-    /// Its write failed: it goes again after a backoff.
+    /// Its write failed: it goes again after a backoff, its wait aged from the failure (first) or moved on by what the write took.
     pub fn write_failed(&self, prompt_id: String, now_ms: u64) {
         let mut inner = self.inner();
         let now = inner.at(now_ms);

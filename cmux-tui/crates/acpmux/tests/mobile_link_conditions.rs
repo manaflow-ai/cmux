@@ -1572,10 +1572,8 @@ async fn chat_send_under_link_conditions() {
             let prompt_id = format!("send-{row}-{tag}-{i}");
             let k = Key { profile: &label, phase: "send", scale: row, run: i, seed: seed_base + i };
             let tap = Instant::now();
-            if down {
-                if let Some(s) = &shaper {
-                    s.blackout(blackout);
-                }
+            if down && let Some(s) = &shaper {
+                s.blackout(blackout);
             }
             let (visible, retries) = chat_send_once(
                 &mut link,

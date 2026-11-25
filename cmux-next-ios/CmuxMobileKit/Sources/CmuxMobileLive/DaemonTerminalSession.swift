@@ -311,8 +311,15 @@ public final class DaemonTerminalSession: TerminalSession {
     /// a lost reply does not stop input (later sends keep both directions
     /// moving, and the loss is repaired by duplicate ACKs).
     static let maxInputInFlight = 64
-    /// A missing input reply frees its slot and reports uncertain delivery.
+    /// A send that made no progress for this long (no bytes taken by the link, no answer to an
+    /// earlier send) frees its slot and reports uncertain delivery. A send that keeps moving
+    /// goes on, up to ``DaemonClient/progressCeiling`` (Leo, 2026-11-24: "a 10s timeout that
+    /// kills messages while they're making progress is a shame. make it progress-based, not a
+    /// wall clock").
     var inputRequestDeadline: Duration = .seconds(10)
+    /// Sends answered later than ``inputRequestDeadline`` after they went out: each one the old
+    /// fixed 10 s cut would have dropped while it was still moving.
+    private(set) var sendsPastFixedDeadline = 0
     /// How long a `send` may go unanswered before ``armTailProbe()`` writes
     /// `ping`s behind it: many round trips, well under the 1 s RTO.
     var tailProbeDelay: Duration = .milliseconds(150)
@@ -2004,6 +2011,7 @@ public final class DaemonTerminalSession: TerminalSession {
         Task { [weak self] in
             guard let self else { return }
             var written = false
+            let started = ContinuousClock.now
             do {
                 let submit: @Sendable () async throws -> String = {
                     var params: [String: Any]
@@ -2051,6 +2059,11 @@ public final class DaemonTerminalSession: TerminalSession {
                 } else {
                     reply = try await target.reply(to: id)
                 }
+                let took = ContinuousClock.now - started
+                if took >= deadline {
+                    sendsPastFixedDeadline += 1
+                    log.notice("send \(number, privacy: .public) answered after \(took, privacy: .public) while it kept moving: a fixed \(deadline, privacy: .public) cut would have dropped it (\(self.sendsPastFixedDeadline, privacy: .public) so far)")
+                }
                 if timesEcho, Self.error(in: reply) == nil {
                     keyAnswered(number: number, typedAt: typedAt)
                 }
@@ -2075,6 +2088,11 @@ public final class DaemonTerminalSession: TerminalSession {
                     #endif
                 }
             } catch {
+                if onLane, Self.madeNoProgress(error) {
+                    // Stalled for `deadline`: the lane is given up, as when it was a wall clock.
+                    abandonInputLane(target, number: number, batch: batch, typed: typedBytes, key: key, resent: resent, paste: paste, wasWriting: !written)
+                    return
+                }
                 if !written { inputWriting = false }
                 lastError = Self.diagnostic(error)
                 inputRecovering = true
@@ -2109,6 +2127,12 @@ public final class DaemonTerminalSession: TerminalSession {
     /// Treat it like a lost reply: the Mac may have applied the keystrokes.
     static func inputDeliveryUncertain(_ error: any Error) -> Bool {
         error is CancellationError || (error as? LinkError)?.code == "write_timeout"
+    }
+
+    /// A send's client gave it up after ``inputRequestDeadline`` without progress.
+    static func madeNoProgress(_ error: any Error) -> Bool {
+        let code = (error as? LinkError)?.code
+        return code == DaemonClient.replyTimeout || code == "write_timeout"
     }
 
     /// The input lane gave no answer in time (`wasWriting`: the batch's
