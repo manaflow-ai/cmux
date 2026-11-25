@@ -221,6 +221,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/tailnet/placement",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/status",
       "params": {
         "$ref": "#/types/StatusParams"
@@ -3393,15 +3399,15 @@
             "null"
           ]
         },
-        "quietHidden": {
-          "description": "True: the client draws nothing of the chat while it is hidden (`visible: false`), so the\nagent's `session/update` stream is left out until `_acpmux/view` shows it, which then sends\none `_acpmux/lagged` naming the chat (`server/view.rs`); default false.",
+        "omitTimeBreakdown": {
+          "description": "True from a client that never draws the breakdown (the phone): the reply's `session`\nleaves `timeBreakdown` out whatever its version (`server/requests/time_breakdown_gate.rs`).",
           "type": [
             "boolean",
             "null"
           ]
         },
-        "omitTimeBreakdown": {
-          "description": "True from a client that never draws the breakdown (the phone): the reply's `session`\nleaves `timeBreakdown` out whatever its version (`server/requests/time_breakdown_gate.rs`).",
+        "quietHidden": {
+          "description": "True: the client draws nothing of the chat while it is hidden (`visible: false`), so the\nagent's `session/update` stream is left out until `_acpmux/view` shows it, which then sends\none `_acpmux/lagged` naming the chat (`server/view.rs`); default false.",
           "type": [
             "boolean",
             "null"
@@ -9367,6 +9373,30 @@
             "null"
           ]
         },
+        "cacheReadByModel1h": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Cache-read prompt tokens by call model in the rolling last hour.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "cacheReadByModelPreviousUtcHour": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Cache-read prompt tokens by call model in the completed UTC hour preceding updatedAt.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
         "cacheReadShare24h": {
           "description": "Of those calls' prompt tokens (input, cache read and cache write), the share the prompt\ncache served (0 to 1); null with no calls or when the day is not read whole.",
           "format": "double",
@@ -9503,6 +9533,8 @@
       "required": [
         "autocompact",
         "autocompactCap",
+        "cacheReadByModel1h",
+        "cacheReadByModelPreviousUtcHour",
         "cacheReadShare24h",
         "calls24h",
         "compactions24h",
