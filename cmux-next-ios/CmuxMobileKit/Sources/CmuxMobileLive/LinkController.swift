@@ -84,6 +84,17 @@ public final class LinkController {
     nonisolated static let parkResumeWithin: Duration = parkHold - .seconds(30)
     /// A resumed parked link that does not answer within this is redialed.
     nonisolated static let parkedResumeProbeTimeout: Duration = .milliseconds(1500)
+    /// In front, a resumed link that stays silent past its hedge (about one
+    /// round trip past the two a live resume needs) gets a redial raced
+    /// against it: the probe fails, the link stays as the standby and keeps
+    /// being probed, and whichever answers first is kept. A remembered
+    /// endpoint that died during the park then costs the hedge plus the
+    /// redial, not 1.5 s plus it. Backgrounded holds keep the 1.5 s: no one
+    /// is waiting, and a needless dial costs battery.
+    nonisolated static func resumeProbeTimeout(_ link: any ParkableMacLink, backgrounded: Bool) -> Duration {
+        guard !backgrounded, let hedge = link.resumeHedge else { return parkedResumeProbeTimeout }
+        return min(hedge, parkedResumeProbeTimeout)
+    }
     @ObservationIgnored private var parkTask: Task<Void, Never>?
     /// When the Mac accepted the current park, on the clock that keeps
     /// running while the device sleeps.
@@ -375,6 +386,9 @@ public final class LinkController {
                         return
                     }
                     if Self.authRefused(error) { self?.refreshTokenNextDial = true }
+                    if let block = Self.networkBlock(error) {
+                        self?.send(.networkBlocked(generation: generation, block))
+                    }
                     self?.send(.dialFailed(generation: generation, reason: Self.reason(error)))
                 }
             }
@@ -403,7 +417,7 @@ public final class LinkController {
             }
             probeTask?.cancel()
             probeTask = nil
-            probe(generation: generation, timeout: Self.parkedResumeProbeTimeout)
+            probe(generation: generation, timeout: Self.resumeProbeTimeout(link, backgrounded: machine.isBackgrounded))
             // Resumed in the background for a hold (a call, a notification
             // action): the link stays watched until the hold parks it again.
             if machine.isBackgrounded { startHeartbeat(generation: generation) }
@@ -774,6 +788,15 @@ public final class LinkController {
         if let error = error as? LinkError { return error.code == LinkError.unauthorized }
         return false
     }
+
+    /// The record of a dial that found no way to the Mac (`network_blocked`).
+    nonisolated static func networkBlock(_ error: any Error) -> NetworkBlock? {
+        guard let error = error as? LinkError, error.code == LinkError.networkBlocked else { return nil }
+        return NetworkBlock(json: error.message)
+    }
+
+    /// What blocks the link on this network, while the quiet retries go on.
+    public var networkBlock: NetworkBlock? { machine.networkBlock }
 
     /// A short, display-safe reason for a dial or link error.
     /// The mapping lives with ``LinkError`` (`displayReason`); never a code or a type name.

@@ -118,6 +118,11 @@ on:
         required: false
         default: true
         type: boolean
+      no_reuse:
+        description: "Force the cmux-tui build even when a pass has the same inputs"
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   # One group per feat-cmux-next or nightly-next push (cx-73f2), per other
@@ -363,6 +368,10 @@ jobs:
       # skipped and the build starts one runner queue earlier.
       owns_key: ${{ steps.inspect.outputs.owns_key }}
       stale: ${{ steps.stale.outputs.stale }}
+      reuse_key: ${{ steps.reuse-key.outputs.key }}
+      reuse_hit: ${{ steps.reuse.outputs.hit }}
+      reuse_run_url: ${{ steps.reuse.outputs.run_url }}
+      reuse_sha: ${{ steps.reuse.outputs.sha }}
     steps:
       # Only the files these steps read: the full working tree took 54 s of this job's 56 s (n=4,
       # 2026-11-23). Tree keys come from tree objects, which blob:none keeps; cmux_tui_tree_key.py
@@ -378,6 +387,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/api_call_log/
             scripts/ci/cmux_tui_superseded_push.py
+            scripts/ci/ci_pool_tokens.py
             scripts/ci/cmux-tui-darwin-builder
             scripts/cmux-next/cmux-tui-build-profiles.json
             scripts/ci/cmux_tui_tree_key.py
@@ -385,6 +395,12 @@ jobs:
             scripts/ci/cmux-tui-tree-claim.sh
             scripts/ci/cmux_tui_publisher_testing.py
             scripts/ci/nightly_tree_source.py
+            scripts/ci/job_input_fingerprint.py
+            scripts/ci/job_reuse.py
+            scripts/ci/cmux_next_route.py
+            scripts/ci/select_package_tests.py
+            scripts/ci/gh_expressions.py
+            .github/workflows/cmux-tui-artifacts.yml
           sparse-checkout-cone-mode: false
 
       # The owned GCP build lanes reuse the workspace: after an earlier job's sparse checkout a full checkout there left tracked files missing (run 44398113924), so write HEAD's files again.
@@ -396,6 +412,22 @@ jobs:
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
             git reset -q --hard HEAD
           fi
+
+      # CI_POOL_FIRST: the superseded check's REST reads go out on a CI pool App first. On a spent github.token the
+      # cmux-next dispatch lookup answered HTTP 403 ("could not tell; keeping the run"), so a branch head built on
+      # request only, which nobody asked for, built its three targets anyway: 2026-11-24 23Z..11-25 01Z, about 1 in 9
+      # branch pushes built (about 100 runner-min each), and every gate log read showed that 403. push-gate holds no
+      # secret and keeps github.token; this step answers it. No pool, a refused mint: github.token, as before
+      # (scripts/ci/ci_pool_tokens.py).
+      - name: Mint the CI pool's tokens
+        if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'push'
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
+          CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_PERMISSIONS: '{"actions":"read","contents":"read"}'
+        run: python3 scripts/ci/ci_pool_tokens.py
 
       # A queued run can be superseded before it gets a runner: on 2026-10-14
       # 37% of the queued runs of this workflow were cmux-tui-pin-* merge trees
@@ -413,7 +445,8 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           REF: ${{ github.ref }}
           SHA: ${{ github.sha }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
+          GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
           # Branch heads are read over git, which spends no REST budget.
           CMUX_TUI_REF_REMOTE: ${{ github.server_url }}/${{ github.repository }}.git
           # Build on request: a pull request head's push builds nothing (ci-min-per-pr-30); '0' undoes it.
@@ -481,6 +514,42 @@ jobs:
           profiles="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1])), separators=(",", ":")))' scripts/cmux-next/cmux-tui-build-profiles.json)"
           echo "build_profiles=$profiles" >> "$GITHUB_OUTPUT"
           echo "build profiles: $profiles"
+
+      # A trusted publication build seeds a pass that a hot-verify dispatch on a
+      # lane branch can reuse. The key follows the cmux-tui tree inputs and the
+      # requested build modes, so a hit skips every expensive build and test job.
+      - name: Fingerprint this artifact build's inputs
+        id: reuse-key
+        if: ${{ github.repository == 'manaflow-ai/cmux' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        continue-on-error: true
+        env:
+          DAEMON_TESTS: ${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.daemon_tests) || steps.daemon-policy.outputs.daemon_tests }}
+          INCLUDE_WINDOWS: ${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.include_windows) || 'false' }}
+          MACOS_RUNNER: ${{ inputs.macos_runner || '' }}
+        run: |
+          python3 -I scripts/ci/job_input_fingerprint.py cmux-tui-artifacts \
+            --extra "daemon_tests=$DAEMON_TESTS" \
+            --extra "include_windows=$INCLUDE_WINDOWS" \
+            --extra "macos_runner=$MACOS_RUNNER" >> "$GITHUB_OUTPUT"
+
+      - name: Look for a pass on the same cmux-tui inputs
+        id: reuse
+        if: ${{ steps.reuse-key.outputs.key != '' && inputs.no_reuse != true && github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ steps.reuse-key.outputs.key }}
+        run: python3 -I scripts/ci/job_reuse.py lookup --key "$KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Reuse that cmux-tui pass
+        if: ${{ steps.reuse.outputs.hit == 'true' }}
+        env:
+          KEY: ${{ steps.reuse-key.outputs.key }}
+          RUN_URL: ${{ steps.reuse.outputs.run_url }}
+          SHA: ${{ steps.reuse.outputs.sha }}
+        run: |
+          echo "::notice title=cmux-tui artifacts reused::$RUN_URL passed on the same inputs (${SHA:0:12})"
+          echo "Reused $RUN_URL: it passed on \`${SHA:0:12}\` with the same inputs (\`$KEY\`)." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Check the branch head and tree publication
         id: inspect
@@ -1423,6 +1492,7 @@ jobs:
   build-linux:
     if: >-
       ${{ !cancelled() && needs.tree-preflight.result == 'success' && needs.tree-owner-wait.result != 'failure' &&
+          needs.tree-preflight.outputs.reuse_hit != 'true' &&
           needs.tree-preflight.outputs.run_macos == 'true' &&
           (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
     needs: [tree-preflight, tree-owner-wait]
@@ -1476,11 +1546,56 @@ jobs:
   # binaries stay build-linux's, and only point-machine-channel-early uploads these, to
   # cmux-tui/<sha>/machine/. Undo: delete this job and point the early job at build-linux's
   # cmux-tui-*-unknown-linux-musl again.
+  # LINUX_X86_64_FIRST (goal cloud-fix-to-machine): each thin musl target is its own call, so
+  # point-machine-channel-early moves the channel for x86_64 machines when the x86_64 leg is done, not when
+  # the slower aarch64 leg is, and an aarch64 failure no longer holds x86_64 back. In run 45536155088
+  # (2026-11-25) the x86_64 leg ended at 03:19:28Z and aarch64 failed at 03:27:16Z: the channel never moved
+  # early. Both calls are named build-machine-channel, so the legs keep the names "build-machine-channel /
+  # build TARGET". Their R2 cargo cache writes stay a feat-cmux-next push's alone (their `if`).
+  build-machine-channel-x86_64:
+    name: build-machine-channel
+    if: >-
+      ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' &&
+          github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 &&
+          needs.tree-preflight.result == 'success' && needs.tree-owner-wait.result != 'failure' &&
+          needs.tree-preflight.outputs.reuse_hit != 'true' &&
+          needs.tree-preflight.outputs.run_macos == 'true' &&
+          (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
+    needs: [tree-preflight, tree-owner-wait]
+    # One group per run, as build-linux.
+    concurrency:
+      group: cmux-tui-build-machine-channel-x86_64-${{ needs.tree-preflight.outputs.key }}-${{ github.run_id }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      # The reusable package workflow's permission ceiling (see build).
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/cmux-tui-build-package.yml
+    # The R2 cargo cache's write credentials (its own thin key), as build-linux.
+    secrets:
+      CI_CACHE_R2_ACCESS_KEY_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+      CI_CACHE_R2_SECRET_ACCESS_KEY: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+      CI_CACHE_R2_ACCOUNT_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCOUNT_ID || '' }}
+    with:
+      version: 0.0.0-r2.sha-${{ github.sha }}
+      package_npm: false
+      package_pypi: false
+      include_windows: false
+      # scripts/cmux-next/cmux-tui-build-profiles.json machine_channel (a tree-key input).
+      target_set: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).machine_channel.x86_64_target_set }}
+      lto: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).machine_channel.lto }}
+      artifact_prefix: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).machine_channel.artifact_prefix }}
+      darwin_builder: ${{ needs.tree-preflight.outputs.darwin_builder }}
+      linux_runner: cmux-linux
+
+
   build-machine-channel:
     if: >-
       ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' &&
           github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 &&
           needs.tree-preflight.result == 'success' && needs.tree-owner-wait.result != 'failure' &&
+          needs.tree-preflight.outputs.reuse_hit != 'true' &&
           needs.tree-preflight.outputs.run_macos == 'true' &&
           (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
     needs: [tree-preflight, tree-owner-wait]
@@ -1505,7 +1620,7 @@ jobs:
       package_pypi: false
       include_windows: false
       # scripts/cmux-next/cmux-tui-build-profiles.json machine_channel (a tree-key input).
-      target_set: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).machine_channel.target_set }}
+      target_set: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).machine_channel.aarch64_target_set }}
       lto: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).machine_channel.lto }}
       artifact_prefix: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).machine_channel.artifact_prefix }}
       darwin_builder: ${{ needs.tree-preflight.outputs.darwin_builder }}
@@ -1514,6 +1629,7 @@ jobs:
   build:
     if: >-
       ${{ !cancelled() && needs.tree-preflight.result == 'success' && needs.tree-owner-wait.result != 'failure' &&
+          needs.tree-preflight.outputs.reuse_hit != 'true' &&
           needs.tree-preflight.outputs.run_macos == 'true' &&
           (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
     needs: [tree-preflight, tree-owner-wait]
@@ -1613,6 +1729,7 @@ jobs:
     if: >-
       ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.include_windows &&
           needs.tree-preflight.result == 'success' && needs.tree-owner-wait.result != 'failure' &&
+          needs.tree-preflight.outputs.reuse_hit != 'true' &&
           needs.tree-preflight.outputs.run_macos == 'true' &&
           (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
     needs: [tree-preflight, tree-owner-wait]
@@ -1859,7 +1976,7 @@ jobs:
           echo "posted cmux-tui/linux-cross=failure on $HEAD_SHA: $description ($url)"
 
   build-darwin-fallback:
-    if: ${{ !cancelled() && needs.darwin-fallback-plan.outputs.target_set != '' }}
+    if: ${{ !cancelled() && needs.tree-preflight.outputs.reuse_hit != 'true' && needs.darwin-fallback-plan.outputs.target_set != '' }}
     needs: [tree-preflight, darwin-fallback-plan]
     concurrency:
       group: cmux-tui-build-fallback-${{ needs.tree-preflight.outputs.key }}-${{ github.run_id }}
@@ -1899,6 +2016,7 @@ jobs:
   cmux-next-daemon-tests:
     if: >-
       ${{ !cancelled() && needs.tree-preflight.result == 'success' && needs.tree-owner-wait.result != 'failure' &&
+          needs.tree-preflight.outputs.reuse_hit != 'true' &&
           ((needs.tree-preflight.outputs.run_macos == 'true' &&
           (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') && needs.tree-preflight.outputs.daemon_tests == 'true' &&
           needs.tree-preflight.outputs.daemon_marker != 'true') ||
@@ -2232,6 +2350,48 @@ jobs:
   # cmux-tui-artifacts-retry.yml after they complete (workflow_run fires only
   # from the default branch), unless their tree published or an immutable R2
   # conflict failed them.
+
+  # A successful trusted build seeds the same-input pass used by later
+  # workflow_dispatch runs from lane branches. It records only after every
+  # requested build/test leg has completed successfully or was intentionally
+  # skipped, and never records a reused pass.
+  record-input-pass:
+    name: record cmux-tui input pass
+    needs: [tree-preflight, tree-owner-wait, build-linux, build-machine-channel-x86_64, build-machine-channel, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests]
+    if: >-
+      ${{ always() && !cancelled() && needs.tree-preflight.result == 'success' &&
+          needs.tree-preflight.outputs.reuse_key != '' && needs.tree-preflight.outputs.reuse_hit != 'true' &&
+          needs.tree-preflight.outputs.run_macos == 'true' &&
+          needs.build-linux.result != 'failure' && needs.build-linux.result != 'cancelled' &&
+          needs.build-machine-channel-x86_64.result != 'failure' && needs.build-machine-channel-x86_64.result != 'cancelled' &&
+          needs.build-machine-channel.result != 'failure' && needs.build-machine-channel.result != 'cancelled' &&
+          needs.build.result != 'failure' && needs.build.result != 'cancelled' &&
+          needs.build-windows.result != 'failure' && needs.build-windows.result != 'cancelled' &&
+          needs.darwin-fallback-plan.result != 'failure' && needs.darwin-fallback-plan.result != 'cancelled' &&
+          needs.build-darwin-fallback.result != 'failure' && needs.build-darwin-fallback.result != 'cancelled' &&
+          needs.cmux-next-daemon-tests.result != 'failure' && needs.cmux-next-daemon-tests.result != 'cancelled' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Write the pass receipt
+        env:
+          KEY: ${{ needs.tree-preflight.outputs.reuse_key }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          SHA: ${{ github.sha }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/ci-job-pass"
+          printf '%s\n' "$RUN_URL" "$SHA" > "$RUNNER_TEMP/ci-job-pass/pass.txt"
+      - name: Save the pass
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ needs.tree-preflight.outputs.reuse_key }}
+          path: ${{ runner.temp }}/ci-job-pass
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
 
   publish-ref-notice:
     # A dispatch from a branch outside main / feat-cmux-next / cmux-tui-pin-*
@@ -4904,7 +5064,12 @@ jobs:
       group: cmux-tui-point-feat-${{ github.ref }}
       cancel-in-progress: false
     needs: [tree-preflight, publish-tree-tested]
-    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' }}
+    # A dispatch on feat-cmux-next points too (Leo, 2026-11-25: "accelerate the shit out of efficiency improvements
+    # dev builds etc. they cannot be slow. do not catch-22 yourselves."): pushes coalesce into one build an hour, so a
+    # merged acpmux fix waited up to an hour (or a failed hour, two) before Linux hosts could install it. The script
+    # records GITHUB_SHA, the commit this run checked out, and moves only forward past the channel's commit, only
+    # to a daemon-tested tree, so a dispatch of an older or untested commit leaves the channel as it is.
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
@@ -5264,15 +5429,86 @@ jobs:
     environment:
       name: artifacts
       deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
-    name: point the Cloud machine channel at this commit's Linux build
+    name: point the Cloud machine channel at this commit's x86_64 Linux build
     # One waiting point per channel: a newer commit's point replaces a pending one (the point is a
     # forward-only compare-and-swap, so only the newest tree matters). With none, every commit queued
     # its own point on the one-job label: 31 stale ones waited there on 2026-11-20.
     concurrency:
       group: cmux-tui-point-machine-early-${{ github.ref }}
       cancel-in-progress: false
-    needs: [tree-preflight, tree-owner-wait, build-machine-channel]
-    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.build-machine-channel.result == 'success' && (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
+    needs: [tree-preflight, tree-owner-wait, build-machine-channel-x86_64]
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.build-machine-channel-x86_64.result == 'success' && (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # The owned GCP build lanes reuse the workspace: after an earlier job's sparse checkout a full checkout there left tracked files missing (run 44398113924), so write HEAD's files again.
+      - name: Repair a reused self-hosted checkout
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+            git sparse-checkout disable 2>/dev/null || true
+            git reset -q --hard HEAD
+          fi
+
+      - name: Download the machine channel's Linux cmux-tui binaries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          # build-machine-channel-x86_64's thin copy only (MACHINE_CHANNEL_THIN, LINUX_X86_64_FIRST).
+          pattern: machine-channel-cmux-tui-x86_64-unknown-linux-musl
+          path: assets/cmux-tui
+          merge-multiple: true
+
+      - name: Upload the Linux binaries and point the channel
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/machine-channel"
+          mkdir -p "$dir" && chmod 700 "$dir"
+          # Write-once: another run or attempt that uploaded other bytes first keeps them, and this skips.
+          rc=0
+          scripts/ci/cmux-machine-linux-bytes.sh early assets/cmux-tui || rc=$?
+          [[ $rc == 3 ]] && exit 0
+          [[ $rc == 0 ]] || exit "$rc"
+          python3 scripts/ci/cmux-machine-channel.py payload --binaries-dir assets/cmux-tui --machine-path \
+            --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" \
+            --download-dir "$dir/binaries" --out "$dir/payload.json" --target x86_64-unknown-linux-musl
+          rm -rf "$dir/binaries"
+          scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir"
+
+
+  # point-machine-channel-early-linux adds the aarch64 build once both thin legs are done: the same
+  # commit's file with every target, which web-ota-pointer.py newer takes over the x86_64-only one when the
+  # x86_64 bytes match (completes), so no x86_64 machine downloads again. Its early claim is
+  # early-claim.json, the x86_64 point's early-claim-x86_64-unknown-linux-musl.json
+  # (scripts/ci/cmux-machine-linux-bytes.sh).
+  point-machine-channel-early-linux:
+    # R2 credentials. Only a base branch's publish (which moves the channels) records a
+    # deployment; a lane branch's commit-addressed upload logs none on its PR.
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
+    name: point the Cloud machine channel at this commit's Linux builds
+    # One waiting point per channel: a newer commit's point replaces a pending one (the point is a
+    # forward-only compare-and-swap, so only the newest tree matters). With none, every commit queued
+    # its own point on the one-job label: 31 stale ones waited there on 2026-11-20.
+    concurrency:
+      group: cmux-tui-point-machine-early-linux-${{ github.ref }}
+      cancel-in-progress: false
+    needs: [tree-preflight, tree-owner-wait, build-machine-channel-x86_64, build-machine-channel]
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.build-machine-channel-x86_64.result == 'success' && needs.build-machine-channel.result == 'success' && (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
     continue-on-error: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
@@ -5819,7 +6055,7 @@ jobs:
   # 300 an hour, must not spend the 1,000-an-hour budget every workflow shares.
   drop-build-artifacts:
     name: drop this run's build artifacts
-    needs: [reject-untrusted-pin-ref, push-gate, coalesce, supersede-feat-runs, tree-preflight, tree-owner-wait, build-machine-channel, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel-early, point-machine-channel, point-mac-live-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
+    needs: [reject-untrusted-pin-ref, push-gate, coalesce, supersede-feat-runs, tree-preflight, tree-owner-wait, build-machine-channel-x86_64, build-machine-channel, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, record-input-pass, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel-early, point-machine-channel-early-linux, point-machine-channel, point-mac-live-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
     # Not after notify-unpublished-tree ran: it must stay the run's last job so the
     # deferred run it re-runs finds this owner ended (cx-urd.26). Those runs keep
     # their artifacts to the 1-day retention.
