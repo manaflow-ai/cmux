@@ -1478,9 +1478,23 @@ jobs:
           # Why: note-27c
           # Why: 2026-11-24-checks-3.md
           POOL_TAIL_SECONDS=300
-          job_start="$(python3 -c 'import os, sys; print(int(os.path.getmtime(sys.argv[1])))' "$GITHUB_EVENT_PATH" 2>/dev/null \
-            || date +%s)"
           now="$(date +%s)"
+          # The cap counts from the job's start, and runner setup plus checkout took 339 s of it (job
+          # 139488442932); the event file's mtime fell back to now there, so the pool ran past the cap. The
+          # Runner.Worker process starts with the job: its age is the job's age.
+          job_start=""
+          pid=$$
+          while [ -n "$pid" ] && [ "$pid" -gt 1 ] 2>/dev/null; do
+            if [ "$(ps -o comm= -p "$pid" 2>/dev/null)" = Runner.Worker ]; then
+              age="$(ps -o etimes= -p "$pid" 2>/dev/null | tr -d ' ')"
+              [[ "$age" =~ ^[0-9]+$ ]] && job_start=$(( now - age ))
+              break
+            fi
+            pid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')"
+          done
+          [ -n "$job_start" ] || job_start="$(python3 -c 'import os, sys; print(int(os.path.getmtime(sys.argv[1])))' \
+            "$GITHUB_EVENT_PATH" 2>/dev/null || date +%s)"
+          echo "checks pool: job started $(( now - job_start )) s ago"
           # Why: 2026-11-24-checks-4.md
           (( job_start <= now && now - job_start < JOB_TIMEOUT_MINUTES * 60 )) || job_start="$now"
           deadline=$(( job_start + JOB_TIMEOUT_MINUTES * 60 - POOL_TAIL_SECONDS ))
@@ -1497,7 +1511,10 @@ jobs:
             # Why: note-535
             python3 tests/test_cmux_next_prepush_main_twin.py
             # Why: note-475
-            python3 scripts/cmux-next/tests/test_hot_apply.py
+            python3 scripts/cmux-next/tests/test_hot_apply.py --shard 1/4
+            python3 scripts/cmux-next/tests/test_hot_apply.py --shard 2/4
+            python3 scripts/cmux-next/tests/test_hot_apply.py --shard 3/4
+            python3 scripts/cmux-next/tests/test_hot_apply.py --shard 4/4
             bash scripts/cmux-next/tests/pin-cmux-tui-run-check.test.sh
             bash scripts/cmux-next/tests/pin-cmux-tui-probe.test.sh
             [no-process-scan]
