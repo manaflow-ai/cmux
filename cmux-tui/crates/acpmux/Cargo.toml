@@ -92,6 +92,8 @@ cmux-felt.workspace = true
 # rule a new chat's place weighs (place_mode.rs). One dependency, named once: the base merge that
 # brought both comments in also brought the line twice, which is a TOML duplicate key.
 cmux-cloud-start-core.workspace = true
+# The disk budget the evictor shares with the disk bar and the Cloud grow (`disk_evict.rs`).
+cmux-cloud-disk.workspace = true
 cmux-sync.workspace = true
 cmux-session-cloud.workspace = true
 # The opt-in tailnet carrier's path read: tailscaled's LocalAPI first, the CLI when it is
