@@ -533,6 +533,7 @@ public final class SidebarModel {
                     copy.rowState = old.rowState
                     copy.machineID = old.machineID
                     copy.isArchived = old.isArchived
+                    copy.isPinnedInGroup = old.isPinnedInGroup
                     SidebarRowIndex.set(copy, at: path, in: &sourceSections)
                 }
             }
@@ -692,6 +693,7 @@ public final class SidebarModel {
             row.rowState = old.rowState
             row.machineID = old.machineID
             row.isArchived = old.isArchived // the document's, set by `arrange`; the feed does not know it
+            row.isPinnedInGroup = old.isPinnedInGroup // the document's too
             guard row != old else { continue }
             guard !movesRows(from: old, to: row) else { return false }
             // A rename into or out of the name of a group it is the one member of changes the group's rows: one row in

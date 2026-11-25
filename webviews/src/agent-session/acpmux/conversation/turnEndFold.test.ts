@@ -2,7 +2,7 @@
 // does the end-of-turn fold play.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
-import { endsTurn, hasLiveLine, turnEndLook } from "./turnEndFold";
+import { drawsCopy, endsTurn, hasLiveLine, turnEndLook } from "./turnEndFold";
 import { LIVE_THINKING } from "./turns";
 
 const row = (id: string, kind: AcpmuxRow["kind"] = "assistant"): AcpmuxRow => ({ id, version: 1, at: 1, kind });
@@ -434,4 +434,11 @@ test("a reply the swap grew opens to its full height on the fold's clock", async
     settleTurnEnd(thread, fold);
     dom.window.close();
   }
+});
+
+test("drawsCopy: rows are a copy until acpmux's attach answers", () => {
+  expect(drawsCopy({ connection: "connecting" })).toBe(true);
+  expect(drawsCopy({ connection: "connected", drewKeptTail: true })).toBe(true);
+  expect(drawsCopy({ connection: "connected", drewKeptTail: true, chatAttached: true })).toBe(false);
+  expect(drawsCopy({ connection: "connected" })).toBe(false);
 });

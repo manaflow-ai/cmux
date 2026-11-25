@@ -76,6 +76,36 @@ struct BookmarkFolderIconTests {
         #expect(tree.node("bm_00000000000000000000000000000f01")?.icon == nil)
     }
 
+    /// A batch is one `bookmarks_apply` call: its ops apply in order (a later one sees an
+    /// earlier one's node), with one result each, and a refused op changes nothing.
+    @Test func aBatchAppliesInOrderWithOneResultPerOperation() throws {
+        var tree = BookmarkTree()
+        let folder = "bm_00000000000000000000000000000f01", bookmark = "bm_00000000000000000000000000000a01"
+        let url = try #require(URL(string: "https://example.com"))
+        let results = try tree.apply([
+            .create(.folder("Work", in: BookmarkRoot.bar.rawValue, id: folder), index: nil),
+            .create(.bookmark("Example", url: url, in: folder, id: bookmark), index: nil),
+            .update(id: bookmark, icon: .set("🚀")),
+            .update(id: folder, icon: .set("🚀")),
+        ])
+        #expect(results.count == 4)
+        #expect((try? results[0].get()) != nil && (try? results[1].get()) != nil && (try? results[3].get()) != nil)
+        #expect((try? results[2].get()) == nil)
+        #expect(tree.node(bookmark)?.parent == folder)
+        #expect(tree.node(bookmark)?.icon == nil)
+        #expect(tree.node(folder)?.icon == "🚀")
+        #expect(try tree.apply([]).isEmpty)
+    }
+
+    /// Every refusal shows its own localized line, never a raw Swift description.
+    @Test func aRefusalShowsItsOwnLineWithoutTheRawReason() {
+        let invalid = BookmarkAppStrings.failure(BookmarkError.invalid("bad id bm_x"))
+        let unavailable = BookmarkAppStrings.failure(BookmarkError.unavailable)
+        #expect(!invalid.contains("bm_x") && !invalid.contains("invalid("))
+        #expect(!unavailable.contains("unavailable"))
+        #expect(invalid != unavailable)
+    }
+
     // MARK: Drawing
 
     @Test func theBarDrawsAFoldersOwnIconAndTheFolderSymbolWithout() throws {

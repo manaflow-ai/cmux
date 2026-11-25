@@ -24,18 +24,32 @@ cleanup() {
   rm -rf "$scratch"
 }
 trap cleanup EXIT
+# origin's URL when there is one, else the repository's own (as tui-idle-ram.sh): a fleet runner's checkout can have no origin.
+fetch_url="${HOOK_DEADLINE_FETCH_URL:-$(git -C "$root" remote get-url origin 2>/dev/null || echo https://github.com/manaflow-ai/cmux.git)}"
 depth=()
 [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
+# A bare runner: the pinned Rust and Zig (ghostty-vt-sys builds ghostty-next), as tui-idle-ram.sh.
+command -v cargo >/dev/null || (cd "$root" && ./scripts/install-rust-ci.sh)
+if ! command -v zig >/dev/null && [ -z "${ZIG:-}${CMUX_ZIG:-}" ]; then
+  zig_env="$(mktemp)"
+  (cd "$root" && [ -f ghostty-next/build.zig.zon ] || git submodule update --init --depth 1 ghostty-next)
+  (cd "$root" && GHOSTTY_ZIG_SOURCE=ghostty-next GITHUB_ENV="$zig_env" GITHUB_PATH=/dev/null ./scripts/install-zig-ci.sh)
+  zig_line="$(grep '^CMUX_ZIG=' "$zig_env" | tail -n 1 || true)"
+  rm -f "$zig_env"
+  [ -z "$zig_line" ] || export "$zig_line"
+fi
 helpers=()
 for sha in ${shas[@]+"${shas[@]}"}; do
   git -C "$root" cat-file -e "$sha^{commit}" 2>/dev/null \
-    || git -C "$root" fetch -q --no-tags --no-recurse-submodules ${depth[@]+"${depth[@]}"} origin "$sha"
+    || git -C "$root" fetch -q --no-tags --no-recurse-submodules ${depth[@]+"${depth[@]}"} "$fetch_url" "$sha"
   full="$(git -C "$root" rev-parse "$sha^{commit}")" || exit 1
   if [[ -d "$tree" ]]; then
     git -C "$tree" checkout -q --detach "$full" || exit 1
   else
     git -C "$root" worktree add -q --detach "$tree" "$full" || exit 1
   fi
+  [ -f "$tree/ghostty-next/build.zig" ] || git -C "$tree" submodule update -q --init --depth 1 ghostty-next \
+    || { echo "HOOK-DEADLINE-BUILD-FAILED $full (ghostty-next submodule)"; exit 1; }
   echo "HOOK-DEADLINE-AT $full $(git -C "$root" log -1 --format=%s "$full" | cut -c1-80)"
   (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="$scratch/target" cargo build -q --release --locked -p cmux-tui --bin cmux-tui-hook) \
     || { echo "HOOK-DEADLINE-BUILD-FAILED $full"; exit 1; }
