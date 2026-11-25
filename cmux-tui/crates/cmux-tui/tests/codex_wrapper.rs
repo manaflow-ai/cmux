@@ -942,3 +942,23 @@ fn codex_wrapper_overrides_use_key_paths_that_codex_splits_on_dots() {
         "{state:?}"
     );
 }
+
+/// A Codex session started in a terminal gets the config overrides an agent chat's Codex starts
+/// with (`acpmux::harness_limits::CODEX_CONFIG`), unless Codex's own config sets the key (Leo
+/// 2026-11-24: "in terminals and guis alike perhaps terminal simply needs to also have the fixes
+/// and enhancements").
+#[test]
+fn codex_wrapper_gives_a_session_the_chats_config() {
+    let launch = Launch::new();
+    let argv = launch.argv(launch.command().args(["exec", "hello"]));
+    assert_eq!(&argv[argv.len() - 2..], ["exec", "hello"], "{argv:?}");
+    for (key, _) in acpmux::harness_limits::CODEX_CONFIG {
+        assert!(argv.iter().any(|arg| arg.starts_with(&format!("{key}="))), "{key}: {argv:?}");
+    }
+    let home = launch.root.path().join("codex-home");
+    fs::create_dir_all(&home).unwrap();
+    fs::write(home.join("config.toml"), "[agents]\nmax_depth = 2\n").unwrap();
+    let argv = launch.argv(launch.command().env("CODEX_HOME", &home).args(["exec", "hello"]));
+    assert!(!argv.iter().any(|arg| arg.starts_with("agents.max_depth=")), "{argv:?}");
+    assert!(argv.iter().any(|arg| arg.starts_with("agents.max_concurrent_threads_per_session=")));
+}

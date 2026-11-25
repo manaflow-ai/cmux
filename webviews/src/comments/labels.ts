@@ -11,6 +11,12 @@ const DIFF_COMMENT_LABEL_FALLBACKS = {
   sendComments: "Send to agent",
   sendingComments: "Sending…",
   sendCommentsFailed: "Not sent. Your comments are kept.",
+  replyComment: "Reply",
+  replyPlaceholder: "Reply to this thread",
+  resolveComment: "Resolve",
+  reopenComment: "Reopen",
+  you: "You",
+  agent: "Agent",
   // A review worktree's (`cmux git review start <url>`): its drafts go to the pull request as one review.
   postComments: "Post to GitHub",
   postingComments: "Posting…",

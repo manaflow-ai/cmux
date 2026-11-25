@@ -100,9 +100,13 @@ HOSTED_LOOP_JOBS = {
 HOSTED_PREFLIGHT_JOBS: dict[str, str] = {}
 # Secret-free Linux controls on our own persistent Linux pool, cmux-linux: one label for every own-branch Linux job.
 # A fork takes GitHub-hosted Ubuntu.
-CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"
+CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
 CMUX_LINUX_JOBS = ("resolve-nightly-ghostty-cli-helper", "resolve-nightly-cmux-tui-client",
-                   "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker")
+                   "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
+                   "check-nightly-app-store-shelf")
+# RFD 0021 route by need: of those, the essential ones take the nightly's reserved label on the first run, before a rerun or loop retry.
+NIGHTLY_PINNED_JOBS = ("resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant")
+NIGHTLY_PINNED_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}"
 # Jobs on our minis for nightly-next only. Every other track (classic, RC) goes to the JIT label (GitHub-hosted until
 # 2026-11-21) through this short-circuit, as before #38596: its release uploads may wait out the API rate limit for up to 360 min, which must
 # not hold the exclusive signing Mac. job -> why.
@@ -184,7 +188,8 @@ class EveryJobOnOurMinis(unittest.TestCase):
             if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or name in HOSTED_PREFLIGHT_JOBS or job.get("uses"):
                 continue
             if name in CMUX_LINUX_JOBS:
-                if workflow_jobs.runs_on_cells(job) != [CMUX_LINUX_RUNS_ON] or workflow_jobs.secret_names(job):
+                expected = NIGHTLY_PINNED_RUNS_ON if name in NIGHTLY_PINNED_JOBS else CMUX_LINUX_RUNS_ON
+                if workflow_jobs.runs_on_cells(job) != [expected] or workflow_jobs.secret_names(job):
                     failures[name] = "a cmux-linux control takes only cmux-linux and holds no secret"
                 continue
             # Each matrix cell (`${{ matrix.pool }}` read as its values) is a route of its own.

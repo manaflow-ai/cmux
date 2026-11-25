@@ -318,7 +318,7 @@ public final class PaletteController {
         }
         // The room (theme) of the window it opens over.
         (parent?.themeScope ?? .app).adopt(panel)
-        let size = PaletteLayout.windowSize
+        let size = PaletteLayout.windowSize(model.experiments)
         panel.setFrame(frame(for: parent, size: size), display: false)
         if let parent, panel.parent !== parent {
             panel.parent?.removeChildWindow(panel)
@@ -406,7 +406,7 @@ public final class PaletteController {
     private var contentView: PaletteContentView? { panel?.contentView as? PaletteContentView }
 
     private func makePanel() -> PalettePanel {
-        let panel = PalettePanel(size: PaletteLayout.windowSize)
+        let panel = PalettePanel(size: PaletteLayout.windowSize(model.experiments))
         let content = PaletteContentView(model: model)
         content.autoresizingMask = [.width, .height]
         content.onPreferredSizeChange = { [weak self, weak panel] size in
@@ -426,6 +426,8 @@ public final class PaletteController {
         panel.capturesKeyEquivalent = { [weak self] event in
             guard let model = self?.model else { return false }
             if PaletteKeyMap.isActionsKey(event) { return model.selectedItem != nil || model.actionsMenu != nil }
+            // Cmd-1 to Cmd-3 pick a scope bar segment, not the main menu's item, while the bar shows.
+            if model.experiments.look.showsScopeBar, PaletteKeyMap.scopeSegment(for: event) != nil { return true }
             guard PaletteKeyMap.isCloseItem(event) else { return false }
             return model.currentPageOwnsCloseKey || model.selectedItem?.closeCommand != nil
         }
@@ -478,9 +480,16 @@ public final class PaletteController {
     func handleKeyDown(_ event: NSEvent, in window: NSWindow? = nil) -> Bool {
         let window = window ?? event.window
         if model.shortcutRecorder != nil {
-            return shortcutRecorder.handle(PaletteShortcutRecorder.shortcut(for: event), keyCode: event.keyCode, event: event)
+            return shortcutRecorder.handle(PaletteShortcutRecorder.shortcut(for: event, qwerty: registry.matchesQwertyPositions), keyCode: event.keyCode, event: event)
         }
         if Self.inputMethodOwns(event, in: window) { return false }
+        // The v2 rail's categories (⌥↑ / ⌥↓), only while a rail shows.
+        if let step = PaletteRailView.step(for: event), model.moveRail(by: step) { return true }
+        // The v2 scope bar's segments (⌘1 All, ⌘2 This Workspace, ⌘3 Sessions), only while the bar shows.
+        if model.experiments.look.showsScopeBar, let segment = PaletteKeyMap.scopeSegment(for: event) {
+            model.chooseScopeSegment(segment)
+            return true
+        }
         let caret = Self.caret(in: window)
         guard let command = PaletteKeyMap.command(
             for: event,

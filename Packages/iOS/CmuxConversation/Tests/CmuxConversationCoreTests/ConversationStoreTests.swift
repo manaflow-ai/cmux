@@ -135,6 +135,9 @@ import Testing
         store.send(text: "one")
         store.send(text: "two")
         store.send(text: "three")
+        // Wait for the first dispatch (a loaded runner can take longer than a fixed sleep), then give
+        // a wrong second dispatch time to show.
+        try await waitUntil { !backend.sentClientIDs.isEmpty }
         try await Task.sleep(for: .milliseconds(50))
         // The server numbers messages in arrival order, so a later send must not
         // be dispatched while an earlier one is still in flight.

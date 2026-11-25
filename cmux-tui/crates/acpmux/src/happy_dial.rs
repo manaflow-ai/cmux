@@ -75,8 +75,11 @@ where
 
 /// Resolve `host` (a name, or an IP literal, with or without brackets) and connect to `port`:
 /// [`race`] over the addresses IPv6 first, families interleaved, Nagle off.
+/// The egress gate checks `host` first (docs/privacy.md, Egress gate).
 pub async fn connect_tcp(host: &str, port: u16) -> io::Result<TcpStream> {
     let bare = host.trim_start_matches('[').trim_end_matches(']');
+    cmux_egress::check(bare, "acpmux::happy_dial::connect_tcp")
+        .map_err(|refused| io::Error::new(io::ErrorKind::PermissionDenied, refused))?;
     let addresses: Vec<SocketAddr> = tokio::net::lookup_host((bare, port)).await?.collect();
     if addresses.is_empty() {
         return Err(io::Error::new(
@@ -87,6 +90,70 @@ pub async fn connect_tcp(host: &str, port: u16) -> io::Result<TcpStream> {
     let stream = race(&interleave(&addresses), STAGGER, TcpStream::connect).await?;
     let _ = stream.set_nodelay(true);
     Ok(stream)
+}
+
+/// At most this many attempts run at once in [`again`]; at the cap a fresh attempt replaces
+/// the oldest, whose next SYN is the furthest off.
+pub const AGAIN_AT_MOST: usize = 4;
+
+/// `dial` now, again every `every` and at once on each `kick`, keeping at most `at_most`
+/// attempts (the oldest is dropped to make room), until one succeeds or one fails with no
+/// other running. The attempts are polled here, not spawned, so `dial` may borrow its caller
+/// (a whole link open: connect, TLS and the WebSocket upgrade); returning drops every attempt
+/// still running, closing its socket.
+pub async fn again<T, E, F, Fut, K, KFut>(
+    every: Duration,
+    at_most: usize,
+    mut kick: K,
+    mut dial: F,
+) -> Result<T, E>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, E>>,
+    K: FnMut() -> KFut,
+    KFut: Future<Output = ()>,
+{
+    let at_most = at_most.max(1);
+    let mut running: std::collections::VecDeque<std::pin::Pin<Box<Fut>>> =
+        std::collections::VecDeque::new();
+    let mut start = |running: &mut std::collections::VecDeque<std::pin::Pin<Box<Fut>>>| {
+        if running.len() >= at_most {
+            running.pop_front();
+        }
+        running.push_back(Box::pin(dial()));
+    };
+    start(&mut running);
+    let mut next = tokio::time::Instant::now() + every;
+    let mut kicked = Box::pin(kick());
+    loop {
+        let settled = std::future::poll_fn(|cx| {
+            for (index, attempt) in running.iter_mut().enumerate() {
+                if let std::task::Poll::Ready(result) = attempt.as_mut().poll(cx) {
+                    return std::task::Poll::Ready((index, result));
+                }
+            }
+            std::task::Poll::Pending
+        });
+        tokio::select! {
+            (index, result) = settled => {
+                drop(running.remove(index));
+                match result {
+                    Ok(opened) => return Ok(opened),
+                    Err(error) if running.is_empty() => return Err(error),
+                    Err(_) => {}
+                }
+            }
+            () = tokio::time::sleep_until(next) => {
+                start(&mut running);
+                next += every;
+            }
+            () = &mut kicked => {
+                start(&mut running);
+                next = tokio::time::Instant::now() + every;
+                kicked = Box::pin(kick());
+            }
+        }
+    }
 }
 
 /// `connect_async` over [`connect_tcp`]: the same TLS and handshake, without waiting out a
@@ -147,10 +214,11 @@ impl reqwest::dns::Resolve for V6FirstResolver {
     }
 }
 
-/// `reqwest::Client::builder()` with [`V6FirstResolver`]: every HTTP client the daemon builds
-/// starts here, so each leads with IPv6 where the host has it and hedges IPv4 after 300 ms.
+/// `reqwest::Client::builder()` with [`V6FirstResolver`] behind the egress gate: every HTTP
+/// client the daemon builds starts here, so each passes docs/privacy.md's host list
+/// (`cmux_egress`) and then leads with IPv6 where the host has it, hedging IPv4 after 300 ms.
 pub fn http_client() -> reqwest::ClientBuilder {
-    reqwest::Client::builder().dns_resolver(V6FirstResolver::default())
+    cmux_egress::client_builder_with("acpmux::happy_dial::http_client", V6FirstResolver::default())
 }
 
 #[cfg(test)]

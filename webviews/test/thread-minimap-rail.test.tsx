@@ -427,6 +427,37 @@ test("wheel browsing belongs to the rail and is not snapped back by transcript s
   }
 });
 
+test("wheel browsing fades both ends from the rail's position while the transcript stays put", async () => {
+  const count = 120;
+  const view = await mount(count);
+  try {
+    const rail = document.querySelector<HTMLElement>(".acpmux-minimap__rail")!;
+    const list = rail.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+    const pitch = Number.parseFloat(list.style.getPropertyValue("--acpmux-minimap-pitch"));
+    const end = count * pitch - Number.parseFloat(rail.style.height);
+    expect(end).toBeGreaterThan(0);
+    // Browse away from the latest message, then return to it. The highlighted prompts stay at the end.
+    view.scroller.scrollTop =
+      Number.parseFloat(document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height) - VIEWPORT;
+    await view.scrolled();
+    const transcriptTop = view.scroller.scrollTop;
+    expect(list.scrollTop).toBe(end);
+    await act(async () => list.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -120, bubbles: true })));
+    for (const [offset, top, bottom] of [
+      [end / 2, true, true],
+      [0, false, true],
+      [end, true, false],
+    ] as const) {
+      list.scrollTop = offset;
+      await act(async () => list.dispatchEvent(new dom.window.Event("scroll", { bubbles: true })));
+      expect([list.hasAttribute("data-fade-top"), list.hasAttribute("data-fade-bottom")]).toEqual([top, bottom]);
+      expect(view.scroller.scrollTop).toBe(transcriptTop);
+    }
+  } finally {
+    await view.unmount();
+  }
+});
+
 test("the wheel over the rail's pane-edge padding scrolls the rail, not the transcript", async () => {
   // Leo, 2026-10-28: "I said me scroll on it, cover area, it scroll, plus the padding". The strip
   // between the pane edge and the rail reveals it on hover, so the wheel over it is the rail's too.

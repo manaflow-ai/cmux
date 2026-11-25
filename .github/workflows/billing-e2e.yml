@@ -35,7 +35,7 @@ jobs:
   e2e:
     if: github.ref == 'refs/heads/feat-cmux-next'
     environment: billing-e2e
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 60
     env:
       E2E_STRIPE_TEST_KEY: ${{ secrets.E2E_STRIPE_TEST_KEY }}
@@ -59,6 +59,8 @@ jobs:
           for name in E2E_STRIPE_TEST_KEY E2E_BILLING_LEVELS_KEY E2E_STACK_EMAIL E2E_STACK_PASSWORD; do
             [ -n "${!name}" ] || { echo "::error::the billing-e2e environment has no ${name}"; exit 1; }
           done
+      - name: NEXT plan checkout (link, 303, test-mode session read back, expired)
+        run: bun backend/scripts/stripe-plan-e2e.ts | tee -a "$RUNNER_TEMP/e2e.log"
       - name: Buy (PHASE=a)
         run: PHASE=a bun backend/scripts/stripe-usage-e2e.ts | tee -a "$RUNNER_TEMP/e2e.log"
       - name: Use past the included amount (PHASE=more until both levels pass it)
