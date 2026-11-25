@@ -117,6 +117,9 @@ const CATCH_UP_LINES = 1;
 const CATCH_UP_S = 0.15;
 /// At rest: drawn within this of its layout and moving slower than REST_SPEED px/s.
 const REST_PX = 0.25;
+/// The most of a send pop's rise one 60 Hz frame moves (SEND-RISE): its curve's fast start nominally
+/// moves ~14% in the first frame, so a late frame stays near it instead of jumping ahead.
+const RISE_FRAME_SHARE = 0.12;
 const REST_SPEED = 4;
 /// A frame gap longer than this (a hidden page, a long task) integrates as this long: the shared
 /// scroll clock's paced rides use the same bound (scrollMotion.ts).
@@ -376,7 +379,16 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
   /// (the reply's growth, `land`, `hold`) hands it back to the spring from where it is drawn and how
   /// fast it goes; a send's step keeps every move that raises the rows while it plays.
   let arrival:
-    | { from: number; at: number; duration: number; ease: (progress: number) => number; sent: boolean }
+    | {
+        from: number;
+        at: number;
+        duration: number;
+        ease: (progress: number) => number;
+        sent: boolean;
+        /// The send pop's rise only (SEND-RISE): the whole move this step carries (px), so no frame
+        /// moves more than RISE_FRAME_SHARE of it. Unset with the pop off, which keeps the line cap.
+        span?: number;
+      }
     | undefined;
   /// The `steady` arm: the drift's state, and what `shift` drew back since its last frame (px).
   let steady: SteadyState = { x: 0, speed: 0, rate: 0 };
@@ -401,6 +413,9 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     recheck = undefined;
   };
   let last: number | undefined;
+  /// The last step's frame time: the frames a step's move was painted over (`span`'s cap). Unset
+  /// until a step ran, so the first step after a move counts one frame, however late the move came.
+  let painted: number | undefined;
   let scale = 1;
   /// While the trail is past its bound: the speed (px/s) that brings it back within BURST_S of the
   /// landing that put it there, 0 inside the bound.
@@ -453,6 +468,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     if (frame !== undefined) thread?.ownerDocument.defaultView?.cancelAnimationFrame(frame);
     frame = undefined;
     last = undefined;
+    painted = undefined;
     x = 0;
     v = 0;
     burst = 0;
@@ -480,6 +496,8 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     }
     const dt = last === undefined ? 1 / 120 : Math.min(MAX_STEP_S, Math.max(0, (now - last) / 1000));
     last = now;
+    const paintedFrames = painted === undefined ? 1 : Math.max(1, Math.round(((now - painted) * 60) / 1000));
+    painted = now;
     const from = x;
     // Past CATCH_UP_LINES behind (a burst faster than the limit) the limit rises by what is further
     // behind over CATCH_UP_S, so a frame never moves far while the view stays near the newest line.
@@ -506,7 +524,13 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       // A send's step moves no frame more than a line (its curve's fast start moves a fifth of a long
       // move in the first frame); the curve, slowing, takes back what a frame held over.
       if (arrival.sent) {
-        const most = CHASE_MAX_FRAME_LINES * line * Math.max(1, Math.round(dt * 120));
+        let most = CHASE_MAX_FRAME_LINES * line * Math.max(1, Math.round(dt * 120));
+        // The pop's rise runs on real time, so a frame that comes late (a loaded page) carried its
+        // lateness of the curve's fast start in one paint: 34-52 px of a 177-236 px rise, 19-22% of it
+        // (agent-pane.send-rise on CI). It moves no more than RISE_FRAME_SHARE of the rise per 60 Hz
+        // frame it covers; the curve, slowing, takes the held-over part back before its end.
+        if (arrival.span !== undefined)
+          most = Math.min(most, Math.max(REST_PX, arrival.span * RISE_FRAME_SHARE * paintedFrames));
         if (Math.abs(nextX - x) > most) nextX = x + Math.sign(nextX - x) * most;
       }
       v = (nextX - x) / Math.max(dt, 1e-3);
@@ -621,6 +645,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       if (frame !== undefined) thread?.ownerDocument.defaultView?.cancelAnimationFrame(frame);
       frame = undefined;
       last = undefined;
+      painted = undefined;
       v = 0;
       burst = 0;
       due = undefined;
@@ -788,7 +813,11 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       const rest = joining ? 1 - joining.ease(Math.min(1, joining.at / joining.duration)) : 0;
       arrival =
         joining && rest > 1e-6
-          ? { ...joining, from: x / rest }
+          ? {
+              ...joining,
+              from: x / rest,
+              span: joining.span === undefined ? undefined : joining.span + Math.abs(moved),
+            }
           : timed && sending
             ? {
                 from: x,
@@ -796,6 +825,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
                 duration: Math.max(1000 / 120, arrival?.sent ? (left ?? 0) : sendRiseMsOf(node, scale)) / 1000,
                 ease: sendRiseEase(node),
                 sent: true,
+                span: popRiseMs(node) > 0 ? Math.abs(x) : undefined,
               }
             : timed && arrived && arrivalLook(node)
               ? { from: x, at: 0, duration: arrivalStepMs(x, scale, left) / 1000, ease: arrivalEase, sent: false }
@@ -806,6 +836,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
         // Integrate from this frame's time: the first step lands one display frame on.
         const view = node.ownerDocument.defaultView;
         last = at;
+        painted = undefined;
         askedAt = performance.now();
         frame = view?.requestAnimationFrame(step);
       }

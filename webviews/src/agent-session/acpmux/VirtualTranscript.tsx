@@ -2890,6 +2890,10 @@ function TranscriptView({
   /// the send motion's length. A row landing later in `sendRiseUntil` (a delayed thinking or tool
   /// row) arrives on the arrival step instead of starting the send curve over after the bubble rested.
   const sendClockUntil = useRef(Number.NEGATIVE_INFINITY);
+  /// A send whose own rows have not landed yet: the send's clock starts when they do. Timed from the
+  /// commit alone, a loaded page that drew the prompt's row after the clock's end (240 ms on `quick`)
+  /// moved the rows above by the whole room in one frame (agent-pane.send-rise on CI).
+  const sendRowsPending = useRef(false);
   /// The latest send came while a turn ran (a steer): its row lands above the running work, an
   /// arrival like any other (followChase's arrival step), not the send's rise from the composer.
   /// Set while rendering, as React adjusts state on a prop change, so the passes after this
@@ -5008,6 +5012,15 @@ function TranscriptView({
             tailAnchor = chaseAnchor.current?.id;
             // A send's own rows rise on the send motion, one clock with the bubble's entrance, while
             // that motion plays; rows landing after it arrive on the arrival step.
+            // The clock starts over when the send's first rows land (`sendRowsPending`), so a page that
+            // drew them late still rises on the whole clock instead of landing them at once.
+            if (sentRows && sendRowsPending.current) {
+              sendRowsPending.current = false;
+              sendClockUntil.current = Math.max(
+                sendClockUntil.current,
+                now + Math.max(sendMotionMs(node), sendRiseMs(node)),
+              );
+            }
             const sentClock = sentRows && (sends !== seenSends.current || now < sendClockUntil.current);
             chaseFollow(node, layout, rows, below, atOnce, held, arrived, sentClock && !steered);
             // In a send's window the steady arm's live line moves with the rows it chases: its own glide
@@ -5872,6 +5885,7 @@ function TranscriptView({
       // (placement pass), and the reply's rows that land next rise on it too (`sendRows`).
       sendRiseUntil.current = performance.now() + SEND_RISE_MS;
       sendClockUntil.current = performance.now() + Math.max(sendMotionMs(node), sendRiseMs(node));
+      sendRowsPending.current = true;
       return;
     }
     revealing.current = undefined;
@@ -5917,6 +5931,7 @@ function TranscriptView({
     // The prompt's rows that land in the next commits glide in too (placement pass, `sendRows`).
     sendRiseUntil.current = performance.now() + SEND_RISE_MS;
     sendClockUntil.current = performance.now() + Math.max(sendMotionMs(node), sendRiseMs(node));
+    sendRowsPending.current = true;
     // Sent while scrolled up: on a page's own send clock the view glides down to the latest message
     // on Jump to latest's ride (one viewport at most), and the prompt's row and reply land on the
     // moving end. On the product's 0 clock (Leo, 2026-11-11: "that slow settle animation is just so
