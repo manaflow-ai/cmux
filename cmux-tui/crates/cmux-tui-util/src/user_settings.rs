@@ -15,23 +15,28 @@ use serde_json::Value;
 /// (`CmuxConfigFile.overrideKey`), so test launches never read the user's.
 pub const CONFIG_OVERRIDE: &str = "CMUX_NEXT_CONFIG_FILE";
 
-/// The app's settings file (`CmuxConfigFile.defaultURL`), under the home.
-const NEXT_FILE: &str = ".config/cmux/cmux-next.json";
-/// Classic cmux's file, which the app copies to [`NEXT_FILE`] at its first
+/// The app's settings file (`CmuxConfigFile.defaultURL`), under the home:
+/// `.config/cmux/cmux-next.json`, in `.config/cmux-next/` on macOS
+/// (`cmux_config::location`).
+fn next_file(home: &Path) -> PathBuf {
+    home.join(".config").join(cmux_config::NEXT_DIR).join(cmux_config::location::NEXT_FILE_NAME)
+}
+/// Classic cmux's file, which the app copies to [`next_file`] at its first
 /// launch.
 const CLASSIC_FILE: &str = ".config/cmux/cmux.json";
 
 /// The settings file the app reads and writes: `CMUX_NEXT_CONFIG_FILE`,
-/// else `<home>/.config/cmux/cmux-next.json`; while that file does not exist
-/// yet (the app never ran), classic `cmux.json`, which the app would seed it
-/// from.
+/// else `<home>/.config/cmux/cmux-next.json` (`cmux-next/` on macOS); while
+/// that file does not exist yet (the app never ran), classic `cmux.json`,
+/// which the app would seed it from.
 pub fn config_path() -> PathBuf {
     let env = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty());
     if env(CONFIG_OVERRIDE).is_some() {
         return path_from(env);
     }
+    cmux_config::location::migrate_legacy_once();
     let home = crate::platform::home_dir().unwrap_or_default();
-    let next = home.join(NEXT_FILE);
+    let next = next_file(&home);
     let classic = home.join(CLASSIC_FILE);
     if !next.exists() && classic.exists() { classic } else { next }
 }
@@ -49,7 +54,7 @@ pub fn path_from(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> PathBuf {
         return path;
     }
     let home = env("HOME").map(PathBuf::from).unwrap_or_default();
-    home.join(NEXT_FILE)
+    next_file(&home)
 }
 
 /// Settings-file `workspaces.newPlacement`: where a new workspace goes in

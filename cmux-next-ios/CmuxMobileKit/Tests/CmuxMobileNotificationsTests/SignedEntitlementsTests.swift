@@ -32,9 +32,16 @@ import Testing
     /// A simulator build: the `__TEXT,__entitlements` section.
     static func simulator(_ xml: Data) -> Data {
         let offset = 32 + 152
-        let section = name("__entitlements") + name("__TEXT") + le64(0) + le64(UInt64(xml.count)) + le32(UInt32(offset))
-            + Array(repeating: 0, count: 80 - 52)
-        let segment = le32(0x19) + le32(152) + name("__TEXT") + Array(repeating: 0, count: 64 - 24) + le32(1) + le32(0) + section
+        // Built in steps: one long `+` chain is too slow for the type checker on some toolchains.
+        var section: [UInt8] = name("__entitlements") + name("__TEXT")
+        section += le64(0) + le64(UInt64(xml.count))
+        section += le32(UInt32(offset))
+        section += [UInt8](repeating: 0, count: 80 - 52)
+        var segment: [UInt8] = le32(0x19) + le32(152)
+        segment += name("__TEXT")
+        segment += [UInt8](repeating: 0, count: 64 - 24)
+        segment += le32(1) + le32(0)
+        segment += section
         return Data(header(commands: 1, size: 152) + segment + Array(xml))
     }
 

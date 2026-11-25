@@ -370,6 +370,8 @@ jobs:
             /cmux.xcodeproj/project.pbxproj
             /tests/workflow_jobs.py
             /docs/mdm/
+            /docs/ci/cmux-next-workflow-notes.md
+            /docs/ci/nightly-workflow-notes.md
             /backend/apps/api/
             *.xcstrings
 
@@ -393,6 +395,13 @@ jobs:
       # (scripts/web_lint_prepush.py), and the webviews checks gate (a dispatch,
       # or a webviews/, catalog or spec change) installs webviews'; without either
       # none of this runs.
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
+        shell: bash
+        continue-on-error: true
+        timeout-minutes: 2
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
         timeout-minutes: 4
@@ -449,6 +458,13 @@ jobs:
         run: rm -rf ~/.bun/install/cache
 
       # `vp check` runs on Node and needs ^22.18 or ^24.11; bun still installs.
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
+        shell: bash
+        continue-on-error: true
+        timeout-minutes: 2
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
       # Node comes from the runner's tool cache, else nodejs.org (scripts/ci/ensure-setup-node.sh: sha256 checked, curl
       # bounded), not actions/setup-node: on a Freestyle VM its download from GitHub's node-versions releases took
       # 175 to 428 s, or ran into the job limit (job 137555099878, 2026-11-23), while nodejs.org is not GitHub egress.
@@ -557,7 +573,7 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-pr-clippy
+          shared-key: cmux-tui-pr-clippy-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: false
 
       - name: Rust panic ratchet on the merge, against the tip
