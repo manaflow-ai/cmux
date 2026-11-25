@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR f3174b78fe7ddef4977731c41d29a17297974d7ebb8fac89686017e0af429316.
+// cmux-tui mux protocol 12, IR 9909be22be383a007926d56d7b492b4ad724d6c7918bcef386a13d277e0fcd17.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2196,6 +2196,9 @@ pub type ListClientsResult = Vec<T::ClientInfo>;
 pub struct ListNotificationsRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub limit: Optional<u64>,
+    /// true: the reply also carries agent_notice_stats.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub stats: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -2277,6 +2280,8 @@ pub struct ListWorkspacesRequest {
     pub known: Optional<T::ListWorkspacesKnown>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub limit: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub since: Optional<T::ListWorkspacesSince>,
 }
 
 #[rustfmt::skip]
@@ -3178,6 +3183,11 @@ pub struct ReleaseSurfaceSizeRequest {
 
 #[rustfmt::skip]
 pub type ReleaseSurfaceSizeResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ReleaseWorkspaceNamesRequest {
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -5335,6 +5345,9 @@ impl CmuxClient {
             self.require_protocol_field("list-workspaces", 12)?;
             self.require_capability_field("list-workspaces", "list-workspaces-limit-v1")?;
         }
+        if !request.since.is_missing() {
+            self.require_capability_field("list-workspaces", "workspace-list-delta-v1")?;
+        }
         self.execute(&LIST_WORKSPACES_METADATA, &request)
     }
 
@@ -5769,6 +5782,10 @@ impl CmuxClient {
 
     pub fn release_surface_size(&mut self, request: ReleaseSurfaceSizeRequest) -> Result<ReleaseSurfaceSizeResult> {
         self.execute(&RELEASE_SURFACE_SIZE_METADATA, &request)
+    }
+
+    pub fn release_workspace_names(&mut self, request: ReleaseWorkspaceNamesRequest) -> Result<T::ReleaseWorkspaceNamesResult> {
+        self.execute(&RELEASE_WORKSPACE_NAMES_METADATA, &request)
     }
 
     pub fn reload_config(&mut self, request: ReloadConfigRequest) -> Result<ReloadConfigResult> {
