@@ -48,6 +48,12 @@ pub fn classify(datagram: &[u8]) -> DatagramClass {
     }
 }
 
+/// Whether a datagram starting with `first_byte` is hop/1 (`0xC1`), the
+/// relay PoP's framing: neither WireGuard (1 to 4) nor STUN (top bits 00).
+pub fn is_hop(first_byte: u8) -> bool {
+    crate::hop::is_hop(first_byte)
+}
+
 fn is_stun(datagram: &[u8]) -> bool {
     let Some(([kind0, _, len0, len1, c0, c1, c2, c3], _)) = datagram.split_first_chunk::<8>()
     else {
@@ -64,22 +70,5 @@ fn is_stun(datagram: &[u8]) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn wg(kind: u8, len: usize) -> Vec<u8> {
-        let mut bytes = vec![0xA5; len];
-        bytes[0] = kind;
-        bytes[1..4].copy_from_slice(&[0, 0, 0]);
-        bytes
-    }
-
-    #[test]
-    fn wireguard_messages_classify_by_type_and_size() {
-        assert_eq!(classify(&wg(1, 148)), DatagramClass::WireGuardInitiation);
-        assert_eq!(classify(&wg(2, 92)), DatagramClass::WireGuardResponse);
-        assert_eq!(classify(&wg(3, 64)), DatagramClass::WireGuardCookieReply);
-        assert_eq!(classify(&wg(4, 32)), DatagramClass::WireGuardData);
-        assert_eq!(classify(&wg(4, 32 + 1424)), DatagramClass::WireGuardData);
-    }
-}
+#[path = "classify_tests.rs"]
+mod tests;

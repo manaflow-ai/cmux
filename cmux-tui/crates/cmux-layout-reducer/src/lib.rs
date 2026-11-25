@@ -55,6 +55,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 mod rows;
+pub mod sidebar_nav;
 pub mod sidebar_section_customization;
 mod tab_moves;
 pub use rows::{ROW_HEIGHT_PERMILLE, Row, RowId, row_layout_is_valid};
@@ -955,6 +956,7 @@ mod rows_tests;
 mod sidebar_face_tests;
 
 pub mod auto_archive;
+pub mod automatic;
 pub mod closing_panes;
 pub mod divider_insert;
 pub mod floating_panes;
@@ -979,5 +981,6 @@ pub mod sidebar_face;
 pub mod sidebar_launch_order;
 pub mod sidebar_layout;
 pub mod sidebar_layout_plan;
+pub mod sidebar_row;
 pub mod sidebar_row_layout;
 pub mod workspace_port_links;

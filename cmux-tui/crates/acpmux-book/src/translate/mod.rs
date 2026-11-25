@@ -18,6 +18,7 @@ mod input;
 mod kinds;
 #[cfg(test)]
 mod kinds_tests;
+mod narration;
 #[cfg(test)]
 mod tests;
 mod user;
@@ -25,15 +26,16 @@ mod user;
 mod user_tests;
 mod v1;
 
-use crate::row::{Row, RowKind};
+use crate::row::{Phase, Row, RowKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// Version 10 writes the card rows, patched by their later records (decisions 253, 254); version
+/// Version 11 writes each row's phase (entering, live, settled, leaving) and takes rows back by
+/// the leave op; version 10 wrote the card rows, patched by their later records (decisions 253, 254); version
 /// 9 wrote what a user row says of its prompt and its sender, the ask rows and their decisions,
 /// and a turn end a prompt sent now went on under (decisions 231, 235, 236). A book of any other
 /// version rebuilds from raw.
-pub const VERSION: u32 = 10;
+pub const VERSION: u32 = 11;
 /// The translator's segment and the queue's records together.
 pub const MAX_STATE_BYTES: usize = MAX_TRANSLATOR_BYTES + 32 * MAX_QUEUE_ENTRIES;
 /// Every held state at its cap at once, with room left for the live turn: held steers 12 KB, asks
@@ -92,6 +94,11 @@ pub enum Change {
     Row(OwnedRow),
     /// Rare replacement of a settled live-message block; rev is incremented.
     Patch(OwnedRow),
+    /// A row taken back: a reply the harness superseded, a prompt that never ran. Its body
+    /// becomes `{"hidden":true}`, its estimate zero and its phase `leaving`; its id and place stay.
+    /// At rev 1 the row was open and settles so; past 1 it had settled and is patched. The page
+    /// plays the row's exit from this one op, never from a diff of two windows.
+    Leave(OwnedRow),
     /// Add or update one bounded prompt-queue entry, or remove it by id hash.
     Queue(QueueChange),
     /// Apply before the following settle. Input values are JSON, copied/decoded by
@@ -219,6 +226,10 @@ impl QueueEntry {
     }
 }
 
+/// The most bytes of a row's [`OwnedRow::head`]: with a 4 KB preview and the row's own keys it
+/// stays well under the 16 KB row.
+pub const MAX_HEAD_BYTES: usize = 8 * 1024;
+
 /// Only metadata: no body, preview, tool output or arguments live in translator state.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OwnedRow {
@@ -230,11 +241,29 @@ pub struct OwnedRow {
     pub group: Option<u64>,
     pub at: u64,
     pub open: bool,
+    /// Born on the line the translator read last: an open row reads `entering` until the next
+    /// line begins, then `live` ([`OwnedRow::phase`]).
+    pub entering: bool,
     pub bytes: u64,
     pub lines: u64,
     pub fields: BTreeMap<String, String>,
 }
 impl OwnedRow {
+    /// Where the row is in its life, from its own state only, so a replay writes the same text:
+    /// a row taken back ([`Change::Leave`], its body `{"hidden":true}`) is leaving, a closed row
+    /// settled, an open one entering on the line that bore it and live after.
+    pub fn phase(&self) -> Phase {
+        if !self.open {
+            if self.hidden() { Phase::Leaving } else { Phase::Settled }
+        } else if self.entering {
+            Phase::Entering
+        } else {
+            Phase::Live
+        }
+    }
+    fn hidden(&self) -> bool {
+        self.fields.get("hidden").is_some_and(|s| s == "true")
+    }
     pub fn as_row<'a>(&self, body: &'a str) -> Row<'a> {
         Row {
             id: self.id,
@@ -244,13 +273,31 @@ impl OwnedRow {
             group: self.group,
             at: self.at,
             open: self.open,
+            phase: self.phase(),
             body,
-            est: if self.fields.get("hidden").is_some_and(|s| s == "true") {
+            est: if self.hidden() {
                 0
             } else {
                 u32::try_from(self.lines.max(1)).unwrap_or(u32::MAX)
             },
         }
+    }
+    /// The small body a row keeps when its body is out of line or left out: its own fields
+    /// (an image's `w` and `h`, a tool's name and status), never a bulk body field, as one
+    /// compact JSON object in the body's key order. `{}` when they would pass [`MAX_HEAD_BYTES`],
+    /// so a head never makes a row too large to encode.
+    pub fn head(&self) -> String {
+        let mut head = String::from("{");
+        for (key, value) in &self.fields {
+            if head.len() > 1 {
+                head.push(',');
+            }
+            head.push_str(&json_string(key));
+            head.push(':');
+            head.push_str(value);
+        }
+        head.push('}');
+        if head.len() > MAX_HEAD_BYTES { "{}".into() } else { head }
     }
     fn field(&mut self, key: &str, value: &str) -> bool {
         self.field_capped(key, value, MAX_KEY_BYTES)
@@ -588,6 +635,9 @@ pub fn translate(
         state.invalid_records = state.invalid_records.saturating_add(1);
         return Ok(Vec::new());
     }
+    // A row born on the line before has been offered as entering: from a line that changes
+    // anything on, it is live. A line that changes nothing (a duplicate) leaves it entering.
+    let went_live = state.rows_went_live();
     let result = match harness {
         Harness::V1 => v1::line(state, place, span, bytes, &mut out),
         Harness::Claude => claude::line(state, bytes, &mut out),
@@ -596,9 +646,13 @@ pub fn translate(
     debug_assert!(result.is_ok(), "validated harness line failed during apply");
     if result.is_err() {
         state.line_errors = state.line_errors.saturating_add(1);
+        state.rows_entering(&went_live);
         return Ok(Vec::new());
     }
     state.bound_open_rows(&mut out);
+    if out.ops.is_empty() {
+        state.rows_entering(&went_live);
+    }
     // The queue is counted apart from the translator's 32 KiB segment: its records go to the
     // book's prompt section.
     Ok(out.ops)
@@ -742,6 +796,20 @@ impl State {
     pub fn open_rows(&self) -> impl Iterator<Item = &OwnedRow> {
         self.stored_rows().filter(|row| row.open)
     }
+    /// The open turn as a read folds it: its group row and the ranges its group row would carry
+    /// as `out` were the turn to end now (`finish` counts the reply in its slot, so this does).
+    /// `None` outside a turn.
+    pub fn open_fold(&self) -> Option<crate::log::LiveFold> {
+        let group = self.group.as_ref()?;
+        let mut fold = self.fold.clone();
+        if let Some(reply) = &self.reply {
+            fold.reply(&reply.facts);
+        }
+        Some(crate::log::LiveFold {
+            group: group.id,
+            out: fold.out().into_iter().map(|run| (run.0, run.1)).collect(),
+        })
+    }
     fn stored_rows(&self) -> impl Iterator<Item = &OwnedRow> {
         self.reply
             .iter()
@@ -754,6 +822,39 @@ impl State {
             .chain(self.compaction.iter())
             .chain(self.prompts.values().map(|p| &p.row))
             .chain(self.asks.values().map(|ask| &ask.row))
+    }
+    /// Every open row the translator holds, to change in place.
+    fn stored_rows_mut(&mut self) -> impl Iterator<Item = &mut OwnedRow> {
+        self.reply
+            .iter_mut()
+            .map(|s| &mut s.row)
+            .chain(self.thought.iter_mut().map(|s| &mut s.row))
+            .chain(self.tools.values_mut())
+            .chain(self.subs.values_mut())
+            .chain(self.group.iter_mut())
+            .chain(self.plan.iter_mut())
+            .chain(self.compaction.iter_mut())
+            .chain(self.prompts.values_mut().map(|p| &mut p.row))
+            .chain(self.asks.values_mut().map(|ask| &mut ask.row))
+    }
+    /// The rows born on the last line are entering no more. Costs the open rows the translator
+    /// holds, which its bounds keep under about 200.
+    fn rows_went_live(&mut self) -> Vec<u64> {
+        let mut went = Vec::new();
+        for row in self.stored_rows_mut().filter(|row| row.entering) {
+            row.entering = false;
+            went.push(row.id);
+        }
+        went
+    }
+    /// The rows `ids` are entering again: the line that made them live changed nothing.
+    fn rows_entering(&mut self, ids: &[u64]) {
+        if ids.is_empty() {
+            return;
+        }
+        for row in self.stored_rows_mut().filter(|row| ids.contains(&row.id)) {
+            row.entering = true;
+        }
     }
     fn row(&mut self, kind: RowKind, out: &mut input::Output<'_>) -> Result<OwnedRow, Error> {
         if !matches!(kind, RowKind::User | RowKind::Group) {
@@ -772,6 +873,7 @@ impl State {
             },
             at: self.at,
             open: true,
+            entering: true,
             bytes: 0,
             lines: 0,
             fields: BTreeMap::new(),
@@ -914,6 +1016,10 @@ impl State {
         }
         let mut row = self.row(RowKind::Group, out)?;
         row.fields.insert("calls".into(), "0".into());
+        // The turn header's clock: one start, here, and `ms` at the end (step 9 of the motion
+        // model); a group born before any turn started starts at its birth.
+        let start = if self.turn.is_some() { self.turn_start_ms } else { self.at_ms };
+        row.fields.insert("startMs".into(), start.to_string());
         for (key, value) in fields {
             row.fields.insert(key.into(), value);
         }
@@ -1156,7 +1262,7 @@ impl State {
                     row.open = false;
                     row.fields.clear();
                     row.fields.insert("hidden".into(), "true".into());
-                    out.emit(Change::Patch(row));
+                    out.emit(Change::Leave(row));
                 }
             }
             if stream.row.open {
@@ -1165,7 +1271,7 @@ impl State {
                 stream.row.bytes = 0;
                 stream.row.lines = 0;
                 stream.row.open = false;
-                out.row(&stream.row);
+                out.emit(Change::Leave(stream.row));
             }
         }
     }
@@ -1182,8 +1288,10 @@ impl State {
             if hidden || !prompt.has_body {
                 prompt.row.fields.clear();
                 prompt.row.fields.insert("hidden".into(), "true".into());
+                out.emit(Change::Leave(prompt.row));
+            } else {
+                out.row(&prompt.row);
             }
-            out.row(&prompt.row);
             if !hidden && prompt.has_body {
                 self.settled_prompt(hash);
             }

@@ -3,8 +3,9 @@
 //! full tool list (daemon operations, browser host, agents, app actions)
 //! stays the API: `cmux_docs` searches it and a `cmux_exec` script calls
 //! it through the same `Server::call` path, so a script has exactly the
-//! rights of a direct tool call and nothing else. 638 tool schemas were
-//! about 208k tokens in every agent turn; these two are about 1k.
+//! rights of a direct tool call and nothing else. When code mode came in,
+//! 638 tool schemas (well over a thousand now) were about 208k tokens in
+//! every agent turn; these two are about 1k.
 //!
 //! A script runs in an embedded QuickJS engine on its own thread. The engine
 //! has no file system, network, process or timer access: its only host
@@ -58,8 +59,6 @@ impl Default for Limits {
     }
 }
 
-/// Calls and docs searches in one script.
-const MAX_CALLS: usize = 2_000;
 /// Calls a result lists one by one; the rest are only counted.
 const MAX_CALL_RECORDS: usize = 200;
 /// The longest tool name a script may call (the longest real one is under 60).
@@ -984,26 +983,16 @@ fn run_script(
         Ok(context) => context,
         Err(error) => return failed(format!("engine: {error}")),
     };
-    let calls = Rc::new(RefCell::new(0usize));
     let mut workflow_poll: Option<Persistent<Function<'static>>> = None;
     let evaluated = context.with(|ctx| -> Result<(), String> {
         let native = Object::new(ctx.clone()).map_err(|e| e.to_string())?;
-        let count = calls.clone();
         let request = {
             let to_server = to_server.clone();
             let progress = progress.clone();
             move |request: Request| -> String {
-                let mut used = count.borrow_mut();
-                // The workflow journal counts fresh activities after replay
-                // lookup. Its budget resets per resume; only internal waits are free.
-                if !workflow_mode && *used >= MAX_CALLS {
-                    return failure(
-                        "script.too_many_calls",
-                        &format!("a script makes at most {MAX_CALLS} calls and docs searches"),
-                    );
-                }
-                *used += 1;
-                drop(used);
+                // No count limit: a call waits for its answer before the next, so the
+                // script's time and memory limits bound it, and past MAX_CALL_RECORDS a
+                // call is only counted.
                 if !workflow_mode && started.elapsed() > limits.total {
                     return failure(
                         "script.timeout",

@@ -6,7 +6,7 @@ import CmuxTheme
 import Testing
 
 /// David Beyer's feedback (2026-11-20 call, launch Mon Nov 23): sidebar groups should be plain folders, with all threads
-/// in one place. With the default settings a group draws as a folder in a file list: a folder glyph and its name in the
+/// in one place. With Folders selected a group draws as a folder in a file list: a folder glyph and its name in the
 /// theme's primary ink, no band, rim, dot, block or members' line, and its members one indent step in under it, so the
 /// tree reads with no chrome. The header stays flush with the loose rows and keeps folding, renaming and taking drops
 /// (the row's own fill under the pointer and a drop, as a workspace row's).
@@ -16,7 +16,7 @@ import Testing
     static let memberID = WorkspaceID("ws-member")
     static let otherID = WorkspaceID("ws-other")
 
-    /// A sidebar with one loose workspace and an open group of two, under the default `sidebar.*` settings.
+    /// A sidebar with one loose workspace and an open group of two, with Folders selected.
     static func sidebar(tint: GroupTint = .none) -> (SidebarView, NSWindow) {
         _ = NSApplication.shared
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
@@ -27,8 +27,9 @@ import Testing
         let model = SidebarModel(sections: [
             SidebarSection(kind: .machine(machine), nodes: [.workspace(SidebarWorkspace(id: looseID, title: "scratch")), .group(folder)]),
         ], activeWorkspaceID: looseID)
-        model.applyListPreferences(SidebarSectionsPreferences())
-        let sidebar = SidebarView(model: model, design: DesignSettings())
+        let design = DesignSettings()
+        design.sidebarSections.groupHeaderBackground = .folder
+        let sidebar = SidebarView(model: model, design: design)
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 260, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -38,7 +39,7 @@ import Testing
         root.addSubview(sidebar)
         window.orderFrontRegardless()
         sidebar.layoutSubtreeIfNeeded()
-        sidebar.model.applyListPreferences(SidebarSectionsPreferences())
+        sidebar.model.applyListPreferences(design.sidebarSections)
         sidebar.list.reload(animated: false)
         sidebar.list.rowViews.values.forEach { $0.layoutSubtreeIfNeeded() }
         return (sidebar, window)
@@ -48,7 +49,7 @@ import Testing
         try #require(sidebar.list.rowViews[.workspace(id)] as? WorkspaceRowView, "no row for \(id.rawValue)")
     }
 
-    /// The default header in `scope`, as the sidebar configures it from the default settings.
+    /// A header in `scope` with Folders selected.
     static func header(_ tint: GroupTint, in scope: ThemeScope, hovered: Bool = false, drop: Bool = false) -> GroupHeaderRowView {
         let id = GroupID("grp_folder")
         let header = GroupHeaderRowView(key: .group(id))
@@ -57,18 +58,13 @@ import Testing
         let group = CmuxNextSidebar.SidebarGroup(id: id, name: "Backend", custom: tint.wire, workspaces: [])
         let row = SidebarRow(key: .group(id), y: 0, height: 24, section: .pinned, group: id, siblingIndex: 0,
                              parentIndex: nil, isLastInGroup: false, isCollapsed: false, childCount: 2, groupColor: nil)
-        let details = GroupHeaderDetails(background: SidebarSectionsPreferences().groupHeaderBackground)
+        let details = GroupHeaderDetails(background: .folder)
         header.configure(group, row: row, details: details, animated: false)
         header.isHovered = hovered
         header.isDropTarget = drop
         header.layoutSubtreeIfNeeded()
         header.updateLayer()
         return header
-    }
-
-    @Test func theDefaultGroupDrawsNoBackground() {
-        #expect(!SidebarSectionsPreferences().groupHeaderBackground.drawsBackground,
-                "a group's default background is \(SidebarSectionsPreferences().groupHeaderBackground), not a plain folder")
     }
 
     /// At rest: no fill, rim or dot, a folder glyph before the name, the name in the primary ink, in a dark, a light
@@ -107,7 +103,7 @@ import Testing
                 scope.root(line)
                 line.color = tint
                 line.isBlock = block
-                line.background = SidebarSectionsPreferences().groupHeaderBackground
+                line.background = .folder
                 line.updateLayer()
                 #expect(line.railShape.fillColor == nil, "\(name) \(tint.wire): a rail")
                 #expect(line.layer?.backgroundColor == nil, "\(name) \(tint.wire): a block")
@@ -116,11 +112,12 @@ import Testing
         }
     }
 
-    /// The tree reads by indent: the folder's header is flush with the loose rows (same frame x and width, its glyph
-    /// on their icon column), and its members sit one step (`SidebarStyle.groupGutter`) in, every row ending at the
-    /// loose rows' right edge.
+    /// The tree reads by indent: the folder's header is flush with the loose rows (same frame x and width), and its
+    /// members move in until their text starts on the folder name's column (Chief, 2026-11-21, after the shots showed
+    /// iconless members starting left of the name: "align members under the name"), every row ending at the loose
+    /// rows' right edge.
     @Test(arguments: [GroupTint.none, GroupTint.palette(.blue)])
-    func membersSitOneStepInUnderAFlushHeader(tint: GroupTint) throws {
+    func membersStartOnTheFolderNamesColumn(tint: GroupTint) throws {
         let (sidebar, window) = Self.sidebar(tint: tint)
         defer { window.close() }
         let list = sidebar.list
@@ -129,12 +126,19 @@ import Testing
         #expect(header.frame.minX == loose.frame.minX, "the header starts at \(header.frame.minX), loose rows at \(loose.frame.minX)")
         #expect(header.frame.maxX == loose.frame.maxX, "the header ends at \(header.frame.maxX), loose rows at \(loose.frame.maxX)")
         #expect(!header.glyph.isHidden, "the header shows no folder glyph")
+        let nameX = try Self.penX(header, in: list)
         for id in [Self.memberID, Self.otherID] {
             let member = try Self.row(sidebar, id)
-            let step = member.frame.minX - loose.frame.minX
-            #expect(abs(step - SidebarStyle.groupGutter) < 0.5, "\(id.rawValue) sits \(step) pt in, want one step \(SidebarStyle.groupGutter)")
+            let textX = try Self.penX(member, in: list)
+            #expect(abs(textX - nameX) < 0.5, "\(id.rawValue)'s text starts at \(textX), the folder name at \(nameX)")
             #expect(member.frame.maxX == loose.frame.maxX, "\(id.rawValue) ends at \(member.frame.maxX), loose rows at \(loose.frame.maxX)")
         }
+    }
+
+    /// Where `row` starts drawing its title's text, in `list`'s coordinates.
+    static func penX(_ row: SidebarRowView, in list: NSView) throws -> CGFloat {
+        let pen = try #require(row.titlePenOrigin?.pointValue, "\(type(of: row)) draws no title")
+        return row.convert(pen, to: list).x
     }
 
     /// Folding a folder hides its members and opening it shows them again: every thread stays reachable from the one

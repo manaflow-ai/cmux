@@ -30,14 +30,26 @@ for arg in "$@"; do
 done
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
-# A bare runner (the perf cron's Linux part): the pinned Rust and the native build tools.
+# cmux-tui's terminal engine builds from the ghostty-next submodule, which the perf cron's Linux checkout leaves empty
+# (submodules: false): without it ghostty-vt-sys's build script panics and cargo exits 101 (2026-11-22).
+[ -f ghostty-next/build.zig ] || [ -n "${CMUX_GHOSTTY_SRC:-}" ] || git submodule update --init --depth 1 ghostty-next
+# A bare runner (the perf cron's Linux part): the pinned Rust and Zig and the native build tools.
 command -v cargo >/dev/null || ./scripts/install-rust-ci.sh
+if ! command -v zig >/dev/null && [ -z "${ZIG:-}${CMUX_ZIG:-}" ]; then
+  # The pinned Zig is ghostty-next's. A runner without passwordless sudo gets it under RUNNER_TEMP, published only
+  # through GITHUB_ENV: read CMUX_ZIG back from a file of our own (as infinite-items-linux.sh does).
+  zig_env="$(mktemp)"
+  GHOSTTY_ZIG_SOURCE=ghostty-next GITHUB_ENV="$zig_env" GITHUB_PATH=/dev/null ./scripts/install-zig-ci.sh
+  zig_line="$(grep '^CMUX_ZIG=' "$zig_env" | tail -n 1 || true)"
+  rm -f "$zig_env"
+  [ -z "$zig_line" ] || export "$zig_line"
+fi
 command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq clang libclang-dev pkg-config; }
 export PATH="$HOME/.cargo/bin:$PATH"
 cd "$root/cmux-tui"
 # The gate profile: release code generation without its link-time cost (a release cmux-tui link
 # needs more memory than a lane VM or small runner has; the counts do not depend on LTO).
-cargo build --locked --profile gate -p cmux-tui --bin cmux-tui 2>&1 | tail -n 3
+cargo build --locked --profile gate -p cmux-tui --bin cmux-tui 2>&1 | tail -n 20 >&2
 [[ "$build_only" == 1 ]] && exit 0
 target="$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
 bin="$target/gate/cmux-tui"

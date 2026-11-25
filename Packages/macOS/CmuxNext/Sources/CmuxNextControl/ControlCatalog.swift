@@ -215,10 +215,10 @@ public struct ControlActionInfo: Sendable, Hashable {
         if let kind = supplying.first {
             members["available_with_target"] = .array(supplying.map(JSONValue.string))
             let format = String(localized: "control.action.needsContextOrTarget",
-                                defaultValue: "Needs %1$@ in the focused window, or pass --target %2$@:<id>.", bundle: .module)
+                                defaultValue: "Needs %1$@ in the focused window, or pass --target %2$@:<id>.", bundle: .localizedModule)
             members["context_reason"] = .string(String(format: format, listed, kind))
         } else {
-            let format = String(localized: "control.action.needsContext", defaultValue: "Needs %@ in the focused window.", bundle: .module)
+            let format = String(localized: "control.action.needsContext", defaultValue: "Needs %@ in the focused window.", bundle: .localizedModule)
             members["context_reason"] = .string(String(format: format, listed))
         }
         return members

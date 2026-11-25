@@ -1,0 +1,7 @@
+Halftone: a rotated dot screen (45 degrees by default) printed in the theme's ink on its paper; each dot's area follows a tone field of two plane waves and one drifting value-noise octave at incommensurate speeds (0.131, 0.0877, 0.0213 rad or units/s), so the drift has no visible period.
+Pointer: dots swell inside a capsule from the pointer back along its smoothed velocity (~0.32 s of travel), strongest at the head; the wake decays as exp(-2.6 * presence.y) to a faint resting lens, and scales with presence.x.
+The swell prints on a second (accent) plate under the ink, shifted by `misregister` points, so swollen dots read accent with an offset ink core, like a two-ink riso; swollen dots stay separate (r < ~0.46 cell).
+A still (time.w = 1) prints the wake of a slow diagonal pass at the still pointer, so the cover shows the accent once.
+Paper: a per-pixel grain hash plus a soft value-noise blotch; per-dot ink density jitter.
+Cost per pixel: no loops; 1 rotation, 5 sin/cos (2 for the angle are uniform-constant), 2 value-noise lookups (8 hashes, ~10 ALU each), 1 grain hash, 1 per-dot hash, 1 exp for the wake falloff, 1 exp for decay, 1 sqrt, 2 smoothstep discs: roughly 150-180 ALU ops, no texture reads, no branches but one uniform select.
+Params (8): cell pitch in points (times backing scale, floor 3 px), screen angle, mean tone, drift speed, swell, wake radius in cells, misregister in points, grain.

@@ -172,3 +172,35 @@ test("two triggers on one page control different popovers", async () => {
   expect(b).toBeTruthy();
   expect(a).not.toBe(b);
 });
+
+/** A mouse press and release on an element, as WebKit sends them (JSDOM has no PointerEvent). */
+const mousePress = (element: Element) =>
+  act(() => {
+    for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
+      const event = new dom!.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, detail: 1 });
+      if (type.startsWith("pointer")) Object.defineProperty(event, "pointerType", { value: "mouse" });
+      element.dispatchEvent(event);
+    }
+  });
+
+// Leo, 2026-10-23: "you click and have the drop-down open for the project, and then you click the
+// computer or the environment ... first it closes the left drop-down, and then only then can you
+// access the second ... You want to be able to just do them both, like, you know, just instantly".
+test("one press on a second trigger closes the open popover and opens its own", async () => {
+  const doc = render(
+    <>
+      <Chip />
+      <Chip />
+    </>,
+  );
+  const [project, environment] = [...doc.querySelectorAll("button")];
+  mousePress(project!);
+  await settle();
+  expect(project!.getAttribute("aria-expanded")).toBe("true");
+  mousePress(environment!);
+  await settle();
+  await settle();
+  expect(environment!.getAttribute("aria-expanded")).toBe("true");
+  expect(project!.getAttribute("aria-expanded")).toBe("false");
+  expect(doc.querySelectorAll('[role="dialog"]').length).toBe(1);
+});
