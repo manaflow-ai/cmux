@@ -451,7 +451,7 @@ fn a_lazy_read_fetches_its_folder_in_one_request_and_nothing_else() {
         commit_ns: 1_000_000_000,
         now_ns: 5_000_000_000,
         gitfile: None,
-        real_root: Path::new("/real"),
+        real_root: Some(Path::new("/real")),
         links: &links,
     };
     let projection = Projection::build(&commit, &tree.items, &mut book, &layout).unwrap();
@@ -493,7 +493,7 @@ fn a_lazy_mount_of_a_bare_blobless_mirror_is_a_clean_worktree_that_fetches_what_
         commit_ns: 1_000_000_000,
         now_ns: 5_000_000_000,
         gitfile: Some(Worktree::gitfile(&admin)),
-        real_root: &real_root,
+        real_root: Some(&real_root),
         links: &links,
     };
     let projection =
@@ -505,12 +505,12 @@ fn a_lazy_mount_of_a_bare_blobless_mirror_is_a_clean_worktree_that_fetches_what_
     let owner = unsafe { (libc::getuid(), libc::getgid()) };
     let index = index_bytes(&projection.index, owner.0, owner.1).unwrap();
     Worktree::write(&mirror, "projected", &at, &commit, &index, &projection.real_dirs).unwrap();
-    let blobs = std::sync::Arc::new(
+    let blobs = Arc::new(
         GitBlobs::new(&mirror, projection.sources).lazy(&projection.manifest, tree.missing),
     );
-    let overlay = std::sync::Arc::new(
+    let overlay = Arc::new(
         crate::overlay::Overlay::open(
-            std::sync::Arc::new(projection.manifest),
+            Arc::new(projection.manifest),
             &dir.path().join("state"),
             blobs.clone(),
             owner,
