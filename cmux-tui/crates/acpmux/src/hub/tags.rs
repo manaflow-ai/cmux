@@ -56,6 +56,7 @@ impl Hub {
         }
         self.child_tags.note(session);
         self.lane_tags_changed(session);
+        super::hybrid_hold::tags_changed();
         // The line first, then the metadata: with the event journal, a crash keeps records as a
         // prefix in that order, so the tag is never saved without its line (R-DURABILITY S3b).
         self.append(session, "mux", "tags", json!({"tags": live_tags(&session.meta())}));

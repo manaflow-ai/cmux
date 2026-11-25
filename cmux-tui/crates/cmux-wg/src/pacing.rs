@@ -299,7 +299,13 @@ impl Connection {
 /// The scheduling class of a datagram (transport.md 12a).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Priority {
-    /// Control and terminal bytes: before everything else.
+    /// Terminal screen state (the link's class-1 datagrams): ahead of every
+    /// other datagram and the TCP stack's interactive connections, unpaced.
+    /// Each message is a whole state, so a full queue refuses the newest.
+    /// Ultra Mode repairs it only above 1 % measured loss (input is
+    /// repaired at any loss).
+    Screen,
+    /// Control and terminal bytes: before everything else but screen state.
     Interactive,
     /// Remote desktop media: after interactive traffic, dropped when stale.
     Media,
@@ -314,6 +320,7 @@ pub(crate) struct DropCounters {
     pub(crate) media_stale: AtomicU64,
     pub(crate) media_full: AtomicU64,
     pub(crate) interactive_full: AtomicU64,
+    pub(crate) screen_full: AtomicU64,
     pub(crate) bulk_full: AtomicU64,
     pub(crate) inbox_full: AtomicU64,
 }
@@ -331,7 +338,9 @@ pub(crate) struct Pacer {
     connections: HashMap<Flow, Connection>,
     /// Packets from the TCP stack that are not TCP (rare): first, unpaced.
     other: VecDeque<Vec<u8>>,
-    /// Interactive datagrams: right after `other`, unpaced.
+    /// Screen-state datagrams: right after `other`, unpaced.
+    screen: VecDeque<Vec<u8>>,
+    /// Interactive datagrams: right after `screen`, unpaced.
     interactive: VecDeque<Vec<u8>>,
     media: VecDeque<(Instant, Vec<u8>)>,
     bulk: VecDeque<Vec<u8>>,
@@ -361,6 +370,7 @@ impl Pacer {
 
     pub(crate) fn has_queued(&self) -> bool {
         self.queued > 0
+            || !self.screen.is_empty()
             || !self.interactive.is_empty()
             || !self.media.is_empty()
             || !self.bulk.is_empty()
@@ -370,6 +380,7 @@ impl Pacer {
     pub(crate) fn drain(&mut self) -> Vec<Vec<u8>> {
         self.queued = 0;
         let mut packets: Vec<Vec<u8>> = self.other.drain(..).collect();
+        packets.extend(self.screen.drain(..));
         packets.extend(self.interactive.drain(..));
         packets.extend(self.media.drain(..).map(|(_, packet)| packet));
         packets.extend(self.bulk.drain(..));
@@ -383,6 +394,8 @@ impl Pacer {
     /// class bound (see [`MAX_DATAGRAMS`]).
     pub(crate) fn push_datagram(&mut self, packet: Vec<u8>, priority: Priority, now: Instant) {
         match priority {
+            Priority::Screen if self.screen.len() < MAX_DATAGRAMS => self.screen.push_back(packet),
+            Priority::Screen => DropCounters::count(&self.drops.screen_full),
             Priority::Interactive if self.interactive.len() < MAX_DATAGRAMS => {
                 self.interactive.push_back(packet);
             }
@@ -532,7 +545,7 @@ impl Pacer {
 
     /// [`pop`](Self::pop), with the class the packet left in: packets the
     /// stack emitted that are not TCP, interactive datagrams and connections
-    /// are [`Priority::Interactive`], paced bulk connections and bulk
+    /// are [`Priority::Interactive`], screen datagrams [`Priority::Screen`], paced bulk connections and bulk
     /// datagrams [`Priority::Bulk`].
     pub(crate) fn pop_classified(
         &mut self,
@@ -541,6 +554,9 @@ impl Pacer {
         if let Some(packet) = self.other.pop_front() {
             self.queued = self.queued.saturating_sub(1);
             return Ok(Some((packet, Priority::Interactive)));
+        }
+        if let Some(packet) = self.screen.pop_front() {
+            return Ok(Some((packet, Priority::Screen)));
         }
         if let Some(packet) = self.interactive.pop_front() {
             return Ok(Some((packet, Priority::Interactive)));

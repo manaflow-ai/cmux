@@ -54,6 +54,10 @@ pub enum Form {
     /// `send-expect-agent-v1` and `send-key-v1`: `{text, paste:true, submit:true, key}`. The
     /// daemon brackets the text by the terminal's own paste mode and writes Return after it.
     PasteSubmit,
+    /// [`Form::PasteSubmit`] plus `send-typed-submit-v1`: a typed Send ([`Outbox::push_typed`])
+    /// goes as `{text, submit:true, key}` with no `paste`, and the daemon writes Return a
+    /// paste-burst window after the typed text, in the same request.
+    TypedSubmit,
     /// `send-key-v1` only: `{text: text + "\r", key}`, one write.
     TextReturn,
 }
@@ -62,12 +66,14 @@ impl Form {
     /// The form a daemon with these capabilities takes; `None` when it takes no keys (a resend
     /// there could type the text twice, so the outbox does not serve it).
     pub fn from_caps<'a>(caps: impl IntoIterator<Item = &'a str>) -> Option<Form> {
-        let (mut key, mut submit) = (false, false);
+        let (mut key, mut submit, mut typed) = (false, false, false);
         for cap in caps {
             key |= cap == "send-key-v1";
             submit |= cap == "send-expect-agent-v1";
+            typed |= cap == "send-typed-submit-v1";
         }
         match (key, submit) {
+            (true, true) if typed => Some(Form::TypedSubmit),
             (true, true) => Some(Form::PasteSubmit),
             (true, false) => Some(Form::TextReturn),
             _ => None,
@@ -116,6 +122,9 @@ struct Entry {
     key: String,
     text: String,
     submit: bool,
+    /// Typed, not pasted (a one-line draft for a full-screen program: vim takes a bracketed
+    /// paste as text even in normal mode).
+    typed: bool,
     queued: Instant,
     /// An attempt went out: the Mac may have it.
     tried: bool,
@@ -153,13 +162,25 @@ impl Outbox {
 
     /// A tap on Send: `text` and, with `submit`, its Return. Returns the Send's number.
     pub fn push(&mut self, text: impl Into<String>, submit: bool, now: Instant) -> u64 {
+        self.push_entry(text.into(), submit, false, now)
+    }
+
+    /// A tap on Send of a one-line draft for a full-screen program: `text` typed, then Return,
+    /// in one request ([`Form::TypedSubmit`]). A daemon without `send-typed-submit-v1` (one
+    /// attached after the tap) gets it as a paste with Return, still one request.
+    pub fn push_typed(&mut self, text: impl Into<String>, now: Instant) -> u64 {
+        self.push_entry(text.into(), true, true, now)
+    }
+
+    fn push_entry(&mut self, text: String, submit: bool, typed: bool, now: Instant) -> u64 {
         let seq = self.next_seq;
         self.next_seq = self.next_seq.saturating_add(1);
         self.entries.push_back(Entry {
             seq,
             key: format!("{}-{seq}", self.nonce),
-            text: text.into(),
+            text,
             submit,
+            typed,
             queued: now,
             tried: false,
             in_flight: false,
@@ -177,7 +198,10 @@ impl Outbox {
         entry.in_flight = true;
         entry.tried = true;
         let params = match (form, entry.submit) {
-            (Form::PasteSubmit, submit) => {
+            (Form::TypedSubmit, true) if entry.typed => {
+                json!({"text": entry.text, "submit": true, "key": entry.key})
+            }
+            (Form::PasteSubmit | Form::TypedSubmit, submit) => {
                 json!({"text": entry.text, "paste": true, "submit": submit, "key": entry.key})
             }
             (Form::TextReturn, true) => {
@@ -457,5 +481,40 @@ mod tests {
             Form::from_caps(["send-key-v1", "send-expect-agent-v1"]),
             Some(Form::PasteSubmit)
         );
+        assert_eq!(
+            Form::from_caps(["send-key-v1", "send-expect-agent-v1", "send-typed-submit-v1"]),
+            Some(Form::TypedSubmit)
+        );
+    }
+
+    /// A one-line draft for a full-screen program: typed text and its Return in one keyed
+    /// request, no `paste` (Leo, 2026-11-21: "the text goes through. But then the send doesn't
+    /// go through"). Pasted Sends keep the paste on the same daemon.
+    #[test]
+    fn a_typed_send_is_one_request_without_paste() {
+        let mut outbox = Outbox::new("phone", DEFAULT_HOLD);
+        let now = Instant::now();
+        outbox.push_typed("/status", now);
+        outbox.push("ls -la", true, now);
+        let (_, typed) = outbox.next_request(Form::TypedSubmit).unwrap();
+        assert_eq!(typed["text"], "/status");
+        assert_eq!(typed["submit"], true);
+        assert!(typed.get("paste").is_none());
+        assert!(!key(&typed).is_empty());
+        let (_, pasted) = outbox.next_request(Form::TypedSubmit).unwrap();
+        assert_eq!(pasted["paste"], true);
+        assert_eq!(pasted["submit"], true);
+    }
+
+    /// Attached after the tap to a daemon without `send-typed-submit-v1`: still one request,
+    /// as a paste with Return, never the text and a separate Return.
+    #[test]
+    fn a_typed_send_to_an_older_daemon_is_a_paste_with_submit() {
+        let mut outbox = Outbox::new("phone", DEFAULT_HOLD);
+        outbox.push_typed("/status", Instant::now());
+        let (_, params) = outbox.next_request(Form::PasteSubmit).unwrap();
+        assert_eq!(params["text"], "/status");
+        assert_eq!(params["paste"], true);
+        assert_eq!(params["submit"], true);
     }
 }
