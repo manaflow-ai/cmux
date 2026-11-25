@@ -13,9 +13,11 @@
 //! here before the push answers, under the same hold.
 //!
 //! The hold lives on a lease the machine drops as failed: every `git.seed.status` of the
-//! job renews it ([`Renewal`]), so a copy whose Mac went away leaves the folder failed,
-//! never a partial folder that reads ready. A machine that refuses the hold (an older
-//! build, a folder that is not new) gets the plain copy.
+//! job renews it ([`Renewal`]), so a copy whose Mac went away leaves the folder failed.
+//! The one short copy that reads ready is a copy past its head whose source folder is gone
+//! (deleted on the Mac): it ends *partial* ([`partial_reason`]), the machine notes why on
+//! the folder's barrier, and the next copy of the folder resumes it. A machine that refuses
+//! the hold (an older build, a folder that is not new) gets the plain copy.
 
 use std::io::{BufRead as _, BufReader};
 use std::path::Path;
