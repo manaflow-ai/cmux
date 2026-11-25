@@ -677,8 +677,9 @@ async fn blocked_process_input_does_not_delay_process_signal() {
                         let scope = scope.clone();
                         let request_slots = request_slots.clone();
                         tokio::task::spawn_local(async move {
-                            let _ =
-                                services.serve_stream(scope, request_slots, None, incoming).await;
+                            let _ = services
+                                .serve_stream(scope, request_slots, None, None, incoming)
+                                .await;
                         });
                     }
                 }
@@ -820,8 +821,9 @@ async fn dropped_wait_requests_release_control_admission() {
                         let scope = scope.clone();
                         let request_slots = request_slots.clone();
                         tokio::task::spawn_local(async move {
-                            let _ =
-                                services.serve_stream(scope, request_slots, None, incoming).await;
+                            let _ = services
+                                .serve_stream(scope, request_slots, None, None, incoming)
+                                .await;
                         });
                     }
                 }
@@ -944,8 +946,9 @@ async fn predeclared_process_stream_never_silently_loses_immediate_large_output(
                         let scope = scope.clone();
                         let request_slots = request_slots.clone();
                         tokio::task::spawn_local(async move {
-                            let _ =
-                                services.serve_stream(scope, request_slots, None, incoming).await;
+                            let _ = services
+                                .serve_stream(scope, request_slots, None, None, incoming)
+                                .await;
                         });
                     }
                 }
@@ -1331,8 +1334,9 @@ async fn reconnect_process_stream_reports_a_structured_replay_gap() {
                         let scope = scope.clone();
                         let request_slots = request_slots.clone();
                         tokio::task::spawn_local(async move {
-                            let _ =
-                                services.serve_stream(scope, request_slots, None, incoming).await;
+                            let _ = services
+                                .serve_stream(scope, request_slots, None, None, incoming)
+                                .await;
                         });
                     }
                 }

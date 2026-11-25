@@ -221,7 +221,7 @@ fn acpmux_forced_end(answer: &Value) -> bool {
 }
 
 /// Everything a turn needs, decided by the brain.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default)]
 pub struct TurnStart {
     /// The reply's idempotency key: `turn:optchat:<first new message id>`.
     pub key: String,
@@ -257,6 +257,11 @@ pub struct TurnStart {
     /// (`engine::permission_mode`, cmux#37392; Manual runs under `ask`);
     /// None (a turn that carries another person's text): the session's own.
     pub permission_mode: Option<String>,
+    /// Shared endpoint health, so a refused primary start contributes to the
+    /// gateway-wide threshold rather than only this turn's retry loop.
+    pub gateway: Option<std::sync::Arc<crate::gateway::GatewayHealth>>,
+    /// A gateway outage may run this turn on the direct Messages API engine.
+    pub engine_override: Option<crate::brain::Engine>,
 }
 
 /// A turn's cost limit and the rates that price its tokens as they come.
@@ -515,6 +520,7 @@ pub fn is_transient_session_failure(error: &str) -> bool {
 fn new_session_with_retry(
     agents: &dyn AgentPort,
     spec: &SessionSpec,
+    gateway: Option<&crate::gateway::GatewayHealth>,
     interrupt: &Interrupt,
     deadline: Option<Instant>,
     keep_waiting: &mut dyn FnMut(Duration) -> bool,
@@ -535,6 +541,10 @@ fn new_session_with_retry(
         {
             return Err(error);
         }
+        let wait = gateway.map_or(wait, |gateway| {
+            gateway.record_refusal(&spec.name, &error);
+            gateway.retry_wait().max(wait)
+        });
         note(&error, wait);
         // A bounded wait that a stop request ends early (never a poll).
         if interrupt.wait(wait) {
@@ -689,6 +699,7 @@ pub fn run_with_drafts(
             let created = new_session_with_retry(
                 agents,
                 &spec,
+                start.gateway.as_deref(),
                 interrupt,
                 deadline,
                 &mut keep_waiting,
@@ -727,6 +738,15 @@ pub fn run_with_drafts(
             }
         }
     };
+    if spec.harness.starts_with("claude")
+        && start
+            .gateway
+            .as_ref()
+            .is_some_and(|gateway| matches!(gateway.route(), crate::gateway::GatewayRoute::Primary))
+        && let Some(gateway) = &start.gateway
+    {
+        gateway.mark_healthy();
+    }
     // A kept session's earlier turns are in the log already.
     let after = reused.map_or(0, |r| r.kept.after);
     let mut fold = TurnFold::after(after);
