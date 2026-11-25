@@ -30,7 +30,7 @@
 // CASES=long-many runs only empty xN and long xN; with PROFILE it profiles every page of long xN. WAKES=1 also splits
 // each idle window's renderer CPU by thread, so a burst on V8's worker threads reads apart from steady idle, and
 // traces one hidden and the shown page of an xN launch. PROFILE=DIR writes CDP CPU profiles of the long x1 and grown x1 idle and streaming
-// windows, and of each profiled launch's CPU settle; each idle and settle profile prints its self time per site and its
+// windows, of grown x1's grow, and of each profiled launch's CPU settle; each idle and settle profile prints its self time per site and its
 // time per entry (the outermost script frame: the timer, frame callback, handler or observer that ran).
 // WAKES=1 counts what wakes the renderers in each idle window, per second: the renderer threads' context switches
 // (/proc/PID/task/*/status), and on every page the timer and interval callbacks, animation frames, MessagePort posts
@@ -71,6 +71,8 @@ const CPU_FLOOR_PCT = Number(process.env.CPU_FLOOR_PCT ?? 1);
 const HIDDEN = process.env.HIDDEN !== "0";
 const HIDDEN_FOCUS = process.env.HIDDEN_FOCUS === "1";
 const PROFILE = process.env.PROFILE;
+// GROW_WAIT_S: how long the grown case waits for every page to show its last turn (default 900).
+const GROW_WAIT_MS = Number(process.env.GROW_WAIT_S ?? 900) * 1000;
 const GROW_BATCH = Number(process.env.GROW_BATCH ?? 400);
 const REPEAT = Math.max(1, Number(process.env.REPEAT ?? 3));
 const CASES = process.env.CASES ?? "all";
@@ -498,6 +500,13 @@ try {
       if (grow > 0) {
         // Grown: each chat takes `grow` finished turns live, GROW_BATCH records at a time, a frame apart.
         const began = performance.now();
+        // PROFILE: the shown page's CPU while it takes the grown turns, where a chat that grows slower than linearly
+        // shows its cost (the self and entry times below, and DIR/NAME-grow.cpuprofile).
+        const growProfiler = profile ? pages.at(-1)!.cdp : undefined;
+        if (growProfiler) {
+          await growProfiler.send("Profiler.enable");
+          await growProfiler.send("Profiler.start");
+        }
         for (let turn = 1, batch = 0; turn <= grow; turn++) {
           for (let index = 0; index < count && GROW_OPEN; index++) {
             const id = sessionId(index);
@@ -556,14 +565,25 @@ try {
           }
         }
         const lastText = `Grown answer ${grow}:`;
-        for (const { page } of pages)
-          await page.waitForFunction((text) => document.body.textContent?.includes(text), lastText, {
-            timeout: 900_000,
-            polling: 1000,
-          });
-        console.log(
-          `  ${name}: grew ${grow} turns a chat live in ${((performance.now() - began) / 1000).toFixed(1)} s`,
-        );
+        try {
+          for (const { page } of pages)
+            await page.waitForFunction((text) => document.body.textContent?.includes(text), lastText, {
+              timeout: GROW_WAIT_MS,
+              polling: 1000,
+            });
+          console.log(
+            `  ${name}: grew ${grow} turns a chat live in ${((performance.now() - began) / 1000).toFixed(1)} s`,
+          );
+        } finally {
+          // A grow that never shows its last turn still writes its profile: what the page was busy with instead.
+          if (growProfiler) {
+            const { profile: cpu } = (await growProfiler.send("Profiler.stop")) as { profile: CpuProfile };
+            fs.mkdirSync(profile!, { recursive: true });
+            fs.writeFileSync(path.join(profile!, `${name}-grow.cpuprofile`), JSON.stringify(cpu));
+            printTop(`  ${name}: grow profile, self ms (the shown page's main thread):`, selfTimes(cpu, sources), 30);
+            printTop(`  ${name}: grow profile, ms by entry (outermost script frame):`, entryTimes(cpu, sources), 20);
+          }
+        }
       }
       const window = async (seconds: number, during?: () => Promise<void>) => {
         const pids = renderers(root);
