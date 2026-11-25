@@ -3631,6 +3631,51 @@
       },
       "type": "object"
     },
+    "CapacityWait": {
+      "description": "A chat waiting for capacity (`hub/capacity_wait.rs`): a turn cut by an overloaded model, an\nexhausted account pool or the account's rate limit, which acpmux continues by itself. A\nclient draws it as one calm state (\"Waiting for capacity, about 40 s\"; in a list \"paused for\ncapacity, resumes ~22:41\"), never as a failed turn, and keeps `error` for a details\ndisclosure.",
+      "properties": {
+        "error": {
+          "description": "The harness's raw error, cut to 600 characters, for a details disclosure only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "$ref": "#/types/RetryReason",
+          "description": "`capacity` or `rate_limit`."
+        },
+        "resumesAt": {
+          "description": "When it goes on (epoch ms); absent while the continuation is still being decided.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "since": {
+          "description": "Since when it waits (epoch ms): the cut turn's end.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "turnId": {
+          "description": "The cut turn the wait continues, when there is one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "type": "object"
+    },
     "Carrier": {
       "description": "The carrier a live link runs over (`carrier`); null while no link is open.",
       "oneOf": [
@@ -6928,6 +6973,17 @@
           "description": "`_acpmux/process/background` (Ctrl-B) moves its foreground work: its\nharness is Claude Code (claude-stdio), whatever the harness's name.\nClients offer Ctrl-B from this, not from `harness`.",
           "type": "boolean"
         },
+        "capacityWait": {
+          "anyOf": [
+            {
+              "$ref": "#/types/CapacityWait"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "It waits for capacity and goes on by itself (`hub/capacity_wait.rs`). Absent otherwise,\nand from a peer on an older acpmux."
+        },
         "children": {
           "description": "Its sub-sessions that are not closed.",
           "format": "uint32",
@@ -7906,6 +7962,17 @@
         "backgroundsWork": {
           "description": "`_acpmux/process/background` (Ctrl-B) moves its foreground work: its\nharness is Claude Code (claude-stdio), whatever the harness's name.\nClients offer Ctrl-B from this, not from `harness`.",
           "type": "boolean"
+        },
+        "capacityWait": {
+          "anyOf": [
+            {
+              "$ref": "#/types/CapacityWait"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "It waits for capacity and goes on by itself (`hub/capacity_wait.rs`). Absent otherwise,\nand from a peer on an older acpmux."
         },
         "children": {
           "description": "Its sub-sessions that are not closed.",

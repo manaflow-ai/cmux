@@ -6619,12 +6619,15 @@ a.cv-sha:focus-visible {
   flex: none;
   color: var(--agent-muted);
 }
+.cv-capacity-wait__more,
+.cv-capacity-wait__track {
+  padding-inline-start: calc(14px + var(--grid-gap));
+}
 .cv-capacity-wait__more {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--ds-space-2);
-  padding-inline-start: calc(14px + var(--grid-gap));
 }
 .cv-capacity-wait--card {
   gap: var(--transient-surface-gap);
@@ -6632,12 +6635,13 @@ a.cv-sha:focus-visible {
 .cv-capacity-wait--card .cv-capacity-wait__more {
   padding-inline-start: calc(16px + var(--grid-gap));
 }
+.cv-capacity-wait__track {
+  display: block;
+}
 .cv-capacity-wait__bar {
   display: block;
   block-size: 2px;
-  margin-inline-start: calc(14px + var(--grid-gap));
   max-inline-size: 240px;
-  border-radius: 1px;
   background: color-mix(in srgb, currentColor 12%, transparent);
   overflow: hidden;
 }
