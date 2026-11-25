@@ -643,6 +643,9 @@ pub mod method {
     pub const MUX_TAILNET_LOGIN: &str = "_acpmux/tailnet/login";
     pub const MUX_TAILNET_STATE: &str = "_acpmux/tailnet/state";
     pub const MUX_TAILNET_LOGOUT: &str = "_acpmux/tailnet/logout";
+    /// Join the embedded node to the person's own tailnet with a one-time key
+    /// (`tailnet/embedded_join.rs`, `JoinParams` v1).
+    pub const MUX_TAILNET_JOIN: &str = "_acpmux/tailnet/join";
     /// The person's phones that may sign an allow (`hub/approvers.rs`).
     pub const MUX_APPROVERS_SET: &str = "_acpmux/approvers_set";
     /// The person's app: the folders of the workspaces its daemon lists now,
