@@ -9,6 +9,7 @@ import { ErrorDetails } from "./ErrorDetails";
 import { MessageCard } from "./MessageCard";
 import { DispatchCard } from "./DispatchCard";
 import { WhoElseCard } from "./WhoElseCard";
+import { ForumCallCard } from "./ForumCallCard";
 import { GitHubConnectCard } from "./GitHubConnectCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
@@ -58,6 +59,8 @@ import { offersGateway, type CloudSignIn as CloudSignInActions } from "../cloudA
 import { useT, type Translate } from "../i18n";
 import { failureCopy, failureKind, failureRecovery, isTeamMachineSignIn, type FailureRoute } from "../failureCopy";
 import { experimentArm } from "../../../experiments/experiment";
+import { useExperimentArm } from "../../../experiments/useExperimentArm";
+import { forumCallLook } from "./forumCall.experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
 import { CodeRouterAction } from "./CodeRouterOffer";
@@ -233,6 +236,10 @@ function groupNode(
       return <DispatchCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
     case "whoElse":
       return <WhoElseCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
+    case "forum":
+      return (
+        <ForumCallCard key={group.item.tool!.id || index} item={group.item} call={group.call} look={group.look} />
+      );
     case "send":
       return (
         <AcpmuxSendLine
@@ -306,7 +313,9 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
   // Keep the original transcript for copy/export and reveal discovery calls when Find names them.
   const revealing = reveal && isRevealRow(row, reveal);
   const items = useMemo(() => visibleToolItems(row.items, Boolean(revealing)), [row.items, revealing]);
-  const groups = useMemo(() => toolGroups(items ?? []), [items]);
+  // A forum call draws as a forum row only in the `forum-call-card` experiment; a switch regroups at once.
+  const forumLook = useExperimentArm(forumCallLook);
+  const groups = useMemo(() => toolGroups(items ?? [], forumLook), [items, forumLook]);
   const foldRun = row.foldRun;
   const stretches = useMemo(() => runStretches({ foldRun }, groups), [foldRun, groups]);
   const thoughts = useMemo(() => thoughtIds(groups), [groups]);
