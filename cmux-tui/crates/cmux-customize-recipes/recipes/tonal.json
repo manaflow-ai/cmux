@@ -1,0 +1,21 @@
+{
+  "cmuxProfile": 1,
+  "name": "tonal",
+  "description": "Tonal: every color from one sage-teal seed in tonal steps, opaque surfaces with no glass, the work in one rounded card, a filled primary Send. Light, with Tonal Dark beside it.",
+  "settings": {
+    "appearance.themeFile": "tonal",
+    "sidebar.density": "comfortable",
+    "sidebar.showTimestamps": false,
+    "agentPane.display.width": 760,
+    "agentPane.display.minimap": "off",
+    "agentPane.composerRing": "context",
+    "markdown.font.preset": "system",
+    "markdown.font.size": 15,
+    "markdown.font.lineHeight": 1.55,
+    "markdown.code.scale": 0.9,
+    "diff.colors": "theme",
+    "diff.diffIndicators": "bars",
+    "browser.omnibar.cornerRadius": "capsule",
+    "browser.omnibar.shadow": false
+  }
+}

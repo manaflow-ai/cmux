@@ -20,7 +20,6 @@ struct TeamSidebar: View {
     @State private var creatingTeam = false
     @State private var joiningTeam = false
     @State private var newTeamName = ""
-    @State private var inviteLink = ""
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
@@ -33,11 +32,12 @@ struct TeamSidebar: View {
                     ForEach(store.teams) { team in
                         row(team)
                     }
-                    if store.teams.isEmpty, store.awaitsAccountData {
-                        // Teams still loading: never "No teams".
+                    if store.teams.isEmpty, !shell.auth.hasKnownTeams, store.awaitsAccountData {
+                        // placeholder-ok: This account has never returned a team list.
                         CmuxSpinner(label: Text("Loading teams…"))
                             .padding(.horizontal, theme.metrics.sideMargin)
                             .padding(.vertical, 8)
+                            .placeholderBound("teams.loading", .milliseconds(2000))
                             .accessibilityIdentifier("sidebar.teams.loading")
                     } else if store.teams.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
@@ -68,11 +68,10 @@ struct TeamSidebar: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.colors.bg.color.ignoresSafeArea())
+        .background(CmuxMobileBackdrop().ignoresSafeArea())
         .alert("Create team", isPresented: $creatingTeam) {
             TextField("Team name", text: $newTeamName)
-                // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
-                .autocorrectionDisabled()
+                // Names and prompts are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                 .textInputAutocapitalization(.never)
             Button("Cancel", role: .cancel) { newTeamName = "" }
             Button("Create") { shell.createTeam(named: newTeamName); newTeamName = "" }
@@ -81,11 +80,12 @@ struct TeamSidebar: View {
             Text("Teams share Macs and workspaces.")
         }
         .alert("Join with invite link", isPresented: $joiningTeam) {
-            TextField("Invite link", text: $inviteLink)
+            // The pasted link stays until the join works (ShellModel.inviteLinkDraft).
+            TextField("Invite link", text: Bindable(shell).inviteLinkDraft)
                 .textInputAutocapitalization(.never)
                 .keyboardType(.URL)
-            Button("Cancel", role: .cancel) { inviteLink = "" }
-            Button("Join") { shell.joinTeam(inviteLink: inviteLink); inviteLink = "" }
+            Button("Cancel", role: .cancel) { shell.inviteLinkDraft = "" }
+            Button("Join") { shell.joinTeam(inviteLink: shell.inviteLinkDraft) }
                 .keyboardShortcut(.defaultAction)
         }
     }
@@ -152,7 +152,7 @@ struct TeamSidebar: View {
             .fixedSize()
             .contentShape(.capsule)
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressGlass)
         .glassEffect(.regular.interactive(), in: .capsule)
         .disabled(shell.isFetchingInvite)
         .accessibilityLabel("Invite to \(team.name)")
@@ -160,8 +160,11 @@ struct TeamSidebar: View {
     }
 
     private func row(_ team: Team) -> some View {
-        let presence = team.macDots(limit: theme.metrics.macDotLimit)
         let selected = team.id == store.activeTeamID
+        // One dot: the team's current computer (for the active team, the one its current
+        // workspace lives on), not a dot per computer (Leo, 2026-11-24: "i dont need to see the others").
+        let computer = ComputerDots.team(team, workspaceMacID: selected ? shell.lastWorkspaceID.flatMap { store.workspace(id: $0)?.macID } : nil,
+                                         reach: { selected ? store.macReachability($0) : ComputerDots.listed($0) })
         return Button {
             shell.switchTeam(to: team.id)
         } label: {
@@ -170,9 +173,7 @@ struct TeamSidebar: View {
                 colorHex: team.appearance.colorHex,
                 emoji: team.appearance.emoji,
                 transparent: team.appearance.isTransparent,
-                dots: presence.dots,
-                overflow: presence.overflow,
-                onlineCount: team.listedMacs.filter(\.isOnline).count,
+                computer: computer.map { ($0.name, $0.isUp) },
                 isSelected: selected
             )
             .animation(theme.motion.snap.animation.unlessReduceMotion, value: selected)

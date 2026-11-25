@@ -5,6 +5,7 @@ import { act, type ReactNode } from "react";
 import { fileURLToPath } from "node:url";
 import type { Root } from "react-dom/client";
 import { SettingsPage } from "./components/SettingsPage";
+import { CARD_IDS, loadCards } from "./components/cardModules";
 import { SettingsContext } from "./context";
 import { createMockClient, type MockOptions, type MockSettingsProvider } from "./mockProvider";
 import { SettingsStore } from "./store";
@@ -52,6 +53,9 @@ export async function renderPage(
   } = {},
 ): Promise<Rendered> {
   setLocale(options.locale ?? "en");
+  // Every card's chunk, once per process: the app loads a section's cards before it draws (its route
+  // loader and paint gate), and a test reads the page a few macrotasks after a navigation.
+  await loadCards(CARD_IDS);
   const mock = createMockClient(options.mock);
   options.setup?.(mock.provider);
   const store = new SettingsStore(mock.client);

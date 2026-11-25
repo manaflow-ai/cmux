@@ -55,6 +55,12 @@ extension LocationTrailService {
         return services.locateTab(location.key.tab, onMachine: location.key.machine) != nil
     }
 
+    /// Whether the location's tab is an agent chat now (Go Back One Session's steps).
+    func isAgentSession(_ location: HistoryLocation) -> Bool {
+        guard location.page == nil, location.content == .other else { return false }
+        return services.locateTab(location.key.tab, onMachine: location.key.machine)?.0.agentSession != nil
+    }
+
     func hasPage(_ route: TopPageRoute) -> Bool {
         if case .page(let id) = route { return TopPages.provider(id, services: services) != nil }
         return true

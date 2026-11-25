@@ -283,7 +283,6 @@ def terminal_tab():
     rpc("debug.key", {"key": "`", "modifiers": ["control"]})
     time.sleep(1.0)  # test harness wait: the terminal tab shows
 
-
 if opts.screen:
     # Each key as the screen showed it: a report, with no judgement; the openings below do not run.
     # The exit code says only whether the run went to its last case (a stopped run is not 0): no row is judged.

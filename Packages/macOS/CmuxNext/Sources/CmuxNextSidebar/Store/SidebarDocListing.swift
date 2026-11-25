@@ -132,11 +132,20 @@ extension SidebarDocProjection {
     }
 
     /// `sections` with each group's url, tab and app members (`SidebarGroup.items`): a member follows the
-    /// workspace member it follows in the document, else the nearest one before it that lists here.
+    /// workspace member it follows in the document, else the nearest one before it that lists here. A band group's
+    /// member that stores its group's space draws only in that space (`Listed.lists(inRoom:groupRoom:)`), as the same
+    /// link at Pinned's top level does (`scopedToWindow`).
     @MainActor private static func withMemberItems(_ sections: [SidebarSection], _ projection: SidebarDocProjection,
                                                    drag: SidebarDocDrag) -> [SidebarSection] {
         var byGroup: [String: Group] = [:]
-        for group in projection.bandGroups where !group.listed.isEmpty { byGroup[group.id] = group }
+        let bands = Dictionary(projection.bandGroups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for var group in projection.bandGroups where !group.listed.isEmpty {
+            // A nested group's space is its top-level group's (`Group.followsParent`); the count stops a parent cycle.
+            var top = group
+            for _ in 0..<bands.count { guard let parent = top.parent.flatMap({ bands[$0] }) else { break }; top = parent }
+            group.listed.removeAll { !$0.lists(inRoom: drag.room, groupRoom: top.room, spaces: drag.spaces) }
+            byGroup[group.id] = group
+        }
         for nodes in projection.machines.values {
             for case .group(let group) in nodes where !group.listed.isEmpty { byGroup[group.id] = group }
         }
@@ -147,7 +156,11 @@ extension SidebarDocProjection {
                 guard case .group(var group) = node, let placed = byGroup[group.id.rawValue] else { return node }
                 var shown: [String: WorkspaceID] = [:]
                 for workspace in group.workspaces { if let item = drag.item(.workspace(workspace.id)) { shown[item] = workspace.id } }
-                group.items = placed.listed.map { listed in
+                group.items = placed.listed.compactMap { listed in
+                    // A link, tab or app nested in a Pinned group keeps the group's room filter. The reducer's
+                    // projection carries its record room, but dropping that field here leaked it into every space.
+                    if placed.pinned, let room = listed.item.room, let windowRoom = drag.room,
+                       SidebarDocItem.owningRoom(room, spaces: drag.spaces) != windowRoom { return nil }
                     var anchor: WorkspaceID?
                     if let after = listed.after, let index = placed.memberItems.firstIndex(of: after) {
                         anchor = placed.memberItems[...index].reversed().lazy.compactMap { shown[$0] }.first
@@ -292,6 +305,13 @@ extension SidebarModel {
             }
         }
         return nil
+    }
+
+    /// The built-ins the list draws as rows (in a group or a machine list), as layout items the App
+    /// describes with their band look (`itemInfo`).
+    public var listedBuiltIns: [LayoutItem] {
+        sections.flatMap { $0.nodes.flatMap(\.listedItems) }.filter { $0.ref.builtIn != nil }
+            .map { LayoutItem(id: LayoutItemID($0.id), ref: $0.ref, label: $0.title) }
     }
 }
 

@@ -120,7 +120,7 @@ fn watch(mux: &std::sync::Weak<Mux>, inner: &Inner) -> std::io::Result<()> {
     }
     connection.unbounded()?;
     loop {
-        let mut line = match connection.read() {
+        let line = match connection.read() {
             Ok(line) => line,
             Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
             Err(error) => return Err(error),
@@ -129,12 +129,31 @@ fn watch(mux: &std::sync::Weak<Mux>, inner: &Inner) -> std::io::Result<()> {
             continue;
         }
         let Some(mux) = mux.upgrade() else { return Ok(()) };
-        let session = line.get("session").and_then(Value::as_str).unwrap_or_default().to_string();
-        // A preview line is an object (its "event" field matched above).
-        let Some(fields) = line.as_object_mut() else { continue };
+        // The card's place and visibility; a new frame of a hidden card goes nowhere.
+        let Some(line) = super::lock(&inner.preview_places).relay(line) else { continue };
+        mux.emit(crate::MuxEvent::ComputerUsePreview(Arc::new(relayed(line))));
+    }
+}
+
+/// A worker preview line as the mux's `computer-use-preview` event, with its surface.
+fn relayed(mut line: Value) -> Value {
+    let session = line.get("session").and_then(Value::as_str).unwrap_or_default().to_string();
+    if let Some(fields) = line.as_object_mut() {
         fields.insert("event".to_owned(), json!("computer-use-preview"));
         fields.insert("surface".to_owned(), surface_of(&session));
-        mux.emit(crate::MuxEvent::ComputerUsePreview(Arc::new(line)));
+    }
+    line
+}
+
+impl RemoteHostSupervisor {
+    /// `computer_use.preview {session, x?, y?, size?, hidden?}`: the person
+    /// moved, resized, hid or showed a session's preview card
+    /// (computer_use_preview_place.rs). Returns the card's event to send now,
+    /// when the session has a card.
+    pub(crate) fn preview_place(&self, params: &Value) -> Result<Option<Value>, String> {
+        let session = params.get("session").and_then(Value::as_str).unwrap_or_default();
+        let line = super::lock(&self.inner.preview_places).update(session, params)?;
+        Ok(line.map(relayed))
     }
 }
 

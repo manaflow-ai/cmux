@@ -40,6 +40,9 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+/// Where `cr use` records each agent's choice, under the home (`<dir>/<agent>`: `own` or `team`).
+pub(crate) const CHOICE_DIR: &str = ".config/cmux/agent-auth";
+
 /// The public placeholder every guest sends (`agent-auth.sh` `cmux_aa_placeholder`).
 /// An owner's cmux Cloud machine whose image has the own-or-team script, under `root`.
 pub(crate) fn owner_cloud_image_at(root: &Path) -> bool {
@@ -64,7 +67,7 @@ pub struct Inputs<'a> {
 }
 
 impl Inputs<'_> {
-    fn codex_home(&self) -> PathBuf {
+    pub(crate) fn codex_home(&self) -> PathBuf {
         (self.var)("CODEX_HOME").map(PathBuf::from).unwrap_or_else(|| self.home.join(".codex"))
     }
 
@@ -78,12 +81,11 @@ impl Inputs<'_> {
 
     /// The mode `cr use` recorded for `agent` (`~/.config/cmux/agent-auth/<agent>`).
     pub(crate) fn choice_for(&self, agent: &str) -> Option<&'static str> {
-        let text =
-            std::fs::read_to_string(self.home.join(".config/cmux/agent-auth").join(agent)).ok()?;
+        let text = std::fs::read_to_string(self.home.join(CHOICE_DIR).join(agent)).ok()?;
         mode(text.lines().next().unwrap_or(""))
     }
 
-    fn own_login(&self) -> bool {
+    pub(crate) fn own_login(&self) -> bool {
         (self.var)("CODEX_API_KEY").is_some()
             || crate::agent_login::signed_in_at(
                 crate::agent_login::Agent::Codex,

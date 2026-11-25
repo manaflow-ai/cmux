@@ -41,6 +41,24 @@ Local, against bundles you have: `python3 scripts/perf-bench/xbench.py run --out
 --app cmux=/path/cmux.app --app chrome=/path/Chrome.app --browsers cmux-chromium,chrome`,
 then `xbench.py report --out /tmp/xb --md BENCH.md --json results.json`.
 
+## Idle tabs against Edge (`suite=tabs`)
+
+Leo, 2026-11-20 (ask-9176875aef): "we hadn't quite benchmarked the whole like idle RAM, idle CPU, idle GPU type
+stuff". `--arg=suite=tabs` runs only `xbench.py --scenario idle-tabs`: cmux NEXT (a Chromium tab) and Microsoft
+Edge (Microsoft's stable package, unpacked with `pkgutil --expand-full`, never installed) by default; any other
+browser with `--arg=browsers=`. Per round, one launch per browser; tabs open in one window to each count of
+`--arg=idle_tabs=` (default `1,10,50`), the same local idle page in every tab (each tab its own renderer:
+Chromium never shares one for an IP address), the newest shown. At each count, after `settle` seconds: the
+instance's physical footprint, then `idle` seconds of CPU and wakeups over every process, the CPU of its GPU
+process, and the Mac's GPU Device Utilization (ioreg IOAccelerator, `bench_memory.py`'s GpuSampler, as
+`perf-10x-idle.sh`'s axes). BENCH.md gets an "Idle cost as tabs grow" table; rows are `tabsN-memory`,
+`tabsN-cpu`, `tabsN-wakeups`, `tabsN-gpu-cpu`, `tabsN-gpu-util` in results.json.
+
+```sh
+cmux-ci run --class exclusive --measurement --label bench --script scripts/measure/perf-bench.sh --ref <sha> \
+  --arg=suite=tabs --arg=cmux=nightly --artifact artifacts/perf-bench/results.json
+```
+
 ## Resource budget (`cmux-budget`)
 
 The idle cost of cmux NEXT with hidden work, against fixed budgets (`budgets.json`), rather than
@@ -434,3 +452,23 @@ python3 $S make --app-socket /tmp/cmux-debug-<tag>.sock
   fewer other workspaces than `--runs` the row is short and that is a fault. For the same map at another size, give `build` and `agents`
   the same counts in proportion, for example 60 workspaces:
   `--workspaces 60 --terminals 58 --agents 12 --tabs 116 --panes 62 --browser-tabs 37`.
+
+## rivals: agent apps and browsers, first install to idle ceiling
+
+Leo, 2026-11-22 (ask-7c96907088): "did you guys do it against the fresh starts first install type timings? [...]
+and after shutdown or whatever. restarting a computer. or close enough to it. and gauging our ram/cpu ceiling and
+growth too probably. compare more exhaustively. much more. compare to claude and codex and t3 code too."
+
+`rivals.py` runs one session per app, one app at a time, each in an empty home: a new copy of the vendor's
+bundle opened for the first time (first install), quit, `sudo -n purge` and opened again (close to a restart),
+`--warm` warm relaunches, then an idle soak. Rows and method: the `rivals.py` docstring. Apps: cmux NEXT (the
+newest nightly-next DMG), Claude, Codex, T3 Code, Slack, Chrome, Edge and Helium (fetch_browsers.py, the vendors'
+own downloads), Safari, and Rex when the host has `/Applications/Rex.app` (a beta with no public download). Every
+app is signed out, so an agent app's window is its first screen.
+
+    cmux-ci run --class exclusive --measurement --label bench --script scripts/measure/rivals.sh --ref SHA \
+      --artifact artifacts/rivals/results.json [--arg=apps=cmux,claude,codex] [--arg=soak=300]
+
+Local, against bundles you have: `python3 scripts/perf-bench/rivals.py run --out /tmp/rv --app cmux=/path/cmux.app
+--app claude=/Applications/Claude.app --apps cmux,claude`, then `rivals.py report --out /tmp/rv --md RIVALS.md`.
+The registered bench is `cmux-bench rivals` (scripts/bench/benches/rivals.py).

@@ -51,6 +51,20 @@ enum Command {
         #[serde(default)]
         brief: bool,
     },
+    /// `cmux <cli.name> <path…>`: the installed app whose manifest
+    /// `cli.name` is `name`, and its op whose `cli.path` the words start
+    /// with (apps/cli_commands.rs). The CLI then runs the op with `apps-run`.
+    #[serde(rename = "apps-cli")]
+    Cli {
+        name: String,
+        #[serde(default)]
+        words: Vec<String>,
+    },
+    /// `cmux mcp serve`'s `tools/list`: every installed extension op whose
+    /// catalog offers it to agents (apps/mcp_tools.rs), read on each list so
+    /// an install or a saved app shows with no restart.
+    #[serde(rename = "apps-mcp-tools")]
+    McpTools,
     #[serde(rename = "apps-place")]
     Place {
         contribution: String,
@@ -92,6 +106,7 @@ enum Command {
     },
     /// Safe mode (apps/safe_mode.rs): `op` is `safe_mode.get`,
     /// `safe_mode.set {on}` (leaving needs origin user),
+    /// `safe_mode.bisect {step}` (start, good and bad never from an agent),
     /// `safe_mode.launch_began` or `safe_mode.launch_settled {reason?}` (the
     /// launch ops from the verified app connection only).
     #[serde(rename = "apps-safe-mode")]
@@ -135,6 +150,17 @@ enum Command {
     /// to its usual open.
     #[serde(rename = "apps-open-link")]
     OpenLink { url: String },
+    /// A picked message action (`cmux.chat.action/1`, apps/chat_actions.rs):
+    /// the row's catalog op runs with `{action, message}` on the `apps-run` path.
+    #[serde(rename = "apps-chat-action")]
+    ChatAction {
+        app: String,
+        action: String,
+        message: crate::apps::ChatMessage,
+        /// The click's token (origin user only).
+        #[serde(default)]
+        gesture: Option<String>,
+    },
     /// Open terminal connector links and their local sockets (for this
     /// daemon's clients; apps never get a socket path).
     #[serde(rename = "apps-terminal-links")]
@@ -186,6 +212,17 @@ enum Command {
     /// reply is the page's answer `{id, ok, value | error}`.
     #[serde(rename = "apps-page-call")]
     PageCall { app: String, page: String, message: String },
+    /// The person approves a credential for an app's `external` server
+    /// (apps/server_external.rs): origin user, the verified app only.
+    #[serde(rename = "apps-server-credential")]
+    ServerCredential { app: String },
+    /// A process the person started serves `app` on this connection, with
+    /// the credential they approved.
+    #[serde(rename = "apps-server-attach")]
+    ServerAttach { app: String, credential: String },
+    /// One `result` or `event` line of the external server on this connection.
+    #[serde(rename = "apps-server-line")]
+    ServerLine { app: String, line: Value },
     #[serde(rename = "apps-provider-result")]
     ProviderResult {
         request_id: u64,
@@ -409,7 +446,7 @@ pub(super) fn try_handle(
     // origin it claims, and every request with origin user (gestures) need a
     // verified cmux app connection. A declared kind app does not count.
     let changes_apps = match &request.command {
-        Command::Set { .. } => true,
+        Command::Set { .. } | Command::ServerCredential { .. } => true,
         Command::Store { op, .. } => crate::apps::store_op_mutates(op),
         // Only the app that runs the link reports its changes (cx-rtipa).
         Command::LinkChanged | Command::TeamEvent { .. } => true,
@@ -456,6 +493,22 @@ pub(super) fn try_handle(
             Err(crate::apps::ApiError::new(
                 "apps.origin_forbidden",
                 "only the verified cmux app connection reports its launches",
+            )),
+        ));
+    }
+    // A bisect step runs extensions in safe mode: never an agent's call
+    // (apps/safe_mode_bisect.rs).
+    if let Command::SafeMode { op, args } = &request.command
+        && op.ends_with("safe_mode.bisect")
+        && crate::apps::bisect_step_runs_extensions(args)
+        && origin_claim.agent
+    {
+        return Some(reply(
+            writer,
+            request.id,
+            Err(crate::apps::ApiError::new(
+                "apps.safe_mode.origin",
+                "an agent cannot run extensions in safe mode: run the bisect yourself",
             )),
         ));
     }
@@ -512,7 +565,9 @@ pub(super) fn try_handle(
                 supervisor.reload_local_now(app.as_deref())
             }));
         }
-        Command::Store { op, args } if op == "apps.local.reload" => {
+        Command::Store { op, args }
+            if op == "apps.local.reload" || crate::apps::store_op_fetches(&op, &args) =>
+        {
             return Some(answer_off_thread(writer, id, move || {
                 supervisor.store_call(client, &op, args, origin)
             }));
@@ -523,6 +578,8 @@ pub(super) fn try_handle(
         Command::List => Ok(supervisor.list()),
         Command::ReloadLocal { folders } => Ok(supervisor.reload_local_apps_named(folders)),
         Command::Capabilities { op, brief } => capabilities(op.as_deref(), brief),
+        Command::Cli { name, words } => supervisor.cli_resolve(&name, &words),
+        Command::McpTools => Ok(supervisor.mcp_tools()),
         Command::Place { contribution, region } => supervisor.place_sidebar(&contribution, region),
         // Answered on its own thread above.
         Command::Reload { .. } => Err(crate::apps::ApiError::new(
@@ -553,13 +610,14 @@ pub(super) fn try_handle(
                 hidden_access,
                 sandboxed,
                 grant: grant.map(|g| (g.scope, g.granted)),
+                settings: None,
                 grant_optional: false,
             },
         ),
         Command::Store { op, args } => supervisor.store_call(client, &op, args, origin),
         Command::SafeMode { op, args } => supervisor.safe_mode_call(&op, args, origin),
         Command::Mount { app, interface, mount_id, context } => {
-            supervisor.mount(client, &mount_id, &app, &interface, context)
+            supervisor.mount_as(client, &mount_id, &app, &interface, context, origin)
         }
         Command::Unmount { mount_id } => supervisor.unmount(client, &mount_id),
         Command::Dispatch { mount_id, node, event, payload } => {
@@ -593,6 +651,26 @@ pub(super) fn try_handle(
                 &app,
                 &page,
                 &message,
+                Box::new(move |result| {
+                    reply(&writer, id, result);
+                }),
+            );
+            return Some(true);
+        }
+        Command::ChatAction { app, action, message, gesture } => {
+            let writer = writer.clone();
+            supervisor.chat_action(
+                crate::apps::ChatActionRequest {
+                    app,
+                    action,
+                    message,
+                    origin,
+                    gesture,
+                    caller: Some(crate::apps::Caller {
+                        client,
+                        request: id.clone().unwrap_or(Value::Null),
+                    }),
+                },
                 Box::new(move |result| {
                     reply(&writer, id, result);
                 }),
@@ -634,6 +712,11 @@ pub(super) fn try_handle(
         Command::ProviderResult { request_id, ok, body } => {
             supervisor.provider_result(client, request_id, ok, body)
         }
+        Command::ServerCredential { app } => supervisor.server_credential(&app, origin),
+        Command::ServerAttach { app, credential } => {
+            supervisor.server_attach(client, claim_for(mux, client).agent, &app, &credential)
+        }
+        Command::ServerLine { app, line } => supervisor.server_line_from(client, &app, line),
     };
     Some(reply(writer, id, result.map(|v| if v.is_null() { json!({}) } else { v })))
 }

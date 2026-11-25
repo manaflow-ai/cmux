@@ -14,7 +14,7 @@ import Testing
 /// its own daemon: a second page takes the list that is there, two pages of one frame start no listing, and a first
 /// key from a terminal is one listing under one focus.
 extension NewTabCommandListKeptTests {
-    /// The web New Tab page (the default kind), made cold as the pages of a hold are: a second page takes the list that is
+    /// The web New Tab page (the default kind), with no prepared page as in a hold: a second page takes the list that is
     /// there, in place, with no read. Its person's first input reads the actions again with no ask of the row, in later frames.
     @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
     func aSecondWebPageTakesTheListWithNoNewReadAndReadsAgainAtItsFirstInput() async throws {
@@ -80,6 +80,8 @@ extension NewTabCommandListKeptTests {
             let handed = await Self.listed(services)
             let again = await Self.listed(services)
             let held = lister.counts
+            // The keys from here on are the store's ids: the row knows the older page by its tab after the select.
+            try await Self.settle(services)
             let pair = web.others()
             let unseen = pair.filter { tabs.views[$0] == nil }
             print("new-tab-list: two web pages in one frame: \(pair.count) pages, \(unseen.count) with no view; \(held.started - before.started) listings "
@@ -98,7 +100,8 @@ extension NewTabCommandListKeptTests {
             let made = await Self.listed(services)
             let last = await Self.listed(services)
             let end = lister.counts
-            let older = web.others().compactMap { tabs.views[$0] }.first { $0 !== newer }
+            // By its tab: the older page can show in the view that the newer page had (the pane leaves the newer page's tab).
+            let older = tabs.views[unseen[0]]
             print("new-tab-list: the older page at its view's make: \(end.started - held.started) listings started, \(end.actionsRead - held.actionsRead) "
                 + "catalog actions read again, \(made.frames) + \(last.frames) frames with a lister task")
             let view = try #require(older, "the older page has no view after it was selected")
@@ -106,6 +109,53 @@ extension NewTabCommandListKeptTests {
                     "the older page has \(view.model.newTab?.omnibar.actions.count ?? 0) of the \(web.list.actions.count) actions")
             #expect(end.started == held.started,
                     "the older page started \(end.started - held.started) listings and read \(end.actionsRead - held.actionsRead) catalog actions again")
+        }
+    }
+
+    /// The same two keys, and then a change of a key binding before the person selects the older page: no list is kept
+    /// at the select. The view of the older page is made on the app's own path (the pane's select, then the tab store),
+    /// and that make asks for the fill. One listing reads the actions under the keys of now, and the view shows that
+    /// list. The row's asks give a list to no view: a view that has the list of now got it from the app's fill.
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+    func anOlderWebPageSelectedAfterAChangeOfAKeyBindingShowsTheListOfNow() async throws {
+        try await Self.web("cn-list-kept-web-rebind") { web in
+            let services = web.services, tabs = services.agentTabs, lister = services.newTabActions
+            // No frame and no turn of the main thread comes between the two keys.
+            NewTabPage.open(in: web.pane, seed: nil)
+            NewTabPage.open(in: web.pane, seed: nil)
+            _ = await Self.listed(services)
+            _ = await Self.listed(services)
+            // The keys from here on are the store's ids: the row knows the older page by its tab after the select.
+            try await Self.settle(services)
+            let pair = web.others()
+            let unseen = pair.filter { tabs.views[$0] == nil }
+            try #require(pair.count == 2 && unseen.count == 1,
+                         "the fixture did not make the case: \(pair.count) pages, \(unseen.count) with no view: \(web.named(pair))")
+            let old = Self.keys(web.list.actions)
+            Self.rebind(services)
+            try #require(lister.kept == nil, "the row did not make its case: a list is kept after the change of the key binding")
+            try #require(!services.mainWork.frames.activeClients.contains(Self.lister), "the row did not make its case: the lister has a task before the select")
+            let before = lister.counts
+
+            // The person selects the older page. The row's first ask joins the listing that the view's make asks for, or
+            // that make's ask joins the row's: one listing in each order.
+            web.pane.select(CmuxNextTabs.TabID(unseen[0].key))
+            let made = await Self.listed(services)
+            let last = await Self.listed(services)
+            let end = lister.counts
+            // By its tab: the older page can show in the view that the newer page had (the pane leaves the newer page's tab).
+            let older = tabs.views[unseen[0]]
+            let now = try #require(last.list, "the ask after the select never got a list")
+            let keys = Self.keys(now.actions), has = older?.model.newTab?.omnibar.actions
+            print("new-tab-list: an older web page selected after a change of a key binding: \(end.started - before.started) listings started, "
+                + "\(end.actionsRead - before.actionsRead) catalog actions read, \(made.frames) + \(last.frames) frames with a lister task; its New "
+                + "Tab row shows the keys \(Self.keys(has)) and it has \(has?.count ?? 0) rows; the list of now has the keys \(keys) and "
+                + "\(now.actions.count) rows; the list of before the change had the keys \(old)")
+            try #require(!old.isEmpty && keys != old, "the row did not make its case: the New Tab row shows the keys \(keys) after the change and \(old) before it")
+            let view = try #require(older, "the older page has no view after it was selected")
+            #expect(view.model.newTab?.omnibar.actions == now.actions,
+                    "the older page shows the keys \(Self.keys(has)) in its New Tab row (\(has?.count ?? 0) rows); the list of now has the keys \(keys) (\(now.actions.count) rows)")
+            #expect(end.started == before.started + 1, "the select of the older page and the row's 2 asks started \(end.started - before.started) listings where 1 is wanted")
         }
     }
 
@@ -155,7 +205,7 @@ extension NewTabCommandListKeptTests {
             let reads = PageReads()
             let pages: @MainActor @Sendable () -> [AgentPaneNewTabActions.Page] = {
                 reads.count += 1
-                return [AgentPaneNewTabActions.Page(view: view, stored: AgentPaneNewTab(kind: .agent), store: { _ in })]
+                return [AgentPaneNewTabActions.Page(view: view)]
             }
             try #require(!view.model.userTouched, "the row did not make its case: the first page has an input already")
             let before = lister.counts
@@ -217,11 +267,12 @@ extension NewTabCommandListKeptTests {
             pane.select(CmuxNextTabs.TabID(terminal.id))
             try await PasswordManagerRouteTests.until({ services.registry.context.contains(.terminalFocused) },
                                                       report: { "setup: the focus context \(Self.focus(services)) has no terminal" })
+            try await Self.settle(services)
             // The fixture is the display to the hand-over of the launch page's list. Then one key binding's change is a catalog change.
             let launch = await Self.listed(services)
             services.registry.setShortcutOverride(CmuxNextActions.Shortcut("t", modifiers: [.control]), for: "newTab.default")
             let lister = services.newTabActions, tabs = services.agentTabs
-            let known = Set(tabs.newTabPages.keys), old = tabs.views.values, before = lister.counts, start = Self.focus(services)
+            let known = Set(tabs.newTabPages.keys), before = lister.counts, start = Self.focus(services)
             // The row's case: no listing in the air at the key (the lister has no task, the last list was handed over).
             let inAir = services.mainWork.frames.activeClients.contains(Self.lister) || launch.list == nil
             print("new-tab-list: a listing in the air at the key: \(inAir ? "yes" : "no") (\(before.started) listings started before the key, "
@@ -247,7 +298,7 @@ extension NewTabCommandListKeptTests {
             #expect(slices.contexts == [handed], "the listing's slices read under the focus contexts \(slices.contexts); the page has \(handed) at the hand-over")
             #expect(end.started == first.started, "a second ask started \(end.started - first.started) listings")
             // Exactly one new page, then its view: a second new page with a view would hide a page of the key that has none.
-            let pages = Self.opened(services, after: known, old)
+            let pages = Self.opened(services, after: known)
             try #require(pages.count == 1, "the key opened \(pages.count) New Tab pages where 1 is wanted: \(Self.named(pages, services, pane))")
             let view = try #require(tabs.views[pages[0]], "the key's page has no view after its listing: \(Self.named(pages, services, pane))")
             #expect(cold.list != nil && view.model.newTab?.omnibar.actions == again.list?.actions, "the page does not show the list of now")
@@ -256,26 +307,26 @@ extension NewTabCommandListKeptTests {
 
     // MARK: - The fixture
 
-    /// What a web row starts from: an app with one web New Tab page, made cold, that has the palette's actions.
+    /// What a web row starts from: an app with one web New Tab page of the row's own key that has the palette's actions.
     @MainActor private struct Web {
         let services: AppServices
         let pane: PaneController
-        /// The first page's view.
+        /// The view that the first page has at the row's start. It is not the page: a later New Tab tab of the pane can take it.
         let first: AgentPaneView
         /// The list the lister gives with the focus on the first page.
         let list: Listed
-        /// The keys and the views of the New Tab pages before the first one (the launch's own page).
-        let known: Set<AgentTabKey>, old: [AgentPaneView]
+        /// The keys of the New Tab pages before the first one (the launch's own page) and the first one's: the store's ids.
+        let known: Set<AgentTabKey>, page: AgentTabKey
 
         /// The New Tab pages that came after the first one, by their keys of now.
-        func others() -> [AgentTabKey] { NewTabCommandListKeptTests.opened(services, after: known, old + [first]) }
+        func others() -> [AgentTabKey] { NewTabCommandListKeptTests.opened(services, after: known.union([page])) }
 
         /// What each of `keys` is, for the words of a fixture's issue: a count of pages that is not the row's names its pages.
         func named(_ keys: [AgentTabKey]) -> String { NewTabCommandListKeptTests.named(keys, services, pane) }
     }
 
     /// What each of `keys` is, for the words of an issue: its key, if it has a view, and if it is a tab of `pane`.
-    private static func named(_ keys: [AgentTabKey], _ services: AppServices, _ pane: PaneController) -> String {
+    static func named(_ keys: [AgentTabKey], _ services: AppServices, _ pane: PaneController) -> String {
         let inPane = Set(pane.pane.tabs.map(\.id))
         let words = keys.map { key in
             let view = services.agentTabs.views[key] == nil ? "no view" : "a view"
@@ -286,19 +337,37 @@ extension NewTabCommandListKeptTests {
     }
 
     /// The New Tab pages that were not there before, by their keys of now: a page's key changes at the store's answer.
+    /// A page of before is known by its tab: `known` has the store's id of each (``settle(_:)``), which does not change.
+    /// Not by its view: a New Tab tab that a pane shows takes the page view of an untouched New Tab tab that the pane
+    /// leaves or that no pane shows (`AgentTabStore.idlePage`): the view of a page of before can be a new page's view.
     /// The page of the next workspace is none of them: the app makes it ahead of its key in idle frames (the row's own
     /// frames too), so it can come at any frame of a row.
-    private static func opened(_ services: AppServices, after known: Set<AgentTabKey>, _ old: [AgentPaneView]) -> [AgentTabKey] {
+    static func opened(_ services: AppServices, after known: Set<AgentTabKey>) -> [AgentTabKey] {
         let tabs = services.agentTabs
         let ahead = services.daemon.store.reservedWorkspace?.tabKey
-        return tabs.newTabPages.keys.filter { key in key.key != ahead && !known.contains(key) && !old.contains { $0 === tabs.views[key] } }
+        return tabs.newTabPages.keys.filter { key in key.key != ahead && !known.contains(key) }
+    }
+
+    /// Waits until each New Tab page has the store's id of its tab as its key (the next workspace's page has none before
+    /// its key). A tab that the app made has a provisional id until the store answers; its page goes to the store's id
+    /// then, and the app keeps the link of the two ids only while the store lists the provisional tab. So the fixture
+    /// takes the keys of before only when no answer is in the air. This wait is the fixture's, not the row's.
+    static func settle(_ services: AppServices) async throws {
+        let tabs = services.agentTabs, store = services.daemon.store
+        @MainActor func waiting() -> [String] {
+            tabs.newTabPages.keys.map(\.key).filter { ProvisionalTab.isProvisional($0) && $0 != store.reservedWorkspace?.tabKey }
+        }
+        try await PasswordManagerRouteTests.until({ waiting().isEmpty },
+                                                  report: { "setup: the store did not answer for the New Tab pages \(waiting())" })
     }
 
     /// The registry's focus context, as a number for a print.
     private static func focus(_ services: AppServices) -> String { "\(services.registry.context.rawValue)" }
 
     /// Runs `body` in an app (with its own daemon) whose pane shows one web New Tab page that has the list. No page
-    /// is prepared, so each page of the row is made cold, as the pages of a hold are.
+    /// is prepared (the pool gives no spare), as in a hold. A page is not always made cold: the tab of a New Tab key
+    /// takes the page view of the tab that the pane leaves while no person used that view, here the launch page's
+    /// view at the first key. The view gets the new tab's own page at the take; the tab that it leaves has no view then.
     private static func web(_ install: String, _ body: @MainActor (Web) async throws -> Void) async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: install)
@@ -309,8 +378,10 @@ extension NewTabCommandListKeptTests {
             pool.makeSpare = { _ in nil }
             defer { pool.makeSpare = nil }
             let tabs = services.agentTabs
-            // The fixture is the display, with no clock, while the page that the pane shows has no view: the read below
-            // knows a page of before by its view (its key can change later). A Mac with a late display made no frame yet.
+            // The read below knows a page of before by its tab: by the store's id of it.
+            try await settle(services)
+            // The fixture is the display, with no clock, while the page that the pane shows has no view: the first key's
+            // tab can take that view only when it is there. A Mac with a late display made no frame yet.
             let limit = frameLimit(services)
             var settled = 0
             while pane.currentTabKey.flatMap({ tabs.existingView($0) }) == nil, settled < limit {
@@ -319,7 +390,7 @@ extension NewTabCommandListKeptTests {
                 await Task.yield()
             }
             try #require(pane.currentTabKey.flatMap({ tabs.existingView($0) }) != nil, "setup: the page that the pane shows has no view after \(settled) frames of the fixture")
-            let known = Set(tabs.newTabPages.keys), old = tabs.views.values
+            let known = Set(tabs.newTabPages.keys)
             let start = focus(services)
             NewTabPage.open(in: pane, seed: nil)
             let key = focus(services)
@@ -328,14 +399,16 @@ extension NewTabCommandListKeptTests {
             // The focus goes to the page in its first frames. A second ask gives the list of that focus.
             let again = await listed(services)
             let list = try #require(again.list, "the first page's second ask never got a list")
-            let page = try #require(opened(services, after: known, old).first { tabs.views[$0] != nil }, "Cmd-T opened no New Tab page with a view")
+            // The first page's key is the store's id from here on: a row knows the later pages against it.
+            try await settle(services)
+            let page = try #require(opened(services, after: known).first { tabs.views[$0] != nil }, "Cmd-T opened no New Tab page with a view")
             let first = try #require(tabs.views[page], "the first page has no view after its listing")
             try #require(!list.actions.isEmpty && first.model.newTab?.omnibar.actions.isEmpty == false, "the first page did not get a list")
             let counts = services.newTabActions.counts
             print("new-tab-list: the first web page: \(counts.started) listings started in two asks, \(cold.frames) + \(again.frames) frames with a lister "
                 + "task; the focus context \(start) before the key, \(key) in the key's turn, \(read) after the first hand-over, \(focus(services)) now; "
                 + "\(settled) frames of the fixture before the key, \(known.count) New Tab pages before it")
-            try await body(Web(services: services, pane: pane, first: first, list: list, known: known, old: old))
+            try await body(Web(services: services, pane: pane, first: first, list: list, known: known, page: page))
         }
     }
 }
