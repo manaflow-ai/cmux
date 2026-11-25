@@ -187,7 +187,7 @@ import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
 import { playUnpop } from "./conversation/unpopMorph";
 import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
-import { MachineLinkStatus } from "./MachineLinkStatus";
+import { ComposerStatusFoot, statusDotMounts } from "./ComposerStatusDot";
 import { peerLink, type PeerLink } from "./peerLink";
 import {
   emojiMatches,
@@ -547,6 +547,11 @@ type Props = {
   /// What is typed goes to the host at once (`onUnsentDraft`, no throttle), which seeds the started
   /// chat's composer with it as a draft (CloudStartChat `openUploaded`).
   cloudStarting?: boolean;
+  /// Return during a Cloud start queues the prompt instead of holding it (Leo, 2026-11-25: "playable vs
+  /// fully installed/downloaded... or just go"): the page keeps it with the start, and the started chat's
+  /// first prompt carries it (App.tsx `queueCloudStartSend`). False: it is not queued (attachments, a
+  /// kill switch), and the prompt stays here as before.
+  onCloudStartQueue?(text: string): boolean;
   /// Current session/route auth refusal. Unlike folder Trust, force-send cannot bypass it.
   authBlock?: string;
   /// Keeps auth refusal blocking sends when its text is represented by another notice.
@@ -555,6 +560,9 @@ type Props = {
   authChecking?: boolean;
   /// Opens Session Info at its Context section: the context ring's card links to it (Details ›).
   onOpenContext?(): void;
+  /// Sends the agent's /compact: the context ring's card shows Compact conversation above Details
+  /// only with it (Leo 2026-11-25: "honestly do we want a compact button here or...").
+  onCompact?(): void;
   /// Reconnects the acpmux peer a chat on another machine runs on, from the quiet row's link
   /// (MachineLinkStatus.tsx).
   onReconnectMachine?(link: PeerLink): Promise<unknown> | void;
@@ -822,11 +830,13 @@ function ComposerFrame({
   blocked,
   blockSend = false,
   cloudStarting = false,
+  onCloudStartQueue,
   authBlock,
   authBlocked = false,
   authChecking = false,
   placeholder,
   onOpenContext,
+  onCompact,
   onReconnectMachine,
   onDraftChange,
   attachRefusal,
@@ -2041,7 +2051,14 @@ function ComposerFrame({
     if (!remote.canSend) return false;
     // A Cloud start is out: the prompt stays here (it goes to the started chat as a draft), and no
     // Return starts a second chat, in Cloud or here, which the host would close with this tab.
-    if (cloudStarting) return false;
+    if (cloudStarting) {
+      // "Just go": Return queues the words with the start (no files: those wait for the chat).
+      const queued = withoutDeadTokens(unwrapped()).trim();
+      if (!onCloudStartQueue || !queued || attachments.length > 0 || !onCloudStartQueue(queued)) return false;
+      edit("", 0);
+      sentAt.current = Date.now();
+      return true;
+    }
     // The folder's trust question is open: the prompt stays where it is.
     if (authBlock || authBlocked || blockSend || (blocked?.reason && !force)) return false;
     // The host has not taken the last prompt yet: it is still here, so Enter sends no copy, and
@@ -2667,11 +2684,13 @@ function ComposerFrame({
   const shellLook = climbArm(experimentArm(composerShellLook));
   const controlsLook = climbArm(experimentArm(composerFooterControls));
   const emptyHeight = climbArm(experimentArm(composerEmptyHeight));
+  // A start that queues Return (`onCloudStartQueue`) holds nothing: the composer reads as any chat's.
+  const startQueues = cloudStarting && onCloudStartQueue !== undefined;
   const startingPlaceholder =
-    !cloudStarting || startLook === "dimmed"
+    !cloudStarting || startQueues || startLook === "dimmed"
       ? undefined
       : t(startLook === "status" ? "composer.cloudStartingStatus" : "composer.cloudStartingPlaceholder");
-  const startHoldsSend = cloudStarting && !shell;
+  const startHoldsSend = cloudStarting && !shell && !startQueues;
   // The dock's edge lifts for the chat's prompt only, not the shell's; the form's own mark waits for
   // its ref on the first commit.
   useLayoutEffect(() => {
@@ -3587,7 +3606,10 @@ function ComposerFrame({
         pending={pending}
         setAttachments={setAttachments}
         attachmentsRef={attachmentsRef}
-        attachError={attachError ?? (heldForHost ? t("composer.sendingWhenReady") : undefined)}
+        // A held send is the status dot's to say, where it is mounted (ComposerStatusDot.tsx).
+        attachError={
+          attachError ?? (heldForHost && !statusDotMounts(snapshot) ? t("composer.sendingWhenReady") : undefined)
+        }
         codex={snapshot.summary?.family === "codex" || snapshot.summary?.harness === "codex"}
         onRemoveAttachment={(id) => {
           setAttachments((current) => current.filter((item) => item.id !== id));
@@ -3770,7 +3792,13 @@ function ComposerFrame({
           <PromptFocusProvider focus={focusPrompt}>
             <Chips snapshot={snapshot} />
             <StashedChip drafts={stashed} onRestore={unstash} chat={stashChat} />
-            <MachineLinkStatus link={machineLink} onReconnect={onReconnectMachine} />
+            <ComposerStatusFoot
+              snapshot={snapshot}
+              link={machineLink}
+              heldForHost={heldForHost}
+              onReconnectMachine={onReconnectMachine}
+              onResumeQueue={canResume && !resuming ? () => runResume(canResume) : undefined}
+            />
           </PromptFocusProvider>
         }
         // The context ring sits left of the model chip (composerLocation.css; Lucas 2026-11-11).
@@ -3795,6 +3823,9 @@ function ComposerFrame({
                 cacheExpiresAt={usage?.cacheExpiresAt}
                 breakdown={snapshot.summary?.contextBreakdown}
                 onOpenDetails={onOpenContext}
+                onCompact={onCompact}
+                // A turn or a compaction running (a compaction is a turn): the row stays, inert.
+                compactDisabled={running}
                 {...(composerRing === "planUsage"
                   ? {
                       plan: {
