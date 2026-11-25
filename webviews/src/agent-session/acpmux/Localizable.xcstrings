@@ -134962,6 +134962,8 @@
         }
       }
     },
+    "inbox.noticeHost": {"comment":"Agent pane: tooltip on a tool notice's detector name on its inbox line, naming the machine it came from (a host name such as cmux-cp-1)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"عبر {host}"}},"bs":{"stringUnit":{"state":"needs_review","value":"preko {host}"}},"da":{"stringUnit":{"state":"needs_review","value":"via {host}"}},"de":{"stringUnit":{"state":"needs_review","value":"über {host}"}},"en":{"stringUnit":{"state":"translated","value":"From {host}"}},"es":{"stringUnit":{"state":"needs_review","value":"desde {host}"}},"fr":{"stringUnit":{"state":"needs_review","value":"depuis {host}"}},"it":{"stringUnit":{"state":"needs_review","value":"da {host}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{host} から"}},"km":{"stringUnit":{"state":"needs_review","value":"ពី {host}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{host}에서"}},"nb":{"stringUnit":{"state":"needs_review","value":"fra {host}"}},"pl":{"stringUnit":{"state":"needs_review","value":"z {host}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"de {host}"}},"ru":{"stringUnit":{"state":"needs_review","value":"с {host}"}},"th":{"stringUnit":{"state":"needs_review","value":"จาก {host}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{host} üzerinden"}},"uk":{"stringUnit":{"state":"needs_review","value":"з {host}"}},"vi":{"stringUnit":{"state":"needs_review","value":"từ {host}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"来自 {host}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"來自 {host}"}}}},
+    "inbox.noticeRepeats": {"comment":"Agent pane: after a tool notice's title on its inbox line, how many times the same condition was reported (×N) and when the newest came (a UTC clock time such as 09:40Z)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"×{n}, آخرها {time}"}},"bs":{"stringUnit":{"state":"needs_review","value":"×{n}, zadnje {time}"}},"da":{"stringUnit":{"state":"needs_review","value":"×{n}, senest {time}"}},"de":{"stringUnit":{"state":"needs_review","value":"×{n}, zuletzt {time}"}},"en":{"stringUnit":{"state":"translated","value":"×{n}, last {time}"}},"es":{"stringUnit":{"state":"needs_review","value":"×{n}, última {time}"}},"fr":{"stringUnit":{"state":"needs_review","value":"×{n}, dernière {time}"}},"it":{"stringUnit":{"state":"needs_review","value":"×{n}, ultima {time}"}},"ja":{"stringUnit":{"state":"needs_review","value":"×{n}、最終 {time}"}},"km":{"stringUnit":{"state":"needs_review","value":"×{n}, ចុងក្រោយ {time}"}},"ko":{"stringUnit":{"state":"needs_review","value":"×{n}, 마지막 {time}"}},"nb":{"stringUnit":{"state":"needs_review","value":"×{n}, sist {time}"}},"pl":{"stringUnit":{"state":"needs_review","value":"×{n}, ostatnio {time}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"×{n}, última {time}"}},"ru":{"stringUnit":{"state":"needs_review","value":"×{n}, последнее {time}"}},"th":{"stringUnit":{"state":"needs_review","value":"×{n}, ล่าสุด {time}"}},"tr":{"stringUnit":{"state":"needs_review","value":"×{n}, son {time}"}},"uk":{"stringUnit":{"state":"needs_review","value":"×{n}, останнє {time}"}},"vi":{"stringUnit":{"state":"needs_review","value":"×{n}, gần nhất {time}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"×{n}，最近 {time}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"×{n}，最近 {time}"}}}},
     "inbox.showThread": {
       "comment": "Agent pane: the \"+N more\" control on another agent's inbox thread line, which opens every message of the thread in place",
       "extractionState": "manual",
@@ -216751,6 +216753,12 @@
         }
       }
     },
+    "composer.envAutoCloud": {"comment":"Agent pane: environment picker section of the person's remote Macs enrolled in AutoCloud (RFD 0172), listed after This Mac","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أجهزة Mac في AutoCloud"}},"bs":{"stringUnit":{"state":"needs_review","value":"AutoCloud Macovi"}},"da":{"stringUnit":{"state":"needs_review","value":"AutoCloud-Macs"}},"de":{"stringUnit":{"state":"needs_review","value":"AutoCloud-Macs"}},"en":{"stringUnit":{"state":"translated","value":"AutoCloud Macs"}},"es":{"stringUnit":{"state":"needs_review","value":"Macs de AutoCloud"}},"fr":{"stringUnit":{"state":"needs_review","value":"Mac AutoCloud"}},"it":{"stringUnit":{"state":"needs_review","value":"Mac AutoCloud"}},"ja":{"stringUnit":{"state":"needs_review","value":"AutoCloud の Mac"}},"km":{"stringUnit":{"state":"needs_review","value":"Mac AutoCloud"}},"ko":{"stringUnit":{"state":"needs_review","value":"AutoCloud Mac"}},"nb":{"stringUnit":{"state":"needs_review","value":"AutoCloud-Macer"}},"pl":{"stringUnit":{"state":"needs_review","value":"Maki AutoCloud"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Macs do AutoCloud"}},"ru":{"stringUnit":{"state":"needs_review","value":"Mac в AutoCloud"}},"th":{"stringUnit":{"state":"needs_review","value":"Mac ของ AutoCloud"}},"tr":{"stringUnit":{"state":"needs_review","value":"AutoCloud Mac’leri"}},"uk":{"stringUnit":{"state":"needs_review","value":"Mac в AutoCloud"}},"vi":{"stringUnit":{"state":"needs_review","value":"Máy Mac AutoCloud"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"AutoCloud Mac"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"AutoCloud Mac"}}}},
+    "composer.autoCloudCap.xcode": {"comment":"Agent pane: an AutoCloud Mac's capability badge in the environment picker: Xcode is installed","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"Xcode"}},"bs":{"stringUnit":{"state":"needs_review","value":"Xcode"}},"da":{"stringUnit":{"state":"needs_review","value":"Xcode"}},"de":{"stringUnit":{"state":"needs_review","value":"Xcode"}},"en":{"stringUnit":{"state":"translated","value":"Xcode"}},"es":{"stringUnit":{"state":"needs_review","value":"Xcode"}},"fr":{"stringUnit":{"state":"needs_review","value":"Xcode"}},"it":{"stringUnit":{"state":"needs_review","value":"Xcode"}},"ja":{"stringUnit":{"state":"needs_review","value":"Xcode"}},"km":{"stringUnit":{"state":"needs_review","value":"Xcode"}},"ko":{"stringUnit":{"state":"needs_review","value":"Xcode"}},"nb":{"stringUnit":{"state":"needs_review","value":"Xcode"}},"pl":{"stringUnit":{"state":"needs_review","value":"Xcode"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Xcode"}},"ru":{"stringUnit":{"state":"needs_review","value":"Xcode"}},"th":{"stringUnit":{"state":"needs_review","value":"Xcode"}},"tr":{"stringUnit":{"state":"needs_review","value":"Xcode"}},"uk":{"stringUnit":{"state":"needs_review","value":"Xcode"}},"vi":{"stringUnit":{"state":"needs_review","value":"Xcode"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Xcode"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Xcode"}}}},
+    "composer.autoCloudCap.iosSimulator": {"comment":"Agent pane: an AutoCloud Mac's capability badge in the environment picker: it can run the iOS Simulator","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"المحاكي"}},"bs":{"stringUnit":{"state":"needs_review","value":"Simulator"}},"da":{"stringUnit":{"state":"needs_review","value":"Simulator"}},"de":{"stringUnit":{"state":"needs_review","value":"Simulator"}},"en":{"stringUnit":{"state":"translated","value":"Simulator"}},"es":{"stringUnit":{"state":"needs_review","value":"Simulador"}},"fr":{"stringUnit":{"state":"needs_review","value":"Simulateur"}},"it":{"stringUnit":{"state":"needs_review","value":"Simulatore"}},"ja":{"stringUnit":{"state":"needs_review","value":"シミュレータ"}},"km":{"stringUnit":{"state":"needs_review","value":"កម្មវិធីក្លែងធ្វើ"}},"ko":{"stringUnit":{"state":"needs_review","value":"시뮬레이터"}},"nb":{"stringUnit":{"state":"needs_review","value":"Simulator"}},"pl":{"stringUnit":{"state":"needs_review","value":"Symulator"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Simulador"}},"ru":{"stringUnit":{"state":"needs_review","value":"Симулятор"}},"th":{"stringUnit":{"state":"needs_review","value":"ซิมูเลเตอร์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Simülatör"}},"uk":{"stringUnit":{"state":"needs_review","value":"Симулятор"}},"vi":{"stringUnit":{"state":"needs_review","value":"Trình mô phỏng"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"模拟器"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"模擬器"}}}},
+    "composer.autoCloudCap.gpuMetal": {"comment":"Agent pane: an AutoCloud Mac's capability badge in the environment picker: it has a Metal GPU","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"وحدة Metal GPU"}},"bs":{"stringUnit":{"state":"needs_review","value":"Metal GPU"}},"da":{"stringUnit":{"state":"needs_review","value":"Metal-GPU"}},"de":{"stringUnit":{"state":"needs_review","value":"Metal-GPU"}},"en":{"stringUnit":{"state":"translated","value":"Metal GPU"}},"es":{"stringUnit":{"state":"needs_review","value":"GPU Metal"}},"fr":{"stringUnit":{"state":"needs_review","value":"GPU Metal"}},"it":{"stringUnit":{"state":"needs_review","value":"GPU Metal"}},"ja":{"stringUnit":{"state":"needs_review","value":"Metal GPU"}},"km":{"stringUnit":{"state":"needs_review","value":"Metal GPU"}},"ko":{"stringUnit":{"state":"needs_review","value":"Metal GPU"}},"nb":{"stringUnit":{"state":"needs_review","value":"Metal-GPU"}},"pl":{"stringUnit":{"state":"needs_review","value":"GPU Metal"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"GPU Metal"}},"ru":{"stringUnit":{"state":"needs_review","value":"GPU Metal"}},"th":{"stringUnit":{"state":"needs_review","value":"Metal GPU"}},"tr":{"stringUnit":{"state":"needs_review","value":"Metal GPU"}},"uk":{"stringUnit":{"state":"needs_review","value":"GPU Metal"}},"vi":{"stringUnit":{"state":"needs_review","value":"GPU Metal"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Metal GPU"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Metal GPU"}}}},
+    "composer.autoCloudCap.linux": {"comment":"Agent pane: an AutoCloud machine's capability badge in the environment picker: it runs Linux","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"Linux"}},"bs":{"stringUnit":{"state":"needs_review","value":"Linux"}},"da":{"stringUnit":{"state":"needs_review","value":"Linux"}},"de":{"stringUnit":{"state":"needs_review","value":"Linux"}},"en":{"stringUnit":{"state":"translated","value":"Linux"}},"es":{"stringUnit":{"state":"needs_review","value":"Linux"}},"fr":{"stringUnit":{"state":"needs_review","value":"Linux"}},"it":{"stringUnit":{"state":"needs_review","value":"Linux"}},"ja":{"stringUnit":{"state":"needs_review","value":"Linux"}},"km":{"stringUnit":{"state":"needs_review","value":"Linux"}},"ko":{"stringUnit":{"state":"needs_review","value":"Linux"}},"nb":{"stringUnit":{"state":"needs_review","value":"Linux"}},"pl":{"stringUnit":{"state":"needs_review","value":"Linux"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Linux"}},"ru":{"stringUnit":{"state":"needs_review","value":"Linux"}},"th":{"stringUnit":{"state":"needs_review","value":"Linux"}},"tr":{"stringUnit":{"state":"needs_review","value":"Linux"}},"uk":{"stringUnit":{"state":"needs_review","value":"Linux"}},"vi":{"stringUnit":{"state":"needs_review","value":"Linux"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Linux"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Linux"}}}},
+    "composer.autoCloudCap.gpuNvidia": {"comment":"Agent pane: an AutoCloud machine's capability badge in the environment picker: it has an NVIDIA GPU","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"وحدة NVIDIA GPU"}},"bs":{"stringUnit":{"state":"needs_review","value":"NVIDIA GPU"}},"da":{"stringUnit":{"state":"needs_review","value":"NVIDIA-GPU"}},"de":{"stringUnit":{"state":"needs_review","value":"NVIDIA-GPU"}},"en":{"stringUnit":{"state":"translated","value":"NVIDIA GPU"}},"es":{"stringUnit":{"state":"needs_review","value":"GPU NVIDIA"}},"fr":{"stringUnit":{"state":"needs_review","value":"GPU NVIDIA"}},"it":{"stringUnit":{"state":"needs_review","value":"GPU NVIDIA"}},"ja":{"stringUnit":{"state":"needs_review","value":"NVIDIA GPU"}},"km":{"stringUnit":{"state":"needs_review","value":"NVIDIA GPU"}},"ko":{"stringUnit":{"state":"needs_review","value":"NVIDIA GPU"}},"nb":{"stringUnit":{"state":"needs_review","value":"NVIDIA-GPU"}},"pl":{"stringUnit":{"state":"needs_review","value":"GPU NVIDIA"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"GPU NVIDIA"}},"ru":{"stringUnit":{"state":"needs_review","value":"GPU NVIDIA"}},"th":{"stringUnit":{"state":"needs_review","value":"NVIDIA GPU"}},"tr":{"stringUnit":{"state":"needs_review","value":"NVIDIA GPU"}},"uk":{"stringUnit":{"state":"needs_review","value":"GPU NVIDIA"}},"vi":{"stringUnit":{"state":"needs_review","value":"GPU NVIDIA"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"NVIDIA GPU"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"NVIDIA GPU"}}}},
     "composer.envMine": {
       "comment": "Agent pane: environment picker and Computer menu section of the person's own SSH machines that acpmux lists",
       "extractionState": "manual",
@@ -454432,138 +454440,6 @@
         }
       }
     },
-    "source.github.approvalDetail": {
-      "comment": "New chat project source picker",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "An organization owner needs to approve the installation."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يجب أن يوافق أحد مالكي المؤسسة على التثبيت."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vlasnik organizacije treba odobriti instalaciju."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "En ejer af organisationen skal godkende installationen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ein Organisationsinhaber muss die Installation genehmigen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un propietario de la organización debe aprobar la instalación."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un propriétaire de l’organisation doit approuver l’installation."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un proprietario dell’organizzazione deve approvare l’installazione."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "組織のオーナーがインストールを承認する必要があります。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ម្ចាស់ស្ថាប័នត្រូវអនុម័តការដំឡើង។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "조직 소유자가 설치를 승인해야 합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "En eier av organisasjonen må godkjenne installasjonen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Właściciel organizacji musi zatwierdzić instalację."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Um proprietário da organização precisa aprovar a instalação."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Владелец организации должен одобрить установку."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เจ้าขององค์กรต้องอนุมัติการติดตั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kuruluş sahibinin kurulumu onaylaması gerekiyor."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Власник організації має схвалити встановлення."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chủ sở hữu tổ chức cần phê duyệt việc cài đặt."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "组织所有者需要批准安装。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "組織擁有者需要核准安裝。"
-          }
-        }
-      }
-    },
     "source.github.loading": {
       "comment": "New chat project source picker",
       "extractionState": "manual",
@@ -472499,6 +472375,270 @@
           "stringUnit": {
             "state": "translated",
             "value": "保存為金鑰 {name}"
+          }
+        }
+      }
+    },
+    "source.github.approvalNext": {
+      "comment": "New chat project source picker: GitHub is waiting for an organization owner to approve the cmux GitHub App; says what happens next.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يوافق أحد مالكي المؤسسة على cmux. بمجرد موافقته، ستظهر مستودعاتك هنا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vlasnik organizacije treba odobriti cmux. Kada to uradi, vaši repozitoriji će se pojaviti ovdje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En ejer af organisationen skal godkende cmux. Når det sker, vises dine repositories her."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Organisationsinhaber muss cmux genehmigen. Danach erscheinen deine Repositorys hier."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An organization owner needs to approve cmux. Once they do, your repositories show up here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un propietario de la organización debe aprobar cmux. Cuando lo haga, tus repositorios aparecerán aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un propriétaire de l’organisation doit approuver cmux. Ensuite, vos dépôts apparaîtront ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un proprietario dell’organizzazione deve approvare cmux. Dopo l’approvazione, i tuoi repository appariranno qui."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組織のオーナーが cmux を承認する必要があります。承認されると、ここにリポジトリが表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម្ចាស់ស្ថាប័នត្រូវអនុម័ត cmux។ នៅពេលពួកគេអនុម័ត ឃ្លាំងកូដរបស់អ្នកនឹងបង្ហាញនៅទីនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "조직 소유자가 cmux를 승인해야 합니다. 승인되면 저장소가 여기에 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En eier av organisasjonen må godkjenne cmux. Når det er gjort, vises repositoriene dine her."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Właściciel organizacji musi zatwierdzić cmux. Gdy to zrobi, Twoje repozytoria pojawią się tutaj."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um proprietário da organização precisa aprovar o cmux. Depois disso, seus repositórios aparecem aqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Владелец организации должен одобрить cmux. После этого ваши репозитории появятся здесь."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เจ้าขององค์กรต้องอนุมัติ cmux เมื่ออนุมัติแล้ว ที่เก็บโค้ดของคุณจะแสดงที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kuruluş sahibinin cmux’u onaylaması gerekiyor. Onayladığında depoların burada görünür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Власник організації має схвалити cmux. Після цього ваші репозиторії з’являться тут."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chủ sở hữu tổ chức cần phê duyệt cmux. Sau khi được duyệt, các kho lưu trữ của bạn sẽ hiện ở đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "组织所有者需要批准 cmux。批准后，你的仓库会显示在这里。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組織擁有者需要核准 cmux。核准後，你的儲存庫會顯示在這裡。"
+          }
+        }
+      }
+    },
+    "source.github.notShared": {
+      "comment": "New chat project source picker: the GitHub repository the person wanted ({repo}, owner/name) is not one the cmux GitHub App can see yet; the row above the message opens GitHub to add it.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تتم مشاركة {repo} مع cmux بعد. أضفه على GitHub من الخيار أعلاه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{repo} još nije podijeljen s cmuxom. Dodajte ga na GitHubu pomoću opcije iznad."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{repo} er ikke delt med cmux endnu. Tilføj det på GitHub med valgmuligheden ovenfor."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{repo} ist noch nicht für cmux freigegeben. Füge es mit der Option oben auf GitHub hinzu."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{repo} isn’t shared with cmux yet. Add it on GitHub with the option above."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{repo} aún no está compartido con cmux. Añádelo en GitHub con la opción de arriba."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{repo} n’est pas encore partagé avec cmux. Ajoutez-le sur GitHub avec l’option ci-dessus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{repo} non è ancora condiviso con cmux. Aggiungilo su GitHub con l’opzione qui sopra."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{repo} はまだ cmux と共有されていません。上のオプションから GitHub で追加してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{repo} មិនទាន់បានចែករំលែកជាមួយ cmux នៅឡើយទេ។ បន្ថែមវានៅលើ GitHub ដោយប្រើជម្រើសខាងលើ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{repo}은(는) 아직 cmux와 공유되지 않았습니다. 위 옵션으로 GitHub에서 추가하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{repo} er ikke delt med cmux ennå. Legg det til på GitHub med valget ovenfor."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{repo} nie jest jeszcze udostępnione cmux. Dodaj je na GitHubie za pomocą opcji powyżej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{repo} ainda não está compartilhado com o cmux. Adicione-o no GitHub pela opção acima."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{repo} ещё не открыт для cmux. Добавьте его на GitHub с помощью варианта выше."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{repo} ยังไม่ได้แชร์กับ cmux เพิ่มบน GitHub ด้วยตัวเลือกด้านบน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{repo} henüz cmux ile paylaşılmadı. Yukarıdaki seçenekle GitHub’da ekle."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{repo} ще не надано cmux. Додайте його на GitHub за допомогою варіанта вище."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{repo} chưa được chia sẻ với cmux. Thêm nó trên GitHub bằng tùy chọn bên trên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{repo} 尚未与 cmux 共享。使用上方的选项在 GitHub 上添加它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{repo} 尚未與 cmux 共用。使用上方的選項在 GitHub 上加入。"
           }
         }
       }
