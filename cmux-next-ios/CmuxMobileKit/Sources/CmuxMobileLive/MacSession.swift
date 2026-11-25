@@ -20,6 +20,10 @@ final class MacSession {
     var cloudChats: [String: CloudChatRelay] = [:]
     let feed: LiveFeed
     let terminalFeed: TerminalFeed
+    #if canImport(CmuxMobileLinkFFI)
+    /// Keys typed from the Feed, held until the Mac has them (``TerminalKeyOutbox``).
+    let terminalKeys = TerminalKeyOutbox()
+    #endif
     /// The Mac app's own Feed requests (held PRs, sign-ins, consent cards).
     let needsYou: MacNeedsYouFeed
     /// Workspace and tab changes on this Mac.
@@ -45,9 +49,16 @@ final class MacSession {
     var terminals: [WeakTerminal] = []
     /// Whether this Mac's terminal tabs say it is offline (termfix-r13 D4).
     var terminalsOffline = false
-    /// When this link last stopped being connected (nil: connected or idle).
-    var linkDownSince: ContinuousClock.Instant?
+    /// How long this link has been down as the person saw it (``LinkOutageClock``).
+    var outage = LinkOutageClock()
+    /// When this link last stopped being connected, or the app came back while it was down
+    /// (nil: connected or idle).
+    var linkDownSince: ContinuousClock.Instant? { outage.since }
     var offlineTask: Task<Void, Never>?
+    /// Shows the header's "Offline" once the link has been down for the quiet bound.
+    var quietStatusTask: Task<Void, Never>?
+    /// Looks again when a redial reaches ``LiveCoordinator/macStallAfter`` (cmux#52200).
+    var stallTask: Task<Void, Never>?
     /// Why the chat (acpmux) channel failed on the current link, shown in the status line.
     var chatsError: String?
     var daemonError: String?
