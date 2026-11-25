@@ -2629,6 +2629,8 @@ pub async fn start_configured(
         None if punch::enabled() => start_punch(&carrier, 0),
         None => None,
     };
+    // After the direct path is set, so a kept circuit that ran on it opens on it again.
+    saved::keep_across_restarts(&carrier, state_dir);
     Some(serving)
 }
 
@@ -2729,6 +2731,9 @@ pub mod direct;
 
 #[path = "hub_carrier_punch.rs"]
 pub mod punch;
+
+#[path = "hub_carrier_kept_saved.rs"]
+mod saved;
 
 /// Which path a kept circuit runs on.
 #[derive(Clone, Copy, Debug)]
