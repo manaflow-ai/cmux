@@ -305,7 +305,8 @@ impl<X: HostRunner> PodSlots<X> {
             &argv(&[
                 "sh",
                 "-c",
-                "mkdir -p -- \"$1\" \"$(dirname -- \"$2\")\" && cat > \"$2\"",
+                // The root is the pod's HOME: owner-only, or its acpmux refuses its state dir.
+                "mkdir -p -- \"$1\" \"$(dirname -- \"$2\")\" && chmod 0700 -- \"$1\" && cat > \"$2\"",
                 "sh",
                 &self.root(slot),
                 &self.meta(slot),
@@ -475,6 +476,32 @@ mod tests {
         assert_eq!(Slot::from_unit(&s.slice()), Some(s));
         assert_eq!(Slot::from_unit("cmux_pod_x_hold.service"), None);
         assert_eq!(Slot::from_unit("user.slice"), None);
+    }
+
+    /// The real shell and filesystem; systemd's calls answer as an empty user manager.
+    struct RealFs;
+
+    impl HostRunner for RealFs {
+        fn run(&self, argv: &[String], stdin: &[u8]) -> Result<Output, String> {
+            match argv.first().map(String::as_str) {
+                Some("systemd-run" | "systemctl") => Ok(Output::default()),
+                _ => ProcessRunner.run(argv, stdin),
+            }
+        }
+    }
+
+    #[test]
+    fn create_makes_the_root_owner_only_whatever_the_umask() {
+        use std::os::unix::fs::PermissionsExt as _;
+        // Without the chmod, mkdir gives the host's umask (002 on our VMs: drwxrwxr-x),
+        // and the pod's acpmux refuses a writable ancestor of its state dir.
+        let dir = std::env::temp_dir().join(format!("cmux-pool-pod-mode-{}", std::process::id()));
+        let pods = PodSlots::new(RealFs, dir.to_str().unwrap());
+        let size = SlotSize { vcpus: 1, memory_mib: 256 };
+        assert_eq!(pods.create(&slot("a"), size).unwrap(), SlotState::Running);
+        let mode = std::fs::metadata(dir.join("a")).unwrap().permissions().mode() & 0o777;
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(mode, 0o700, "{mode:o}");
     }
 
     #[test]
