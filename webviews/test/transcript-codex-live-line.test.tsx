@@ -215,11 +215,11 @@ test("the live line draws the command or Ran with the turn's time, or Thinking a
   const thinking = renderToStaticMarkup(<Thinking since={start} untimed now={() => start + 9_000} />);
   expect(words(thinking)).toBe("Thinking");
   expect(thinking).toContain("is-shimmer");
-  // Under streaming text it stays shown and reads "Writing" (Leo, 2026-11-04: "it appears and
-  // disappears????").
+  // Under streaming text it keeps its box with no words: the text is the one working sign, as in the
+  // Codex app (https://github.com/manaflow-ai/cmux/issues/50991), and nothing leaves or moves (Leo,
+  // 2026-11-04: "it appears and disappears????").
   const writing = renderToStaticMarkup(<Thinking untimed quietKey="a:7" liveState="writing" />);
-  expect(writing).not.toContain("is-quiet");
-  expect(words(writing)).toBe("Writing");
+  expect(writing).toContain("is-quiet");
 });
 
 test("shortCommand drops the setup a script starts with", () => {

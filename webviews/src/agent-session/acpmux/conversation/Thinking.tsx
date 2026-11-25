@@ -375,8 +375,9 @@ function arriveMs(node: Element): number {
 /// symbol ellipsis thing btw we just keep the shimmer ONLY"). Past the turn's first step
 /// (`turnTotal`) that clock follows a finished step's own time after a dot ("2s · 4m"), so a long
 /// wait never reads as that long a think or call. All shimmer. While text streams (`quietKey` moves) the
-/// line stays where it is and reads "Writing": it never leaves and comes back mid-turn (Leo,
-/// 2026-11-04: "it appears and disappears????").
+/// line keeps its box where it is, hidden (`is-quiet`): the streaming text is the one working sign, as in
+/// the Codex app, and no row ever leaves and comes back mid-turn (Leo, 2026-11-04: "it appears and
+/// disappears????"; https://github.com/manaflow-ai/cmux/issues/50991).
 /// The longest the dot's grow or shrink lasts, should it never end (motion off draws no animation).
 const SETTLE_MS = 400;
 
@@ -653,8 +654,16 @@ export function Thinking({
                 : idleLabel
           : doing;
   const lead = doing === undefined ? undefined : liveLead(label, verbLeads(t), !doingShell && sendName === undefined);
-  // A retry or a start look draws other words in place of the line: coming back rolls nothing.
-  const away = waiting !== undefined || retry !== undefined || startLook !== "thinking";
+  // While the answer streams the streaming text is the turn's one working sign, as the Codex app
+  // draws it: nothing under it says "Writing" (https://github.com/manaflow-ai/cmux/issues/50991, on
+  // the finished thought over the reply and "Writing" under it reading as two working signs). The
+  // line keeps its box, hidden (`is-quiet`), so nothing moves when the reply pauses into "Thinking",
+  // a call names the line again, or the turn ends and its footer takes the slot.
+  // (Waiting on the person and a retry return their own line before this one is drawn.)
+  const streaming = writing && doing === undefined && waiting === undefined && retry === undefined;
+  // A retry, a start look or a streaming answer draws other words (or none) in place of the line:
+  // coming back rolls nothing, so the hidden "Writing" never rolls out over the words that follow.
+  const away = waiting !== undefined || retry !== undefined || startLook !== "thinking" || streaming;
   const sameCall = call !== undefined && doing !== undefined && experimentArm(oneRowPerCall) === "morph";
   const turnTime = timed ? formatDuration(Math.max(0, time - from)) : undefined;
   // Past the first step a finished step's own time stands beside the label, and the turn's clock
@@ -824,8 +833,9 @@ export function Thinking({
     // `cv-worked--live`: its words start on the icon column, with no icon slot (conversation.css).
     <div
       ref={lineRef}
-      className={`cv-worked cv-worked--live${below ? " is-below" : ""}`}
+      className={`cv-worked cv-worked--live${below ? " is-below" : ""}${streaming ? " is-quiet" : ""}`}
       data-find-skip
+      data-streaming={streaming ? "" : undefined}
       data-compacting={compacting && !waiting ? "" : undefined}
       // The line's tail rolls in with its words (conversation.css `cv-roll-*`).
       data-roll={waiting || roll.turns === 0 ? undefined : roll.turns % 2 ? "odd" : "even"}

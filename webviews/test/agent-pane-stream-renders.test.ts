@@ -77,7 +77,8 @@ await requireBrowserLane("agent-pane-stream-renders.test.ts", async () => {
       transcript: renders.transcript ?? 0,
       rowsRendered: rowRenders.length,
       streamingRow: busiest,
-      liveLineHidden: run.live_line_hidden_frames,
+      liveLineMissing: run.live_line_missing_frames,
+      liveLineWriting: run.live_line_writing_frames,
       reactMs: run.react_ms,
       workMs: run.work_ms,
     };
@@ -93,8 +94,10 @@ await requireBrowserLane("agent-pane-stream-renders.test.ts", async () => {
       report.transcript,
       "transcript renders during a text-only stream (one per drawn chunk is the bound)",
     ).toBeLessThanOrEqual(run.deltas + STRUCTURAL);
-    // The live line under the reply stays shown while it streams, reading "Writing": it never
-    // leaves and comes back (Leo, 2026-11-04: "it appears and disappears????").
-    expect(report.liveLineHidden, "frames with the live line hidden while the reply streams").toBe(0);
+    // The live line under the reply keeps its box while it streams, so it never leaves and comes back
+    // (Leo, 2026-11-04: "it appears and disappears????"), but draws no "Writing": the streaming text
+    // is the turn's one working sign, as in the Codex app (https://github.com/manaflow-ai/cmux/issues/50991).
+    expect(report.liveLineMissing, "frames with no live line box while the reply streams").toBe(0);
+    expect(report.liveLineWriting, "frames with Writing drawn under the streaming reply").toBe(0);
   });
 });

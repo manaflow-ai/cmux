@@ -3566,7 +3566,7 @@ const isButtonFooter = (row: AcpmuxRow | undefined): row is AcpmuxRow =>
 /// (the turn's time) while the agent thinks, "Running <what the call does> 13s" while a call runs.
 /// Nothing draws over the turn's work (Leo 2026-10-21: a "Working for" there sat far above the
 /// line, past his steers). The line keeps the Thinking line's id from send to the turn's end, so it never leaves and
-/// comes back. While text streams it stays and reads "Writing" (`quietKey`, Thinking.tsx). With a todo list (`sessionStatus`) the list sits just over the line.
+/// comes back. While text streams it keeps its box with no words (`quietKey`, Thinking.tsx `is-quiet`). With a todo list (`sessionStatus`) the list sits just over the line.
 function codexLiveTurn(
   user: AcpmuxRow,
   drawn: AcpmuxRow[],

@@ -180,7 +180,9 @@ export async function loadRun(
   const work: number[] = [];
   const late: number[] = [];
   let blank = 0;
-  let liveLineHidden = 0;
+  let liveLineSeen = false;
+  let liveLineMissing = 0;
+  let liveLineWriting = 0;
   // The scroll: up from the bottom at `speed` until `depth` viewports above it, then back down to
   // the bottom, again and again, while the reply streams in below.
   const span = depth * scroller.clientHeight;
@@ -204,9 +206,21 @@ export async function loadRun(
     }
     previous = now;
     if (!streamDone && requested()) scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight - offset;
-    // The live line under a reply whose text streams stays shown, reading "Writing" (Thinking.tsx
-    // `quietKey`): it never leaves and comes back mid-turn.
-    if (!streamDone && document.querySelector(".cv-worked--live.is-quiet")) liveLineHidden += 1;
+    // The live line under a reply whose text streams keeps its box but draws no words (Thinking.tsx
+    // `is-quiet`): it never leaves and comes back mid-turn, and the streaming text is the one working
+    // sign, with no "Writing" under it (https://github.com/manaflow-ai/cmux/issues/50991). Counted
+    // from the first frame the line is seen (the turn's first commit lands after this loop's first
+    // frames) and only at the bottom, where the virtual list keeps the last row mounted.
+    if (!streamDone) {
+      const line = document.querySelector(".cv-worked--live");
+      if (line) liveLineSeen = true;
+      const atBottom = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop < scroller.clientHeight;
+      if (liveLineSeen && atBottom) {
+        if (!line) liveLineMissing += 1;
+        else if (line.hasAttribute("data-streaming") && getComputedStyle(line).visibility !== "hidden")
+          liveLineWriting += 1;
+      }
+    }
     const blankNow = isBlank(acpmuxPerf.mounted, scroller.scrollTop, scroller.clientHeight, scroller.scrollHeight);
     if (blankNow) blank += 1;
     acpmuxPerf.markFrame(now, blankNow);
@@ -252,7 +266,8 @@ export async function loadRun(
     over_60hz_budget: sorted.filter((ms) => ms > 1000 / 60).length,
     frames: work.length,
     blank_frames: blank,
-    live_line_hidden_frames: liveLineHidden,
+    live_line_missing_frames: liveLineMissing,
+    live_line_writing_frames: liveLineWriting,
     layout_ms: stats.layout,
     react_ms: stats.react,
     other_ms: stats.other,

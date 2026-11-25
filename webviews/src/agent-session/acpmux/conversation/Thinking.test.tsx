@@ -51,17 +51,35 @@ afterEach(async () => {
   dom = undefined;
 });
 
-test("the live line stays shown and reads Writing from the first streamed answer token", () => {
-  act(() => root!.render(<Thinking quietKey={undefined} liveState="writing" />));
-  expect(container.querySelector(".cv-worked")?.classList.contains("is-quiet")).toBe(false);
-  expect(container.querySelector(".cv-worked")?.textContent).toContain("Thinking");
+// https://github.com/manaflow-ai/cmux/issues/50991: the streaming answer is the turn's one working sign, as in the
+// Codex app. The live line under it keeps its box (no row leaves, nothing moves) but draws no "Writing".
+test("the live line keeps its box but hides its words while the answer streams", () => {
+  const line = () => container.querySelector<HTMLElement>(".cv-worked");
+  act(() => root!.render(<Thinking below quietKey={undefined} liveState="writing" />));
+  const box = line();
+  expect(box?.classList.contains("is-quiet")).toBe(false);
+  expect(box?.textContent).toContain("Thinking");
 
-  act(() => root!.render(<Thinking quietKey="assistant:1" liveState="writing" />));
-  expect(container.querySelector(".cv-worked")?.classList.contains("is-quiet")).toBe(false);
-  expect(container.querySelector(".cv-worked")?.textContent).toContain("Writing");
+  act(() => root!.render(<Thinking below quietKey="assistant:1" liveState="writing" />));
+  // The same node, still in the footer's slot: hidden, not removed.
+  expect(line()).toBe(box);
+  expect(line()?.classList.contains("is-below")).toBe(true);
+  expect(line()?.classList.contains("is-quiet")).toBe(true);
+  expect(line()?.hasAttribute("data-streaming")).toBe(true);
 
-  act(() => root!.render(<Thinking quietKey="assistant:2" liveState="writing" />));
-  expect(container.querySelector(".cv-worked")?.classList.contains("is-quiet")).toBe(false);
+  act(() => root!.render(<Thinking below quietKey="assistant:2" liveState="writing" />));
+  expect(line()).toBe(box);
+  expect(line()?.classList.contains("is-quiet")).toBe(true);
+});
+
+test("a call after the streamed answer shows the line again with no Writing rolling out", () => {
+  act(() => root!.render(<Thinking below quietKey="assistant:1" liveState="writing" />));
+  expect(container.querySelector(".cv-worked")?.classList.contains("is-quiet")).toBe(true);
+  act(() => root!.render(<Thinking below doing="Run the web tests" doingAt={Date.now()} />));
+  const shown = container.querySelector(".cv-worked");
+  expect(shown?.classList.contains("is-quiet")).toBe(false);
+  expect(shown?.textContent).toContain("Run the web tests");
+  expect(container.querySelector(".cv-roll-out")).toBeNull();
 });
 
 test("a send in flight names who it goes to, on either live line", () => {
