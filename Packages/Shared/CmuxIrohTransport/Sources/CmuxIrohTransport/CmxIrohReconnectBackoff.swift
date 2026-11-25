@@ -1,5 +1,7 @@
 public import Foundation
+#if canImport(os)
 import os
+#endif
 
 /// Bounds for one client-side reconnect retry ladder.
 public struct CmxIrohReconnectBackoffConfiguration: Equatable, Sendable {
