@@ -81,7 +81,7 @@ function measure(types: { name: string; selector: string }[]) {
   const label = (element: Element) =>
     (element.getAttribute("aria-label") || element.getAttribute("title") || element.textContent || "").trim();
   const CONTROL = "button, a[href], [role=button], [role=menuitem], [aria-haspopup]";
-  const CONTENT = ".acpmux-edited-file, .acpmux-edited-more, .acpmux-edited-diff";
+  const CONTENT = ".acpmux-edited-stack";
   const all = types.map((type) => document.querySelectorAll(type.selector));
   const rows: (RowMeasure & { menuTrigger?: number })[] = [];
   const marked: Element[] = [];
@@ -91,8 +91,8 @@ function measure(types: { name: string; selector: string }[]) {
       if (!visible(row)) continue;
       const inner = types.flatMap((_, other) => [...all[other]!].filter((el) => el !== row && row.contains(el)));
       const own = (element: Element) => !inner.some((nested) => nested.contains(element));
-      // A row's content is not its chrome: an edited card's file rows and Show more, and the controls
-      // of a diff the reader opened, do not count.
+      // A row's content is not its chrome: an edited card's stacked diffs (their headers'
+      // controls) the reader opened, do not count.
       const content = (element: Element) => Boolean(element.closest(CONTENT));
       const controls = [row, ...row.querySelectorAll(CONTROL)].filter(
         (element) => element.matches(CONTROL) && own(element) && !content(element) && visible(element),
