@@ -663,7 +663,8 @@ Above `fast-tier: timeout-minutes` in `.github/workflows/cmux-next.yml`.
 A cold package build can exceed the 5-minute target; the job still runs
 the entries so a cold mini reports, and the summary shows the time.
 The fleet's `queued` hand-back always runs cold on Blacksmith 6 vCPU macOS, whose fast-tier p90 was
-19.8 minutes (#38181's data), so it gets 35: a slow cold build still gives the verdict.
+19.8 minutes (#38181's data), so it gets 60 (it was 35; a 2026-11-24 sample of cancels at the cap
+showed a dense tail of passes just past 35): a slow cold build still gives the verdict.
 
 An app FFI re-pin (`ffi_repin`) changes the CCmuxAppFFI binary target, so every
 CmuxNext module rebuilds cold before `HandlerCoverageTests` runs. With 20
