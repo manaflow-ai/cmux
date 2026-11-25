@@ -777,6 +777,62 @@ mod tests {
         assert!(prove_claude(&owner, dir.path(), &link, true).await.is_err());
     }
 
+    async fn holder(home: &std::path::Path, name: &str, started: u64) -> (Arc<Hub>, Arc<Session>) {
+        use crate::config::{Config, StoreMode};
+        let mut config = Config::default();
+        config.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+        let hub = Hub::new(config, store);
+        let id = uuid::Uuid::now_v7().to_string();
+        let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": name,
+            "harness": "claude", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        hub.store.save(&meta).unwrap();
+        let session = hub.make_session(meta);
+        hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+        mark_registered_for_test(&session.id);
+        let kept = crate::claude_peers::ChildToken {
+            pid: std::process::id(),
+            socket: home.join("inbox.sock"),
+            token: "t".into(),
+            started: Some(started),
+        };
+        crate::claude_peers::save_token(home, &session.id, &kept).unwrap();
+        (hub, session)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_gone_registered_holder_yields_its_name() {
+        let home = tempfile::tempdir().unwrap();
+        let (hub, held) = holder(home.path(), "mango-reg", 1_000).await;
+        hub.yield_name_of_gone(&held, "mango-reg", home.path()).await.unwrap();
+        let renamed = held.meta().name;
+        assert!(renamed.starts_with("mango-reg-gone-"), "{renamed}");
+        assert_eq!(renamed.len(), "mango-reg-gone-".len() + 8, "{renamed}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_live_registered_holder_still_refuses_with_name_taken() {
+        let home = tempfile::tempdir().unwrap();
+        let started = crate::adopt_live::pid_start_ms(std::process::id()).expect("process start");
+        let (hub, held) = holder(home.path(), "mango-live", started).await;
+        let e = hub.yield_name_of_gone(&held, "mango-live", home.path()).await.unwrap_err();
+        assert_eq!(e.data.as_ref().unwrap()["reason"], "register.name_taken", "{}", e.message);
+        assert_eq!(held.meta().name, "mango-live");
+        let kept = crate::claude_peers::ChildToken {
+            pid: std::process::id(),
+            socket: home.path().join("inbox.sock"),
+            token: "t".into(),
+            started: Some(2_000),
+        };
+        assert!(!registered_chat_gone(false, Some(&kept)));
+        assert!(registered_chat_gone(true, Some(&kept)));
+        let unknown = crate::claude_peers::ChildToken { started: None, ..kept };
+        assert!(!registered_chat_gone(true, Some(&unknown)));
+    }
+
     #[test]
     fn the_walk_stops_below_this_daemon() {
         let me = std::process::id();
