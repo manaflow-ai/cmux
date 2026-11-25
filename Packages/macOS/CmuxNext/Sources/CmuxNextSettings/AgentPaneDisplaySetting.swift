@@ -16,7 +16,7 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
     ]
     /// The app keys the chat follows: Minimal Mode (``SidebarSectionsSetting/minimalPath``) and
     /// Show Feature Tips (``UpdatesSettings/showFeatureTipsPath``; webviews featureTips.tsx), and
-    /// AutoCloud (``CloudNewWorkspaceSetting/autoCloudPath``; webviews autoCloud.ts), hidden in cmux-next.json.
+    /// AutoCloud (``CloudNewWorkspaceSetting/autoCloudPath``; webviews autoCloud.ts), a Settings > Machines switch, off by default.
     public static let followedAppPaths: [[String]] = [
         SidebarSectionsSetting.minimalPath, UpdatesSettings.showFeatureTipsPath, CloudNewWorkspaceSetting.autoCloudPath,
     ]

@@ -204195,6 +204195,30 @@
         }
       }
     },
+    "settings.cloud.autoCloud": {
+      "comment": "Settings > Machines: toggle that lets the new-chat Where menu's Auto start a chat on a Cloud machine when this Mac has no room (AutoCloud preview, off by default).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto Places Chats in Cloud"
+          }
+        }
+      }
+    },
+    "settings.cloud.autoCloud.help": {
+      "comment": "Help for the AutoCloud toggle: where Auto runs a new chat.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto runs a new chat on this Mac when it has room, else on a Cloud machine."
+          }
+        }
+      }
+    },
     "settings.cloud.agentsStartWithoutAsking": {
       "comment": "Settings > Machines: toggle that lets agents, the cmux CLI and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking first.",
       "extractionState": "manual",
