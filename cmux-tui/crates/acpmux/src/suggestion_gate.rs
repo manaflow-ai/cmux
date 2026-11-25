@@ -168,7 +168,8 @@ impl Gate {
     fn save(&self) {
         let Some(path) = &self.path else { return };
         if let Ok(bytes) = serde_json::to_vec(&self.tallies) {
-            let _ = crate::config::write_atomic(path, &bytes);
+            // Off the caller's thread (`disk_writer.rs`): rewritten after each outcome.
+            crate::config::write_atomic_later(path, bytes);
         }
     }
 }

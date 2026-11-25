@@ -30,6 +30,9 @@
 // `dispose` ends the loop, the timer and the observer and takes the mark away; a hidden page counts
 // no gap (it draws none).
 
+import { slackTimersFor } from "../../../pages/shared/slackTimers";
+import { frameTally } from "./frameTally";
+
 /// The mark on the chat (or on any element over it, as the gallery's variants and a test page set it).
 export const CHAT_MOTION_ATTR = "data-chat-motion";
 export const MINIMAL_MOTION = "minimal";
@@ -199,15 +202,11 @@ export function createFrameBudget(chat: Element, clock?: Clock): FrameBudget {
       if (handle >= 0 && typeof view?.cancelAnimationFrame === "function") view.cancelAnimationFrame(handle);
     },
   };
-  const later =
-    clock?.later ??
-    ((callback: () => void, ms: number) =>
-      typeof view?.setTimeout === "function" ? view.setTimeout(callback, ms) : -1);
-  const cancelLater =
-    clock?.cancelLater ??
-    ((handle: number) => {
-      if (handle >= 0 && typeof view?.clearTimeout === "function") view.clearTimeout(handle);
-    });
+  // The rest is a deadline that may run up to a heartbeat late: on the page's shared timer it rides a
+  // beat instead of waking a chat at rest by itself (slackTimers.ts).
+  const timers = view ? slackTimersFor(view) : undefined;
+  const later = clock?.later ?? ((callback: () => void, ms: number) => timers?.later(callback, ms) ?? -1);
+  const cancelLater = clock?.cancelLater ?? ((handle: number) => timers?.cancel(handle));
   const state = new FrameBudgetState();
   let handle: number | undefined;
   let rest: number | undefined;
@@ -233,7 +232,11 @@ export function createFrameBudget(chat: Element, clock?: Clock): FrameBudget {
     if (disposed) return;
     const now = time.now();
     const gap = doc.visibilityState === "hidden" || last === undefined ? undefined : at - last;
-    if (gap !== undefined && state.frame(gap, now)) apply();
+    if (gap !== undefined) {
+      // The always-on frame tally (frameTally.ts): what `cmux debug perf frames` and the frame goal read.
+      frameTally.note(gap);
+      if (state.frame(gap, now)) apply();
+    }
     last = doc.visibilityState === "hidden" ? undefined : at;
     quiet = !poked && gap !== undefined && gap <= 2 * FRAME ? quiet + 1 : 0;
     poked = false;

@@ -150,13 +150,13 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
     /// The home daemon refused the record (its message is in the log).
     nonisolated static var refusedReason: String {
         String(localized: "sessionRegistration.reason.refused", defaultValue: "cmux refused its record (details are in the log)",
-               table: "SessionRegistration", bundle: .module)
+               table: "SessionRegistration", bundle: .localizedModule)
     }
 
     /// The home daemon did not answer, and the retries are spent.
     nonisolated static var noAnswerReason: String {
         String(localized: "sessionRegistration.reason.noAnswer", defaultValue: "cmux did not answer (details are in the log)",
-               table: "SessionRegistration", bundle: .module)
+               table: "SessionRegistration", bundle: .localizedModule)
     }
 
     /// The home daemon refused to record a connected machine: the next launch does not restore it.
@@ -164,11 +164,11 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
         guard let machine, !machine.isEmpty else {
             return String(format: String(localized: "sessionRegistration.notSaved.unnamed",
                                          defaultValue: "This machine was not saved for restore: %@",
-                                         table: "SessionRegistration", bundle: .module), reason)
+                                         table: "SessionRegistration", bundle: .localizedModule), reason)
         }
         return String(format: String(localized: "sessionRegistration.notSaved",
                                      defaultValue: "%1$@ was not saved for restore: %2$@",
-                                     table: "SessionRegistration", bundle: .module), machine, reason)
+                                     table: "SessionRegistration", bundle: .localizedModule), machine, reason)
     }
 }
 

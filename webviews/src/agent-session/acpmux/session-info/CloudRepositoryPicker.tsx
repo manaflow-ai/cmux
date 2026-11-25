@@ -198,6 +198,9 @@ export function CloudRepositoryPicker({
       anchor={point ?? (anchor.current as UiAnchor)}
       label={t("cloudRepository.add")}
       className="acpmux-cloud-repository-popover"
+      // "results": opens on "Searching" and the repositories (the answer to the typed query, read
+      // after a pause) arrive with no input to the popup (ui/popupSettle.ts).
+      popupSettle="results"
       initialFocus={search}
     >
       <div className="acpmux-cloud-repository-picker">
@@ -249,9 +252,16 @@ export function CloudRepositoryPicker({
           </div>
         )}
         {connectUrl && (
-          <a className="acpmux-cloud-repository-connect" href={connectUrl} target="_blank" rel="noreferrer">
+          // The folder menu's own Connect GitHub (`github.connect`): the install comes back to cmux, which finishes
+          // it and lists the repositories, instead of a web link that ends on the console (#46018).
+          <button
+            type="button"
+            className="acpmux-cloud-repository-connect"
+            data-action="connect-github"
+            onClick={() => void request("github.connect", {}).catch(() => undefined)}
+          >
             {t("cloudRepository.connect")}
-          </a>
+          </button>
         )}
       </div>
     </Popover>

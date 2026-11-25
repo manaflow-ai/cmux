@@ -24,7 +24,7 @@ import Testing
 
     @Test func networkErrorsSayWhatToDo() {
         #expect(UserFacingError.message(URLError(.notConnectedToInternet)) == "You're offline. Connect to the internet and try again.")
-        #expect(UserFacingError.message(URLError(.timedOut)) == "The connection timed out. Try again.")
+        #expect(UserFacingError.message(URLError(.timedOut)) == "The connection is slow right now. Try again.")
     }
 
     @Test func proseIsASentenceWithNoCodeOrMarkup() {

@@ -101,29 +101,3 @@ export const sendsHeldForHost = {
     };
   },
 };
-
-/// The sends waiting for this page to connect to acpmux (`window.cmuxAcpmuxActions` has no
-/// `chat.send` yet: the chat still loads, or acpmux restarts). Each goes, in its turn, the moment the
-/// page connects (`acpmuxSendsReady`), never refused and never left in the composer (Leo,
-/// 2026-11-17: "I CAN'T EVEN SEND A MESSAGE WHILE THE THING LOADS ... JUST MAKE IT LOOK LIKE IT'S
-/// SENT OR JUST SEND IT"). A wait ends with the connection only: each one belongs to a send the
-/// person made, which its row draws and its Remove withdraws.
-const connectWaiters = new Set<() => void>();
-
-/// Resolves once acpmux takes prompts on this page: at once when it does now.
-export function untilAcpmuxTakesSends(page: { cmuxAcpmuxActions?: Record<string, unknown> } = window): Promise<void> {
-  if (page.cmuxAcpmuxActions?.["chat.send"]) return Promise.resolve();
-  return new Promise((resolve) => {
-    const ready = () => {
-      if (!page.cmuxAcpmuxActions?.["chat.send"]) return;
-      connectWaiters.delete(ready);
-      resolve();
-    };
-    connectWaiters.add(ready);
-  });
-}
-
-/// The page installed (or replaced) its acpmux actions: the sends waiting for them go.
-export function acpmuxSendsReady(): void {
-  for (const ready of [...connectWaiters]) ready();
-}

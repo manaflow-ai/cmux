@@ -32,9 +32,21 @@ pub struct ForkParams {
     /// With `live`: the harness the fork runs on, carrying the conversation over (a model switch).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub harness: Option<String>,
-    /// With `harness`: the model the fork starts on, at most 256 bytes.
+    /// The model the fork starts on, at most 256 bytes: with `harness` that harness's, else the
+    /// chat's own harness's (set before the reply, or the fork is refused and removed).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// With `live`: fork one of the chat's subagents into a chat of its own, from the subagent's
+    /// own conversation, not the chat's (`hub/fork_subagent.rs`). The id `_meta.acpmux.subagents`
+    /// names it by, or its `agentId` (a Claude agent's id; a Codex child's thread id is its id).
+    /// A Claude Code or Codex chat only; a running subagent forks through its last settled step.
+    /// Capability `acp.session.fork.subagent.v1`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subagent_id: Option<String>,
+    /// With `live`: the permission mode the fork starts in, one of the modes the chat's harness
+    /// lists (`modes.availableModes`); another is refused. Capability `acp.session.fork.subagent.v1`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<Value>,
 }
@@ -48,12 +60,33 @@ pub struct ForkParams {
 pub struct SessionSummary {
     pub session_id: String,
     pub name: String,
+    /// The session's spoken handle, independent of its task name and ids. Older peers omit it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
+    /// The name every human-visible surface shows for it (tab, sidebar row, lists, chat header,
+    /// notices, a message's sender): its handle when one was given (`acpmux rename @ Mango
+    /// --handle`), absent otherwise (a derived handle is no name a person chose; show `name`).
+    /// Its former names and handles are `formerNames` ("Mango (fka claude-sr2-coord-old)").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub display_name: Option<String>,
+    /// The icon it set (`session_icon.rs`), drawn like a harness `iconSpec`; absent draws the
+    /// harness mark.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub icon: Option<crate::session_icon::SessionIcon>,
     /// Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
     /// default. Absent otherwise, from a session named before it was kept, and from a peer on an
     /// older acpmux.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    // Listed even when false, so every row lists the same keys (`hub/mesh_book.rs` `ROW_KEYS`).
+    #[serde(default)]
     #[schemars(default)]
     pub name_given: bool,
+    /// The names it had before its renames, oldest first: each still names it where no session
+    /// has it as its current name. Absent when it was never renamed, and from an older acpmux.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(default)]
+    pub former_names: Vec<String>,
     pub harness: String,
     pub family: Option<String>,
     /// Lossy when the path is not UTF-8.
@@ -114,6 +147,14 @@ pub struct SessionSummary {
     pub parent_id: Option<String>,
     /// Where a fork branched off its parent.
     pub fork_seq: Option<u64>,
+    /// Whether the chat forks, and edits, through any completed turn, not only its latest: its
+    /// harness cuts a conversation at a turn (Claude Code and Codex, `config::turn_cut`), whatever
+    /// family name its profile carries. Absent when unknown (the configuration was being written
+    /// as the summary was built) and from a peer on an older acpmux: a client then falls back to
+    /// the family, never reads absence as false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub forks_any_turn: Option<bool>,
     /// The session whose agent started this one, kept only while that parent
     /// is listed and is a root itself: one level, for lists that fold one level.
     /// `parent` without those rules, else an older client's `spawnedBy` tag.
@@ -169,7 +210,30 @@ pub struct SessionSummary {
     pub preview: Option<String>,
     /// One sidebar line; null before the first prompt.
     pub last_message: Option<LastMessage>,
+    /// The plan the person last approved in this chat (`hub/plan_build.rs`), which the pane keeps
+    /// in sight while the agent builds it. Absent until one, and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub approved_plan: Option<crate::store::ApprovedPlan>,
     pub queued: u64,
+    /// Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update
+    /// that installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from
+    /// a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(default)]
+    pub has_draft: bool,
+    /// A person pinned it (`_acpmux/pin`), on any of their replicas (`hub/synced.rs`). Absent
+    /// otherwise, and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(default)]
+    pub pinned: bool,
+    /// Work runs below it with no turn open: a background subagent, a harness background process,
+    /// or a sub-session at work (what keeps the idle pass from ending it, `hub/idle.rs`). An app
+    /// update that installs when idle waits for it. Absent otherwise, and from a peer on an older
+    /// acpmux.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(default)]
+    pub working_below: bool,
     /// A turn failed: the prompts behind it wait for a client to resume them.
     pub queue_paused: bool,
     /// A daemon start holds what this chat queued until a person opens it: its folder is guarded
@@ -178,6 +242,19 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(default)]
     pub person_hold: Option<PersonHold>,
+    /// The account's rate limit holds every turn of this chat until this time (Unix ms): what
+    /// comes in queues and goes in as one turn at the reset (`hub/rate_hold.rs`). `acpmux ls` shows
+    /// "rate-limited until HH:MMZ". Absent otherwise, and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub rate_limited_until: Option<u64>,
+    /// Since when (Unix ms) this chat is parked on the rate limit: six turns in a row failed on
+    /// it, or Stop came while the limit had it, so it starts nothing by itself until `acpmux
+    /// retry` or the person's own prompt (`hub/rate_hold.rs`). Absent otherwise, and from a peer
+    /// on an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub rate_limit_parked: Option<u64>,
     /// A sub-session whose queued prompt waits for a free run slot of its parent: the parent
     /// runs as many sub-sessions as its `maxRunning` allows (`hub/subsession_runs.rs`). Absent
     /// otherwise, and from a peer on an older acpmux.
@@ -191,6 +268,15 @@ pub struct SessionSummary {
     #[serde(default)]
     #[schemars(default)]
     pub starting: bool,
+    /// It holds its owner's launch credential (`agent_credentials.rs`) while its agent is
+    /// hibernated, so the credential is in this daemon's memory and nowhere else: a daemon restart
+    /// now loses it, and the chat's next start runs without it. `acpmux session wake` starts the
+    /// agent, whose env then carries the credential across the restart; a machine update does that
+    /// before it restarts this daemon. Says only that one is held, never its name or value. Absent
+    /// otherwise, and from an older acpmux.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(default)]
+    pub credential_only_here: bool,
     /// Being moved to another daemon; it takes no prompt meanwhile.
     pub moving: bool,
     /// Moved to another daemon (`acpmux session move`): where it runs now,
@@ -210,8 +296,11 @@ pub struct SessionSummary {
     pub turn: Option<TurnSummary>,
     pub queue: Vec<QueuedPromptSummary>,
     pub pending_permissions: u64,
-    /// What it waits on the person for: `question` (an agent question) or
-    /// `permission`; null while nothing is pending. Only the person allows a permission.
+    /// What it waits on the person for: `question` (an agent question), `permission`,
+    /// `secret` (a private card asking a secret's value), `elevation` (a card asking the
+    /// password to run one command as root) or `mcp_connect` (a card asking to connect an MCP
+    /// server); null while it waits on nothing. A `waiting` status always has one. Only the
+    /// person allows a permission or answers a card.
     pub waiting_on: Option<String>,
     /// The first prompt of the question it waits on, cut to 120 characters.
     pub waiting_prompt: Option<String>,
@@ -256,6 +345,11 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(default)]
     pub retry_deciding: bool,
+    /// It waits for capacity and goes on by itself (`hub/capacity_wait.rs`). Absent otherwise,
+    /// and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub capacity_wait: Option<CapacityWait>,
     /// Attached clients.
     pub attached: u64,
     /// Some attached client shows the chat.
@@ -291,6 +385,15 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(default)]
     pub time_breakdown: Option<crate::time_breakdown::TimeBreakdown>,
+    /// The composer footer's status dot and quiet metadata, decided from this row's own fields
+    /// (`protocol/composer_status.rs`); set on the row after it is built, and again by this
+    /// daemon on a peer's row (with `peer`). Whole on a read with tools (attach, info, the
+    /// attached chat's `session_changed`); a census row carries it only with an item or a live
+    /// fact, and without the facts that repeat its own fields (`composer_status::census`).
+    /// Absent from an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub composer_status: Option<super::composer_status::ComposerStatus>,
 }
 
 /// The bounded diagnosis shown beside a looping chat. The daemon emits one event when this
@@ -347,6 +450,10 @@ pub struct UsageStats {
     /// read and cache write.
     #[serde(rename = "tokens24h")]
     pub tokens24h: Option<u64>,
+    #[serde(rename = "tokensByModel1h")]
+    pub tokens_by_model1h: Option<BTreeMap<String, u64>>,
+    /// Tokens per call model in the completed UTC hour preceding the hour of updatedAt.
+    pub tokens_by_model_previous_utc_hour: Option<BTreeMap<String, u64>>,
     /// Those tokens at the model catalog's list prices, USD; null when no model
     /// they ran on has a price, or when `tokens24h` is null.
     #[serde(rename = "costUsd24h")]
@@ -541,8 +648,6 @@ pub struct TurnSummary {
     /// What the turn does right now: its latest tool call's title, masked
     /// (`secret_scan`); null until it calls one (`hub/activity.rs`).
     pub activity: Option<String>,
-    /// Its plan's entry in progress, masked; null without one.
-    pub plan_step: Option<String>,
     /// Since when it has stalled: no tool call in flight and no sign of its
     /// model since then, for `stalledTurnMs` or more (`hub/activity.rs`);
     /// null while it has not.
@@ -621,6 +726,14 @@ pub struct QueuedPromptSummary {
     #[serde(default)]
     #[schemars(default)]
     pub inbox_notice: Option<Value>,
+    /// Who put it in the queue, from its provenance alone (`hub/queue_origin.rs`): `person` (the
+    /// composer's steer rows), `agent` (another agent's message or acpmux's notice of such), or
+    /// `acpmux` (the daemon's own prompt: a surge digest, a subagent's resume, a cut turn's
+    /// continuation), which an app draws apart from the person's rows with none of their actions.
+    /// Absent from an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub origin: Option<crate::hub::queue_origin::QueueOrigin>,
 }
 
 /// The subagent a queued resume asks the agent to resume (`QueuedPromptSummary.subagentRetry`).
@@ -708,8 +821,12 @@ pub struct Enforcement {
 pub struct LastTurn {
     pub turn_id: Option<String>,
     pub prompt_id: Option<String>,
-    /// `completed`, `failed` or `cancelled`.
+    /// `completed`, `failed` or `cancelled`; on a session row, `capacity` for a failed turn a
+    /// capacity error cut whose continuation acpmux waits for or runs (`hub/auto_resume.rs`).
     pub status: Option<String>,
+    /// When a `capacity` turn's continuation runs, while it waits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held_until: Option<u64>,
     pub stop_reason: Option<String>,
     pub error_text: Option<String>,
     pub error_source: Option<String>,
@@ -763,6 +880,34 @@ pub struct ErrorDetails {
     pub retry_after_ms: Option<u64>,
 }
 
+/// A chat waiting for capacity (`hub/capacity_wait.rs`): a turn cut by an overloaded model, an
+/// exhausted account pool or the account's rate limit, which acpmux continues by itself. A
+/// client draws it as one calm state ("Waiting for capacity, about 40 s"; in a list "paused for
+/// capacity, resumes ~22:41"), never as a failed turn, and keeps `error` for a details
+/// disclosure.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CapacityWait {
+    /// `capacity` or `rate_limit`.
+    pub reason: RetryReason,
+    /// When it goes on (epoch ms); absent while the continuation is still being decided.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub resumes_at: Option<u64>,
+    /// The cut turn the wait continues, when there is one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub turn_id: Option<String>,
+    /// Since when it waits (epoch ms): the cut turn's end.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub since: Option<u64>,
+    /// The harness's raw error, cut to 600 characters, for a details disclosure only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub error: Option<String>,
+}
+
 /// An automatic retry of a failed turn that waits (`hub/auto_resume.rs`): attempt `attempt`
 /// of `of`, at `nextAt` (epoch ms). It sends the prompt `promptId~resume-<attempt>` in the same
 /// session, for the cut turn `turnId`.
@@ -779,16 +924,20 @@ pub struct RetrySummary {
 }
 
 /// Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no
-/// capacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, the
-/// agent process died mid-turn, or the chat outgrew its model's context window (`context`: it
-/// is compacted, then continued at once).
+/// capacity (HTTP 503 or 529, overloaded, no account free), the account hit its usage or rate
+/// limit (`rate_limit`, HTTP 429: the chat holds every turn until the reset, `hub/rate_hold.rs`),
+/// the connection dropped, the agent process died mid-turn, the chat outgrew its model's
+/// context window (`context`: it is compacted, then continued at once), or the machine's disk
+/// was full (`disk`: it goes on once space is free again).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum RetryReason {
     Capacity,
+    RateLimit,
     Transport,
     AgentExited,
     Context,
+    Disk,
 }
 
 impl RetryReason {
@@ -796,9 +945,11 @@ impl RetryReason {
     pub fn from_cause(cause: &str) -> Option<Self> {
         match cause {
             "capacity" => Some(Self::Capacity),
+            "rate_limit" => Some(Self::RateLimit),
             "transport" => Some(Self::Transport),
             "agent_exited" => Some(Self::AgentExited),
             "context" => Some(Self::Context),
+            "disk" => Some(Self::Disk),
             _ => None,
         }
     }
@@ -806,9 +957,11 @@ impl RetryReason {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Capacity => "capacity",
+            Self::RateLimit => "rate_limit",
             Self::Transport => "transport",
             Self::AgentExited => "agent_exited",
             Self::Context => "context",
+            Self::Disk => "disk",
         }
     }
 }
@@ -878,6 +1031,11 @@ pub struct SessionsParams {
     /// `_acpmux/sessions` only: exclude peer sessions before pagination.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_only: Option<bool>,
+    /// `_acpmux/sessions` only (a watch refuses it): exclude side chats (a `side` tag) and
+    /// sessions another chat's agent started (`spawnedBy`, `startedBy`) before pagination: the
+    /// chats a list shows on their own (capability `session-list-top-level-v1`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_level_only: Option<bool>,
     /// `_acpmux/sessions` only: `sessionId` orders by immutable ID for complete scans.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub order_by: Option<String>,
@@ -889,6 +1047,31 @@ pub struct SessionsParams {
     /// Takes no other filter; the reply is never paged (capability `session-list-pending-v1`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_only: Option<bool>,
+}
+
+/// `_acpmux/usage` (capability `session-usage-v1`): what Session Info's Usage reads.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
+pub struct UsageParams {
+    /// The `digest` of the last reply the client holds: while the stats read the same, the reply
+    /// is `{digest, unchanged: true}` and carries none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub known: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageResult {
+    /// Names what `usage` holds: equal digests, equal stats (within one daemon run).
+    pub digest: String,
+    /// Every listed chat that reports usage, its `usageStats` by the `sessionId` its row lists it
+    /// under (this daemon's chats and the peers' rows). Absent with `unchanged`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<std::collections::BTreeMap<String, UsageStats>>,
+    /// `known` is `digest`: the client's stats stand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unchanged: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -965,5 +1148,49 @@ pub struct SessionChanged {
     pub peer: Option<String>,
     /// The list position this change took (`hub/row_log.rs`): the client's cursor for
     /// `_acpmux/watch {afterSeq}` is the highest it applied.
+    pub list_seq: u64,
+    /// To a connection that asked for patches (`initialize` `_meta.acpmux.sessionChangedDelta`):
+    /// this row's number among the chat's rows it heard; the next `_acpmux/session_patch` of the
+    /// chat applies to it (`server/session_patch.rs`). Absent for every other connection.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub row_seq: Option<u64>,
+}
+
+/// To a connection that asked for patches (`initialize` `_meta.acpmux.sessionChangedDelta`), in
+/// place of a `_acpmux/session_changed` once it holds the chat's row: only what changed
+/// (`server/session_patch.rs`). `patch` is a JSON merge patch (RFC 7386; `null` removes a key)
+/// of the row it holds at `baseRowSeq`, in which `{"$splice": [from, keep, items]}` stands for
+/// an array that is `held[from..from + keep]` then `items`; the result is the row at `rowSeq`.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionPatch {
+    pub session_id: String,
+    /// A peer's chat: the id its row has here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub qualified_session_id: Option<String>,
+    pub patch: Value,
+    pub row_seq: u64,
+    pub base_row_seq: u64,
+    /// As `session_changed`'s.
+    pub kind: String,
+    pub record_kind: String,
+    pub seq: u64,
+    /// The peer a remote session runs on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peer: Option<String>,
+    pub list_seq: u64,
+}
+
+/// To a watcher that asked for batches (`initialize` `_meta.acpmux.peerRowBatches`), in place of
+/// one `_acpmux/session_changed` per row: `count` rows of `peer` changed or left at once (a peer's
+/// list). Their list positions are consecutive, after `afterSeq` and up to `listSeq`; a client
+/// reads them with `_acpmux/watch {afterSeq, listEpoch}` from a cursor no higher than `afterSeq`,
+/// and keeps its cursor at most `afterSeq` until a list or follow current to `listSeq` is in.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerRowsChanged {
+    pub peer: String,
+    pub count: u64,
+    pub after_seq: u64,
     pub list_seq: u64,
 }

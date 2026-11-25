@@ -241,6 +241,7 @@ fn team_missing_role_and_legacy_stamps_cannot_enter_native_owner_dispatch() {
             json!({"cmd":"new-tab", "pane":1}),
             json!({"cmd":"close-surface", "surface":1}),
             json!({"cmd":"send-key", "surface":1, "key":"enter"}),
+            json!({"cmd":"set-layout-sizes", "transaction":1, "values":[{"pane":1, "width":0.5}]}),
         ] {
             assert_eq!(call(&mut stream, &mut reader, frame)["error_code"], json!(REMOTE_DENIED));
         }
@@ -320,6 +321,7 @@ fn native_data_frames_reach_only_the_owner() {
         crate::git_seed::GIT_SEED_CAPABILITY,
         crate::git_seed::GIT_SEED_EXPORT_CAPABILITY,
         crate::git_seed::GIT_SEED_HOLD_CAPABILITY,
+        crate::git_seed::GIT_SEED_CARRY_CAPABILITY,
         crate::blob_fetch::BLOB_FETCH_CAPABILITY,
     ] {
         assert!(native_owner::carries(capability), "{capability}");
@@ -482,6 +484,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "agent-session-share-room",
     "agent-session-share-uninvite",
     "apps-agent-inventory-changed",
+    "apps-chat-action",
     "apps-dispatch",
     "apps-link-changed",
     "apps-list",
@@ -530,6 +533,9 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "feed-local-handoff-done",
     "feed-local-list",
     "float-pane",
+    // The launch snapshot is a file beside the local daemon's registry; the
+    // app asks its local daemon only, at quit.
+    "flush-launch-snapshot",
     "forget-session",
     "get-blob",
     "get-frontend-browser-history",
@@ -577,7 +583,12 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "put-blob",
     "put-frontend-projection",
     "put-session",
+    "quick-terminal",
     "remote-host-app",
+    // This Mac's Computer Use settings and saved approvals: the verified local app only
+    // (origin.forbidden otherwise); another machine reaches Computer Use through the relay.
+    "computer-use-config",
+    "computer-use-approvals",
     "remote-host-call",
     "remote-host-config",
     "remote-host-status",

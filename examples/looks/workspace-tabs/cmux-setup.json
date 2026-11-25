@@ -1,0 +1,20 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/workspace-tabs",
+  "name": "workspace-tabs",
+  "tagline": "Workspaces work like browser tabs: one line each, colored groups, side by side by dragging.",
+  "description": "Treat workspaces the way a browser treats tabs: each workspace is one line in the sidebar and Shift-Command-[ and ] step through them, groups get a colored rail like a browser's tab groups, Command-1 to 9 picks a workspace, you drag a workspace onto a pane's edge to show it beside the one you are in, a chat alone in its pane loses its own tab, new tabs open next to the current one, and many tabs scroll instead of shrinking.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "cmuxProfile": 1,
+  "settings": {
+    "sidebar.workspacesAsTabs": true,
+    "sidebar.chromeGroups": true,
+    "sidebar.sideBySide": true,
+    "sidebar.density": "compact",
+    "tabs.commandDigits": "workspaces",
+    "tabs.hideLoneChatTab": true,
+    "tabs.newTabPosition": "afterCurrent",
+    "tabs.overflow": "scroll"
+  }
+}

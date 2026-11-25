@@ -39,6 +39,7 @@ use serde_json::{Value, json};
 
 use super::mirror::Origin;
 use super::supervisor::{ApiError, HostKey, Inner, Out, Supervisor};
+use super::system_calendar;
 use super::timer::TimerId;
 use cmux_json::JsonSet as _;
 
@@ -74,14 +75,26 @@ pub const FAMILIES: &[&str] = &[
     // `page.follow`): reader-mode extraction and link hints, run as page
     // scripts in the app's WebKit or CEF tab, which the daemon cannot reach.
     "page",
+    // What plays in cmux (`media.get`) and its transport (`media.control`), answered by the Mac
+    // app from the Now Playing card's sources; `apps-provider-changed {family: media}` tells
+    // `media.changed` subscribers when it changes.
+    "media",
+    // The person's system calendar on the Mac (`system_calendar.events`,
+    // `system_calendar.request_access`), read through EventKit in the Mac app, which
+    // holds the calendar permission; the daemon has none. Not `calendar.*`,
+    // the Cloud's Google Calendar ops.
+    "system_calendar",
 ];
 
 /// Ops that wait for the user (a file panel) get the long deadline.
-const WAITS_FOR_USER: &[&str] = &["fs.pick"];
+/// `system_calendar.request_access` waits on the system Calendars prompt.
+const WAITS_FOR_USER: &[&str] = &["fs.pick", system_calendar::REQUEST_ACCESS];
 /// Largest params a routed call may carry (the provider's control queue is
 /// bounded; an untrusted app must not be able to overflow it).
 pub(super) const MAX_PARAMS_BYTES: usize = 64 * 1024;
 /// Calls one provider may have outstanding across every app.
+/// Measured: the cmux app's bounded control queue; 64 × MAX_PARAMS_BYTES (64 KiB) is at most
+/// 4 MiB of params untrusted apps can hold queued there.
 pub(super) const MAX_OUTSTANDING: usize = 64;
 
 /// Who waits for a provider call's answer.
@@ -101,6 +114,8 @@ pub(super) struct ProviderCall {
     pub op: String,
     pub target: Target,
     pub timer: TimerId,
+    /// The answer's `system_calendar` cache key (`system_calendar.rs`).
+    pub cache_key: Option<String>,
 }
 
 /// How a provider call ended.
@@ -290,6 +305,18 @@ impl Supervisor {
         idempotency_key: Option<String>,
     ) -> Result<Vec<Out>, Value> {
         let generation = inner.hosts.get(key).map_or(0, |h| h.generation);
+        // A fresh granted calendar read answers at once (`system_calendar.rs`).
+        if family_of(op) == system_calendar::FAMILY {
+            let normalized = system_calendar::normalize(op, &params)?;
+            if let Some(body) = system_calendar::cache_key(op, &normalized)
+                .and_then(|k| inner.system_calendar.hit(&k, std::time::Instant::now()))
+            {
+                if let Some(process) = inner.hosts.get(key).and_then(|h| h.process.as_ref()) {
+                    process.send(&ToHost::Resolve { cb, ok: true, body });
+                }
+                return Ok(vec![]);
+            }
+        }
         let target = Target::Host { host: key.clone(), generation, cb };
         let outs = self.send_to_provider_locked(
             inner,
@@ -326,6 +353,14 @@ impl Supervisor {
                 json!({ "code": "operation.unsupported", "message": format!("{op} has no owner reachable from apps yet"), "details": { "op": op }, "retryable": false }),
             );
         }
+        // Calendar reads are bounded and normalized before the Mac app sees them.
+        let (params, cache_key) = if family_of(op) == system_calendar::FAMILY {
+            let normalized = system_calendar::normalize(op, &params)?;
+            let key = system_calendar::cache_key(op, &normalized);
+            (normalized, key)
+        } else {
+            (params, None)
+        };
         let Some(&client) = inner.providers.get(family_of(op)) else { return Err(unavailable(op)) };
         let version =
             inner.catalog.packages.get(app).map(|p| p.version.clone()).unwrap_or_default();
@@ -352,9 +387,10 @@ impl Supervisor {
                 me.provider_timeout(request_id);
             }
         });
-        inner
-            .provider_calls
-            .insert(request_id, ProviderCall { client, op: op.to_string(), target, timer });
+        inner.provider_calls.insert(
+            request_id,
+            ProviderCall { client, op: op.to_string(), target, timer, cache_key },
+        );
         let mut event = json!({
             "event": "apps-provider-request",
             "request_id": request_id,
@@ -485,6 +521,15 @@ impl Supervisor {
             (true, false) => json!({ "value": body }),
             (false, _) => error_body(body),
         };
+        if family_of(&call.op) == system_calendar::FAMILY {
+            inner.system_calendar.record(
+                &call.op,
+                call.cache_key.as_deref(),
+                ok,
+                &body,
+                std::time::Instant::now(),
+            );
+        }
         let outs = self.finish_locked(&mut inner, &call, Ending::Answer { ok, body });
         drop(inner);
         self.emit(outs);
@@ -540,33 +585,5 @@ pub(super) fn deadline_ms(deadline: Duration) -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn families_and_methods() {
-        assert_eq!(family_of("app.settings.set"), "app.settings");
-        assert_eq!(family_of("fs.pick"), "fs");
-        assert!(FAMILIES.contains(&family_of("agent_cli.list")));
-        assert!(FAMILIES.contains(&family_of("agent_chat.list")));
-        assert!(!FAMILIES.contains(&family_of("agent.list")), "the daemon owns agent.*");
-        let mut params = json!({ "provider": "github" });
-        normalize_method(&mut params);
-        assert_eq!(params["method"], "GET");
-        let mut post = json!({ "method": "post" });
-        normalize_method(&mut post);
-        assert_eq!(post["method"], "POST");
-    }
-
-    /// A new `app.*` op must be a decision: the supervisor keeps
-    /// `app.storage.*`; anything else in the catalog would silently go to
-    /// the provider's `app` family.
-    #[test]
-    fn every_app_op_in_the_scope_table_has_a_known_owner() {
-        for op in super::super::grants::ScopeTable::get().known_ops() {
-            if family_of(&op) == "app" {
-                assert!(op.starts_with("app.storage."), "{op}: decide its owner before adding it");
-            }
-        }
-    }
-}
+#[path = "provider_tests.rs"]
+mod tests;

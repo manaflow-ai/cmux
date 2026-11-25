@@ -1,3 +1,4 @@
+public import CmuxNextDaemon
 public import Foundation
 
 /// One model connection's credential as this Mac's acpmux gives it for a Cloud chat
@@ -11,8 +12,7 @@ public struct CloudAgentCredential: Sendable, Equatable, CustomStringConvertible
     public let connectionID: String
     /// `claude` or `codex`.
     public let family: String
-    /// `claude-token`, `api-key`, `chatgpt-plan`, or `codex-login` / `subscription` (a Codex CLI
-    /// ChatGPT login's access token, cmux#45774).
+    /// `claude-token`, `api-key` or `chatgpt-plan`.
     public let kind: String
     public let env: [String: String]
     public let expiresAt: Date?
@@ -30,9 +30,8 @@ public struct CloudAgentCredential: Sendable, Equatable, CustomStringConvertible
         self.init(connectionID: connectionID, family: family, kind: kind, env: env, expiresAt: expires)
     }
 
-    /// A token the Mac pushes again before it expires: every credential acpmux gives an expiry (a
-    /// ChatGPT plan token, a Codex CLI login's access token); a Claude token or an API key has none.
-    public var refreshes: Bool { expiresAt != nil }
+    /// A ChatGPT plan token the Mac pushes again before it expires.
+    public var refreshes: Bool { kind == Self.chatGPTPlan && expiresAt != nil }
 
     public var description: String { "CloudAgentCredential(\(connectionID), \(kind), \(env.keys.sorted().joined(separator: ",")))" }
     public var debugDescription: String { description }
@@ -113,6 +112,22 @@ public final class CloudAgentCredentials {
             return try? await credential(forConnection: picked)
         }
         return try await credential(forConnection: id)
+    }
+
+    /// The login a move to `machine` carries (`link agent move --login-stdin`), read now, so the chat resumes there signed in:
+    /// only when the Cloud API said the machine is the owner's (`vmKind` `owner`). As ``launchCredential(chat:machine:harness:model:)``,
+    /// a chosen connection that cannot be read throws, and the move stays where it is.
+    public func moveCredential(vmKind: String, chat: String, machine: String, harness: String?) async throws -> CloudAgentCredential? {
+        vmKind == "owner" ? try await launchCredential(chat: chat, machine: machine, harness: harness) : nil
+    }
+
+    /// A move that carried `credential` landed on the machine's tab `surface`: as ``started(chat:machine:on:push:)``, its ChatGPT
+    /// plan token kept fresh there as after a Cloud start. No credential: nothing.
+    public func moved(chat: String, machine: String, on credential: CloudAgentCredential?, surface: UInt64,
+                      ownerLink: AgentSessionAttachClient.OwnerLink?, endpoint: @escaping AgentSessionAttachClient.EndpointProvider) {
+        guard let credential else { return }
+        started(chat: chat, machine: machine, on: credential,
+                push: CloudAgentCredentialRefresher.machinePush(surface: surface, ownerLink: ownerLink, reconnect: nil, endpoint: endpoint))
     }
 
     /// The chat started on `credential`: its choice is spent, and a ChatGPT plan token is kept fresh

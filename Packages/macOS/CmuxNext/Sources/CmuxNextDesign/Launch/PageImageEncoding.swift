@@ -1,4 +1,5 @@
 package import AppKit
+import ImageIO
 
 /// How a saved page image or terminal frame (`AgentPaneLaunchImages`, `TerminalLaunchFrames`: the next
 /// launch's first frame) is encoded. An opaque page is a JPEG. A transparent page (the New Tab page, or a page over a background
@@ -38,5 +39,17 @@ nonisolated extension CGImage {
         let rep = NSBitmapImageRep(cgImage: self)
         return png ? rep.representation(using: .png, properties: [:])
             : rep.representation(using: .jpeg, properties: [.compressionFactor: jpegQuality])
+    }
+
+    /// The frame as a PNG with no per-row filter (`IMAGEIO_PNG_FILTER_NONE`). For a terminal frame (flat runs of one
+    /// color and text) it is cheaper on all three counts than the default adaptive filter (``pageImageData(png:jpegQuality:)``),
+    /// measured on an M4 mini, 2800 x 1800 px see-through frame: encode 20.8 ms vs 26.1, 444 KiB vs 550, decode 6.0 ms
+    /// vs 15.4 (the launch read decodes it). Lossless either way: the same pixels.
+    package func unfilteredPNGData() -> Data? {
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil) else { return nil }
+        let properties = [kCGImagePropertyPNGDictionary: [kCGImagePropertyPNGCompressionFilter: IMAGEIO_PNG_FILTER_NONE]]
+        CGImageDestinationAddImage(destination, self, properties as CFDictionary)
+        return CGImageDestinationFinalize(destination) ? data as Data : nil
     }
 }
