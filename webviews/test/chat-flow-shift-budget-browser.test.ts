@@ -403,7 +403,7 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
       for (const flow of ["send", "thinking", "compaction", "reload"] as const) {
         test(`${flow}: the transcript and the composer stay inside the flow's shift budget`, async () => {
           const budget = { ...BUDGET[flow], ...KNOWN[`${engine} ${flow}`] };
-          expect(overBudget(await runFlow(engine, flow, false), budget)).toEqual([]);
+          expect(overBudget(await runFlow(engine, flow, true), budget)).toEqual([]);
         });
         // The control, once per flow (Chromium, or the one engine that launched).
         if (engine === engines[0]![0])
