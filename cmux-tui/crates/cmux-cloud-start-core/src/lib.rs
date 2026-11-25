@@ -20,6 +20,8 @@ pub mod machine_create;
 pub mod machine_repo;
 pub mod machine_route;
 pub mod moves;
+pub mod one_pane;
 pub mod sequence;
+pub mod spare_shapes;
 pub mod start;
 pub mod vm_kind;
