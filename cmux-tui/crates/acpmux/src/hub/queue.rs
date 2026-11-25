@@ -11,6 +11,18 @@ use super::*;
 use cmux_json::JsonSet as _;
 use std::sync::atomic::Ordering;
 
+/// The speculative queue count while a prompt waits for the turn lock. If its
+/// admission deadline drops that wait, no queue entry exists to retire the count.
+struct TurnLockWait<'a>(Option<&'a std::sync::atomic::AtomicU64>);
+
+impl Drop for TurnLockWait<'_> {
+    fn drop(&mut self) {
+        if let Some(count) = self.0 {
+            count.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+}
+
 // A prompt dequeued for a turn that never started goes back at the head (`restore_queue`).
 #[path = "lost_start.rs"]
 mod lost_start;
@@ -311,16 +323,14 @@ impl Hub {
         p: Slot<'_>,
         accept: &mut impl FnMut(Value),
     ) -> Result<(String, bool, TurnGuard<'a>, Arc<PromptRun>), Answer> {
-        // Read by the answer's due time (`prompt_admission.rs`); past it, the queue's defaults.
-        let cfg = match p.answer_due {
-            Some(due) => tokio::time::timeout_at(due, self.config.read()).await.ok(),
-            None => Some(self.config.read().await),
-        };
-        let (limits, hold_ms) = match cfg {
-            Some(cfg) => {
-                (QueueLimits::of(&cfg), super::person_hold::hold_ms(&cfg, &session.meta().name))
-            }
-            None => (QueueLimits::defaults(), None),
+        let (limits, hold_ms) = {
+            let cfg = match p.answer_due {
+                Some(due) => tokio::time::timeout_at(due, self.config.read())
+                    .await
+                    .map_err(|_| Err(super::auto_resume::retry_turn::busy()))?,
+                None => self.config.read().await,
+            };
+            (QueueLimits::of(&cfg), super::person_hold::hold_ms(&cfg, &session.meta().name))
         };
         // Claimed under the queue lock, as `restore_queue` takes them: a turn of agent messages
         // joins only a restored prompt its task claimed (`digest.rs` `take_joined`).
@@ -509,6 +519,7 @@ impl Hub {
                             tokio::time::Instant::now() + super::prompt_admission::TURN_LOCK_WAIT,
                         )
                     });
+                    let mut pending = TurnLockWait(Some(&session.queued));
                     let guard = loop {
                         let done = session.restore_done.notified();
                         tokio::pin!(done);
@@ -535,6 +546,8 @@ impl Hub {
                             None => done.await,
                         }
                     };
+                    // The synchronous claim or enqueue below now owns this count.
+                    pending.0.take();
                     // `waiting` was read before the lock: a prompt the owner approved (or a
                     // resumed one) since then waits in the queue ahead of this one and keeps its
                     // place (`queue_approve.rs`). This one queues behind it, never claiming the
@@ -810,10 +823,7 @@ impl Hub {
         turn_id: &str,
         limits: QueueLimits,
     ) -> Result<(Waits, u64), Answer> {
-        self.enqueue(session, p, turn_id, limits).map_err(|e| {
-            session.queued.fetch_sub(1, Ordering::SeqCst);
-            Err(e)
-        })
+        self.enqueue(session, p, turn_id, limits, |_, waits| waits).map_err(Err)
     }
 
     /// Why the chat takes no new prompt now, if it takes none: [`Self::queue_slot`] and a
@@ -846,13 +856,14 @@ impl Hub {
 
     /// [`Self::enqueue_or_refuse`]'s step: puts `p` in the queue, unless it has no room for it
     /// (`queue_admission.rs`): then nothing is put in, written or replaced.
-    fn enqueue(
+    pub(super) fn enqueue<T>(
         &self,
         session: &Arc<Session>,
         p: &Slot<'_>,
         turn_id: &str,
         limits: QueueLimits,
-    ) -> Result<(Waits, u64), RpcError> {
+        register: impl FnOnce(&mut QueuedPrompt, Waits) -> T,
+    ) -> Result<(T, u64), RpcError> {
         // Measured before the lock: under it only sizes measured already are added up.
         let size = super::queue_admission::slot_bytes(p);
         let withdraw = Arc::new(Notify::new());
@@ -906,10 +917,13 @@ impl Hub {
         super::session::mark_pasted(&mut queued, p.blocks);
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // Check and insert under one lock: simultaneous prompts cannot all reserve the last
-        // held slot. Rejection precedes superseding and logging, so it has no queue side effects;
-        // `enqueue_or_refuse` counts it back out of the session's queued total.
+        // held slot. Rejection precedes superseding and logging, so it has no queue side effects.
+        // Either refusal releases the queued reservation the caller made.
+        let refused = |_: &RpcError| {
+            session.queued.fetch_sub(1, Ordering::SeqCst);
+        };
         if awaiting_owner {
-            queue_approve::held_cap(&queue, p.provenance)?;
+            queue_approve::held_cap(&queue, p.provenance).inspect_err(refused)?;
         }
         // Checked and put in under one lock, so two prompts cannot both take the last room. The
         // prompts it replaces leave as it comes in, so they do not count against it.
@@ -924,7 +938,8 @@ impl Hub {
             // takes them over (`digest.rs` `take_joined`) or they go back in: their charge, read
             // under the queue's lock, where every move in or out of it changes it.
             let taken = session.digest_bytes.load(Ordering::SeqCst);
-            super::queue_admission::room(&queue, others, taken, size, replaces, limits)?;
+            super::queue_admission::room(&queue, others, taken, size, replaces, limits)
+                .inspect_err(refused)?;
         }
         // The sender's prompts under its key leave under the lock that puts this one in
         // (`supersede.rs`), with the ledger pinned first as `remove_queued_because` pins it.
@@ -997,6 +1012,9 @@ impl Hub {
             let ids = self.settle_superseded(session, gone, &mut ledger, p.prompt_id);
             let _ = p.replaced.set(ids);
         }
+        // A deferred runner and its outcome must be visible before withdrawal or superseding
+        // can take this row. The superseded prompt's ledger guard was released above.
+        let registration = register(&mut queue[at], (withdraw, joined, declined));
         #[cfg(test)]
         {
             let seam = self.queued_log_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
@@ -1025,7 +1043,7 @@ impl Hub {
         // (`queue_approve.rs`, `queue_edit.rs`): none of them can be logged before its `queued`
         // record, which a restart would read as a prompt no answer reached (review of #26747).
         drop(queue);
-        Ok(((withdraw, joined, declined), position))
+        Ok((registration, position))
     }
 
     /// Waits until the queued prompt `turn_id` is at the head of the queue and no other turn
@@ -1443,6 +1461,14 @@ impl Hub {
     ) {
         let prompt_id = removed.prompt_id.as_str();
         if removed.restored {
+            if removed.resume {
+                // No runner claimed it. A spawned runner needs this ID to observe its withdrawal.
+                session
+                    .restored
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .retain(|(id, turn)| id != prompt_id || turn != &removed.turn_id);
+            }
             let answer = if removed.declined.load(Ordering::SeqCst) {
                 Err(queue_approve::declined_error(prompt_id, &removed.turn_id))
             } else {
