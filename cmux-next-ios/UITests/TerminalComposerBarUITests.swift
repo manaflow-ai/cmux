@@ -71,6 +71,12 @@ final class TerminalComposerBarUITests: XCTestCase {
         keyboardKey.tap()
         Thread.sleep(forTimeInterval: 1.2)
         try rowStates(app, keyRowY: keyboardKey.frame.midY, name: "\(look)-kbd-down-filled", seen: &seen)
+
+        // Leave no draft behind: drafts persist (#48958), and the next suite
+        // (TerminalComposerLookUITests) measures the empty field.
+        field.tap()
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 60))
+        Thread.sleep(forTimeInterval: 0.5)
     }
 
     /// Scrolls the key row back to its start, then shoots start, middle and
@@ -87,7 +93,11 @@ final class TerminalComposerBarUITests: XCTestCase {
         func record() {
             for key in Self.scrollerKeys {
                 let element = app.descendants(matching: .any)["terminal.key.\(key)"]
-                if element.exists, element.isHittable, window.contains(CGPoint(x: element.frame.midX, y: element.frame.midY)) {
+                // A key scrolled under the pinned keys or past the edge is
+                // hidden from accessibility (`KeyBarClippedKeys`), so one
+                // that exists with its center on screen is shown.
+                if element.exists, element.frame.width > 0,
+                   window.contains(CGPoint(x: element.frame.midX, y: element.frame.midY)) {
                     seen.insert(key)
                 }
             }
