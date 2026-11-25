@@ -1,0 +1,525 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45629291168",
+  "recorded_at": "2026-11-25T14:28:41Z",
+  "reason": "cmux-tui 4a24b67672de changes the image's cmux-tui (pinned 67d01201b152)",
+  "dry_run": false,
+  "cmux_tui": "4a24b67672de489e8ce2c5614d3557a9ef8c8ab6",
+  "fixes": [
+    {
+      "sha": "c4c3195a8ac4f879ad4a5fd05951a8ee81b1fa50",
+      "mergedAt": "2026-11-25T07:03:55Z",
+      "subject": "Agent chat: a divider drag beside a long chat keeps the display's rate (#45926)"
+    },
+    {
+      "sha": "c01c07b37e7f9bca79ba13deb895b3a0b2bb6881",
+      "mergedAt": "2026-11-25T07:03:48Z",
+      "subject": "cmux-session-pack: fleet peers serve cas chunks (RFD 0166 F1) (#55781)"
+    },
+    {
+      "sha": "300e605a7d32c8a46c97e43d5f0dcf1ea55a167c",
+      "mergedAt": "2026-11-25T07:03:10Z",
+      "subject": "cmux-rd windows-host: serve viewing and control sessions over the secure link (carry of #44301) (#55303)"
+    },
+    {
+      "sha": "d4cec5440c9bb92e2e16bee74eb871cc3e61117e",
+      "mergedAt": "2026-11-25T07:02:05Z",
+      "subject": "Cloud wire: also subscribe to spare readiness in the install token's team (Rust decides the teams) (#44272)"
+    },
+    {
+      "sha": "ec71ab05ee685af6622d70aa268d101fb003dbe2",
+      "mergedAt": "2026-11-25T07:01:39Z",
+      "subject": "Cloud create: the created machine line says why the create took or skipped a spare (#46573)"
+    },
+    {
+      "sha": "47c75bde8df4ddc46d6134c1dc6337c3cc074a92",
+      "mergedAt": "2026-11-25T07:01:13Z",
+      "subject": "git_seed: borrow a warm mirror's objects through alternates; ordered promisor sources (#55707)"
+    },
+    {
+      "sha": "d2c7ebf7ec54c6b5ec795f9efc748c5a7d8ee0ac",
+      "mergedAt": "2026-11-25T07:00:34Z",
+      "subject": "acpmux: an attached client hears how full a Cloud seed's checkout is (_acpmux/fill, RFD 0139) (#55751)"
+    },
+    {
+      "sha": "6a3b5815d9cecb5dbedad5b573522244032c8424",
+      "mergedAt": "2026-11-25T07:00:05Z",
+      "subject": "cloud move: a waited move gets the 40 s run deadline, not 2 s (#55173)"
+    },
+    {
+      "sha": "2b81df41fa19051872b5ab2184be155e156e7f90",
+      "mergedAt": "2026-11-25T06:59:54Z",
+      "subject": "acpmux: warm the person's harnesses and models beside the reserved home chat (#55786)"
+    },
+    {
+      "sha": "82883b402c9c5b64ce4d0e0d21ccc0ae483a4e48",
+      "mergedAt": "2026-11-25T06:57:05Z",
+      "subject": "cmux-autocloud: several chats in one view (#55819)"
+    },
+    {
+      "sha": "312dfa2a0c170c0889baf50d601db2f861d02aa6",
+      "mergedAt": "2026-11-25T06:54:23Z",
+      "subject": "Cloud create: a repo create's bootstrap reads the backend's create capability (#55130)"
+    },
+    {
+      "sha": "ded204f5a1f934d9a7b2dc3ef35ee757d0632c2d",
+      "mergedAt": "2026-11-25T06:53:57Z",
+      "subject": "cmux-fault: satellite-600 and airplane-wifi link profiles (the scoreboard's satellite row panicked without them) (#55838)"
+    },
+    {
+      "sha": "4bd2871ee6b65e1d074edd91c99794874b128425",
+      "mergedAt": "2026-11-25T06:53:27Z",
+      "subject": "acpmux: Callgrind instruction counts of the hot paths, checked in CI (#55697)"
+    },
+    {
+      "sha": "713ec5068424469dad408dc9e3c6af1c46318e79",
+      "mergedAt": "2026-11-24T22:49:48-08:00",
+      "subject": "acpmux idle: no timer wakes an idle daemon but the lag canary's 4 s look, on its own thread"
+    },
+    {
+      "sha": "61bdd79b1a6f678b8a46597467373783f54b6d99",
+      "mergedAt": "2026-11-25T06:48:50Z",
+      "subject": "acpmux: a cache compaction deadline that meets a turn's held lease waits for it, not refuse (#55563)"
+    },
+    {
+      "sha": "7c3d984059b08fd4fb86aba2e1a2022591c74ac4",
+      "mergedAt": "2026-11-24T22:48:34-08:00",
+      "subject": "NEXT: use the cmux sign-in page styles on auth callback pages (#46975)"
+    },
+    {
+      "sha": "d5f38c3893e9053a8cbf58df912819046a78bce4",
+      "mergedAt": "2026-11-25T06:46:32Z",
+      "subject": "cmux mcp serve: a wait no longer holds the calls sent after it (#55682)"
+    },
+    {
+      "sha": "5a40c3386240add7a4dac823322ea77bed08e8a6",
+      "mergedAt": "2026-11-25T06:46:17Z",
+      "subject": "acpmux watch: durable time wakes (--at, --every, --prompt) (#55530)"
+    },
+    {
+      "sha": "0f2b01ef3a166e3eceb43e3282bcd18b676acefa",
+      "mergedAt": "2026-11-25T06:35:43Z",
+      "subject": "acpmux: serve Computer Use at the daemon's gateway (0 tool-server processes per chat) (#55283)"
+    },
+    {
+      "sha": "95e4072c84a403775ba44442d05e41617e888707",
+      "mergedAt": "2026-11-25T06:34:07Z",
+      "subject": "cmux-wg: learn periodic loss and turn Ultra Auto on ahead of each burst (RFD 0142 O5) (#55807)"
+    },
+    {
+      "sha": "1418e4328c612efff8f27236ec4b0c47b05aa4a8",
+      "mergedAt": "2026-11-25T06:32:48Z",
+      "subject": "iOS: sends never fail while the link makes progress, and a \"not now\" is retried (Rust) (#55099)"
+    },
+    {
+      "sha": "285d7317084fa763acba33793762092a350d95ef",
+      "mergedAt": "2026-11-25T06:31:12Z",
+      "subject": "carrier: the 10 s park redial bounds only the first lane; later lanes wait the dial's deadline (carries #41579) (#55747)"
+    },
+    {
+      "sha": "662d84496d76b55e5f83c401812536ef21b7640f",
+      "mergedAt": "2026-11-25T06:29:39Z",
+      "subject": "acpmux: a /loop timer keeps its agent and Cloud machine up until it fires (supersedes #51753) (#55726)"
+    },
+    {
+      "sha": "e65d5e1ed42cdba25ca78733815cbb3a1dfb48ff",
+      "mergedAt": "2026-11-25T06:26:30Z",
+      "subject": "cmux repro: runnable repro capsules, red then green on a fresh Cloud machine (hq#23808) (#55678)"
+    },
+    {
+      "sha": "e4d5a54d4c8fa840f41743322629098350dffe08",
+      "mergedAt": "2026-11-25T06:24:24Z",
+      "subject": "acpmux: a hub link dropped for silence closes the kept circuit it proved dead (#55736)"
+    },
+    {
+      "sha": "91f5a4488df941bce06e32e36f227088f55fe747",
+      "mergedAt": "2026-11-25T06:24:13Z",
+      "subject": "acpmux: no other chats' rows to a pane whose every chat is quiet and hidden (#55497)"
+    },
+    {
+      "sha": "06c258835ef6e96e100b4d4f885443465b9d56e8",
+      "mergedAt": "2026-11-25T06:24:07Z",
+      "subject": "iOS: one-request foreground catch-up over the Mac's catch-up service (#55518)"
+    },
+    {
+      "sha": "56188f05905117b31b1a83dab833a7e5ece7d1d8",
+      "mergedAt": "2026-11-25T06:23:46Z",
+      "subject": "Comment threads: send from diff, browser and terminal, reply comes back (#53668)"
+    },
+    {
+      "sha": "abf530e48f0a7b6c3025e4fcd276fb542264d025",
+      "mergedAt": "2026-11-25T06:23:38Z",
+      "subject": "cmux-tui: headless cloud start-chat for lane VMs (no GUI sign-in) (#55501)"
+    },
+    {
+      "sha": "fc21d4bdd47df64450645fab6ed92b819db91c27",
+      "mergedAt": "2026-11-25T06:23:21Z",
+      "subject": "acpmux gateway: answer a JSON-RPC batch; parallel calls measured concurrent (#55702)"
+    },
+    {
+      "sha": "dde38331c83758a92cfd69aec39e9d2385b298a4",
+      "mergedAt": "2026-11-25T06:23:15Z",
+      "subject": "acpmux: drop a dead peer link when its silence budget runs out, not at the next ping tick (#55720)"
+    },
+    {
+      "sha": "b48822543eefa4b7075f764469754a177e7172e6",
+      "mergedAt": "2026-11-25T06:22:48Z",
+      "subject": "Cloud start: an identify timeout on a fresh link relinks once instead of failing (carries #40225) (#55746)"
+    },
+    {
+      "sha": "d75e91e91eb5f75768bf418eb02cd206c522b0e7",
+      "mergedAt": "2026-11-25T06:22:46Z",
+      "subject": "git-seed: a carried folder exports back, and an offline Mac gets every round later (#55734)"
+    },
+    {
+      "sha": "d300fcba66a91c6f47bca92cb6ea078830739302",
+      "mergedAt": "2026-11-25T06:19:50Z",
+      "subject": "AutoCloud start: chat folder from a warm blobless mirror + alternates, not a full git clone (#55715)"
+    },
+    {
+      "sha": "01e98520eb3db359cfad6ef94eb6ec7777875b21",
+      "mergedAt": "2026-11-25T06:16:44Z",
+      "subject": "cmux-host-budget: macOS-only probe helpers off Linux builds (clippy base red) (#55672)"
+    },
+    {
+      "sha": "f2bd194031939d95509dc25b4759f6b8275c4133",
+      "mergedAt": "2026-11-25T06:11:40Z",
+      "subject": "acpmux: a moved chat's first token no longer waits behind 70 KB change rows (#55646)"
+    },
+    {
+      "sha": "cd9ce712e51766a230bb1897e0f9b39b19f9c283",
+      "mergedAt": "2026-11-25T06:09:43Z",
+      "subject": "cmux-host: page the harness executables back in after a Cloud resume (#55165)"
+    },
+    {
+      "sha": "225f87069872f4fbe000e8234fa87db620725f27",
+      "mergedAt": "2026-11-24T22:07:14-08:00",
+      "subject": "A tag stack's Mac registers on the stack again: tailnet names pass the Rust egress gate, no dev fallback (#55691)"
+    },
+    {
+      "sha": "29d6beb60e1c7fa78ed11b088096f399cdfb932c",
+      "mergedAt": "2026-11-25T06:02:33Z",
+      "subject": "cmux-sync: two-way Mac/VM folder sync on the three-tree rule, synced tree as a store revision (#55732)"
+    },
+    {
+      "sha": "ca4187058cec8fbb5350c2085f80f1bc0522473b",
+      "mergedAt": "2026-11-25T05:57:32Z",
+      "subject": "cmux NEXT: menu and popover look keys a theme file sets (appearance.menu.*, appearance.popover.*) (#46898)"
+    },
+    {
+      "sha": "0677cc02ee5dbc4640fc6edb6b21ff738653ca34",
+      "mergedAt": "2026-11-25T05:55:02Z",
+      "subject": "sidebar.nav: never run an action that quits, closes, signs out or removes; a diagnostic per dropped row (successor of #46508) (#53683)"
+    },
+    {
+      "sha": "0f9b7c0df4e2fbca333d3955a86a10a7c2d2bb2d",
+      "mergedAt": "2026-11-25T05:54:44Z",
+      "subject": "Trace the Mac app's user actions end to end (carries #55505) (#55624)"
+    },
+    {
+      "sha": "a472df316d97ac8a4a133742563763a4f6db2509",
+      "mergedAt": "2026-11-25T05:53:27Z",
+      "subject": "acpmux: an agent's tool call is answered ahead of a peer link's replays (#55680)"
+    },
+    {
+      "sha": "8a1815fdb93c2e5fcaf9906c49c98e5e7722cdb0",
+      "mergedAt": "2026-11-25T05:53:19Z",
+      "subject": "cmux-wg ultra: send an idle keepalive as one datagram, without parity (#55681)"
+    },
+    {
+      "sha": "e717ce32bc975f011b472aeff49ba867ced2b3e8",
+      "mergedAt": "2026-11-24T21:52:51-08:00",
+      "subject": "acpmux idle: the lag canary ignores a busy Mac (late wakes with idle workers on an overloaded host)"
+    },
+    {
+      "sha": "aff37fd808a4d578e690bc6d5ee29bf148b42c47",
+      "mergedAt": "2026-11-25T05:52:04Z",
+      "subject": "cmux-sync: the three-tree rule for two-way file sync (local, remote, synced) (#55711)"
+    },
+    {
+      "sha": "53083d7ab28e1916d7cf3531131f497644257107",
+      "mergedAt": "2026-11-25T05:51:53Z",
+      "subject": "Webview chat: opt in to chunkDeltas and sessionChangedDelta, decode them in a pure module (#50485)"
+    },
+    {
+      "sha": "c164afb29386a6d97f3a641d3ddc63bb45755d1b",
+      "mergedAt": "2026-11-24T21:47:31-08:00",
+      "subject": "acpmux: a chief chat refused for its policy says only the person can widen it, in the app (#55585)"
+    },
+    {
+      "sha": "c05a58359dc7bfe29c72878d209485d9a5ed54c4",
+      "mergedAt": "2026-11-25T05:45:56Z",
+      "subject": "acpmux: name a SendMessage's subagent so 'Sent to' never reads a raw id after a reload (replaces #52044) (#53853)"
+    },
+    {
+      "sha": "81724bb2c6fe37f109be71a7c914a7a35b193d88",
+      "mergedAt": "2026-11-25T05:44:52Z",
+      "subject": "Fold completed remote reload work and load disclosures (#53933)"
+    },
+    {
+      "sha": "79262bd1a3cc1d2baf3f4751b4cb86dbe64232b0",
+      "mergedAt": "2026-11-25T05:38:35Z",
+      "subject": "cmux migrate: import a competing agent client's workspaces (switch kit, default off) (#55607)"
+    },
+    {
+      "sha": "31a699502ededcc3cc1e647d6a71ad38b457688f",
+      "mergedAt": "2026-11-25T05:38:16Z",
+      "subject": "acpmux memory: the fleet memory mount client (#55392)"
+    },
+    {
+      "sha": "43b5c336193ac68e6b3a5041d6db66dc0aa2f5f2",
+      "mergedAt": "2026-11-25T05:32:23Z",
+      "subject": "perf watch: per-send paint, first token and shift spans (snappy-bench) (#55637)"
+    },
+    {
+      "sha": "fafbdf74ccd3a65556df7a39a4c90551f9f88457",
+      "mergedAt": "2026-11-25T05:31:16Z",
+      "subject": "acpmux: every message reaches a live receiver (successors, role addresses, refusal at send, bounces) (#55129)"
+    },
+    {
+      "sha": "7dafceec7d74bcde00f8b5bd0cd35af7055d2b8b",
+      "mergedAt": "2026-11-25T05:30:43Z",
+      "subject": "Auto mode backend tests: move tests open as the laptop install; the wish-expiry vector has room for real time (#55528)"
+    },
+    {
+      "sha": "f5aea70701438b0218477bfeed96db4ff83c10e7",
+      "mergedAt": "2026-11-25T05:29:10Z",
+      "subject": "cmux-remote: optional mirror fallback for the pinned cmux-tui payload (CMUX_TUI_PAYLOAD_MIRRORS) (#55524)"
+    },
+    {
+      "sha": "bd6588d9778124f875c8654e548f7f3e9aa9cd40",
+      "mergedAt": "2026-11-25T05:27:52Z",
+      "subject": "cmux-tui: fix every clippy lint and the rustfmt break left on base (#55332)"
+    },
+    {
+      "sha": "c87541af88773be2dd4479cdd00c8c05bed07a01",
+      "mergedAt": "2026-11-25T05:21:38Z",
+      "subject": "cmux-tui: start the screen detector at the first running program, not with the daemon (14 MB idle) (#53674)"
+    },
+    {
+      "sha": "4d26a9d6bac033277d2021030105d7d3e3571341",
+      "mergedAt": "2026-11-24T21:21:09-08:00",
+      "subject": "acpmux: an idle harness whose start missed the MCP config-read budget reads it again and hibernates (#55629)"
+    },
+    {
+      "sha": "2ab0a1ce7a7eb188596c561b8bdfad1818fea336",
+      "mergedAt": "2026-11-25T05:17:00Z",
+      "subject": "acpmux: a prompt for a peer whose link is down is queued for the link, not refused (#55217)"
+    },
+    {
+      "sha": "3b040b6926f547da180327880f93ed95dde12522",
+      "mergedAt": "2026-11-25T05:16:24Z",
+      "subject": "cmux-customize: track the automations folder the runner reads (#55673)"
+    },
+    {
+      "sha": "48d2e9a58d48384037539deacd721b3063f8432f",
+      "mergedAt": "2026-11-25T05:11:05Z",
+      "subject": "cmux-rd release: cmux-wg and cmux-braid-path are this repo's own crates (license gate) (#55645)"
+    },
+    {
+      "sha": "986af82242610db4a91972c9bf889907e4b115b5",
+      "mergedAt": "2026-11-25T05:01:53Z",
+      "subject": "acpmux: a Codex chat's tool servers come at the daemon's gateway, not as per-chat processes (#55463)"
+    },
+    {
+      "sha": "14cf6189eff5aa3084d5f8cd11f3967b288a0e1a",
+      "mergedAt": "2026-11-25T05:01:16Z",
+      "subject": "acpmux: broker-forward fails over between several owners, chosen by a progress check (#55232)"
+    },
+    {
+      "sha": "46440351b9d475c2329bcfb75b43a5f0b71c64ad",
+      "mergedAt": "2026-11-25T05:00:42Z",
+      "subject": "cmux NEXT: drag, hide and show the live Computer Use preview (Labs, default off) (#55372)"
+    },
+    {
+      "sha": "72312f3b413f293d2d40f20c34283272dbc0be61",
+      "mergedAt": "2026-11-25T05:00:12Z",
+      "subject": "cmux-next: customize doctor names skipped menu entries and restores widget manifests; Restore uses the rule that offered it (#54767)"
+    },
+    {
+      "sha": "d1c19d6131fdf900b80111ee75a2d1b0001e4760",
+      "mergedAt": "2026-11-25T04:55:10Z",
+      "subject": "cmux NEXT: Chromium plays Widevine media and local H.264/AAC; no WebKit for media (#53059)"
+    },
+    {
+      "sha": "24b05d1bf9289ec2add951b235e6823a66be1293",
+      "mergedAt": "2026-11-25T04:47:32Z",
+      "subject": "cmux-tui: a client whose daemon left keeps reconnecting until one is back (#55036)"
+    },
+    {
+      "sha": "121d9d17cefeb0ad7c91d9a2c31c915dd4d5dc77",
+      "mergedAt": "2026-11-24T20:46:20-08:00",
+      "subject": "cmux-netwatch: an idle watch never wakes (0.5 wakes/s in every acpmux daemon)"
+    },
+    {
+      "sha": "79bee0d3f0aeaf506c6ddb20953c5314c13d053c",
+      "mergedAt": "2026-11-24T20:46:20-08:00",
+      "subject": "acpmux: compile again: the compaction timer map holds the context as (used, size)"
+    },
+    {
+      "sha": "77a8f29d0de7d656fb04854674735a2c9d0eea79",
+      "mergedAt": "2026-11-25T04:42:06Z",
+      "subject": "cmux-tui-core: a joined Linux machine names its screen, so View screen shows on its header (#52068)"
+    },
+    {
+      "sha": "a5dc2f0a6fc5c4e16f01bba366a85dbcb6d7baf5",
+      "mergedAt": "2026-11-25T04:39:44Z",
+      "subject": "rust-workspaces base reds: rd-host clippy + first-path RTT, raw conformance adapter (#55588)"
+    },
+    {
+      "sha": "3629ead8a6a03d7c03fed91687018e1e0ff2aae8",
+      "mergedAt": "2026-11-25T04:36:52Z",
+      "subject": "cmux computer-use upgrade: a history line that can't be written is not a failed upgrade (#55567)"
+    },
+    {
+      "sha": "edefd2fd3d055a3dc4bbe1a8be043f0900c61ed7",
+      "mergedAt": "2026-11-25T04:32:56Z",
+      "subject": "acpmux: a probe dials with no early initialize (#54052 failover +5 s) (#55370)"
+    },
+    {
+      "sha": "167b0e98da5232fcc2eef21d4b4c5200e4066c92",
+      "mergedAt": "2026-11-25T04:26:15Z",
+      "subject": "cmux NEXT iOS: viewport state sync over datagrams (opt-in) (#50638)"
+    },
+    {
+      "sha": "05999ee6c4dffb276a5ef52f27b5c71c1b30d085",
+      "mergedAt": "2026-11-25T04:21:47Z",
+      "subject": "cmux-wg: mark screen and input datagrams EF/voice per packet (RFD 0142 T1) (#55569)"
+    },
+    {
+      "sha": "9cf2b14cc4601a6a61ac380dde9581ba21c7a246",
+      "mergedAt": "2026-11-25T04:19:49Z",
+      "subject": "acpmux: budget line says nothing refused; joined peers keep approve-all; fleet holds show and expire (#55465)"
+    },
+    {
+      "sha": "42fd55e745d6c59c5318bf059080da7467581ff6",
+      "mergedAt": "2026-11-25T04:16:58Z",
+      "subject": "Hybrid chats: the three-state control and Runs On, wired to chatPlace.set (#52230)"
+    },
+    {
+      "sha": "90e239e907ebd2158b19809e68a057645989e5f5",
+      "mergedAt": "2026-11-25T04:13:54Z",
+      "subject": "Chat: a Stop hook's re-prompt draws as a quiet hook line; one message is one bubble (#53729)"
+    },
+    {
+      "sha": "dbaa16c58d4b596eda5d5b976090f8adc473ce14",
+      "mergedAt": "2026-11-25T04:13:31Z",
+      "subject": "acpmux: hour token counts need only their hour read, not the whole day (#55167)"
+    },
+    {
+      "sha": "37b1de78b5cc36a440f4f36266ce0d8cb690e2a8",
+      "mergedAt": "2026-11-25T04:04:47Z",
+      "subject": "Hidden chat pages pause their list watch and follow from the cursor on show (#55402)"
+    },
+    {
+      "sha": "105964f529edff68df5de58b73b6493aa810c3c4",
+      "mergedAt": "2026-11-25T04:04:25Z",
+      "subject": "Live frames in chat: frames strip, dockable preview, Try it on / Keep / Revert (#54952)"
+    },
+    {
+      "sha": "2d4014cefee788d4cccc96ed919193412358f40d",
+      "mergedAt": "2026-11-25T04:03:48Z",
+      "subject": "acpmux: a person's chat takes its folder's warm spare again (sr2 person mark split the pool key) (#55498)"
+    },
+    {
+      "sha": "77fe0a3429dfbf9feee2abb4fa5fc6aabf160b80",
+      "mergedAt": "2026-11-25T03:59:42Z",
+      "subject": "network-conditions harness: warm reopens like the app, streaming duress and reconnect for every profile, history ratio (#51204)"
+    },
+    {
+      "sha": "afc90ddb15973f289b66a173ae8eeb30ba976892",
+      "mergedAt": "2026-11-25T03:58:47Z",
+      "subject": "App Font: one app-wide font with a picker that previews like Themes (#55443)"
+    },
+    {
+      "sha": "472ca5ba1a242df41d2e6b2ed174de160cac8596",
+      "mergedAt": "2026-11-25T03:54:18Z",
+      "subject": "cmux migrate: setup lines install their toolchain when the machine lacks it (#55384)"
+    },
+    {
+      "sha": "7ac1e19881a0e136d7dbeefaa96cab997031f21f",
+      "mergedAt": "2026-11-25T03:51:07Z",
+      "subject": "cmux-wg: tap the FEC parity the repair layer consumes, so idle_budget closes (#55539)"
+    },
+    {
+      "sha": "08694b6e589bf0b0369d494b6bd12c2f2f1bb6fb",
+      "mergedAt": "2026-11-25T03:47:52Z",
+      "subject": "acpmux: cold compaction from 100K (break-even 76K), warm compaction also at 60K tokens (30% of a 1M window never fired) (#55380)"
+    },
+    {
+      "sha": "c7ec756f006ac4027c04f6031ca107a17b36749a",
+      "mergedAt": "2026-11-25T03:47:16Z",
+      "subject": "iOS: keys typed into a stalled link are held and delivered once, in order, after the reconnect (#52546)"
+    },
+    {
+      "sha": "b9c7489ed54b3d5c97c420f2d72638691f6bd81e",
+      "mergedAt": "2026-11-25T03:45:57Z",
+      "subject": "list ops run once per opId (op-once-v1, conversation-inbox-op-once-v1) (#49534)"
+    },
+    {
+      "sha": "84739da1a38d89e06ee503d3bdf9eae018753b91",
+      "mergedAt": "2026-11-25T03:45:01Z",
+      "subject": "acpmux: who's here, machine-wide, for the sidebar icon and the phone (_acpmux/here) (#53848)"
+    },
+    {
+      "sha": "8318c04b77a8215bb8e34304f262ce32a020bada",
+      "mergedAt": "2026-11-25T03:44:24Z",
+      "subject": "cmux-wg: answer a cookie reply with a handshake that carries it at once (#53646)"
+    },
+    {
+      "sha": "9fb3154e1e93d46d57300fc3c440e3ebca5419a4",
+      "mergedAt": "2026-11-25T03:41:41Z",
+      "subject": "acpmux: wait for autoscaled machine on Auto starts (#54969)"
+    },
+    {
+      "sha": "e7d44f5f51356e0fbbf8f7d9ba48bb72076c6e4a",
+      "mergedAt": "2026-11-25T03:39:09Z",
+      "subject": "acpmux: set_mode to the mode a chat already runs logs no mode record (#55342)"
+    },
+    {
+      "sha": "4893a8f84f644b0c8c5cf84636e327a792277d31",
+      "mergedAt": "2026-11-25T03:38:31Z",
+      "subject": "acpmux idle: no rewrite or wake while nothing changed (#55230)"
+    },
+    {
+      "sha": "69d70e400e9a23186342f9c999e03c3f017ce86b",
+      "mergedAt": "2026-11-25T03:37:04Z",
+      "subject": "cmux-wg: skip the proven current path's routine ping, idle air gap for routine probes (#54697)"
+    },
+    {
+      "sha": "381f54c33da12b83da61faa0b4e3463f3053b4ca",
+      "mergedAt": "2026-11-25T03:37:01Z",
+      "subject": "cmux computer-use upgrade: hot-swap the Computer Use engine, local only, undoable (#52233 + fixes) (#55314)"
+    },
+    {
+      "sha": "c576bf4c55be0f05de058a4fa2fc049d4a00851a",
+      "mergedAt": "2026-11-25T03:36:00Z",
+      "subject": "git.seed.status holds its answer until the job ends, so Move to Cloud and Bring Back stop polling (#55496)"
+    },
+    {
+      "sha": "776da0f9cef60ea02a391520ca50523c0b394f8f",
+      "mergedAt": "2026-11-25T03:35:54Z",
+      "subject": "cmux autocloud: the AutoCloud TUI ships inside the cmux binary (RFD 0139) (#55359)"
+    },
+    {
+      "sha": "f92d68633c9541eb659533da9f301c96964e9b10",
+      "mergedAt": "2026-11-25T03:32:29Z",
+      "subject": "acpmux: a new chat on a reconnecting ssh peer waits for its link (#55088)"
+    }
+  ],
+  "fixes_truncated": true,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-25T14:28:41Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
