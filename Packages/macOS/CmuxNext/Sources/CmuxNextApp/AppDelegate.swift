@@ -356,7 +356,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.paletteShortcutEditor = shortcutEditor
         services.palette.shortcutRecorder.editor = shortcutEditor
         // Managed-settings status for MDM tooling (osquery, Fleet, Jamf), plans/cmux-next/enterprise.md.
-        let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app.next"
         settings.writeManagedStatus(
             to: ManagedStatusReport.defaultURL(bundleID: bundleID),
             context: ManagedStatusReport.Context(

@@ -892,6 +892,24 @@ pub fn waited(provenance: Option<&Value>) -> bool {
         || relay_of(provenance).is_some_and(|r| r.by == SSH_CARRY_RELAY)
 }
 
+/// On a prompt's provenance: the sender's own delivery deadline in ms (`acpmux send --within`,
+/// `_meta.acpmux.within`), which tightens its class's (`prompt_class::due_at`). Kept on the
+/// inbox record, so a restart keeps the deadline.
+pub const WITHIN: &str = "within";
+
+/// `provenance` with the sender's `within`, when it gave one.
+pub fn mark_within(mut provenance: Value, within: Option<u64>) -> Value {
+    if let (Some(fields), Some(ms)) = (provenance.as_object_mut(), within) {
+        fields.insert(WITHIN.to_owned(), Value::from(ms));
+    }
+    provenance
+}
+
+/// The sender's `within` on `provenance`, in ms.
+pub fn within(provenance: Option<&Value>) -> Option<u64> {
+    provenance.and_then(|p| p.get(WITHIN)).and_then(Value::as_u64)
+}
+
 /// A caller-supplied sender label kept beside authenticated provenance.  It is deliberately
 /// separate from `fromName`: the latter is the daemon's name for a proven session.
 pub const DECLARED_LABEL: &str = "declared";

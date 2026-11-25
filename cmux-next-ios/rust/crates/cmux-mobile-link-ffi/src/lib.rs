@@ -534,6 +534,13 @@ impl LinkHandle {
         Ok(u32::try_from(rtt.as_millis()).unwrap_or(u32::MAX))
     }
 
+    /// Wake the radio before a keystroke (the terminal's keyboard took focus
+    /// or a finger touched it): one datagram ping on a link quiet for a
+    /// second. Free when the link is busy, parked or closed. `true` when sent.
+    pub fn prewake(&self) -> bool {
+        self.link.prewake()
+    }
+
     /// Whether the link is alive within `timeout_ms`: the round trip in
     /// milliseconds on the pong, `None` when other frames from the Mac came
     /// first (a slow relay's queue; the link is alive), an error only when
