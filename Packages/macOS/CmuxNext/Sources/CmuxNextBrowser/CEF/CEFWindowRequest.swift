@@ -8,10 +8,10 @@ import Foundation
 /// "Open Link in New Window/Incognito Window", Chromium commands (New Window,
 /// Task Manager), a Browser Chromium created on its own. The runtime turns
 /// each into a cmux tab through one decision (`CEFWindowPolicy.decide`).
-nonisolated struct CEFWindowRequest: Equatable, Sendable {
+nonisolated struct CEFWindowRequest: Equatable, Sendable, Encodable {
     /// What Chromium wanted to create (`cmux_window_request_kind_t` of the
     /// fork, `cef_cmux.h`).
-    enum Kind: Int32, Equatable, Sendable {
+    enum Kind: Int32, Equatable, Sendable, Encodable {
         /// A new tab with no window to hold it.
         case tab = 0
         /// A normal window (`NEW_WINDOW`, `chrome.windows.create`, Cmd-N).
@@ -48,7 +48,7 @@ nonisolated struct CEFWindowRequest: Equatable, Sendable {
 }
 
 /// `cef_window_open_disposition_t` (`include/internal/cef_types.h`).
-nonisolated enum CEFDisposition: Int32, Equatable, Sendable {
+nonisolated enum CEFDisposition: Int32, Equatable, Sendable, Encodable {
     case unknown = 0
     case currentTab = 1
     case singletonTab = 2
@@ -67,18 +67,11 @@ nonisolated enum CEFDisposition: Int32, Equatable, Sendable {
         self = CEFDisposition(rawValue: Int32(clamping: raw)) ?? .unknown
     }
 
-    /// True for the dispositions a modified link click produces.
-    var isLinkClick: Bool {
-        switch self {
-        case .newBackgroundTab, .newForegroundTab, .newWindow, .saveToDisk: true
-        default: false
-        }
-    }
 }
 
 /// A pane window the request can go to (one `CEFPaneHost` with a live
 /// Chromium window).
-nonisolated struct CEFWindowCandidate: Equatable, Sendable {
+nonisolated struct CEFWindowCandidate: Equatable, Sendable, Encodable {
     /// Any tab of the window (`cmux_tab_add` and friends take it).
     var anchor: Int32
     /// The window's store (`CEFProfileStorage.contextKey`).
