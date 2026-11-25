@@ -55,6 +55,22 @@ impl RttRing {
     }
 }
 
+/// Connect attempts kept per link for comparing transports (`attempts` in `linkStats`).
+pub const ATTEMPT_SAMPLES: usize = 32;
+
+/// One connect attempt on one transport: a cold connect that opened on `via`, or a path that
+/// failed to open or ended. Recorded for every attempt so ssh and WireGuard are scored by the
+/// same rows (cmuxterm-hq RFD 0060, Weft move 2).
+#[derive(Debug, Clone)]
+struct Attempt {
+    /// When it settled, ms.
+    at: u64,
+    via: Via,
+    opened: bool,
+    /// Time from the cold connect's start to the first byte; None for a failure.
+    ms: Option<u64>,
+}
+
 /// The counters of one peer link.
 #[derive(Debug, Clone, Default)]
 pub struct LinkStats {
@@ -79,6 +95,8 @@ pub struct LinkStats {
     upgrade_attempts: u64,
     upgrade_failures: u64,
     upgrades: u64,
+    /// The last [`ATTEMPT_SAMPLES`] attempts, oldest first (capacity reserved on first use).
+    attempts: VecDeque<Attempt>,
 }
 
 impl LinkStats {
@@ -94,11 +112,32 @@ impl LinkStats {
         self.opens = self.opens.saturating_add(1);
         self.first_byte_ms = Some(now.saturating_sub(started));
         self.winner = Some(winner);
+        self.attempt(Attempt {
+            at: now,
+            via: winner,
+            opened: true,
+            ms: Some(now.saturating_sub(started)),
+        });
         let mut ahead = order.iter().take_while(|via| **via != winner);
         if winner.carrier() != Carrier::Direct && ahead.any(|via| via.carrier() == Carrier::Direct)
         {
             self.waited_on_direct = self.waited_on_direct.saturating_add(1);
         }
+    }
+
+    fn attempt(&mut self, attempt: Attempt) {
+        if self.attempts.capacity() == 0 {
+            self.attempts.reserve_exact(ATTEMPT_SAMPLES);
+        }
+        if self.attempts.len() >= ATTEMPT_SAMPLES {
+            self.attempts.pop_front();
+        }
+        self.attempts.push_back(attempt);
+    }
+
+    /// A dial of `via` did not open, or its connection ended, at `now`.
+    pub fn attempt_failed(&mut self, via: Via, now: u64) {
+        self.attempt(Attempt { at: now, via, opened: false, ms: None });
     }
 
     /// The live link runs on `via` from `now` (None: it ended).
@@ -182,6 +221,13 @@ impl LinkStats {
             "onPathMs": on_path,
             "onCarrierMs": on_carrier,
             "rtt": rtt,
+            "attempts": self.attempts.iter().map(|a| json!({
+                "atMs": a.at,
+                "transport": a.via.as_str(),
+                "carrier": a.via.carrier().as_str(),
+                "outcome": if a.opened { "opened" } else { "failed" },
+                "firstByteMs": a.ms,
+            })).collect::<Vec<_>>(),
             "directUpgrade": {
                 "attempts": self.upgrade_attempts,
                 "failures": self.upgrade_failures,
