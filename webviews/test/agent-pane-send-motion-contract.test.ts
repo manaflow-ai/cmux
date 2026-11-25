@@ -128,6 +128,7 @@ await requireBrowserLane("agent-pane-send-motion-contract.test.ts", async () => 
     await installPaintedFrames(page);
     await installMotionRecorder(page);
     if (!frames) await page.goto(pane.address());
+    step = "open";
     await page.getByText(ready, { exact: false }).first().waitFor({ timeout: 120_000 });
     await settle(page);
     return {
@@ -140,8 +141,31 @@ await requireBrowserLane("agent-pane-send-motion-contract.test.ts", async () => 
     };
   }
 
+  /// The step the next settle follows (the last mark, or the send's typing), for its timeout's message.
+  let step = "open";
+  /// How long a settle may wait: its own 900-frame cap is about 8 s of 120 Hz frames, so a wait past
+  /// this means no frames were drawn at all (a BeginFrame left unanswered: chrome-headless-shell
+  /// 158.0.8127.36 hung two cases here to the 400 s limit, scripts/ci/ensure-system-chrome.sh).
+  const SETTLE_LIMIT_MS = 90_000;
   /// Until the transcript, the stack and every finite animation hold still over 12 painted frames.
-  const settle = (page: Page) =>
+  const settle = (page: Page) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const limit = new Promise<never>((_, reject) => {
+      // fixed-wait: the bound on a settle whose frames stopped; the page itself is not asked (its
+      // evaluate waits on the same stopped renderer)
+      timer = setTimeout(
+        () =>
+          reject(
+            new Error(
+              `settle after "${step}": not still within ${SETTLE_LIMIT_MS / 1000} s: the frame clock drew nothing`,
+            ),
+          ),
+        SETTLE_LIMIT_MS,
+      );
+    });
+    return Promise.race([stillOver12Frames(page), limit]).finally(() => clearTimeout(timer));
+  };
+  const stillOver12Frames = (page: Page) =>
     page.evaluate(
       ({ MAIN_DOCK }) =>
         new Promise<void>((resolve) => {
@@ -180,13 +204,17 @@ await requireBrowserLane("agent-pane-send-motion-contract.test.ts", async () => 
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       return scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
     });
-  const mark = (page: Page, name: string) => page.evaluate((name) => window.__motion.mark(name), name);
+  const mark = (page: Page, name: string) => {
+    step = name;
+    return page.evaluate((name) => window.__motion.mark(name), name);
+  };
   const composer = (page: Page) => page.locator(".acpmux-composer-box [contenteditable=true]").first();
 
   /// Types `text` and sends it with Enter, marking the frame; returns the prompt id the page sent.
   async function send(page: Page, pane: NonNullable<typeof idle>, text: string) {
     await composer(page).click();
     await page.keyboard.type(text);
+    step = "typing the prompt";
     await settle(page);
     const before = pane.prompts.length;
     const asked = pane.sent("session/prompt", pane.methods.filter((method) => method === "session/prompt").length);

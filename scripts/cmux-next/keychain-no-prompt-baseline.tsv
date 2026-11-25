@@ -1,0 +1,15 @@
+# KEYCHAIN-NO-PROMPT baseline (scripts/cmux-next/check-keychain-no-prompt.py).
+# An unattended fleet Mac showed a keychain panel (SecurityAgent) the cmux app
+# raised. This file lists the Keychain and LocalAuthentication calls that can
+# still show UI without a guard. One row per file:
+# path<TAB>unguarded calls<TAB>fix|keep<TAB>reason.
+# `fix` rows run without the person asking: guard them (LoginKeychain().withoutUI,
+# kSecUseAuthenticationUIFail, an interactionNotAllowed LAContext), lower the
+# count, delete the row at 0. `keep` rows are prompts the person asked for
+# (their consent): mark the call `// keychain-prompt: consent` and drop the row.
+# Never raise a count or add a row.
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/AppOnboardingServices.swift	1	keep	Touch ID or password before a password import the person started
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Passwords/PasswordGates.swift	1	keep	Touch ID or password gate the person asked for to see a saved password
+Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Cookies/KeychainSafeStorageNames.swift	1	keep	browser import lists other browsers' Safe Storage items; the person started the import
+Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Cookies/SafeStorageKeys.swift	1	keep	browser import reads another browser's Safe Storage key; the prompt is the person's consent
+Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandPresenceKey.swift	1	keep	hand presence check signs with a key the person unlocks on purpose

@@ -175,7 +175,7 @@ pub(crate) fn transport_words(error: &reqwest::Error) -> &'static str {
 /// One shared HTTP client: no redirects (a redirect would carry the token headers elsewhere).
 pub(crate) fn http_client() -> Result<reqwest::Client, &'static str> {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    reqwest::Client::builder()
+    cmux_egress::client_builder("cmux_stack_auth::wire")
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .build()

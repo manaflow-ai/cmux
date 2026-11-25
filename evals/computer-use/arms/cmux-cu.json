@@ -1,0 +1,23 @@
+{
+  "id": "cmux-cu",
+  "label": "cmux Computer Use",
+  "about": "cmux's own Computer Use (cmux-tui/crates/cmux-computer-use, MIT), served to the agent by acpmux as an MCP server over stdio. CUEVAL_CMUX_CU_COMMAND overrides the command (a JSON array), for a tagged build's CLI or a folded `cmux mcp` server.",
+  "mcp": {
+    "server_name": "cmux-computer-use",
+    "command": ["cmux", "computer-use", "mcp"],
+    "command_env": "CUEVAL_CMUX_CU_COMMAND",
+    "env": {}
+  },
+  "tool_prefix": "",
+  "adapter": "cmux",
+  "policy": {
+    "method": "policy_file",
+    "paths": {
+      "linux": "/etc/cmux/computer-use.json",
+      "windows": "C:\\ProgramData\\cmux\\computer-use.json"
+    },
+    "macos_command": ["cmux", "settings", "set", "computerUse.deniedApps", "{denied_json}"],
+    "base": {"mode": "fullAccess", "allowOwnMachines": false, "pauseOnTakeover": true, "allowForeground": false, "showCursor": true, "cloudVm": false},
+    "defaults_source": "cmux-tui/crates/cmux-computer-use/src/policy.rs"
+  }
+}

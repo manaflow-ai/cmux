@@ -10,23 +10,28 @@ import Observation
 /// 2026-10-20). What's New never shows here: after an update it is only the bottom-left "cmux
 /// Updated!" card (Lawrence 2026-10-18). Agent chats on other machines never show here either: the
 /// top band holds Home and what the person put there (Lawrence 2026-10-26); those chats are in the
-/// Priority view and Home.
+/// Priority view and Home. A look's nav block (`sidebar.nav`) draws first, above Home (`SidebarTransientItem.nav`).
+/// The one exception is the Labs Hosts section (`labs.hostsSidebar`, off by default): feature modules add its
+/// transient rows through the `additional` source, and those rows never enter the durable sidebar document.
 extension SidebarModel {
     /// Keeps `transientTopItems` current until cancelled. `document`: the app's own sidebar document, which every
     /// window of that app draws from.
     public func followTopItems(chief: ChiefSidebar = .shared,
-                               document: @escaping @MainActor @Sendable () -> SidebarDocStore?) -> Task<Void, Never> {
+                               document: @escaping @MainActor @Sendable () -> SidebarDocStore?,
+                               additional: @escaping @MainActor @Sendable () -> [SidebarTransientItem] = { [] }) -> Task<Void, Never> {
         // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         Task { [weak self] in
-            for await (items, placed) in ObservationStream({ [weak self] in
+            for await items in ObservationStream({ [weak self] in
                 // Placed in a band, or anywhere in the sidebar document (a group or a machine list): never this window's
                 // rows, which its workspace membership filters, so every window's feed tells the same.
-                (Self.topItems(chief: chief), self.map { $0.layout.firstItem(with: .builtIn(.chief)) != nil } == true
-                    || document()?.placesItem(with: .builtIn(.chief)) == true)
+                (Self.topItems(chief: chief) + additional(), self.map { $0.layout.firstItem(with: .builtIn(.chief)) != nil } == true
+                    || document()?.placesItem(with: .builtIn(.chief)) == true,
+                 self.map { model in SidebarTransientItem.chiefAnchors.contains { model.layout.firstItem(with: $0) != nil } } == true)
             }) {
                 guard let self else { return }
-                if transientTopItems != items { transientTopItems = items }
-                if chief.isPlaced != placed { chief.isPlaced = placed }
+                if transientTopItems != items.0 { transientTopItems = items.0 }
+                if chief.isPlaced != items.1 { chief.isPlaced = items.1 }
+                if chief.showsThread != items.2 { chief.showsThread = items.2 }
             }
         }
     }
@@ -34,7 +39,8 @@ extension SidebarModel {
     /// The items the feed shows now. Read inside an observation scope, so a change re-yields.
     /// The Chief's subagent rows draw only under the Chief item, in the top band.
     public static func topItems(chief: ChiefSidebar = .shared) -> [SidebarTransientItem] {
-        [DesignSettings.shared.homeChannelsEnabled && !HomeDock.classic ? SidebarTransientItem.channels : nil].compactMap(\.self)
+        SidebarTransientItem.nav(DesignSettings.shared.sidebarSections.nav)
+            + [DesignSettings.shared.homeChannelsEnabled && !HomeDock.classic ? SidebarTransientItem.channels : nil].compactMap(\.self)
             + chief.rows()
     }
 }
