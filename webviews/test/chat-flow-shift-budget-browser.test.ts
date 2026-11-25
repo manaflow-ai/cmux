@@ -128,6 +128,14 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
     };
   const ends: Play = async (pane) => pane.record("turn_result", { status: "completed" });
 
+  /// Text each flow must leave in the transcript.
+  const DRAWN: Record<Exclude<FlowName, "reload">, string> = {
+    send: "Only the queue needs the cap.",
+    thinking: "asks the link for the current one",
+    compaction: "/compact",
+  };
+  /// Text a step must show once it settles: the live row the flow is about, before its turn folds it away.
+  const SHOWS: Record<string, RegExp> = { thinking: /Thinking/, "compaction runs": /Compacting/ };
   const flows = (turn: string): Record<Exclude<FlowName, "reload">, [string, Play][]> => ({
     send: [
       ["send", send(`Which retry loops sleep a fixed time? (${turn})`, turn)],
@@ -255,7 +263,12 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
 
   /// The planted shift: once a row is drawn and `frames` more frames painted, a rested row in view and
   /// the composer move SEED_PX, with nothing else moving (a stray the judge must name).
-  const SEED = (args: { px: number; frames: number; rowSelector: string; composer: string }) => {
+  /// With `once`, it runs as an init script: only on the document a reload made after arming it.
+  const SEED = (args: { px: number; frames: number; rowSelector: string; composer: string; once?: boolean }) => {
+    if (args.once) {
+      if (sessionStorage.getItem("cmuxSeedShift") !== "1") return;
+      sessionStorage.removeItem("cmuxSeedShift");
+    }
     const plant = async () => {
       const paint = () => new Promise<void>((done) => requestAnimationFrame(() => done()));
       while (!document.querySelector(args.rowSelector)) await paint();
@@ -319,16 +332,7 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
       await installClsRecorder(page);
       if (flow === "reload") {
         await installBoxTrackerOnLoad(page);
-        if (seeded)
-          await page.addInitScript(
-            ({ seed, args }) => {
-              if (sessionStorage.getItem("cmuxSeedShift") !== "1") return;
-              sessionStorage.removeItem("cmuxSeedShift");
-              // biome-ignore lint/security/noGlobalEval: the seed is this file's own function, serialized.
-              document.addEventListener("DOMContentLoaded", () => (0, eval)(`(${seed})`)(args), { once: true });
-            },
-            { seed: SEED.toString(), args: { ...seedArgs, frames: 10 } },
-          );
+        if (seeded) await page.addInitScript(SEED, { ...seedArgs, frames: 10, once: true });
       }
     });
     try {
@@ -362,8 +366,16 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
         });
       } else {
         await installBoxTracker(page);
-        for (const [index, [step, play]] of flows(turn)[flow].entries())
+        const rowsBefore = await page.locator(TRANSCRIPT_ROW).count();
+        for (const [index, [step, play]] of flows(turn)[flow].entries()) {
           report.push(await measure(page, step, () => play(pane!, page), seeded && index === 1));
+          if (SHOWS[step]) expect(await page.locator(".acpmux-scroll").innerText()).toMatch(SHOWS[step]!);
+        }
+        // The flow drew what it plays (a fixture that renders nothing would pass with 0px): new rows,
+        // and the flow's own text in the transcript.
+        const drawn = await page.locator(TRANSCRIPT_ROW).allInnerTexts();
+        expect(drawn.length).toBeGreaterThan(rowsBefore);
+        expect(drawn.join("\n")).toContain(DRAWN[flow]);
       }
       for (const entry of report)
         console.log(
