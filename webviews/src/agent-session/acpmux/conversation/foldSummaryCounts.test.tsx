@@ -69,8 +69,8 @@ test("the label builder is unchanged: the time alone", () => {
   expect(workedLabel(t, row)).toBe("Worked for 36s");
 });
 
-// The worked-line experiment's default arm (outcome, #49934) already names the work on every line;
-// this switch is what the line says on its "Time only" arm, so the two tests below pin that arm.
+// The worked-line experiment's default arm is `time` again (workedForTimeOnly.test.tsx); its
+// `outcome` arm names the work on every line. The two tests below pin the time arm either way.
 type ArmHost = { cmuxExperiments?: Record<string, string> };
 const timeOnly = () => {
   (globalThis as ArmHost).cmuxExperiments = { "worked-line": "time" };

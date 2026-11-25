@@ -3777,6 +3777,7 @@ class CreateWorkspaceRequest:
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
     first_tab: Union[WorkspaceFirstTab, None, MissingType] = field(default=MISSING)
+    name_source: Union[NameSource, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)

@@ -268,3 +268,25 @@ fn the_ready_line_splits_the_gate_into_listing_encoding_and_mount() {
     // One line in the log, for the start matrix to read back.
     assert!(!timing.to_string().contains('\n'));
 }
+
+/// Leo, 2026-11-25: a Cloud chat started on an empty folder must still be that folder, projected,
+/// so what the agent writes comes back to it. An empty or non-git folder lists to a manifest the
+/// machine mounts (never zero bytes, which the machine reads as a resume of a mount it has).
+#[test]
+fn an_empty_or_non_git_folder_is_projected_not_skipped() {
+    let empty = tempfile::tempdir().unwrap();
+    let listed = list(&std::fs::canonicalize(empty.path()).unwrap()).unwrap();
+    assert!(listed.served.iter().all(Option::is_none), "no file to serve");
+    assert_eq!(listed.manifest.len(), 1, "the folder itself and nothing in it");
+    let encoded = listed.manifest.encode().unwrap();
+    assert!(!encoded.is_empty(), "zero manifest bytes would ask the machine for a resume");
+    let decoded = Manifest::decode(&encoded).unwrap();
+    assert_eq!(decoded.len(), 1);
+
+    let plain = tempfile::tempdir().unwrap();
+    std::fs::write(plain.path().join("notes.txt"), "hi\n").unwrap();
+    assert!(!plain.path().join(".git").exists());
+    let listed = list(&std::fs::canonicalize(plain.path()).unwrap()).unwrap();
+    assert!(listed.manifest.resolve("notes.txt").is_some());
+    assert!(!listed.manifest.encode().unwrap().is_empty());
+}

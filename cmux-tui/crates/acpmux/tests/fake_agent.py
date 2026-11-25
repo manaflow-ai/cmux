@@ -113,6 +113,8 @@ FAKE_CLASS_LOG=<path>: on session/new, append {"pid", "pri", "nice"} (its own, a
 "class-probe: <path>": start `sleep 120` (a tool its turn runs) and write {"sleeper": pid, "diskio": n}
 to <path>: n is its own process's disk I/O policy (`getiopolicy_np`, macOS; the tool inherits it),
 None elsewhere.
+"class-wait: <path>": the same, then nothing until the test writes the FIFO <path>.gate; then its
+first token, and the turn ends at the next write.
 FAKE_BG_ONCE=<path>: the first agent to get `initialize` (<path> does not exist yet) creates <path>,
 has another process put it in background class (an outside cause, not its own call), answers that
 `initialize` with an error and stays alive, as a harness that fails its start at background class.
@@ -1567,6 +1569,22 @@ def handle_prompt(rid, params):
         shell.kill()
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "class-wait: <path>": as "class-probe", then the turn says nothing until the test writes to
+    # the FIFO <path>.gate: a turn the person waits on, before its first token.
+    if text.startswith("class-wait:"):
+        import subprocess
+        sleeper = subprocess.Popen(["sleep", "120"], stdin=subprocess.DEVNULL)
+        out = text[len("class-wait:"):].split("<", 1)[0].strip()
+        with open(f"{out}.tmp", "w") as f:
+            f.write(json.dumps({"sleeper": sleeper.pid, "diskio": own_disk_io()}))
+        os.replace(f"{out}.tmp", out)
+        with open(f"{out}.gate") as gate:
+            gate.read()
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "done"}})
+        with open(f"{out}.gate") as gate:
+            gate.read()
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "class-probe: <path>": a tool the turn runs, its pid to <path> (module docs).
     if text.startswith("class-probe:"):
         import subprocess
@@ -2254,8 +2272,7 @@ def stdin_lines(early):
 
 
 def own_disk_io():
-    """This process's disk I/O policy (`getiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS)`):
-    4 at utility, 0 or 1 at the default tier. None off macOS."""
+    """This process's disk I/O policy (`getiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS)`)."""
     if sys.platform != "darwin":
         return None
     import ctypes
@@ -2282,6 +2299,9 @@ def wire_log(msg):
         os.write(fd, line.encode())
     finally:
         os.close(fd)
+
+
+KEY_SIGNED_IN = False
 
 
 def main():
@@ -2461,6 +2481,21 @@ def main():
         if m == "session/new" and os.environ.get("FAKE_CWD_LOG"):
             with open(os.environ["FAKE_CWD_LOG"], "a") as log:
                 log.write(json.dumps({"process": os.getcwd(), "session": params.get("cwd")}) + "\n")
+        # FAKE_REQUIRE_KEY_AUTH=1: an agent that signs in with an API key (Antigravity's `agy acp`):
+        # it lists "gemini-api-key" and starts, loads or resumes a session only after an
+        # authenticate with it, and only when GEMINI_API_KEY is set.
+        key_auth = os.environ.get("FAKE_REQUIRE_KEY_AUTH") == "1"
+        if m == "authenticate" and key_auth and params.get("methodId") == "gemini-api-key":
+            global KEY_SIGNED_IN
+            if os.environ.get("GEMINI_API_KEY", "").strip():
+                KEY_SIGNED_IN = True
+                send({"jsonrpc": "2.0", "id": rid, "result": {}})
+            else:
+                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32000, "message": "GEMINI_API_KEY is not set"}})
+            continue
+        if key_auth and not KEY_SIGNED_IN and m in ("session/new", "session/load", "session/resume"):
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32000, "message": "Authentication required"}})
+            continue
         if m == "authenticate":
             # FAKE_AUTH_FILE: "fake-login" signs in (writes the file).
             if params.get("methodId") == "fake-login" and os.environ.get("FAKE_AUTH_FILE"):
@@ -2495,7 +2530,7 @@ def main():
                                       # only from a harness entry of its config); FAKE_ASK_CLAIM=0
                                       # says nothing, as an agent acpmux cannot trust to ask.
                                       **({} if os.environ.get("FAKE_ASK_CLAIM") == "0" else {"_meta": {"acpmux": {"asksBeforeTools": True}}})},
-                "authMethods": [] if not os.environ.get("FAKE_AUTH_FILE") else [
+                "authMethods": [{"id": "gemini-api-key", "name": "Gemini API key"}] if key_auth else [] if not os.environ.get("FAKE_AUTH_FILE") else [
                     {"id": "fake-login", "name": "Fake login", "description": "opens a browser"},
                     {"id": "fake-terminal", "name": "Terminal login", "type": "terminal", "args": ["--fake-login"]},
                     {"id": "fake-key", "name": "API key", "type": "env_var", "varName": "FAKE_API_KEY"},

@@ -7,6 +7,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { readCatalog } from "../scripts/pages/catalog.mjs";
 
 const repo = path.resolve(import.meta.dir, "../..");
 const read = (file: string) => readFileSync(path.join(repo, file), "utf8");
@@ -15,9 +16,9 @@ const INSPECTOR = /inspe[ck]t|インスペクタ|检查器|檢查器|인스펙�
 
 /// The panel's string keys in each catalog.
 const CATALOGS: [file: string, keys: RegExp][] = [
-  ["webviews/src/agent-session/acpmux/Localizable.xcstrings", /^sessionInfo\./],
+  ["webviews/src/agent-session/acpmux/Localizable.xcstrings.d", /^sessionInfo\./],
   [
-    "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d",
     /^settings\.(agentPane\.display\.inspector|choice\.agentChatInspector)/,
   ],
   ["Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/Localizable.xcstrings", /^agentPane\.sessionInfo\./],
@@ -29,7 +30,7 @@ type Catalog = { strings: Record<string, { localizations?: Record<string, { stri
 describe("Session Info is never called Inspector", () => {
   for (const [file, keys] of CATALOGS)
     test(file, () => {
-      const catalog = JSON.parse(read(file)) as Catalog;
+      const catalog = readCatalog(path.join(repo, file)) as Catalog;
       const panel = Object.entries(catalog.strings).filter(([key]) => keys.test(key));
       expect(panel.length).toBeGreaterThan(0);
       const named = panel.flatMap(([key, entry]) =>
