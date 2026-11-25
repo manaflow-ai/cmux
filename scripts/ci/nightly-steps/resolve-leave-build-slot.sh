@@ -153,11 +153,17 @@ if [[ -n "${IN_SLOT:-}" ]]; then
   exit 0
 fi
 echo "$stale, and feat-cmux-next is at $tip: waiting up to ${YIELD_MINUTES:-6} min for the tick to promote the newest buildable commit"
-deadline=$(( $(date -u +%s) + ${YIELD_MINUTES:-6} * 60 ))
+wait_started=$(date -u +%s)
+deadline=$(( wait_started + ${YIELD_MINUTES:-6} * 60 ))
+# Structured wait marker for ci-trace: one line when the wait ends, by a promotion or the deadline.
+wait_marker() {
+  echo "CMUX-WAIT {\"on\":\"newer-nightly-next-push\",\"class\":\"slot\",\"bound_s\":$(( ${YIELD_MINUTES:-6} * 60 )),\"waited_s\":$(( $(date -u +%s) - wait_started ))}"
+}
 while (( $(date -u +%s) < deadline )); do
   current="$(poll_head)"
-  moved "$current" && leave "$current"
+  if moved "$current"; then wait_marker; leave "$current"; fi
   sleep "${YIELD_POLL_SECONDS:-15}"
 done
+wait_marker
 echo "nothing newer was promoted in ${YIELD_MINUTES:-6} min; building $TIP_SHA"
 echo "superseded=false" >> "$GITHUB_OUTPUT"
