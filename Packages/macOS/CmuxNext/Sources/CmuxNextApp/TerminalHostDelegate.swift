@@ -203,7 +203,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     private static func routeLinks(to services: AppServices) {
         let router = LinkRouter.shared
         router.routing = { [weak services] in services?.settings?.snapshot.linkRouting ?? .fallback }
-        router.textEditor = { [weak services] in services?.settings?.snapshot.textEditor.application ?? "" }
+        router.textEditor = { [weak services] in guard let services else { return "" }; let set = services.settings?.snapshot.textEditor.application ?? ""; return set.isEmpty ? services.editorCatalog.application()?.path ?? "" : set } // else editor.default's
         router.appLink = { [weak services] url, click in services.map { CmuxAppLinks.open(url, services: $0, click: click) } ?? false }
         // A click in a chat or page view opens beside the pane showing it (not the focused pane).
         router.sourceTab = { [weak services] view in services?.linkOpener.source(containing: view)?.currentTabKey }

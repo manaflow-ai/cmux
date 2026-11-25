@@ -17,7 +17,10 @@ available runtime won. Unset (a run outside the fleet), the newest available
 iOS runtime is used, as before.
 
 The iPhone is the first of PHONES the runtime supports, unless the step names one:
-`--device NAME` (the step's device= argument) picks that iPhone type and nothing else (no iPad). NAME
+`--device NAME` (the step's device= argument) picks that iPhone type and nothing else. The one
+other family it takes is the iPad mini: its window (744 x 1133 pt) stands in for an unfolded
+foldable iPhone's nearly square screen, which the app's Debug build lays out for (cmuxterm-hq
+docs/design/ios-foldable.md); no other iPad. NAME
 is the device type's name ("iPhone 16e"), the same with commas for spaces ("iPhone,16e",
 since fleet step arguments hold no spaces), or its identifier's last part
 ("iPhone-SE-3rd-generation", for names with parentheses). A name the runtime does not
@@ -44,16 +47,20 @@ def version_key(runtime):
     return [int(x) if x.isdigit() else 0 for x in str(runtime.get("version", "0")).split(".")]
 
 
+# Device families a step may name: every iPhone, and the iPad mini (an unfolded foldable's stand-in).
+FAMILIES = ("iPhone", "iPad mini")
+
+
 def find_device(types, want):
     """The device type identifier and name for want among types ({name: identifier}), or raise SystemExit."""
     spaced = want.replace(",", " ").strip()
-    types = {k: v for k, v in types.items() if k.startswith("iPhone")}
+    types = {k: v for k, v in types.items() if k.startswith(FAMILIES)}
     for name, ident in types.items():
         if want in (name, ident, ident.rsplit(".", 1)[-1]) or spaced == name:
             return ident, name
     phones = sorted(types)
     raise SystemExit(
-        f"cmux-next-ios-sim.sh: device={want}: this runtime has no such iPhone device type; "
+        f"cmux-next-ios-sim.sh: device={want}: this runtime has no such iPhone or iPad mini device type; "
         f"available iPhone types: {', '.join(phones) or 'none'}"
     )
 

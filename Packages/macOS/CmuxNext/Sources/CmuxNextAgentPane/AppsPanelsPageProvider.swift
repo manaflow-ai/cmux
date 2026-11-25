@@ -116,7 +116,7 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
                 throw PageError.failed(error, code: "cmux.apps.panels.failed", retryable: true)
             }
         case Self.namespace + "mount":
-            return try mount(params)
+            return try await mount(params)
         case Self.namespace + "dispatch":
             guard context.userGesture else {
                 throw PageError(code: PageNativeOp.userOnlyCode, message: "This app panel action can only be used by a person")
@@ -181,14 +181,15 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
 
     /// Mounts the app's implementation for `surface` (``AppMountSurface``), resolved as that surface's
     /// AppKit host resolves it; `section` names the section of a sidebar or Session Info mount.
-    private func mount(_ params: JSONValue) throws -> JSONValue {
+    /// An app the mirror does not hold yet is listed again before the mount is refused (``AppsClient/listedApp(_:)``).
+    private func mount(_ params: JSONValue) async throws -> JSONValue {
         guard let rawSurface = params["surface"]?.stringValue, let surface = AppMountSurface(rawValue: rawSurface),
               let app = params["app"]?.stringValue,
               let rawContext = params["context"], case .object = rawContext else {
             throw PageError.invalidParams("surface (pane, sidebarSection, hoverCard, sessionInfoSection, chatWidget, newTab or widget), app and object context are required")
         }
         let section = params["section"]?.stringValue
-        guard let record = client.app(app), let implementation = surface.implementation(of: record, id: section) else {
+        guard let record = await client.listedApp(app), let implementation = surface.implementation(of: record, id: section) else {
             throw PageError(code: "cmux.apps.panels.not_found", message: "No \(surface.rawValue) of \(app)\(section.map { "#" + $0 } ?? "") shows")
         }
         let context = appJSON(rawContext)

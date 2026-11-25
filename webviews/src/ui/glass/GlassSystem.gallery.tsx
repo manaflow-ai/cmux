@@ -17,7 +17,7 @@ import { type CSSProperties, useEffect } from "react";
 import { componentEntry } from "../../gallery/format";
 
 type Mode = "glass" | "off" | "reduce";
-type Props = { mode: Mode };
+type Props = { mode: Mode; scene?: "levels" | "hover-input" };
 
 const TEXT =
   "The build finished on the second worker. Three tests failed in the parser suite, all on the same fixture: a trailing comma after the last field. The fix is one line in the tokenizer; the rest of the run is green. Next: rerun the suite at the new head, then post the numbers on the pull request. ";
@@ -73,8 +73,9 @@ function useMode(mode: Mode): void {
   }, [mode]);
 }
 
-function GlassSystemGallery({ mode }: Props) {
+function GlassSystemGallery({ mode, scene = "levels" }: Props) {
   useMode(mode);
+  if (scene === "hover-input") return <HoverInputScene />;
   return (
     <div
       data-testid="glass-system"
@@ -181,13 +182,98 @@ function GlassSystemGallery({ mode }: Props) {
   );
 }
 
+/** Leo, 2026-11-20: a bit more glass on the chat input box, and glass everywhere, especially on the
+ * hover tooltips and hover previews. The input box, two tooltips, a link's hover card and the chat
+ * header's tool preview, each on its real classes, over a transcript's text: the candidates (now,
+ * clearer, edge, clearer-edge) are capture arms (scripts/gallery/glass-hover-input.capture.json). */
+function HoverInputScene() {
+  return (
+    <div
+      data-testid="glass-hover-input"
+      style={{ position: "relative", height: 400, color: "var(--cmux-text)", fontSize: "var(--text-body)" }}
+    >
+      <div style={{ ...TEXT_BLOCK, inset: "12px 24px 0" }}>{TEXT.repeat(6)}</div>
+      <div
+        className="ui-tooltip ui-glass"
+        role="tooltip"
+        style={{ ...box(32, 24, 0, 0), width: "auto", height: "auto", whiteSpace: "nowrap" }}
+      >
+        <span className="ui-tooltip-text">Fork Conversation</span>
+        <span className="ui-tooltip-hint">⌘⇧D</span>
+      </div>
+      <div
+        className="ui-title-tooltip ui-glass"
+        role="tooltip"
+        style={{ ...box(32, 70, 0, 0), position: "absolute", width: "auto", height: "auto", whiteSpace: "nowrap" }}
+      >
+        ~/src/cmux/webviews/src/ui/glass/glass.css
+        <span className="ui-tooltip-detail">Opens in the Files pane</span>
+      </div>
+      <div
+        className="ui-tooltip ui-card ui-glass ui-glass-floats cv-link-preview"
+        role="tooltip"
+        style={{
+          ...box(300, 20, 300, 0),
+          height: "auto",
+          maxHeight: "none",
+          borderRadius: "var(--ui-popup-radius)",
+        }}
+      >
+        {/* The real card's content wrapper (LinkHoverCard, linkCard.css), which pads the text off the rim. */}
+        <div
+          className="cv-link-preview__content"
+          style={{ display: "grid", gap: "var(--ds-space-1)", padding: "var(--ds-space-2) var(--ds-space-3)" }}
+        >
+          <span style={{ fontWeight: "var(--weight-emphasis)" }}>Fix the trailing comma in the tokenizer #4812</span>
+          <span style={{ color: "var(--cmux-text-secondary)" }}>manaflow/parser · opened 2 hours ago</span>
+          <span style={{ color: "var(--cmux-text-secondary)" }}>✓ 14 checks · 1 running</span>
+        </div>
+      </div>
+      <div
+        className="ui-card ui-glass acpmux-header-preview"
+        role="tooltip"
+        style={{ ...box(32, 118, 220, 0), position: "absolute", height: "auto", padding: "var(--ds-space-2)" }}
+      >
+        <div style={{ fontWeight: "var(--weight-emphasis)" }}>Split Right</div>
+        <div style={{ color: "var(--cmux-text-secondary)" }}>Opens the diff beside the chat</div>
+      </div>
+      <section
+        className="acpmux-shell"
+        style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: "auto", background: "transparent" }}
+      >
+        <div className="acpmux-composer" style={{ flex: 1, padding: "0 24px 16px" }}>
+          <div className="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box" style={{ minHeight: 96 }}>
+            <div className="acpmux-md" style={{ padding: "12px 16px", color: "var(--agent-text)" }}>
+              Rerun the parser suite at the new head, then post the numbers on the pull request.
+            </div>
+            <div style={{ padding: "0 var(--ds-space-4) var(--ds-space-3)", color: "var(--acpmux-composer-dim)" }}>
+              Opus 5.5 · Ask before edits
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export default componentEntry<Props>({
   id: "ui.glass-system",
   title: "One glass system",
   area: "Pages",
   height: 420,
-  covers: ["ui/glass/glass.css"],
-  load: async () => GlassSystemGallery,
+  covers: ["ui/glass/glass.css", "agent-session/acpmux/composerStates.css", "agent-session/acpmux/header/header.css"],
+  // The pane's sheets for the hover-input scene's composer, link card and header preview.
+  load: async () => {
+    await Promise.all([
+      import("../../agent-session/shared/styles.css"),
+      import("../../agent-session/acpmux/styles.css"),
+      import("../../agent-session/acpmux/composerStates.css"),
+      import("../../agent-session/acpmux/composerLocation.css"),
+      import("../../agent-session/acpmux/chips/linkCard.css"),
+      import("../../agent-session/acpmux/header/header.css"),
+    ]);
+    return GlassSystemGallery;
+  },
   variants: {
     glass: {
       note: "Liquid Glass on: chrome, popover, menu and chip from the design scale's levels, one saturation, one edge.",
@@ -200,6 +286,14 @@ export default componentEntry<Props>({
     "reduce-transparency": {
       note: "Reduce Transparency: the opaque surface and the hairline, as with Liquid Glass off.",
       props: { mode: "reduce" },
+    },
+    "hover-input": {
+      note: "The chat input box, tooltips, a link's hover card and the header's tool preview over a transcript (Leo, 2026-11-20: more glass on the input box and on every hover surface).",
+      props: { mode: "glass", scene: "hover-input" },
+    },
+    "hover-input-reduce": {
+      note: "The same under Reduce Transparency: every surface opaque, no blur.",
+      props: { mode: "reduce", scene: "hover-input" },
     },
   },
 });

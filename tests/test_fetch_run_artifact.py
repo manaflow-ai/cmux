@@ -110,7 +110,7 @@ class Fake:
                     if hang:
                         self.wfile.write(data[: len(data) // 2])
                         self.wfile.flush()
-                        time.sleep(3)
+                        time.sleep(3)  # sleep-ok: a server stalled mid-body, the stall the fetch must cut
                         self.close_connection = True
                         return
                     self.wfile.write(data)

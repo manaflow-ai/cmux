@@ -18,12 +18,71 @@ fn row(id: &str, family: &str, name: &str) -> Value {
 
 #[test]
 fn only_this_machine_and_its_app_may_ask() {
-    assert!(allowed(Origin::Local));
-    assert!(allowed(Origin::LocalApp));
-    assert!(!allowed(Origin::Web));
-    assert!(!allowed(Origin::Peer));
+    let none = json!({});
+    assert!(allowed(Origin::Local, ConnAuth::LocalSocket, &none));
+    assert!(allowed(Origin::LocalApp, ConnAuth::LocalApp, &none));
+    assert!(!allowed(Origin::Web, ConnAuth::ListenerToken, &none));
+    assert!(!allowed(Origin::Web, ConnAuth::WebDevice, &none));
+    assert!(!allowed(Origin::Local, ConnAuth::None, &none));
     let e = refused();
     assert_eq!(e.data.as_ref().and_then(|d| d.get("reason")), Some(&json!(REMOTE_REFUSED)));
+}
+
+#[test]
+fn the_machines_owner_may_ask_over_the_peer_route() {
+    // The person's Mac forwarding its card for a chat here, by the peer token or the Cloud
+    // carrier's owner header: the same owner rule `agent_login` runs.
+    let forwarded = json!({"family": "github", "sessionId": "s-1"});
+    for auth in [ConnAuth::PeerToken, ConnAuth::CarrierOwner] {
+        assert!(allowed(Origin::Peer, auth, &forwarded), "{auth:?}");
+        assert_eq!(
+            allowed(Origin::Peer, auth, &forwarded),
+            super::super::agent_login::allowed(Origin::Peer, auth, &forwarded)
+        );
+    }
+}
+
+#[test]
+fn anyone_but_the_owner_is_refused_over_the_peer_route() {
+    let plain = json!({"family": "codex"});
+    // A paired machine, an unproven link.
+    for auth in
+        [ConnAuth::Device, ConnAuth::ReadOnlyDevice, ConnAuth::ListenerToken, ConnAuth::None]
+    {
+        assert!(!allowed(Origin::Peer, auth, &plain), "{auth:?}");
+    }
+    // The owner's daemon forwarding for its own Web client or a paired device.
+    for via in ["web", "device"] {
+        let p = json!({"family": "claude", "_meta": {"acpmux": {"via": via}}});
+        assert!(!allowed(Origin::Peer, ConnAuth::PeerToken, &p), "{via}");
+        assert!(!allowed(Origin::Peer, ConnAuth::CarrierOwner, &p), "{via}");
+    }
+}
+
+#[test]
+fn a_teammate_on_a_shared_machine_is_refused() {
+    // A team machine's other members reach it through the Cloud carrier as `CarrierTeam`, served
+    // as Web: never an account sign-in, whatever the request says.
+    let p = json!({"family": "github"});
+    assert!(!allowed(Origin::Web, ConnAuth::CarrierTeam, &p));
+    assert!(!allowed(Origin::Peer, ConnAuth::CarrierTeam, &p));
+}
+
+#[tokio::test]
+async fn a_shared_machine_refuses_the_owners_sign_in_too() {
+    // The owner passes `allowed`, and a team machine still runs no own sign-in: every member runs
+    // as the same user there, so it would be everyone's.
+    assert!(allowed(Origin::Peer, ConnAuth::PeerToken, &json!({"family": "github"})));
+    let root = dir("shared");
+    std::fs::create_dir_all(root.join("etc/cmux")).unwrap();
+    std::fs::write(root.join("etc/cmux/vm-kind"), "team\n").unwrap();
+    let m = Machine { root: root.clone(), home: root.join("home") };
+    let cli = Cli { program: root.join("no-such-gh").display().to_string(), ..Cli::default() };
+    for agent in [Agent::Github, Agent::Codex, Agent::Claude] {
+        let e = login::start_in(&m, &cli, agent, None).await.unwrap_err();
+        assert_eq!(e.reason, reason::SHARED_MACHINE, "{agent:?}");
+    }
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]

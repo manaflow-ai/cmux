@@ -131,16 +131,16 @@ run > "$tmp/out" 2>&1 || fail "the capability export was not made again on the m
 grep -qvx unset "$tmp/tokens" && fail "a repair ran with the push token in its environment"
 
 # 4. The inputs move under every repair: it stops after CMUX_BASE_AUTOFIX_ROUNDS rounds, lands no
-#    graph that is wrong for the tip it lands on, fails, and leaves it to the next run.
+#    graph that is wrong for the tip it lands on, and passes with a warning: the run the newest of
+#    those pushes started repairs it, so a busy base is no red.
 setup
 first_repair
 lane_commit "lane edits the manifest" "$manifest" "manifest v2"
-if run FAKE_MOVE=always CMUX_BASE_AUTOFIX_ROUNDS=3 > "$tmp/out" 2>&1; then
-  fail "a repair whose inputs never held still passed: $(cat "$tmp/out")"
-fi
+run FAKE_MOVE=always CMUX_BASE_AUTOFIX_ROUNDS=3 > "$tmp/out" 2>&1 \
+  || fail "a base that kept moving failed the run: $(cat "$tmp/out")"
 [[ "$(wc -l < "$tmp/again" | tr -d ' ')" == 2 ]] || fail "the repair was made again $(wc -l < "$tmp/again" | tr -d ' ') times, not 2 (3 rounds)"
 [[ "$(remote_show "$graph")" == "graph old" ]] || fail "a graph made for an older manifest landed: $(remote_show "$graph")"
-grep -q "::error::.*next run" "$tmp/out" || fail "the run does not say the next run repairs it: $(cat "$tmp/out")"
+grep -q "::warning.*next run" "$tmp/out" || fail "the run does not say the next run repairs it: $(cat "$tmp/out")"
 
 # 5. Someone else already put the tip's own graph on the branch: the push holds this run's copy
 #    (a newer commit wrote it), the repair on the tip changes nothing, and the run passes.
@@ -323,5 +323,31 @@ proposal="$(git -C "$tmp/remote.git" rev-parse base-autofix-sources)"
 (cd "$tmp/bot" && echo "setting rewritten" > "$setting" && git commit -q -am "chore(next): base autofix at ${base:0:12}" -m "made again")
 run > "$tmp/out" 2>&1 || fail "the same Swift rewrite again failed: $(cat "$tmp/out")"
 [[ "$(git -C "$tmp/remote.git" rev-parse base-autofix-sources)" == "$proposal" ]] || fail "the same Swift rewrite moved the proposal branch"
+# A Swift rewrite whose proposal push is refused reached neither branch: the rest lands, and the run fails, so
+# base-autofix-since.sh keeps the change in the next run's range (run 45587592604 ended green and #56006's
+# bindings stayed stale).
+setup
+cat > "$tmp/remote.git/hooks/pre-receive" <<'HOOK'
+#!/usr/bin/env bash
+while read -r _ _ ref; do
+  [[ "$ref" == refs/heads/base-autofix-sources ]] && { echo "refusing $ref" >&2; exit 1; }
+done
+exit 0
+HOOK
+chmod +x "$tmp/remote.git/hooks/pre-receive"
+(cd "$tmp/bot" && echo "graph for manifest v1" > "$graph" && echo "setting rewritten" > "$setting" \
+  && git commit -q -am "chore(next): base autofix at ${base:0:12}" -m "- regenerated $graph" -m "- namespace rewrite in $setting")
+if run > "$tmp/out" 2>&1; then fail "a refused proposal push ended green: $(cat "$tmp/out")"; fi
+[[ "$(remote_show "$graph")" == "graph for manifest v1" ]] || fail "the graph beside a refused proposal did not land: $(cat "$tmp/out")"
+[[ "$(remote_show "$setting")" == "setting v1" ]] || fail "a refused Swift rewrite was pushed onto the branch"
+grep -qF "$setting" "$tmp/out" || fail "the failed run does not name the rewrite it left out: $(cat "$tmp/out")"
+# The uniffi bindings (scripts/ios-ffi-bindings.sh) are generator output, no rewrite: they land on the branch.
+setup
+ffi=cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift
+(cd "$tmp/bot" && mkdir -p "$(dirname "$ffi")" && echo "bindings for the crate" > "$ffi" && git add -A \
+  && git commit -q -m "chore(next): base autofix at ${base:0:12}" -m "- regenerated $ffi")
+run > "$tmp/out" 2>&1 || fail "a repair of the FFI bindings failed: $(cat "$tmp/out")"
+[[ "$(remote_show "$ffi")" == "bindings for the crate" ]] || fail "the FFI bindings did not land on the branch: $(cat "$tmp/out")"
+git -C "$tmp/remote.git" rev-parse --verify -q refs/heads/base-autofix-sources >/dev/null && fail "the FFI bindings went to a proposal"
 
 echo "PASS: base autofix makes a held repair again on the moved tip and lands it, a bounded number of times, without the push token"

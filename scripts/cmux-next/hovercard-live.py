@@ -22,6 +22,9 @@ the card to --shots. Exits 1 when a check fails.
 """
 import argparse, json, os, re, socket, subprocess, sys, tempfile, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_until  # noqa: E402
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--shots", help="write window captures with the card here")
@@ -179,8 +182,14 @@ if working:
     print("card:\n" + first, flush=True)
     check(elapsed_seconds(status_line(first)) is not None, f"the status line carries an elapsed time ({status_line(first)!r})")
     shot("working-1.png")
-    time.sleep(2.5)  # the live tick: the same card, read again later
-    second, report = card_text()
+    # The live tick: the same card, read again until its elapsed time moves on (the check below says if it never does).
+    def grown():
+        read = card_text()
+        now, then = elapsed_seconds(status_line(read[0])), elapsed_seconds(status_line(first))
+        return read if now is not None and then is not None and now > then else None
+
+    second, report = wait_until(grown, "the card's elapsed time to grow", timeout=10, interval=0.1,
+                                raise_on_timeout=False) or card_text()
     print("card later:\n" + second, flush=True)
     a, b = elapsed_seconds(status_line(first)), elapsed_seconds(status_line(second))
     check(a is not None and b is not None and b > a, f"the elapsed time grows while the card shows ({a} -> {b})")
@@ -197,11 +206,13 @@ if working:
 
     before = ticks()
     dismiss()
-    time.sleep(0.5)
-    _, report = card_text()
+    # The card goes (the check below says if it never does).
+    gone = wait_until(lambda: (lambda r: r if r[1].get("card_showing") != "true" else None)(card_text()),
+                      "the dismissed card to go", timeout=10, interval=0.05, raise_on_timeout=False)
+    _, report = gone or card_text()
     print(f"after dismiss: showing={report.get('card_showing')} phase={report.get('phase')}", flush=True)
     settled = ticks()
-    time.sleep(3)  # an idle window: a stopped tick adds nothing
+    time.sleep(3)  # sleep-ok: the idle window the tick count is measured over (a stopped tick adds nothing in it)
     after = ticks()
     check(report.get("card_showing") != "true", "the card is dismissed")
     check(after == settled, f"no card tick wakes the app once the card is gone ({before} -> {settled} -> {after})")

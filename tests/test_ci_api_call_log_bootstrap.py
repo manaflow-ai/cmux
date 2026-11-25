@@ -59,6 +59,12 @@ class Bootstrap(unittest.TestCase):
         self.temp.mkdir()
         self.bin = self.root / "bin"
         self.bin.mkdir()
+        # env.sh logs only through 2026-11-22 (it switches off at 2026-11-23 00:00 UTC): a date pinned inside that
+        # window, so these tests check the hook rather than today's clock. The switch-off tests write their own.
+        self.write_exe("date", f"""#!/bin/sh
+            [ "$*" = "-u +%Y%m%d%H" ] && {{ echo 2026112213; exit 0; }}
+            exec {shutil.which("date")} "$@"
+            """)
         self.curl_log = self.root / "curl.log"
         self.write_exe("gh", """#!/bin/sh
             case "$*" in

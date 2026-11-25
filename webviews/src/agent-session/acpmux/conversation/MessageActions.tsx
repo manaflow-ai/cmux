@@ -23,6 +23,8 @@ import { useTranscriptReadOnly } from "./readOnly";
 import { ROW_ICON } from "./messageActionsModel";
 import { intl } from "../../../ui/intl";
 import { Described } from "../chips/FactsHoverCard";
+import { Slot } from "../../../slots/Slot";
+import { rowHoverSlot } from "../../../slots/rowHover";
 /// The message's age, relative and live ("just now", "8 minutes ago", "yesterday", "Oct 18" past a
 /// week: messageAge), the exact date and time above it on hover, as Claude's. A prompt's, another
 /// agent's and a reply's rows all draw this one label (Leo, 2026-11-08: "the timestamps for the agent
@@ -439,18 +441,24 @@ export function ReceivedActions({ row, more }: { row: AcpmuxRow; more?: ReactNod
 export function ReplyActions({ row }: { row: AcpmuxRow }) {
   const text = row.text ?? "";
   return (
-    // Over a status row this line is the reply's whole bottom room (conversation.css
-    // `--cv-status-gap`), so its own blank box, never its buttons, is a transcript gap a drag
-    // can start from (gutterSelect.ts).
-    <div className="cv-turn-actions cv-reply-actions" data-transcript-gap="blank">
-      <span className="cv-turn-action-group">
-        <MessageCopy text={text} />
-        <PinButton rowId={row.id} />
-        <ReadAloudButton id={row.id} text={text} />
-        <RowReplyButton text={text} />
-        <MessageMore rowId={row.id} />
-      </span>
-      <ReplyTime at={row.at} />
-    </div>
+    // The row is the theme slot `row.hover` (slots/rowHover): its default draws the reserved line this
+    // drew before, a transcript gap a drag can start from.
+    <Slot
+      slot={rowHoverSlot}
+      props={{
+        children: (
+          <>
+            <span className="cv-turn-action-group">
+              <MessageCopy text={text} />
+              <PinButton rowId={row.id} />
+              <ReadAloudButton id={row.id} text={text} />
+              <RowReplyButton text={text} />
+              <MessageMore rowId={row.id} />
+            </span>
+            <ReplyTime at={row.at} />
+          </>
+        ),
+      }}
+    />
   );
 }

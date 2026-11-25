@@ -1,4 +1,8 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 
 /// Where transcript rows land on the pixel grid. Rows stack at their
 /// unrounded heights and each top snaps to the grid, as ChatKit's transcript

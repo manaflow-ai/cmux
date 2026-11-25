@@ -21,7 +21,7 @@ import type { Blocker } from "./readiness";
 import type { ReadinessLayout } from "./ReadinessBlock";
 import { MockGitHubProvider, mockChecksPassed, mockDetails, mockPullRequest, MOCK_URL } from "./mockProvider";
 import { GitHubStore } from "./store";
-import type { DashboardChecks, PullRequestDetails, PullRequestReply } from "./types";
+import type { DashboardChecks, PullRequestDetails, PullRequestReply, ReviewEvent } from "./types";
 
 type Props = {
   answer?: PullRequestReply;
@@ -37,6 +37,12 @@ type Props = {
   expand?: string[];
   /** The Merge button's first click, so its confirm shows. */
   confirmMerge?: boolean;
+  /** The review box's starting words, and the thread whose reply box starts open. */
+  reviewDraft?: string;
+  replyOpen?: string;
+  /** The host's refusal of every review or thread write; with `review`, a review sent once loaded. */
+  writeRefusal?: { code: string; message: string };
+  review?: ReviewEvent;
 };
 
 function GitHubGallery({
@@ -51,8 +57,14 @@ function GitHubGallery({
   conversationFilter,
   expand = [],
   confirmMerge = false,
+  reviewDraft,
+  replyOpen,
+  writeRefusal,
+  review,
 }: Props) {
-  const [store] = useState(() => new GitHubStore(new MockGitHubProvider(answer, details, checks), () => false));
+  const [store] = useState(
+    () => new GitHubStore(new MockGitHubProvider(answer, details, checks, writeRefusal ?? null), () => false),
+  );
   const [strings] = useState(() => createStrings(table));
   useEffect(() => {
     void store.route(`#/pull?url=${encodeURIComponent(MOCK_URL)}`).then(async () => {
@@ -61,6 +73,7 @@ function GitHubGallery({
       await Promise.resolve();
       await Promise.resolve();
       if (confirmMerge) void store.merge();
+      if (review) void store.submitReview(review, reviewDraft ?? "");
     });
     return () => store.stop();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a fixture's props are fixed
@@ -76,6 +89,8 @@ function GitHubGallery({
       readinessLayout={readinessLayout}
       readinessShown={readinessShown}
       conversationFilter={conversationFilter}
+      reviewDraft={reviewDraft}
+      replyOpen={replyOpen}
       now={() => Date.parse("2026-11-05T03:00:00Z")}
     />
   );
@@ -161,6 +176,37 @@ export default componentEntry<Props>({
         answer: mockReady,
         details: { ...mockReadyDetails, conversationTotal: mockReadyDetails.conversationRead + 61 },
         checks: mockReadyChecks,
+      },
+    },
+    "review-draft": {
+      note: "Audit fix eight: the review box under the conversation, words typed. Comment and Request changes need words; Approve may go without. Each review comment whose thread the read reached has Reply and Resolve (Reopen once resolved).",
+      props: {
+        answer: mockBlocked,
+        details: mockBlockedDetails,
+        checks: mockBlockedChecks,
+        reviewDraft: "The scroll fix reads well; one question on the filtered row.",
+      },
+    },
+    "review-approve-refused": {
+      note: "An approval with no GitHub login on this Mac: the host never lets the cmux App approve, so it says to sign in with gh instead of approving as the App.",
+      props: {
+        answer: mockBlocked,
+        details: mockBlockedDetails,
+        checks: mockBlockedChecks,
+        review: "APPROVE",
+        writeRefusal: {
+          code: "cmux.github.person_only",
+          message: "an approval or a request for changes is the person's own; sign in with gh",
+        },
+      },
+    },
+    "review-thread-reply": {
+      note: "Reply opened on the open thread: its own box, Send and Cancel; the resolved thread above offers Reopen.",
+      props: {
+        answer: mockBlocked,
+        details: mockBlockedDetails,
+        checks: mockBlockedChecks,
+        replyOpen: "PRRT_r2",
       },
     },
     "conversation-unresolved": {
