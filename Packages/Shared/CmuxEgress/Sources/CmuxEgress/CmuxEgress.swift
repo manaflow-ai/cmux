@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(os)
 import os
+#endif
 #if canImport(Network)
 import Network
 #endif
