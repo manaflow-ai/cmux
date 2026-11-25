@@ -1264,7 +1264,7 @@ async fn team_tools_use_the_shared_rpc_paths_and_preserve_receipts_and_refusals(
 }
 
 /// A Chief turn's `CMUX_MCP_TOOLS` reaches this server too (`agent_tools::scoped`): standalone,
-/// without a `cmux` server to fold into, it lists only the seven coordinator tools, never `bg_*` or
+/// without a `cmux` server to fold into, it lists only the ten coordinator tools, never `bg_*` or
 /// `team_*` (#30082 review).
 #[test]
 fn an_allowlist_keeps_only_the_acpmux_tools_it_names() {
@@ -1274,7 +1274,18 @@ fn an_allowlist_keeps_only_the_acpmux_tools_it_names() {
     let chief = allowed(all.clone(), Some(crate::agent_tools::CHIEF_TURN_TOOLS));
     assert_eq!(
         names(&chief),
-        ["send", "inbox_read", "inbox_reply", "ls", "last", "info", "send_status"]
+        [
+            "send",
+            "inbox_read",
+            "inbox_reply",
+            "ls",
+            "last",
+            "info",
+            "watch_add",
+            "watch_ls",
+            "watch_rm",
+            "send_status"
+        ]
     );
     assert!(names(&allowed(all, Some("render,agents_wait"))).is_empty());
 }

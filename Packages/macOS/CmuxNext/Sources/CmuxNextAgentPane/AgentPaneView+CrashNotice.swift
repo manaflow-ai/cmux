@@ -13,6 +13,8 @@ extension AgentPaneView {
     /// injected end in tests): logged with its siblings (``AgentPageTerminations``), then a retry
     /// or the notice.
     func webContentProcessDidTerminate(_ termination: PageTermination = .unknown) {
+        // The old host has no page to tell it: its last frame stays until a new document paints.
+        documentWillChange(.contentEnded)
         contentEnded(termination.withPid(fallback: knownWebContentPid))
     }
 
@@ -47,6 +49,8 @@ extension AgentPaneView {
 
     private func showCrashNotice() {
         guard crashNotice == nil else { return }
+        // It kept ending: the notice says so, over the page, not over a picture of a chat that works.
+        endDocumentCover(painted: false, reason: "crash notice")
         let message = ChromeLabel(wrappingLabelWithString: Self.crashedMessage)
         message.alignment = .center
         let reload = ThemedBezelButton(title: Self.reloadTitle, target: self, action: #selector(reloadAfterCrashes))

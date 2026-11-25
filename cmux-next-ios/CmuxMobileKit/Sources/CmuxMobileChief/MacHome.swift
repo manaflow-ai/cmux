@@ -252,6 +252,15 @@ public enum HomeListNote: Equatable, Sendable {
         if homeMacID != nil { return .connecting }
         return macsMayExist ? .loading : .none
     }
+
+    /// `make`'s `macsMayExist`: a Mac's list can still come with no Mac chosen. Only while Macs
+    /// are tracked live (`live`; the mock and a demo without a Mac link never answer), and the
+    /// account's Macs are not known yet or one of them is online. Before, a mock Home, or an
+    /// account whose every Mac is offline, said "Loading conversations…" forever (iOS release
+    /// bar read-back, 2026-11-22, shot 04).
+    public static func macsMayAnswer(live: Bool, macsKnown: Bool, anyOnline: Bool) -> Bool {
+        live && (!macsKnown || anyOnline)
+    }
 }
 
 /// What Home says while its Mac's list is not live (CMUX-489), in the Workspaces tab's words
@@ -282,8 +291,6 @@ public struct HomeConnectionStatus: Equatable, Sendable {
     public let kind: Kind
     /// A retry runs: Retry shows its spinner and the toast says it reconnects.
     public let isRetrying: Bool
-    /// The status in words after the Mac's name (Workspaces' words), for VoiceOver.
-    public let detail: String
     /// What Home shows when no rows show (nil for ``Kind/connecting``: Workspaces' spinner).
     public let empty: Empty?
 
@@ -305,13 +312,6 @@ public struct HomeConnectionStatus: Equatable, Sendable {
         } else {
             return nil
         }
-        let detail: String = if retrying {
-            String(localized: "Updating…")
-        } else if kind == .failed {
-            String(localized: "Couldn't refresh · last known")
-        } else {
-            String(localized: "Offline · last known")
-        }
         let empty: Empty? = switch kind {
         case .macOffline:
             Empty(symbol: "moon.zzz", title: String(localized: "\(macAtStart) is offline"),
@@ -325,12 +325,7 @@ public struct HomeConnectionStatus: Equatable, Sendable {
         case .connecting:
             nil
         }
-        return HomeConnectionStatus(kind: kind, isRetrying: retrying, detail: detail, empty: empty)
-    }
-
-    /// The connecting line when no rows show and no empty state applies.
-    public static func connectingTitle(macName: String?) -> String {
-        String(localized: "Connecting to \(macName ?? String(localized: "your Mac"))…")
+        return HomeConnectionStatus(kind: kind, isRetrying: retrying, empty: empty)
     }
 }
 

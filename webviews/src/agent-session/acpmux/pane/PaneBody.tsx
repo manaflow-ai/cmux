@@ -1279,8 +1279,6 @@ export function drawPaneBody({
                           icon={snapshot.summary?.icon}
                           formerNames={snapshot.summary?.formerNames}
                         />
-                        {/* No rolling summary beside the name: the sidebar's hover card and Expanded rows show it
-                              (Leo, 2026-11-22, on the line here: "im not sure if this is useful ... it's overlapping"). */}
                       </span>
                     )}
                   </ChatHeaderStatus>
@@ -1581,6 +1579,8 @@ export function drawPaneBody({
                 ) : freshView && !premountsChatView ? (
                   <EmptyState
                     {...(projectName(composerSnapshot.summary?.cwd) && tourOffer ? { tour: tourOffer } : {})}
+                    // Once per chat: the empty state remounted by this chat (picker, reconnect) is at rest.
+                    entranceKey={snapshot.sessionId ?? "new-chat"}
                   />
                 ) : (
                   <AgentTonesContext.Provider value={chatTones}>

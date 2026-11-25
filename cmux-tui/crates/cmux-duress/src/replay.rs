@@ -792,7 +792,6 @@ fn tui_bytes_run(
             }
             send(start, &merged, &held, &mut mac, metrics)?;
         }
-        drop(send);
         if !waiting.is_empty() {
             let start = hop_start.max(last_paint + FRAME_MS).max(phone_free);
             let done = coalesced_paint(&mut waiting, start, waiting_cost, metrics);
@@ -828,7 +827,6 @@ fn tui_bytes_run(
         let due = last_sent.map_or(0.0, |sent| sent + interval.unwrap_or(0.0));
         send(due, &pending, &held, &mut mac, metrics)?;
     }
-    drop(send);
     if !waiting.is_empty() {
         let start = hop_start.max(last_paint + FRAME_MS).max(phone_free);
         let done = coalesced_paint(&mut waiting, start, waiting_cost, metrics);

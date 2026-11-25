@@ -1156,6 +1156,13 @@ public protocol ChannelHandleProtocol: AnyObject, Sendable {
     
     func send(data: Data) async throws 
     
+    /**
+     * Payload bytes this channel has queued for the transport so far. It moves while a long
+     * write is taken by the link and stops when the link stalls: a request's deadline reads it
+     * as progress, not a wall clock (`DaemonClient` on iOS).
+     */
+    func sentBytes()  -> UInt64
+    
 }
 /**
  * One multiplexed channel.
@@ -1278,6 +1285,19 @@ open func send(data: Data)async throws   {
         )
 }
     
+    /**
+     * Payload bytes this channel has queued for the transport so far. It moves while a long
+     * write is taken by the link and stops when the link stalls: a request's deadline reads it
+     * as progress, not a wall clock (`DaemonClient` on iOS).
+     */
+open func sentBytes() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_channelhandle_sent_bytes(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
 
     
 }
@@ -1381,6 +1401,12 @@ public protocol ComposerOutboxProtocol: AnyObject, Sendable {
      * A tap on Send at `now_ms`. Returns the Send's number.
      */
     func push(text: String, submit: Bool, nowMs: UInt64)  -> UInt64
+    
+    /**
+     * A tap on Send of a one-line draft for a full-screen program at `now_ms`: typed, then
+     * Return, in one request (`send-typed-submit-v1`). Returns the Send's number.
+     */
+    func pushTyped(text: String, nowMs: UInt64)  -> UInt64
     
     /**
      * The attached daemon's `identify` capabilities. Returns whether it takes keyed Sends; until
@@ -1569,6 +1595,20 @@ open func push(text: String, submit: Bool, nowMs: UInt64) -> UInt64  {
             self.uniffiCloneHandle(),
         FfiConverterString.lower(text),
         FfiConverterBool.lower(submit),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+})
+}
+    
+    /**
+     * A tap on Send of a one-line draft for a full-screen program at `now_ms`: typed, then
+     * Return, in one request (`send-typed-submit-v1`). Returns the Send's number.
+     */
+open func pushTyped(text: String, nowMs: UInt64) -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_composeroutbox_push_typed(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(text),
         FfiConverterUInt64.lower(nowMs),$0
     )
 })
@@ -1862,6 +1902,236 @@ public func FfiConverterTypeFollowCamera_lift(_ handle: UInt64) throws -> Follow
 #endif
 public func FfiConverterTypeFollowCamera_lower(_ value: FollowCamera) -> UInt64 {
     return FfiConverterTypeFollowCamera.lower(value)
+}
+
+
+
+
+
+
+public protocol LastPlaceStoreProtocol: AnyObject, Sendable {
+    
+    /**
+     * Writes a waiting change now (the app goes to the background). Returns whether it wrote.
+     */
+    func flush()  -> Bool
+    
+    /**
+     * The person moved (`workspace_id` `None`: the list). Returns when to call `tick`.
+     */
+    func noteLocation(workspaceId: String?, screen: LastPlaceScreen?, itemId: String?, nowMs: UInt64)  -> UInt64?
+    
+    /**
+     * The reader of a chat or terminal came to rest (`anchor` `None`: on the newest row).
+     * Returns when to call `tick`.
+     */
+    func noteScroll(workspaceId: String, itemId: String, anchor: LastPlaceAnchor?, nowMs: UInt64)  -> UInt64?
+    
+    /**
+     * The place to open at launch, checked against the cached workspace ids (and, when the
+     * cache has them, that workspace's tab ids). `None`: the list.
+     */
+    func restore(workspaceIds: [String], itemIds: [String]?)  -> LastPlaceRecord?
+    
+    /**
+     * Where that chat or terminal was scrolled, if it is the saved place.
+     */
+    func scrollFor(workspaceId: String, itemId: String)  -> LastPlaceAnchor?
+    
+    /**
+     * Writes a waiting change whose time came. Returns when to call again.
+     */
+    func tick(nowMs: UInt64)  -> UInt64?
+    
+}
+open class LastPlaceStore: LastPlaceStoreProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_lastplacestore(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_lastplacestore(handle, $0) }
+    }
+
+    
+    /**
+     * Reads the file at `path` now. A missing, corrupt or newer file is no place.
+     */
+public static func `open`(path: String) -> LastPlaceStore  {
+    return try!  FfiConverterTypeLastPlaceStore_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_lastplacestore_open(
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+    
+
+    
+    /**
+     * Writes a waiting change now (the app goes to the background). Returns whether it wrote.
+     */
+open func flush() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_lastplacestore_flush(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The person moved (`workspace_id` `None`: the list). Returns when to call `tick`.
+     */
+open func noteLocation(workspaceId: String?, screen: LastPlaceScreen?, itemId: String?, nowMs: UInt64) -> UInt64?  {
+    return try!  FfiConverterOptionUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_lastplacestore_note_location(
+            self.uniffiCloneHandle(),
+        FfiConverterOptionString.lower(workspaceId),
+        FfiConverterOptionTypeLastPlaceScreen.lower(screen),
+        FfiConverterOptionString.lower(itemId),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+})
+}
+    
+    /**
+     * The reader of a chat or terminal came to rest (`anchor` `None`: on the newest row).
+     * Returns when to call `tick`.
+     */
+open func noteScroll(workspaceId: String, itemId: String, anchor: LastPlaceAnchor?, nowMs: UInt64) -> UInt64?  {
+    return try!  FfiConverterOptionUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_lastplacestore_note_scroll(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(workspaceId),
+        FfiConverterString.lower(itemId),
+        FfiConverterOptionTypeLastPlaceAnchor.lower(anchor),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+})
+}
+    
+    /**
+     * The place to open at launch, checked against the cached workspace ids (and, when the
+     * cache has them, that workspace's tab ids). `None`: the list.
+     */
+open func restore(workspaceIds: [String], itemIds: [String]?) -> LastPlaceRecord?  {
+    return try!  FfiConverterOptionTypeLastPlaceRecord.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_lastplacestore_restore(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceString.lower(workspaceIds),
+        FfiConverterOptionSequenceString.lower(itemIds),$0
+    )
+})
+}
+    
+    /**
+     * Where that chat or terminal was scrolled, if it is the saved place.
+     */
+open func scrollFor(workspaceId: String, itemId: String) -> LastPlaceAnchor?  {
+    return try!  FfiConverterOptionTypeLastPlaceAnchor.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_lastplacestore_scroll_for(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(workspaceId),
+        FfiConverterString.lower(itemId),$0
+    )
+})
+}
+    
+    /**
+     * Writes a waiting change whose time came. Returns when to call again.
+     */
+open func tick(nowMs: UInt64) -> UInt64?  {
+    return try!  FfiConverterOptionUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_lastplacestore_tick(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLastPlaceStore: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = LastPlaceStore
+
+    public static func lift(_ handle: UInt64) throws -> LastPlaceStore {
+        return LastPlaceStore(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: LastPlaceStore) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LastPlaceStore {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: LastPlaceStore, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLastPlaceStore_lift(_ handle: UInt64) throws -> LastPlaceStore {
+    return try FfiConverterTypeLastPlaceStore.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLastPlaceStore_lower(_ value: LastPlaceStore) -> UInt64 {
+    return FfiConverterTypeLastPlaceStore.lower(value)
 }
 
 
@@ -3779,6 +4049,235 @@ public func FfiConverterTypeTabsMirror_lower(_ value: TabsMirror) -> UInt64 {
 
 
 /**
+ * One terminal's fit state; called on the main actor.
+ */
+public protocol TerminalFitPolicyProtocol: AnyObject, Sendable {
+    
+    func claims()  -> Bool
+    
+    func isFitted()  -> Bool
+    
+    /**
+     * After each feed: what the projection's model has in the foreground.
+     * The program is the terminal title's, else `fallback_program` (the tab's).
+     */
+    func observe(projection: TerminalProjection, fallbackProgram: String)  -> TerminalFitDecision
+    
+    /**
+     * The programs that fit at once, most recent last.
+     */
+    func remembered()  -> [String]
+    
+    /**
+     * The page is on screen and interactive, or not.
+     */
+    func setPagePresent(present: Bool)  -> TerminalFitDecision
+    
+    /**
+     * Fit to Phone from the title menu or the key bar.
+     */
+    func toggle()  -> TerminalFitDecision
+    
+    /**
+     * Bytes the person sent.
+     */
+    func typed(bytes: Data)  -> TerminalFitDecision
+    
+}
+/**
+ * One terminal's fit state; called on the main actor.
+ */
+open class TerminalFitPolicy: TerminalFitPolicyProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_terminalfitpolicy(self.handle, $0) }
+    }
+    /**
+     * `remembered`: the programs fitted before, most recent last.
+     */
+public convenience init(remembered: [String]) {
+    let handle =
+        try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_terminalfitpolicy_new(
+        FfiConverterSequenceString.lower(remembered),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_terminalfitpolicy(handle, $0) }
+    }
+
+    
+
+    
+open func claims() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalfitpolicy_claims(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+open func isFitted() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalfitpolicy_is_fitted(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * After each feed: what the projection's model has in the foreground.
+     * The program is the terminal title's, else `fallback_program` (the tab's).
+     */
+open func observe(projection: TerminalProjection, fallbackProgram: String) -> TerminalFitDecision  {
+    return try!  FfiConverterTypeTerminalFitDecision_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalfitpolicy_observe(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeTerminalProjection_lower(projection),
+        FfiConverterString.lower(fallbackProgram),$0
+    )
+})
+}
+    
+    /**
+     * The programs that fit at once, most recent last.
+     */
+open func remembered() -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalfitpolicy_remembered(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The page is on screen and interactive, or not.
+     */
+open func setPagePresent(present: Bool) -> TerminalFitDecision  {
+    return try!  FfiConverterTypeTerminalFitDecision_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalfitpolicy_set_page_present(
+            self.uniffiCloneHandle(),
+        FfiConverterBool.lower(present),$0
+    )
+})
+}
+    
+    /**
+     * Fit to Phone from the title menu or the key bar.
+     */
+open func toggle() -> TerminalFitDecision  {
+    return try!  FfiConverterTypeTerminalFitDecision_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalfitpolicy_toggle(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Bytes the person sent.
+     */
+open func typed(bytes: Data) -> TerminalFitDecision  {
+    return try!  FfiConverterTypeTerminalFitDecision_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalfitpolicy_typed(
+            self.uniffiCloneHandle(),
+        FfiConverterData.lower(bytes),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTerminalFitPolicy: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = TerminalFitPolicy
+
+    public static func lift(_ handle: UInt64) throws -> TerminalFitPolicy {
+        return TerminalFitPolicy(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: TerminalFitPolicy) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TerminalFitPolicy {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: TerminalFitPolicy, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalFitPolicy_lift(_ handle: UInt64) throws -> TerminalFitPolicy {
+    return try FfiConverterTypeTerminalFitPolicy.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalFitPolicy_lower(_ value: TerminalFitPolicy) -> UInt64 {
+    return FfiConverterTypeTerminalFitPolicy.lower(value)
+}
+
+
+
+
+
+
+/**
  * One terminal's prediction.
  */
 public protocol TerminalPredictionProtocol: AnyObject, Sendable {
@@ -3846,6 +4345,13 @@ public protocol TerminalPredictionProtocol: AnyObject, Sendable {
      * engine; answers whether anything drawn went.
      */
     func set(enabled: Bool, remote: Bool)  -> Bool
+    
+    /**
+     * Predicts inside full-screen programs too (an agent's TUI, an editor's
+     * insert mode), each key confirmed by the program printing it in its
+     * cell. The setting, off by default. Answers whether anything drawn went.
+     */
+    func setFullScreenApps(on: Bool)  -> Bool
     
     /**
      * 0 disabled, 1 local surface, 2 listening, 3 link fast enough, 4
@@ -4071,6 +4577,20 @@ open func set(enabled: Bool, remote: Bool) -> Bool  {
 }
     
     /**
+     * Predicts inside full-screen programs too (an agent's TUI, an editor's
+     * insert mode), each key confirmed by the program printing it in its
+     * cell. The setting, off by default. Answers whether anything drawn went.
+     */
+open func setFullScreenApps(on: Bool) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprediction_set_full_screen_apps(
+            self.uniffiCloneHandle(),
+        FfiConverterBool.lower(on),$0
+    )
+})
+}
+    
+    /**
      * 0 disabled, 1 local surface, 2 listening, 3 link fast enough, 4
      * alternate screen, 5 suspended, 6 predicting.
      */
@@ -4148,6 +4668,26 @@ public func FfiConverterTypeTerminalPrediction_lower(_ value: TerminalPrediction
 public protocol TerminalProjectionProtocol: AnyObject, Sendable {
     
     /**
+     * A vertical pan of `rows` (positive: toward older content) over the
+     * alternate screen: within the rows the app scrolled off, the phone
+     * paints them and nothing is sent; past them, for an app that asked for
+     * the mouse, on the primary screen or with nothing held, the wheel goes
+     * to the Mac as before.
+     */
+    func altPan(rows: Double)  -> ProjectionAltPan
+    
+    /**
+     * A key or a tap: bytes that show the app's live screen again (empty
+     * when the surface already shows it).
+     */
+    func altReturnLive()  -> Data
+    
+    /**
+     * How many held rows back the surface shows the alternate screen.
+     */
+    func altRowsBack()  -> UInt32
+    
+    /**
      * The program's bytes. `paint` false: taken, painted at the next feed.
      */
     func feed(bytes: Data, paint: Bool)  -> [ProjectionSegment]
@@ -4156,6 +4696,8 @@ public protocol TerminalProjectionProtocol: AnyObject, Sendable {
      * Paints what unpainted feeds changed, once (nothing on the alternate screen).
      */
     func flush()  -> [ProjectionSegment]
+    
+    func held()  -> ProjectionHeld
     
     func isAlternate()  -> Bool
     
@@ -4272,6 +4814,45 @@ public convenience init(hostCols: UInt32, hostRows: UInt32) {
 
     
     /**
+     * A vertical pan of `rows` (positive: toward older content) over the
+     * alternate screen: within the rows the app scrolled off, the phone
+     * paints them and nothing is sent; past them, for an app that asked for
+     * the mouse, on the primary screen or with nothing held, the wheel goes
+     * to the Mac as before.
+     */
+open func altPan(rows: Double) -> ProjectionAltPan  {
+    return try!  FfiConverterTypeProjectionAltPan_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_alt_pan(
+            self.uniffiCloneHandle(),
+        FfiConverterDouble.lower(rows),$0
+    )
+})
+}
+    
+    /**
+     * A key or a tap: bytes that show the app's live screen again (empty
+     * when the surface already shows it).
+     */
+open func altReturnLive() -> Data  {
+    return try!  FfiConverterData.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_alt_return_live(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * How many held rows back the surface shows the alternate screen.
+     */
+open func altRowsBack() -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_alt_rows_back(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
      * The program's bytes. `paint` false: taken, painted at the next feed.
      */
 open func feed(bytes: Data, paint: Bool) -> [ProjectionSegment]  {
@@ -4290,6 +4871,14 @@ open func feed(bytes: Data, paint: Bool) -> [ProjectionSegment]  {
 open func flush() -> [ProjectionSegment]  {
     return try!  FfiConverterSequenceTypeProjectionSegment.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_flush(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+open func held() -> ProjectionHeld  {
+    return try!  FfiConverterTypeProjectionHeld_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_held(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -4907,6 +5496,12 @@ public struct ConnectOptions: Equatable, Hashable {
      */
     public var blockUdp: Bool
     /**
+     * Debug "Relay via cmux (HTTPS) only": WireGuard sends no plain UDP and
+     * takes no TURN allocation; it joins cmux's WebSocket relay at once and
+     * rides it (path `HttpsRelay`). WebRTC ignores it.
+     */
+    public var forceRelay: Bool
+    /**
      * Debug: do not offer the media lane, so browser video rides its
      * reliable channel on either transport (the comparison baseline).
      */
@@ -4940,6 +5535,11 @@ public struct ConnectOptions: Equatable, Hashable {
          * TLS on 443 (path `TurnTls`). WebRTC ignores it.
          */blockUdp: Bool = false, 
         /**
+         * Debug "Relay via cmux (HTTPS) only": WireGuard sends no plain UDP and
+         * takes no TURN allocation; it joins cmux's WebSocket relay at once and
+         * rides it (path `HttpsRelay`). WebRTC ignores it.
+         */forceRelay: Bool = false, 
+        /**
          * Debug: do not offer the media lane, so browser video rides its
          * reliable channel on either transport (the comparison baseline).
          */noVideoLane: Bool = false, 
@@ -4956,6 +5556,7 @@ public struct ConnectOptions: Equatable, Hashable {
          */ultra: String = "auto") {
         self.relayOnly = relayOnly
         self.blockUdp = blockUdp
+        self.forceRelay = forceRelay
         self.noVideoLane = noVideoLane
         self.noWebrtcMedia = noWebrtcMedia
         self.ultra = ultra
@@ -4979,6 +5580,7 @@ public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
             try ConnectOptions(
                 relayOnly: FfiConverterBool.read(from: &buf), 
                 blockUdp: FfiConverterBool.read(from: &buf), 
+                forceRelay: FfiConverterBool.read(from: &buf), 
                 noVideoLane: FfiConverterBool.read(from: &buf), 
                 noWebrtcMedia: FfiConverterBool.read(from: &buf), 
                 ultra: FfiConverterString.read(from: &buf)
@@ -4988,6 +5590,7 @@ public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
     public static func write(_ value: ConnectOptions, into buf: inout [UInt8]) {
         FfiConverterBool.write(value.relayOnly, into: &buf)
         FfiConverterBool.write(value.blockUdp, into: &buf)
+        FfiConverterBool.write(value.forceRelay, into: &buf)
         FfiConverterBool.write(value.noVideoLane, into: &buf)
         FfiConverterBool.write(value.noWebrtcMedia, into: &buf)
         FfiConverterString.write(value.ultra, into: &buf)
@@ -5191,6 +5794,244 @@ public func FfiConverterTypeKeychainLeftover_lower(_ value: KeychainLeftover) ->
 
 
 /**
+ * The row at the top of the visible part and how far past its top the reader was, in points.
+ */
+public struct LastPlaceAnchor: Equatable, Hashable {
+    public var row: String
+    public var offset: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(row: String, offset: Double) {
+        self.row = row
+        self.offset = offset
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension LastPlaceAnchor: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLastPlaceAnchor: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LastPlaceAnchor {
+        return
+            try LastPlaceAnchor(
+                row: FfiConverterString.read(from: &buf), 
+                offset: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LastPlaceAnchor, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.row, into: &buf)
+        FfiConverterDouble.write(value.offset, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLastPlaceAnchor_lift(_ buf: RustBuffer) throws -> LastPlaceAnchor {
+    return try FfiConverterTypeLastPlaceAnchor.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLastPlaceAnchor_lower(_ value: LastPlaceAnchor) -> RustBuffer {
+    return FfiConverterTypeLastPlaceAnchor.lower(value)
+}
+
+
+public struct LastPlaceRecord: Equatable, Hashable {
+    public var workspaceId: String
+    public var screen: LastPlaceScreen?
+    public var itemId: String?
+    public var anchor: LastPlaceAnchor?
+    public var selection: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(workspaceId: String, screen: LastPlaceScreen?, itemId: String?, anchor: LastPlaceAnchor?, selection: String?) {
+        self.workspaceId = workspaceId
+        self.screen = screen
+        self.itemId = itemId
+        self.anchor = anchor
+        self.selection = selection
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension LastPlaceRecord: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLastPlaceRecord: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LastPlaceRecord {
+        return
+            try LastPlaceRecord(
+                workspaceId: FfiConverterString.read(from: &buf), 
+                screen: FfiConverterOptionTypeLastPlaceScreen.read(from: &buf), 
+                itemId: FfiConverterOptionString.read(from: &buf), 
+                anchor: FfiConverterOptionTypeLastPlaceAnchor.read(from: &buf), 
+                selection: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LastPlaceRecord, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.workspaceId, into: &buf)
+        FfiConverterOptionTypeLastPlaceScreen.write(value.screen, into: &buf)
+        FfiConverterOptionString.write(value.itemId, into: &buf)
+        FfiConverterOptionTypeLastPlaceAnchor.write(value.anchor, into: &buf)
+        FfiConverterOptionString.write(value.selection, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLastPlaceRecord_lift(_ buf: RustBuffer) throws -> LastPlaceRecord {
+    return try FfiConverterTypeLastPlaceRecord.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLastPlaceRecord_lower(_ value: LastPlaceRecord) -> RustBuffer {
+    return FfiConverterTypeLastPlaceRecord.lower(value)
+}
+
+
+/**
+ * One resolved address of a discovered ad, as the platform prints it: `192.168.1.5`,
+ * `fe80::1%en0` or `fe80::1%awdl0` (a scope is an interface name or its index).
+ */
+public struct LocalEndpoint: Equatable, Hashable {
+    public var host: String
+    public var port: UInt16
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(host: String, port: UInt16) {
+        self.host = host
+        self.port = port
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension LocalEndpoint: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLocalEndpoint: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LocalEndpoint {
+        return
+            try LocalEndpoint(
+                host: FfiConverterString.read(from: &buf), 
+                port: FfiConverterUInt16.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LocalEndpoint, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.host, into: &buf)
+        FfiConverterUInt16.write(value.port, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLocalEndpoint_lift(_ buf: RustBuffer) throws -> LocalEndpoint {
+    return try FfiConverterTypeLocalEndpoint.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLocalEndpoint_lower(_ value: LocalEndpoint) -> RustBuffer {
+    return FfiConverterTypeLocalEndpoint.lower(value)
+}
+
+
+/**
+ * One TXT pair of a discovered ad (`id`, `v`, `k`).
+ */
+public struct LocalTxt: Equatable, Hashable {
+    public var key: String
+    public var value: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(key: String, value: String) {
+        self.key = key
+        self.value = value
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension LocalTxt: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLocalTxt: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LocalTxt {
+        return
+            try LocalTxt(
+                key: FfiConverterString.read(from: &buf), 
+                value: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LocalTxt, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.key, into: &buf)
+        FfiConverterString.write(value.value, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLocalTxt_lift(_ buf: RustBuffer) throws -> LocalTxt {
+    return try FfiConverterTypeLocalTxt.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLocalTxt_lower(_ value: LocalTxt) -> RustBuffer {
+    return FfiConverterTypeLocalTxt.lower(value)
+}
+
+
+/**
  * What the host's answer says about its screen.
  */
 public struct MacScreenAnswer: Equatable, Hashable {
@@ -5382,6 +6223,115 @@ public func FfiConverterTypeMacScreenIceServer_lower(_ value: MacScreenIceServer
 
 
 /**
+ * One waiting request as a card on the phone.
+ */
+public struct PairRequestCard: Equatable, Hashable {
+    /**
+     * The asking device's id (what `answer` names).
+     */
+    public var deviceId: String
+    /**
+     * The name it asked under ("Probe iPhone"); its id when it gave none.
+     */
+    public var name: String
+    /**
+     * `phone`, `mac` or `linux`.
+     */
+    public var kind: String
+    /**
+     * The fingerprint hostd listed (lowercase hex, what `answer` sends back).
+     */
+    public var fingerprint: String
+    /**
+     * The fingerprint for the person: groups of four ("1a2b 3c4d 5e6f 7a8b").
+     */
+    public var fingerprintShown: String
+    /**
+     * How long it has waited, in whole seconds.
+     */
+    public var waitedSeconds: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The asking device's id (what `answer` names).
+         */deviceId: String, 
+        /**
+         * The name it asked under ("Probe iPhone"); its id when it gave none.
+         */name: String, 
+        /**
+         * `phone`, `mac` or `linux`.
+         */kind: String, 
+        /**
+         * The fingerprint hostd listed (lowercase hex, what `answer` sends back).
+         */fingerprint: String, 
+        /**
+         * The fingerprint for the person: groups of four ("1a2b 3c4d 5e6f 7a8b").
+         */fingerprintShown: String, 
+        /**
+         * How long it has waited, in whole seconds.
+         */waitedSeconds: UInt64) {
+        self.deviceId = deviceId
+        self.name = name
+        self.kind = kind
+        self.fingerprint = fingerprint
+        self.fingerprintShown = fingerprintShown
+        self.waitedSeconds = waitedSeconds
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PairRequestCard: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePairRequestCard: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PairRequestCard {
+        return
+            try PairRequestCard(
+                deviceId: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                kind: FfiConverterString.read(from: &buf), 
+                fingerprint: FfiConverterString.read(from: &buf), 
+                fingerprintShown: FfiConverterString.read(from: &buf), 
+                waitedSeconds: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PairRequestCard, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.deviceId, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterString.write(value.fingerprint, into: &buf)
+        FfiConverterString.write(value.fingerprintShown, into: &buf)
+        FfiConverterUInt64.write(value.waitedSeconds, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePairRequestCard_lift(_ buf: RustBuffer) throws -> PairRequestCard {
+    return try FfiConverterTypePairRequestCard.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePairRequestCard_lower(_ value: PairRequestCard) -> RustBuffer {
+    return FfiConverterTypePairRequestCard.lower(value)
+}
+
+
+/**
  * One cell to draw. `standing`: 0 speculative (underlined), 1 confirmed
  * (plain, held until its frame), 2 erased (the cell's background only).
  */
@@ -5518,6 +6468,128 @@ public func FfiConverterTypePredictionLayout_lift(_ buf: RustBuffer) throws -> P
 #endif
 public func FfiConverterTypePredictionLayout_lower(_ value: PredictionLayout) -> RustBuffer {
     return FfiConverterTypePredictionLayout.lower(value)
+}
+
+
+/**
+ * What a vertical pan over a full-screen app does: bytes the phone's
+ * surface paints itself (nothing sent), then rows of wheel for the app on
+ * the Mac (0: nothing goes).
+ */
+public struct ProjectionAltPan: Equatable, Hashable {
+    public var paint: Data
+    /**
+     * Rows of wheel, positive toward older content.
+     */
+    public var forwardRows: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(paint: Data, 
+        /**
+         * Rows of wheel, positive toward older content.
+         */forwardRows: Double) {
+        self.paint = paint
+        self.forwardRows = forwardRows
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ProjectionAltPan: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProjectionAltPan: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProjectionAltPan {
+        return
+            try ProjectionAltPan(
+                paint: FfiConverterData.read(from: &buf), 
+                forwardRows: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ProjectionAltPan, into buf: inout [UInt8]) {
+        FfiConverterData.write(value.paint, into: &buf)
+        FfiConverterDouble.write(value.forwardRows, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionAltPan_lift(_ buf: RustBuffer) throws -> ProjectionAltPan {
+    return try FfiConverterTypeProjectionAltPan.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionAltPan_lower(_ value: ProjectionAltPan) -> RustBuffer {
+    return FfiConverterTypeProjectionAltPan.lower(value)
+}
+
+
+/**
+ * Rows held for a pan over a full-screen app, and their bytes.
+ */
+public struct ProjectionHeld: Equatable, Hashable {
+    public var rows: UInt64
+    public var bytes: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(rows: UInt64, bytes: UInt64) {
+        self.rows = rows
+        self.bytes = bytes
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ProjectionHeld: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProjectionHeld: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProjectionHeld {
+        return
+            try ProjectionHeld(
+                rows: FfiConverterUInt64.read(from: &buf), 
+                bytes: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ProjectionHeld, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.rows, into: &buf)
+        FfiConverterUInt64.write(value.bytes, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionHeld_lift(_ buf: RustBuffer) throws -> ProjectionHeld {
+    return try FfiConverterTypeProjectionHeld.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionHeld_lower(_ value: ProjectionHeld) -> RustBuffer {
+    return FfiConverterTypeProjectionHeld.lower(value)
 }
 
 
@@ -6341,6 +7413,235 @@ public func FfiConverterTypeTerminalChatPairing_lower(_ value: TerminalChatPairi
 
 
 /**
+ * The policy's answer after an event.
+ */
+public struct TerminalFitDecision: Equatable, Hashable {
+    /**
+     * The phone claims its grid now.
+     */
+    public var claims: Bool
+    /**
+     * `claims` changed with this event.
+     */
+    public var changed: Bool
+    public var reason: TerminalFitReason
+    /**
+     * The foreground is a TUI (alternate screen, or an inline TUI).
+     */
+    public var isTui: Bool
+    /**
+     * The foreground program's key, if named.
+     */
+    public var program: String?
+    /**
+     * Persist ``TerminalFitPolicy/remembered()`` now.
+     */
+    public var rememberedChanged: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The phone claims its grid now.
+         */claims: Bool, 
+        /**
+         * `claims` changed with this event.
+         */changed: Bool, reason: TerminalFitReason, 
+        /**
+         * The foreground is a TUI (alternate screen, or an inline TUI).
+         */isTui: Bool, 
+        /**
+         * The foreground program's key, if named.
+         */program: String?, 
+        /**
+         * Persist ``TerminalFitPolicy/remembered()`` now.
+         */rememberedChanged: Bool) {
+        self.claims = claims
+        self.changed = changed
+        self.reason = reason
+        self.isTui = isTui
+        self.program = program
+        self.rememberedChanged = rememberedChanged
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TerminalFitDecision: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTerminalFitDecision: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TerminalFitDecision {
+        return
+            try TerminalFitDecision(
+                claims: FfiConverterBool.read(from: &buf), 
+                changed: FfiConverterBool.read(from: &buf), 
+                reason: FfiConverterTypeTerminalFitReason.read(from: &buf), 
+                isTui: FfiConverterBool.read(from: &buf), 
+                program: FfiConverterOptionString.read(from: &buf), 
+                rememberedChanged: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TerminalFitDecision, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.claims, into: &buf)
+        FfiConverterBool.write(value.changed, into: &buf)
+        FfiConverterTypeTerminalFitReason.write(value.reason, into: &buf)
+        FfiConverterBool.write(value.isTui, into: &buf)
+        FfiConverterOptionString.write(value.program, into: &buf)
+        FfiConverterBool.write(value.rememberedChanged, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalFitDecision_lift(_ buf: RustBuffer) throws -> TerminalFitDecision {
+    return try FfiConverterTypeTerminalFitDecision.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalFitDecision_lower(_ value: TerminalFitDecision) -> RustBuffer {
+    return FfiConverterTypeTerminalFitDecision.lower(value)
+}
+
+
+/**
+ * The host grid and the page, in points at the reader's font size.
+ */
+public struct TerminalZoomGeometry: Equatable, Hashable {
+    public var gridWidth: Double
+    public var gridHeight: Double
+    public var pageWidth: Double
+    public var pageHeight: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(gridWidth: Double, gridHeight: Double, pageWidth: Double, pageHeight: Double) {
+        self.gridWidth = gridWidth
+        self.gridHeight = gridHeight
+        self.pageWidth = pageWidth
+        self.pageHeight = pageHeight
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TerminalZoomGeometry: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTerminalZoomGeometry: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TerminalZoomGeometry {
+        return
+            try TerminalZoomGeometry(
+                gridWidth: FfiConverterDouble.read(from: &buf), 
+                gridHeight: FfiConverterDouble.read(from: &buf), 
+                pageWidth: FfiConverterDouble.read(from: &buf), 
+                pageHeight: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TerminalZoomGeometry, into buf: inout [UInt8]) {
+        FfiConverterDouble.write(value.gridWidth, into: &buf)
+        FfiConverterDouble.write(value.gridHeight, into: &buf)
+        FfiConverterDouble.write(value.pageWidth, into: &buf)
+        FfiConverterDouble.write(value.pageHeight, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalZoomGeometry_lift(_ buf: RustBuffer) throws -> TerminalZoomGeometry {
+    return try FfiConverterTypeTerminalZoomGeometry.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalZoomGeometry_lower(_ value: TerminalZoomGeometry) -> RustBuffer {
+    return FfiConverterTypeTerminalZoomGeometry.lower(value)
+}
+
+
+/**
+ * A zoom and a pan (page points; the grid's top-left is at minus the pan).
+ */
+public struct TerminalZoomState: Equatable, Hashable {
+    public var scale: Double
+    public var panX: Double
+    public var panY: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(scale: Double, panX: Double, panY: Double) {
+        self.scale = scale
+        self.panX = panX
+        self.panY = panY
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TerminalZoomState: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTerminalZoomState: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TerminalZoomState {
+        return
+            try TerminalZoomState(
+                scale: FfiConverterDouble.read(from: &buf), 
+                panX: FfiConverterDouble.read(from: &buf), 
+                panY: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TerminalZoomState, into buf: inout [UInt8]) {
+        FfiConverterDouble.write(value.scale, into: &buf)
+        FfiConverterDouble.write(value.panX, into: &buf)
+        FfiConverterDouble.write(value.panY, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalZoomState_lift(_ buf: RustBuffer) throws -> TerminalZoomState {
+    return try FfiConverterTypeTerminalZoomState.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalZoomState_lower(_ value: TerminalZoomState) -> RustBuffer {
+    return FfiConverterTypeTerminalZoomState.lower(value)
+}
+
+
+/**
  * One step of a dial, `millis` after `connect` was called.
  */
 public struct TimingMark: Equatable, Hashable {
@@ -6964,6 +8265,73 @@ public func FfiConverterTypeFollowCameraMode_lower(_ value: FollowCameraMode) ->
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum LastPlaceScreen: Equatable, Hashable {
+    
+    case chat
+    case terminal
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension LastPlaceScreen: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLastPlaceScreen: FfiConverterRustBuffer {
+    typealias SwiftType = LastPlaceScreen
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LastPlaceScreen {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .chat
+        
+        case 2: return .terminal
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: LastPlaceScreen, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .chat:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .terminal:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLastPlaceScreen_lift(_ buf: RustBuffer) throws -> LastPlaceScreen {
+    return try FfiConverterTypeLastPlaceScreen.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLastPlaceScreen_lower(_ value: LastPlaceScreen) -> RustBuffer {
+    return FfiConverterTypeLastPlaceScreen.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
  * Link state events, in order: `Connecting`, then `Connected` (or
  * `Disconnected` when the dial fails), then any number of `PathChanged`,
@@ -7207,6 +8575,11 @@ public enum LinkPath: Equatable, Hashable {
      */
     case turnTls
     /**
+     * Through cmux's own WebSocket relay over HTTPS (neither UDP nor TURN
+     * gets through: a network that allows only cmux's hosts, or only HTTPS).
+     */
+    case httpsRelay
+    /**
      * No working route at the moment.
      */
     case noPath
@@ -7237,7 +8610,9 @@ public struct FfiConverterTypeLinkPath: FfiConverterRustBuffer {
         
         case 3: return .turnTls
         
-        case 4: return .noPath
+        case 4: return .httpsRelay
+        
+        case 5: return .noPath
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -7259,8 +8634,12 @@ public struct FfiConverterTypeLinkPath: FfiConverterRustBuffer {
             writeInt(&buf, Int32(3))
         
         
-        case .noPath:
+        case .httpsRelay:
             writeInt(&buf, Int32(4))
+        
+        
+        case .noPath:
+            writeInt(&buf, Int32(5))
         
         }
     }
@@ -7795,6 +9174,102 @@ public func FfiConverterTypeTerminalChatSwap_lower(_ value: TerminalChatSwap) ->
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * Why the phone claims its grid.
+ */
+
+public enum TerminalFitReason: Equatable, Hashable {
+    
+    /**
+     * Projected: the Mac keeps its grid.
+     */
+    case projected
+    /**
+     * The person typed text into this TUI.
+     */
+    case typed
+    /**
+     * This program was fitted before.
+     */
+    case remembered
+    /**
+     * Fit to Phone, chosen.
+     */
+    case forced
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension TerminalFitReason: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTerminalFitReason: FfiConverterRustBuffer {
+    typealias SwiftType = TerminalFitReason
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TerminalFitReason {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .projected
+        
+        case 2: return .typed
+        
+        case 3: return .remembered
+        
+        case 4: return .forced
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: TerminalFitReason, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .projected:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .typed:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .remembered:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .forced:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalFitReason_lift(_ buf: RustBuffer) throws -> TerminalFitReason {
+    return try FfiConverterTypeTerminalFitReason.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalFitReason_lower(_ value: TerminalFitReason) -> RustBuffer {
+    return FfiConverterTypeTerminalFitReason.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * Settings → Connection → Transport.
  */
 
@@ -7985,6 +9460,30 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionData: FfiConverterRustBuffer {
+    typealias SwiftType = Data?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterData.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterData.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeLinkObserver: FfiConverterRustBuffer {
     typealias SwiftType = LinkObserver?
 
@@ -8057,6 +9556,54 @@ fileprivate struct FfiConverterOptionTypeComposerSendRequest: FfiConverterRustBu
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeLastPlaceAnchor: FfiConverterRustBuffer {
+    typealias SwiftType = LastPlaceAnchor?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeLastPlaceAnchor.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeLastPlaceAnchor.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeLastPlaceRecord: FfiConverterRustBuffer {
+    typealias SwiftType = LastPlaceRecord?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeLastPlaceRecord.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeLastPlaceRecord.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypePredictionLayout: FfiConverterRustBuffer {
     typealias SwiftType = PredictionLayout?
 
@@ -8073,6 +9620,54 @@ fileprivate struct FfiConverterOptionTypePredictionLayout: FfiConverterRustBuffe
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypePredictionLayout.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeLastPlaceScreen: FfiConverterRustBuffer {
+    typealias SwiftType = LastPlaceScreen?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeLastPlaceScreen.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeLastPlaceScreen.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionSequenceString: FfiConverterRustBuffer {
+    typealias SwiftType = [String]?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterSequenceString.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterSequenceString.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -8230,6 +9825,56 @@ fileprivate struct FfiConverterSequenceTypeKeychainLeftover: FfiConverterRustBuf
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeLocalEndpoint: FfiConverterRustBuffer {
+    typealias SwiftType = [LocalEndpoint]
+
+    public static func write(_ value: [LocalEndpoint], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeLocalEndpoint.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [LocalEndpoint] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [LocalEndpoint]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeLocalEndpoint.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeLocalTxt: FfiConverterRustBuffer {
+    typealias SwiftType = [LocalTxt]
+
+    public static func write(_ value: [LocalTxt], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeLocalTxt.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [LocalTxt] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [LocalTxt]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeLocalTxt.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeMacScreenDisplay: FfiConverterRustBuffer {
     typealias SwiftType = [MacScreenDisplay]
 
@@ -8272,6 +9917,31 @@ fileprivate struct FfiConverterSequenceTypeMacScreenIceServer: FfiConverterRustB
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeMacScreenIceServer.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypePairRequestCard: FfiConverterRustBuffer {
+    typealias SwiftType = [PairRequestCard]
+
+    public static func write(_ value: [PairRequestCard], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePairRequestCard.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PairRequestCard] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PairRequestCard]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePairRequestCard.read(from: &buf))
         }
         return seq
     }
@@ -8424,6 +10094,32 @@ fileprivate struct FfiConverterSequenceTypeTabsEvent: FfiConverterRustBuffer {
             seq.append(try FfiConverterTypeTabsEvent.read(from: &buf))
         }
         return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterDictionaryStringString: FfiConverterRustBuffer {
+    public static func write(_ value: [String: String], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for (key, value) in value {
+            FfiConverterString.write(key, into: &buf)
+            FfiConverterString.write(value, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String: String] {
+        let len: Int32 = try readInt(&buf)
+        var dict = [String: String]()
+        dict.reserveCapacity(Int(len))
+        for _ in 0..<len {
+            let key = try FfiConverterString.read(from: &buf)
+            let value = try FfiConverterString.read(from: &buf)
+            dict[key] = value
+        }
+        return dict
     }
 }
 private let UNIFFI_RUST_FUTURE_POLL_READY: Int8 = 0
@@ -8655,6 +10351,16 @@ public func setKeepaliveAlignment(on: Bool)  {try! rustCall() {
 }
 }
 /**
+ * What the phone's terminal declares in `set-client-info` for the lean stream
+ * (`cmux_mobile_link::names::TERMINAL_LEAN_STREAM`).
+ */
+public func terminalLeanStreamCapabilities() -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_lean_stream_capabilities($0
+    )
+})
+}
+/**
  * Whether this launch should run the cleanup: the marker is missing, not a
  * number, or from an older version of the rules.
  */
@@ -8705,6 +10411,162 @@ public func linkOpenSide(url: String) -> LinkOpenSide  {
     return try!  FfiConverterTypeLinkOpenSide_lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_func_link_open_side(
         FfiConverterString.lower(url),$0
+    )
+})
+}
+/**
+ * Dial Mac `mac_device_id` from this phone (`device_id`) through its local hub at `endpoints`
+ * (what the browser resolved; best first is decided here), with no service involved. The
+ * everyday dial (`connect`) already takes this path by itself when the Mac is nearby; this is the
+ * explicit form, for a caller that holds the addresses.
+ */
+public func connectLocal(deviceId: String, macDeviceId: String, endpoints: [LocalEndpoint], transport: Transport, observer: LinkObserver?)async throws  -> LinkHandle  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_func_connect_local(FfiConverterString.lower(deviceId),FfiConverterString.lower(macDeviceId),FfiConverterSequenceTypeLocalEndpoint.lower(endpoints),FfiConverterTypeTransport_lower(transport),FfiConverterOptionTypeLinkObserver.lower(observer)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_u64,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_u64,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_u64,
+            liftFunc: FfiConverterTypeLinkHandle_lift,
+            errorHandler: FfiConverterTypeCmuxMobileError_lift
+        )
+}
+/**
+ * Whether the ad with TXT `txt` is Mac `mac_device_id` (and the key `identity_public_key`, when
+ * both the ad and the caller carry one). For a browser that wants to filter before it resolves.
+ */
+public func localLinkMatches(txt: [LocalTxt], macDeviceId: String, identityPublicKey: Data?) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_local_link_matches(
+        FfiConverterSequenceTypeLocalTxt.lower(txt),
+        FfiConverterString.lower(macDeviceId),
+        FfiConverterOptionData.lower(identityPublicKey),$0
+    )
+})
+}
+/**
+ * Whether Mac `mac_device_id` is nearby now (its ad is live and matches).
+ */
+public func localLinkNearby(macDeviceId: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_local_link_nearby(
+        FfiConverterString.lower(macDeviceId),$0
+    )
+})
+}
+/**
+ * The browser resolved (or refreshed) service `instance`. Returns whether it is a cmux ad with an
+ * address the phone can dial (anything else is ignored).
+ */
+public func localLinkObserve(instance: String, txt: [LocalTxt], endpoints: [LocalEndpoint]) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_local_link_observe(
+        FfiConverterString.lower(instance),
+        FfiConverterSequenceTypeLocalTxt.lower(txt),
+        FfiConverterSequenceTypeLocalEndpoint.lower(endpoints),$0
+    )
+})
+}
+/**
+ * The phone paired with Mac `mac_device_id`, whose identity public key is `identity_public_key`
+ * (nil: forget the key). Its ad is then trusted only with the key tag of that key. The key is the
+ * bytes the Mac hashes for its tag: its X9.63 identity key as lowercase hex (`MacPins`), so a
+ * phone hands over exactly what it pinned. Device ids compare without case, as the pins do.
+ */
+public func localLinkPair(macDeviceId: String, identityPublicKey: Data?)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_local_link_pair(
+        FfiConverterString.lower(macDeviceId),
+        FfiConverterOptionData.lower(identityPublicKey),$0
+    )
+}
+}
+/**
+ * The browser saw service `instance` go away.
+ */
+public func localLinkRemove(instance: String)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_local_link_remove(
+        FfiConverterString.lower(instance),$0
+    )
+}
+}
+/**
+ * Whether the browser should resolve service `instance` (ad TXT `txt`) now. Resolving opens a
+ * connection to the Mac's hub, so it is worth it only for the ad of a Mac this phone paired with,
+ * carrying the tag of the key it pinned, and not again while that instance's addresses are still
+ * live (a TXT refresh of the same ad changes nothing). Another phone's Mac is never touched.
+ */
+public func localLinkWantsResolve(instance: String, txt: [LocalTxt]) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_local_link_wants_resolve(
+        FfiConverterString.lower(instance),
+        FfiConverterSequenceTypeLocalTxt.lower(txt),$0
+    )
+})
+}
+/**
+ * The `answer` channel's args for `card`.
+ */
+public func pairRequestsAnswerArgs(card: PairRequestCard, allow: Bool) -> [String: String]  {
+    return try!  FfiConverterDictionaryStringString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_pair_requests_answer_args(
+        FfiConverterTypePairRequestCard_lower(card),
+        FfiConverterBool.lower(allow),$0
+    )
+})
+}
+/**
+ * The `list` channel's args.
+ */
+public func pairRequestsListArgs() -> [String: String]  {
+    return try!  FfiConverterDictionaryStringString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_pair_requests_list_args($0
+    )
+})
+}
+/**
+ * The cards of a `list` reply: `{"requests":[{"deviceId","name","kind","fingerprint","waitingMs"}]}`.
+ * A row without a device id or with a fingerprint that is not 8 to 64 hex digits is dropped
+ * (hostd could not take an answer to it); anything unreadable gives no cards.
+ */
+public func pairRequestsParse(reply: String) -> [PairRequestCard]  {
+    return try!  FfiConverterSequenceTypePairRequestCard.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_pair_requests_parse(
+        FfiConverterString.lower(reply),$0
+    )
+})
+}
+/**
+ * How long to wait before listing again: `shown` cards show now, and the last foreground, link
+ * open or shown card was `quiet_ms` ago. `None`: stop (the next foreground or link open lists
+ * again).
+ */
+public func pairRequestsPollDelayMs(shown: UInt32, quietMs: UInt64) -> UInt64?  {
+    return try!  FfiConverterOptionUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_pair_requests_poll_delay_ms(
+        FfiConverterUInt32.lower(shown),
+        FfiConverterUInt64.lower(quietMs),$0
+    )
+})
+}
+/**
+ * The service name, for Swift.
+ */
+public func pairRequestsService() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_pair_requests_service($0
+    )
+})
+}
+/**
+ * Whether a Mac whose hostd lists `capabilities` serves `pair-requests`.
+ */
+public func pairRequestsSupported(capabilities: [String]) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_pair_requests_supported(
+        FfiConverterSequenceString.lower(capabilities),$0
     )
 })
 }
@@ -8805,6 +10667,91 @@ public func terminalChatSwap(facts: TerminalChatFacts, shown: TabFace, to: TabFa
 })
 }
 /**
+ * A pinch: `zoom` at `scale`, the point under the fingers kept under them.
+ */
+public func terminalZoomAbout(grid: TerminalZoomGeometry, zoom: TerminalZoomState, scale: Double, focusX: Double, focusY: Double) -> TerminalZoomState  {
+    return try!  FfiConverterTypeTerminalZoomState_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_zoom_about(
+        FfiConverterTypeTerminalZoomGeometry_lower(grid),
+        FfiConverterTypeTerminalZoomState_lower(zoom),
+        FfiConverterDouble.lower(scale),
+        FfiConverterDouble.lower(focusX),
+        FfiConverterDouble.lower(focusY),$0
+    )
+})
+}
+/**
+ * Kept on the page (and the scale within its bounds).
+ */
+public func terminalZoomClamp(grid: TerminalZoomGeometry, zoom: TerminalZoomState) -> TerminalZoomState  {
+    return try!  FfiConverterTypeTerminalZoomState_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_zoom_clamp(
+        FfiConverterTypeTerminalZoomGeometry_lower(grid),
+        FfiConverterTypeTerminalZoomState_lower(zoom),$0
+    )
+})
+}
+public func terminalZoomFitWidthScale(grid: TerminalZoomGeometry) -> Double  {
+    return try!  FfiConverterDouble.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_zoom_fit_width_scale(
+        FfiConverterTypeTerminalZoomGeometry_lower(grid),$0
+    )
+})
+}
+/**
+ * Fit width: the whole grid's width on the page (at most readable).
+ */
+public func terminalZoomInitial(grid: TerminalZoomGeometry) -> TerminalZoomState  {
+    return try!  FfiConverterTypeTerminalZoomState_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_zoom_initial(
+        FfiConverterTypeTerminalZoomGeometry_lower(grid),$0
+    )
+})
+}
+/**
+ * The least pan that shows the cell at `(x, y)` (`width` x `height`, scale-1
+ * points) with `margin` page points beside it: typing follows the cursor.
+ */
+public func terminalZoomReveal(grid: TerminalZoomGeometry, zoom: TerminalZoomState, x: Double, y: Double, width: Double, height: Double, margin: Double) -> TerminalZoomState  {
+    return try!  FfiConverterTypeTerminalZoomState_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_zoom_reveal(
+        FfiConverterTypeTerminalZoomGeometry_lower(grid),
+        FfiConverterTypeTerminalZoomState_lower(zoom),
+        FfiConverterDouble.lower(x),
+        FfiConverterDouble.lower(y),
+        FfiConverterDouble.lower(width),
+        FfiConverterDouble.lower(height),
+        FfiConverterDouble.lower(margin),$0
+    )
+})
+}
+/**
+ * A pinch ended: its scale snapped to fit width or readable when near one.
+ */
+public func terminalZoomSnap(grid: TerminalZoomGeometry, zoom: TerminalZoomState, focusX: Double, focusY: Double) -> TerminalZoomState  {
+    return try!  FfiConverterTypeTerminalZoomState_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_zoom_snap(
+        FfiConverterTypeTerminalZoomGeometry_lower(grid),
+        FfiConverterTypeTerminalZoomState_lower(zoom),
+        FfiConverterDouble.lower(focusX),
+        FfiConverterDouble.lower(focusY),$0
+    )
+})
+}
+/**
+ * A double tap at the focus: fit width to readable and back.
+ */
+public func terminalZoomToggle(grid: TerminalZoomGeometry, zoom: TerminalZoomState, focusX: Double, focusY: Double) -> TerminalZoomState  {
+    return try!  FfiConverterTypeTerminalZoomState_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_zoom_toggle(
+        FfiConverterTypeTerminalZoomGeometry_lower(grid),
+        FfiConverterTypeTerminalZoomState_lower(zoom),
+        FfiConverterDouble.lower(focusX),
+        FfiConverterDouble.lower(focusY),$0
+    )
+})
+}
+/**
  * Columns of the tab overview in a page `width` points wide: as many
  * [`OVERVIEW_MIN_CARD`]-wide cards as fit, two to four.
  */
@@ -8881,6 +10828,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_keepalive_alignment() != 23404) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_lean_stream_capabilities() != 31447) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_due() != 41191) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8894,6 +10844,45 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_link_open_side() != 2441) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_connect_local() != 37246) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_matches() != 16597) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_nearby() != 37142) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_observe() != 50449) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_pair() != 8011) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_remove() != 50001) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_wants_resolve() != 31019) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pair_requests_answer_args() != 5979) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pair_requests_list_args() != 54786) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pair_requests_parse() != 42023) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pair_requests_poll_delay_ms() != 55499) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pair_requests_service() != 63916) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pair_requests_supported() != 49678) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_share_approval_draft() != 27332) {
@@ -8917,6 +10906,27 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_swap() != 57193) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_zoom_about() != 15930) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_zoom_clamp() != 49055) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_zoom_fit_width_scale() != 48778) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_zoom_initial() != 61780) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_zoom_reveal() != 46521) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_zoom_snap() != 20340) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_zoom_toggle() != 6399) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_overview_columns() != 48015) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8933,6 +10943,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_send() != 33874) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_sent_bytes() != 4104) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_close() != 25269) {
@@ -9076,6 +11089,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_push() != 49833) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_push_typed() != 31394) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_set_capabilities() != 28189) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9095,6 +11111,24 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_source() != 22030) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_lastplacestore_flush() != 17890) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_lastplacestore_note_location() != 60958) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_lastplacestore_note_scroll() != 53411) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_lastplacestore_restore() != 25933) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_lastplacestore_scroll_for() != 17952) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_lastplacestore_tick() != 16119) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_macscreenobserver_on_candidate() != 24716) {
@@ -9181,6 +11215,27 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_tabsmirror_want_frame() != 2782) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalfitpolicy_claims() != 22980) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalfitpolicy_is_fitted() != 49428) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalfitpolicy_observe() != 17733) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalfitpolicy_remembered() != 34907) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalfitpolicy_set_page_present() != 55336) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalfitpolicy_toggle() != 50778) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalfitpolicy_typed() != 60721) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_echo_latency_us() != 57421) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9214,16 +11269,31 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_set() != 27923) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_set_full_screen_apps() != 2710) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_status() != 9701) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_tick() != 43253) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_alt_pan() != 43197) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_alt_return_live() != 60034) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_alt_rows_back() != 12910) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_feed() != 63739) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_flush() != 56682) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_held() != 8249) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_is_alternate() != 62553) {
@@ -9262,10 +11332,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_followcamera_new() != 52189) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_lastplacestore_open() != 12350) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_macscreenrd_new() != 49279) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_tabsmirror_new() != 62444) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_terminalfitpolicy_new() != 32938) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_terminalprediction_new() != 21303) {
