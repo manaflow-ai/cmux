@@ -9040,7 +9040,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (sessionId: string) => directClient.current?.sessionCommands(sessionId) ?? Promise.resolve([]),
     [],
   );
-  const pendingCommands = useSessionCommands(commandSession, commandRevision, readSessionCommands);
+  const watchSessionCommands = useCallback(
+    (sessionId: string, listener: () => void) =>
+      directClient.current?.watchSessionCommands(sessionId, listener) ?? (() => undefined),
+    [],
+  );
+  const pendingCommands = useSessionCommands(
+    commandSession,
+    commandRevision,
+    readSessionCommands,
+    watchSessionCommands,
+  );
   const inspectorHiddenSurface = quick || showNewTab;
   inspectorHiddenSurfaceRef.current = inspectorHiddenSurface;
   useEffect(() => {
