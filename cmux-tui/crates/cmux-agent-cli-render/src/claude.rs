@@ -203,8 +203,14 @@ pub fn render_with_history(
         let mut l = Line::new();
         match &chrome.spinner {
             Some(cells) => {
-                for cell in cells.iter().filter(|cell| !cell.text.is_empty()) {
-                    l.push(&cell.text, cell.style);
+                // An empty cell is a blank, or the trailing half of a wide glyph.
+                let mut after_wide = false;
+                for cell in cells {
+                    let spacer = after_wide && cell.text.is_empty();
+                    after_wide = !spacer && crate::str_width(&cell.text) == 2;
+                    if !spacer {
+                        l.push(if cell.text.is_empty() { " " } else { &cell.text }, cell.style);
+                    }
                 }
             }
             None => {
