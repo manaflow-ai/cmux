@@ -56,7 +56,7 @@ fn scope_id(scope: &str) -> Option<u32> {
         let name = std::ffi::CString::new(scope).ok()?;
         // SAFETY: `name` is a valid NUL-terminated string for the call.
         let index = unsafe { libc::if_nametoindex(name.as_ptr()) };
-        return (index != 0).then_some(index);
+        (index != 0).then_some(index)
     }
     #[cfg(not(unix))]
     None
@@ -124,7 +124,7 @@ pub fn local_link_wants_resolve(instance: String, txt: Vec<LocalTxt>) -> bool {
             return false;
         }
         let known = state.instances.get(&instance).is_some_and(|id| id.eq_ignore_ascii_case(&ad.device_id));
-        !(known && !state.peers.addresses(&ad.device_id, Some(tag), Instant::now()).is_empty())
+        !known || state.peers.addresses(&ad.device_id, Some(tag), Instant::now()).is_empty()
     })
 }
 

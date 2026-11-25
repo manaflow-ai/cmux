@@ -2,6 +2,7 @@ public import CmuxNextPages
 public import CmuxNextSettings
 public import Foundation
 public import Observation
+import CmuxNextCompat
 
 /// Settings > MCP Servers, "Claude Code" and "Codex" (Labs `labs.agentCustomization`): the MCP
 /// servers the person gave those agents in their own files, from the bundled
@@ -103,7 +104,8 @@ public final class SettingsAgentMcpServers: PageProvider {
         let arguments = try Self.arguments(action: action, params: params, listed: servers)
         guard let cli = await cli() else { throw PageError(code: "cmux.page.unavailable", message: "no bundled cmux CLI") }
         let key = Self.key(params)
-        let reply = try? await runCLI(cli, ["agent-config", "mcp"] + Self.withFolder(arguments, project: project), [:])
+        let argv = ["agent-config", "mcp"] + Self.withFolder(arguments, project: project)
+        let reply = try? await awaitConcurrently({ try await runCLI(cli, argv, [:]) })
         await refresh()
         if let reply, reply.0 == 0 {
             lastError = nil
@@ -190,7 +192,8 @@ public final class SettingsAgentMcpServers: PageProvider {
         let mine = generation
         loading = true
         let started = ContinuousClock.now
-        let reply = try? await runCLI(cli, ["agent-config", "mcp", "list", "--project", project, "--json"], [:])
+        let argv = ["agent-config", "mcp", "list", "--project", project, "--json"]
+        let reply = try? await awaitConcurrently({ try await runCLI(cli, argv, [:]) })
         guard mine == generation else { return }
         loading = false
         guard let reply, reply.0 == 0, let value = Self.lastLine(reply.1), let rows = value["servers"]?.arrayValue else {

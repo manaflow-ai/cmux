@@ -532,7 +532,8 @@
       "keys": [
         "labs.previewFeatures",
         "labs.appStore",
-        "labs.commentThreads"
+        "labs.commentThreads",
+        "labs.previousBuild"
       ]
     },
     {
@@ -563,12 +564,15 @@
         "experiments.menuRowStates",
         "experiments.composerHatGroups",
         "experiments.toastsV2",
+        "experiments.toastGlass",
         "experiments.foldSummaryCounts",
+        "experiments.cloudDiskBar",
         "experiments.terminalHistoryFind",
         "experiments.terminalHistory",
         "experiments.quietConnect",
         "experiments.threadMinimapRestReveal",
-        "experiments.forum"
+        "experiments.forum",
+        "experiments.browserProfileCard"
       ]
     },
     {
@@ -733,6 +737,7 @@
         "notifications.sounds.events.bell",
         "notifications.sounds.events.message",
         "notifications.sounds.volume",
+        "notifications.sounds.maxSeconds",
         "notifications.sounds.when",
         "notifications.sounds.cooldownSeconds",
         "notifications.sounds.workspaces",
@@ -1017,7 +1022,8 @@
         "agentPane.spellChecking",
         "agentPane.composerVimKeys",
         "agentPane.attachmentView",
-        "agentPane.showMachineLoadWarnings"
+        "agentPane.showMachineLoadWarnings",
+        "developerTools.overloadNotice"
       ]
     },
     {
