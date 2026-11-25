@@ -109,10 +109,24 @@ async fn a_refused_new_attempt_does_not_reuse_an_old_acceptance_receipt() {
 
     // A completed outcome may be pruned while the acceptance cache still has room for it.
     // Starting the next attempt must retire that stale receipt atomically with ledger creation.
+    keep_acceptance(
+        &session,
+        "reused",
+        &json!({"promptId": "reused", "queued": true, "generation": "old"}),
+    );
     session.prompts.lock().unwrap().clear();
     let next = begin_outcome(&session, "reused").expect("the refused retry creates an outcome");
-    keep_acceptance(&session, "reused", &json!({"promptId": "reused", "queued": true}));
-    assert!(session.accepted_prompts.lock().unwrap().iter().all(|(id, _, _)| id != "reused"));
+    let next_token = outcome_token(&next);
+    keep_acceptance(
+        &session,
+        "reused",
+        &json!({"promptId": "reused", "queued": true, "generation": "new"}),
+    );
+    let kept = session.accepted_prompts.lock().unwrap().clone();
+    assert_eq!(kept.len(), 1, "the old generation receipt was not retired: {kept:?}");
+    assert_eq!(kept[0].0, "reused");
+    assert_eq!(kept[0].1, next_token);
+    assert_ne!(kept[0].1, old_token);
     let waiting = tokio::time::timeout(
         Duration::from_millis(50),
         first_acceptance(&session, "reused", old_token, &mut old_first),
