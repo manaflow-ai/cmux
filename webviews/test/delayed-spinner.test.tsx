@@ -1,6 +1,6 @@
 // A Cloud start's spinner shows only past 300 ms of a real wait (Leo, 2026-11-25, "just go"):
 // shorter waits draw nothing, and the empty box holds the spinner's size so nothing moves.
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -44,14 +44,19 @@ async function draw(delayMs?: number) {
 }
 
 test("no spinner before 300 ms, one after", async () => {
-  await draw();
-  expect(host.querySelector(".cv-spinner")).toBeNull();
-  const box = host.querySelector<HTMLElement>("[data-spinner-wait]")!;
-  expect(box.style.width).toBe("14px");
-  await act(async () => {
-    await new Promise((done) => setTimeout(done, 340));
-  });
-  expect(host.querySelector(".cv-spinner")).not.toBeNull();
+  jest.useFakeTimers();
+  try {
+    await draw();
+    expect(host.querySelector(".cv-spinner")).toBeNull();
+    const box = host.querySelector<HTMLElement>("[data-spinner-wait]")!;
+    expect(box.style.width).toBe("14px");
+    act(() => jest.advanceTimersByTime(290));
+    expect(host.querySelector(".cv-spinner")).toBeNull();
+    act(() => jest.advanceTimersByTime(20));
+    expect(host.querySelector(".cv-spinner")).not.toBeNull();
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 test("delay 0 (the kill switch) draws the spinner at once", async () => {

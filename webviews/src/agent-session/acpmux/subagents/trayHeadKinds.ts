@@ -441,6 +441,8 @@ export function trayHeadLine(
   let commands = 0;
   let waits = 0;
   for (const item of items) {
+    // A silent turn is only ever a finished line (runningTray.ts), and the line names none.
+    if (item.kind === "turn") continue;
     if (item.kind === "command") commands += 1;
     else if (
       item.kind === "agent" ? subagentStatus(item.agent, waiting) === "waiting" : item.session.state === "waiting"
@@ -452,6 +454,7 @@ export function trayHeadLine(
   let agentsDone = 0;
   let commandsDone = 0;
   for (const item of finished) {
+    if (item.kind === "turn") continue;
     const state =
       item.kind === "agent"
         ? subagentStatus(item.agent, waiting)
