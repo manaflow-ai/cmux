@@ -483,6 +483,21 @@ fn dial(app: &mut App, ctx: &Ctx) {
     });
 }
 
+/// The folder a new chat names. A remote one (`--machine`, `--host`) names none unless
+/// `--cwd` says so: the remote daemon refuses a relative path like `~` from a peer and
+/// gives a chat with no `cwd` its own folder (`~/chats/<name>`) instead.
+fn new_chat_cwd(args: &ChatArgs) -> Option<String> {
+    if let Some(cwd) = &args.cwd {
+        return Some(cwd.clone());
+    }
+    if args.machine.is_some() || args.host.is_some() {
+        return None;
+    }
+    Some(
+        std::env::current_dir().map(|d| d.display().to_string()).unwrap_or_else(|_| "/".to_owned()),
+    )
+}
+
 async fn open(
     link: &Link,
     g: u64,
@@ -506,22 +521,11 @@ async fn open(
                 meta.insert("harness".to_owned(), json!(m));
             }
             let meta = Value::Object(meta);
-            let cwd = args.cwd.clone().unwrap_or_else(|| {
-                match &args.machine.as_ref().or(args.host.as_ref()) {
-                    Some(_) => "~".to_owned(),
-                    None => std::env::current_dir()
-                        .map(|d| d.display().to_string())
-                        .unwrap_or_else(|_| "/".to_owned()),
-                }
-            });
-            let r = tokio::time::timeout(
-                deadline,
-                link.request(
-                    "session/new",
-                    json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}}),
-                ),
-            )
-            .await??;
+            let mut params = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
+            if let Some(cwd) = new_chat_cwd(args) {
+                params["cwd"] = json!(cwd);
+            }
+            let r = tokio::time::timeout(deadline, link.request("session/new", params)).await??;
             match r.get("sessionId").and_then(Value::as_str) {
                 Some(s) => s.to_owned(),
                 None => bail!("session/new answered without a sessionId"),

@@ -2328,15 +2328,17 @@ export function autocloudTuiChat(tui: string, cmux: string, api: Pick<Api, "orig
   const bin = mkdtempSync(path.join(tmpdir(), "cmux-autocloud-bin-"));
   symlinkSync(path.resolve(cmux), path.join(bin, "cmux"));
   const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
-  const env = { ...inherited, PATH: `${bin}:${process.env.PATH ?? ""}`, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer, ...(api.team ? { CMUX_CLOUD_TEAM: api.team } : {}) };
+  const env = { ...inherited, PATH: `${bin}:${process.env.PATH ?? ""}`, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer, ...(api.team ? { CMUX_CLOUD_TEAM: api.team } : {}), CMUX_AUTOCLOUD_TRACE: "1" };
   const started = Date.now();
   const r = spawnSync(tui, ["--machine", machine, "-m", agent, "--plain", "--until-idle", "Reply with the single word pong."], { env, encoding: "utf8", timeout: 180_000, stdio: ["ignore", "pipe", "pipe"] });
   rmSync(bin, { recursive: true, force: true });
   const out = r.stdout ?? "";
   const tail = (s: string) => s.trim().split("\n").slice(-6).join(" | ").slice(0, 600);
-  if (r.error) throw new Error(`cmux-autocloud: ${r.error.message}; stdout: ${tail(out)}; stderr: ${tail(r.stderr ?? "")}`);
+  // The first dial's trace says why a link that never comes up dropped; later redials repeat it.
+  const head = (s: string) => s.trim().split("\n").slice(0, 24).join(" | ").slice(0, 3000);
+  if (r.error) throw new Error(`cmux-autocloud: ${r.error.message}; stdout: ${tail(out)}; stderr: ${head(r.stderr ?? "")}`);
   const problem = autocloudTuiVerdict(out, word);
-  if (r.status !== 0 || problem) throw new Error(`cmux-autocloud exit ${r.status}${problem ? `, ${problem}` : ""}; stdout: ${tail(out)}; stderr: ${tail(r.stderr ?? "")}`);
+  if (r.status !== 0 || problem) throw new Error(`cmux-autocloud exit ${r.status}${problem ? `, ${problem}` : ""}; stdout: ${tail(out)}; stderr: ${head(r.stderr ?? "")}`);
   return `${Date.now() - started} ms: ${tail(out)}`;
 }
 
