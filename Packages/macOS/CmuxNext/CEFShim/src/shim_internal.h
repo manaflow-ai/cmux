@@ -318,6 +318,10 @@ void ForgetDownloads();
 CefRefPtr<CefPermissionHandler> PermissionHandler();
 // Releases every waiting prompt callback (before CefShutdown).
 void ForgetPermissionPrompts();
+// A waiting HTTP sign-in (AUTH_PROMPT), by token; ends it cancelled. UI thread.
+int AddAuthPrompt(CefRefPtr<CefAuthCallback> callback);
+int ContinueAuthPrompt(int token, const char* user, const char* password);
+void ForgetAuthPrompts();
 
 // Before CefShutdown: page requests waiting for their frame's URL (DeferredPageResource) stop
 // polling and are judged at once.

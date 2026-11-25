@@ -68,9 +68,10 @@ describe("make cmux yours", () => {
       "onboarding.makeItYours.work.terminal",
       "onboarding.makeItYours.recommended",
       "onboarding.makeItYours.background.none",
-      "onboarding.makeItYours.background.shuffle",
     ])
       expect(words).toContain(strings.t(key));
+    // The preview look (the default) names only the chosen work; each tile carries its name as its label.
+    expect(html).toContain(`aria-label="${strings.t("onboarding.makeItYours.background.shuffle")}"`);
     // Every density Settings has, by Settings' names (cmux#49636).
     for (const name of ["Ultra-compact", "Compact", "Default", "Comfortable", "Spacious"])
       expect(words).toContain(name);
@@ -155,7 +156,9 @@ describe("make cmux yours", () => {
       root.querySelector<HTMLInputElement>(`input[name="${name}"][value="${value}"]`)!;
     await act(async () => radio("workStyle", "terminal").click());
     await act(async () => page.unmount());
-    await act(async () => (page2 = createRoot(root)).render(<OnboardingPage store={store} strings={strings} makeItYoursScreen="tune" />));
+    await act(async () =>
+      (page2 = createRoot(root)).render(<OnboardingPage store={store} strings={strings} makeItYoursScreen="tune" />),
+    );
     await act(async () => radio("density", "comfortable").click());
     await act(async () => radio("density", "ultraCompact").click());
     await act(async () => radio("density", "spacious").click());

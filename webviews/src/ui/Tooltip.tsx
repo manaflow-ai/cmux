@@ -20,6 +20,7 @@ import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { virtualAnchor, type UiAnchor } from "./Popover";
 import { cx } from "./cx";
+import { keycapLegend } from "./keycapLegend";
 import { attachSeeThroughBlur, type CoveredCandidates, type SeeThroughOptions } from "./glass/seeThroughBlur";
 import { hoverCardGlass, hoverCardUnder } from "./glass/hoverCardGlass";
 import { HOVER_INTENT } from "./hoverIntent";
@@ -39,7 +40,14 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
   );
 }
 
-/** A hover card flips between above and below only, then shifts along its row. */
+/**
+ * Every tooltip and hover card here (a Tooltip, a `ui-card` Tooltip, an AnchoredCard above or below
+ * its anchor) flips between above and below only, then shifts along its row, never down onto it. A
+ * card taller than the room on both sides stays on the roomier one and scrolls (desktop.css
+ * --available-height). Base UI's default falls back to the anchor's side when neither fits
+ * (`fallbackAxisSide: "end"`), which drew a tall facts card on the row it describes (Leo,
+ * 2026-11-22: "and more bullshit somehow happened here"; test/hover-card-cover.test.ts).
+ */
 const CARD_COLLISION = { side: "flip", align: "shift", fallbackAxisSide: "none" } as const;
 
 export interface TooltipProps {
@@ -134,21 +142,21 @@ export function Tooltip({
             side={side}
             sideOffset={tooltipGap}
             collisionPadding={padding}
-            // A card taller than the room above and below stays on that axis and scrolls in what
-            // the roomier side has (desktop.css --available-height), never flipped beside its row.
-            {...(wraps && { collisionAvoidance: CARD_COLLISION })}
+            // Above or below its row only, a tooltip as a card (CARD_COLLISION): never beside it.
+            collisionAvoidance={CARD_COLLISION}
             {...(anchor && { anchor: () => placed() })}
           >
             <BaseTooltip.Popup
               ref={setPopup}
               className={cx("ui-tooltip ui-glass", className)}
+              data-surface-role={wraps ? "hoverCard" : "tooltip"}
               // On the App's glass under the page (glass/hostGlass.ts): a card at the popover level, a
               // label at the chip level, the native tooltip's glass, blurring what it covers in place.
               {...(wraps
                 ? { "data-host-glass": "popover", "data-tooltip-card": "" }
                 : { "data-host-glass": "chip", "data-host-glass-cover": "" })}
             >
-              {shortcut && <span className="ui-tooltip-hint">{shortcut}</span>}
+              {shortcut && <span className="ui-tooltip-hint">{keycapLegend(shortcut)}</span>}
               {typeof label === "string" || typeof label === "number" ? (
                 <span className="ui-tooltip-text">{label}</span>
               ) : (
@@ -253,11 +261,15 @@ export function AnchoredCard({
           align="start"
           sideOffset={tooltipGap}
           collisionPadding={padding}
+          // A card above or below its anchor stays off the anchor's row (CARD_COLLISION); one placed
+          // beside it on purpose keeps Base UI's flips.
+          {...((side === "top" || side === "bottom") && { collisionAvoidance: CARD_COLLISION })}
         >
           <BaseTooltip.Popup
             ref={setPopup}
             id={id}
             className={cx("ui-tooltip ui-card ui-glass", className)}
+            data-surface-role="hoverCard"
             // The App's popover glass under the page (glass/hostGlass.ts); a card given `under` blurs
             // what it covers itself.
             data-host-glass="popover"

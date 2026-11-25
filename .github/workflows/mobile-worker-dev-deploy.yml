@@ -63,7 +63,7 @@ env:
 jobs:
   deploy-dev:
     environment: cmux-next-development
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 20
     defaults:
       run:
@@ -127,7 +127,10 @@ jobs:
         run: bunx tsc -p .
 
       - name: Tests (vitest on workerd)
-        run: bunx vitest run
+        # The pool's slower hosts (hx, fsr) spend ~130 s importing the suite (run 45503849278, attempts 1-2,
+        # 2026-11-24), so the first request of a file outlasts vitest's 5 s default and the deploy fails on
+        # tests that pass in 48 s on an e4a host. 30 s per test keeps a real hang a failure.
+        run: bunx vitest run --testTimeout=30000 --hookTimeout=30000
 
       - name: Deploy to dev
         env:

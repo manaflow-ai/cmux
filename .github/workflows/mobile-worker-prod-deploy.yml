@@ -61,7 +61,7 @@ jobs:
   deploy-prod:
     if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next'
     environment: cmux-next-production
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 20
     defaults:
       run:
@@ -113,7 +113,9 @@ jobs:
         run: bunx tsc -p .
 
       - name: Tests (vitest on workerd)
-        run: bunx vitest run
+        # The pool's slower hosts spend ~130 s importing the suite, so a first request outlasts vitest's 5 s default
+        # (the dev deploy, run 45503849278); 30 s per test keeps a real hang a failure.
+        run: bunx vitest run --testTimeout=30000 --hookTimeout=30000
 
       - name: Deploy to prod
         id: deploy

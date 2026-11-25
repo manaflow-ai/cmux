@@ -3,8 +3,9 @@
 // The composer's one send slot morphs between Send and Stop (Leo, 2026-11-07: "At the very least,
 // like the Enter to the Stop button, I like. I think it would be cool. You know, a fast animation"),
 // in the real Composer laid out by Chromium (test/browser/send-stop-morph.harness.tsx):
-// - a turn starting turns Send into Stop, and its end turns Stop back into Send, each with an
-//   animation that ends within 200 ms, while the button's box stays where it is;
+// - a turn starting turns Send into Stop (once it has run the dwell, composer/turnPresence.ts), and
+//   its end turns Stop back into Send (after Stop's hold and linger), each with an animation that
+//   ends within 200 ms, while the button's box stays where it is;
 // - in Claude's look, Return's ↵ turns into the turn's Stop, and the first letter typed mid-turn
 //   turns Stop into ↵;
 // - nothing animates on the composer's first draw or on a chat switch, and under Reduce Motion the
@@ -124,8 +125,13 @@ await requireBrowserLane("send-stop-morph.browser.test.ts", async () => {
     ) as Promise<Frame[]>;
   }
 
-  /** Every frame drew the slot in one box, it animated, and it was settled by 200 ms (+ one frame). */
-  function expectMorph(frames: Frame[], to: "stop" | "send") {
+  /** From the first frame that drew `to` (a turn's Stop shows once it has held, and stays a moment
+   *  after its end: composer/turnPresence.ts): every frame drew the slot in one box, it animated, and
+   *  it was settled by 200 ms (+ one frame). */
+  function expectMorph(all: Frame[], to: "stop" | "send") {
+    const from = all.findIndex((frame) => frame.kind === to);
+    expect(from).toBeGreaterThanOrEqual(0);
+    const frames = all.slice(from).map((frame) => ({ ...frame, t: frame.t - all[from]!.t }));
     const drawn = frames.filter((frame) => frame.kind !== "none");
     expect(drawn.length).toBeGreaterThan(5);
     expect(drawn.every((frame) => frame.kind === to)).toBe(true);
@@ -154,8 +160,10 @@ await requireBrowserLane("send-stop-morph.browser.test.ts", async () => {
 
   test("Codex's look: a turn's start morphs Send into Stop and its end morphs Stop into Send", async () => {
     const page = await open({ look: "codex", working: false });
-    expectMorph(await trace(page, startTurn), "stop");
-    expectMorph(await trace(page, endTurn), "send");
+    // A turn's Stop shows once the turn has run the dwell, and Send comes back once Stop has stood
+    // its hold and lingered past the end (composer/turnPresence.ts).
+    expectMorph(await trace(page, startTurn, 520), "stop");
+    expectMorph(await trace(page, endTurn, 900), "send");
     await capture(page, "codex-send-to-stop-mid", startTurn, 70);
     await page.close();
   });
@@ -173,9 +181,10 @@ await requireBrowserLane("send-stop-morph.browser.test.ts", async () => {
     await page.keyboard.press("Enter");
     const sent = await trace(page, null, 400);
     expect(await page.evaluate(() => (window as unknown as { __sends(): string[] }).__sends())).toEqual(["Ship it"]);
-    const stopAt = sent.find((frame) => frame.kind === "stop")?.t ?? 0;
+    // The person's own send shows Stop with no dwell (composer/turnPresence.ts).
+    expect(sent.find((frame) => frame.kind === "stop")!.t).toBeLessThan(120);
     expectMorph(
-      sent.filter((frame) => frame.kind === "stop").map((frame) => ({ ...frame, t: frame.t - stopAt })),
+      sent.filter((frame) => frame.kind === "stop"),
       "stop",
     );
     expect(sent.at(-1)?.kind).toBe("stop");
@@ -209,8 +218,9 @@ await requireBrowserLane("send-stop-morph.browser.test.ts", async () => {
 
   test("Reduce Motion swaps the glyph in one frame", async () => {
     const page = await open({ look: "codex", working: false }, "reduce");
-    const frames = await trace(page, startTurn, 200);
-    expect(frames[0]!.kind).toBe("stop");
+    // Reduce Motion keeps the hysteresis (it is logic, not motion): Stop shows after the dwell, in one frame.
+    const frames = await trace(page, startTurn, 400);
+    expect(frames.at(-1)!.kind).toBe("stop");
     expect(frames.every((frame) => frame.layers === 0 && frame.animations === 0)).toBe(true);
     await page.close();
   });

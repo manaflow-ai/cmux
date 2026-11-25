@@ -57,4 +57,3 @@ export function Faces({ bundle }: { bundle: { traits: WalkTraits } }) {
     </span>
   );
 }
-

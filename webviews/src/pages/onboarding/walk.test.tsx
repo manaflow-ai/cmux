@@ -105,9 +105,7 @@ describe("intro walk: screens", () => {
     await act(async () =>
       look.root.querySelector<HTMLInputElement>('input[name="look"][value="twoToneStudio"]')!.click(),
     );
-    expect(look.calls).toEqual([
-      { op: OPS.walk, params: { writes: [{ path: "appearance.twoTone", value: "auto" }] } },
-    ]);
+    expect(look.calls).toEqual([{ op: OPS.walk, params: { writes: [{ path: "appearance.twoTone", value: "auto" }] } }]);
     await look.done();
     const trust = await mount("trust");
     await act(async () => trust.root.querySelector<HTMLInputElement>('input[name="permission"][value="ask"]')!.click());
@@ -165,7 +163,11 @@ describe("intro walk: writes", () => {
       { path: "sidebar.settleFinished", value: true },
     ]);
     const tidy = walkValues(
-      choices({ "agents.chats.archiveInactive": "7d", "workspaces.autoArchive.style": "suggest", "sidebar.settleFinished": true }),
+      choices({
+        "agents.chats.archiveInactive": "7d",
+        "workspaces.autoArchive.style": "suggest",
+        "sidebar.settleFinished": true,
+      }),
     );
     expect(tidyOn(tidy)).toBe(true);
     expect(tidyWrites(false, opened, tidy)).toEqual([

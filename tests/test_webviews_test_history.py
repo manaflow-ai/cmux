@@ -23,6 +23,7 @@ SCRIPT = ROOT / "scripts/ci/webviews_test_history.py"
 WORKFLOW = ROOT / ".github/workflows/ci-web.yml"
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import webviews_test_history as history  # noqa: E402
+import one_linux_label  # noqa: E402
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
@@ -68,7 +69,9 @@ EVENTS = {
     "fork pull request": event("pull_request", head=FORK),
     "fork repository": event("push", owner="someone"),
 }
-VCPU = {"blacksmith-2vcpu-ubuntu-2404": 2, "blacksmith-4vcpu-ubuntu-2404": 4, "blacksmith-16vcpu-ubuntu-2404": 16,
+# cmux-linux, the one Linux label (scripts/ci/one_linux_label.py), sizes itself by load; its smallest member is
+# taken as 4 vCPU, so the minutes below hold even when a shard lands on one.
+VCPU = {"cmux-linux": 4, "blacksmith-2vcpu-ubuntu-2404": 2, "blacksmith-4vcpu-ubuntu-2404": 4, "blacksmith-16vcpu-ubuntu-2404": 16,
         "ubuntu-24.04": 4}
 
 
@@ -91,30 +94,28 @@ class ShardSize(unittest.TestCase):
         self.shard = self.jobs["react-apps-check-shard"]
         self.test_step = next(s for s in self.shard["steps"] if s["name"] == "Test webviews")
 
-    def test_the_webview_jobs_read_the_4_vcpu_pool_not_linux_16(self):
+    def test_the_webview_jobs_take_the_one_linux_label(self):
+        # Leo, 2026-11-20: no workflow sizes its CI; every own-branch run takes cmux-linux, a fork GitHub-hosted Ubuntu.
         for name in WEBVIEW_JOBS:
             runs_on = self.jobs[name]["runs-on"]
             self.assertNotIn("linux_16", runs_on, name)
-            self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}"), name)
-            small = evaluate(runs_on, EVENTS["push"], {"linux_4": "blacksmith-2vcpu-ubuntu-2404"})
-            self.assertEqual(small, "blacksmith-2vcpu-ubuntu-2404", f"{name} follows the pool")
-            self.assertEqual(evaluate(runs_on, EVENTS["push"]), "blacksmith-4vcpu-ubuntu-2404", name)
-            self.assertEqual(evaluate(runs_on, EVENTS["same-repository pull request"]), "blacksmith-4vcpu-ubuntu-2404", name)
-            self.assertEqual(evaluate(runs_on, EVENTS["fork pull request"]), "blacksmith-16vcpu-ubuntu-2404", name)
+            self.assertEqual(runs_on, one_linux_label.CANONICAL, name)
+            self.assertEqual(evaluate(runs_on, EVENTS["push"]), "cmux-linux", name)
+            self.assertEqual(evaluate(runs_on, EVENTS["same-repository pull request"]), "cmux-linux", name)
+            self.assertEqual(evaluate(runs_on, EVENTS["fork pull request"]), "ubuntu-24.04", name)
             self.assertEqual(evaluate(runs_on, EVENTS["fork repository"]), "ubuntu-24.04", name)
-            owned = {**EVENTS["push"], "vars.CI_LINUX_GATE_OWNED_RUNNER": "glaeda-linux-gate"}
-            self.assertEqual(evaluate(runs_on, owned), "glaeda-linux-gate", name)
+            forked = {**EVENTS["fork pull request"], "vars.CI_FORK_LINUX_RUNNER": "ubuntu-24.04-large"}
+            self.assertEqual(evaluate(runs_on, forked), "ubuntu-24.04-large", name)
 
     def test_a_post_merge_batch_shard_reads_the_owned_runner(self):
         """Run 44990794651's batch shards read linux_4 (a workflow_dispatch is neither a push nor a pull request) and
-        ran 39-71 min of tests each on 4 vCPU, about 722 runner-minutes a run; they read the owned gate runner now."""
+        ran 39-71 min of tests each on 4 vCPU, about 722 runner-minutes a run; they read the owned gate runner, and
+        since scripts/ci/one_linux_label.py every same-repository run takes the one owned Linux label, cmux-linux."""
         runs_on = self.shard["runs-on"]
-        for mode in ("batch", "probe"):
+        for mode in ("batch", "probe", ""):
             dispatch = event("workflow_dispatch", **{"github.event.inputs.mode": mode,
                                                     "vars.CI_LINUX_GATE_OWNED_RUNNER": "glaeda-linux-gate"})
-            self.assertEqual(evaluate(runs_on, dispatch), "glaeda-linux-gate", mode)
-        other = event("workflow_dispatch", **{"vars.CI_LINUX_GATE_OWNED_RUNNER": "glaeda-linux-gate"})
-        self.assertEqual(evaluate(runs_on, other), "blacksmith-4vcpu-ubuntu-2404")
+            self.assertEqual(evaluate(runs_on, dispatch), "cmux-linux", mode)
 
     def test_each_runner_gets_minutes_for_its_share_of_the_work(self):
         for label, context in EVENTS.items():
@@ -123,7 +124,7 @@ class ShardSize(unittest.TestCase):
             vcpu = VCPU[runner]
             need = self.TESTS_AT_16 * max(1, 16 / vcpu) + self.SETUP
             self.assertGreaterEqual(minutes * 60, need * 1.25, f"{label} on {runner}: {minutes} min")
-        self.assertEqual(evaluate(self.shard["timeout-minutes"], EVENTS["fork pull request"]), 40)
+        self.assertEqual(evaluate(self.shard["timeout-minutes"], EVENTS["fork pull request"]), 90)
         # While the pool holds 2 vCPU, a shard runs 1 file at a time and gets the minutes for that.
         small = {"linux_4": "blacksmith-2vcpu-ubuntu-2404"}
         for label in ("push", "same-repository pull request"):
@@ -488,6 +489,37 @@ class OneBaseCheck(unittest.TestCase):
             done = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_test_results.py"), "--failed-files",
                                    str(tmp / "out" / history.HEAD_RESULTS)], capture_output=True, text=True)
             self.assertNotEqual(done.returncode, 0)  # read as one shard's unreadable results were: every red replays
+
+    def test_the_lone_picked_shard_lands_in_the_download_root_itself(self):
+        """What refused #48267 and #50979 on 2026-11-22: both change only Swift, so web-subarea-scope picked one
+        shard, and react-apps-base-check failed with "react-apps-head-results-shard1 has no
+        webviews-head-results.json" while shard 1 had uploaded its 165 files and the download verified the same
+        digest. actions/download-artifact (pinned 37930b1c) extracts into the download root, with no folder of the
+        artifact's name, whenever `artifacts.length === 1`, so the folder this join read never exists for a pull
+        request that ran one shard. A shard's own folder still wins wherever there is one."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            flat = tmp / "in"
+            flat.mkdir()
+            (flat / history.HEAD_RESULTS).write_text(json.dumps({TEST: False}))
+            (flat / "runner").mkdir()
+            (flat / "runner/run-webviews-tests.sh").write_text("# shard 1\n")
+            (flat / "raw-logs").mkdir()
+            (flat / "raw-logs/summary").write_text("FAIL x /r/test_agent.log\n")
+            matrix = json.dumps([{"shard": 1, "shard_count": 8}])
+            done = subprocess.run([sys.executable, str(SCRIPT), "heads", str(flat), "--matrix", matrix, "--out",
+                                   str(tmp / "out")], capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertEqual(json.loads((tmp / "out" / history.HEAD_RESULTS).read_text()), {TEST: False})
+            self.assertEqual(json.loads((tmp / "out/shards.json").read_text()), {FILE: 1})
+            self.assertEqual((tmp / "out/runner/run-webviews-tests.sh").read_text(), "# shard 1\n")
+            self.assertEqual((tmp / "out/raw-logs/summary").read_text(), "FAIL x /r/test_agent.log\n")
+            # One shard with a folder of its own (the artifact was not alone in the download): that folder is read,
+            # never a stale map lying beside it in the root.
+            self.shard(tmp / "two", 1, {TEST: True})
+            (tmp / "two" / history.HEAD_RESULTS).write_text(json.dumps({"test/stale.test.ts": False}))
+            self.assertIsNone(history.join_heads(tmp / "two", [1], tmp / "out3"))
+            self.assertEqual(json.loads((tmp / "out3" / history.HEAD_RESULTS).read_text()), {TEST: True})
 
     def test_a_pull_request_joins_only_the_shards_it_ran(self):
         with tempfile.TemporaryDirectory() as tmp:

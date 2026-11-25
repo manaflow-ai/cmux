@@ -144,7 +144,10 @@ const BUNDLE_PATHS = [...new Set(LOOK_BUNDLES.flatMap((bundle) => Object.keys(bu
 
 function bundleTargets(bundle: WalkBundleDef, opened: WalkValues): WalkValues {
   return Object.fromEntries(
-    BUNDLE_PATHS.map((path) => [path, path in bundle.sets ? resolve(opened, path, bundle.sets[path]!) : (opened[path] ?? null)]),
+    BUNDLE_PATHS.map((path) => [
+      path,
+      path in bundle.sets ? resolve(opened, path, bundle.sets[path]!) : (opened[path] ?? null),
+    ]),
   );
 }
 
@@ -170,7 +173,10 @@ export function tidyOn(current: WalkValues): boolean {
 export function tidyWrites(on: boolean, opened: WalkValues, current: WalkValues): WalkWrite[] {
   if (on) return diff(TIDY, current);
   const openedTidy = tidyOn(opened);
-  return diff(Object.fromEntries(Object.keys(TIDY).map((path) => [path, openedTidy ? null : (opened[path] ?? null)])), current);
+  return diff(
+    Object.fromEntries(Object.keys(TIDY).map((path) => [path, openedTidy ? null : (opened[path] ?? null)])),
+    current,
+  );
 }
 
 // MARK: Trust: the agents' permission
