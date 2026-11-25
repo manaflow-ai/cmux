@@ -36,6 +36,9 @@ Writes result.json, the page's own pictures (DevTools Page.captureScreenshot) an
 import argparse
 import base64, functools, http.server, json, os, plistlib, re, socket, subprocess, sys, tempfile, threading, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_stable
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--app", required=True)
@@ -210,7 +213,10 @@ try:
     if not opts.in_home:
         rpc("action.run", {"action": "newTab", "origin": "script", "focus": True})
         wait(focused_pane, 60)
-        time.sleep(1.0)  # test harness: the new workspace takes the window
+        # The new workspace takes the window: its panes and focus stop changing.
+        wait_stable(lambda: json.dumps([[(p.get("id"), p.get("focused")) for p in w.get("panes") or []]
+                                        for w in (rpc("debug.surfaces") or {}).get("windows") or []]),
+                    "the new workspace's panes", timeout=15, interval=0.1, raise_on_timeout=False)
     url = serve()
     step("open", reply=rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True}))
     if not wait(lambda: js("document.title") == "passkey fallback", 90):
@@ -290,7 +296,10 @@ try:
          popup_windows=cef.get("popup_windows"), window_requests=cef.get("window_requests"), pictures=pictures("2-popout"))
     if not panel:
         raise SystemExit("the extension's popout did not show")
-    time.sleep(1.0)  # test harness: the popout page settles, as a person reads it
+    # The popout page settles (its URL past about:blank and its frame still), as a person reads it.
+    wait_stable(lambda: json.dumps([{k: v for k, v in p.items() if k != "snapshot"}
+                                    for p in (rpc("debug.popups") or {}).get("panels") or []], sort_keys=True),
+                "the popout panel", timeout=15, interval=0.1, reads=5, raise_on_timeout=False)
     step("close popout", reply=rpc("debug.popups", {"action": "close"}))
     outcome = wait(lambda: (lambda s: s if s and s != "waiting" else None)(probe().get("status")), 30, 0.5)
     after = probe()

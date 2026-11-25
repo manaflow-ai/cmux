@@ -5,7 +5,8 @@
 #
 #   Contents/Library/<app name> Helper.app       ("cmux NIGHTLY Helper.app")
 #     Contents/MacOS/cmux-screen-sharing
-#     Contents/Info.plist   <app bundle id>.screen-sharing, LSUIElement, named "<app name> Helper"
+#     Contents/Info.plist   <app bundle id>.screen-sharing (every DEV build: com.cmuxterm.app.debug.screen-sharing),
+#                           LSUIElement, named "<app name> Helper"
 #
 # The name is what macOS permission alerts show ("cmux NIGHTLY Helper"). The bundle id keeps
 # ".screen-sharing" (Screen Recording and Accessibility grants are keyed to it), and the executable
@@ -104,6 +105,17 @@ helper_bundles() {
   return 0
 }
 
+# The helper's bundle id for app id <id>: one per channel. Every DEV build (com.cmuxterm.app.debug and each
+# com.cmuxterm.app.debug.<tag>) shares com.cmuxterm.app.debug.screen-sharing, so System Settings lists one
+# "cmux DEV Helper" row and one copy (SignedHelperStaging.swift), not one per tag; any other app is
+# <id>.screen-sharing (NIGHTLY's and stable's grants live there: check-screen-share-identity.sh pins them).
+helper_id_for() {
+  case "$1" in
+    com.cmuxterm.app.debug|com.cmuxterm.app.debug.*) echo com.cmuxterm.app.debug.screen-sharing ;;
+    *) echo "$1.screen-sharing" ;;
+  esac
+}
+
 # Removes every helper bundle in <app>/Contents/Library except <keep> (a renamed app's old one, or one named
 # before the rename).
 remove_other_helpers() {
@@ -132,8 +144,9 @@ if [[ "${1:-}" == "--stamp" ]]; then
   dest="$app/Contents/Library/$name$SUFFIX.app"
   [[ "$found" == "$dest" ]] || { rm -rf "$dest"; mv "$found" "$dest"; }
   remove_other_helpers "$app" "$dest"
-  write_plist "$dest/Contents/Info.plist" "$id.screen-sharing" "$name$SUFFIX" "${version:-1}" "${minimum:-14.0}"
-  echo "stamped the Screen Sharing helper: $(basename "$dest") ($id.screen-sharing)"
+  helper_id="$(helper_id_for "$id")"
+  write_plist "$dest/Contents/Info.plist" "$helper_id" "$name$SUFFIX" "${version:-1}" "${minimum:-14.0}"
+  echo "stamped the Screen Sharing helper: $(basename "$dest") ($helper_id)"
   exit 0
 fi
 
@@ -216,7 +229,8 @@ staged="$tmp/$name$SUFFIX.app"
 mkdir -p "$staged/Contents/MacOS"
 cp "$src" "$staged/Contents/MacOS/$EXECUTABLE"
 chmod 755 "$staged/Contents/MacOS/$EXECUTABLE"
-write_plist "$staged/Contents/Info.plist" "$id.screen-sharing" "$name$SUFFIX" "$version" "$minimum"
+helper_id="$(helper_id_for "$id")"
+write_plist "$staged/Contents/Info.plist" "$helper_id" "$name$SUFFIX" "$version" "$minimum"
 printf 'APPL????' > "$staged/Contents/PkgInfo"
 
 identity="${EXPANDED_CODE_SIGN_IDENTITY:-}"
@@ -229,4 +243,4 @@ fi
 "$repo_root/scripts/codesign-retry.sh" "${flags[@]}" "$staged"
 rm -rf "$dest"
 mv "$staged" "$dest"
-echo "bundled the Screen Sharing helper $(basename "$dest") ($id.screen-sharing, signed by $identity) from $src"
+echo "bundled the Screen Sharing helper $(basename "$dest") ($helper_id, signed by $identity) from $src"

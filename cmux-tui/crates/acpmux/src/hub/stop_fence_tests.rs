@@ -171,7 +171,7 @@ async fn a_failed_creation_leaves_a_chat_a_later_request_reopened() {
 async fn a_closed_session_with_a_live_agent_reopens_for_a_request() {
     let (hub, session) = chat().await;
     assert!(has_live_child(&session).await);
-    hub.set_status(&session, SessionStatus::Closed);
+    hub.set_status(&session, NotWaiting::Closed);
     let seq = last_seq(&hub, &session);
     hub.child_for(&session).await.unwrap();
     assert_eq!(session.status(), SessionStatus::Ready);

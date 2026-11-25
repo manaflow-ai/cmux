@@ -43,6 +43,9 @@ PACKAGING = (
 )
 PACKAGING_NAMES = ("*.modulemap", "module.map", "cbindgen.toml")
 CONDITIONAL = re.compile(r"#\s*(if|ifdef|ifndef|elif|elifdef|elifndef|else|endif)\b")
+CPLUSPLUS_BLOCK = re.compile(r"^[ \t]*#[ \t]*if(?:def[ \t]+__cplusplus|[ \t]+defined\(?[ \t]*__cplusplus[ \t]*\)?)"
+                             r"[^\n]*\n(.*?)^[ \t]*#[ \t]*endif[^\n]*$", flags=re.S | re.M)
+CPLUSPLUS_WRAPPER = re.compile(r'(?:[ \t]*(?:extern[ \t]+"C"[ \t]*\{|\})?[ \t]*\n)*')
 
 
 def git(*args: str) -> str:
@@ -64,9 +67,10 @@ def strip(text: str) -> str:
     text = re.sub(r"/\*.*?\*/", " ", text, flags=re.S)
     text = re.sub(r"//[^\n]*", " ", text)
     # C++-only lines (the `extern "C" {` and its `}` that cbindgen wraps a header in): Swift imports the header as
-    # C, and the brace would otherwise make the whole header one declaration.
-    return re.sub(r"^[ \t]*#[ \t]*if(?:def[ \t]+__cplusplus|[ \t]+defined\(?[ \t]*__cplusplus[ \t]*\)?)[^\n]*\n.*?"
-                  r"^[ \t]*#[ \t]*endif[^\n]*$", " ", text, flags=re.S | re.M)
+    # C, and the brace would otherwise make the whole header one declaration. Only a block holding nothing but those
+    # wrapper lines goes: any other content (an `#else` branch C does compile, a nested directive) stays, so its
+    # directives and declarations are compared like the rest of the header.
+    return CPLUSPLUS_BLOCK.sub(lambda block: " " if CPLUSPLUS_WRAPPER.fullmatch(block.group(1)) else block.group(0), text)
 
 
 def parse(text: str) -> tuple[list[tuple[tuple[str, ...], str]], list[tuple[tuple[str, ...], int, str]]]:

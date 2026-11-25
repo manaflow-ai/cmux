@@ -240,6 +240,7 @@ class Dogfood:
     def busy(self, surfaces, seconds=1.5):
         """Surfaces whose screen changed within `seconds` (printing terminals)."""
         first = {s: self.daemon.screen(s) for s in surfaces}
+        # sleep-ok: the observation window itself defines "busy" (a screen that changed within it)
         time.sleep(seconds)  # test script: the window in which a busy terminal prints
         return [s for s in surfaces if self.daemon.screen(s) != first[s]]
 
@@ -276,8 +277,18 @@ class Dogfood:
             summary = {"shape_error": str(error)[:2000]}
             self.step("stress-shape", False, error=str(error)[:2000])
         emit("STRESS-SESSION", summary)
-        time.sleep(2)  # test script: the busy terminals start printing
         surfaces = self.daemon.surfaces()
+        # Wait until 10 terminals (the busy ones) have printed since this read; best effort, stress-busy reports.
+        first = {s: self.daemon.screen(s) for s in surfaces}
+
+        def printed(need=10):
+            seen = 0
+            for s in surfaces:
+                seen += self.daemon.screen(s) != first[s]
+                if seen >= need:
+                    return True
+            return False
+        wait(printed, 30, step=0.5)
         cost("stress", self.opts.model, self.daemon, surfaces)
         printing = self.busy(surfaces)
         self.step("stress-busy", len(printing) >= 10, terminals=len(surfaces), printing=len(printing))

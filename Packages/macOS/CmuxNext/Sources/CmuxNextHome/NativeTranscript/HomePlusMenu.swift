@@ -1,0 +1,111 @@
+import AppKit
+import UniformTypeIdentifiers
+
+/// One row of the Chief composer's + menu. The agent chat's + menu (webviews acpmux
+/// `Composer.tsx`) has Attach files or images, Mention a file or folder (@), Search files,
+/// Commands (/) and Plan; the Chief's composer has no mentions, slash commands or plan mode yet,
+/// so it has the attach row plus its own Clipboard section. A new row is a case here, a place in
+/// ``HomePlusMenuModel/sections(clipboard:)`` and a branch in the view's `perform`.
+nonisolated enum HomePlusMenuItem: Hashable, Sendable {
+    /// Attach Files or Images…: the message box's file picker (files only: Home attaches no folders).
+    case attachFiles
+    /// A recent copy: text goes in at the caret, a picture becomes an attachment.
+    case clipboard(HomeClipboardEntry)
+}
+
+/// What the + menu shows, as values (tests read it; ``HomePlusMenu`` draws it).
+nonisolated struct HomePlusMenuModel: Equatable, Sendable {
+    /// Groups, each drawn after a separator; the clipboard group has a section header.
+    let sections: [[HomePlusMenuItem]]
+
+    /// Attach first, then the clipboard's rows (newest first) when there are any.
+    static func sections(clipboard: [HomeClipboardEntry]) -> HomePlusMenuModel {
+        var sections: [[HomePlusMenuItem]] = [[.attachFiles]]
+        if !clipboard.isEmpty { sections.append(clipboard.map { .clipboard($0) }) }
+        return HomePlusMenuModel(sections: sections)
+    }
+
+    /// A text row's title: the text on one line (runs of white space and line breaks become one
+    /// space), cut to `limit` characters with an ellipsis.
+    static func snippet(_ text: String, limit: Int = 48) -> String {
+        let line = text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).joined(separator: " ")
+        guard line.count > limit else { return line }
+        return String(line.prefix(max(1, limit - 1))).trimmingCharacters(in: .whitespaces) + "…"
+    }
+}
+
+/// The + menu as an `NSMenu` above the + button: native, opens in the click's own turn, and
+/// keyboard-navigable like any menu.
+@MainActor
+enum HomePlusMenu {
+    /// The menu for `model`; `thumbnail` gives a picture row's image (nil: a picture glyph), and
+    /// `perform` runs the chosen row after the menu closes.
+    static func make(_ model: HomePlusMenuModel, thumbnail: (HomeClipboardEntry) -> NSImage?,
+                     row: ((HomePlusMenuItem, Int, Int, String) -> NSMenuItem?)? = nil,
+                     perform: @escaping (HomePlusMenuItem) -> Void) -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        for (index, section) in model.sections.enumerated() {
+            if index > 0 { menu.addItem(.separator()) }
+            if section.contains(where: { if case .clipboard = $0 { true } else { false } }) {
+                menu.addItem(.sectionHeader(title: HomeStrings.plusMenuClipboard))
+            }
+            for (rowIndex, item) in section.enumerated() {
+                menu.addItem(Self.row(item, section: index, rowIndex: rowIndex, thumbnail: thumbnail, makeRow: row, perform: perform))
+            }
+        }
+        return menu
+    }
+
+    /// Opens `menu` with its bottom-left corner just above `anchor` (AppKit moves it below when
+    /// there is no room above).
+    static func popUp(_ menu: NSMenu, above anchor: NSView) {
+        let gap: CGFloat = 4
+        let bounds = anchor.bounds
+        let height = menu.size.height
+        let y = anchor.isFlipped ? bounds.minY - gap - height : bounds.maxY + gap + height
+        menu.popUp(positioning: nil, at: NSPoint(x: bounds.minX, y: y), in: anchor)
+    }
+
+    private static func row(_ item: HomePlusMenuItem, section: Int, rowIndex: Int,
+                            thumbnail: (HomeClipboardEntry) -> NSImage?,
+                            makeRow: ((HomePlusMenuItem, Int, Int, String) -> NSMenuItem?)?,
+                            perform: @escaping (HomePlusMenuItem) -> Void) -> NSMenuItem {
+        let title: String
+        let image: NSImage?
+        var toolTip: String?
+        switch item {
+        case .attachFiles:
+            title = HomeStrings.plusMenuAttachFiles
+            image = symbol("paperclip", title)
+        case .clipboard(let entry):
+            switch entry.content {
+            case .text(let text):
+                title = HomePlusMenuModel.snippet(text)
+                toolTip = String(text.prefix(400))
+                image = symbol("text.alignleft", title)
+            case .image(_, let type):
+                title = UTType(type)?.localizedDescription ?? HomeStrings.plusMenuImage
+                image = thumbnail(entry) ?? symbol("photo", title)
+            }
+        }
+        let row = makeRow?(item, section, rowIndex, title) ?? NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        row.title = title
+        row.image = image
+        row.toolTip = toolTip
+        row.setAccessibilityLabel(row.title)
+        return row
+    }
+
+    private static func symbol(_ name: String, _ label: String) -> NSImage? {
+        NSImage(systemSymbolName: name, accessibilityDescription: label)
+    }
+}
+
+extension HomeStrings {
+    static var plusMenuAttachFiles: String {
+        String(localized: "home.plusMenu.attachFiles", defaultValue: "Attach Files or Images…", bundle: .localizedModule)
+    }
+    static var plusMenuClipboard: String { String(localized: "home.plusMenu.clipboard", defaultValue: "Clipboard", bundle: .localizedModule) }
+    static var plusMenuImage: String { String(localized: "home.plusMenu.image", defaultValue: "Image", bundle: .localizedModule) }
+}
