@@ -15,11 +15,11 @@ extension AgentPaneView {
         page?.onZoomChange = { [weak self] in self?.pageZoomChanged() }
     }
 
-    /// View points per CSS pixel for a Session Info cut-out or the toasts' stack the page measured at
-    /// `reported` (webviews ui/glass/hostGlass.ts `hostGlassPageZoom`), or at the pane's zoom now for an
-    /// older page's box: the same rule as the glass (``AgentPaneHostGlassSurface/placementZoom(paneZoom:)``).
-    /// Leo, 2026-11-12, of the "Also working here" popover: "evidently you zoom in and it doesn't really,
-    /// you know, it doesn't follow, right?"
+    /// View points per CSS pixel for a box the page measured at `reported` (webviews
+    /// ui/visualViewportBox.ts `pageZoom`), or at the pane's zoom now for an older page's box. Drawn at
+    /// the zoom it was measured at, a page box stays on its content across a zoom (Leo, 2026-11-12, of
+    /// the "Also working here" popover: "evidently you zoom in and it doesn't really, you know, it
+    /// doesn't follow, right?"); the page measures again at the new zoom and that report moves it.
     func pageBoxZoom(_ reported: CGFloat?) -> CGFloat {
         max(0.25, reported ?? CGFloat(uiPointerPageZoom))
     }
@@ -50,7 +50,7 @@ extension AgentPaneView {
         for surface in holder.surfaces {
             kept.insert(surface.id)
             let view = holder.views[surface.id] ?? makeHostGlassView(surface, in: container)
-            let zoom = surface.placementZoom(paneZoom: CGFloat(uiPointerPageZoom))
+            let zoom = pageBoxZoom(surface.zoom)
             let frame = Self.hostGlassFrame(surface.rect, page: bounds, zoom: zoom, flipped: container.isFlipped)
             if view.frame != frame { view.frame = frame }
             let radius = surface.radius * zoom
@@ -77,15 +77,21 @@ extension AgentPaneView {
     }
 
     private func makeHostGlassView(_ surface: AgentPaneHostGlassSurface, in container: NSView) -> OverlaySurfaceView {
-        let view = Glass.makeHostSurface(level: surface.level, role: surface.role)
+        let view = Glass.makeSurface(Self.hostGlassRole(surface.level), interactive: false)
         view.translatesAutoresizingMaskIntoConstraints = true
         container.addSubview(view)
         model.hostGlass.views[surface.id] = view
         return view
     }
 
-    /// The overlay role whose glass a level draws (``Glass/hostGlassRole(_:)``).
-    static func hostGlassRole(_ level: GlassLevel) -> SurfaceRole { Glass.hostGlassRole(level) }
+    /// The overlay role whose glass a level draws: popovers and menus their own, chips a tooltip's.
+    static func hostGlassRole(_ level: GlassLevel) -> SurfaceRole {
+        switch level {
+        case .menu: .menu
+        case .chip: .tooltip
+        case .chrome, .popover: .popover
+        }
+    }
 
     /// A surface's viewport box (top-left CSS pixels) in a page frame `page` at `zoom`, in the
     /// coordinates `page` is in.

@@ -41,3 +41,24 @@ export function pointOnVisualViewport(
   const box = onVisualViewport({ left: point.x, top: point.y, right: point.x, bottom: point.y }, view);
   return { x: box.left, y: box.top };
 }
+
+// The zoom a box was measured at (Leo, 2026-11-12, of the "Also working here" popover after a zoom:
+// "evidently you zoom in and it doesn't really, you know, it doesn't follow, right?"). Cmd +/- and
+// Interface Scale are a real page zoom: the App turns a box's CSS px into its points by that zoom. It
+// read the zoom when it drew, not when the page measured, and both sides drop an unchanged report, so
+// a popover whose CSS box stayed put across a zoom kept its glass at the old size under content drawn
+// at the new one. Every box the App draws at now carries the zoom it was measured at, and every
+// reporter measures again when the zoom changes (`cmux-ui-scale-change`), so the report differs and goes.
+
+/** The App's event on the page's window when its zoom changes (DesignSettings.interfaceScaleScript). */
+export const PAGE_ZOOM_EVENT = "cmux-ui-scale-change";
+
+/** View points per CSS px the App draws this page at (`--cmux-ui-scale` on the root), 1 when unset. */
+export function pageZoom(view: Window | null | undefined): number {
+  const root = view?.document?.documentElement;
+  const inline = root?.style?.getPropertyValue?.("--cmux-ui-scale") ?? "";
+  const value = Number.parseFloat(
+    inline || (root ? view!.getComputedStyle(root).getPropertyValue("--cmux-ui-scale") : ""),
+  );
+  return Number.isFinite(value) && value > 0 ? Math.round(value * 1000) / 1000 : 1;
+}

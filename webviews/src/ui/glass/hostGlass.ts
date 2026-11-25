@@ -77,7 +77,7 @@
 // and never its own (AgentPaneView+HostGlass.swift hostGlassFrame).
 import { pageDrawsHover } from "../hoverLook";
 import { GLASS_ATTRIBUTE, GLASS_OFF, LENS_ATTRIBUTE, LIVE_BACKGROUND_ATTRIBUTE } from "./glassState";
-import { onVisualViewport, visualViewportScale } from "../visualViewportBox";
+import { onVisualViewport, visualViewportScale, PAGE_ZOOM_EVENT, pageZoom } from "../visualViewportBox";
 import { INTERFACE_SCALE_EVENT } from "../interfaceScale";
 import {
   attachSeeThroughBlur,
@@ -124,7 +124,7 @@ export type HostGlassRole = "sheet" | "toast";
 const ROLES: ReadonlySet<string> = new Set<HostGlassRole>(["sheet", "toast"]);
 
 /** One surface's box in the page's viewport (CSS px, where it shows under a pinch zoom), its corner
- * radius and its own opacity (a fade). */
+ * radius, its own opacity (a fade) and the page zoom it was measured at (ui/visualViewportBox.ts). */
 export type HostGlassSurface = {
   id: string;
   level: HostGlassLevel;
@@ -136,6 +136,7 @@ export type HostGlassSurface = {
   bottom: number;
   radius: number;
   opacity: number;
+  zoom: number;
 };
 
 /** The most surfaces one report carries (the App refuses more). */
@@ -209,6 +210,7 @@ export function hostGlassSurface(element: Element, id: string): HostGlassSurface
     bottom: round(box.bottom),
     radius: round(Math.min(radius, (box.right - box.left) / 2, (box.bottom - box.top) / 2)),
     opacity: Number.isFinite(opacity) ? round(Math.min(1, Math.max(0, opacity))) : 1,
+    zoom: pageZoom(view),
   };
 }
 
@@ -650,6 +652,8 @@ export function reportHostGlass(
   view.addEventListener("resize", follow);
   // A page zoom or an Interface Scale change (the App's scale script ends with this event).
   view.addEventListener(INTERFACE_SCALE_EVENT, follow);
+  // Cmd +/- or Interface Scale: the same CSS box is drawn at another size.
+  view.addEventListener(PAGE_ZOOM_EVENT, follow);
   // A trackpad pinch zooms and pans the visual viewport with no layout change: the boxes move on screen.
   view.visualViewport?.addEventListener("resize", follow);
   view.visualViewport?.addEventListener("scroll", follow);
@@ -666,6 +670,7 @@ export function reportHostGlass(
     view.removeEventListener("scroll", follow, { capture: true });
     view.removeEventListener("resize", follow);
     view.removeEventListener(INTERFACE_SCALE_EVENT, follow);
+    view.removeEventListener(PAGE_ZOOM_EVENT, follow);
     view.visualViewport?.removeEventListener("resize", follow);
     view.visualViewport?.removeEventListener("scroll", follow);
     doc.removeEventListener("transitionrun", follow, true);

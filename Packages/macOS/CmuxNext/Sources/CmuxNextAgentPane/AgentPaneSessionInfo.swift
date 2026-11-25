@@ -202,8 +202,8 @@ public nonisolated struct AgentPaneSessionInfoModel: Codable, Equatable, Sendabl
 public nonisolated struct AgentPaneSessionInfoOverlay: Equatable, Sendable {
     public var rect: CGRect
     public var radius: CGFloat
-    /// View points per CSS pixel when the page measured it (webviews ui/glass/hostGlass.ts
-    /// `hostGlassPageZoom`); nil from an older page, which is drawn at the pane's zoom now.
+    /// View points per CSS pixel when the page measured it (webviews ui/visualViewportBox.ts
+    /// `pageZoom`); nil from an older page, which is drawn at the pane's zoom now.
     public var zoom: CGFloat?
 
     public init(rect: CGRect, radius: CGFloat = 0, zoom: CGFloat? = nil) {
@@ -215,7 +215,7 @@ public nonisolated struct AgentPaneSessionInfoOverlay: Equatable, Sendable {
     /// A box's `zoom`: absent is nil, a number in range is that zoom, anything else is refused.
     static func decodeZoom(_ value: Any?) -> CGFloat?? {
         guard let value else { return .some(nil) }
-        guard let zoom = (value as? NSNumber)?.doubleValue, AgentPaneHostGlassSurface.zoomRange.contains(zoom) else { return nil }
+        guard let zoom = (value as? NSNumber)?.doubleValue, zoom.isFinite, (0.05...20).contains(zoom) else { return nil }
         return .some(CGFloat(zoom))
     }
 

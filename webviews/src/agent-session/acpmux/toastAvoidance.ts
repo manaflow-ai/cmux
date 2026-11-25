@@ -15,13 +15,11 @@
 // The box is measured once per frame in which the stack or the pane changed size (a resize observer
 // on the stack's parts, the dock and the pane's main column; a child-list observer on the dock only,
 // never on the transcript), and sent only when it changed.
-import { onVisualViewport } from "../../ui/visualViewportBox";
-import { hostGlassPageZoom } from "../../ui/glass/hostGlass";
-import { INTERFACE_SCALE_EVENT } from "../../ui/interfaceScale";
+import { PAGE_ZOOM_EVENT, onVisualViewport, pageZoom } from "../../ui/visualViewportBox";
 import { postNative } from "./native";
 
 /// The bottom stack's box in the page's viewport, CSS pixels, with the page zoom it was measured at
-/// once sent (ui/glass/hostGlass.ts `hostGlassPageZoom`).
+/// once sent (ui/visualViewportBox.ts).
 export type StackBox = { left: number; top: number; right: number; bottom: number; zoom?: number };
 
 /// Parts of the dock a toast may lie over: a new chat's hero lists sit in the dock's flow but are
@@ -88,7 +86,7 @@ export function watchToastAvoidance(
   const measure = () => {
     frame = 0;
     const measured = box(dock);
-    const next = measured && { ...measured, zoom: hostGlassPageZoom(view.document) };
+    const next = measured && { ...measured, zoom: pageZoom(view) };
     if (same(next, sent)) return;
     sent = next;
     send(next);
@@ -114,7 +112,7 @@ export function watchToastAvoidance(
   view.visualViewport?.addEventListener("resize", schedule);
   view.visualViewport?.addEventListener("scroll", schedule);
   // Cmd +/- or Interface Scale: the same CSS box sits elsewhere in the App's points.
-  view.addEventListener(INTERFACE_SCALE_EVENT, schedule);
+  view.addEventListener(PAGE_ZOOM_EVENT, schedule);
   schedule();
   return () => {
     parts.disconnect();
@@ -122,7 +120,7 @@ export function watchToastAvoidance(
     view.removeEventListener("resize", schedule);
     view.visualViewport?.removeEventListener("resize", schedule);
     view.visualViewport?.removeEventListener("scroll", schedule);
-    view.removeEventListener(INTERFACE_SCALE_EVENT, schedule);
+    view.removeEventListener(PAGE_ZOOM_EVENT, schedule);
     if (frame) view.cancelAnimationFrame(frame);
     frame = 0;
     if (sent) send(undefined);
