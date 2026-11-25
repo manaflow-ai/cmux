@@ -9,6 +9,7 @@ import { ErrorDetails } from "./ErrorDetails";
 import { MessageCard } from "./MessageCard";
 import { DispatchCard } from "./DispatchCard";
 import { WhoElseCard } from "./WhoElseCard";
+import { ForumCallCard } from "./ForumCallCard";
 import { GitHubConnectCard } from "./GitHubConnectCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
@@ -27,7 +28,6 @@ import { ThoughtRow } from "./ThoughtRow";
 import { groupId, runStretches, stretchStart, toolGroups, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
-import { SavePromptButton } from "./SavePromptButton";
 import { TurnActionsContext } from "./turnActions";
 import { FailedSendsContext } from "./promptDeliveryModel";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
@@ -60,9 +60,9 @@ import {
   failureCopy,
   failureKind,
   failureRecovery,
-  isAccountLimit,
   isTeamMachineSignIn,
   type FailureRoute,
+  isAccountLimit,
 } from "../failureCopy";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
@@ -288,6 +288,8 @@ function groupNode(
           group={group.calls.map((call, i) => ({ call, tool: group.items[i]!.tool! }))}
         />
       );
+    case "forum":
+      return <ForumCallCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
     case "agentCall":
       return <AgentCallCard key={group.item.tool!.id || index} call={group.call} tool={group.item.tool!} />;
     case "item":
@@ -634,7 +636,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             {!messages && timeline.toggle}
             {!messages && text && <ReadAloudButton id={row.id} text={text} />}
             {!messages && text && <RowReplyButton text={text} />}
-            {!messages && text && <SavePromptButton text={text} />}
             {!messages && ((text && row.answerId) || menuRetry) && <MessageMore rowId={row.answerId ?? row.id} />}
           </span>
           {stoppedLook === "word" && stoppedWord}
