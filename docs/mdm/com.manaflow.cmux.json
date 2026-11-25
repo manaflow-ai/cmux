@@ -4002,6 +4002,12 @@
       "title" : "Attachment Type Icons",
       "type" : "boolean"
     },
+    "experiments.browserProfileCard" : {
+      "default" : false,
+      "description" : "The browser's profile menu opens with a profile card.",
+      "title" : "Browser Profile Card",
+      "type" : "boolean"
+    },
     "experiments.chatWidgets" : {
       "default" : false,
       "description" : "Installed extensions can show a card under a finished tool call in agent chat.",
@@ -4018,6 +4024,12 @@
       "default" : false,
       "description" : "A glass composer with mode chips, mention chips and a round send button. Still being shaped.",
       "title" : "Composer Refresh",
+      "type" : "boolean"
+    },
+    "experiments.composerHatGroups" : {
+      "default" : true,
+      "description" : "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph.",
+      "title" : "Composer Hat: Two Groups",
       "type" : "boolean"
     },
     "experiments.foldSummaryCounts" : {
