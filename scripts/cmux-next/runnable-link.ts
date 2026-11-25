@@ -65,11 +65,21 @@ export function projectSetupCommand(): string {
   ].join("\n");
 }
 
+/** The smoke runner, one line each: test/app.js through mocha's API, resolved from the project. */
+export const SMOKE_RUNNER = [
+  "const M = require(require.resolve('mocha', { paths: [process.cwd()] }))",
+  "const m = new M({ reporter: 'dot' })",
+  "m.addFile('test/app.js')",
+  "m.run((f) => process.exit(f ? 1 : 0))",
+];
+
 /** Usable: the service answers 200, the project's smoke test passes, acpmux lists the session (when one is expected). */
 export function usableCommand(session: string | null): string {
   return [
     `s=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:${SERVICE_PORT}/ || true); echo "service=$s"`,
-    `cd ${PROJECT_DIR} && NODE_ENV=test node ./node_modules/mocha/bin/mocha.js --reporter dot test/app.js >/tmp/rl-smoke.log 2>&1 && echo smoke=1 || { echo smoke=0; echo "smoke_tail=$(tail -c 300 /tmp/rl-smoke.log | tr '\\n' ' ')"; echo "node=$(node -v 2>&1)"; }`,
+    // Mocha through its API, not its CLI: the CLI's old yargs loads as an ES module under Node 26 and throws.
+    `printf '%s\\n' ${SMOKE_RUNNER.map((l) => `"${l}"`).join(" ")} >/tmp/rl-smoke.cjs`,
+    `cd ${PROJECT_DIR} && NODE_ENV=test node /tmp/rl-smoke.cjs >/tmp/rl-smoke.log 2>&1 && echo smoke=1 || { echo smoke=0; echo "smoke_err=$(grep -m2 -E 'Error|failing' /tmp/rl-smoke.log | tr '\\n' ' ' | cut -c1-300)"; echo "node=$(node -v 2>&1)"; }`,
     `echo "head=$(git -C ${PROJECT_DIR} rev-parse HEAD 2>/dev/null)"`,
     session ? `acpmux ls 2>/dev/null | grep -q '${session}' && echo session=1 || echo session=0` : "echo session=skip",
   ].join("\n");
