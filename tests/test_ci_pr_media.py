@@ -288,9 +288,17 @@ class PlanTests(StubbedTest):
     def stub_calls(self) -> list[str]:
         return self._stub.calls
 
-    def plan(self, answers: dict[str, object], env: dict[str, str]) -> dict[str, str]:
+    def plan(self, answers: dict[str, object], env: dict[str, str], event: dict | None = None) -> dict[str, str]:
         import os
         import tempfile
+        if event is not None:
+            payload = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+            json.dump(event, payload)
+            payload.close()
+            self.addCleanup(os.unlink, payload.name)
+            env = {**env, "GITHUB_EVENT_PATH": payload.name}
+        else:
+            env = {"GITHUB_EVENT_PATH": "", **env}
         self._stub = self.stub({"repos/o/r/pulls/42/files": [[{"filename": "Sources/App.swift"}]],
                                 "repos/o/r/pulls/42": {"head": {"sha": HEAD, "repo": {"full_name": "o/r"}}, "body": ""},
                                 **answers})
@@ -399,6 +407,39 @@ class PlanTests(StubbedTest):
                 {"name": "Dogfood build #42", "status": "completed", "conclusion": "skipped"}]},
             "repos/o/r/actions/runs/9": run}, {"SOURCE_RUN_ID": "9", "SOURCE_RUN_ATTEMPT": "1"})
         self.assertEqual(outputs["run"], "[]")
+
+
+    # 2026-11-25: plan ran on every finished PR CI run (about 313 an hour) and spent the route App's hour
+    # (pr-media.yml's plan job went red 309 times an hour on its refusal); risk tier then grades on
+    # GITHUB_TOKEN. Most plans end at "changes nothing a tour shows", after reading the build state first.
+    SOURCE = {"id": 9, "run_attempt": 1, "head_sha": HEAD, "head_branch": "topic", "event": "pull_request",
+              "path": media.CI_WORKFLOW_PATH, "head_repository": {"full_name": "o/r"},
+              "pull_requests": [{"number": 42}], "status": "completed", "referenced_workflows": []}
+    BUILT_JOBS = {"jobs": [{"name": "Dogfood build #42", "status": "completed", "conclusion": "skipped"},
+                           {"name": "macos / macOS compile admission", "status": "completed", "conclusion": "success"}]}
+
+    def test_a_ci_run_no_tour_shows_reads_only_the_pull_request_and_its_files(self) -> None:
+        outputs = self.plan({"repos/o/r/actions/runs/9": self.SOURCE,
+                             "repos/o/r/actions/runs/9/attempts/1/jobs": self.BUILT_JOBS,
+                             "repos/o/r/pulls/42/files": [[{"filename": "CLI/cmux.swift"}]]},
+                            {"SOURCE_RUN_ID": "9", "SOURCE_RUN_ATTEMPT": "1"}, event={"workflow_run": self.SOURCE})
+        self.assertEqual(outputs["run"], "[]")
+        self.assertEqual(self.stub_calls(), ["repos/o/r/pulls/42", "repos/o/r/pulls/42/files?per_page=100"])
+
+    def test_the_event_payload_stands_in_for_the_source_run_read(self) -> None:
+        outputs = self.plan({"repos/o/r/actions/runs/9/attempts/1/jobs": self.BUILT_JOBS},
+                            {"SOURCE_RUN_ID": "9", "SOURCE_RUN_ATTEMPT": "1"}, event={"workflow_run": self.SOURCE})
+        self.assertEqual((outputs["build_sha"], outputs["compile"]), (HEAD, media.ADOPT_CI))
+        self.assertEqual(json.loads(outputs["run"]), ["sidebar-and-chrome-tour"])
+        self.assertNotIn("repos/o/r/actions/runs/9", self.stub_calls())
+
+    def test_a_payload_for_another_run_is_read_from_the_api(self) -> None:
+        outputs = self.plan({"repos/o/r/actions/runs/9/attempts/1/jobs": self.BUILT_JOBS,
+                             "repos/o/r/actions/runs/9": self.SOURCE},
+                            {"SOURCE_RUN_ID": "9", "SOURCE_RUN_ATTEMPT": "1"},
+                            event={"workflow_run": {**self.SOURCE, "id": 8}})
+        self.assertEqual(json.loads(outputs["run"]), ["sidebar-and-chrome-tour"])
+        self.assertIn("repos/o/r/actions/runs/9", self.stub_calls())
 
 
 class CacheAndMergeTests(StubbedTest):

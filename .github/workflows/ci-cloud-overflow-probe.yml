@@ -57,6 +57,10 @@ concurrency:
   group: ci-cloud-overflow-probe
   cancel-in-progress: false
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   probe:
     # One probe per Blacksmith Linux size compiles run on
@@ -97,12 +101,32 @@ jobs:
     # watch queued 19 minutes (17:53Z-18:12Z), so the hosted light rescue below ran about
     # every 20-25 minutes instead of every pass (cmuxterm-hq#6671). It needs no macOS
     # (Python and gh only).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds the App key that writes runner variables; never a probed size
-    timeout-minutes: 25
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds the App key that writes runner variables; never a probed size
+    timeout-minutes: 40
     permissions:
       actions: write
       contents: read
+    env:
+      # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
+      GH_BUDGET_WAIT_MAX_SECONDS: "900"
     steps:
+      # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh): every later gh call, and
+      # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
+      # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
+
       - name: Check out trusted switch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -150,10 +174,26 @@ jobs:
           private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-actions: read
 
+      # The cmux-bot installation's hour before this pass spends any of it (GET /rate_limit is free), as an
+      # `app-spend-pool:` line HQ's spend publisher sums, and the floor: below it the pool pass below is skipped and
+      # RUNNER_POOLS keeps its last value. The App runs dry by mid-hour; on 2026-11-18 the pool pass then read the
+      # janitor snapshot's refusal as no evidence, judged on the probe alone and moved every large Linux pool to
+      # 2 vCPU (scripts/ci/app_spend_mark.py, runner_pools.refused()). The switch itself still runs: its reads
+      # fall back to the workflow token and a refused read is never a stall (cloud_overflow_switch.wait_for_probe()).
+      - name: Read the cmux-bot budget before the pass
+        id: app-spend
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/app_spend_mark.py start ci-cloud-overflow-probe/watch --floor pass
+
       - name: Probe and switch
         id: switch
         env:
-          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          # Under the cmux-bot floor (the reading above) the switch reads on the workflow token instead: it still
+          # watches its probes, and the cmux-bot hour's rest stays above HQ's NOW reserve.
+          GH_TOKEN: ${{ steps.app-spend.outputs.low != 'true' && steps.cmux-bot-token.outputs.token || github.token }}
           GH_FALLBACK_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           SWITCH_TOKEN: ${{ steps.switch-token.outputs.token }}
@@ -187,21 +227,40 @@ jobs:
       # on 2026-11-02 the linux pool stayed on 4 vCPU with 428 jobs queued beside 535 running
       # while 16 vCPU had room. The reviewed feat-cmux-next entry point at this pinned commit
       # runs main's unchanged runner_pools.py policy, then spills linux off a backed-up member.
-      # Only its two files are checked out; main's policy and clients stay this checkout's.
+      # Only its files are checked out (the spill, its reconcile, and expected_wait.py with its deadline_http.py
+      # client, which judge each capped pool by expected wait); main's policy and clients stay this checkout's.
       - name: Check out the reviewed linux pool spill
         id: spill-tooling
-        if: always() && steps.switch.outcome != 'skipped'
+        if: always() && steps.switch.outcome != 'skipped' && steps.app-spend.outputs.low != 'true'
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: 7c45ab8e4f6f0a345217f044b257c37cc0b8abfc # feat-cmux-next with cmux#45861 (hosted-first valve, served marks) and #45878 (linux_16 spill)
+          ref: f95bc766b1fc840ab8817e4d9bb61348a2084b07 # feat-cmux-next with cmux#49248 (admission from online runner counts), #48949 (wait-based admission, cmuxterm-hq#16113 step 3), #45861 and #45878
           path: .runner-pool-tooling
           sparse-checkout: |
             scripts/ci/linux_pool_spill.py
             scripts/ci/runner_pool_reconcile.py
+            scripts/ci/expected_wait.py
+            scripts/ci/deadline_http.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
+
+      # Admission reads the online runners (expected_wait.py, cmux#49248: pr_runner_pool.GitHub.runners()), which needs
+      # repository administration read. A token of its own, read-only and scoped to this repository, so nothing else in
+      # the job carries it; a failed mint leaves the writer on its CI_OWNED_POOL_SLOTS fallback.
+      - name: Mint the runners read token
+        id: runners-token
+        if: always() && vars.GLAEDA_ROUTE_APP_ID != '' && steps.switch.outcome != 'skipped' && steps.app-spend.outputs.low != 'true'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-administration: read
 
       # The one routing source (docs/ci-runners.md "Runner pools"): point each pool in
       # RUNNER_POOLS at its first member that is not dead, from the probe's per-label health
@@ -214,7 +273,7 @@ jobs:
       # on SWITCH_TOKEN; a failed mint falls back to the workflow token.
       - name: Point the runner pools at live members
         id: pools
-        if: always() && steps.switch.outcome != 'skipped'
+        if: always() && steps.switch.outcome != 'skipped' && steps.app-spend.outputs.low != 'true'
         env:
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           # A refused read (the cmux-bot budget is org-wide) is asked once more with this (runner_pools.main()).
@@ -229,6 +288,13 @@ jobs:
           CI_CLOUD_OVERFLOW_SAVED: ${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
           # The Blacksmith Linux outage override (runner_pools.HOSTED_OVERRIDE): unset in normal running.
           CI_LINUX_HOSTED_RUNNER: ${{ vars.CI_LINUX_HOSTED_RUNNER }}
+          # Wait-based admission (expected_wait.py, cmuxterm-hq#16113 step 3): the build controller whose job and
+          # timing feeds judge each capped pool's expected wait. Unset, unreachable or stale: no verdict, routing as before.
+          RUNNER_ADMISSION_CONTROLLER: ${{ vars.RUNNER_ADMISSION_CONTROLLER }}
+          # Owned Mac family label -> runners (JSON); a family it does not name is not judged.
+          CI_OWNED_POOL_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          # Online runners per label and family (cmux#49248); unset or refused: CI_OWNED_POOL_SLOTS above.
+          RUNNER_ADMISSION_RUNNERS_TOKEN: ${{ steps.runners-token.outputs.token }}
           SPILL_TOOLING: ${{ steps.spill-tooling.outcome == 'success' && '.runner-pool-tooling/scripts/ci/linux_pool_spill.py' || '' }}
         run: |
           if [ -n "$SPILL_TOOLING" ] && [ -f "$SPILL_TOOLING" ]; then
@@ -257,7 +323,7 @@ jobs:
       # 44476854382 queued on 16 vCPU from 07:04Z), so any label no pool and no raw runner variable
       # names counts too, after MOVED_MINUTES (cloud_overflow_switch.stranded_labels).
       - name: Re-run runs stranded on a dead label
-        if: always() && steps.switch.outcome != 'skipped' && steps.pools.outcome == 'success'
+        if: always() && steps.switch.outcome != 'skipped' && steps.pools.outcome == 'success' && steps.app-spend.outputs.low != 'true'
         continue-on-error: true
         timeout-minutes: 5
         env:
@@ -282,6 +348,16 @@ jobs:
             LINUX_RUNNER=${{ vars.LINUX_RUNNER }}
             LINUX_RUNNER_DARWIN_CROSS=${{ vars.LINUX_RUNNER_DARWIN_CROSS }}
         run: bash scripts/ci/python-with-yaml.sh scripts/ci/cloud_overflow_switch.py --rescue-dead
+
+      # This job's spend: the pool again and the difference from the reading above (an upper bound, since every
+      # job holding a cmux-bot token spends the same pool). Before the stuck-probe cancel, which ends the run.
+      - name: Read the cmux-bot budget after the pass
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/app_spend_mark.py end ci-cloud-overflow-probe/watch
 
       # Last, in its own step so the summary above is already saved. If the
       # switch did not observe every probe start (one may still be queued),
