@@ -52,6 +52,24 @@ export const NOT_SIGNED_IN = /not signed in|not logged in/i;
  * word: OK” yet" quoted the prompt and must not pass). */
 export const MODEL_OK = /^\W*ok\W*$/i;
 
+/**
+ * A fault of staging or of the shared Claude credential, not of the code under test (2026-11-25, asks-to-done-r1: the
+ * check was red on PRs that only re-pinned this workflow's actions). Runs 45605939804 (exec 503 vm_unavailable),
+ * 45650025721 (ECONNRESET after both turns ran), 45635285575 and 45592279564 (the shared token's weekly limit) judged
+ * nothing about optchat-chief. Such a run ends NOT JUDGED with a warning, exit 0, and says which fault it was.
+ */
+export const INFRA_FAULT = /\bvm_unavailable\b|\bvm_not_running\b|HTTP 50[234]\b|\b50[234] [a-z_]+|ECONNRESET|socket connection was closed|operation timed out|TimeoutError|fetch failed|still (?:creating|starting|provisioning|pending) after/i;
+/** The model never ran: the credential's own limit, not the route the proof is about. */
+export const CREDENTIAL_LIMIT = /hit your (?:weekly|daily|usage|session) limit|usage limit reached|rate[ _-]limit(?:ed)?|\boverloaded(?:_error)?\b|credit balance is too low/i;
+
+/** Why a run could not judge the code, or null when it judged it. */
+export function infraFault(error: string | null, proofReplies: string[] = []): string | null {
+  if (error && INFRA_FAULT.test(error)) return `staging: ${error.replace(/\s+/g, " ").slice(0, 200)}`;
+  const limit = proofReplies.find((x) => CREDENTIAL_LIMIT.test(x));
+  if (limit) return `the shared Claude credential: ${limit.replace(/\s+/g, " ").slice(0, 200)}`;
+  return null;
+}
+
 export type RunResult = { label: string; exit: string; replies: string[]; timeout: boolean | null; why: string };
 
 /** A run's verdict: the proof wants a model reply ("OK"), the control none (its turn went to the refusing route). */
@@ -210,9 +228,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       // stopped 3 min into a background driver polled every 10 s: 409 vm_not_running; cloud-journey.ts 43983037186).
       let done = false;
       try {
-        const d = await run(`export PATH="$HOME/.local/bin:$PATH"; set -a; . ${login}; set +a; timeout -k 5 265 python3 ${DIR}/measure/chief_driver.py --scenario smoke --only s03 --out ${out} --bins ${DIR}/bin ` +
+        // One resend when staging refuses the exec (run 45605939804: 503 vm_unavailable on a running machine).
+        const driver = (cmd: string) => run(cmd, 290_000).catch(async (e) => {
+          if (!INFRA_FAULT.test(String((e as Error)?.message))) throw e;
+          say(`${label}: exec ${(e as Error).message}; sending it once more in 15 s`);
+          await sleep(15_000);
+          return run(cmd, 290_000);
+        });
+        const d = await driver(`export PATH="$HOME/.local/bin:$PATH"; set -a; . ${login}; set +a; timeout -k 5 265 python3 ${DIR}/measure/chief_driver.py --scenario smoke --only s03 --out ${out} --bins ${DIR}/bin ` +
           `--login-env ${login} --delete-login-env --turn-timeout 200 --max-settle 0 ${optIn} ` +
-          `> ${DIR}/${label}.log 2>&1 < /dev/null; echo "driver_exit=$?"`, 290_000);
+          `> ${DIR}/${label}.log 2>&1 < /dev/null; echo "driver_exit=$?"`);
         done = /driver_exit=0\b/.test(d.stdout);
         say(`${label}: ${d.stdout.trim().split("\n").pop()}`);
       } catch (e) {
@@ -242,10 +267,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const pOk = judge("proof", proof);
     J.record({ step: "control: no opt-in, resolving route: no model reply", status: cOk ? "pass" : "fail", ms: 0, detail: JSON.stringify(control.replies).slice(0, 400) });
     J.record({ step: "proof: opted-in host gets a model reply", status: pOk ? "pass" : "fail", ms: 0, detail: JSON.stringify(proof.replies).slice(0, 400) });
+    const credential = !pOk && cOk ? infraFault(null, proof.replies) : null;
+    if (credential) {
+      verdict = `NOT JUDGED (infra): ${credential}`;
+      return 0;
+    }
     verdict = pOk && cOk
       ? `PASS: the opted-in Chief replied ${JSON.stringify(proof.replies.join(" ").slice(0, 200))}; the control got no model reply`
       : !pOk ? "FAIL: no model reply from the opted-in Chief" : "FAIL: the control got a model reply, so the route did not take over";
     return pOk && cOk ? 0 : 1;
+  } catch (e) {
+    const fault = infraFault(String((e as Error)?.message ?? e));
+    if (!fault) throw e;
+    verdict = `NOT JUDGED (infra): ${fault}`;
+    return 0;
   } finally {
     if (machine) {
       await remove(machine);
@@ -254,6 +289,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     write(verdict);
     say(verdict);
+    // A GitHub warning annotation, so a NOT JUDGED green is never read as a pass.
+    if (verdict.startsWith("NOT JUDGED")) console.log(`::warning title=Chief turn proof not judged::${scrub(verdict, J.secrets).replace(/[\r\n%]/g, " ")}`);
   }
 }
 
