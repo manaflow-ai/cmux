@@ -853,6 +853,28 @@ async fn measure(
         let a = get(&split_after, k);
         if replaced { a } else { a.saturating_sub(get(&split_before, k)) }
     };
+    // By kind (a notification's method, `reply`, `list`): bytes and messages over the change.
+    let empty = serde_json::Map::new();
+    let kinds_before = split_before["kinds"].as_object().unwrap_or(&empty);
+    let kinds = split_after["kinds"]
+        .as_object()
+        .unwrap_or(&empty)
+        .iter()
+        .map(|(k, v)| {
+            let was = |f: &str| {
+                if replaced { 0 } else { get(&kinds_before.get(k).cloned().unwrap_or_default(), f) }
+            };
+            let (b, c) = (
+                get(v, "bytes").saturating_sub(was("bytes")),
+                get(v, "count").saturating_sub(was("count")),
+            );
+            (k.clone(), json!({"bytes": b, "count": c}))
+        })
+        .collect::<serde_json::Map<_, _>>();
+    println!(
+        "PAIRKINDS {}",
+        json!({"path": path, "condition": condition, "tag": tag, "kinds": kinds})
+    );
     n.split = Some([
         ("rx_text_bytes", delta("text")),
         ("rx_frame_bytes", delta("frames")),

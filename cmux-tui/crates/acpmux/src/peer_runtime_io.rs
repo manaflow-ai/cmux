@@ -1477,6 +1477,7 @@ impl Peer {
                     };
                     // A v2 frame of the peer's list stream goes to this link's mirror.
                     if crate::link_v2::is_frame_line(&text) {
+                        self.received.add_kind("list", text.len());
                         self.mirror_frame(link, text);
                         continue;
                     }
@@ -1488,6 +1489,11 @@ impl Peer {
                         Err(e) if compressed => break Err(format!("a compressed frame is not a JSON-RPC message: {e}")),
                         Err(_) => continue,
                     };
+                    self.received.add_kind(match &msg {
+                        Message::Notification { method, .. } => method.as_str(),
+                        Message::Response { .. } => "reply",
+                        Message::Request { .. } => "request",
+                    }, text.len());
                     match msg {
                         Message::Response { id, result, error } => {
                             let key = id.to_string();

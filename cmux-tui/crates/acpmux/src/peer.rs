@@ -616,6 +616,9 @@ pub struct ReceivedBytes {
     /// carries them again), and their count.
     gated: AtomicU64,
     gated_events: AtomicU64,
+    /// Of `text`: (bytes, messages) by what they were: a notification's method, `reply`, or
+    /// `list` (the v2 list stream's frames). Names which source a slow resume carried.
+    kinds: StdMutex<std::collections::BTreeMap<String, (u64, u64)>>,
 }
 
 impl ReceivedBytes {
@@ -630,6 +633,17 @@ impl ReceivedBytes {
         ] {
             n.store(0, Ordering::SeqCst);
         }
+        self.kinds.lock_or_recover().clear();
+    }
+
+    pub(crate) fn add_kind(&self, kind: &str, text: usize) {
+        let mut kinds = self.kinds.lock_or_recover();
+        let row = match kinds.get_mut(kind) {
+            Some(row) => row,
+            None => kinds.entry(kind.to_owned()).or_default(),
+        };
+        row.0 = row.0.saturating_add(u64::try_from(text).unwrap_or(u64::MAX));
+        row.1 += 1;
     }
 
     pub(crate) fn add_replay(&self, text: usize) {
@@ -649,6 +663,9 @@ impl ReceivedBytes {
             "frames": r(&self.frames), "text": r(&self.text),
             "replay": r(&self.replay), "replayEvents": r(&self.replay_events),
             "gatedLive": r(&self.gated), "gatedLiveEvents": r(&self.gated_events),
+            "kinds": self.kinds.lock_or_recover().iter()
+                .map(|(k, (b, n))| (k.clone(), serde_json::json!({"bytes": b, "count": n})))
+                .collect::<serde_json::Map<_, _>>(),
         })
     }
 
