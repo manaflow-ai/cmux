@@ -305,6 +305,32 @@
           ]
         },
         {
+          "key": "experiments.threadMinimapRestReveal",
+          "note": "The agent chat's prompt rail, where it would cover the text (narrow panes), reveals only for a pointer that rests 140 ms on the pane-edge strip with no button down, and takes no pointer while a press that began in the text is down, so a selection drag along the edge keeps selecting (webviews threadMinimap/railIntent.ts, reveal.experiment.ts, useExperimentSwitch(\"threadMinimapRestReveal\")). Off by default (Leo's UI merge hold, 2026-11-24); off keeps the earlier reveal on touch.",
+          "title": {
+            "key": "settings.experiments.threadMinimapRestReveal",
+            "text": "Prompt Rail Waits for a Resting Pointer"
+          },
+          "help": {
+            "key": "settings.experiments.threadMinimapRestReveal.help",
+            "text": "In narrow chats the prompt rail opens only when the pointer rests on the edge, never while you select text."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "prompt",
+            "rail",
+            "minimap",
+            "scroll",
+            "hover",
+            "select",
+            "copy"
+          ]
+        },
+        {
           "key": "experiments.terminalHistory",
           "note": "A local Claude Code or Codex terminal pane with a known session ID shows an \"Earlier history — open as chat\" button that opens the agent's whole transcript as a read-only, paginated chat tab (TerminalHistoryButton, PaneController.showTerminalHistoryLink, DesignSettings.experiment(\"terminalHistory\")). Off by default (Leo's UI merge hold, 2026-11-24); off draws no button, so the terminal pane is unchanged. Applies from the next tab switch.",
           "title": {

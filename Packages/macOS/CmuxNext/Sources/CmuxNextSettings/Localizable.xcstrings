@@ -1,6 +1,114 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.sidebar.showLiveToggle": {
+      "comment": "Settings > Appearance > Sidebar: title of the toggle that shows the footer Live button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Show Live Button"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إظهار زر المباشر"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Prikaži dugme Uživo"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Vis Live-knap"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Live-Taste anzeigen"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mostrar botón En vivo"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Afficher le bouton Direct"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Mostra pulsante Live"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ライブボタンを表示"}},
+        "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញប៊ូតុងផ្ទាល់"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "라이브 버튼 표시"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Vis Live-knapp"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Pokaż przycisk trybu na żywo"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Mostrar botão Ao vivo"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Показывать кнопку присутствия"}},
+        "th": {"stringUnit": {"state": "translated", "value": "แสดงปุ่มออนไลน์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Canlı Düğmesini Göster"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Показувати кнопку присутності"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Hiện nút trực tuyến"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "显示在线按钮"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "顯示線上按鈕"}}
+      }
+    },
+    "settings.sidebar.showLiveToggle.help": {
+      "comment": "Settings help line of the Show Live Button toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "A Live button after the profile button turns presence on or off. Off: use the palette."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يؤدي زر المباشر بعد زر الملف الشخصي إلى تشغيل الحضور أو إيقافه. عند الإيقاف: استخدم لوحة الأوامر."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Dugme Uživo iza dugmeta profila uključuje ili isključuje prisustvo. Isključeno: koristite paletu."}},
+        "da": {"stringUnit": {"state": "translated", "value": "En Live-knap efter profilknappen slår tilstedeværelse til eller fra. Fra: brug paletten."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Eine Live-Taste nach der Profiltaste schaltet die Präsenz ein oder aus. Aus: nutze die Palette."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Un botón En vivo tras el botón de perfil activa o desactiva la presencia. Desactivado: usa la paleta."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Un bouton Direct après le bouton de profil active ou désactive la présence. Désactivé : utilisez la palette."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Un pulsante Live dopo quello del profilo attiva o disattiva la presenza. Disattivato: usa la palette."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "プロフィールボタンの後ろのライブボタンで、プレゼンスのオンとオフを切り替えます。オフの場合はパレットを使います。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប៊ូតុងផ្ទាល់បន្ទាប់ពីប៊ូតុងប្រវត្តិរូប បើក ឬបិទវត្តមាន។ បិទ៖ ប្រើផាលែត។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "프로필 버튼 뒤의 라이브 버튼으로 접속 상태를 켜거나 끕니다. 끄면 팔레트를 사용하세요."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "En Live-knapp etter profilknappen slår tilstedeværelse på eller av. Av: bruk paletten."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Przycisk trybu na żywo po przycisku profilu włącza lub wyłącza obecność. Wyłączone: użyj palety."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Um botão Ao vivo depois do botão de perfil liga ou desliga a presença. Desligado: use a paleta."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Кнопка присутствия после кнопки профиля включает и выключает присутствие. Выключено: используйте палитру."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ปุ่มออนไลน์หลังปุ่มโปรไฟล์ใช้เปิดหรือปิดการแสดงสถานะ ปิด: ใช้พาเลต"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Profil düğmesinden sonraki Canlı düğmesi varlığı açar veya kapatır. Kapalı: paleti kullanın."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Кнопка присутності після кнопки профілю вмикає або вимикає присутність. Вимкнено: користуйтеся палітрою."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Nút trực tuyến sau nút hồ sơ bật hoặc tắt sự hiện diện. Tắt: dùng bảng lệnh."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "资料按钮后的在线按钮可开启或关闭在线状态。关闭时：使用命令面板。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "個人檔案按鈕後的線上按鈕可開啟或關閉線上狀態。關閉時：使用命令面板。"}}
+      }
+    },
+    "settings.presence.live": {
+      "comment": "Settings title of the Live Presence toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Live Presence"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الحضور المباشر"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Prisustvo uživo"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Live-tilstedeværelse"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Live-Präsenz"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Presencia en vivo"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Présence en direct"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Presenza live"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ライブプレゼンス"}},
+        "km": {"stringUnit": {"state": "translated", "value": "វត្តមានផ្ទាល់"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "라이브 접속 상태"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Live-tilstedeværelse"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Obecność na żywo"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Presença ao vivo"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Присутствие в сети"}},
+        "th": {"stringUnit": {"state": "translated", "value": "สถานะออนไลน์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Canlı Varlık"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Присутність у мережі"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Hiện diện trực tuyến"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在线状态"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "線上狀態"}}
+      }
+    },
+    "settings.presence.live.help": {
+      "comment": "Settings help line of the Live Presence toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Show teammates and agents who are live, and let them see you. Off: you appear offline."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أظهر زملاء الفريق والوكلاء المتصلين ودعهم يرونك. عند الإيقاف: تظهر غير متصل."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Prikaži saradnike i agente koji su uživo i dopusti im da vide vas. Isključeno: izgledate van mreže."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Vis teammedlemmer og agenter, der er live, og lad dem se dig. Fra: du ser ud til at være offline."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Zeige Teammitglieder und Agenten, die live sind, und lass sie dich sehen. Aus: du erscheinst offline."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Muestra a compañeros y agentes que están en vivo y deja que te vean. Desactivado: apareces desconectado."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Affiche les coéquipiers et agents en direct et leur permet de vous voir. Désactivé : vous apparaissez hors ligne."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Mostra colleghi e agenti live e consenti loro di vederti. Disattivato: risulti offline."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ライブ中のチームメイトとエージェントを表示し、自分も見えるようにします。オフの場合はオフラインに見えます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញមិត្តរួមក្រុម និងភ្នាក់ងារដែលកំពុងអនឡាញ ហើយអនុញ្ញាតឱ្យពួកគេឃើញអ្នក។ បិទ៖ អ្នកលេចជាក្រៅអនឡាញ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "라이브 중인 팀원과 에이전트를 표시하고 나도 보이게 합니다. 끄면 오프라인으로 보입니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Vis lagkamerater og agenter som er live, og la dem se deg. Av: du ser frakoblet ut."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Pokazuj współpracowników i agentów będących na żywo i pozwól im widzieć Ciebie. Wyłączone: wyglądasz na offline."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Mostra colegas e agentes que estão ao vivo e deixa que vejam você. Desligado: você aparece offline."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Показывать коллег и агентов в сети и позволить им видеть вас. Выключено: вы отображаетесь не в сети."}},
+        "th": {"stringUnit": {"state": "translated", "value": "แสดงเพื่อนร่วมทีมและเอเจนต์ที่ออนไลน์ และให้พวกเขาเห็นคุณ ปิด: คุณจะแสดงเป็นออฟไลน์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Canlı olan takım arkadaşlarını ve ajanları göster ve seni görmelerine izin ver. Kapalı: çevrimdışı görünürsün."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Показувати колег і агентів у мережі та дозволити їм бачити вас. Вимкнено: ви відображаєтеся поза мережею."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Hiện đồng đội và tác tử đang trực tuyến, và cho họ thấy bạn. Tắt: bạn hiện là ngoại tuyến."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "显示在线的队友和代理，并让他们看到你。关闭时：你显示为离线。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "顯示線上的隊友和代理，並讓他們看到你。關閉時：你會顯示為離線。"}}
+      }
+    },
     "settings.category.automations": {
       "comment": "Settings sidebar: the category for Cloud automations (when cmux Cloud starts an agent on its own: a GitHub event, a webhook or a schedule).",
       "extractionState": "manual",
@@ -203511,6 +203619,270 @@
         }
       }
     },
+    "settings.agents.autoRetry.capacityFallbackAfter": {
+      "comment": "Settings > Agents > Retry After Errors: number of capacity errors before a model switch",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدد أخطاء السعة قبل التبديل إلى Sonnet"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Broj grešaka kapaciteta prije prelaska na Sonnet"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapacitetsfejl før skift til Sonnet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapazitätsfehler vor dem Wechsel zu Sonnet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capacity Failures Before Switching to Sonnet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Errores de capacidad antes de cambiar a Sonnet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erreurs de capacité avant le passage à Sonnet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Errori di capacità prima del passaggio a Sonnet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonnet に切り替えるまでの容量エラー回数"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចំនួនកំហុសសមត្ថភាពមុនពេលប្ដូរទៅ Sonnet"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonnet으로 전환하기 전 용량 오류 횟수"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapasitetsfeil før bytte til Sonnet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liczba błędów przeciążenia przed zmianą na Sonnet"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erros de capacidade antes de mudar para o Sonnet"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Число ошибок перегрузки до перехода на Sonnet"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จำนวนข้อผิดพลาดจากการรองรับโหลดก่อนเปลี่ยนไปใช้ Sonnet"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonnet’e geçmeden önceki kapasite hatası sayısı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кількість помилок перевантаження до переходу на Sonnet"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Số lỗi quá tải trước khi chuyển sang Sonnet"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换到 Sonnet 前的容量错误次数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換至 Sonnet 前的容量錯誤次數"
+          }
+        }
+      }
+    },
+    "settings.agents.autoRetry.capacityFallbackAfter.help": {
+      "comment": "Settings > Agents > Retry After Errors: when the chat switches models and how to turn switching off",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بعد هذا العدد من أخطاء السعة المتتالية، تنتقل المحادثة من Opus أو Fable إلى Sonnet حتى ينجح أحد الأدوار. اضبط القيمة على 0 للبقاء على النموذج الأصلي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nakon ovoliko uzastopnih grešaka kapaciteta, razgovor prelazi s modela Opus ili Fable na Sonnet dok se jedan potez uspješno ne završi. Postavite na 0 da zadržite izvorni model."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efter så mange kapacitetsfejl i træk skifter chatten fra Opus eller Fable til Sonnet, indtil en tur lykkes. Vælg 0 for at beholde den oprindelige model."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach so vielen Kapazitätsfehlern in Folge wechselt der Chat von Opus oder Fable zu Sonnet, bis eine Antwort gelingt. Bei 0 bleibt das ursprüngliche Modell aktiv."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After this many consecutive capacity errors, Opus or Fable switches to Sonnet until a turn succeeds. Set to 0 to stay on the original model."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tras este número de errores de capacidad consecutivos, el chat pasa de Opus o Fable a Sonnet hasta que se completa un turno con éxito. Elige 0 para conservar el modelo original."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Après ce nombre d’erreurs de capacité consécutives, la conversation passe d’Opus ou de Fable à Sonnet jusqu’à ce qu’un tour aboutisse. Choisissez 0 pour garder le modèle d’origine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopo questo numero di errori di capacità consecutivi, la chat passa da Opus o Fable a Sonnet finché un turno non va a buon fine. Imposta 0 per mantenere il modello originale."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "容量エラーが指定回数連続すると、Opus または Fable から Sonnet に切り替わります。ターンが成功すると元のモデルに戻ります。0 にすると切り替えません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលមានកំហុសដោយសារខ្វះសមត្ថភាពជាប់គ្នាដល់ចំនួននេះ ការជជែកនឹងប្ដូរពី Opus ឬ Fable ទៅ Sonnet រហូតដល់ការឆ្លើយតបមួយបានជោគជ័យ។ កំណត់ជា 0 ដើម្បីបន្តប្រើម៉ូដែលដើម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "용량 오류가 이 횟수만큼 연속으로 발생하면 Opus 또는 Fable에서 Sonnet으로 전환하고, 한 턴이 성공하면 원래 모델로 돌아갑니다. 0으로 설정하면 원래 모델을 계속 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etter så mange kapasitetsfeil på rad bytter samtalen fra Opus eller Fable til Sonnet til en runde lykkes. Velg 0 for å beholde den opprinnelige modellen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po tylu kolejnych błędach przeciążenia czat przechodzi z modelu Opus lub Fable na Sonnet, aż jedna tura zakończy się pomyślnie. Ustaw 0, aby zachować pierwotny model."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Após esse número de erros de capacidade consecutivos, a conversa passa do Opus ou do Fable para o Sonnet até que um turno seja concluído com sucesso. Defina como 0 para manter o modelo original."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "После указанного числа ошибок перегрузки подряд чат переходит с Opus или Fable на Sonnet до первого успешного ответа. Укажите 0, чтобы сохранить исходную модель."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเกิดข้อผิดพลาดจากการรองรับโหลดติดต่อกันครบจำนวนนี้ แชตจะเปลี่ยนจาก Opus หรือ Fable ไปใช้ Sonnet จนกว่าจะตอบสำเร็จหนึ่งรอบ ตั้งค่าเป็น 0 เพื่อใช้โมเดลเดิมต่อไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Art arda bu sayıda kapasite hatası oluşursa sohbet, bir tur başarıyla tamamlanana kadar Opus veya Fable yerine Sonnet kullanır. İlk modeli kullanmaya devam etmek için 0 seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Після вказаної кількості помилок перевантаження поспіль чат переходить з Opus або Fable на Sonnet до першої успішної відповіді. Укажіть 0, щоб зберегти початкову модель."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sau số lần lỗi quá tải liên tiếp này, cuộc trò chuyện chuyển từ Opus hoặc Fable sang Sonnet cho đến khi một lượt thành công. Đặt thành 0 để giữ nguyên mô hình ban đầu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连续发生指定次数的容量错误后，对话会从 Opus 或 Fable 切换到 Sonnet，直到一轮对话成功完成。设为 0 可继续使用原模型。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連續發生指定次數的容量錯誤後，對話會從 Opus 或 Fable 切換至 Sonnet，直到一輪對話成功完成。設為 0 可繼續使用原本的模型。"
+          }
+        }
+      }
+    },
     "settings.agents.autoRetry.enabled": {
       "comment": "Settings > Agents > Retry After Errors: toggle title",
       "extractionState": "manual",
@@ -246993,6 +247365,60 @@
         "vi": {"stringUnit": {"state": "translated", "value": "Terminal Claude Code và Codex có một nút mở lịch sử trước đó dưới dạng cuộc trò chuyện chỉ đọc."}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "Claude Code 和 Codex 终端会多出一个按钮，可将其早前的历史记录作为只读聊天打开。"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "Claude Code 與 Codex 終端機會多一個按鈕，可將先前的歷史記錄以唯讀聊天開啟。"}}
+      }
+    },
+    "settings.experiments.threadMinimapRestReveal": {
+      "comment": "Settings > Experimental row title: the agent chat prompt rail opens only for a resting pointer and never under a text selection drag.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "شريط المطالبات ينتظر مؤشرًا ثابتًا"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Traka upita čeka miran pokazivač"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Promptlisten venter på en stillestående markør"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Prompt-Leiste wartet auf ruhenden Zeiger"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Prompt Rail Waits for a Resting Pointer"}},
+        "es": {"stringUnit": {"state": "translated", "value": "La barra de prompts espera a un puntero quieto"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Le rail des invites attend un pointeur immobile"}},
+        "it": {"stringUnit": {"state": "translated", "value": "La barra dei prompt attende un puntatore fermo"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "プロンプトレールはポインタの静止を待つ"}},
+        "km": {"stringUnit": {"state": "translated", "value": "របារសំណើរង់ចាំព្រួញនៅស្ងៀម"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "프롬프트 레일은 포인터가 멈출 때까지 대기"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Promptlisten venter på en markør i ro"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Pasek promptów czeka na nieruchomy wskaźnik"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "A barra de prompts espera o ponteiro parar"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Лента запросов ждёт остановки указателя"}},
+        "th": {"stringUnit": {"state": "translated", "value": "แถบพรอมต์รอให้ตัวชี้หยุดนิ่ง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "İstem Çubuğu Duran İmleci Bekler"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Стрічка запитів чекає зупинки вказівника"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Thanh lời nhắc chờ con trỏ dừng lại"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "提示栏等待指针停留"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "提示列等待指標停留"}}
+      }
+    },
+    "settings.experiments.threadMinimapRestReveal.help": {
+      "comment": "Settings > Experimental > Prompt Rail Waits for a Resting Pointer help: what the switch changes in narrow agent chats.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "في المحادثات الضيقة يفتح شريط المطالبات فقط عندما يستقر المؤشر على الحافة، وليس أثناء تحديد النص أبدًا."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "U uskim chatovima traka upita se otvara samo kada pokazivač miruje na rubu, nikad dok birate tekst."}},
+        "da": {"stringUnit": {"state": "translated", "value": "I smalle chats åbner promptlisten kun, når markøren hviler på kanten, aldrig mens du markerer tekst."}},
+        "de": {"stringUnit": {"state": "translated", "value": "In schmalen Chats öffnet sich die Prompt-Leiste nur, wenn der Zeiger am Rand ruht, nie beim Markieren von Text."}},
+        "en": {"stringUnit": {"state": "translated", "value": "In narrow chats the prompt rail opens only when the pointer rests on the edge, never while you select text."}},
+        "es": {"stringUnit": {"state": "translated", "value": "En chats estrechos, la barra de prompts solo se abre cuando el puntero se detiene en el borde, nunca mientras seleccionas texto."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Dans les discussions étroites, le rail des invites ne s’ouvre que lorsque le pointeur reste sur le bord, jamais pendant une sélection de texte."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Nelle chat strette la barra dei prompt si apre solo quando il puntatore resta fermo sul bordo, mai mentre selezioni il testo."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "幅の狭いチャットでは、ポインタが端で止まったときだけプロンプトレールが開き、テキスト選択中は開きません。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ក្នុងការជជែកតូចចង្អៀត របារសំណើបើកតែពេលព្រួញនៅស្ងៀមលើគែម មិនដែលបើកពេលអ្នកកំពុងជ្រើសអត្ថបទទេ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "좁은 채팅에서는 포인터가 가장자리에 머물 때만 프롬프트 레일이 열리며, 텍스트를 선택하는 동안에는 열리지 않습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "I smale chatter åpnes promptlisten bare når markøren hviler på kanten, aldri mens du merker tekst."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "W wąskich czatach pasek promptów otwiera się tylko, gdy wskaźnik zatrzyma się przy krawędzi, nigdy podczas zaznaczania tekstu."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Em chats estreitos, a barra de prompts só abre quando o ponteiro para na borda, nunca enquanto você seleciona texto."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "В узких чатах лента запросов открывается, только когда указатель остановится у края, и никогда во время выделения текста."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ในแชตที่แคบ แถบพรอมต์จะเปิดเมื่อตัวชี้หยุดนิ่งที่ขอบเท่านั้น และจะไม่เปิดขณะคุณเลือกข้อความ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Dar sohbetlerde istem çubuğu yalnızca imleç kenarda durduğunda açılır, metin seçerken asla açılmaz."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "У вузьких чатах стрічка запитів відкривається, лише коли вказівник зупиниться біля краю, і ніколи під час виділення тексту."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Trong cuộc trò chuyện hẹp, thanh lời nhắc chỉ mở khi con trỏ dừng ở mép, không bao giờ khi bạn đang chọn văn bản."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在窄聊天中，只有指针停在边缘时提示栏才会打开，选择文本时绝不会打开。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在窄聊天中，只有指標停在邊緣時提示列才會打開，選取文字時絕不會打開。"}}
       }
     },
     "settings.experiments.terminalHistoryFind": {
