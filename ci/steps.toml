@@ -1452,6 +1452,7 @@ inputs = [
   "Packages/Shared/CmuxChiefVoiceCore/**",
   "Packages/Shared/CmuxConnectivityTelemetry/**",
   "Packages/Shared/CmuxDeviceHub/**",
+  "Packages/Shared/CmuxEgress/**",
   "Packages/Shared/CmuxGhosttyKit/**",
   "Packages/Shared/CmuxHomeCore/**",
   "Packages/Shared/CmuxScreenKit/**",
@@ -1476,8 +1477,9 @@ inputs = [
 ]
 # Agent tools beside the app (review.sh, try.sh, the hand-off host) and the mobile Worker build nothing in the iPhone app
 # (#53223, scripts/cmux-next/build_select.py reads the kit workflow's filter); the scripts the kit or the app build
-# reads stay in.
-ignore = ["cmux-next-ios/verify/**", "**/*.md", "cmux-next-ios/scripts/**", "cmux-next-ios/backend/**",
+# reads stay in. The fixtures the kit's own tests read (cmux-next-ios/verify/agent-cli-hybrid/) stay in too (#54725).
+ignore = ["cmux-next-ios/verify/**", "**/*.md", "!cmux-next-ios/verify/agent-cli-hybrid/**",
+          "cmux-next-ios/scripts/**", "cmux-next-ios/backend/**",
           "!cmux-next-ios/scripts/instant_perf_table.py", "!cmux-next-ios/scripts/generate-launch-mark.swift",
           "!cmux-next-ios/scripts/check-notification-extension.sh", "!cmux-next-ios/scripts/check-production-binary.sh",
           "!cmux-next-ios/CmuxMobileKit/**/Resources/**",
