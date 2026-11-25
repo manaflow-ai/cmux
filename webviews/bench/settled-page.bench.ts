@@ -678,8 +678,10 @@ try {
   });
   releases.push(() => statics.stop(true));
   const base = `http://127.0.0.1:${statics.port}`;
+  // `scheme=cmux`, a shipped build's, as every other bench passes: the default `cmux-dev` turns on the dev-only
+  // layout-motion audit (devMotionAudit.ts), a box read every frame after each DOM change that Release and NIGHTLY never pay.
   const urlFor = (session: string) =>
-    `${base}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${session}`;
+    `${base}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${session}`;
 
   const browser: Browser = await chromium.launch({ headless: true });
   releases.push(() => browser.close());
