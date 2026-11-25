@@ -32,8 +32,18 @@ const PUNCH_EVERY: Duration = Duration::from_millis(50);
 const PING_EVERY: Duration = Duration::from_millis(100);
 const STUN_WAIT: Duration = Duration::from_millis(900);
 
-fn main() {
+fn main() -> std::process::ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    match run(&args) {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err((code, why)) => {
+            eprintln!("cmux-nat-probe: {why}");
+            std::process::ExitCode::from(code)
+        }
+    }
+}
+
+fn run(args: &[String]) -> Result<(), (u8, String)> {
     let flag =
         |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned();
     match args.first().map(String::as_str) {
@@ -43,24 +53,22 @@ fn main() {
         }
         Some("pair") => {
             let role_a = flag("--role").as_deref() == Some("a");
-            let Some(token) = flag("--token").and_then(|t| u64::from_str_radix(&t, 16).ok()) else {
-                eprintln!("cmux-nat-probe pair: --token HEX is required");
-                std::process::exit(2);
-            };
+            let token = flag("--token")
+                .and_then(|t| u64::from_str_radix(&t, 16).ok())
+                .ok_or((2, "pair: --token HEX is required".to_string()))?;
             let duration = Duration::from_millis(
                 flag("--duration-ms").and_then(|v| v.parse().ok()).unwrap_or(15_000),
             );
             let pings = flag("--pings").and_then(|v| v.parse().ok()).unwrap_or(40u32);
             if let Some(rv) = flag("--rendezvous") {
-                let stream = match std::net::TcpStream::connect(&rv) {
-                    Ok(s) => s,
-                    Err(err) => {
-                        println!("RESULT {}", json!({"error": format!("rendezvous {rv}: {err}")}));
-                        std::process::exit(1);
-                    }
+                let fail = |err: std::io::Error| {
+                    let why = format!("rendezvous {rv}: {err}");
+                    println!("RESULT {}", json!({"error": why}));
+                    (1, why)
                 };
+                let stream = std::net::TcpStream::connect(&rv).map_err(fail)?;
                 let _ = stream.set_nodelay(true);
-                let mut w = stream.try_clone().expect("clone rendezvous stream");
+                let mut w = stream.try_clone().map_err(fail)?;
                 let _ = writeln!(w, "HELLO {token:x} {}", if role_a { "a" } else { "b" });
                 set_out(Box::new(Tee(w)));
                 pair(role_a, token, duration, pings, Box::new(std::io::BufReader::new(stream)));
@@ -76,14 +84,18 @@ fn main() {
         }
         Some("rendezvous") => {
             rendezvous(&flag("--listen").unwrap_or_else(|| "0.0.0.0:47391".into()))
+                .map_err(|why| (1, why))?;
         }
         _ => {
-            eprintln!(
-                "usage: cmux-nat-probe stun | pair --role a|b --token HEX [--duration-ms N] [--pings N]"
-            );
-            std::process::exit(2);
+            return Err((
+                2,
+                "usage: cmux-nat-probe stun | pair --role a|b --token HEX [--duration-ms N] \
+                 [--pings N] [--rendezvous HOST:PORT] | rendezvous [--listen ADDR]"
+                    .into(),
+            ));
         }
     }
+    Ok(())
 }
 
 /// The two sockets a side punches from, one per address family.
@@ -483,14 +495,12 @@ fn emit(tag: &str, v: &Value) {
 /// Pairs the two connections that say `HELLO TOKEN ROLE` with one token and relays lines
 /// between them; prints every RESULT line it relays, tagged with the token and the side's
 /// address, so the runner reads both sides' results from here.
-fn rendezvous(listen: &str) {
+fn rendezvous(listen: &str) -> Result<(), String> {
     use std::collections::HashMap;
     use std::net::TcpStream;
     use std::sync::{Arc, Mutex};
-    let listener = std::net::TcpListener::bind(listen).unwrap_or_else(|err| {
-        eprintln!("rendezvous: bind {listen}: {err}");
-        std::process::exit(1);
-    });
+    let listener = std::net::TcpListener::bind(listen)
+        .map_err(|err| format!("rendezvous: bind {listen}: {err}"))?;
     eprintln!("rendezvous: listening on {listen}");
     let waiting: Arc<Mutex<HashMap<String, TcpStream>>> = Arc::default();
     for conn in listener.incoming().map_while(Result::ok) {
@@ -498,7 +508,8 @@ fn rendezvous(listen: &str) {
         std::thread::spawn(move || {
             let _ = conn.set_nodelay(true);
             let peer_addr = conn.peer_addr().map(|a| a.to_string()).unwrap_or_default();
-            let mut reader = std::io::BufReader::new(conn.try_clone().expect("clone"));
+            let Ok(read_half) = conn.try_clone() else { return };
+            let mut reader = std::io::BufReader::new(read_half);
             let mut hello = String::new();
             if reader.read_line(&mut hello).is_err() {
                 return;
@@ -531,12 +542,10 @@ fn rendezvous(listen: &str) {
                     let _ = to.shutdown(std::net::Shutdown::Write);
                 })
             };
-            let a = relay(
-                other.try_clone().expect("clone"),
-                conn.try_clone().expect("clone"),
-                other_addr,
-                token.clone(),
-            );
+            let (Ok(other_read), Ok(conn_write)) = (other.try_clone(), conn.try_clone()) else {
+                return;
+            };
+            let a = relay(other_read, conn_write, other_addr, token.clone());
             // This side's reader already consumed its HELLO line; relay the rest from it.
             let mut to = other;
             let me = std::thread::spawn({
@@ -557,4 +566,5 @@ fn rendezvous(listen: &str) {
             let _ = me.join();
         });
     }
+    Ok(())
 }
