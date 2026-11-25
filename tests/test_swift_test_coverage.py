@@ -251,6 +251,19 @@ class DiffCheck(Fixture):
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertNotIn("::warning", result.stdout)
 
+    def test_a_target_swift_linux_packages_lists_passes(self):
+        # swift-linux-packages.yml runs a listed CmuxNext target on the pull requests that touch it.
+        base = self.commit()
+        self.add_agent_list_target()
+        listed = (self.root / "scripts/ci/swift-linux-packages.txt").read_text(encoding="utf-8")
+        write(self.root, "scripts/ci/swift-linux-packages.txt",
+              listed + "# comment\nPackages/macOS/CmuxNext  CmuxNextOtherTests,CmuxNextAgentListTests"
+              "  CMUX_SWIFTPM_TARGET_LINUX=1\n")
+        self.commit()
+        result = self.run_script("--base", base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("::error", result.stdout)
+
     def test_a_new_file_no_fast_tier_entry_covers_warns(self):
         base = self.commit()
         write(self.root, "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarTests.swift",

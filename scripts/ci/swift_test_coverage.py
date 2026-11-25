@@ -42,6 +42,7 @@ PACKAGE_LANE = "scripts/ci/package-test-lane.sh"
 CMUXNEXT = "Packages/macOS/CmuxNext"
 GRAPH = f"{CMUXNEXT}/ci-target-graph.json"
 FAST_TIER = "scripts/cmux-next/fast-tier.json"
+LINUX_PACKAGES = "scripts/ci/swift-linux-packages.txt"
 
 # `.testTarget(` then its `name:` argument, comments allowed between them.
 TEST_TARGET = re.compile(r'\.testTarget\(\s*(?:(?://[^\n]*|/\*.*?\*/)\s*)*name:\s*"([^"]+)"', re.S)
@@ -232,6 +233,20 @@ def fast_tier_filters(root: Path) -> list[str]:
             if e.get("kind") == "swift" and str(e.get("package") or "").rstrip("/") == CMUXNEXT]
 
 
+def linux_package_targets(root: Path) -> set[str]:
+    """CmuxNext test targets swift-linux-packages.txt lists: swift-linux-packages.yml runs them on pull requests."""
+    try:
+        text = (root / LINUX_PACKAGES).read_text(encoding="utf-8")
+    except OSError:
+        return set()
+    targets: set[str] = set()
+    for line in text.splitlines():
+        fields = line.split("#", 1)[0].split()
+        if len(fields) >= 2 and fields[0].rstrip("/") == CMUXNEXT:
+            targets |= {name for name in fields[1].split(",") if name}
+    return targets
+
+
 def suites_in(directory: Path) -> set[str]:
     names = set()
     for source in directory.rglob("*.swift"):
@@ -277,11 +292,12 @@ def check_diff(root: Path, base: str, full_ci: bool) -> tuple[list[str], list[st
     added = [name for name in manifest_targets(head_manifest) if name not in set(manifest_targets(base_manifest))]
     graph = graph_tests(root)
     filters = fast_tier_filters(root)
+    linux_targets = linux_package_targets(root)
     errors: list[str] = []
     warnings: list[str] = []
     for name in added:
         directory = target_directory(root, graph.get(name) or f"Tests/{name}")
-        if covered_by_fast_tier(name, suites_in(directory), filters):
+        if name in linux_targets or covered_by_fast_tier(name, suites_in(directory), filters):
             continue
         tests = count_tests(directory)
         what = f"{CMUXNEXT}: the new test target {name} ({tests} test{'s' if tests != 1 else ''})"
