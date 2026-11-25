@@ -271263,6 +271263,34 @@
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "開啟"}}
       }
     },
+    "settings.experiments.forum": {
+      "comment": "Settings > Experiments: title of the toggle that shows the team's forum page",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Forum"}}
+      }
+    },
+    "settings.experiments.forum.help": {
+      "comment": "Settings > Experiments: help under the Forum toggle",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."}}
+      }
+    },
+    "settings.experiments.terminalAgentMark": {
+      "comment": "Settings > Experiments: title of the toggle that draws terminal agents' marks on a rounded square",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Terminal Agent Marks"}}
+      }
+    },
+    "settings.experiments.terminalAgentMark.help": {
+      "comment": "Settings > Experiments: help under the Terminal Agent Marks toggle",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."}}
+      }
+    },
     "settings.sessions.keepAwakeWhenLocked": {
       "comment": "Settings > Sessions: title of the toggle that keeps the Mac awake for a working agent while the screen is locked",
       "extractionState": "manual",
