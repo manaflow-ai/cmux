@@ -77,6 +77,7 @@ import { hatQuestionsLook } from "../agent-session/acpmux/question/hatQuestions.
 import { hatChevronLook, hatDoneCheckPlace, hatDoneLook } from "../agent-session/acpmux/subagents/hatParts.experiment";
 import { hatTuckLook } from "../agent-session/acpmux/subagents/hatTuck.experiment";
 import { hatOpenLook } from "../agent-session/acpmux/subagents/hatOpen.experiment";
+import { hatHeaderLook } from "../agent-session/acpmux/subagents/hatHeader.experiment";
 import { goalHatPlace } from "../agent-session/acpmux/goalHat.experiment";
 import { customizeBarPlace } from "../agent-session/acpmux/customizeBar/customizeBar.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
@@ -134,11 +135,13 @@ import { composerFooterControls } from "../agent-session/acpmux/composer/footerC
 import { composerEmptyHeight } from "../agent-session/acpmux/composer/emptyHeight.experiment";
 import { toastsV2 } from "../ui/toastsV2.experiment";
 import { toastGlass } from "../ui/toastGlass.experiment";
+import { diffViewedProgress } from "../diff-viewer/viewedProgress.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
   diffTreeDisclosure,
   treeNameFade,
+  diffViewedProgress,
   sessionReplay,
   steerQueueExperiment,
   statusIslandExperiment,
@@ -218,6 +221,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hatChevronLook,
   hatTuckLook,
   hatOpenLook,
+  hatHeaderLook,
   goalHatPlace,
   customizeBarPlace,
   hatDoneLook,
