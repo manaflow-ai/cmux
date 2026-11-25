@@ -6,7 +6,7 @@ import Foundation
 /// The staged-update pre-warm record's rules in Rust (cmux-tui/crates/cmux-update-prewarm-core,
 /// `cmux_update_prewarm.h`, src/ops.rs): the marker line each pre-warm step writes and what a build's
 /// first launch reads from it. Swift only reads and writes the file.
-enum UpdatePrewarmRules {
+nonisolated enum UpdatePrewarmRules {
     /// Whether this build links the rules (the pinned app FFI release carries CCmuxUpdatePrewarmFFI); without them
     /// the marker is the legacy one line (the build), written at the end only.
     static var isLinked: Bool {
