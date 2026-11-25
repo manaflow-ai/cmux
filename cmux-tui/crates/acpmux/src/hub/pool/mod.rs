@@ -117,6 +117,11 @@ pub(crate) struct PoolState {
     /// Harnesses whose spare died, for the spare worker to start again (`spare.rs`).
     spare_restart: StdMutex<Vec<String>>,
     spare_wake: Notify,
+    /// A person request's spare check is running (`spare_on_person_request`): one at a time.
+    spare_presence_busy: AtomicBool,
+    /// A spare a person request wanted was refused (pool off, over the RSS cap, no spec): the
+    /// next person request tries again only after this.
+    spare_presence_retry_at: StdMutex<Option<std::time::Instant>>,
 }
 
 type Spec = (String, Option<String>);
@@ -140,6 +145,8 @@ impl PoolState {
             spare_file: StdMutex::new(()),
             spare_restart: StdMutex::new(Vec::new()),
             spare_wake: Notify::new(),
+            spare_presence_busy: AtomicBool::new(false),
+            spare_presence_retry_at: StdMutex::new(None),
         }
     }
 }
@@ -977,6 +984,13 @@ impl Hub {
                     p.claimed_under = Some(off.clone());
                     p.codex_answer = Some(spec.answer.clone());
                     lock(&self.pool.claimed).insert(id.clone(), p);
+                    // A home chat took the machine's reserved warm agent: the next home chat's
+                    // folder is reserved and warmed now, so it starts warm too.
+                    let (reserved, ended) = lock(&self.pool.pool).end_reserved(&spec.key);
+                    self.pool_discard(ended);
+                    if reserved {
+                        self.refill_reserved_home(spec.key.cwd.clone());
+                    }
                     return Some(id);
                 }
                 Take::Discard(old) => {

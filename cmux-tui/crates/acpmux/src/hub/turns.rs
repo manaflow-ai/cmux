@@ -309,6 +309,11 @@ impl Hub {
         };
         let outcome = match seen {
             Err(mut first) => {
+                // A copy never reaches the queue: it lets the chat's prompt admission go
+                // (#52381) before it waits for the first run. Held, it kept every later prompt
+                // of the chat from its queue for the whole first run, and that run's own queue
+                // never moved on (a burst of doubled sends answered none of them).
+                drop(opts.prompt_admission.take());
                 if let Some(f) = opts.on_accepted.take() {
                     // The first run's turn, once it has one (queued or running): the sender of
                     // this copy then knows the prompt was taken. With none yet, the first run
@@ -662,6 +667,10 @@ impl Hub {
         if first_work.is_some() {
             let seam = self.first_work_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
             if let Some((arrived, release)) = seam {
+                // Queue admission is let go first: held, it alone would keep every other prompt
+                // out while this one waits, and `first_work_tests.rs` checks that the first
+                // work's own hold (`inbox.rs`) keeps notices and the delegator right without it.
+                admitted();
                 let _ = arrived.send(());
                 let _ = release.await;
             }
@@ -774,6 +783,7 @@ impl Hub {
         // An automatic continuation runs only while its chat still ends on the cut turn: no await
         // from here to `queue_slot`'s choice, so it never joins the queue (`auto_resume.rs`).
         let after_turn = opts.after_turn.clone();
+        let fired = opts.fired;
         super::auto_resume::check_cut(session, after_turn.as_deref(), false)?;
         // The person's steer to an agent that steers, sent while no turn showed yet: another
         // prompt holds the turn and is still starting (its agent spawning, its uploads read), so
@@ -988,7 +998,9 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
-        if let Err(e) = self.start_turn(session, after_turn.as_deref(), no_queue, retry, turn) {
+        if let Err(e) =
+            self.start_turn(session, after_turn.as_deref(), fired, no_queue, retry, turn)
+        {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
@@ -1439,10 +1451,8 @@ impl Hub {
             && control != Control::Web
             && blocks.iter().any(|b| b.pointer("/_meta/acpmux/contextSource").is_some());
         let person = super::prompt_sender::person_turn(&run, provenance.as_ref());
-        // Only a person's own turn makes a recap worth asking for (`away_recap.rs`), or a
-        // summary worth a model call (`rolling_summary.rs`).
+        // Only a person's own turn makes a recap worth asking for (`away_recap.rs`).
         self.recap_turn_started(session, person);
-        self.summary_turn_started(session, person);
         let params = if resumed {
             // The turn the process resumed by itself: adopted, nothing written (`carry.rs`).
             json!({"sessionId": agent_sid, "prompt": [], "_meta": {"carried": true}})
@@ -1777,6 +1787,15 @@ impl Hub {
             _ => None,
         };
         self.schedule_auto_resume(session, &turn_id, cut);
+        // A turn that ended well on a capacity fallback puts the chat's own model back
+        // (`auto_resume/capacity_failover.rs`).
+        if !detached
+            && result
+                .as_ref()
+                .is_ok_and(|v| v.get("stopReason").and_then(Value::as_str) != Some("cancelled"))
+        {
+            self.restore_after_capacity(session);
+        }
         // The agent a Stop ended starts again on the same conversation now, while this turn's
         // lock is still held: the next queued turn finds it running (`cancel.rs`).
         self.respawn_stopped_agent(session, &turn_id, stops).await;
@@ -1810,8 +1829,6 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         // The turn's end, which its cost is ready after (`turn_cost.rs`).
         let ended = std::time::Instant::now();
-        let started_at =
-            session.turn.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|t| t.started_at);
         // This turn's number, before taking it lets the next one start (`lane_reports.rs`).
         let turn = session.meta().turn_count;
         // A turn its agent ended well clears the chat's rate-limit strikes (`rate_hold.rs`):
@@ -1826,14 +1843,18 @@ impl Hub {
         let in_place = next.map(|n| n.next.clone());
         // Taken under the shutdown's lock: its sweep finds the turn running or here, never in
         // between (`shutdown.rs` `settle_ends`).
-        let detached = {
+        // Its start comes from the turn taken here, not a read of the live-turn lock before
+        // `take_turn`: that read took `turn` ahead of `auto_resume`, against Stop's order
+        // (`auto_resume/turn_completion_tests.rs`).
+        let (detached, started_at) = {
             let _ends = self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner());
             let taken = self.take_turn(session, turn_id, in_place);
+            let started_at = taken.as_ref().map(|t| t.started_at);
             let took = taken.as_ref().is_some_and(|t| t.turn_id == turn_id);
             if took {
                 *session.ending.lock().unwrap_or_else(|e| e.into_inner()) = taken;
             }
-            !took
+            (!took, started_at)
         };
         let ending = EndUnderWay { hub: self, session, turn_id };
         // Named in this turn's `turn_result`, so a restart before it starts still runs it.
@@ -2080,8 +2101,6 @@ impl Hub {
             // Whether it taught something, taken however it ended: a turn's signals never carry
             // into the next one.
             let taught = crate::memory_inbox::take(&session.id);
-            // Its recap and question: the chat's rolling summary (`rolling_summary.rs`).
-            let wrap_up_recap = crate::wrap_up_suggestion::take_recap(&session.id);
             let wrap_up_answer = crate::wrap_up_suggestion::take(&session.id);
             match &result {
                 Ok(v) => {
@@ -2127,7 +2146,6 @@ impl Hub {
                         }
                     }
                     self.write_turn_result(session, msg, git);
-                    self.summary_turn_ended(session, status == "completed", wrap_up_recap);
                     if status == "completed"
                         && let Some(answer) = wrap_up_answer
                     {
@@ -2163,7 +2181,6 @@ impl Hub {
                     if !detached {
                         self.pause_queue(session, turn_id);
                     }
-                    self.summary_turn_ended(session, false, None);
                     let mut msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn, "trigger": trigger});
                     if let Some(o) = msg.as_object_mut() {
                         let agent_error =
@@ -2470,7 +2487,24 @@ impl Hub {
         let asked_option = (m == method::SESSION_SET_CONFIG_OPTION)
             .then(|| super::full_access_bound::asked_option(&params))
             .flatten();
-        let res = match child.request(m, params).await {
+        // Bounded (`forward_wait.rs`): an agent alive that never answers ends this request, and
+        // the `harness_use` read it holds, at its start budget instead of never.
+        let bound = self.config.read().await.agent_start_timeout();
+        let mut wait =
+            cmux_bounded::Driver::<super::forward_wait::ForwardWait, tokio::time::Instant>::new(
+                super::forward_wait::ForwardWait::asked(bound),
+            );
+        let answer = tokio::select! {
+            answer = child.request(m, params) => {
+                wait.feed(super::forward_wait::Event::Answered);
+                answer
+            }
+            () = wait.expired() => {
+                wait.expire_due();
+                Err(super::forward_wait::no_answer(m, bound))
+            }
+        };
+        let res = match answer {
             Ok(v) => v,
             Err(mut e) => {
                 // A process that died on this request: quote its last stderr
