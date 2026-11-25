@@ -422,6 +422,7 @@ public struct WorkspacesList: View {
         ScrollView { SkeletonList(rows: 6, leadingSquare: nil, caption: caption).padding(.top, 8) }
             .scrollDisabled(true)
             .accessibilityIdentifier("workspaces.loading")
+            .placeholderBound("workspaces.skeleton", .milliseconds(2000))
     }
 
     /// The inbox as the UIKit list shows it: one collection view with a
@@ -645,7 +646,8 @@ public struct WorkspacesList: View {
             AnyView(SkeletonList(rows: 4, leadingSquare: nil,
                                  delay: placeholdersShown ? .zero : theme.motion.skeletonDelay)
                 .allowsHitTesting(false)
-                .accessibilityIdentifier("workspaces.loading"))
+                .accessibilityIdentifier("workspaces.loading")
+                .placeholderBound("workspaces.page.skeleton", .milliseconds(2000)))
         }
     }
 
