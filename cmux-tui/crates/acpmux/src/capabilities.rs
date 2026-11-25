@@ -35,6 +35,9 @@ pub const CHAT_PRESENCE: &str = "chat-presence-v1";
 /// `_acpmux/connections.changed`, pushed to a local watcher when a model connection changes
 /// (`server/connections.rs`).
 pub const CONNECTIONS_EVENTS: &str = "connections-events-v1";
+/// The machine's fill on an attached chat (`_acpmux/fill`, `server/fill.rs`): only to a client
+/// that listed it, so nothing changes for any other.
+pub const AUTOCLOUD_FILL: &str = "autocloud-fill-v1";
 
 /// `_acpmux/info` with `sessionIds` answers the list's rows by key, and `_acpmux/status` says
 /// `closedListed` (`server/requests/info.rs` `rows`).
@@ -423,6 +426,8 @@ pub const CAPABILITIES: &[Capability] = &[
     },
     // A model connection's change, pushed to a local watcher (`server/connections.rs`).
     Capability { id: CONNECTIONS_EVENTS, wire: &[method::MUX_CONNECTIONS_CHANGED] },
+    // How full a Cloud seed's checkout is, pushed on an attached chat (`server/fill.rs`).
+    Capability { id: AUTOCLOUD_FILL, wire: &[method::MUX_FILL] },
     // A peer link's state, pushed on each change (`protocol/peer_state.rs`).
     Capability { id: "peer-state-events-v1", wire: &[method::MUX_PEER_STATE_CHANGED] },
     // Folder trust (`trust.rs`).

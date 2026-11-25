@@ -476,15 +476,13 @@ impl Hub {
                     }
                 }
             }
-        } else if verdict.over.is_some()
+        } else if let Some(over) = verdict.over.as_ref()
             && peers
                 .as_ref()
                 .is_some_and(|verdict| super::admission_scale_up::room_elsewhere(verdict).is_none())
         {
-            if let Some(over) = verdict.over.as_ref() {
-                let (trigger, _) = self.scale_up_wait(over, registry.as_ref());
-                scaling_up = trigger.scaling();
-            }
+            let (trigger, _) = self.scale_up_wait(over, registry.as_ref());
+            scaling_up = trigger.scaling();
         }
         if let (Some(reason), Some(filler)) = (reason, fillers.first()) {
             // A filler's room is this start's: it starts here, never moved for it.

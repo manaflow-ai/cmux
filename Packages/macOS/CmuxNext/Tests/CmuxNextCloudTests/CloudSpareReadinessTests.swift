@@ -81,6 +81,15 @@ import Testing
         }
     }
 
+    @Test func aSignInWarmsTheSpareOnceAndSigningOutDoesNot() {
+        #expect(CloudSpareReadiness.warmsAtSignIn(previous: .none, now: "u1\u{0}t1")) // the first scope after the restore (a launch's sign-in)
+        #expect(CloudSpareReadiness.warmsAtSignIn(previous: .some(nil), now: "u1\u{0}t1")) // signed out, then in
+        #expect(CloudSpareReadiness.warmsAtSignIn(previous: "u1\u{0}t1", now: "u1\u{0}t2")) // another team: its own spare
+        #expect(!CloudSpareReadiness.warmsAtSignIn(previous: "u1\u{0}t1", now: "u1\u{0}t1"))
+        #expect(!CloudSpareReadiness.warmsAtSignIn(previous: "u1\u{0}t1", now: nil))
+        #expect(!CloudSpareReadiness.warmsAtSignIn(previous: .none, now: nil))
+    }
+
     @Test func aPrimedSpareIsKeyedOnceForItsScopeAndRun() async {
         let world = World(), readiness = CloudSpareReadiness(world.dependencies())
         readiness.prime("vm_spare", team: "team_a")
