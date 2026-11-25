@@ -53,7 +53,7 @@ import { chatHasFirstSend, showsLocationRow, stripSlot, type StripSlot } from ".
 import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
 import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
-import { BuildIcon, ContextRing, PlanIcon } from "./ComposerPickers";
+import { BuildIcon, PlanIcon, LiveContextRing } from "./ComposerPickers";
 import { type Choice } from "./composerPickerModel";
 import { SendSlotGlyph, SendSlot, StopPulse } from "./composer/SendSlotGlyph";
 import { useStopPresence } from "./composer/turnPresence";
@@ -173,7 +173,6 @@ import { ComposerPlusMenu } from "./ComposerPlusMenu";
 import { loadRecentCommandNames, recentCommands, rememberRecentCommand } from "./recentCommands";
 import { openPicker } from "./pickerOpeners";
 import type { RepickMachine } from "./cloudRepick";
-import { compactingUsage } from "./usageStats";
 import { useExperimentSwitch } from "../../experiments/switches";
 import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
@@ -1086,11 +1085,6 @@ function ComposerFrame({
   const look = useComposerLookWithV2();
   const buttonsVisible = useExperimentSwitch("composerButtonsVisible");
   const quietActions = plainFooter && !lookRowInBox(look);
-  const usage = compactingUsage(
-    snapshot.summary?.usage,
-    snapshot.summary?.usageStats,
-    snapshot.summary?.contextBreakdown,
-  );
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
   /// `sending`, as Send's look reads it during render.
@@ -1860,10 +1854,12 @@ function ComposerFrame({
   // A new word or the list opening highlights the first row again; Return takes it (returnPicks). The
   // row the arrows chose matters for a `$word` only: a new word, a cleared draft or the list closing forgets it.
   const [arrowed, setArrowed] = useState(false);
+  // The mark counts too: a row the arrows chose at `/emil` is not chosen at `$emil`.
+  const queryMark = typedSlash?.mark;
   useLayoutEffect(() => {
     setActive(0);
     setArrowed(false);
-  }, [query, open]);
+  }, [query, queryMark, open]);
   // Typing @ at a word start lists the plugins (toolMentions.ts), then, for a specific word, the
   // chat's folders and files that match what follows (mentionItems.ts). Computer use and browser use
   // are always offered, so the menu always has rows.
@@ -3847,14 +3843,11 @@ function ComposerFrame({
           showContextUsage &&
           chatHasFirstSend(snapshot) && (
             <UsageRingMenu>
-              <ContextRing
+              <LiveContextRing
+                // A usage update renders this ring alone, not the composer (liveSummary.ts).
+                summary={snapshot.summary}
                 // The chat the reading is of: switching chats shows the new one's at once, uneased.
                 chat={snapshot.summary?.sessionId || sessionId}
-                used={usage?.used}
-                size={usage?.size}
-                setup={usage?.setup}
-                cacheExpiresAt={usage?.cacheExpiresAt}
-                breakdown={snapshot.summary?.contextBreakdown}
                 onOpenDetails={onOpenContext}
                 onCompact={onCompact}
                 // A turn or a compaction running (a compaction is a turn): the row stays, inert.
