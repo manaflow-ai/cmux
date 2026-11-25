@@ -58,6 +58,8 @@ pub const ACTION_BUDGET: std::time::Duration =
 pub const LANE_WAIT: std::time::Duration =
     std::time::Duration::from_secs(GH_TIMEOUT.as_secs() + 2 * LINK_SLACK.as_secs() + 5);
 /// How many actions one peer (by name, across reconnects) may have running on the Mac at once.
+/// Measured: one `gh` process each on the Mac, 29.5 MB max RSS for `gh --version` alone (gh
+/// 2.45), within the Mac client's WAITING_MAX of 8.
 pub const OWNER_SLOTS: usize = 4;
 
 /// The slots of the actions of the peer named `peer`: one budget per name for the life of this

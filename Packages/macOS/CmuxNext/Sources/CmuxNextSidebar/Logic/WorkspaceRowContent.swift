@@ -68,8 +68,6 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var status: SidebarWorkspaceStatus?
     /// The computer the workspace runs on, while the sidebar lists more than one (SidebarMachineMark).
     public var machine: SidebarMachineMark?
-    /// The workspace runs on a Cloud machine: a small muted cloud in the trailing status cluster, the row's only sign of it (never the leading slot, Leo 2026-11-22).
-    public var runsInCloud = false
     /// The computer as a one-list row names it, with its status when it cannot connect
     /// (`gpu-box · Failed to start`, `SidebarLayout.machineLabel`; set by `SidebarLayoutOptions.rowContent`
     /// in every row mode): no line draws it any more (Leo 2026-10-30), so the row's accessibility label
@@ -91,6 +89,17 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var rollUp: SidebarTreeRollUp?
     /// Its chats' subagents under the name: a line each (a click opens one) or one stacked line; nil without any.
     public var subagents: SidebarSubagentStrip?
+    /// Failed subagents of its chats while it lists none (folded, or the tree off): counted in the title line's failed
+    /// chip (`SidebarTreeRollUpView`), the row's one failed mark. 0 while the rows show them.
+    public var subagentsFailed = 0
+    /// What the title line's roll-up draws: the tree's hidden sessions with the failed subagents added to its failed
+    /// count, so a failed session or subagent reads as one mark; nil with neither.
+    public var drawnRollUp: SidebarTreeRollUp? {
+        guard subagentsFailed > 0 else { return rollUp }
+        var drawn = rollUp ?? SidebarTreeRollUp()
+        drawn.failed += subagentsFailed
+        return drawn
+    }
     /// The Priority view's chip (`SidebarWorkspace.agentChip`) when it asks for something
     /// (`rowChip`), for the row's accessibility label. Never drawn: a row shows no status words
     /// (Leo 2026-10-21); needs you is the badge's yellow dot.

@@ -7,7 +7,7 @@
 use crate::no_panic::LockExt;
 use crate::peer_link::{
     Backoff, Heard, Link, LinkTimings, PeerState, SilenceBudget, SleepWatch, WAKE_PROBE,
-    write_deadline,
+    write_within,
 };
 use crate::rpc::{Message, RpcError, method};
 use cmux_json::JsonSet as _;
@@ -310,6 +310,8 @@ pub struct Peer {
     /// Unique per `Peer` instance; a replacement under the same name gets a
     /// new one.
     pub generation: u64,
+    /// Fixed before registry publication; leased instances must never persist session rows.
+    pub(crate) leased: bool,
     pub url: String,
     token: Option<String>,
     /// The peer's peer token (`server/peer_auth.rs`), sent with `token`.
@@ -871,15 +873,15 @@ fn connect_timed_out(after: Duration) -> String {
 }
 
 fn stopped_reading(budget: Duration) -> String {
-    format!("peer stopped reading (a send waited {}s)", budget.as_secs())
+    format!("peer stopped reading (a send moved no byte for {}s)", budget.as_secs())
 }
 
-/// Why a write that timed out (`write_deadline`) dropped the link: a wake probe whose deadline
+/// Why a write that timed out (`write_within`) dropped the link: a wake probe whose deadline
 /// passed, else the send budget.
 fn write_late(budget: Duration, wake_probe: Option<tokio::time::Instant>) -> String {
     match wake_probe {
         Some(probe) if probe <= tokio::time::Instant::now() => {
-            format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs())
+            "no answer to the wake probe after this computer woke".to_owned()
         }
         _ => stopped_reading(budget),
     }

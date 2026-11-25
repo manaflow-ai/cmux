@@ -69,7 +69,7 @@ export interface ProviderImpl {
   readonly refuseScopes?: (env: Env, scopes: ReadonlyArray<string>) => string | undefined
   /** `connection` lets a provider derive a per-attempt PKCE verifier on the server (never in the URL). */
   readonly authorizeUrl: (env: Env, state: string, scopes: ReadonlyArray<string>, redirectUri: string, connection: string) => string | Promise<string>
-  readonly complete: (env: Env, http: Http, p: { code?: string; installation_id?: string; setup_action?: string; redirectUri: string; policy: LinkPolicy; connection: string; state: string; scopes_requested: ReadonlyArray<string> }) => Promise<Approved>
+  readonly complete: (env: Env, http: Http, p: { code?: string; installation_id?: string; setup_action?: string; actions_oidc?: string; redirectUri: string; policy: LinkPolicy; connection: string; state: string; scopes_requested: ReadonlyArray<string> }) => Promise<Approved>
   /**
    * Scopes an op needs (any one of them suffices), checked against the
    * connection's granted scopes before the call; undefined = no check. With

@@ -47,6 +47,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "machine cells",
+        &[
+            ("See which lane hosts run past their lane cap", "acpmux machine cells"),
+            ("The same as JSON, for a script or a dashboard row", "acpmux machine cells --json"),
+        ],
+    ),
+    (
         "machine dedicated",
         &[
             (
@@ -449,6 +456,49 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "Print the keys for another folder as JSON",
                 "acpmux machine deps key ~/src/app --json",
             ),
+        ],
+    ),
+    (
+        "machine hypervisor",
+        &[
+            (
+                "Run the host agent on this libvirt host",
+                "acpmux machine hypervisor serve --base-image /var/lib/cmux/base.qcow2",
+            ),
+            ("List this host's cmux VMs and their leases", "acpmux machine hypervisor ls"),
+        ],
+    ),
+    (
+        "machine hypervisor serve",
+        &[
+            (
+                "Serve VMs backed by a base image",
+                "acpmux machine hypervisor serve --base-image /var/lib/cmux/base.qcow2",
+            ),
+            (
+                "One pass against the system libvirt, as JSON",
+                "acpmux machine hypervisor serve --connect qemu:///system --once --json",
+            ),
+        ],
+    ),
+    (
+        "machine hypervisor apply",
+        &[
+            (
+                "Queue a VM that is deleted after a day",
+                "cat create.json | acpmux machine hypervisor apply",
+            ),
+            (
+                "Queue a command under your own id",
+                "cat pause.json | acpmux machine hypervisor apply --id pause-a1",
+            ),
+        ],
+    ),
+    (
+        "machine hypervisor ls",
+        &[
+            ("List this host's cmux VMs", "acpmux machine hypervisor ls"),
+            ("List them with their leases as JSON", "acpmux machine hypervisor ls --json"),
         ],
     ),
     (
