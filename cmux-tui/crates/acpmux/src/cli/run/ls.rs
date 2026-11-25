@@ -725,6 +725,14 @@ async fn scoped_output_with_budget(
         out.push_str(&line);
         out.push('\n');
     }
+    if let Some(line) = status
+        .as_ref()
+        .and_then(|s| s.get("outboxStats"))
+        .and_then(crate::hub::outbox_stats::ls_line)
+    {
+        out.push_str(&line);
+        out.push('\n');
+    }
     Ok((out, scope))
 }
 
