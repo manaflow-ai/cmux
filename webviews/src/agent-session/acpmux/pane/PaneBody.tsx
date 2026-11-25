@@ -71,7 +71,6 @@ import { ChatHeaderInlineStatus, ChatHeaderStatus } from "../header/ChatHeaderSt
 import { ChatHeaderTools } from "../header/ChatHeaderTools";
 import { HEADER_ACTIONS, type ChatMenuItem } from "../header/chatHeaderToolsModel";
 import { ThreadTitle } from "../header/ThreadTitle";
-import { ChatSummaryLine } from "../header/ChatSummaryLine";
 import { setHeaderState } from "../header/headerState";
 import { tabRowStyle, type TabRow } from "../header/tabRow";
 import { cloudStartFolder, newTabProjectPick, type CloudSignInRetry } from "../cloudRun";
@@ -341,6 +340,10 @@ export type PaneBodyDeps = NewTabShown &
     parkedVisible: boolean;
     chatName: string;
     renameFromTitle: (() => void) | undefined;
+    titleTrail: readonly string[] | undefined;
+    /// What the header names (subagentPanes.ts `paneHeading`): a subagent's own pane heads with the
+    /// subagent, never its chat's title and summary.
+    heading: { title: string; renamable: boolean };
     tabRowTools: (element: HTMLElement | null) => void;
     liveTreeEnabled: boolean;
     readLiveTree: () => Promise<unknown>;
@@ -373,6 +376,8 @@ export type PaneBodyDeps = NewTabShown &
     turnWorking: boolean;
     summaryPanel: React.JSX.Element;
     underHeader: UnderHeaderLines;
+    /// An Auto chat's line and kept-changes notice, built by App.tsx; null when there is none.
+    autoBanner: React.JSX.Element | null;
     checkpoints: ReturnType<typeof useCheckpoints>;
     cloudUnavailable: ChatUnavailable | undefined;
     cloudRecovery: ReturnType<typeof useCloudChatRecovery>;
@@ -381,6 +386,8 @@ export type PaneBodyDeps = NewTabShown &
     reconnectPeer: (peer: string) => Promise<unknown>;
     previewShown: boolean;
     computerUsePreview: ComputerUsePreview | null;
+    /// The Environment card at the chat's top right (session-info/EnvironmentCard.tsx), null when off.
+    environmentCardNode: React.JSX.Element | null;
     viewedSandbox: SandboxRun | undefined;
     pendingWake: React.RefObject<ComposerWake | undefined>;
     sandboxWake: React.RefObject<ComposerWake | undefined>;
@@ -422,6 +429,8 @@ export type PaneBodyDeps = NewTabShown &
     saveDocumentNatively: SaveDocument;
     backgroundPanel: { sessionId?: string | undefined; expanded: boolean; dismissed: ReadonlySet<string> } | undefined;
     backgroundList: BackgroundGroup[];
+    /// acpmux's list of the chat's subagents has not answered yet (backgroundTasks/useListedSubagents.ts).
+    backgroundListing: boolean;
     clientEpoch: number;
     backgroundFocus: BackgroundFocus | undefined;
     stopSubagent: ((id: string) => Promise<unknown>) | undefined;
@@ -611,6 +620,8 @@ export function drawPaneBody({
   parkedVisible,
   chatName,
   renameFromTitle,
+  titleTrail,
+  heading,
   tabRowTools,
   liveTreeEnabled,
   readLiveTree,
@@ -642,6 +653,7 @@ export function drawPaneBody({
   turnWorking,
   summaryPanel,
   underHeader,
+  autoBanner,
   checkpoints,
   cloudUnavailable,
   cloudRecovery,
@@ -650,6 +662,7 @@ export function drawPaneBody({
   reconnectPeer,
   previewShown,
   computerUsePreview,
+  environmentCardNode,
   viewedSandbox,
   pendingWake,
   sandboxWake,
@@ -692,6 +705,7 @@ export function drawPaneBody({
   saveDocumentNatively,
   backgroundPanel,
   backgroundList,
+  backgroundListing,
   clientEpoch,
   backgroundFocus,
   stopSubagent,
@@ -795,7 +809,9 @@ export function drawPaneBody({
           }
           // The transcript runs the pane's height under the bottom stack (bottomStack.css) while the
           // stage shows it; a new chat's hero, a handoff review, the diff and the inspector keep it in flow.
-          data-dock={!reviewing && !freshView && !inspectorOpen ? "float" : undefined}
+          // An open chat's stack in flow is `flow`: its composer keeps the floating one's place
+          // (composerLocation.css), so it does not move as the stage over it switches.
+          data-dock={!reviewing && !freshView && !inspectorOpen ? "float" : !freshView ? "flow" : undefined}
           data-summary={summaryCard.column ? "inline" : "popover"}
           data-cu-preview={previewBeside ? "" : undefined}
           // The jump stack's place and side (jumpPlace.css): the whole stack moves together.
@@ -1254,6 +1270,9 @@ export function drawPaneBody({
               <div
                 className={`acpmux-stage${inspectorOpen ? " acpmux-inspecting" : ""}`}
                 data-solo-tab={soloUnder ? "" : undefined}
+                // The stack under it ends in the quiet row (the dock's `data-foot`): in flow the stage
+                // keeps the floating stack's floor for it (bottomStack.css), so the composer keeps its height.
+                data-foot={dockFoot ? "" : undefined}
                 style={parkStyle ?? (inTabRow ? tabRowStyle(tabRow) : undefined)}
                 inert={parkedVisible || undefined}
               >
@@ -1269,13 +1288,12 @@ export function drawPaneBody({
                       <span className="acpmux-header-status-content">
                         <ThreadTitle
                           key={snapshot.sessionId}
-                          title={chatName}
-                          onRename={renameFromTitle}
-                          icon={snapshot.summary?.icon}
-                          formerNames={snapshot.summary?.formerNames}
+                          title={heading.title}
+                          onRename={heading.renamable ? renameFromTitle : undefined}
+                          trail={heading.renamable ? titleTrail : undefined}
+                          icon={heading.renamable ? snapshot.summary?.icon : undefined}
+                          formerNames={heading.renamable ? snapshot.summary?.formerNames : undefined}
                         />
-                        {/* Where the chat stands and its next action (header/ChatSummaryLine.tsx). */}
-                        <ChatSummaryLine summary={snapshot.summary?.rollingSummary} />
                       </span>
                     )}
                   </ChatHeaderStatus>
@@ -1301,13 +1319,7 @@ export function drawPaneBody({
                       />
                     )}
                     {/* No title in the tab row: the pane's tab already names the chat (Leo, 2026-11-01). */}
-                    {inTabRow && (
-                      <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
-                        {!showNewTab && snapshot.sessionId ? (
-                          <ChatSummaryLine summary={snapshot.summary?.rollingSummary} inline />
-                        ) : undefined}
-                      </ChatHeaderInlineStatus>
-                    )}
+                    {inTabRow && <ChatHeaderInlineStatus status={header.status} detail={header.detail} />}
                     <ChatHeaderTools
                       chat={snapshot.sessionId}
                       nativeRowTools={{
@@ -1479,12 +1491,14 @@ export function drawPaneBody({
                     noteDelayMs={snapshot.peerKinds?.[snapshot.peerCopy.peer] === "ssh" ? LINK_DOWN_SAID_MS : undefined}
                   />
                 )}
+                {underHeader.autoSession && autoBanner}
                 {/* Computer use's live preview: the app this chat's agent drives, at the top right. Always
                       mounted: with no card it draws the last one's exit, then nothing (cardMotion.ts). */}
                 <ComputerUsePreviewCard
                   preview={previewShown ? computerUsePreview : null}
                   onClose={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "close" }))}
                 />
+                {environmentCardNode}
                 {underHeader.watching &&
                   snapshot.summary?.watching &&
                   // A chat its terminal drives is a live view of the same session, not View Only.
@@ -1581,6 +1595,8 @@ export function drawPaneBody({
                 ) : freshView && !premountsChatView ? (
                   <EmptyState
                     {...(projectName(composerSnapshot.summary?.cwd) && tourOffer ? { tour: tourOffer } : {})}
+                    // Once per chat: the empty state remounted by this chat (picker, reconnect) is at rest.
+                    entranceKey={snapshot.sessionId ?? "new-chat"}
                   />
                 ) : (
                   <AgentTonesContext.Provider value={chatTones}>
@@ -1676,6 +1692,7 @@ export function drawPaneBody({
             <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
               <BackgroundTasksPanel
                 groups={backgroundList}
+                loading={backgroundListing}
                 readsOutput={
                   chatProcessesHere(snapshot.summary) &&
                   clientEpoch > 0 &&
