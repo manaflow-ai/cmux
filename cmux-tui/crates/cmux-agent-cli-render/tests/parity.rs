@@ -278,6 +278,7 @@ fn chrome(draft: &str) -> Chrome {
         done_verb: None,
         placeholder: None,
         spinner: None,
+        notice: None,
     }
 }
 
@@ -1321,6 +1322,7 @@ fn phone_chrome(name: &str, moment: &str, draft: &str) -> Chrome {
             _ => None,
         },
         spinner: None,
+        notice: None,
     }
 }
 
