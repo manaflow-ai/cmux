@@ -367,14 +367,8 @@ impl Hub {
             .filter(|(k, _)| k.0 == name)
             .map(|(k, v)| (k.clone(), *v))
             .collect();
-        let (asks, planned, later) = plan(
-            name,
-            keeps_copies(peer),
-            &rows,
-            &covers,
-            &read_at,
-            (now_ms(), Instant::now()),
-        );
+        let (asks, planned, later) =
+            plan(name, keeps_copies(peer), &rows, &covers, &read_at, (now_ms(), Instant::now()));
         warm.state().read_at.retain(|k, _| k.0 != name || planned.contains(&k.1));
         let mut later = later;
         // Read again after the interval: a chat refused or not read to its end.
