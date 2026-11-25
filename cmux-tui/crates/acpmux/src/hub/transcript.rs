@@ -101,7 +101,7 @@ const SEPARATOR_CHARS: usize = 2;
 /// The first `max` chars of `text`, and whether that cut it.
 fn head(text: &str, max: usize) -> (String, bool) {
     match text.char_indices().nth(max) {
-        Some((at, _)) => (text[..at].to_owned(), true),
+        Some((at, _)) => (text.get(..at).unwrap_or(text).to_owned(), true),
         None => (text.to_owned(), false),
     }
 }

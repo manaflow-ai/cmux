@@ -37,7 +37,7 @@ fn tail(s: &str, max: usize) -> &str {
     while !s.is_char_boundary(start) {
         start += 1;
     }
-    &s[start..]
+    s.get(start..).unwrap_or_default()
 }
 
 /// The first `max` bytes of `s`, ending on a character boundary.
@@ -49,7 +49,7 @@ fn head(s: &str, max: usize) -> &str {
     while !s.is_char_boundary(end) {
         end -= 1;
     }
-    &s[..end]
+    s.get(..end).unwrap_or_default()
 }
 
 /// Room for the line that says how many messages a cut capsule left out.
@@ -75,7 +75,7 @@ impl Hub {
         let mut summary: Option<(u64, String)> = None;
         let flush = |assistant: &mut Option<Entry>, entries: &mut Vec<Entry>| {
             if let Some(a) = assistant.take()
-                && !a.text[ASSISTANT.len()..].trim().is_empty()
+                && !a.text.get(ASSISTANT.len()..).unwrap_or_default().trim().is_empty()
             {
                 entries.push(a);
             }
