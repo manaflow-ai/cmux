@@ -8,7 +8,11 @@
 // jump to bottom move to the right. ... if it was between the jump to bottom and the composer hat
 // thing, the composer hat hidden bit was the one to move to the right. or left." So `center` ships
 // again and the pill moves aside (hatPillPlace.experiment.ts): the `pill-*` variants compare where it
-// goes and how it looks; `end`, `start` and `corner` keep #48658's arms for the record.
+// goes and how it looks; `end`, `start` and `corner` keep #48658's arms for the record. Leo,
+// 2026-11-24: "you guys need to move it back to the middle... adn we need to think of good ways to
+// depict it. prebiously it looked [weird] with [the thing] at the top": the pill is back in the middle
+// (`pill-middle` ships), and the `pill-middle-*` variants are the ways to draw the disc and the pill on
+// one line.
 // View at every width (narrow 420, normal 900, wide 1600); light and dark: ?colorScheme=light / dark.
 import { agentPaneEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
@@ -94,13 +98,20 @@ const park =
     if (!ctx.document.querySelector(JUMP_LATEST)) throw new Error("no Jump to latest");
   };
 
-const arm = (place: JumpLatestPlace, pill: HatPillPlace = "end") => ({
+/** At the bottom of the same chat: the hat tucked, no Jump to latest. */
+const atBottom = (): Play => async (ctx) => {
+  await ctx.waitFor(() => (ctx.document.querySelector<HTMLElement>(".acpmux-scroll")?.scrollHeight ?? 0) > 1_000);
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-tray-pull__tab"));
+  if (ctx.document.querySelector(JUMP_LATEST_SHOWN)) throw new Error("Jump to latest shows at the bottom");
+};
+
+const arm = (place: JumpLatestPlace, pill: HatPillPlace = "middle") => ({
   experiments: { [jumpLatestPlace.id]: place, [hatPillPlace.id]: pill },
 });
 
 export default agentPaneEntry({
   id: "agent-pane.jump-place",
-  title: "Jump to latest on the center line, the tucked composer hat's pill beside it",
+  title: "Jump to latest and the tucked composer hat's pill, both on the center line",
   area: "Agent pane",
   height: 640,
   widths: { narrow: 420, normal: 900, wide: 1600 },
@@ -118,8 +129,43 @@ export default agentPaneEntry({
   },
   experiment: { definition: hatPillPlace, script: [{ name: "Park mid-chat, the hat tucked", run: park() }] },
   variants: {
+    "pill-middle": {
+      note: "Selected (ships): the pill back on the composer's center line, and the jump stack lifted 12px more, so 24px parts the disc from the pill.",
+      snapshot,
+      display: display(),
+      play: park(),
+      ...arm("center", "middle"),
+    },
+    "pill-middle-quiet": {
+      note: "The pill on the center line with no glass slab, a notch of chevron and count in the composer's line; the disc is the only floating thing.",
+      snapshot,
+      display: display(),
+      play: park(),
+      ...arm("center", "middle-quiet"),
+    },
+    "pill-middle-yield": {
+      note: "One at a time: while Jump to latest shows, the pill fades out and the composer's line closes under it.",
+      snapshot,
+      display: display(),
+      play: park(),
+      ...arm("center", "middle-yield"),
+    },
+    "pill-middle-yield-bottom": {
+      note: "One at a time, back at the bottom: no disc, the pill on the center line again.",
+      snapshot,
+      display: display(),
+      play: atBottom(),
+      ...arm("center", "middle-yield"),
+    },
+    "pill-middle-tight": {
+      note: 'Before #48658 (Leo\'s 2026-11-21 screenshot): both on the center line, the disc 12px over the pill. Leo: "uncomfortably tight".',
+      snapshot,
+      display: display(),
+      play: park(),
+      ...arm("center", "middle-tight"),
+    },
     "pill-end": {
-      note: "Selected (ships): Jump to latest back on the composer's center line; the hat's glass \"^ 3\" pill at the composer's end edge, 12px in.",
+      note: '#51972 (2026-11-23): the hat\'s glass "^ 3" pill at the composer\'s end edge, 12px in. Leo, 2026-11-24: "you guys need to move it back to the middle".',
       snapshot,
       display: display(),
       play: park(),
@@ -139,40 +185,33 @@ export default agentPaneEntry({
       play: park(),
       ...arm("center", "quiet"),
     },
-    "pill-middle": {
-      note: "Before #48658 (Leo's 2026-11-21 screenshot): both on the center line, the disc right over the pill.",
-      snapshot,
-      display: display(),
-      play: park(),
-      ...arm("center", "middle"),
-    },
-    "pill-end-128": {
-      note: '128 running: the pill reads "^ 128" and widens to the left, its end corner holding; the disc stays put.',
+    "pill-middle-128": {
+      note: '128 running: the pill reads "^ 128" and widens about its center; the disc stays put over it.',
       snapshot: crowded,
       display: display(),
       play: park(),
-      ...arm("center", "end"),
+      ...arm("center", "middle"),
     },
     "pill-handle-left": {
       note: "The person put the handle at the left (agentPane.display.trayHandle): it stays there.",
       snapshot,
       display: display({ handle: "left" }),
       play: park({ handle: "left" }),
-      ...arm("center", "end"),
+      ...arm("center", "middle"),
     },
     "pill-hat-open": {
-      note: "The hat open: the disc stands over the hat's middle; the hat's tuck chevron is at the end, where the pill will be.",
+      note: "The hat open: the disc stands over the hat's middle, and the hat's tuck chevron is in the middle too, where the pill will be.",
       snapshot,
       display: display({ tucked: false }),
       play: park({ tucked: false }),
-      ...arm("center", "end"),
+      ...arm("center", "middle"),
     },
     "pill-session-info-push": {
-      note: "Session Info pushes (wide): the disc keeps the card's center and the pill its end edge.",
+      note: "Session Info pushes (wide): the disc and the pill keep the card's center.",
       snapshot,
       display: display(),
       play: park({ info: "push" }),
-      ...arm("center", "end"),
+      ...arm("center", "middle"),
     },
     end: {
       note: "#48658 (2026-11-21): the stack at the card's end edge, over its last button; the hat's pill alone in the middle. Leo, 2026-11-22: \"why'd the jump to bottom move to the right\".",
