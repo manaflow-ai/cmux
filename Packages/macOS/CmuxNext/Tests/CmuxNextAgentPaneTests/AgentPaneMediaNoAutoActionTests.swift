@@ -99,7 +99,7 @@ struct AgentPaneMediaNoAutoActionTests {
         links.mouseHeld = { false }
         links.startDrag = { effects.seen.append("drag \($0.path)"); return true }
         links.browsers = Browsers(effects)
-        model.onOpenFile = { url, _ in effects.seen.append("file \(url.path)"); return true }
+        model.onOpenFile = { url, _, _ in effects.seen.append("file \(url.path)"); return true }
         model.onOpenPreview = { effects.seen.append("preview \($0)"); return true }
         model.workspaceRoots = { [project.path] }
         return Pane(model: model, effects: effects, images: images, media: media, project: project)

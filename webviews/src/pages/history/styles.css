@@ -123,9 +123,29 @@
 .history-list {
   flex: 1;
   overflow-y: auto;
-  /* Rows pad their hover pill by 8 px: their text starts on the page edge. */
-  padding: 4px calc(var(--page-edge) - 8px) 18px;
+  /* Rows pad their hover pill by 8 px: their text starts on the page edge. The top and bottom space
+     is the virtualizer's (HistoryPage.tsx `paddingStart`, `paddingEnd`). */
+  padding: 0 calc(var(--page-edge) - 8px);
   outline: none;
+}
+
+/* Windowed: only the headers and rows near the viewport are mounted, each placed at its offset. */
+.history-list-space {
+  position: relative;
+  width: 100%;
+}
+
+.history-list-space > * {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Its own block, so the title's margins count in the header's measured height. */
+.history-group {
+  display: flow-root;
 }
 
 .history-group-title {
@@ -141,8 +161,6 @@
   gap: 9px;
   padding: 4px 8px;
   border-radius: 6px;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 36px;
 }
 
 .history-row:hover {
@@ -321,4 +339,9 @@
   color: var(--page-text);
   font-weight: var(--weight-emphasis);
   cursor: default;
+}
+
+/* A narrowed time range reads as on, like a selected chip. */
+.history-menu-button.history-range.selected {
+  color: var(--page-text);
 }

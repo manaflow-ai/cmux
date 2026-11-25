@@ -110,8 +110,13 @@ impl Client {
     }
 }
 
+/// The settings a stop condition's Claude Code starts with (`hub/stop_condition.rs` `settings`):
+/// one prompt check and a cap of one block without a tool call between.
 fn stop_hook(condition: &str) -> Value {
-    json!({"hooks": {"Stop": [{"hooks": [{"type": "prompt", "prompt": condition}]}]}})
+    json!({
+        "env": {"CLAUDE_CODE_STOP_HOOK_BLOCK_CAP": "1"},
+        "hooks": {"Stop": [{"hooks": [{"type": "prompt", "prompt": condition}]}]},
+    })
 }
 
 #[tokio::test]

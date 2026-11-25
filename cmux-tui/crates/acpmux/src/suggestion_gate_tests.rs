@@ -138,6 +138,11 @@ fn tallies_survive_a_restart() {
     let mut g = Gate::load(path.clone());
     g.offer("s", "k", "Ship it");
     g.prompted("s", "nope", false);
+    // The tallies are written by the disk writer (`disk_writer.rs`).
+    assert!(
+        crate::disk_writer::flush(std::time::Duration::from_secs(10)),
+        "the disk writer is behind"
+    );
     let again = Gate::load(path.clone());
     assert_eq!(again.tally("k").passed, 1.0);
     std::fs::write(&path, b"not json").unwrap();

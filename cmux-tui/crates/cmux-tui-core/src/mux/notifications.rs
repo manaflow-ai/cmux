@@ -648,7 +648,7 @@ impl Mux {
                     posts.remove(id);
                 }
             }
-            let unread = feed.items().iter().filter(|item| item.is_unread()).collect::<Vec<_>>();
+            let unread = feed.items().filter(|item| item.is_unread()).collect::<Vec<_>>();
             let terminal_unread = |terminal: &TerminalPublicId| {
                 unread
                     .iter()

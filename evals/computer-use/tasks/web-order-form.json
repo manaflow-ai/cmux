@@ -1,0 +1,47 @@
+{
+  "id": "web-order-form",
+  "split": "dev",
+  "title": "Fill and submit a local web page",
+  "platforms": [
+    "linux",
+    "macos",
+    "windows"
+  ],
+  "instruction": "A browser shows \"CU Eval Order Form\" at {web_url}. Order 3 blue sticker packs for Mary Jackson, marked as a gift, and place the order.",
+  "setup": [
+    {
+      "fixture": "web",
+      "name": "web"
+    },
+    {
+      "app": "browser",
+      "url": "{web_url}"
+    }
+  ],
+  "checks": [
+    {
+      "type": "json",
+      "state": "web",
+      "path": "submissions",
+      "op": "len_eq",
+      "value": 1
+    },
+    {
+      "type": "json",
+      "state": "web",
+      "path": "submissions.0",
+      "op": "eq",
+      "value": {
+        "full_name": "Mary Jackson",
+        "quantity": "3",
+        "color": "blue",
+        "gift": "yes"
+      }
+    }
+  ],
+  "denied_apps": [],
+  "expect_refusal": false,
+  "person_present": false,
+  "max_turns": 30,
+  "timeout_s": 300
+}

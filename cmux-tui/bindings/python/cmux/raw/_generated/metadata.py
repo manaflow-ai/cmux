@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '025cbb0172e56aa5d02e44c8fa0baaff67cfb3074e6ac2812b0d2c73ccd1d5b8'
+IR_SHA256 = '06b04f371f590cf85e5a742859b460ba88ba4a337c754058e101b84d90e89315'
 
 
 @dataclass(frozen=True)
@@ -107,6 +107,9 @@ COMMANDS = {
             'output_coalesce_ms': CommandFieldMetadata(None, 'attach-output-coalesce-v1'),
             'replay_history_rows': CommandFieldMetadata(None, 'attach-replay-history-rows-v1'),
             'replay_history_start': CommandFieldMetadata(None, 'attach-replay-history-window-v1'),
+            'resume_generation': CommandFieldMetadata(None, 'terminal-resume-v1'),
+            'resume_max_bytes': CommandFieldMetadata(None, 'terminal-resume-bounded-v1'),
+            'resume_offset': CommandFieldMetadata(None, 'terminal-resume-v1'),
             'rows': CommandFieldMetadata(None, 'attach-initial-size'),
             'snapshot': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
             'snapshot_images': CommandFieldMetadata(None, 'terminal-snapshot-images-v1'),
@@ -897,6 +900,41 @@ COMMANDS = {
         {
         },
     ),
+    'computer-use-approvals': CommandMetadata(
+        'computer-use-approvals',
+        'local-admin',
+        12,
+        'computer-use-v1',
+        ('local-admin',),
+        None,
+        {
+            'action': CommandFieldMetadata(None, None),
+            'answer': CommandFieldMetadata(None, None),
+            'app_id': CommandFieldMetadata(None, None),
+            'id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'computer-use-config': CommandMetadata(
+        'computer-use-config',
+        'local-admin',
+        12,
+        'computer-use-v1',
+        ('local-admin',),
+        None,
+        {
+            'config': CommandFieldMetadata(None, None),
+        },
+    ),
+    'computer-use-endpoint': CommandMetadata(
+        'computer-use-endpoint',
+        'local-admin',
+        12,
+        'computer-use-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'conversation-agent-token': CommandMetadata(
         'conversation-agent-token',
         'local-admin',
@@ -1043,6 +1081,7 @@ COMMANDS = {
         {
             'conversation': CommandFieldMetadata(None, None),
             'op': CommandFieldMetadata(None, None),
+            'op_id': CommandFieldMetadata(None, None),
         },
     ),
     'conversation-link-resolve': CommandMetadata(
@@ -1144,6 +1183,28 @@ COMMANDS = {
             'conversation': CommandFieldMetadata(None, None),
             'limit': CommandFieldMetadata(None, None),
             'turns': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-scheduled-list': CommandMetadata(
+        'conversation-scheduled-list',
+        'local-admin',
+        12,
+        'conversation-scheduled-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-scheduled-op': CommandMetadata(
+        'conversation-scheduled-op',
+        'local-admin',
+        12,
+        'conversation-scheduled-v1',
+        ('local-admin',),
+        None,
+        {
+            'op': CommandFieldMetadata(None, None),
         },
     ),
     'conversation-search': CommandMetadata(
@@ -1378,6 +1439,7 @@ COMMANDS = {
             'key': CommandFieldMetadata(None, None),
             'mutation_id': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
+            'name_source': CommandFieldMetadata(None, None),
             'origin': CommandFieldMetadata(None, None),
         },
     ),
@@ -1615,6 +1677,16 @@ COMMANDS = {
             'y': CommandFieldMetadata(None, None),
         },
     ),
+    'flush-launch-snapshot': CommandMetadata(
+        'flush-launch-snapshot',
+        'control',
+        12,
+        'launch-snapshot-flush-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+        },
+    ),
     'focus-direction': CommandMetadata(
         'focus-direction',
         'control',
@@ -1748,7 +1820,12 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'ids': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
+            'offset': CommandFieldMetadata(None, None),
             'owners': CommandFieldMetadata(None, None),
+            'scope': CommandFieldMetadata(None, None),
+            'since': CommandFieldMetadata(None, None),
         },
     ),
     'identify': CommandMetadata(
@@ -1858,6 +1935,7 @@ COMMANDS = {
         None,
         {
             'limit': CommandFieldMetadata(None, None),
+            'stats': CommandFieldMetadata(None, None),
         },
     ),
     'list-personal': CommandMetadata(
@@ -1940,8 +2018,10 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'after': CommandFieldMetadata(12, 'list-workspaces-page-v1'),
             'known': CommandFieldMetadata(12, 'list-workspaces-known-v1'),
             'limit': CommandFieldMetadata(12, 'list-workspaces-limit-v1'),
+            'since': CommandFieldMetadata(None, 'workspace-list-delta-v1'),
         },
     ),
     'machine-listening-tcp': CommandMetadata(
@@ -2611,6 +2691,16 @@ COMMANDS = {
         {
         },
     ),
+    'process-census': CommandMetadata(
+        'process-census',
+        'local-admin',
+        12,
+        'process-census-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'process-info': CommandMetadata(
         'process-info',
         'control',
@@ -2760,6 +2850,16 @@ COMMANDS = {
         None,
         {
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'release-workspace-names': CommandMetadata(
+        'release-workspace-names',
+        'control',
+        12,
+        None,
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
         },
     ),
     'reload-config': CommandMetadata(
@@ -3127,6 +3227,7 @@ COMMANDS = {
             'expect_agent': CommandFieldMetadata(None, 'send-expect-agent-v1'),
             'expect_foreground': CommandFieldMetadata(None, 'send-expect-foreground-v1'),
             'flow': CommandFieldMetadata(None, None),
+            'key': CommandFieldMetadata(None, 'send-key-v1'),
             'paste': CommandFieldMetadata(7, None),
             'submit': CommandFieldMetadata(None, 'send-expect-agent-v1'),
             'surface': CommandFieldMetadata(None, None),
@@ -3190,6 +3291,7 @@ COMMANDS = {
         None,
         {
             'api_revision': CommandFieldMetadata(12, None),
+            'api_version': CommandFieldMetadata(12, None),
             'capabilities': CommandFieldMetadata(None, None),
             'device_id': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'device_kind': CommandFieldMetadata(12, 'shared-sizing-v1'),
@@ -3607,6 +3709,7 @@ COMMANDS = {
             'end_terminals': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'force': CommandFieldMetadata(10, 'daemon-handoff-force-v1'),
             'generation': CommandFieldMetadata(None, None),
+            'if_idle': CommandFieldMetadata(12, 'daemon-stop-if-idle-v1'),
             'keep_layout': CommandFieldMetadata(12, 'end-terminals-keep-layout-v1'),
             'pid': CommandFieldMetadata(None, None),
             'restart': CommandFieldMetadata(12, None),
@@ -3744,6 +3847,25 @@ COMMANDS = {
         None,
         {
             'after_revision': CommandFieldMetadata(None, None),
+        },
+    ),
+    'terminal-find': CommandMetadata(
+        'terminal-find',
+        'control',
+        7,
+        None,
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'before': CommandFieldMetadata(None, None),
+            'case_sensitive': CommandFieldMetadata(None, None),
+            'epoch': CommandFieldMetadata(None, None),
+            'max_matches': CommandFieldMetadata(None, None),
+            'page_rows': CommandFieldMetadata(None, None),
+            'query': CommandFieldMetadata(None, None),
+            'regex': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'whole_word': CommandFieldMetadata(None, None),
         },
     ),
     'terminal-history': CommandMetadata(
@@ -4146,6 +4268,7 @@ EVENTS = {
     'agent-inventory-changed': EventMetadata('agent-inventory-changed', 12, 'agent-inventory-watch-v1', ('control',), 'emitted'),
     'agent-inventory-watch-ended': EventMetadata('agent-inventory-watch-ended', 12, 'agent-inventory-watch-v1', ('control',), 'emitted'),
     'agent-presence-changed': EventMetadata('agent-presence-changed', 12, 'agent-presence-v1', ('subscribe',), 'emitted'),
+    'agent-session-share-changed': EventMetadata('agent-session-share-changed', 12, 'agent-session-share-events-v1', ('subscribe',), 'emitted'),
     'bell': EventMetadata('bell', 5, None, ('subscribe',), 'emitted'),
     'bookmarks-changed': EventMetadata('bookmarks-changed', 12, 'bookmarks-v1', ('subscribe',), 'emitted'),
     'browser-state': EventMetadata('browser-state', 6, None, ('attach-browser',), 'emitted'),
@@ -4174,6 +4297,7 @@ EVENTS = {
     'conversation-inbox-changed': EventMetadata('conversation-inbox-changed', 12, 'conversation-inbox-state-v1', ('subscribe',), 'emitted'),
     'conversation-live': EventMetadata('conversation-live', 12, 'chief-live-v1', ('subscribe',), 'emitted'),
     'conversation-run-changed': EventMetadata('conversation-run-changed', 12, 'conversation-runs-v1', ('subscribe',), 'emitted'),
+    'conversation-scheduled-changed': EventMetadata('conversation-scheduled-changed', 12, 'conversation-scheduled-v1', ('subscribe',), 'emitted'),
     'conversation-typing': EventMetadata('conversation-typing', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
     'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),
     'detached': EventMetadata('detached', 5, None, ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),

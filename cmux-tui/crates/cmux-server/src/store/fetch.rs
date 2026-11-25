@@ -58,7 +58,7 @@ impl HttpsFetcher {
         // reqwest is built without a default crypto provider; the tree
         // already carries ring through rustls.
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = reqwest::blocking::Client::builder()
+        let client = cmux_egress::blocking_client_builder("cmux_server::store::fetch")
             .https_only(!allow_http)
             .connect_timeout(Duration::from_secs(20))
             .timeout(Duration::from_secs(30 * 60))
@@ -171,8 +171,10 @@ fn copy_hashing(mut reader: impl Read, out: &mut impl Write) -> io::Result<(u64,
             Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
             Err(e) => return Err(e),
         };
-        hasher.update(&buf[..n]);
-        out.write_all(&buf[..n])?;
+        // `read` never returns more than the buffer holds.
+        let Some(chunk) = buf.get(..n) else { break };
+        hasher.update(chunk);
+        out.write_all(chunk)?;
         total += n as u64;
     }
     Ok((total, hasher.finalize().into()))

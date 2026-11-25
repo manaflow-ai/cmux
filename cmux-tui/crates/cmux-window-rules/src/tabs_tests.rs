@@ -39,6 +39,21 @@ fn a_persons_cmd_t_opens_the_page_where_agent_tabs_live() {
     assert_eq!(new_tab_kind(&agent), NewTabKind::Terminal);
 }
 
+#[test]
+fn a_terminal_first_persons_cmd_t_opens_a_terminal() {
+    let user = NewTabFacts { user: true, follows_setting: true, terminal_first: true, ..facts() };
+    assert_eq!(new_tab_kind(&user), NewTabKind::Terminal);
+    // Even on a chat or a browser: Cmd-T is the person's terminal key.
+    assert_eq!(new_tab_kind(&NewTabFacts { agent: true, ..user.clone() }), NewTabKind::Terminal);
+    let browser = NewTabFacts { selected_kind: SelectedKind::Browser, ..user };
+    assert_eq!(new_tab_kind(&browser), NewTabKind::Terminal);
+    // New <Kind> Tab and scripts still follow the selected tab.
+    assert_eq!(
+        new_tab_kind(&NewTabFacts { follows_setting: false, ..browser }),
+        NewTabKind::Browser { engine: None }
+    );
+}
+
 fn resolved(url: &str) -> Resolution {
     Resolution { url: url.into(), ..Resolution::default() }
 }
@@ -507,4 +522,53 @@ fn terminal_tables() {
     assert_eq!(panes::clear_failure_kind("error: not connected to host"), "not connected");
     assert_eq!(panes::clear_failure_kind("/Users/x/secret"), "other");
     assert_eq!(panes::shell_quoted("/tmp/it's here.png"), "'/tmp/it'\\''s here.png'");
+}
+
+#[test]
+fn go_to_directory_types_one_cd_line() {
+    let go = panes::go_to_directory_input;
+    assert_eq!(go("/tmp/it's here").as_deref(), Some("\u{15}cd -- '/tmp/it'\\''s here'\r"));
+    assert_eq!(go("  ~/src/cmux ").as_deref(), Some("\u{15}cd -- ~/'src/cmux'\r"));
+    assert_eq!(go("~").as_deref(), Some("\u{15}cd -- ~\r"));
+    assert_eq!(go("~/").as_deref(), Some("\u{15}cd -- ~/\r"));
+    assert_eq!(go("../lib").as_deref(), Some("\u{15}cd -- '../lib'\r"));
+    // `~user` is not the home shorthand this rule expands: quoted, as typed.
+    assert_eq!(go("~bob").as_deref(), Some("\u{15}cd -- '~bob'\r"));
+    assert_eq!(go("a;rm -rf ~").as_deref(), Some("\u{15}cd -- 'a;rm -rf ~'\r"));
+    assert_eq!(go(""), None);
+    assert_eq!(go("   "), None);
+    assert_eq!(go("/tmp\nrm -rf ~"), None);
+}
+
+#[test]
+fn a_gui_chat_no_terminal_runs_shows_no_toggle() {
+    let chat = ToggleFacts {
+        chat: true,
+        agent: Some("claude".into()),
+        session: Some("s".into()),
+        ..Default::default()
+    };
+    // A chat no terminal runs is a GUI chat: no toggle, mid-turn or not.
+    assert!(!terminal_chat_toggle(&chat).shows_toggle());
+    assert!(!terminal_chat_toggle(&ToggleFacts { busy: true, ..chat.clone() }).shows_toggle());
+    // Half of a live pair shows it: a chat a terminal runs, a terminal running its session.
+    assert!(terminal_chat_toggle(&ToggleFacts { running: true, ..chat.clone() }).shows_toggle());
+    let terminal = ToggleFacts { terminal: true, chat: false, ..chat.clone() };
+    assert!(terminal_chat_toggle(&terminal).shows_toggle());
+    // A hand-off an earlier Toggle started still shows it, so the new terminal is reachable.
+    let hand_off = HandOff { deadline: 160.0, tab: None };
+    assert!(
+        terminal_chat_toggle(&ToggleFacts { hand_off: Some(hand_off), now: 100.0, ..chat })
+            .shows_toggle()
+    );
+    // No session, an unsupported harness, not an agent tab, nowhere to start a terminal: none.
+    for route in [
+        TerminalChatToggle::NotAgentTab,
+        TerminalChatToggle::NoSession,
+        TerminalChatToggle::UnsupportedHarness,
+        TerminalChatToggle::Busy,
+        TerminalChatToggle::NoTerminal,
+    ] {
+        assert!(!route.shows_toggle(), "{route:?}");
+    }
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gitleaks: secrets in new commits. Report-only, always --redact (no secret
+# gitleaks: secrets in new commits. Reports (ratchet.py judges it for CI), always --redact (no secret
 # value is ever written to the report or the terminal).
 # Exits 0 when gitleaks ran (findings or not); nonzero only when it could not be
 # installed or crashed.

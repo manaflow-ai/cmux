@@ -1,4 +1,4 @@
-import { Freestyle } from "../index.js";
+import { Freestyle, type FreestyleOptions } from "../index.js";
 import type { OutputFormat } from "./output.js";
 export interface GlobalArgv {
     apiKey?: string;
@@ -13,4 +13,6 @@ export interface GlobalArgv {
  * the selected Freestyle team during HTTP and WebSocket handshakes.
  */
 export declare function client(argv: GlobalArgv): Promise<Freestyle>;
+/** Resolve the same credentials for HTTP clients and native SSH. */
+export declare function clientOptions(argv: GlobalArgv): Promise<FreestyleOptions>;
 //# sourceMappingURL=context.d.ts.map

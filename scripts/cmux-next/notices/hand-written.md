@@ -245,11 +245,14 @@ This software is based in part on the work of the FreeType Team (FreeType 2.13.2
 
 ---
 
-## cmux-cua engine
+## Agent cursor (CmuxAgentCursor)
+
+The app's agent cursor package (`Packages/Shared/CmuxAgentCursor`) was taken from
+manaflow-ai/cmux-cua, a fork of trycua/cua, under the MIT License.
 
 - **License:** MIT License
 - **Copyright:** Copyright (c) 2025 Cua AI, Inc.
-- **Source:** https://github.com/manaflow-ai/cmux-cua
+- **Source:** https://github.com/manaflow-ai/cmux-cua (libs/cmux-cua/swift/CmuxAgentCursor)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -1056,8 +1059,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 CmuxVNCWebRTC). libwebrtc links third-party code from Chromium's tree: BoringSSL, Opus,
 libvpx, libsrtp, Abseil, dav1d, the Alliance for Open Media Video Codec (libaom), libyuv,
 Protocol Buffers [Lite] and PFFFT. Their notices are in Chromium's `CREDITS.html` for the
-same milestone (Chromium 154), bundled at
-`Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html`.
+same milestone (Chromium 154), bundled gzip-compressed at
+`Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html.gz`.
 
 Copyright (c) 2011, The WebRTC project authors. All rights reserved.
 
@@ -1097,18 +1100,19 @@ Every Rust binary in this app statically links the Rust standard library
 (`std`, `core`, `alloc`, `compiler_builtins` and the crates they vendor) of
 the rustc that built it. The Rust project publishes the notices for that code
 with each release as `COPYRIGHT-library.html`. This app ships that file,
-unchanged, for each rustc that built one of its binaries:
+unchanged and gzip-compressed (`gunzip` restores it byte for byte), for each
+rustc that built one of its binaries:
 
-- `Contents/Resources/toolchain-licenses/rust-1.95.0/COPYRIGHT-library.html`:
+- `Contents/Resources/toolchain-licenses/rust-1.95.0/COPYRIGHT-library.html.gz`:
   `bin/cmux`, `bin/cmux-tui-ssh/*`, `bin/cmux-app-host`, `bin/cmux-cloud`,
   `bin/cmux-mobile-host` and `Helpers/cmux-remote-browser-host.app`
-- `Contents/Resources/toolchain-licenses/rust-1.91.0/COPYRIGHT-library.html`:
+- `Contents/Resources/toolchain-licenses/rust-1.91.0/COPYRIGHT-library.html.gz`:
   no binary in this app is known to be built by rustc 1.91.0 since the app
   stopped linking iroh-ffi; the reviewed file still ships, for any Rust
   binary built by that rustc
-- `Contents/Resources/toolchain-licenses/rust-1.98.1/COPYRIGHT-library.html`:
+- `Contents/Resources/toolchain-licenses/rust-1.98.1/COPYRIGHT-library.html.gz`:
   `bin/cmux-diff-sidecar`
-- `Contents/Resources/toolchain-licenses/rust-1.97.1/COPYRIGHT-library.html`:
+- `Contents/Resources/toolchain-licenses/rust-1.97.1/COPYRIGHT-library.html.gz`:
   `Library/cmux Remote (dev).app/Contents/Frameworks/libcua_driver_sdk.dylib`
   (the pinned upstream Cua Driver SDK)
 

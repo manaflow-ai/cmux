@@ -3,7 +3,7 @@
 .acpmux-git-tool{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 10px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-git-tool:hover:not(:disabled){background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));color:var(--agent-text)}
 .acpmux-git-tool:active:not(:disabled){background:var(--acpmux-step-pressed)}
-.acpmux-git-tool[aria-expanded=true]{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
+.acpmux-git-tool[aria-expanded=true]{background:var(--ds-surface-inset);color:var(--agent-text)}
 .acpmux-git-tool:disabled{opacity:.5;cursor:default}
 .acpmux-git-tool:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
 .acpmux-git-ahead{font-variant-numeric:tabular-nums;color:var(--agent-text)}
@@ -27,7 +27,7 @@
 .acpmux-git-primary:disabled,.acpmux-git-secondary:disabled{opacity:.5}
 .acpmux-git-primary:focus-visible,.acpmux-git-secondary:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
 .acpmux-git-status{flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:6px 12px;border-bottom:1px solid var(--agent-border);color:var(--agent-text);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-git-status[data-phase=busy],.acpmux-git-status[data-phase=done]{background:color-mix(in srgb,var(--agent-text) 4%,transparent)}
+.acpmux-git-status[data-phase=busy],.acpmux-git-status[data-phase=done]{background:var(--ds-surface-card)}
 .acpmux-git-status[data-phase=failed]{background:color-mix(in srgb,var(--agent-danger) 14%,transparent)}
 .acpmux-git-status-text{flex:1;min-width:0}
 .acpmux-git-status .acpmux-git-secondary{height:24px;padding:0 8px}

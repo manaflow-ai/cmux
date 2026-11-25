@@ -248,6 +248,56 @@ class SpmArtifactPreflight(unittest.TestCase):
         # The checkouts stay; only the artifact state went.
         self.assertTrue((self.packages / 'checkouts/iroh-ffi/Package.swift').is_file())
 
+    def test_resolve_can_remove_a_cached_dependency(self):
+        # Run 44847411222 resolved the current graph without Iroh, but the preflight
+        # retained the old workspace's Iroh requirement and rejected the successful resolve.
+        for pins in ([], [{'identity': 'current', 'location': 'https://x/current.git'}]):
+            with self.subTest(pins=pins):
+                write_state(self.packages, self.own)
+                resolved = self.root / 'Package.resolved'
+                resolved.write_text(json.dumps({'pins': pins}))
+                script = self.root / 'resolve_removed.py'
+                script.write_text(
+                    'import json, pathlib, sys\n'
+                    "(pathlib.Path(sys.argv[1]) / 'workspace-state.json').write_text(\n"
+                    "    json.dumps({'object': {'dependencies': [], 'artifacts': []}}))\n")
+                result = subprocess.run(
+                    [sys.executable, '-I', str(PREFLIGHT), str(self.packages),
+                     '--resolved', str(resolved), '--', sys.executable, '-I', str(script), str(self.packages)],
+                    capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn('resolving again', result.stdout)
+                self.assertFalse(self.own.exists())
+                self.assertTrue((self.packages / 'checkouts/iroh-ffi/Package.swift').is_file())
+
+    def test_resolved_empty_graph_ignores_unused_checkouts_without_pins(self):
+        write_state(self.packages, self.own)
+        (self.packages / 'workspace-state.json').write_text(
+            json.dumps({'object': {'dependencies': [], 'artifacts': []}}))
+        self.assertEqual(preflight.problems(self.packages, []), [])
+
+    def test_resolve_cannot_hide_a_current_local_artifact(self):
+        project, _wanted = self.local_packages()
+        script = self.root / 'resolve_empty.py'
+        script.write_text(
+            'import json, pathlib, sys\n'
+            "(pathlib.Path(sys.argv[1]) / 'workspace-state.json').write_text(\n"
+            "    json.dumps({'object': {'dependencies': [], 'artifacts': []}}))\n")
+        result = subprocess.run(
+            [sys.executable, '-I', str(PREFLIGHT), str(self.packages), '--xcodeproj', str(project),
+             '--', sys.executable, '-I', str(script), str(self.packages)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn('CCmuxAppFFI.xcframework is missing', result.stdout)
+        self.assertIn('WebRTC.xcframework is missing', result.stdout)
+
+    def test_resolve_cannot_hide_a_current_pinned_artifact(self):
+        _checkout, resolved = self.iroh_ffi_checkout()
+        result = subprocess.run(
+            [sys.executable, '-I', str(PREFLIGHT), str(self.packages), '--resolved', str(resolved),
+             '--', 'true'], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn('Iroh.xcframework is missing', result.stdout)
+
     def test_seeded_host_tree_keeps_no_other_trees_workspace_state(self):
         slot = self.root / 'Caches/cmux-nightly-next/runner-2/id/SourcePackages'
         write_state(slot, slot / 'artifacts/iroh-ffi/Iroh/Iroh.xcframework')

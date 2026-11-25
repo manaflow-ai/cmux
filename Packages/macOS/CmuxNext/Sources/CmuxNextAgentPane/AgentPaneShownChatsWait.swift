@@ -24,9 +24,31 @@ public final class AgentPaneShownChatsWait {
     private var pending = 0
     private var checked = false
     private let timer: DemandTimer
+    /// Home's Chief page (a native chat page, not an agent pane) drew its first page this run (``homePageDrew()``).
+    public private(set) var homeDrew = false
+    private var homeWaits: [() -> Void] = []
 
     public init(clock: any Clock<Duration> = ContinuousClock()) {
         timer = DemandTimer(owner: "NewTabSparePool.shownChats", clock: clock)
+    }
+
+    /// Home's Chief page as one more shown chat to wait on, while `shown` (a window shows Home, or no workspace yet)
+    /// and its first page has not drawn. CMUX-571: on a fresh launch the spare's page started Chromium
+    /// (`CefInitialize`, about 200 ms on the main thread) while Home's first page was on its way, and the Chief's
+    /// conversation list and the dock's tree update both waited behind it (fresh-home-launch-ab dock marks:
+    /// `cef.initialize_start` 1020 ms, `cef.ready` 1213 ms, `home.chief_listed` 1260 ms, `home.first_page` 1458 ms).
+    public func home(shown: Bool) -> [WhenPainted] {
+        guard shown, !homeDrew else { return [] }
+        return [{ [weak self] drew in self?.homeWaits.append(drew) }]
+    }
+
+    /// Home's Chief page drew its first page (`home.first_page`): a wait on it ends.
+    public func homePageDrew() {
+        guard !homeDrew else { return }
+        homeDrew = true
+        let waits = homeWaits
+        homeWaits = []
+        for drew in waits { drew() }
     }
 
     /// True while a wait holds the spare: the first call reads `loading` and waits on each page; `then` runs once

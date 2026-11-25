@@ -10,6 +10,10 @@ settled_ms, prior_chat_front_ms, prior_chat_live_ms, warm_switch_ms; t0 = the pr
                  does), the app is copied out (ditto keeps the quarantine the image gives its files) and the image
                  detached; the disk cache is purged when `sudo -n purge` is allowed; then `open -n` the copy with a
                  new HOME (CFFIXED_USER_HOME, a login keychain, the bundle's defaults set aside), as a double-click.
+                 `defaults_before` is the domain just before the `open` (its key names, and the value of each
+                 cmuxNext.launchSnapshotPath.* key) and `launch_snapshot_applied` whether the launch marked it: the
+                 row fails when the domain held any key or the mark is there. A new HOME is not enough: cfprefsd
+                 keeps the bundle's defaults in the account's real preferences, so an earlier run's leak in.
                  The first-launch "downloaded from the Internet" prompt is answered Open (cua-driver, else System
                  Events) and the time it waited for a person is kept apart (prompt_wait_ms). Also from the `open`:
                  open_to_spawn_ms, open_to_first_window_ms, open_to_settled_ms; Home or the first-run page in a
@@ -207,7 +211,7 @@ def install(smoke, dmg: Path, root: Path) -> tuple[Path, dict]:
     mount.mkdir()
     try:
         started = time.monotonic()
-        subprocess.run(["hdiutil", "attach", str(image), "-nobrowse", "-readonly", "-mountpoint", str(mount)],
+        subprocess.run(["hdiutil", "attach", str(image), "-nobrowse", "-readonly", "-noautofsck", "-mountpoint", str(mount)],
                        check=True, stdout=subprocess.DEVNULL, timeout=600)
         info["mount_ms"] = round((time.monotonic() - started) * 1000)
         apps = sorted(mount.glob("*.app"))
@@ -251,6 +255,7 @@ def fresh_install_round(smoke, dmg: Path, index: int, prepare_env=None, seconds:
     finally:
         shutil.rmtree(root, ignore_errors=True)
     if not row["failures"]:
+        row["failures"] += defaults_leak_failures(row)
         if row.get("first_window_ms") is None:
             row["failures"].append("no first window frame")
         if row.get("home_ms") is None:
@@ -258,6 +263,24 @@ def fresh_install_round(smoke, dmg: Path, index: int, prepare_env=None, seconds:
         if row.get("settled_ms") is None:
             row["failures"].append(f"not settled (marks {sorted(row.get('marks') or {})[:40]})")
     return row
+
+
+def defaults_leak_failures(row: dict) -> list[str]:
+    """A fresh install's first launch must start with an empty defaults domain and must not apply a launch snapshot:
+    a key in `defaults_before` was left by an earlier launch of the same bundle id (cfprefsd keeps the domain in the
+    account's real preferences, whatever HOME and CFFIXED_USER_HOME say), and `launch_snapshot_applied` means the
+    launch opened a snapshot it did not write (an earlier run's `cmuxNext.launchSnapshotPath.<session>`)."""
+    failures = []
+    before = row.get("defaults_before") or {}
+    if before.get("error"):
+        failures.append(f"could not read the defaults domain before the launch: {before['error']}")
+    elif before.get("keys"):
+        paths = before.get("launch_snapshot_paths") or {}
+        failures.append(f"the defaults domain held {len(before['keys'])} keys before a fresh install's launch "
+                        f"({', '.join(before['keys'][:8])})" + (f"; snapshot paths {json.dumps(paths)}" if paths else ""))
+    if row.get("launch_snapshot_applied"):
+        failures.append("a fresh install's launch applied a launch snapshot (launch_snapshot_applied), one an earlier run wrote")
+    return failures
 
 
 def open_launch(smoke, root: Path, app: Path, executable: str, bundle_id: str, seconds: float, prepare_env) -> dict:
@@ -279,6 +302,7 @@ def open_launch(smoke, root: Path, app: Path, executable: str, bundle_id: str, s
     marks: dict[str, float] = {}
     arrivals: dict[str, float] = {}
     prompt: dict = {}
+    before = smoke.defaults_before(bundle_id)  # just before the `open`, inside the round's DefaultsAside
     found, home_at, snap, buffer, exited = None, None, None, b"", False
     next_look = 0.5
     opened_wall, opened = time.time(), time.monotonic()
@@ -344,7 +368,8 @@ def open_launch(smoke, root: Path, app: Path, executable: str, bundle_id: str, s
     out = timings(marks, arrivals, home_at, prompt)
     out.update(exited=exited, pid=found[0] if found else None,
                translocated=bool(found and "/AppTranslocation/" in found[1]), prompt=prompt, marks=marks,
-               first_run=smoke.FIRST_RUN_MARK in marks, launch_times=launch_times,
+               first_run=smoke.FIRST_RUN_MARK in marks, launch_times=launch_times, defaults_before=before,
+               launch_snapshot_applied="launch_snapshot_applied" in marks,
                open_stderr=opener.stderr.read().decode(errors="replace")[-400:] if opener.stderr else "")
     out["gate"] = gate_log(opened_wall, until_wall)
     return out
@@ -398,7 +423,12 @@ class SyntheticLoad:
             ["/bin/sh", "-c", 'while :; do dd if=/dev/zero of="$1" bs=1048576 count=256 2>/dev/null; sync; rm -f "$1"; done',
              "load", str(target)], stdout=subprocess.DEVNULL, start_new_session=True))
         SyntheticLoad.running.append(self)
-        time.sleep(1.0)  # the load is on before the reopen
+        # The load is on before the reopen: the writer has its first file open and every worker is still running.
+        on_by = time.monotonic() + 10
+        while not (target.exists() and all(p.poll() is None for p in self.procs)):
+            if time.monotonic() > on_by:
+                raise RuntimeError(f"the synthetic load never started ({target} not written in 10 s, or a worker exited)")
+            time.sleep(0.05)
         return {"cpu_workers": workers, "cpus": cpus, "io": "256 MiB dd writes and a sync, in a loop",
                 "load1_at_reopen": round(os.getloadavg()[0], 2)}
 

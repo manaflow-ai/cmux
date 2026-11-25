@@ -16,6 +16,7 @@ import path from "node:path";
 import postcss from "postcss";
 import focusRingGate from "../scripts/postcss/focusRingGate.mjs";
 import { snapshotCss } from "../scripts/agent-pane/snapshotCss.mjs";
+import { withoutComments } from "../scripts/agent-pane/paneCssComments.mjs";
 
 setDefaultTimeout(180_000);
 
@@ -31,9 +32,10 @@ if (!built && process.env.CI) throw new Error(`agent-pane-styles: ${page} is not
 if (!built) console.warn("agent-pane-styles: skipping (run scripts/cmux-next/build-agent-pane-web.sh)");
 
 /** A source sheet as the page ships it: the build runs the focus-ring gate over the joined sheets
- * (scripts/postcss/gate-css.mjs), so each `:focus-visible` carries it. */
+ * (scripts/postcss/gate-css.mjs), so each `:focus-visible` carries it, then drops their comments
+ * (scripts/agent-pane/paneCssComments.mjs). */
 const shipped = (file: string) =>
-  postcss([focusRingGate()]).process(fs.readFileSync(file, "utf8"), { from: undefined }).css;
+  withoutComments(postcss([focusRingGate()]).process(fs.readFileSync(file, "utf8"), { from: undefined }).css);
 
 /** Trailing spaces are stripped from the page, and a sheet's own @import lines (the page inlines
  * the imported sheet before it), so compare without them. */
@@ -96,6 +98,18 @@ describe.skipIf(!built)("agent pane page", () => {
     const copy = fs.readFileSync(path.join(path.dirname(page), "pane-copy.css"), "utf8");
     expect(copy).toBe(snapshotCss(css));
     expect(copy.length).toBeLessThan(css.length / 10);
+  });
+
+  // Source comments were a third of the sheet (638 KB of 1.96 MB), tokenized by every renderer before
+  // the page's first style pass. Only a `/*!` notice (Tailwind's license) stays.
+  test("ships no source comments", () => {
+    const css = fs.readFileSync(sheet, "utf8");
+    const comments: string[] = [];
+    postcss.parse(css).walkComments((comment) => {
+      if (!comment.text.startsWith("!")) comments.push(comment.text.slice(0, 60));
+    });
+    expect(comments).toEqual([]);
+    expect(css).toContain("/*! tailwindcss");
   });
 
   // A sheet's own @import never loads in the page: mid-stylesheet the browser drops it (the page's

@@ -70,8 +70,8 @@
   border-radius: 6px;
   line-height: 20px;
   font-size: var(--text-control);
-  color: var(--cv-text);
-  background: color-mix(in srgb, var(--cv-fg, var(--cv-text)) 8%, transparent);
+  color: var(--cv-chip-ink);
+  background: var(--cv-chip-bg);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--cv-fg, var(--cv-text)) 10%, transparent);
   cursor: default;
   letter-spacing: var(--text-control--letter-spacing);
@@ -188,13 +188,13 @@ button.cv-agentmsg__name:focus-visible {
 /* Keep today's card available as a gallery comparison; the selected surface is borderless. */
 :root[data-message-surfaces="bordered"] .cv-agentmsg__card {
   border-radius: 10px;
-  background: color-mix(in srgb, var(--cv-fg, var(--cv-text)) 5%, transparent);
+  background: var(--ds-surface-card);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px)
     color-mix(in srgb, var(--cv-fg, var(--cv-text)) 10%, transparent);
 }
 :root[data-message-surfaces="soft"] .cv-agentmsg__card {
   border-radius: 8px;
-  background: color-mix(in srgb, var(--cv-fg, var(--cv-text)) 3%, transparent);
+  background: var(--ds-surface-card);
 }
 /* What a caller adds under the card: a delivery line, its details. */
 .cv-agentmsg__under {
@@ -372,7 +372,7 @@ button.cv-agentmsg__name:focus-visible {
   margin-inline-start: var(--grid-icon-box);
   padding: var(--grid-cards-padding);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--cv-text) 5%, transparent);
+  background: var(--ds-surface-card);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--cv-text) 12%, transparent);
   white-space: normal;
   max-height: none;
@@ -393,6 +393,13 @@ button.cv-agentmsg__name:focus-visible {
 /* What a caller adds under the card (Raw, Details, a reply) sits on the card's left edge. */
 .cv-agentmsg:is([data-look="card"], [data-look="corner"]) .cv-agentmsg__open > :not(.cv-agentmsg__card) {
   margin-inline-start: var(--grid-icon-box);
+}
+/* A body that is a row, not words (a sent call with no text, AgentMessageRow `bare`): the row opens
+   bare under the line at the child step, as an opened group's rows do, never a row inside a card
+   (design/chat-row-anatomy.md: a row that holds rows opens them inline; one that holds content opens
+   one body). */
+.cv-agentmsg__bare {
+  min-width: 0;
 }
 /* A sender acpmux could not verify (UnverifiedMark.tsx): a status-sized mark in the muted tone right
    after the name, never words in it. */

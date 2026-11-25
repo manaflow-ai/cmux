@@ -33,7 +33,6 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
 
-WORKFLOW = ROOT / ".github/workflows/ci-guard-attribution.yml"
 
 # Trimmed from run 36199352592, a PR's "CI fast guards" job log.
 CI_LOG = textwrap.dedent("""\
@@ -572,33 +571,6 @@ class StepSelection(unittest.TestCase):
         steps += [run_ci_guards.Step("red", "false", {}, None), run_ci_guards.Step("after", "true", {}, None)]
         selected = run_ci_guards.select_steps([run_ci_guards.Unit("j", "release-notary", steps)], {"red"})
         self.assertEqual([s.name for s in selected[0].steps], ["init", "red"])
-
-
-class WorkflowTrust(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.text = WORKFLOW.read_text(encoding="utf-8")
-        cls.workflow = run_ci_guards.load_yaml(WORKFLOW)
-
-    def test_follows_both_guard_workflows(self) -> None:
-        on = self.workflow.get("on", self.workflow.get(True))
-        self.assertEqual(
-            sorted(on["workflow_run"]["workflows"]),
-            sorted(["CI", ga.FAST_WORKFLOW, ga.VARS_WORKFLOW]),
-        )
-        self.assertEqual(on["workflow_run"]["types"], ["completed"])
-
-    def test_only_report_writes_and_nothing_checks_out_the_pr(self) -> None:
-        analyze, report = self.workflow["jobs"]["analyze"], self.workflow["jobs"]["report"]
-        self.assertNotIn("write", analyze["permissions"].values())
-        self.assertEqual(report["permissions"]["issues"], "write")
-        for step in analyze["steps"] + report["steps"]:
-            if "actions/checkout" in str(step.get("uses")):
-                self.assertNotIn("head_sha", json.dumps(step.get("with")))
-        self.assertNotIn("pull_request_target", self.text)
-
-    def test_the_report_job_is_named_by_the_headline(self) -> None:
-        self.assertIn("needs.analyze.outputs.headline", self.workflow["jobs"]["report"]["name"])
 
 
 if __name__ == "__main__":

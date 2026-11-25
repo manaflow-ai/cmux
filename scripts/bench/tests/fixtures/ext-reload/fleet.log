@@ -1,0 +1,5 @@
+ERN host cmux-mini-3 macOS 26.1 dmg https://files-next.cmux.com/nightly-next/cmux-macos-arm64-123.dmg
+EXT_RELOAD_NIGHTLY readback {"folder": "/tmp/x/activity", "save_to_reload_ms": 1840}
+edit-repaint: extension round 0: {"write_ms": 0.3, "method": "readback", "upper_ms": 240.1, "lower_ms": 210.0}
+EXT_RELOAD_NIGHTLY {"host": "cmux-mini-3", "readback": {"save_to_reload_ms": 1840, "checks": {"watcher_loaded_first": true, "watcher_reloaded_on_save": true, "loaded_copy_shows_edit": true, "open_views_show_edit": true}, "ok": true}, "edit_repaint_exit": 0, "edit_repaint": {"extension": {"n": 10, "missed": 0, "upper_median_ms": 240.5, "upper_max_ms": 410.0, "lower_median_ms": 215.0, "lower_max_ms": 380.0, "method": "readback", "view_shown": 10}, "command": {"n": 0, "missed": 10, "method": "readback"}}, "ok": false}
+ERN exit=1

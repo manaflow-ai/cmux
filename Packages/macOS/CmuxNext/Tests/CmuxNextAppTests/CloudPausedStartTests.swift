@@ -115,6 +115,24 @@ struct CloudPausedStartTests {
         #expect(session.machine.status == .paused)
     }
 
+    /// A claimed spare: the claim's answer gave its record as running just now, so the start does not read the list
+    /// again first (a claimed spare's whole `connect.resume`); an answer past Rust's window, or a list's record, is read.
+    @Test func aStartTakesARecordTheClaimJustAnsweredRunning() async {
+        let session = Self.session(.running, LateReceiverResolver(refusing: 0, dials: CloudPausedStartTests.Dials()))
+        defer { session.disconnect() }
+        var reads = 0
+        session.refresher = { _ in reads += 1 }
+        session.answeredAt = .now
+        await session.refreshIfMaybePaused()
+        #expect(reads == 0)
+        session.answeredAt = ContinuousClock.now.advanced(by: .seconds(-11))
+        await session.refreshIfMaybePaused()
+        #expect(reads == 1)
+        session.answeredAt = nil
+        await session.refreshIfMaybePaused()
+        #expect(reads == 2)
+    }
+
     /// The record read running, the dial found the machine parked (its end's list read says paused): the start's
     /// wait resumes it and dials again, instead of ending on "didn't connect".
     @Test func aStartsWaitResumesAMachineThatTurnsOutPausedOnConnect() async {

@@ -37,7 +37,7 @@ const call = (id: string, title: string, kind: string, rawInput?: Record<string,
 
 /// Leo's chat: a turn that started a background command and ended on its reply (a footer row under
 /// it), then the command's end woke the agent, which read the command's output and replied.
-const wokenAfterFooter = (opensWith: "tool" | "reply"): Step[] => [
+const wokenAfterFooter = (opensWith: "tool" | "reply" | "running"): Step[] => [
   ["mux", "user_message", { text: "Reclaim the two merged-branch worktrees", turnId: "t1" }],
   ["mux", "turn_started", { turnId: "t1" }],
   call("reclaim", "wt reclaim --apply", "execute", { command: "wt reclaim --apply", run_in_background: true }),
@@ -59,18 +59,25 @@ const wokenAfterFooter = (opensWith: "tool" | "reply"): Step[] => [
       },
     },
   ],
-  ...(opensWith === "tool" ? [call("read-output", "Read b9yur0qrw.output", "read")] : []),
-  say("The two huge-blue worktrees are still there. wt reclaim keeps a worktree a live session holds."),
-  ["mux", "background_turn", { state: "ended", id: "bg-reclaim", trigger: "task_notification", quiet: false }],
+  ...(opensWith === "reply" ? [] : [call("read-output", "Read b9yur0qrw.output", "read")]),
+  ...((opensWith === "running"
+    ? []
+    : [
+        say("The two huge-blue worktrees are still there. wt reclaim keeps a worktree a live session holds."),
+        ["mux", "background_turn", { state: "ended", id: "bg-reclaim", trigger: "task_notification", quiet: false }],
+      ]) as Step[]),
 ];
 
 /// The drawn rows and the gap over the woken turn's first row, with the row over it.
-async function gapUnderFooter(opensWith: "tool" | "reply") {
+async function gapUnderFooter(opensWith: "tool" | "reply" | "running") {
   const daemon = fakeDaemon(record(wokenAfterFooter(opensWith)));
   const { client, rows } = await connect(daemon);
   try {
     const view = turnView(rows(), new Set()).filter((row) => row.kind !== "date") as AcpmuxRow[];
-    const first = view.findIndex((row) => row.inBackground === "bg-reclaim");
+    // Its first row: its "Worked for" when its work folds under one (cmux#49592), else its reply.
+    const first = view.findIndex(
+      (row) => row.inBackground === "bg-reclaim" || row.id === "worked-backgroundTurn-bg-reclaim",
+    );
     const layout = layoutConversation(view, 720);
     const gap = layout.tops[first]! - layout.tops[first - 1]! - layout.heights[first - 1]!;
     return { view, first, gap };
@@ -81,13 +88,15 @@ async function gapUnderFooter(opensWith: "tool" | "reply") {
 
 for (const look of [undefined, "line"] as const) {
   const arm = look ?? "default";
-  test(`a woken turn's first tool row under the ended turn's footer stands the block gap, not an empty turn gap (${arm} background look)`, async () => {
+  test(`a woken turn's Worked for under the ended turn's footer stands the block gap, not an empty turn gap (${arm} background look)`, async () => {
     if (look) globalThis.cmuxExperiments = { "background-turn-look": look };
     const { view, first, gap } = await gapUnderFooter("tool");
     // The background command's line draws nothing: its result is on its call.
     expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
-    // Right under the ended turn's footer row: its first row is the "Read" call.
-    expect(view[first]?.kind).toBe("activity");
+    // Right under the ended turn's footer row: its first row is the "Worked for" its "Read" call
+    // folds under, once the woken turn ended (cmux#49592).
+    expect(view[first]?.kind).toBe("worked");
+    expect(view.some((row) => row.kind === "activity" && row.inBackground === "bg-reclaim")).toBe(false);
     expect(view[first - 1]?.kind).toBe("turnSummary");
     expect(rowMark(view[first - 1]!)).toBe(MARK_FOOTER_ROW);
     expect(gap).toBe(TRANSCRIPT_BLOCK_GAP);
@@ -101,3 +110,14 @@ for (const look of [undefined, "line"] as const) {
     expect(gap).toBe(TRANSCRIPT_TURN_GAP);
   });
 }
+
+// Leo, 2026-11-25: "did we identify the cause between the gap here? betwen the copy branch etc buttons
+// and the next working for?" While the woken turn still runs, its first row under the ended turn's
+// footer stands the same block gap as once it has ended, never a turn gap or a reserved band
+// (gallery agent-pane.woken-turn-gap `working`).
+test("a woken turn still running stands the block gap under the ended turn's footer", async () => {
+  const { view, first, gap } = await gapUnderFooter("running");
+  expect(view[first - 1]?.kind).toBe("turnSummary");
+  expect(rowMark(view[first - 1]!)).toBe(MARK_FOOTER_ROW);
+  expect(gap).toBe(TRANSCRIPT_BLOCK_GAP);
+});

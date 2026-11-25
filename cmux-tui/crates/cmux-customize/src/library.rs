@@ -42,30 +42,39 @@ use serde_json::Value;
 
 use crate::profile::{Profile, shareable_settings, valid_name};
 use crate::redact::find_secret;
-use crate::store::{Draft, Generation, Kind};
+use crate::store::{Draft, Generation, Kind, LibraryMark};
 use crate::tree::{self, Part, SETTINGS, Tree};
 use crate::{Customize, Error, validate};
 
+pub mod applies;
 pub mod code;
 mod collection;
+pub mod doctor;
 pub mod expire;
 pub mod keys;
 pub mod overlay;
 mod put;
 pub mod recover;
+pub mod standup;
 mod text;
 
+pub use applies::{NoLongerApplies, Stale};
 use code::WebTarget;
 pub use code::{CodeKind, CodeLayer, WEB_KEY, WebBase};
 use keys::KEYBINDINGS;
 pub use overlay::Overlay;
 pub use recover::{ActiveLayer, Layers, Recovered};
+pub use standup::{Standup, StandupLine};
 pub use text::thumbnail;
 use text::{one_line, slug, unique_name};
 
 /// The collection format version this cmux reads and writes.
 pub const COLLECTION_VERSION: u32 = 1;
 /// The most entries one collection or library holds.
+/// Measured: every change rewrites `library.json` whole (each entry carries its profile's
+/// settings and files) and rescans every entry for the keys it references, and an exported
+/// library must import under MAX_COLLECTION_BYTES (8 MiB): about 16 KiB an entry for 500.
+/// Derived from those bounds, not timed; per-entry storage would lift it.
 pub const MAX_ENTRIES: usize = 500;
 /// The largest collection file import reads.
 pub const MAX_COLLECTION_BYTES: usize = 8 * 1024 * 1024;
@@ -106,6 +115,11 @@ pub struct Entry {
     /// When it was last turned on (local only; [`expire`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_ms: Option<u64>,
+    /// A code entry put on with `cmux customize try CODE`: when it goes off
+    /// by itself (local only; [`expire`]). Turning it on or off by hand, or
+    /// `use` again, keeps it and clears this.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until_ms: Option<u64>,
     /// Code not in your build (`source` "pr", "branch", "sha", "dir", "fork"): its web part is the
     /// stack key `code:web` ([`code`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -219,6 +233,23 @@ struct LibraryFile {
     /// Top first.
     entries: Vec<Entry>,
     base: Base,
+    /// The app commit (`CMUXCommit`, as the app stamps it) `refresh` last
+    /// ran on, so the app runs it again at start only after an update.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    refreshed_on: Option<String>,
+}
+
+/// Whether `refresh` is due on an app at `app` (its `CMUXCommit`) when it
+/// last ran on `recorded`: never on a build with no commit (a DEV build),
+/// always the first time, then only when the commit changed. A NIGHTLY
+/// stamps a short commit, so one that starts the other is the same commit.
+pub fn refresh_due(recorded: Option<&str>, app: Option<&str>) -> bool {
+    let Some(app) = app.map(str::trim).filter(|app| !app.is_empty()) else { return false };
+    let Some(recorded) = recorded.map(str::trim).filter(|recorded| !recorded.is_empty()) else {
+        return true;
+    };
+    let (app, recorded) = (app.to_ascii_lowercase(), recorded.to_ascii_lowercase());
+    !(app.starts_with(&recorded) || recorded.starts_with(&app))
 }
 
 /// One entry as a list shows it.
@@ -242,6 +273,10 @@ pub struct Listed {
     /// reader that does not know it is unaffected).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<CodeLayer>,
+    /// A code try (`cmux customize try CODE`) that is on: when it goes off
+    /// by itself.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub until_ms: Option<u64>,
 }
 
 /// Two or more entries that are on set the same key or file.
@@ -335,12 +370,102 @@ impl Customize {
         let mut text = serde_json::to_string_pretty(library).map_err(std::io::Error::other)?;
         text.push('\n');
         cmux_config::fsio::write_atomic(&self.library_path(), text.as_bytes())?;
+        // The current generation remembers what is on now, so a restore to
+        // it turns the library back to this.
+        let on = on_names(&library.entries);
+        let mut index = self.store().index()?;
+        if let Some(n) = index.current
+            && let Some(row) = index.generations.iter_mut().find(|row| row.n == n)
+            && row.library_on.as_ref() != Some(&on)
+        {
+            row.library_on = Some(on);
+            self.store().put_index(&index)?;
+        }
+        Ok(())
+    }
+
+    /// The library now, as a try-on and a generation remember it. `None`
+    /// when it cannot be read.
+    pub(crate) fn library_mark(&self) -> Option<LibraryMark> {
+        let library = self.read_library().ok()?;
+        Some(LibraryMark {
+            names: library
+                .entries
+                .iter()
+                .filter(|entry| entry.code.is_none())
+                .map(|entry| entry.name().to_owned())
+                .collect(),
+            on: on_names(&library.entries),
+        })
+    }
+
+    /// Turns the library to match a restore: every entry (not code) is on
+    /// exactly when `on` names it. With `names` (the library before a
+    /// try-on), an entry an apply saved since goes and the rest go back to
+    /// their places. Writes nothing when nothing changes. The caller holds
+    /// the store's lock.
+    pub(crate) fn library_follow_locked(
+        &self,
+        on: &[String],
+        names: Option<&[String]>,
+        now_ms: u64,
+    ) -> Result<(), Error> {
+        let mut library = self.read_library()?;
+        let before = library.entries.clone();
+        if let Some(names) = names {
+            let had = |entry: &Entry| names.iter().any(|name| name == entry.name());
+            // Only what an apply saved: an import or a code entry came in
+            // by itself and stays.
+            library
+                .entries
+                .retain(|entry| entry.code.is_some() || entry.generation.is_none() || had(entry));
+            library.entries.sort_by_key(|entry| {
+                names.iter().position(|name| name == entry.name()).map_or(0, |at| at + 1)
+            });
+        }
+        for entry in library.entries.iter_mut().filter(|entry| entry.code.is_none()) {
+            let was = entry.on;
+            entry.on = on.iter().any(|name| name == entry.name());
+            if entry.on && !was {
+                entry.on_ms = Some(now_ms);
+            }
+        }
+        if library.entries != before {
+            self.write_library(&mut library)?;
+        }
         Ok(())
     }
 
     /// The entries, top first, and every conflict among those that are on.
     pub fn library(&self) -> Result<Listing, Error> {
         Ok(listing(&self.read_library()?.entries))
+    }
+
+    /// The library as one line per entry for standup ([`standup::standup`]):
+    /// code first, then setup repos, then recipes. A setups file that cannot
+    /// be read names no repo; the lines are still there.
+    pub fn library_standup(&self, now_ms: u64) -> Result<Standup, Error> {
+        let listing = self.library()?;
+        let setups = self.setups().unwrap_or_default();
+        Ok(standup::standup(&listing, &setups, now_ms))
+    }
+
+    /// The app commit `refresh` last ran on ([`refresh_due`]).
+    pub fn library_refreshed_on(&self) -> Result<Option<String>, Error> {
+        Ok(self.read_library()?.refreshed_on)
+    }
+
+    /// Records that `refresh` ran on app commit `commit`. Only that field
+    /// changes: no generation, nothing live. Writes nothing when it is
+    /// already the one recorded.
+    pub fn library_mark_refreshed(&self, commit: &str) -> Result<(), Error> {
+        let _lock = self.store().lock()?;
+        let mut library = self.read_library()?;
+        if library.refreshed_on.as_deref() == Some(commit) {
+            return Ok(());
+        }
+        library.refreshed_on = Some(commit.to_owned());
+        self.write_library(&mut library)
     }
 
     /// Saves what applied generation `generation` changed from its parent as
@@ -452,6 +577,7 @@ impl Customize {
                 added_ms: Some(now_ms),
                 generation: Some(generation.n),
                 on_ms: Some(now_ms),
+                until_ms: None,
                 code: None,
             },
         );
@@ -478,8 +604,44 @@ impl Customize {
             }
             entry.on = on;
             entry.on_ms = if on { Some(now_ms) } else { entry.on_ms };
+            // A hand on or off settles a try: on keeps it, off already ended it.
+            entry.until_ms = None;
             Ok(())
         })
+    }
+
+    /// `cmux customize try CODE --minutes N`: code entry `name`, just put on
+    /// by `use`, goes off by itself at `until_ms` ([`expire`]), the way a
+    /// try-on reverts. `library on NAME` keeps it; `library off NAME` ends it
+    /// now.
+    pub fn library_try_until(
+        &self,
+        name: &str,
+        until_ms: u64,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Changed, Error> {
+        let label = format!("library: try {name}");
+        self.library_change(&label, origin, now_ms, |library| {
+            let entry = find(&mut library.entries, name)?;
+            if entry.code.is_none() {
+                return Err(Error::Library(format!("{name} is not a code entry")));
+            }
+            entry.until_ms = Some(until_ms);
+            Ok(())
+        })
+    }
+
+    /// The earliest end of a code try that is still on: when the try waiter
+    /// wakes next. `None` when no try is running.
+    pub fn next_try_end(&self) -> Result<Option<u64>, Error> {
+        Ok(self
+            .read_library()?
+            .entries
+            .iter()
+            .filter(|entry| entry.on)
+            .filter_map(|entry| entry.until_ms)
+            .min())
     }
 
     /// Puts code layer `layer` on top of the library as entry
@@ -538,6 +700,7 @@ impl Customize {
                     added_ms,
                     generation: None,
                     on_ms: layer.has_web().then_some(now_ms),
+                    until_ms: None,
                     code: Some(layer),
                 },
             );
@@ -573,6 +736,10 @@ impl Customize {
             entry.thumbnail.keys =
                 if layer.has_web() { vec![WEB_KEY.to_owned()] } else { Vec::new() };
             entry.on = entry.on && layer.has_web();
+            // A watch rebuild is a folder in use: its 24 hours start again.
+            if entry.on && layer.kind == CodeKind::Dir {
+                entry.on_ms = Some(now_ms);
+            }
             entry.code = Some(layer);
             Ok(())
         })
@@ -597,7 +764,11 @@ impl Customize {
                 .ok_or_else(|| Error::Library(format!("{name} is not a code entry")))?;
             code.note = one_line(note);
             if let Some(on) = on {
+                let was_on = entry.on;
                 entry.on = on && entry.code.as_ref().is_some_and(CodeLayer::has_web);
+                if entry.on && !was_on {
+                    entry.on_ms = Some(now_ms);
+                }
             }
             Ok(())
         })
@@ -649,7 +820,13 @@ impl Customize {
             .entries
             .into_iter()
             .filter(|entry| !only_on || entry.on)
-            .map(|entry| Entry { added_ms: None, generation: None, on_ms: None, ..entry })
+            .map(|entry| Entry {
+                added_ms: None,
+                generation: None,
+                on_ms: None,
+                until_ms: None,
+                ..entry
+            })
             .collect();
         Ok(Collection {
             version: COLLECTION_VERSION,
@@ -670,6 +847,13 @@ impl Customize {
         origin: &str,
         now_ms: u64,
     ) -> Result<Imported, Error> {
+        // A collection kept from an older cmux names some keys the old way:
+        // they come in under their new names (`Profile::migrated`).
+        let mut collection = collection.clone();
+        for entry in &mut collection.entries {
+            entry.profile = entry.profile.migrated().0;
+        }
+        let collection = &collection;
         self.check_collection(collection)?;
         let mut added = Vec::new();
         let mut already = Vec::new();
@@ -721,6 +905,7 @@ impl Customize {
                     added_ms: Some(now_ms),
                     generation: None,
                     on_ms: (turn_on && entry.on).then_some(now_ms),
+                    until_ms: None,
                     code: entry.code.clone(),
                 });
             }
@@ -957,6 +1142,9 @@ impl Customize {
             .into_iter()
             .filter(|problem| writes.contains_key(&problem.path))
             .collect();
+        // A refused value the person's file already holds stays as written;
+        // only what this change brings stops it.
+        let problems = validate::introduced(problems, &self.live_problems(writes.keys())?);
         if !problems.is_empty() {
             return Err(Error::Invalid(problems));
         }
@@ -1298,6 +1486,7 @@ fn listing(entries: &[Entry]) -> Listing {
                 files: entry.profile.files.keys().cloned().collect(),
                 added_ms: entry.added_ms,
                 overridden,
+                until_ms: entry.until_ms.filter(|_| entry.on),
                 code: entry.code.clone(),
             }
         })
@@ -1315,4 +1504,13 @@ fn find<'a>(entries: &'a mut [Entry], name: &str) -> Result<&'a mut Entry, Error
         };
         Error::Library(format!("there is no library entry {name:?}; {hint}"))
     })
+}
+
+/// The names of the entries that are on (code entries left out).
+fn on_names(entries: &[Entry]) -> Vec<String> {
+    entries
+        .iter()
+        .filter(|entry| entry.on && entry.code.is_none())
+        .map(|entry| entry.name().to_owned())
+        .collect()
 }

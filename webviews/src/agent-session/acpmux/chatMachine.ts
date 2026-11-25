@@ -30,6 +30,13 @@ export function chatPlace(snapshot: Pick<AcpmuxSnapshot, "origin" | "ownerCloud"
   };
 }
 
+/// Whether the page's own route reaches the person's Cloud machine: a new chat there (Cmd+D beside
+/// a Cloud chat, a new tab in its workspace) starts on that machine, so its Where reads Cloud, never
+/// This Mac (cmux#47677).
+export function routeOnOwnCloud(route: ChatPlace | undefined): boolean {
+  return (route?.origin === "remote" || route?.origin === "peer") && route.ownerCloud === true;
+}
+
 /// Where the chat's agent runs, as the composer's computer chip names it (ComposerContext computerId):
 /// a peer (by its name in `acpmux host ls`, as the tab title names it) or a Cloud host is another
 /// machine; a chat on the daemon a remote route reaches is that daemon's machine (acpmux `machine`,
