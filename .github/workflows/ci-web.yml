@@ -941,11 +941,19 @@ jobs:
       # ci-guards runs this on main; feat-cmux-next PRs skip ci-guards.
       # The checks from here to the engines do not depend on the shard, so
       # they run once, on shard 1: one red check, not one per shard.
-      - name: Generated bundle merge driver
-        id: merge-driver
+      # Shard 1's two slowest independent checks start here, in the background, and their own steps below take the
+      # verdicts (scripts/ci/bg_step.sh: a blocking flock, no polling). They ran one after the other beside the
+      # Oxlint step: in runs 45527661750 and 45527549838 the merge driver test took 1.9 and 1.4 min, the Oxlint step
+      # 3.8 and 3.6, the PR-scoped rules 4.8 and 3.8, so shard 1 took 14.4 min, the longest shard of the first run
+      # and of most pull requests (shard 1 always runs). Each check runs exactly as before, on the same tree;
+      # only the waiting overlaps. A start that failed fails both waits, so nothing goes unchecked.
+      - name: Start the merge driver test and the PR-scoped webview rules
+        id: bg-checks
         if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
-        run: python3 tests/test_install_git_hooks.py
+        run: |
+          ./scripts/ci/bg_step.sh start merge-driver -- python3 tests/test_install_git_hooks.py
+          ./scripts/ci/bg_step.sh start pr-scoped-rules -- ./scripts/ci/pr_scoped_webviews_rules.sh
 
       # Runs after the webviews install, so the real-vp case runs too.
       - name: Post-edit formatting hook
@@ -1007,6 +1015,13 @@ jobs:
           ./node_modules/.bin/vp lint || echo "::warning title=webviews lint (warn-only)::vp lint found issues; see the step log"
           exit "$status"
 
+      # Started in the background above (Start the merge driver test ...): this step waits for it and prints its log.
+      - name: Generated bundle merge driver
+        id: merge-driver
+        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
+        continue-on-error: true
+        run: ./scripts/ci/bg_step.sh wait merge-driver
+
       # The fixit-compile patch (ci-oops 0a) comes from the type check, which runs in webviews-typecheck now; that job
       # uploads it.
 
@@ -1032,22 +1047,12 @@ jobs:
       # red with it and skipped its tests (#49118). On a pull request, a red one is run again on the merge parent's
       # copy (a worktree of HEAD^1), and only a test red here and not there fails (guards_new_reds.py), as the tests do.
       # Leo, 2026-11-21: "these sorts of things probably shouldn't happen". A push keeps every red.
+      # Started in the background above (scripts/ci/pr_scoped_webviews_rules.sh holds the commands): this step waits.
       - name: Check PR-scoped webview rules
         id: pr-scoped-rules
         if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
-        run: |
-          check=scripts/tests/test_pr_scoped_webviews_checks.py
-          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then exec python3 "$check"; fi
-          python3 scripts/ci/unittest_results.py "$check" "$RUNNER_TEMP/pr-scoped-head.json" && exit 0
-          base="$RUNNER_TEMP/pr-scoped-base"
-          git worktree add --detach "$base" HEAD^1
-          ln -s "$PWD/webviews/node_modules" "$base/webviews/node_modules"
-          if [ -f "$base/$check" ]; then
-            python3 scripts/ci/unittest_results.py "$base/$check" "$RUNNER_TEMP/pr-scoped-base.json" || true
-          fi
-          python3 scripts/ci/guards_new_reds.py --label "PR-scoped webview rule" \
-            "$RUNNER_TEMP/pr-scoped-head.json" "$RUNNER_TEMP/pr-scoped-base.json"
+        run: ./scripts/ci/bg_step.sh wait pr-scoped-rules
 
       # A newer head cancels this run (ci.yml's concurrency) while its shards are still testing: over 11-22 03-05Z
       # react-apps-check shards lost about 19,000 runner minutes a day that way, cancelled at a median 46 of their
