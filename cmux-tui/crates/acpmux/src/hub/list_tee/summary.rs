@@ -9,6 +9,9 @@ const TEXT_CHARS: usize = 160;
 const LIST_ITEMS: usize = 8;
 const EXTRA_KEYS: &[&str] = &[
     "name",
+    "handle",
+    // The chat's own icon (`session_icon.rs`); an image is left to the full summary.
+    "icon",
     "shortName",
     "indicator",
     "titleSource",
@@ -22,10 +25,14 @@ const EXTRA_KEYS: &[&str] = &[
     "preview",
     "subagentsRunning",
     "subagentNames",
+    "recentSubagents",
+    "subagentsSeen",
     "commandsRunning",
     "pullRequests",
     "usageWarnings",
     "lastMessage",
+    // The chat's task list, counts and lines only (`task_list.rs`): the row's "3/7" and its step.
+    "taskList",
     "lane",
     "turn",
     "tags",
@@ -106,12 +113,25 @@ fn retain(value: Option<&mut Value>, keys: &[&str]) {
     }
 }
 
+/// A handle derived from the session id costs the row bytes and says nothing a reader cannot
+/// derive itself (`session_handle::display`, `session_handle::matches`), so only a given one rides.
+fn derived_handle(row: &Map<String, Value>, value: &Value) -> bool {
+    let id = row.get("sessionId").and_then(Value::as_str);
+    match (id, value.as_str()) {
+        (Some(id), Some(handle)) => crate::session_handle::default_handle(id) == handle,
+        _ => value.is_null(),
+    }
+}
+
 fn selected_extra(row: &Map<String, Value>, state: &str) -> Value {
     let mut values: Map<String, Value> = row
         .iter()
         .filter(|(key, value)| {
             EXTRA_KEYS.contains(&key.as_str())
                 && !(matches!(key.as_str(), "stuckError" | "stuckSince") && value.is_null())
+                && !(key.as_str() == "handle" && derived_handle(row, value))
+                && !(key.as_str() == "icon"
+                    && value.get("kind").and_then(Value::as_str) == Some("image"))
         })
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
@@ -123,6 +143,10 @@ fn selected_extra(row: &Map<String, Value>, state: &str) -> Value {
         values.insert("status".into(), Value::String(status.to_owned()));
     }
     retain(values.get_mut("lastMessage"), &["role", "text"]);
+    retain(
+        values.get_mut("taskList"),
+        &["source", "done", "total", "current", "next", "updatedAt"],
+    );
     retain(values.get_mut("lane"), &["state", "since", "error", "step", "title", "requiresOpen"]);
     retain(
         values.get_mut("turn"),
@@ -173,6 +197,8 @@ fn shrinkable(key: &str) -> bool {
             | "waitingPrompt"
             | "activity"
             | "planStep"
+            | "current"
+            | "next"
             | "error"
             | "stuckError"
             | "cwd"
@@ -345,12 +371,9 @@ pub(super) fn summary_from_remote(peer: &str, row: &super::super::PeerRow) -> io
         row.session_id().ok_or_else(|| invalid("remote summary has no sessionId"))?.to_owned();
     let mut summary = Summary::new(chat_id);
     summary.origin = peer.to_owned();
-    summary.title = value
-        .get("title")
-        .or_else(|| value.get("name"))
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned();
+    // A null or empty `title` (a hub row whose machine did not say) falls back to its name.
+    let text = |key: &'static str| value.get(key).and_then(Value::as_str).filter(|t| !t.is_empty());
+    summary.title = text("title").or_else(|| text("name")).unwrap_or_default().to_owned();
     cut_title(&mut summary.title);
     summary.harness = row.harness().unwrap_or_default().to_owned();
     summary.state = value
@@ -410,7 +433,7 @@ mod tests {
         store.save(&serde_json::from_value(meta).unwrap()).unwrap();
         let hub = Hub::new(config, store);
         hub.wait_store().await;
-        let session = hub.sessions.lock().unwrap().get("fixture").cloned().unwrap();
+        let session = hub.session_get("fixture").unwrap();
         (hub, session)
     }
 
@@ -445,6 +468,18 @@ mod tests {
         assert_eq!(peer.chat_id, row.chat_id);
         assert_eq!(peer.archived, row.archived);
         assert!(peer.peer_form.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_row_carries_only_a_given_handle() {
+        let (hub, session) = fixture(false).await;
+        let row = summary_from_session(&hub, &session).unwrap();
+        let extra: Value = serde_json::from_str(row.extra.get()).unwrap();
+        assert!(extra.get("handle").is_none(), "a derived handle stays off the row: {extra}");
+        hub.edit_test_meta(&session, |meta| meta.handle = Some("Mango".into()));
+        let row = summary_from_session(&hub, &session).unwrap();
+        let extra: Value = serde_json::from_str(row.extra.get()).unwrap();
+        assert_eq!(extra["handle"], "Mango");
     }
 
     #[tokio::test]

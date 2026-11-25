@@ -249,14 +249,16 @@ export class Device {
   signingKey!: string;
   agreementKey!: string;
   user: Peer | null = null;
+  /** The Mac it runs on, as the app sends it at registration (`machine`); unset sends none. */
+  machine: string | undefined;
 
   private constructor(
     readonly account: { userId: string; session: string },
     readonly name: string,
-    readonly platform: "macos" | "ios" | "linux",
+    readonly platform: "macos" | "ios" | "linux" | "windows",
   ) {}
 
-  static async create(account: { userId: string; session: string }, name = "Mac", platform: "macos" | "ios" | "linux" = "macos") {
+  static async create(account: { userId: string; session: string }, name = "Mac", platform: "macos" | "ios" | "linux" | "windows" = "macos") {
     const d = new Device(account, name, platform);
     d.signing = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
     d.signingKey = base64(new Uint8Array((await crypto.subtle.exportKey("raw", d.signing.publicKey)) as ArrayBuffer));
@@ -294,6 +296,7 @@ export class Device {
       platform: this.platform,
       signingKey: this.signingKey,
       agreementKey: this.agreementKey,
+      ...(this.machine === undefined ? {} : { machine: this.machine }),
     });
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     return res;

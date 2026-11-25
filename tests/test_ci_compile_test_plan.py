@@ -19,6 +19,7 @@ fleet-test-compile.yml check; fleet/compile-check stays the app compile.
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import re
 import subprocess
@@ -110,7 +111,7 @@ class CompileTestPlanTests(unittest.TestCase):
 
     def test_packages_outside_the_macos_lanes_are_not_compiled(self) -> None:
         # A package outside the lane's PACKAGES builds in its own jobs, not with a macOS `swift build`.
-        # (CmuxMobileSSH: scripts/ci/swift-test-targets.json says why the lane does not run it.)
+        # (CmuxMobileSSH runs on Linux: scripts/ci/swift-linux-packages.txt.)
         plan = self.plan(["Packages/iOS/CmuxMobileSSH/Sources/CmuxMobileSSH/SSHStores.swift"])
         self.assertNotIn("Packages/iOS/CmuxMobileSSH", plan)
 
@@ -365,13 +366,37 @@ class PullRequestCompilesCmuxNextTests(unittest.TestCase):
         job = re.split(r"\n  [A-Za-z0-9_-]+:[^\n]*\n", text.split("\n  swift-test:\n", 1)[1], maxsplit=1)[0]
         condition = re.search(r"^    if: (.*)$", job, re.M).group(1)
         self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository", condition)
-        self.assertIn("github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')",
-                      condition)
+        # #49046: a pull request into another base is not a cmux-next PR; one into feat-cmux-next needs full-ci.
+        self.assertIn("github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')"
+                      " || contains(github.event.pull_request.labels.*.name, 'full-ci')", condition)
 
     def test_the_tip_compile_keeps_cmuxnext(self) -> None:
         tip = (ROOT / ".github" / "workflows" / "cmux-next-tip-test-compile.yml").read_text()
         self.assertNotIn("--skip-package", tip)
         self.assertNotIn("--skip-package", (ROOT / "scripts" / "ci" / "tip-test-compile.sh").read_text())
+
+
+class PullRequestRunsOnlyWithFullCiTests(unittest.TestCase):
+    """2026-11-21: the advisory check runs on a pull request only with full-ci; the tip compile catches the rest
+    after the merge. Its gateway job held a Mac runner while it waited on the Linux pool."""
+
+    def test_the_plan_needs_full_ci(self) -> None:
+        plan = WORKFLOW.read_text().split("\n  plan:\n", 1)[1].split("\n  compile:\n", 1)[0]
+        condition = re.search(r"^    if: (.*)$", plan, re.M).group(1)
+        self.assertIn("contains(github.event.pull_request.labels.*.name, 'full-ci')", condition)
+        # The compile job needs the plan, so a skipped plan skips it: no gateway runner is taken.
+        job = WORKFLOW.read_text().split("\n  compile:\n", 1)[1]
+        self.assertRegex(job, r"(?m)^    needs: plan$")
+        self.assertNotIn("always()", job)
+
+    def test_the_tip_compile_still_runs_after_every_merge(self) -> None:
+        # 2026-11-21: in the post-merge batch (suite tip-test-compile), not on each push.
+        tip = (ROOT / ".github" / "workflows" / "cmux-next-tip-test-compile.yml").read_text()
+        self.assertIn("workflow_call:", tip)
+        self.assertNotIn("full-ci", tip)
+        suite = json.loads((ROOT / ".github" / "post-merge-batch.json").read_text())["suites"]["tip-test-compile"]
+        self.assertEqual(suite["workflow"], "cmux-next-tip-test-compile.yml")
+        self.assertIn("Packages/**", suite["paths"])
 
 
 class AdvisoryVerdictTests(unittest.TestCase):

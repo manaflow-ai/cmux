@@ -1,9 +1,13 @@
+import { keycapLegend } from "../../ui/keycapLegend";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
+import { runResumed } from "./composer/resumedSend";
 import { WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
 import { useScrollEdges } from "../../ui/scrollEdges";
-import { AgentMark as BrandMark } from "../shared/AgentMark";
+// AgentMark and KindIcon live in tabMarks.tsx: chat lists draw them, and importing them from here
+// would pull this New Tab screen into the chat page's first script.
+import { KindIcon, StrokeIcon as Icon, AgentMark } from "./tabMarks";
 import { agentDisplayName } from "./agents";
 import { useLastPick } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
@@ -13,15 +17,16 @@ import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { useComposerSettings } from "./composerSettings";
 import type { AcpmuxSnapshot } from "./model";
 import { ProjectChooser, type Project } from "./ProjectChooser";
-import { type BrowseRequest } from "./AddProjectPanel";
-import { BROWSE_BUSY, type BrowseResult } from "./addProjectPanelModel";
+import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "./browseProject";
 import { BrowseFailure } from "./BrowseFailure";
 import { ErrorDetails } from "./conversation/ErrorDetails";
 import { browseFailureMessage } from "./browseFailureModel";
 import { defaultRow, stepSelection, EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "./omnibar";
-import { firstProject, homePath, mostRecentProject, projectLabel } from "./sessionList";
+import { firstProject, homePath, isTemporaryFolder, mostRecentProject, projectLabel } from "./sessionList";
 import { useT } from "./i18n";
-import { isStartableProject, rememberedStartedProject } from "./newtab/startedProject";
+import { ShortcutKeycaps } from "./ButtonKeycaps";
+import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
+import { isStartableProject, startedProjectChoices } from "./newtab/startedProject";
 import { useNoEntryMotion } from "./newtab/noEntryMotion";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import { newTabStart, useNewTabChipModel } from "./newtab/chipDefaults";
@@ -95,6 +100,10 @@ type Props = NewTabCommandActions & {
     attachments?: ComposerAttachment[],
     chat?: NewTabChat,
   ): void | Promise<unknown>;
+  /// True: an agent prompt may not go now (`@computer-use` while Computer Use is not ready, CMUX-682);
+  /// the pane opened setup or said why. Asked on Return's own key press, before a wait for files.
+  /// `late`: the submit resumed after its files were read: hold and say why only, never open setup.
+  holdsSend?(text: string, late?: boolean): boolean;
   /// Go to an open tab or workspace instead of opening a duplicate.
   onJump?(target: "tab" | "workspace", id: string): void;
   onOpenSession(sessionId: string): void;
@@ -108,6 +117,9 @@ type Props = NewTabCommandActions & {
   /// The chat view's composer stood in for this page while the host failed before its handshake:
   /// what was typed there, taken once as the page's own draft when the page comes back.
   takeDraft?(): { text: string; attachments: ComposerAttachment[] } | undefined;
+  /// A chat this page started failed after the page had gone (App.tsx `startLeftNewTab`): the page
+  /// came back and says it on its failure line, with Retry, never the chat view's empty-chat hero.
+  startFailure?: { error: string };
   /// The field's text as typed, after each edit (for a draft it was handed: what a pick leaves again).
   onFieldEdit?(text: string): void;
   now?: number;
@@ -131,6 +143,7 @@ export function NewTabPage({
   location,
   projects = [],
   onSubmit,
+  holdsSend,
   onCmuxCommand,
   onImportFile,
   importError,
@@ -144,9 +157,11 @@ export function NewTabPage({
   onInputReady,
   onLeaveDraft,
   takeDraft,
+  startFailure,
   onFieldEdit,
 }: Props) {
   const t = useT();
+  const allChatsKey = useShortcut(SHORTCUT_ACTIONS.searchChats);
   const { plainFooter, spellChecking } = useComposerSettings();
   // The classic template is a New Tab page too: what it opens (the project chooser, its menus)
   // appears at once; exits keep their fades (newtab/noEntryMotion.ts).
@@ -197,12 +212,12 @@ export function NewTabPage({
       browsePending.current = false;
     }
   };
-  const [started] = useState(() => (home ? (rememberedStartedProject() ?? startedProject) : undefined));
+  const [started] = useState(() => (home ? startedProjectChoices(startedProject) : []));
   const projectCwd =
     picked ??
-    (isStartableProject(cwd) || !home
+    ((isStartableProject(cwd) && !isTemporaryFolder(cwd)) || !home
       ? cwd
-      : (firstProject(started ? [started.replace(/(.)\/+$/, "$1")] : [], home, knownProjects) ??
+      : (firstProject(started, home, knownProjects) ??
         mostRecentProject(snapshot.sessions, home, knownProjects) ??
         cwd));
   // Where the chips' picks start the chat: the project, never the tab's inherited `~` or agent-home
@@ -237,7 +252,16 @@ export function NewTabPage({
   );
   /// The last open was refused (the host made no tab): a note under the field until the next edit,
   /// saying which kind did not open, with Retry (the same open again) and the host's words under Details.
-  const [openFailed, setOpenFailed] = useState<{ kind: TabKind; detail: string; retry: () => void }>();
+  // Retry on a failure the page came back with asks again with the field as it is then.
+  const retryStart = useRef<() => void>(() => undefined);
+  const [openFailed, setOpenFailed] = useState<{ kind: TabKind; detail: string; retry: () => void } | undefined>(() =>
+    startFailure ? { kind: "agent", detail: startFailure.error.trim(), retry: () => retryStart.current() } : undefined,
+  );
+  // A start that failed in the same turn it left keeps this page mounted: the failure arrives as a prop.
+  useLayoutEffect(() => {
+    if (startFailure)
+      setOpenFailed({ kind: "agent", detail: startFailure.error.trim(), retry: () => retryStart.current() });
+  }, [startFailure]);
   const attachmentRef = useRef<ComposerAttachment[]>([]);
   const make = (next: TabKind, value: string, folder?: string) => {
     setOpenFailed(undefined);
@@ -353,27 +377,32 @@ export function NewTabPage({
     return true;
   });
   const composing = useRef(false);
-  const recent = useMemo(() => recentSessions(snapshot.sessions), [snapshot.sessions]);
   // The suggestions float over the page under the field (cx-6k6cg), so they show only while the
   // field has the keyboard and something is typed: at rest nothing covers the page below.
   const [focused, setFocused] = useState(false);
   const queryRef = useRef(query);
   queryRef.current = query;
-  const open = focused && query.trim() !== "" && query !== dismissed;
-  const suggestions = useMemo(
+  retryStart.current = () => make("agent", queryRef.current);
+  // The failure line sits where the rows float: they wait for the next edit, which clears the line.
+  const open = focused && query.trim() !== "" && query !== dismissed && !openFailed;
+  // The recent chats are sorted only while the rows show: a page at rest never sorts every chat.
+  const recent = useMemo(() => (open ? recentSessions(snapshot.sessions) : []), [open, snapshot.sessions]);
+  const rows = useMemo(
     () =>
-      omnibarRows(query, kind, {
-        ...omnibar,
-        sessions: recent.map((session) => ({
-          sessionId: session.sessionId,
-          title: session.displayTitle ?? session.sessionId,
-          ...(session.harness ? { harness: session.harness } : {}),
-          detail: projectLabel(session.cwd),
-        })),
-      }),
-    [query, kind, omnibar, recent],
+      open
+        ? omnibarRows(query, kind, {
+            ...omnibar,
+            sessions: recent.map((session) => ({
+              sessionId: session.sessionId,
+              title: session.displayTitle ?? session.sessionId,
+              ...(session.harness ? { harness: session.harness } : {}),
+              ...(session.icon ? { icon: session.icon } : {}),
+              detail: projectLabel(session.cwd),
+            })),
+          })
+        : [],
+    [open, query, kind, omnibar, recent],
   );
-  const rows = useMemo(() => (open ? suggestions : []), [open, suggestions]);
   useEffect(() => setSelected(defaultRow(rows, kind, query)), [rows, kind, query]);
   useEffect(() => {
     // Rows past the window's edge draw in the host; the invisible list never scrolls the page.
@@ -429,7 +458,9 @@ export function NewTabPage({
       // A page shown in a window that is not key yet gets no focus event until it is.
       setFocused(input.focused());
     };
-    focus();
+    // Not again while the field has the keyboard: a token change after the readiness selected the keys typed so far
+    // (the screen's show-focus has the same rule).
+    if (!field.current?.focused()) focus();
     const host = fieldElement()?.ownerDocument.defaultView;
     // The app replays the keys typed after Cmd-T at this readiness: it waits for the page's focus.
     let cancelReady = () => {};
@@ -468,6 +499,11 @@ export function NewTabPage({
       case "open":
         return make("browser", row.text);
       case "ask":
+        // cmux's own commands first (`/import @computer-use` opens its picker), as Return does in `submit`.
+        if (command.intercept(row.text.trim(), harness, attachments.length, true)) return;
+        // An Ask row's press is its own gesture: held for Computer Use here, as Return is in `submit`;
+        // a submit resumed after its files only holds and says why (`sendResuming`).
+        if (holdsSend?.(row.text.trim(), sendResuming.current)) return;
         return make("agent", row.text, projectCwd);
     }
   };
@@ -483,10 +519,16 @@ export function NewTabPage({
     field.current?.focus();
   };
   const submitNow = useRef<() => void>(() => {});
+  /// A submit that resumes after its files were read (`runResumed`): its Computer Use hold only says why.
+  const sendResuming = useRef(false);
   const submit = (event?: React.FormEvent) => {
     event?.preventDefault();
     if (kind === "agent" && command.intercept(query.trim(), harness, attachments.length, true)) return;
-    if (holdForAttachments(() => submitNow.current())) return;
+    // Held for Computer Use on this key press, before a screenshot still being read can outlast it:
+    // only a chat prompt (no row picked, or an Ask row), never a workspace, tab or folder Return opens.
+    const picked = rows[selected];
+    if (kind === "agent" && query.trim() && (!picked || picked.type === "ask") && holdsSend?.(query.trim())) return;
+    if (holdForAttachments(() => runResumed(sendResuming, () => submitNow.current()))) return;
     submitNow.current();
   };
   submitNow.current = () => {
@@ -574,6 +616,26 @@ export function NewTabPage({
       {/* The suggestions float under the field (cx-6k6cg): opening them moves nothing below. */}
       <div className="acpmux-newtab-anchor">
         <form className="acpmux-newtab-box" onSubmit={submit}>
+          {/* Attachments sit inside the top of the card (Leo 2026-11-23, ask-525a5e502a: within the top
+              part of the composer, no shift); the prompt gives up their band (composerAttachments.css),
+              so a capped card keeps its height when they land. */}
+          <AttachmentStrip
+            attachments={attachments}
+            pending={pending}
+            {...(command.error || attachError ? { error: command.error ?? attachError } : {})}
+            codex={false}
+            onRemove={(id) => {
+              setAttachments((current) => current.filter((item) => item.id !== id));
+              field.current?.focus();
+            }}
+            onCancel={(id) => {
+              cancel(id);
+              field.current?.focus();
+            }}
+            onRetry={retry}
+            originalFailures={originalFailures}
+            onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
+          />
           <div
             className="acpmux-newtab-row"
             data-kind-switch={kindSwitch}
@@ -652,23 +714,6 @@ export function NewTabPage({
             </fieldset>
           </div>
           {command.input}
-          <AttachmentStrip
-            attachments={attachments}
-            pending={pending}
-            {...(command.error || attachError ? { error: command.error ?? attachError } : {})}
-            codex={false}
-            onRemove={(id) => {
-              setAttachments((current) => current.filter((item) => item.id !== id));
-              field.current?.focus();
-            }}
-            onCancel={(id) => {
-              cancel(id);
-              field.current?.focus();
-            }}
-            onRetry={retry}
-            originalFailures={originalFailures}
-            onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
-          />
           {dropHost && (
             <DropOverlay state={drop} onLanded={dropLanded} container={dropHost} landingTarget={dropLandingTarget} />
           )}
@@ -701,7 +746,7 @@ export function NewTabPage({
               type="submit"
               className={`acpmux-send${query.trim() || kind !== "browser" ? " acpmux-send-ready" : ""}`}
               aria-label={t(NEW_TAB_LABELS.open)}
-              title={`${t(NEW_TAB_LABELS.open)} ↵`}
+              title={`${t(NEW_TAB_LABELS.open)} ↩`}
             >
               <ArrowUpIcon />
             </button>
@@ -751,7 +796,7 @@ export function NewTabPage({
                   </span>
                   <span className="acpmux-omni-action" data-popup-skip>
                     {row.type === "ask" ? t(NEW_TAB_LABELS.ask, { agent }) : t(NEW_TAB_LABELS.rows[row.type])}
-                    {index === selected && <kbd>↵</kbd>}
+                    {index === selected && <kbd>{keycapLegend("↩")}</kbd>}
                   </span>
                 </div>
               ))}
@@ -778,6 +823,7 @@ export function NewTabPage({
       <div className="acpmux-newtab-actions ui-ghost-row">
         <button type="button" className="acpmux-newtab-all ui-ghost" onClick={onShowAll}>
           <span>{t(NEW_TAB_LABELS.allSessions)}</span>
+          <ShortcutKeycaps shortcut={allChatsKey} />
           <span className="ui-ghost-icon" aria-hidden="true">
             <ChevronRight />
           </span>
@@ -849,7 +895,7 @@ function RowIcon({ row, agent }: { row: OmnibarRow; agent?: string }) {
     case "workspace":
       return <WorkspaceIcon />;
     case "session":
-      return <AgentMark harness={row.harness} />;
+      return <AgentMark harness={row.harness} icon={row.sessionIcon} />;
     case "folder":
       return <FolderIcon />;
     case "command":
@@ -867,59 +913,6 @@ function RowIcon({ row, agent }: { row: OmnibarRow; agent?: string }) {
 /// A page's favicon (cx-d0d.8), drawn as is at the row icons' size.
 function Favicon({ src }: { src: string }) {
   return <img className="acpmux-icon acpmux-favicon" src={src} alt="" width={16} height={16} draggable={false} />;
-}
-
-/// The agent's brand mark (design/agent-icons) or its harness's own icon, so a session's row says
-/// which agent it is at a glance; an agent without either draws the generic agent glyph.
-export function AgentMark({ harness }: { harness?: string }) {
-  return <BrandMark agent={harness} size={16} fallback={<KindIcon kind="agent" />} />;
-}
-
-// 16px stroke icons in currentColor, matching ComposerPickers.
-function Icon({ children }: { children: React.ReactNode }) {
-  return (
-    <svg
-      className="acpmux-icon"
-      width={16}
-      height={16}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.25}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      {children}
-    </svg>
-  );
-}
-
-export function KindIcon({ kind }: { kind: TabKind }) {
-  switch (kind) {
-    case "terminal":
-      return (
-        <Icon>
-          <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />
-          <path d="m4.6 6.2 2 1.8-2 1.8M8.4 10h3" />
-        </Icon>
-      );
-    case "browser":
-      return (
-        <Icon>
-          <circle cx="8" cy="8" r="6.1" />
-          <path d="M1.9 8h12.2M8 1.9c1.7 1.7 2.5 3.7 2.5 6.1S9.7 12.4 8 14.1C6.3 12.4 5.5 10.4 5.5 8S6.3 3.6 8 1.9Z" />
-        </Icon>
-      );
-    case "agent":
-      return (
-        <Icon>
-          <path d="M8 1.9c.4 2.9 1.6 4.1 4.6 4.6-3 .5-4.2 1.7-4.6 4.6-.4-2.9-1.6-4.1-4.6-4.6 3-.5 4.2-1.7 4.6-4.6Z" />
-          <path d="M12.4 10.4c.15 1.1.6 1.55 1.7 1.7-1.1.15-1.55.6-1.7 1.7-.15-1.1-.6-1.55-1.7-1.7 1.1-.15 1.55-.6 1.7-1.7Z" />
-        </Icon>
-      );
-  }
 }
 
 /// A folder glyph (the project picker on both New Tab designs).
@@ -951,3 +944,5 @@ const ChevronRight = () => (
     <path d="m6.3 4.6 3.3 3.4-3.3 3.4" />
   </Icon>
 );
+
+export { AgentMark, KindIcon } from "./tabMarks";

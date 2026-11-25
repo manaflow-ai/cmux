@@ -48,6 +48,7 @@ mod auth;
 mod held;
 pub(crate) mod policy;
 mod reaper;
+mod reserved;
 mod spare;
 mod start;
 use held::{TapSlot, holding_inbound, holding_tap};
@@ -116,6 +117,11 @@ pub(crate) struct PoolState {
     /// Harnesses whose spare died, for the spare worker to start again (`spare.rs`).
     spare_restart: StdMutex<Vec<String>>,
     spare_wake: Notify,
+    /// A person request's spare check is running (`spare_on_person_request`): one at a time.
+    spare_presence_busy: AtomicBool,
+    /// A spare a person request wanted was refused (pool off, over the RSS cap, no spec): the
+    /// next person request tries again only after this.
+    spare_presence_retry_at: StdMutex<Option<std::time::Instant>>,
 }
 
 type Spec = (String, Option<String>);
@@ -139,6 +145,8 @@ impl PoolState {
             spare_file: StdMutex::new(()),
             spare_restart: StdMutex::new(Vec::new()),
             spare_wake: Notify::new(),
+            spare_presence_busy: AtomicBool::new(false),
+            spare_presence_retry_at: StdMutex::new(None),
         }
     }
 }
@@ -178,6 +186,9 @@ pub(super) struct Pooled {
     /// MDM's off as the chat that claimed it began its claim (`pool_claim`), which may have waited
     /// on this start: an off that came and went before the start read it counts too (review 121).
     claimed_under: Option<crate::hub::full_access_bound::OffLatch>,
+    /// The answer its claim's spec asked for the person's own `cmux` entry
+    /// (`PoolSpec::answer`): the claiming chat's start reads it (`record_spawn_inputs`).
+    codex_answer: Option<crate::agent_tools::CodexAnswer>,
 }
 
 impl Pooled {
@@ -213,6 +224,10 @@ struct PoolSpec {
     key: PoolKey,
     spawn: HarnessProfile,
     draft: SessionMeta,
+    /// Codex's answer for the person's own `cmux` entry, asked once for this spec off the runtime:
+    /// its key (`tool_servers`), the spare it starts (`session/new`, prewarm and refill) and the
+    /// chat that claims with it read this one.
+    answer: crate::agent_tools::CodexAnswer,
 }
 
 /// `_acpmux/prewarm`: the harness (and preset) the pane is about to use.
@@ -233,6 +248,20 @@ pub struct PrewarmRequest {
     /// From a Web client or a peer forwarding for one: an auto-trust rule is no Trust answer
     /// (`trust::web_session_level`), also for the folder picked when the hint names none.
     pub trust_web: bool,
+    /// What the chat this hint serves will ask on its `session/new` (a Cloud chat's start,
+    /// cmux#45953), so the entry is keyed as that chat's own start keys it.
+    pub shape: PrewarmShape,
+}
+
+/// The parts of a coming `session/new` a hint names beyond its harness and folder: the model it
+/// pins (`_meta.acpmux.model`), its workspace (`_meta.acpmux.workspaceId`) and the owner's Cloud
+/// credential (`_meta.acpmux.credentials`, this machine's own socket only). An entry warmed with a
+/// credential is hinted only: never a spare or a last-used entry, which outlive the hint.
+#[derive(Debug, Clone, Default)]
+pub struct PrewarmShape {
+    pub model: Option<String>,
+    pub workspace_id: Option<String>,
+    pub credential: Option<crate::agent_credentials::AgentCredential>,
 }
 
 /// A pool lock. A panic while one was held leaves plain data behind, so a
@@ -252,6 +281,54 @@ fn suggestions_at_start(spawn: &HarnessProfile, enabled: impl FnOnce() -> bool) 
     let reads = spawn.kind == crate::config::HarnessKind::ClaudeStdio
         || crate::codex_app_server::is_profile_launch(&spawn.argv);
     reads.then(enabled)
+}
+
+/// The names of the agent tool servers `tools` gives a session whose spawn env is `env`
+/// ([`PoolKey::tool_servers`]), as `agent_tools::acp_servers_for` gives them: for a Codex
+/// session in `codex_cwd`, none named `cmux` beside the person's own HTTP `cmux` entry, so a spare
+/// started before that entry appeared is never served.
+fn tool_servers(
+    tools: crate::agent_tools::AgentTools,
+    env: &std::collections::BTreeMap<String, String>,
+    codex: Option<crate::agent_tools::CodexLaunch<'_>>,
+) -> String {
+    // The answer a session of this shape starts under, whether or not a `cmux` server resolves
+    // (no cmux CLI here): a spare's harness env and its person's entry carry it.
+    let answer = match env.get(crate::agent_tools::TOOLS_ANSWER_ENV).map(String::as_str) {
+        _ if crate::agent_tools::cut_off(env) => "off",
+        Some("on") => "on",
+        Some(_) => "off",
+        None if tools.cmux_for_agents => "on",
+        None => "off",
+    };
+    let tools = tools.scoped(env);
+    let tools = match codex {
+        Some(launch) => tools.without_cmux_beside_an_http_entry(launch, env),
+        None => tools,
+    };
+    let mut names: Vec<String> = tools.servers.iter().map(|s| s.name.clone()).collect();
+    names.push(format!("answer:{answer}"));
+    // The person's own `cmux` entry as Codex answers for this launch (none, stdio with its command
+    // and args, HTTP, no answer), and the answer its env keys carry: a spare started before either
+    // changed is never served.
+    if let Some(launch) = codex {
+        let entry = crate::agent_tools::persons_cmux_entry(launch, env);
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(&entry, &mut h);
+        names.push(format!("cmux-entry:{:016x}", std::hash::Hasher::finish(&h)));
+        let listed = serde_json::Value::Array(names.iter().map(|n| json!({"name": n})).collect());
+        if let Some(sent) = crate::agent_tools::person_entry_env(&listed, launch, env, "") {
+            let answer = sent
+                .get(crate::agent_tools::CMUX_SERVER)
+                .and_then(|server| server.get("env"))
+                .and_then(|env| env.get(crate::agent_tools::TOOLS_ANSWER_ENV))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
+            names.push(format!("cmux-entry-env:{answer}"));
+        }
+    }
+    names.join(",")
 }
 
 #[cfg(test)]
@@ -277,6 +354,30 @@ pub(super) fn started_on(
 #[cfg(test)]
 #[path = "model_tests.rs"]
 mod model_tests;
+
+/// The pool's one-reaper claim (`PoolState::reaper`), held by the running reaper task. Dropping
+/// it while held (the task unwinding from a panic) clears the flag, so `start_pool_reaper` starts
+/// a new reaper instead of only waking one that is gone. Released by hand on the normal exit, where
+/// a successor may already have claimed the flag.
+struct ReaperClaim<'a> {
+    flag: &'a AtomicBool,
+    held: bool,
+}
+
+impl ReaperClaim<'_> {
+    fn release(&mut self) {
+        self.held = false;
+        self.flag.store(false, Ordering::SeqCst);
+    }
+}
+
+impl Drop for ReaperClaim<'_> {
+    fn drop(&mut self) {
+        if self.held {
+            self.flag.store(false, Ordering::SeqCst);
+        }
+    }
+}
 
 fn internal(e: impl std::fmt::Display) -> RpcError {
     RpcError::internal(e.to_string())
@@ -334,6 +435,9 @@ impl Hub {
                 if v.hinted {
                     roles.push("hinted");
                 }
+                if v.reserved {
+                    roles.push("reserved");
+                }
                 if v.spare {
                     roles.push("spare");
                 }
@@ -352,8 +456,11 @@ impl Hub {
         draft: &SessionMeta,
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
+        credential: Option<&crate::agent_credentials::AgentCredential>,
     ) -> Result<PoolSpec, RpcError> {
-        let spawn = self.spawn_profile_for(draft, profile, defaults_env).await?;
+        // The credential goes into the spawn as the session's own would (`spawn_profile_read`),
+        // so the key's auth fingerprint below hashes it: only the same credential matches.
+        let spawn = self.spawn_profile_with(draft, profile, defaults_env, credential).await?;
         let sha = match &draft.preset {
             Some(name) => self
                 .config
@@ -369,6 +476,14 @@ impl Hub {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         spawn.env.hash(&mut h);
         credentials.hash(&mut h);
+        // Codex's answer for the person's own `cmux` entry, asked once for this spec, off the
+        // runtime.
+        let answer = crate::agent_tools::CodexAnswer::default();
+        let codex = crate::agent_tools::is_codex(draft, Some(profile));
+        if codex {
+            crate::agent_tools::warm_codex_answer(&draft.cwd, &spawn.argv, &spawn.env, &answer)
+                .await;
+        }
         let (model, effort) = started_on(&spawn, draft);
         let key = PoolKey {
             origin: if draft.remote_origin { Origin::Remote } else { Origin::Local },
@@ -384,10 +499,20 @@ impl Hub {
                 &spawn,
                 crate::claude_stdio::prompt_suggestions::enabled_in_settings,
             ),
+            settings_file: crate::user_settings::resolved_path(),
+            tool_servers: tool_servers(
+                crate::agent_tools::current(),
+                &spawn.env,
+                codex.then_some(crate::agent_tools::CodexLaunch {
+                    cwd: &draft.cwd,
+                    argv: &spawn.argv,
+                    answer: Some(&answer),
+                }),
+            ),
             model,
             effort,
         };
-        Ok(PoolSpec { key, spawn, draft: draft.clone() })
+        Ok(PoolSpec { key, spawn, draft: draft.clone(), answer })
     }
 
     /// The spec for a new local session of `harness`/`preset` in `cwd`.
@@ -397,18 +522,20 @@ impl Hub {
         preset: Option<String>,
         cwd: PathBuf,
     ) -> Result<PoolSpec, RpcError> {
-        self.pool_spec_in(harness, preset, cwd, None).await
+        self.pool_spec_in(harness, preset, cwd, None, &PrewarmShape::default()).await
     }
 
     /// `pool_spec`; a `spare` (the shape of a session the person started in `cwd`, `Some` with
     /// that session's model request) asks for that model and may also start in the home folder
-    /// off macOS (`protected_folders::spare_refusal`).
+    /// off macOS (`protected_folders::spare_refusal`). `shape`: what a hinted chat's own
+    /// `session/new` will name (its pinned model, workspace and credential), as that start reads them.
     async fn pool_spec_in(
         &self,
         harness: Option<String>,
         preset: Option<String>,
         cwd: PathBuf,
         spare: Option<Option<String>>,
+        shape: &PrewarmShape,
     ) -> Result<PoolSpec, RpcError> {
         self.rediscover_head(harness.as_deref(), preset.as_deref()).await;
         let r = {
@@ -449,10 +576,13 @@ impl Hub {
             profile: &r.profile,
             family: &family,
             preset: r.preset_name.clone(),
-            model_request: match (spawn_model, spare) {
-                (false, _) => None,
-                (true, Some(model)) => model,
-                (true, None) => start_model(),
+            // A model the chat pins is its spawn model, as `session/new` takes a request's
+            // (`model_pinned`, lifecycle.rs).
+            model_request: match (spawn_model, spare, &shape.model) {
+                (false, ..) => None,
+                (true, Some(model), _) => model,
+                (true, None, Some(pinned)) => Some(pinned.clone()),
+                (true, None, None) => start_model(),
             },
             cwd,
             agent_session_id: None,
@@ -466,7 +596,8 @@ impl Hub {
             // agent started with the same ones has the same key, so the chat can take it.
             draft.cmux_context = Some(crate::context_inventory::snapshot_session(&draft, &cfg));
         }
-        self.pool_spec_for(&draft, &r.profile, &r.defaults.env).await
+        draft.workspace_id = shape.workspace_id.clone();
+        self.pool_spec_for(&draft, &r.profile, &r.defaults.env, shape.credential.as_ref()).await
     }
 
     /// `_acpmux/prewarm`: accepted at once; after the debounce, the newest
@@ -501,7 +632,7 @@ impl Hub {
         let generation = self.pool.hint_gen.fetch_add(1, Ordering::SeqCst) + 1;
         let debounce = Duration::from_millis(self.config.read().await.pool.debounce_ms);
         let hub = self.clone();
-        let PrewarmRequest { harness, preset, wait, trust_gate, trust_web, .. } = req;
+        let PrewarmRequest { harness, preset, wait, trust_gate, trust_web, shape, .. } = req;
         let task = tokio::spawn(async move {
             if !debounce.is_zero() {
                 let clock = lock(&hub.clock).clone();
@@ -512,7 +643,7 @@ impl Hub {
                 return Ok(None);
             }
             hub.wait_startup().await;
-            let spec = hub.pool_spec(harness, preset, cwd).await?;
+            let spec = hub.pool_spec_in(harness, preset, cwd, None, &shape).await?;
             if trust_gate && let Some(paths) = hub.trust_gate() {
                 let folder = spec.draft.cwd.to_string_lossy().into_owned();
                 let family =
@@ -761,11 +892,15 @@ impl Hub {
     /// `session/new` for `meta`: claim the pooled session of exactly this
     /// shape, waiting for one that is starting. Returns its reserved id,
     /// which the new session takes; None starts cold.
+    /// `asked`: the answer the claim's spec asked for the person's own `cmux` entry, with its
+    /// launch, whether or not a spare was found, so the session's first start reuses it.
     pub(super) async fn pool_claim(
         &self,
         meta: &SessionMeta,
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
+        credential: Option<&crate::agent_credentials::AgentCredential>,
+        asked: &mut Option<crate::agent_tools::AskedFor>,
     ) -> Option<String> {
         // MDM's off as this claim begins: its one read, first, before any await or pool lock
         // (reviews 76 and 122), kept with the entry it claims (`Pooled::claimed_under`, review 121
@@ -789,9 +924,19 @@ impl Hub {
         {
             return None;
         }
-        let spec = self.pool_spec_for(meta, profile, defaults_env).await.ok()?;
+        let spec = self.pool_spec_for(meta, profile, defaults_env, credential).await.ok()?;
+        if spec.answer.get().is_some() {
+            *asked = Some(crate::agent_tools::AskedFor {
+                cwd: spec.draft.cwd.clone(),
+                argv: spec.spawn.argv.clone(),
+                env: spec.spawn.env.clone(),
+                answer: spec.answer.clone(),
+            });
+        }
         loop {
-            let took = lock(&self.pool.pool).take(&spec.key);
+            // A credentialed start (cmux#45953) never ends another key's entry: only one
+            // warmed with its own credential is its, and the folder's spare stays.
+            let took = lock(&self.pool.pool).take_or_keep(&spec.key, credential.is_none());
             match took {
                 Take::Ready(mut p) => {
                     #[cfg(debug_assertions)]
@@ -837,6 +982,7 @@ impl Hub {
                     }
                     let id = p.session_id.clone();
                     p.claimed_under = Some(off.clone());
+                    p.codex_answer = Some(spec.answer.clone());
                     lock(&self.pool.claimed).insert(id.clone(), p);
                     return Some(id);
                 }
@@ -862,6 +1008,15 @@ impl Hub {
     /// The name the claimed pooled session for `id` was started with.
     pub(super) fn pool_claimed_name(&self, id: &str) -> Option<String> {
         lock(&self.pool.claimed).get(id).map(|p| p.name.clone())
+    }
+
+    /// The answer the claim of the pooled session for `id` asked for the person's own `cmux`
+    /// entry (`Pooled::codex_answer`), if `session/new` claimed one.
+    pub(super) fn pool_claimed_codex_answer(
+        &self,
+        id: &str,
+    ) -> Option<crate::agent_tools::CodexAnswer> {
+        lock(&self.pool.claimed).get(id).and_then(|p| p.codex_answer.clone())
     }
 
     /// The claimed pooled session for `id`, if `session/new` claimed one.
@@ -969,7 +1124,7 @@ impl Hub {
             reported
         };
         if let Some(target) = p.target.take() {
-            let _ = target.send(session.inbound_tx.clone());
+            let _ = target.send(session.inbound_tx().clone());
         }
         let child = p.child.clone();
         *session.child.lock().await = Some(child.clone());
@@ -994,6 +1149,7 @@ impl Hub {
             // The pooled process started a fresh conversation: unstored
             // until its first turn ends.
             m.claude_unstored = true;
+            m.claude_unstored_work = false;
             m.claude_profile = Some(m.harness.clone());
             drop(m);
             self.write_mode_state(
@@ -1010,8 +1166,11 @@ impl Hub {
             self.absorb_session_response(session, res);
         }
         self.append(session, "mux", "pool_taken", json!({"rssBytes": p.rss}));
-        self.set_status(session, SessionStatus::Ready);
+        self.set_status(session, NotWaiting::Ready);
         self.note_launch(session, &child);
+        // It started with the person's suggestions (`initialize_params`): right for theirs only.
+        let asked_right = self.for_a_person(session);
+        self.note_start_level(session, &child, asked_right);
         self.save_meta(session);
         let meta_now = session.meta();
         self.remember_models(&meta_now.harness, &meta_now);
@@ -1128,6 +1287,9 @@ impl Hub {
         }
         let hub = self.clone();
         tokio::spawn(async move {
+            // A reaper that panics gives its claim back as it unwinds, so the next pooled entry
+            // starts a new one instead of waking a reaper that is gone.
+            let mut claim = ReaperClaim { flag: &hub.pool.reaper, held: true };
             loop {
                 let shut = AtomicBool::new(false);
                 let stopped = async {
@@ -1161,13 +1323,14 @@ impl Hub {
                     },
                 )
                 .await;
-                hub.pool.reaper.store(false, Ordering::SeqCst);
+                claim.release();
                 // An entry added while the reaper was leaving restarts it.
                 let again = !shut.load(Ordering::SeqCst)
                     && !lock(&hub.pool.pool).is_empty()
                     && !hub.pool.stopping.load(Ordering::SeqCst)
                     && !hub.stopping.load(Ordering::SeqCst)
                     && !hub.pool.reaper.swap(true, Ordering::SeqCst);
+                claim.held = again;
                 if !again {
                     return;
                 }
@@ -1289,4 +1452,34 @@ async fn end_pooled_host(record: &HostRecord) {
     let nonce = record.start_nonce.clone();
     let _ = tokio::task::spawn_blocking(move || agent_host::end_left_behind(&nonce)).await;
     agent_host::remove_artifacts(&dir, record);
+}
+
+#[cfg(test)]
+mod reaper_claim_tests {
+    use super::*;
+
+    /// Before: a reaper that panicked left the flag set, so no reaper ever ran again and idle
+    /// pooled harnesses were never ended. After: the claim clears it as the task unwinds.
+    #[tokio::test]
+    async fn a_reaper_that_panics_gives_its_claim_back() {
+        let flag: &'static AtomicBool = Box::leak(Box::new(AtomicBool::new(true)));
+        let died = tokio::spawn(async move {
+            let _claim = ReaperClaim { flag, held: true };
+            panic!("reaper died");
+        })
+        .await;
+        assert!(died.is_err());
+        assert!(!flag.load(Ordering::SeqCst), "a dead reaper still holds the pool's claim");
+    }
+
+    /// A reaper that released its claim on the normal exit never clears a successor's.
+    #[test]
+    fn a_released_claim_leaves_a_successors_claim_alone() {
+        let flag = AtomicBool::new(true);
+        let mut claim = ReaperClaim { flag: &flag, held: true };
+        claim.release();
+        flag.store(true, Ordering::SeqCst);
+        drop(claim);
+        assert!(flag.load(Ordering::SeqCst));
+    }
 }

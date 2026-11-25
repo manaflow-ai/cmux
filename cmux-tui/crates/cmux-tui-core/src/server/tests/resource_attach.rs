@@ -161,7 +161,7 @@ fn resource_clients_use_opaque_ids_and_preserve_exact_nullable_metadata() {
 /// The operations that need the connection (its streams, its principal, its client record), named
 /// so that a spec change names what it adds or removes. Every `cloud.*` operation also needs it: it
 /// runs with the connection's own Cloud session (#37350).
-const CONNECTION_OPERATIONS: [&str; 58] = [
+const CONNECTION_OPERATIONS: [&str; 59] = [
     "browser.attach",
     "browser.viewer.release",
     "browser.viewer.resize",
@@ -195,6 +195,7 @@ const CONNECTION_OPERATIONS: [&str; 58] = [
     "conversation.search",
     "conversation.send",
     "conversation.typing",
+    "language_packs.ensure",
     "origin.confirmation.issue",
     "pairing_request.list",
     "pairing_request.resolve",

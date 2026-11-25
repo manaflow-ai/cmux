@@ -21,6 +21,7 @@ if [ "$2" = --compare ]; then echo compared; exit ${compare}; fi
 out=""; while [ $# -gt 0 ]; do [ "$1" = --out ] && out="$2"; shift; done
 mkdir -p "$out"; code="$(head -n1 "${dir}/runs")"; sed -i.bak 1d "${dir}/runs"
 echo "| step | exit $code |" > "$out/summary.md"; echo "{}" > "$out/journey.json"
+printf '{"exit": %s}\\n' "$code" > "$out/guest-updater.json"
 echo run >> "${dir}/calls"; exit "$code"
 `)
   chmodSync(join(bin, "bun"), 0o755)
@@ -31,7 +32,11 @@ echo run >> "${dir}/calls"; exit "$code"
   })
   let calls = 0
   try { calls = readFileSync(join(dir, "calls"), "utf8").trim().split("\n").length } catch {}
-  return { code: r.exitCode, out: r.stdout.toString(), summary: readFileSync(summary, "utf8"), calls }
+  const receipt = (suffix: string) => {
+    try { return readFileSync(join(dir, "cloud-journey", `${phase ? `${phase}-` : ""}test-team${suffix}`, "guest-updater.json"), "utf8") }
+    catch { return null }
+  }
+  return { code: r.exitCode, out: r.stdout.toString(), summary: readFileSync(summary, "utf8"), calls, firstReceipt: receipt(".first"), lastReceipt: receipt("") }
 }
 
 describe("cloud-journey-ci.sh retry", () => {
@@ -42,6 +47,8 @@ describe("cloud-journey-ci.sh retry", () => {
     expect(r.out).toContain("title=Cloud journey retried::")
     expect(r.out).toContain("title=Cloud journey verdict::target=staging result=pass")
     expect(r.summary).toContain("first run, failed; run again")
+    expect(JSON.parse(r.firstReceipt!)).toEqual({ exit: 1 })
+    expect(JSON.parse(r.lastReceipt!)).toEqual({ exit: 0 })
   })
   it("a run that passes first is never run again", () => {
     const r = wrapper([0], "after")
@@ -55,6 +62,58 @@ describe("cloud-journey-ci.sh retry", () => {
     expect(r.calls).toBe(2)
     expect(r.code).toBe(3)
     expect(r.out).toContain("result=regressed")
+  })
+})
+
+// cmuxterm-hq ARCHITECTURE-2026-11 M1b: JOURNEY_RUST=1 runs the journey's core again on the shipped client,
+// `cmux cloud journey` in CMUX_PATH, retried once like the TS run; its red is the job's red, and the summary
+// ends with both drivers' times for the steps they share.
+describe("cloud-journey-ci.sh with the Rust driver", () => {
+  const rustRun = (rustRuns: number[]) => {
+    const dir = mkdtempSync(join(tmpdir(), "journey-rust-"))
+    const bin = join(dir, "bin")
+    Bun.spawnSync(["mkdir", "-p", bin])
+    writeFileSync(join(dir, "rust-runs"), rustRuns.join("\n") + "\n")
+    const steps = (ms: number) => JSON.stringify({ steps: [{ step: "create machine", status: "pass", ms, detail: "" }, { step: "listed", status: "pass", ms: 5, detail: "" }] })
+    writeFileSync(join(bin, "bun"), `#!/usr/bin/env bash
+out=""; while [ $# -gt 0 ]; do [ "$1" = --out ] && out="$2"; shift; done
+mkdir -p "$out"; echo "| ts |" > "$out/summary.md"; echo '${steps(900)}' > "$out/journey.json"
+`)
+    writeFileSync(join(bin, "cmux"), `#!/usr/bin/env bash
+echo "$*" >> "${dir}/rust-calls"
+out=""; while [ $# -gt 0 ]; do [ "$1" = --out ] && out="$2"; shift; done
+mkdir -p "$out"; code="$(head -n1 "${dir}/rust-runs")"; sed -i.bak 1d "${dir}/rust-runs"
+echo "| rust exit $code |" > "$out/summary.md"; echo '${steps(700)}' > "$out/journey.json"; exit "$code"
+`)
+    chmodSync(join(bin, "bun"), 0o755)
+    chmodSync(join(bin, "cmux"), 0o755)
+    const summary = join(dir, "summary.md")
+    const r = Bun.spawnSync(["bash", script], {
+      env: { PATH: `${bin}:${process.env.PATH}`, TARGET: "staging", RUNNER_TEMP: dir, GITHUB_STEP_SUMMARY: summary,
+        CMUX_DOGFOOD_STACK_EMAIL: "e", CMUX_DOGFOOD_STACK_PASSWORD: "p", JOURNEY_RETRY_DELAY_S: "0",
+        JOURNEY_RUST: "1", CMUX_PATH: join(bin, "cmux"), JOURNEY_MODEL: "stub" },
+    })
+    const calls = readFileSync(join(dir, "rust-calls"), "utf8").trim().split("\n")
+    return { code: r.exitCode, out: r.stdout.toString(), summary: readFileSync(summary, "utf8"), calls }
+  }
+  it("runs cmux cloud journey after the TS run and shows both drivers' shared steps", () => {
+    const r = rustRun([0])
+    expect(r.code).toBe(0)
+    expect(r.calls).toHaveLength(1)
+    expect(r.calls[0]).toContain("cloud journey --backend staging --out ")
+    expect(r.calls[0]).toContain("--model-stub ")
+    expect(r.summary).toContain("test-team, Rust driver (cmux cloud journey)")
+    expect(r.summary).toContain("| create machine | 900 | 700 |")
+    expect(r.summary).toContain("| **total** | **905** | **705** |")
+  })
+  it("a Rust run that fails twice is the job's red; once is a retry", () => {
+    const red = rustRun([1, 1])
+    expect(red.calls).toHaveLength(2)
+    expect(red.code).toBe(1)
+    expect(red.out).toContain("result=red")
+    const retried = rustRun([1, 0])
+    expect(retried.code).toBe(0)
+    expect(retried.out).toContain("(Rust driver) failed once")
   })
 })
 
@@ -82,7 +141,10 @@ describe("every workflow reads a Stack pair its job can see", () => {
   const repository = ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"]
   const held: Record<string, string[]> = {
     "cmux-next-vm-image-dev": ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CMUX_DOGFOOD_GUEST_STACK_EMAIL", "CMUX_DOGFOOD_GUEST_STACK_PASSWORD"],
-    "cmux-next-cloud-journey": ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"],
+    // CMUX_STAGING_STACK_*: the staging journey account, sealed here by cloud_capture_provision.py (target journey).
+    "cmux-next-cloud-journey": ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CMUX_STAGING_STACK_EMAIL", "CMUX_STAGING_STACK_PASSWORD"],
+    // The development agent test account billing-e2e.yml reads (its header lists what the environment holds; #40356).
+    "billing-e2e": ["CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD"],
   }
   const workflows = join(import.meta.dir, "../../.github/workflows")
   it("names only pairs that exist", () => {

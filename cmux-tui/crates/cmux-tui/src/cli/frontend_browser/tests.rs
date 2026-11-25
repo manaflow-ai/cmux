@@ -40,6 +40,17 @@ fn a_named_pane_keeps_its_parents_and_gets_the_current_tab() {
 }
 
 #[test]
+fn only_a_workspace_or_screen_with_no_pane_named_leaves_the_pane_to_the_app() {
+    let route = object(json!({"session": "current"}));
+    let names = |params: Value| names_no_pane(&route, &object(params));
+    assert!(names(json!({"workspace": "ws_a"})));
+    assert!(names(json!({"screen": "screen_b"})));
+    assert!(!names(json!({"workspace": "ws_a", "pane": "pane_c"})));
+    assert!(!names(json!({"pane": "pane_c"})));
+    assert!(!names(json!({"url": "https://a.test"})));
+}
+
+#[test]
 fn the_created_tab_is_the_first_tab_id_in_created() {
     let reply = json!({"created": ["ws_x", "tab_new", "tab_other"]});
     assert_eq!(created_tab(&reply).as_deref(), Some("tab_new"));
@@ -78,6 +89,22 @@ fn only_a_run_the_app_never_started_counts_as_never_ran() {
     assert!(!refused(json!({"code": "timeout", "details": {"state": "in_progress"}})));
     assert!(!refused(json!({"code": "operation.failed", "details": {}})));
     assert!(!never_ran(&Failure::Transport("broken pipe".into())));
+}
+
+/// The app refused the run because it cannot place the caller (an agent whose
+/// chat and workspace are gone): that refusal is final. Opening the tab on the
+/// daemon's default pane instead put agents' tabs in the focused workspace,
+/// Home (user, 2026-11-18). Only a window that shows a page (no focused pane)
+/// falls back there.
+#[test]
+fn a_caller_the_app_cannot_place_never_opens_on_the_default_pane() {
+    let fallback = |error: Value| opens_on_default_pane(&Failure::Resource(error));
+    assert!(!fallback(json!({"code": "caller_unavailable",
+        "details": {"agent_session": "a1", "not_run": true, "state": "rejected"}})));
+    assert!(fallback(
+        json!({"code": "unavailable", "details": {"reason": "This page has no tabs."}})
+    ));
+    assert!(!fallback(json!({"code": "operation.failed", "details": {}})));
 }
 
 #[test]

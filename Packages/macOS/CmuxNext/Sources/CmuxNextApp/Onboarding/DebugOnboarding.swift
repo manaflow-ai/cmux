@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextBrowserImport
 import CmuxNextDesign
+import CmuxNextHomeEngine
 import CmuxNextOnboarding
 import CmuxNextSettings
 
@@ -19,12 +20,13 @@ import CmuxNextSettings
 /// Use window), `dismiss_helper`, `restart`, `grant` (`pane`, `on`; the mock
 /// computer use source only), `mock` (`off`, `failed`, `mismatch`: the mock
 /// source's other states; none of them resets it to no grants), `sign_in`
-/// (`id`: an agent's Sign In).
+/// (`id`: an agent's Sign In). `meet_chief*`: Meet Chief (``ChiefOnboarding/debugRun(_:step:)``).
 @MainActor
 enum DebugOnboarding {
     static func run(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let onboarding = services.onboarding
         let action = params["action"]?.stringValue ?? "state"
+        if action.hasPrefix("meet_chief") { return .object(["meet_chief": .object(onboarding.chief.debugRun(action, step: params["step"]?.stringValue).mapValues { .string($0) })]) }
         if action == "open" {
             onboarding.show(step: params["step"]?.stringValue.flatMap(OnboardingModel.Step.init(rawValue:)) ?? .importData)
         }

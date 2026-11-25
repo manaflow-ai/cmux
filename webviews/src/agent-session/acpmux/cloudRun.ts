@@ -7,16 +7,20 @@
 /// message (CloudStartView, cloudStartProgress.ts); the prompt stays in the composer until the chat
 /// opens on the machine.
 
+import { keepCloudLanding, takeCloudLanding, type AutoLanding } from "./autoWhereModel";
 import { shownChatFolder } from "./folderlessCloud";
 import { githubFolderRepo } from "./githubRepos";
 import { isAgentHome } from "./sessionList";
 import { pickFolder } from "./startFolderModel";
 import type { ComposerAttachment } from "./attachments";
+import { currentCloudPlan } from "./cloudMachines";
+import type { CloudSize } from "./cloudPlans";
 
 /// What the page hands the host. `home`: the chat has no project folder on this Mac, so nothing is
 /// copied and the chat starts in the machine's own home folder (cloudStartFolder).
 export type CloudStart = {
   task: string;
+  autoLanding?: AutoLanding;
   attachments?: ComposerAttachment[];
   cwd?: string;
   home?: boolean;
@@ -40,6 +44,9 @@ export type CloudStart = {
   /** This tab's empty local chat, which the start replaces: the host accepts a start from a tab whose
    *  chat is this one, and closes the tab with it once the Cloud chat opens (AgentPaneHandOff). */
   replacesChat?: string;
+  /** The largest size the account's plan gives; none: the plan the page last read (`cloudMachine.list`), when active.
+   *  The host asks it, its disk grown, for a folder past it that the plan's disk holds (AgentPaneCloudStart `planMax`). */
+  planMax?: CloudSize;
 };
 
 /// Which folder a Cloud chat starts in: the chat's project on this Mac, copied to the machine, when
@@ -152,6 +159,42 @@ export function grantedCloudStart(
   );
 }
 
+/// How long a Cloud start waits for the local start a pick on its page began (``pickedChatCloudCall``).
+/// Bounded well under the Send gesture's 30 s life: past it the start goes as it is.
+export const PICK_SESSION_WAIT_MS = 8000;
+
+/// A Cloud start from a new chat that holds an agent or model pick (GPT-6.1 Sol picked on a Claude
+/// page): that pick started a local session the page never showed, and the host counts it as a chat
+/// opened in this tab. The start waits for that session (`pickSession`, bounded) and names it as the
+/// chat it replaces, so the host lets the Cloud start go instead of refusing it as "A chat is already
+/// starting in this tab" (cmux#45946). A start that already names one, or a page with no pick, goes as is.
+export function pickedChatCloudCall(
+  call: (method: string, params?: Record<string, unknown>) => Promise<unknown>,
+  pickSession: (timeoutMs: number) => Promise<string | undefined>,
+): (method: string, params?: Record<string, unknown>) => Promise<unknown> {
+  return async (method, params = {}) => {
+    if (method !== "cloud.startChat" || typeof params.replacesChat === "string") return call(method, params);
+    const picked = await pickSession(PICK_SESSION_WAIT_MS);
+    return call(method, picked ? { ...params, replacesChat: picked } : params);
+  };
+}
+
+/// A new chat whose only start is the person's agent or model pick (a harness switch on a page with no
+/// chat yet): Cloud is still where it runs. The pick goes with the Cloud start (`heldPick`) and the
+/// local session it began is the one the start replaces (``pickedChatCloudCall``).
+export function pickOnlyNewChat(page: {
+  fresh: boolean;
+  sessionId?: string;
+  summarySessionId?: string;
+  switching: boolean;
+  selectionPending: boolean;
+  quick: boolean;
+}): boolean {
+  return (
+    page.fresh && !page.sessionId && !page.summarySessionId && page.switching && !page.selectionPending && !page.quick
+  );
+}
+
 /// The host's answer: ok, or a code with the host's own words when it has them.
 /// `retryable`: another try of the same start can help (the machine didn't connect, a copy timed out), so the card offers Retry.
 export type CloudStartAnswer =
@@ -193,6 +236,25 @@ export function makeCloudSignInRetry(resume: () => Promise<CloudStartAnswer> | u
     resumed = false;
   };
   return retry;
+}
+
+/// Whether this page's chat runs on another machine: a Cloud machine's (a new tab or split in a Cloud chat's
+/// workspace, whose handshake names the machine), an SSH machine's, or a chat whose summary names one. Its
+/// new chat already starts on that machine, and the host refuses `cloud.startChat` from it (AgentPaneHandOff
+/// `chatIsElsewhere`, CloudStartChat's runner). Offering Cloud there made Enter end in "Cloud isn't available
+/// for this chat" instead of starting the chat in this pane (cmux#47679): Cloud is never offered or picked there.
+export function pageOnOtherMachine(page: {
+  cloudMachineID?: string | undefined;
+  origin?: string | undefined;
+  summary?: { peer?: string | undefined; hostKind?: string | undefined } | undefined;
+}): boolean {
+  return (
+    page.cloudMachineID !== undefined ||
+    page.origin === "remote" ||
+    page.origin === "peer" ||
+    Boolean(page.summary?.peer) ||
+    page.summary?.hostKind === "cloud"
+  );
 }
 
 /// Why Cloud can't start from this tab yet, before anything goes to the host:
@@ -292,10 +354,18 @@ export async function startCloudChat(
   if (start.signedIn) params.signedIn = true;
   if (start.team) params.team = start.team;
   if (start.replacesChat) params.replacesChat = start.replacesChat;
+  const plan = currentCloudPlan();
+  const planMax = start.planMax ?? (plan.state === "active" ? plan.maxSize : null);
+  if (planMax) params.planMax = planMax;
+  if (start.autoLanding) {
+    keepCloudLanding(start.autoLanding, key);
+    params.autoPlaced = true;
+  }
   try {
     await call("cloud.startChat", params);
     return { ok: true };
   } catch (error) {
+    if (start.autoLanding) takeCloudLanding(key);
     const { code, message, userMessage, retryable, details } = (error ?? {}) as {
       code?: unknown;
       message?: unknown;

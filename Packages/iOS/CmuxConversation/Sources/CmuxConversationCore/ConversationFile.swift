@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
+#endif
 
 /// A file attachment's details, as Messages shows them in its document
 /// bubble: the name, the type (a uniform type identifier) and the size.
@@ -22,6 +24,7 @@ public struct ConversationFileInfo: Sendable, Hashable, Codable {
         self.init(name: name, uti: Self.uti(name: name, mimeType: mimeType), byteCount: byteCount)
     }
 
+    #if canImport(UniformTypeIdentifiers)
     public var type: UTType { UTType(uti) ?? .data }
 
     /// Images sent as files still open in the photo viewer.
@@ -40,6 +43,21 @@ public struct ConversationFileInfo: Sendable, Hashable, Codable {
         return first.uppercased() + description.dropFirst()
     }
 
+    #else
+    // Without UniformTypeIdentifiers (the Linux CI package build) the type
+    // comes from a small fixed table; see ConversationFileTypeTable.
+
+    /// Images sent as files still open in the photo viewer.
+    public var isImage: Bool { ConversationFileTypeTable.isImage(uti: uti) }
+
+    /// The MIME type the upload declares.
+    public var mimeType: String { ConversationFileTypeTable.mimeType(uti: uti) ?? "application/octet-stream" }
+
+    public var typeDescription: String {
+        ConversationFileTypeTable.description(uti: uti) ?? URL(fileURLWithPath: name).pathExtension.uppercased()
+    }
+    #endif
+
     /// "1.2 MB", as Messages and Files format sizes.
     public var formattedSize: String {
         ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file)
@@ -47,14 +65,20 @@ public struct ConversationFileInfo: Sendable, Hashable, Codable {
 
     static func uti(name: String, mimeType: String?) -> String {
         let ext = URL(fileURLWithPath: name).pathExtension
+        #if canImport(UniformTypeIdentifiers)
         if !ext.isEmpty, let type = UTType(filenameExtension: ext), !type.isDynamic { return type.identifier }
         if let mimeType, let type = UTType(mimeType: mimeType), !type.isDynamic { return type.identifier }
         return UTType.data.identifier
+        #else
+        if !ext.isEmpty, let uti = ConversationFileTypeTable.uti(filenameExtension: ext) { return uti }
+        if let mimeType, let uti = ConversationFileTypeTable.uti(mimeType: mimeType) { return uti }
+        return "public.data"
+        #endif
     }
 }
 
 /// A file picked for sending, waiting for upload.
-public struct ConversationPendingFile: Sendable, Hashable {
+public struct ConversationPendingFile: Sendable, Hashable, Codable {
     public var data: Data
     public var info: ConversationFileInfo
 

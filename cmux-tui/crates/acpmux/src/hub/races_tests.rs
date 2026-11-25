@@ -282,7 +282,8 @@ async fn a_guarded_import_never_resumes_a_race_or_keeps_its_authority() {
     let guard = Guard { control: Control::Peer, roots: vec![work] };
     hub.guard_session(&bundle, &guard, None, &json!({}), None).await.unwrap();
     let guarded = GuardedImport { guard: &guard, replace_native: false };
-    let session = hub.import_into(&bundle, None, false, Some(guarded), false, false).await.unwrap();
+    let session =
+        hub.import_into(&bundle, None, false, Some(guarded), false, false, None).await.unwrap();
     let settled = |races: &[Race]| {
         assert_eq!(races.len(), 2);
         assert!(races.iter().all(|r| !r.owner_authorized && !r.local && !race_needs_resume(r)));

@@ -17,6 +17,7 @@ import {
   UserProfile
 } from "./schemas.ts"
 import { automationOps } from "./automation-ops.ts"
+import { automationSecretOps } from "./automation-secret-ops.ts"
 import { integrationOps } from "./integrations.ts"
 import { googleOps } from "./google-ops.ts"
 import { feedOps } from "./feed.ts"
@@ -260,6 +261,7 @@ export const cloudOps = [
   HostRemove,
   HostReplicaPurge,
   ...automationOps,
+  ...automationSecretOps,
   ...usageOps,
   ...integrationOps,
   ...googleOps,

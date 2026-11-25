@@ -40,13 +40,19 @@ import os
 import sys
 import time
 
+# acpmux's sign-in probe at spawn (`codex_signed_out.rs`): signed in, and not a start.
+if sys.argv[1:3] == ["login", "status"]:
+    print("Logged in using ChatGPT")
+    sys.exit(0)
+
 # Global options (`-c key=value`, `--config key=value`) come before the subcommand, as codex
 # takes them. FAKE_CODEX_ARGS=<path> gets a line with the arguments of each start.
 if os.environ.get("FAKE_CODEX_ARGS"):
     with open(os.environ["FAKE_CODEX_ARGS"], "a") as f:
         f.write(json.dumps(sys.argv[1:]) + "\n")
 args = sys.argv[1:]
-while len(args) >= 2 and args[0] in ("-c", "--config"):
+# Global options before the subcommand, as codex takes them (`-m <model> app-server`).
+while len(args) >= 2 and args[0] in ("-c", "--config", "-m", "--model", "-p", "--profile"):
     args = args[2:]
 if not args or args[0] != "app-server":
     sys.stderr.write("usage: codex app-server\n")

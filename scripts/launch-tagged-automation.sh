@@ -119,10 +119,11 @@ if [[ ! -d "$APP" ]]; then
   exit 1
 fi
 
+# Returns once every old instance's pid has exited (cmux_wait_for_pids_exit), so the stale sockets go after
+# their owners are gone and nothing is left to wait for before the launch.
 cmux_stop_app_instances "$BID" "$APP/Contents/MacOS/cmux DEV" \
   "$(dirname "$APP")/cmux DEV.app/Contents/MacOS/cmux DEV"
 rm -f "$SOCK" "$DSOCK"
-sleep 0.5
 
 OPEN_ENV=(
   env

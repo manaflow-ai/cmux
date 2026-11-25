@@ -25,6 +25,7 @@ extension AccountsModel {
             Button(id: "cmux.\(action.rawValue)", title: title, disabled: false, help: nil, destructive: destructive)
         }
         let error = account.failed ? AccountsStrings.cmuxSignInFailed : nil
+        let backend = account.backend.map(AccountsStrings.cmuxBackend)
         if account.signingIn {
             return .init(title: AccountsStrings.cmuxTitle, detail: account.label, status: AccountsStrings.cmuxSigningIn,
                          statusKind: "neutral", busy: true,
@@ -37,12 +38,12 @@ extension AccountsModel {
                          statusKind: "success", busy: false,
                          buttons: [button(.switchAccount, AccountsStrings.cmuxSwitchAccount),
                                    button(.signOut, AccountsStrings.cmuxSignOut, destructive: true)],
-                         note: nil, error: error)
+                         note: backend, error: error)
         }
         return .init(title: AccountsStrings.cmuxTitle, detail: nil, status: AccountsStrings.cmuxSignedOut,
                      statusKind: account.failed ? "attention" : "quiet", busy: false,
                      buttons: [button(.signIn, AccountsStrings.signInToCmux)],
-                     note: nil, error: error)
+                     note: backend, error: error)
     }
 }
 
@@ -58,4 +59,8 @@ extension AccountsStrings {
     static var cmuxSwitchAccount: String { text("accounts.cmux.switchAccount", "Switch Account…") }
     static var cmuxSignOut: String { text("accounts.cmux.signOut", "Sign Out") }
     static var cmuxSignInFailed: String { text("accounts.cmux.signInFailed", "Sign-in did not finish. Try again.") }
+    /// A dev build's Cloud backend line: `label` is an origin, then where it came from.
+    static func cmuxBackend(_ label: String) -> String {
+        String(format: text("accounts.cmux.backend", "Cloud backend: %@"), label)
+    }
 }

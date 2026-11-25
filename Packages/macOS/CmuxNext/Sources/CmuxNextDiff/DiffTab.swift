@@ -28,7 +28,7 @@ public nonisolated struct DiffChatPatch: Sendable, Hashable {
     public init(text: String, file: String? = nil, folder: String? = nil) {
         self.text = text
         self.file = file
-        let name = folder.map { URL(fileURLWithPath: $0).lastPathComponent } ?? ""
+        let name = folder.map { ($0 as NSString).lastPathComponent } ?? ""
         title = name.isEmpty || name == "/" ? DiffPageStrings.tabTitle : name
     }
 }

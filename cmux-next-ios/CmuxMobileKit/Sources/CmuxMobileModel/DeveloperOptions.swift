@@ -17,6 +17,10 @@ public enum DeveloperOptions {
     /// TCP: WireGuard sends no plain UDP and rides TURN over TLS on 443.
     /// Applies live: changing it redials.
     public static let blockUDPKey = "cmuxMobile.dev.blockUDP"
+    /// `UserDefaults` key: ride cmux's WebSocket relay only (PROTOCOL.md
+    /// "WebSocket relay"): WireGuard sends no plain UDP, takes no TURN
+    /// allocation and joins the relay at once. Applies at the next dial.
+    public static let forceRelayKey = "cmuxMobile.dev.forceRelay"
     /// `UserDefaults` key: streamed browser tabs keep their video on the
     /// reliable `browser` channel even over WebRTC (no media lane), the
     /// baseline of verify/browser-video-track.md. Applies at the next dial.
@@ -33,8 +37,8 @@ public enum DeveloperOptions {
     /// removes them so a value set by an earlier Debug or Demo install in the
     /// same container can never apply.
     public static let storedKeys = [
-        mockDataKey, launchDemoKey, relayOnlyKey, blockUDPKey, browserVideoOnChannelKey, terminalDemoPhasesKey,
-        slowApprovalKey, retiredSlowFaceIDKey,
+        mockDataKey, launchDemoKey, relayOnlyKey, blockUDPKey, forceRelayKey, browserVideoOnChannelKey, terminalDemoPhasesKey,
+        slowApprovalKey, retiredSlowFaceIDKey, CloudBackendOverride.storedKey,
     ]
 
     /// Removes every stored developer setting (Production launch).
@@ -81,6 +85,16 @@ public enum DeveloperOptions {
         #endif
     }
 
+    /// Whether WireGuard rides cmux's WebSocket relay only. Always off in
+    /// Release builds.
+    public static var forceRelay: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: forceRelayKey)
+        #else
+        false
+        #endif
+    }
+
     /// Whether browser video stays on its channel (no WebRTC video track).
     /// Always off in Release builds.
     public static var browserVideoOnChannel: Bool {
@@ -89,6 +103,28 @@ public enum DeveloperOptions {
         #else
         false
         #endif
+    }
+
+    /// Keys a launch argument starts, never holds: the app writes them itself
+    /// (setup's last page sets `cmuxMobile.setupComplete`).
+    public static let launchSeededKeys = ["cmuxMobile.setupComplete"]
+
+    /// Moves `launchSeededKeys` out of the argument domain into the app's own
+    /// defaults. A launch argument (`-cmuxMobile.setupComplete NO`, how UI
+    /// tests open first-run setup) sits in the argument domain, which every
+    /// read sees ahead of the app's writes, so setup's Continue saved
+    /// "complete" and kept reading NO: the space choice never left the
+    /// screen (App Review gate, 2026-11-11). Called once at launch, before
+    /// anything reads the keys.
+    public static func seedLaunchArguments(into defaults: UserDefaults = .standard) {
+        var arguments = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        let keys = launchSeededKeys.filter { arguments[$0] != nil }
+        guard !keys.isEmpty else { return }
+        // `bool(forKey:)` reads the argument's "YES"/"NO" string as a Bool.
+        let values = keys.map { (key: $0, value: defaults.bool(forKey: $0)) }
+        for key in keys { arguments.removeValue(forKey: key) }
+        defaults.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+        for (key, value) in values { defaults.set(value, forKey: key) }
     }
 
     #if DEBUG

@@ -490,6 +490,117 @@ wire_errors! {
 }
 
 wire_op! {
+    /// The names of an automation's secrets (who may edit it). Never returns a value.
+    AutomationSecretListOp {
+        name: "automation.secret.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:SchedulerDO",
+        risk: "read",
+        principals: [Session],
+        params: AutomationSecretListParams,
+        result: AutomationSecretListResult,
+        error: AutomationSecretListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AutomationSecretListParams {
+    pub automation: AutomationId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AutomationSecretListResult {
+    pub automation: AutomationId,
+    pub secrets: Vec<AutomationSecretState>,
+}
+
+wire_errors! {
+    /// The error codes automation.secret.list declares.
+    AutomationSecretListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        SelectorNotFound = "selector.not_found",
+    }
+}
+
+wire_op! {
+    /// Remove one secret of an automation (its creator, editors and team admins).
+    AutomationSecretRemoveOp {
+        name: "automation.secret.remove",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:SchedulerDO",
+        risk: "destructive",
+        principals: [Session],
+        params: AutomationSecretRemoveParams,
+        result: AutomationSecretRemoveResult,
+        error: AutomationSecretRemoveError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AutomationSecretRemoveParams {
+    pub automation: AutomationId,
+    pub name: AutomationSecretName,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AutomationSecretRemoveResult {
+    pub automation: AutomationId,
+    pub name: AutomationSecretName,
+    pub removed: bool,
+}
+
+wire_errors! {
+    /// The error codes automation.secret.remove declares.
+    AutomationSecretRemoveError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Add or replace one secret of an automation (its creator, editors and team admins, in a person's session). Its machine steps get it as the environment variable NAME. The value is never returned.
+    AutomationSecretSetOp {
+        name: "automation.secret.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:SchedulerDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: AutomationSecretSetParams,
+        result: AutomationSecretState,
+        error: AutomationSecretSetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AutomationSecretSetParams {
+    pub automation: AutomationId,
+    pub name: AutomationSecretName,
+    pub value: String,
+}
+
+wire_errors! {
+    /// The error codes automation.secret.set declares.
+    AutomationSecretSetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        AutomationSecretNotConfigured = "automation_secret.not_configured",
+        AutomationSecretTooMany = "automation_secret.too_many",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Read the team's automation settings (default limit of agent runs).
     AutomationSettingsGetOp {
         name: "automation.settings.get",
@@ -783,120 +894,5 @@ wire_errors! {
         PolicyDenied = "policy.denied",
         ProviderError = "provider.error",
         SelectorNotFound = "selector.not_found",
-    }
-}
-
-wire_op! {
-    /// Create a Google Calendar event; attendees get Google's invitation email.
-    CalendarEventCreateOp {
-        name: "calendar.event.create",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "send-external",
-        principals: [Session, Install],
-        params: CalendarEventCreateParams,
-        result: Value,
-        error: CalendarEventCreateError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CalendarEventCreateParamsStart {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub date_time: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub date: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub time_zone: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CalendarEventCreateParamsEnd {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub date_time: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub date: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub time_zone: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CalendarEventCreateParams {
-    pub connection: ConnectionId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub calendar_id: Option<String>,
-    pub summary: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub location: Option<String>,
-    pub start: CalendarEventCreateParamsStart,
-    pub end: CalendarEventCreateParamsEnd,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub attendees: Option<Vec<EmailAddress>>,
-}
-
-wire_errors! {
-    /// The error codes calendar.event.create declares.
-    CalendarEventCreateError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        IntegrationUnavailable = "integration.unavailable",
-        MutationIndeterminate = "mutation.indeterminate",
-        PolicyDenied = "policy.denied",
-        ProviderError = "provider.error",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Answer a Google Calendar invitation as the connected account; the organizer is notified.
-    CalendarEventRespondOp {
-        name: "calendar.event.respond",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "send-external",
-        principals: [Session, Install],
-        params: CalendarEventRespondParams,
-        result: Value,
-        error: CalendarEventRespondError,
-    }
-}
-
-wire_enum! {
-    CalendarEventRespondParamsResponse {
-        Accepted = "accepted",
-        Declined = "declined",
-        Tentative = "tentative",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CalendarEventRespondParams {
-    pub connection: ConnectionId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub calendar_id: Option<String>,
-    pub event_id: String,
-    pub response: CalendarEventRespondParamsResponse,
-}
-
-wire_errors! {
-    /// The error codes calendar.event.respond declares.
-    CalendarEventRespondError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        IntegrationUnavailable = "integration.unavailable",
-        MutationIndeterminate = "mutation.indeterminate",
-        PolicyDenied = "policy.denied",
-        ProviderError = "provider.error",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
     }
 }

@@ -112,6 +112,9 @@ PLATFORM_MSGS = frozenset({
     "cloud.entitlement.profile_heal_failed",
     "cloud.entitlement.read_failed",
     "cloud.fork_snapshot_delete_failed",
+    # Why an overdue running machine was not paused, once per machine per change (cmux-platform src/server/cloud
+    # IdleKept.ts). Kept only as its idle_kept() projection: cmux#54889's timer-only `workload` lines.
+    "cloud.idle.kept",
     "cloud.image.cache.failed",
     "cloud.image.follow",
     "cloud.image.follow.read_failed",
@@ -141,6 +144,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.record.unknown",
     "cloud.room.failed",
     "cloud.spare.claimed",
+    "cloud.spare.gateway_read",
     "cloud.spare.ready_failed",
     "cloud.spare.ready_told",
     "cloud.spare.restarting",
@@ -227,6 +231,8 @@ PLATFORM_MSGS = frozenset({
     "mesh.device.intent_pending",
     "mesh.device.mesh_unknown",
     "mesh.device.unavailable",
+    # A team hub call that threw before answering 503 mesh.unavailable: its kind and error type (cmux-platform#1660).
+    "mesh.hub.unavailable",
     "mesh.node.detached",
     "native network target",
     "outbox dead letters replayed",
@@ -292,7 +298,50 @@ INT, TOKEN, ID = base.INT, base.TOKEN, base.ID
 PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm": ID, "vmId": ID, "user": ID,
                  "outcome": TOKEN, "code": TOKEN, "type": TOKEN, "step": TOKEN, "op": TOKEN, "kind": TOKEN,
                  "site": TOKEN, "phase": TOKEN, "status": INT, "attempts": INT, "fails": INT, "ms": INT,
-                 "spares": INT, "wanted": INT, "live": INT, "total": INT, "failure": TOKEN, "reason": TOKEN}
+                 "spares": INT, "wanted": INT, "live": INT, "total": INT, "failure": TOKEN, "reason": TOKEN,
+                 "mode": TOKEN}
+# Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
+# claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule).
+PUBLIC_BOOLS = ("lacks", "shared", "host")
+
+
+# cloud.idle.kept's reasons (IdleKept.ts idleKept, first match); anything else prints as "other".
+IDLE_KEPT_WHY = frozenset({"not_allowed", "changing", "no_report", "no_activity", "held", "sessions", "workload",
+                           "no_turns", "recent"})
+# cmux#54889: every image since cmux#50074 (2026-11-22) installs cmux-chief-update.timer disabled, and the guest's
+# workload reader counted it as the person's work, so a machine whose only workload was that timer never paused idle.
+CHIEF_UPDATE_TIMERS = frozenset({"systemd:cmux-chief-update.timer", "cmux-chief-update.timer"})
+# A daemon version: digits first, then version characters. Anything hex-like prints hashed, as a token does.
+DAEMON_VERSION = re.compile(r"^[0-9][0-9A-Za-z.+_-]{0,47}$")
+# How long the machine had run since its last power when the line was written: a coarse band, never the number.
+RUNNING_BANDS = ((3600, "lt1h"), (6 * 3600, "1h-6h"), (24 * 3600, "6h-24h"))
+
+
+def idle_kept(j):
+    """cloud.idle.kept's typed projection: why, a timer_only flag for `workload`, the daemon version and a running
+    band. The line's team and machine are ids and its process, port and timer names are the guest's own words: only
+    whether the names were exactly cmux-chief-update.timer leaves the line."""
+    why = j.get("why")
+    out = {"msg": "cloud.idle.kept", "why": why if why in IDLE_KEPT_WHY else "other"}
+    for k in ("team", "machine"):
+        v = base.typed(ID, j.get(k))
+        if v is not None:
+            out[k] = v
+    w = j.get("workload")
+    if why == "workload" and isinstance(w, dict):
+        names = w.get("timer_names")
+        quiet = all(not w.get(k) for k in ("busy", "listening", "process_names", "ports"))
+        out["timer_only"] = bool(quiet and isinstance(names, list) and names
+                                 and all(isinstance(n, str) and n in CHIEF_UPDATE_TIMERS for n in names))
+    d = j.get("daemon")
+    if isinstance(d, str) and DAEMON_VERSION.match(d):
+        out["daemon"] = base.tag(d) if base.ID_LIKE.search(d) else d
+    elif d is None and "daemon" in j:
+        out["daemon"] = "null"
+    s = j.get("running_s")
+    if isinstance(s, int) and not isinstance(s, bool) and s >= 0:
+        out["running"] = next((band for limit, band in RUNNING_BANDS if s < limit), "ge24h")
+    return out
 
 
 def public_log(j):
@@ -302,12 +351,20 @@ def public_log(j):
     msg = j.get("msg")
     if not isinstance(msg, str) or msg not in PLATFORM_MSGS:
         return None, "unlisted"
+    if msg == "cloud.idle.kept":
+        return idle_kept(j), None
     out = {"msg": msg}
     for k, kind in PUBLIC_FIELDS.items():
         if k in j:
             v = base.typed(kind, j[k])
             if v is not None:
                 out[k] = v
+    for k in PUBLIC_BOOLS:
+        if isinstance(j.get(k), bool):
+            out[k] = j[k]
+    # A gateway mode the claim could not read is null on the line; kept as "null", told apart from no field.
+    if msg == "cloud.spare.gateway_read" and "mode" in j and j["mode"] is None:
+        out["mode"] = "null"
     if "error" in j:
         out["error"] = True
     return out, None
@@ -446,6 +503,10 @@ def belongs_to(event, ident):
         if isinstance(candidate, str):
             try:
                 candidate = json.loads(candidate, object_pairs_hook=unique_identity_fields)
+            except json.JSONDecodeError:
+                # Workers Logs puts a JSON line's msg text in $metadata.message and the parsed line in source: plain
+                # text names no identity, as console_line skips it. Before this every production id read kept 0.
+                continue
             except ValueError:
                 return False
         if isinstance(candidate, dict):
@@ -463,7 +524,8 @@ def publish(events, needles, ident):
     rows = [line(e, counts) for e in events]
     rows.sort(key=lambda r: r.pop("_ts", 0))
     rows = [r for r in rows if base.matches(r, needles)]
-    # events_scanned: the window's events before the id filter; events_in_window: the ones this id owns.
+    # events_scanned: the events the query returned for the id (its needle) before the exact id filter;
+    # events_in_window: the ones this id owns.
     head = {"needles": [base.tag(n) for n in needles], "events_scanned": scanned, "events_in_window": len(events),
             "kept_any": bool(rows),
             "rows_cut": len(rows) > MAX_ROWS, **counts}
@@ -506,10 +568,21 @@ def window_totals(events, needles):
     return head, rows[:MAX_ROWS]
 
 
-def query(token, service, frm, to, offset=None):
+def window_needle(needles):
+    """A window read asks the query for one msg's events when its only needle is an allowlisted platform msg literal:
+    a busy production hour holds more events than PAGES pages, and cloud.idle.kept is a few of them (cmux#54889).
+    The literal is our own constant, never a tenant's word; any other needle filters only the rows, as before."""
+    return needles[0] if len(needles) == 1 and needles[0] in PLATFORM_MSGS else None
+
+
+def query(token, service, frm, to, offset=None, needle=None):
     body = {"queryId": f"cmux-platform-prod-logs-{int(time.time())}", "timeframe": {"from": frm, "to": to},
             "view": "events", "limit": 1000,
             "parameters": {"filters": [{"key": "$metadata.service", "operation": "eq", "type": "string", "value": service}]}}
+    if needle:
+        # The id itself, matched server-side: a service-only read of a busy hour fills PAGES pages with other
+        # ids' lines and never reaches this one's (hq#13055, hq#13057: 20000 scanned, 0 in window).
+        body["parameters"]["needle"] = {"value": needle, "isRegex": False, "matchCase": True}
     if offset:
         body["offset"] = offset
     req = urllib.request.Request(
@@ -566,7 +639,8 @@ def main():
     token = sys.stdin.readline().strip()
     events, offset, pages, complete = [], None, 0, False
     while pages < PAGES:
-        got = base.dig(query(token, service, frm, to, offset), "result", "events", "events") or []
+        got = base.dig(query(token, service, frm, to, offset, needle=window_needle(needles) if kind == WINDOW else ident),
+                       "result", "events", "events") or []
         events += got
         pages += 1
         if len(got) < 1000:

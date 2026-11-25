@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use cmux_braid_session::LinkFacts;
 use cmux_remote_protocol::{FrameFlags, Lane, LanePolicy, SessionId};
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -237,6 +238,14 @@ pub struct ClientConnection {
     diagnostics: StdMutex<ClientConnectionSnapshot>,
     next_generation: AtomicU64,
     daemon_public_key: [u8; 32],
+    /// The daemon's last welcome said it takes Noise IK, so a reconnect's links run it and each
+    /// gets its welcome one round trip sooner. Cleared when a reconnect fails past its carrier's
+    /// open (a daemon rolled back to a build without IK), so the next one runs XX and relearns.
+    daemon_takes_ik: AtomicBool,
+    /// The daemon's last welcome said it takes early data: a reconnect's IK Control link carries
+    /// the Control lane's replay in its first message, so the daemon reads it when the link group
+    /// commits instead of a round trip later. Cleared with `daemon_takes_ik`.
+    daemon_takes_early_data: AtomicBool,
     reconnecting: Arc<Mutex<()>>,
     lane_sends: [Mutex<()>; 4],
     receiving: Mutex<()>,
@@ -358,8 +367,14 @@ impl ClientConnection {
         reconnect_groups: Option<Arc<dyn ReconnectGroupSource>>,
     ) -> Result<Arc<Self>, ConnectionError> {
         config.reconnect.validate()?;
-        let (link, daemon_public_key, _) =
-            establish_physical_links(group.clone(), &config, 0, BTreeMap::new()).await?;
+        let Established {
+            link,
+            daemon_key: daemon_public_key,
+            daemon_takes_ik,
+            daemon_takes_early_data,
+            ..
+        } = establish_physical_links(group.clone(), &config, 0, BTreeMap::new(), false, Vec::new())
+            .await?;
         let session = ReliableSession::new(config.session, Arc::new(link), config.limits);
         let (generation, _) = watch::channel(session.generation());
         let lane_bindings = lane_bindings(config.lane_policy, group.capabilities());
@@ -384,6 +399,8 @@ impl ClientConnection {
             diagnostics: StdMutex::new(diagnostics),
             next_generation: AtomicU64::new(1),
             daemon_public_key,
+            daemon_takes_ik: AtomicBool::new(daemon_takes_ik),
+            daemon_takes_early_data: AtomicBool::new(daemon_takes_early_data),
             reconnecting: Arc::new(Mutex::new(())),
             lane_sends: std::array::from_fn(|_| Mutex::new(())),
             receiving: Mutex::new(()),
@@ -868,13 +885,52 @@ impl ClientConnection {
             ClientAuthMode::Invitation { .. } => ClientAuthMode::Enrolled,
             other => other,
         };
-        let (link, daemon_key, daemon_resume) = establish_physical_links(
+        let takes_ik = self.daemon_takes_ik.load(Ordering::Acquire);
+        let early_facts = LinkFacts {
+            invitation: false,
+            pinned_peer: true,
+            peer_takes_ik: takes_ik,
+            // A resume re-admits the same key with no grant (`crypto::complete_handshake`).
+            carries_bearer_secret: false,
+        };
+        let early = if cmux_braid_session::may_send_early(
+            early_facts,
+            generation,
+            self.daemon_takes_early_data.load(Ordering::Acquire),
+        ) {
+            current.early_replay(generation, cmux_braid_session::EARLY_DATA_MAX_BYTES)
+        } else {
+            Vec::new()
+        };
+        let established = establish_physical_links(
             group.clone(),
             &reconnect_config,
             generation,
             current.resume_cursors(),
+            takes_ik,
+            early,
         )
-        .await?;
+        .await;
+        let Established {
+            link,
+            daemon_key,
+            daemon_resume,
+            daemon_takes_ik,
+            daemon_takes_early_data,
+        } = match established {
+            Ok(established) => established,
+            Err(error) => {
+                // A carrier that would not open says nothing about the daemon; anything past
+                // it might be a daemon that no longer takes IK.
+                if !matches!(error, ConnectionError::Provider(_)) {
+                    self.daemon_takes_ik.store(false, Ordering::Release);
+                    self.daemon_takes_early_data.store(false, Ordering::Release);
+                }
+                return Err(error);
+            }
+        };
+        self.daemon_takes_ik.store(daemon_takes_ik, Ordering::Release);
+        self.daemon_takes_early_data.store(daemon_takes_early_data, Ordering::Release);
         if self.closed.load(Ordering::Acquire) {
             return Err(ConnectionError::Closed);
         }
@@ -1397,7 +1453,13 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
     let mut network = initial.network.subscribe();
     network.borrow_and_update();
     drop(initial);
+    let mut route = RouteSource::default();
     loop {
+        // Where the link's route leaves from, read before the wait: a change that kills the
+        // address is compared with the address as it was.
+        if let Some(connection) = weak.upgrade() {
+            route.refresh(&connection).await;
+        }
         let network_moved = tokio::select! {
             biased;
             _ = close_state.changed() => return,
@@ -1420,6 +1482,13 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
         }
         let observed = connection.last_received();
         let generation = connection.session.read().await.generation();
+        if route.is_gone() {
+            // The address this link was dialed from is no longer ours: the kernel drops what it
+            // sends, so no probe could be answered. Redial now instead of waiting one out.
+            route.forget();
+            let _ = connection.recover(generation).await;
+            continue;
+        }
         // After a network change the old route may be gone with a write stuck on it: the
         // probe queues behind that write and never goes out. Waiting the full answer window
         // for it held a blocked link up to 4 s past the change; give it the short one.
@@ -1433,7 +1502,9 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
             Bytes::new(),
             FrameFlags::HEARTBEAT_REQUEST,
         );
-        let Ok(send_result) = probe_by(send, &mut deadline, &mut network, &mut close_state).await
+        let Ok(send_result) =
+            probe_by(send, &mut deadline, &mut network, &mut close_state, &|| route.is_gone())
+                .await
         else {
             return;
         };
@@ -1441,12 +1512,16 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
             Some(Ok(_)) => {}
             Some(Err(_)) => continue,
             None => {
+                route.forget_if_gone();
                 let _ = connection.recover(generation).await;
                 continue;
             }
         }
         let answer = connection.probe_liveness(generation, observed);
-        let Ok(live) = probe_by(answer, &mut deadline, &mut network, &mut close_state).await else {
+        let Ok(live) =
+            probe_by(answer, &mut deadline, &mut network, &mut close_state, &|| route.is_gone())
+                .await
+        else {
             return;
         };
         let live = live.unwrap_or(false);
@@ -1456,8 +1531,56 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
             continue;
         }
         if !live && connection.last_received() <= observed {
+            route.forget_if_gone();
             let _ = connection.recover(generation).await;
         }
+    }
+}
+
+/// The local address the link's route leaves from, as the heartbeat last saw it.
+#[derive(Default)]
+struct RouteSource {
+    /// The route's host and what it resolved to: resolved once per host, not per beat.
+    remote: Option<(String, Option<std::net::IpAddr>)>,
+    source: Option<std::net::IpAddr>,
+}
+
+impl RouteSource {
+    async fn refresh(&mut self, connection: &ClientConnection) {
+        if self.is_gone() {
+            // Keep the address that went away until the heartbeat has acted on it.
+            return;
+        }
+        let group = connection.group.read().await.clone();
+        let host = group.transport_snapshot().await.selected_path.and_then(|path| path.remote);
+        let Some(host) = host else {
+            self.source = None;
+            return;
+        };
+        let address = match &self.remote {
+            Some((known, address)) if *known == host => *address,
+            _ => {
+                let address = crate::route_source::resolve_host(&host).await;
+                self.remote = Some((host, address));
+                address
+            }
+        };
+        self.source = address.and_then(crate::route_source::source_toward);
+    }
+
+    fn forget(&mut self) {
+        self.source = None;
+    }
+
+    /// The probe failed: a source that is gone is acted on by this redial, so it is not kept.
+    fn forget_if_gone(&mut self) {
+        if self.is_gone() {
+            self.forget();
+        }
+    }
+
+    fn is_gone(&self) -> bool {
+        self.source.is_some_and(crate::route_source::address_is_gone)
     }
 }
 
@@ -1470,6 +1593,7 @@ async fn probe_by<T>(
     deadline: &mut tokio::time::Instant,
     network: &mut watch::Receiver<u64>,
     close_state: &mut watch::Receiver<CloseState>,
+    route_gone: &(dyn Fn() -> bool + Sync),
 ) -> Result<Option<T>, ()> {
     tokio::pin!(phase);
     loop {
@@ -1478,7 +1602,9 @@ async fn probe_by<T>(
             result = tokio::time::timeout_at(*deadline, phase.as_mut()) => return Ok(result.ok()),
             _ = close_state.changed() => return Err(()),
             Ok(()) = network.changed() => {
-                let short = tokio::time::Instant::now() + NETWORK_CHANGE_PROBE_TIMEOUT;
+                // A route whose address is gone cannot answer: end the probe now.
+                let wait = if route_gone() { Duration::ZERO } else { NETWORK_CHANGE_PROBE_TIMEOUT };
+                let short = tokio::time::Instant::now() + wait;
                 *deadline = (*deadline).min(short);
             }
         }
@@ -1497,18 +1623,101 @@ fn jittered_delay(ceiling: Duration, full_jitter: bool) -> Duration {
     ceiling.mul_f64(fraction)
 }
 
+/// One attempt's links, and what their welcomes said.
+struct Established {
+    link: LaneMuxLink,
+    daemon_key: [u8; 32],
+    daemon_resume: BTreeMap<Lane, u64>,
+    daemon_takes_ik: bool,
+    daemon_takes_early_data: bool,
+}
+
+/// The early data for a link carrying `lanes`: the Control link's, none for the rest.
+fn early_for(lanes: &[Lane], early: &[Bytes]) -> Vec<Bytes> {
+    if lanes.contains(&Lane::Control) { early.to_vec() } else { Vec::new() }
+}
+
 async fn establish_physical_links(
     group: Arc<dyn LinkGroup>,
     config: &ClientConnectionConfig,
     generation: u64,
     resume: BTreeMap<Lane, u64>,
-) -> Result<(LaneMuxLink, [u8; 32], BTreeMap<Lane, u64>), ConnectionError> {
+    daemon_takes_ik: bool,
+    early: Vec<Bytes>,
+) -> Result<Established, ConnectionError> {
     let mut connection_attempt = [0_u8; 16];
     getrandom::fill(&mut connection_attempt)
         .map_err(|error| ConnectionError::Crypto(CryptoError::Random(error.to_string())))?;
     let connection_attempt = ConnectionAttemptId(connection_attempt);
     let bindings = lane_bindings(config.lane_policy, group.capabilities());
+    let subsequent_auth = match config.auth {
+        ClientAuthMode::Invitation { .. } => ClientAuthMode::Enrolled,
+        ref other => other.clone(),
+    };
+    // A reconnect that pins the daemon's key and holds its IK offer learns nothing from its
+    // first link's welcome, so every lane link opens at once: the reconnect costs one link's
+    // setup, not two in a row (`cmux_braid_session::open_lanes_at_once`).
+    if let Some(pinned) = config.expected_daemon.filter(|_| {
+        cmux_braid_session::open_lanes_at_once(LinkFacts {
+            invitation: matches!(config.auth, ClientAuthMode::Invitation { .. }),
+            pinned_peer: true,
+            peer_takes_ik: daemon_takes_ik,
+            carries_bearer_secret: matches!(config.auth, ClientAuthMode::Grant { .. }),
+        })
+    }) {
+        let context = LinkHandshakeContext {
+            generation,
+            expected_daemon: Some(pinned),
+            connection_attempt,
+            daemon_takes_ik,
+        };
+        let mut pending = bindings
+            .into_iter()
+            .enumerate()
+            .map(|(index, lanes)| {
+                let auth = if index == 0 { config.auth.clone() } else { subsequent_auth.clone() };
+                let early = early_for(&lanes, &early);
+                let link = authenticate_one(
+                    group.clone(),
+                    config,
+                    auth,
+                    lanes,
+                    resume.clone(),
+                    context,
+                    early,
+                );
+                async move { (index, link.await) }
+            })
+            .collect::<FuturesUnordered<_>>();
+        let mut opened = Vec::new();
+        let mut daemon_resume = None;
+        // Every welcome has to offer IK (and early data) for the next reconnect to keep it.
+        let mut takes_ik = true;
+        let mut takes_early = true;
+        while let Some((index, result)) = pending.next().await {
+            let (lanes, link, link_resume) = result?;
+            if daemon_resume.get_or_insert_with(|| link_resume.clone()) != &link_resume {
+                return Err(ConnectionError::Protocol(
+                    "daemon reported inconsistent resume cursors across lane links".into(),
+                ));
+            }
+            takes_ik &= link.peer_takes_ik();
+            takes_early &= link.peer_takes_early_data();
+            opened.push((index, LinkRoute { lanes, link: Arc::new(link) }));
+        }
+        opened.sort_by_key(|(index, _)| *index);
+        let routes = opened.into_iter().map(|(_, route)| route).collect();
+        let link = LaneMuxLink::new(format!("lanes+{}", group.description()), routes)?;
+        return Ok(Established {
+            link,
+            daemon_key: pinned,
+            daemon_resume: daemon_resume.unwrap_or_default(),
+            daemon_takes_ik: takes_ik,
+            daemon_takes_early_data: takes_early,
+        });
+    }
     let first_lanes = bindings.first().expect("lane bindings are never empty").clone();
+    let first_early = early_for(&first_lanes, &early);
     let (_, first, daemon_resume) = authenticate_one(
         group.clone(),
         config,
@@ -1519,18 +1728,21 @@ async fn establish_physical_links(
             generation,
             expected_daemon: config.expected_daemon,
             connection_attempt,
+            daemon_takes_ik,
         },
+        first_early,
     )
     .await?;
     let daemon_key = first.remote_static();
+    // The first link's welcome is in: the rest of this attempt's links run IK if it offered it,
+    // a first connect's included.
+    let daemon_takes_ik = first.peer_takes_ik();
+    let daemon_takes_early_data = first.peer_takes_early_data();
     let mut routes = vec![LinkRoute { lanes: first_lanes, link: Arc::new(first) }];
 
-    let subsequent_auth = match config.auth {
-        ClientAuthMode::Invitation { .. } => ClientAuthMode::Enrolled,
-        ref other => other.clone(),
-    };
     let mut pending = FuturesUnordered::new();
     for lanes in bindings.into_iter().skip(1) {
+        let link_early = early_for(&lanes, &early);
         pending.push(authenticate_one(
             group.clone(),
             config,
@@ -1541,7 +1753,9 @@ async fn establish_physical_links(
                 generation,
                 expected_daemon: Some(daemon_key),
                 connection_attempt,
+                daemon_takes_ik,
             },
+            link_early,
         ));
     }
     while let Some(result) = pending.next().await {
@@ -1554,7 +1768,7 @@ async fn establish_physical_links(
         routes.push(LinkRoute { lanes, link: Arc::new(link) });
     }
     let link = LaneMuxLink::new(format!("lanes+{}", group.description()), routes)?;
-    Ok((link, daemon_key, daemon_resume))
+    Ok(Established { link, daemon_key, daemon_resume, daemon_takes_ik, daemon_takes_early_data })
 }
 
 #[derive(Clone, Copy)]
@@ -1562,6 +1776,7 @@ struct LinkHandshakeContext {
     generation: u64,
     expected_daemon: Option<[u8; 32]>,
     connection_attempt: ConnectionAttemptId,
+    daemon_takes_ik: bool,
 }
 
 async fn authenticate_one(
@@ -1571,19 +1786,34 @@ async fn authenticate_one(
     lanes: Vec<Lane>,
     resume: BTreeMap<Lane, u64>,
     context: LinkHandshakeContext,
+    early: Vec<Bytes>,
 ) -> Result<(Vec<Lane>, crate::crypto::SecureLink, BTreeMap<Lane, u64>), ConnectionError> {
     let primary = lanes[0];
-    let physical =
-        group.open(LinkRequest { lane: primary, generation: context.generation }).await?;
-    // Every step of a link's setup shares the attempt's deadline, the daemon's welcome and its
-    // link-ready too: a link that stalls after the Noise exchange fails this attempt (so it is
-    // retried) instead of hanging it, and cannot hand back a session the daemon dropped meanwhile
-    // as an incomplete link group. An invitation is the exception: its welcome waits on a person's
-    // approval, so only its link-ready, once the welcome is in, has the deadline.
+    // Every step of a link's setup shares the attempt's deadline: opening the carrier (a direct
+    // WebSocket's TCP, TLS and upgrade, a relay circuit), the Noise exchange, the daemon's welcome
+    // and its link-ready. The clock starts before the open, so a carrier that accepts and then
+    // never finishes opening fails this attempt (and the first connect, which has no outer
+    // deadline of its own) instead of hanging it. A link that stalls after the Noise exchange
+    // fails the attempt too (so it is retried), and cannot hand back a session the daemon dropped
+    // meanwhile as an incomplete link group. An invitation is the exception: its welcome waits on
+    // a person's approval, so only its open and its link-ready, once the welcome is in, have the
+    // deadline.
     let timeout = config.reconnect.attempt_timeout;
     let timed_out = || ConnectionError::Crypto(CryptoError::HandshakeTimeout { timeout });
     let invitation = matches!(auth, ClientAuthMode::Invitation { .. });
     let started = tokio::time::Instant::now();
+    let physical = tokio::time::timeout_at(
+        started + timeout,
+        group.open(LinkRequest { lane: primary, generation: context.generation }),
+    )
+    .await
+    .map_err(|_| {
+        ConnectionError::Provider(ProviderError::Link(LinkError::Transport(format!(
+            "opening lane {primary} on {} did not finish within {}",
+            group.description(),
+            crate::provider::DisplaySeconds(timeout)
+        ))))
+    })??;
     let setup = initiate_secure_link(
         physical,
         ClientHandshake {
@@ -1597,6 +1827,8 @@ async fn authenticate_one(
             generation: context.generation,
             connection_attempt: context.connection_attempt,
             resume,
+            daemon_takes_ik: context.daemon_takes_ik,
+            early,
             handshake_timeout: config.reconnect.attempt_timeout,
         },
     );
@@ -1615,8 +1847,15 @@ async fn authenticate_one(
         LinkHandshakeResponse::Ready(ready) => ready,
         LinkHandshakeResponse::Rejected(LinkRejected {
             rejected: LinkRejection::SessionUnavailable,
+            ..
         }) => {
             return Err(ConnectionError::SessionUnavailable);
+        }
+        LinkHandshakeResponse::Rejected(LinkRejected {
+            rejected: LinkRejection::TooManyClients,
+            limit,
+        }) => {
+            return Err(ConnectionError::DaemonAtCapacity { limit });
         }
     };
     if ready.session != config.session || ready.generation != context.generation {
@@ -1642,14 +1881,30 @@ enum LinkHandshakeResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct LinkRejected {
+pub(crate) struct LinkRejected {
     rejected: LinkRejection,
+    /// The daemon's client limit, with [`LinkRejection::TooManyClients`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    limit: Option<usize>,
+}
+
+impl LinkRejected {
+    pub(crate) fn session_unavailable() -> Self {
+        Self { rejected: LinkRejection::SessionUnavailable, limit: None }
+    }
+
+    pub(crate) fn too_many_clients(limit: usize) -> Self {
+        Self { rejected: LinkRejection::TooManyClients, limit: Some(limit) }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub(crate) enum LinkRejection {
+enum LinkRejection {
     SessionUnavailable,
+    /// The daemon already serves its limit of logical client sessions. A
+    /// slot frees when one of them ends, so the client retries with backoff.
+    TooManyClients,
 }
 
 pub(crate) async fn send_link_ready(
@@ -1666,9 +1921,9 @@ pub(crate) async fn send_link_ready(
 
 pub(crate) async fn send_link_rejection(
     link: &dyn FrameLink,
-    rejection: LinkRejection,
+    rejection: LinkRejected,
 ) -> Result<(), ConnectionError> {
-    let payload = serde_json::to_vec(&LinkRejected { rejected: rejection })
+    let payload = serde_json::to_vec(&rejection)
         .map_err(|error| ConnectionError::Protocol(error.to_string()))?;
     link.send(Bytes::from(payload)).await?;
     Ok(())
@@ -1710,6 +1965,12 @@ pub enum ConnectionError {
     /// it. Not retryable: nothing can resume it, so the caller should stop
     /// redialing and offer a new session.
     SessionUnavailable,
+    /// The daemon refused a new session because it already serves its limit
+    /// of logical client sessions (`limit`, when the daemon named it).
+    /// Retryable: a slot frees when another client disconnects.
+    DaemonAtCapacity {
+        limit: Option<usize>,
+    },
 }
 
 impl ConnectionError {
@@ -1729,7 +1990,8 @@ impl ConnectionError {
             ))
             | Self::Session(SessionError::LinkMessage(_))
             | Self::Session(SessionError::SchedulerClosed)
-            | Self::ReconnectAttemptTimedOut { .. } => true,
+            | Self::ReconnectAttemptTimedOut { .. }
+            | Self::DaemonAtCapacity { .. } => true,
             _ => false,
         }
     }
@@ -1773,6 +2035,15 @@ impl fmt::Display for ConnectionError {
             Self::SessionUnavailable => formatter.write_str(
                 "daemon no longer has the requested logical session (it expired or was closed)",
             ),
+            Self::DaemonAtCapacity { limit: Some(limit) } => write!(
+                formatter,
+                "too many connected clients: the daemon serves its limit of {limit}; \
+                 close other clients or raise the daemon's open-file limit"
+            ),
+            Self::DaemonAtCapacity { limit: None } => formatter.write_str(
+                "too many connected clients: the daemon serves its limit; \
+                 close other clients or raise the daemon's open-file limit",
+            ),
         }
     }
 }
@@ -1813,5 +2084,114 @@ impl From<LinkError> for ConnectionError {
 impl From<SessionError> for ConnectionError {
     fn from(error: SessionError) -> Self {
         Self::Session(error)
+    }
+}
+
+#[cfg(test)]
+mod route_source_tests {
+    use std::net::{IpAddr, Ipv4Addr};
+
+    use std::time::Duration;
+
+    use tokio::sync::watch;
+
+    use super::{CloseState, RouteSource, probe_by};
+
+    fn route_from(source: Option<IpAddr>) -> RouteSource {
+        RouteSource { remote: None, source }
+    }
+
+    #[test]
+    fn a_route_from_an_unassigned_address_is_gone_until_forgotten() {
+        // TEST-NET-1 is never assigned to an interface: the address a link dialed from after
+        // the kernel dropped it looks the same to the check.
+        let mut route = route_from(Some(IpAddr::from(Ipv4Addr::new(192, 0, 2, 77))));
+        assert!(route.is_gone());
+        route.forget();
+        assert!(!route.is_gone());
+    }
+
+    #[test]
+    fn a_route_from_a_live_address_or_an_unknown_one_is_not_gone() {
+        assert!(!route_from(Some(IpAddr::from(Ipv4Addr::LOCALHOST))).is_gone());
+        assert!(!route_from(None).is_gone());
+    }
+
+    /// A probe waiting on a route whose address went away ends at the change, not after the
+    /// two seconds a probe on a route that may have survived gets.
+    #[tokio::test(start_paused = true)]
+    async fn a_probe_ends_at_a_network_change_that_took_its_address() {
+        let (network_tx, mut network) = watch::channel(0_u64);
+        let (_close_tx, mut close_state) = watch::channel(CloseState::Pending);
+        let mut deadline = tokio::time::Instant::now() + Duration::from_secs(4);
+        network_tx.send_modify(|generation| *generation += 1);
+        let started = tokio::time::Instant::now();
+        let ended = probe_by(
+            std::future::pending::<()>(),
+            &mut deadline,
+            &mut network,
+            &mut close_state,
+            &|| true,
+        )
+        .await;
+        assert!(matches!(ended, Ok(None)));
+        assert!(started.elapsed() < Duration::from_millis(50));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_probe_on_a_route_that_may_have_survived_gets_the_short_window() {
+        let (network_tx, mut network) = watch::channel(0_u64);
+        let (_close_tx, mut close_state) = watch::channel(CloseState::Pending);
+        let mut deadline = tokio::time::Instant::now() + Duration::from_secs(4);
+        network_tx.send_modify(|generation| *generation += 1);
+        let started = tokio::time::Instant::now();
+        let ended = probe_by(
+            std::future::pending::<()>(),
+            &mut deadline,
+            &mut network,
+            &mut close_state,
+            &|| false,
+        )
+        .await;
+        assert!(matches!(ended, Ok(None)));
+        assert_eq!(started.elapsed(), Duration::from_secs(2));
+    }
+}
+
+#[cfg(test)]
+mod link_rejection_tests {
+    use super::*;
+
+    #[test]
+    fn session_unavailable_keeps_its_wire_form() {
+        // Clients from before the capacity rejection parse this exact form.
+        assert_eq!(
+            serde_json::to_string(&LinkRejected::session_unavailable()).unwrap(),
+            r#"{"rejected":"session-unavailable"}"#
+        );
+    }
+
+    #[test]
+    fn too_many_clients_carries_the_limit_and_parses_as_a_rejection() {
+        let encoded = serde_json::to_vec(&LinkRejected::too_many_clients(64)).unwrap();
+        assert_eq!(encoded, br#"{"rejected":"too-many-clients","limit":64}"#);
+        let decoded: LinkHandshakeResponse = serde_json::from_slice(&encoded).unwrap();
+        assert!(matches!(
+            decoded,
+            LinkHandshakeResponse::Rejected(LinkRejected {
+                rejected: LinkRejection::TooManyClients,
+                limit: Some(64),
+            })
+        ));
+    }
+
+    #[test]
+    fn daemon_at_capacity_is_retryable_and_says_why() {
+        let error = ConnectionError::DaemonAtCapacity { limit: Some(64) };
+        assert!(error.is_retryable_carrier_failure());
+        let message = error.to_string();
+        assert!(message.contains("too many connected clients"), "{message}");
+        assert!(message.contains("64"), "{message}");
+        assert!(!message.contains("expired"), "{message}");
     }
 }

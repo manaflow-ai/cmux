@@ -9,7 +9,7 @@
 // one text column, one control edge), its swatches as the mark, its switch on the row's edge, Move
 // Up / Down / Remove on hover like Settings > Menus, and the losing entry says in words which one
 // wins. `cards` shows the colors best but a grid reads in two directions, so "higher wins" has no
-// one direction, and fifty tiles push the rest of Personalization far down. `table` fits fifty in
+// one direction, and fifty tiles push the rest of Appearance far down. `table` fits fifty in
 // the least height but truncates the conflict sentence to one per row and hides what asked for it
 // in a tooltip.
 import { componentEntry } from "../../../gallery/format";

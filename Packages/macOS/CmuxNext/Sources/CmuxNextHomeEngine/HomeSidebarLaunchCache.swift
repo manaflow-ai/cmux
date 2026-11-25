@@ -10,8 +10,10 @@ public import Foundation
 /// this Mac's old order and pins, the default avatar, no tags, archived Chiefs, then each piece
 /// popped in (Lawrence 2026-10-21: "loading stat here is bad on app launch").
 public nonisolated struct HomeSidebarLaunchSnapshot: Codable, Equatable, Sendable {
-    public static let currentVersion = 1
-    public var version = HomeSidebarLaunchSnapshot.currentVersion
+    /// The snapshot's shape (``HomeSidebarLaunchCache/fingerprint(of:)`` of an empty snapshot): a
+    /// cache written by a build whose snapshot had other fields, or fields of other types, is
+    /// discarded and rebuilt, with no version to bump by hand.
+    public static var schema: String { HomeSidebarLaunchCache.fingerprint(of: HomeSidebarLaunchSnapshot(account: "")) }
     /// The pin account the list was shown for (`HomeService.pinAccount`): another account's list is never shown.
     public var account: String
     /// Each inbox owner's last reply, by its owners key ("local", "cloud").
@@ -47,6 +49,11 @@ public nonisolated struct HomeSidebarLaunchSnapshot: Codable, Equatable, Sendabl
 /// are the only wakeups).
 public nonisolated final class HomeSidebarLaunchCache: Sendable {
     public let url: URL
+    /// What the file holds: the snapshot under the schema of the build that wrote it.
+    private struct File: Codable {
+        var schema: String
+        var snapshot: HomeSidebarLaunchSnapshot
+    }
     private struct State: Sendable {
         var pending: HomeSidebarLaunchSnapshot?
         var written: HomeSidebarLaunchSnapshot?
@@ -61,8 +68,7 @@ public nonisolated final class HomeSidebarLaunchCache: Sendable {
     /// `Caches/cmux-home/<owner>/sidebar.json` in the user's Caches folder, beside the conversations'
     /// `HomeCache` of the same owner.
     public static func standard(owner: String) -> HomeSidebarLaunchCache {
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
+        let caches = NextSupport.cachesDirectory()
         return standard(owner: owner, caches: caches)
     }
 
@@ -77,11 +83,33 @@ public nonisolated final class HomeSidebarLaunchCache: Sendable {
         return HomeSidebarLaunchCache(url: caches.appendingPathComponent("cmux-home/\(component)/sidebar.json"))
     }
 
-    /// The last snapshot for `account`; nil when there is none, it is another account's, or another version's.
+    /// A stable fingerprint of a value's stored shape: each stored property's name and full type
+    /// name (`Mirror`), hashed with FNV-1a 64 (the same in every process, unlike `Hasher`). Adding,
+    /// removing, renaming or retyping a stored property changes it; a field added inside a nested
+    /// type does not (a new required one already fails the decode).
+    ///
+    /// - Parameter sample: Any value of the type (its property values are not read, only their types).
+    /// - Returns: 16 lowercase hex digits.
+    public static func fingerprint(of sample: Any) -> String {
+        var shape = String(reflecting: type(of: sample))
+        for child in Mirror(reflecting: sample).children {
+            shape += "|\(child.label ?? "_"):\(String(reflecting: type(of: child.value)))"
+        }
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in shape.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 0x0000_0100_0000_01b3
+        }
+        let hex = String(hash, radix: 16)
+        return String(repeating: "0", count: 16 - hex.count) + hex
+    }
+
+    /// The last snapshot for `account`; nil when there is none, it is another account's, or another schema's.
     public func load(account: String) -> HomeSidebarLaunchSnapshot? {
         guard let data = try? Data(contentsOf: url),
-              let snapshot = try? JSONDecoder().decode(HomeSidebarLaunchSnapshot.self, from: data),
-              snapshot.version == HomeSidebarLaunchSnapshot.currentVersion, snapshot.account == account else { return nil }
+              let file = try? JSONDecoder().decode(File.self, from: data),
+              file.schema == HomeSidebarLaunchSnapshot.schema, file.snapshot.account == account else { return nil }
+        let snapshot = file.snapshot
         state.withLock { $0.written = snapshot }
         return snapshot
     }
@@ -107,7 +135,7 @@ public nonisolated final class HomeSidebarLaunchCache: Sendable {
             defer { state.pending = nil }
             return state.pending
         }
-        guard let snapshot, let data = try? JSONEncoder().encode(snapshot) else { return }
+        guard let snapshot, let data = try? JSONEncoder().encode(File(schema: HomeSidebarLaunchSnapshot.schema, snapshot: snapshot)) else { return }
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         if (try? data.write(to: url, options: .atomic)) != nil { state.withLock { $0.written = snapshot } }
     }

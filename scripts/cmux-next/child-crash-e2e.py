@@ -181,9 +181,9 @@ def main():
         if check("agent: an agent page reports its WebContent process", bool(page), reply):
             os.kill(int(page), signal.SIGKILL)
             safe_print(f"killed agent WebContent {int(page)}", flush=True)
-            time.sleep(1.0)  # test harness wait: WebKit reports the process ended
-            check("agent: app still runs", alive(pid))
+            # WebKit reports the process ended: the page names a new WebContent process.
             fresh = wait(lambda: (lambda p: p if p and p != page else None)((rpc("debug.agent_pane", {"action": "pid", "pane": pane}) or {}).get("pid")), 30)
+            check("agent: app still runs", alive(pid))
             check("agent: the page reloads in a new WebContent process", bool(fresh), fresh)
             # A page that keeps crashing stops reloading (PageCrashReloads: 3 reloads in 10 minutes)
             # and offers Reload instead; Reload starts it again.
@@ -224,9 +224,9 @@ def main():
                 for gpu in gpus:
                     os.kill(gpu, signal.SIGKILL)
                 safe_print(f"killed gpu-process {gpus}", flush=True)
-                time.sleep(2.0)  # test harness wait: Chromium notices the GPU process ended
-                check("gpu: app still runs", alive(pid))
+                # Chromium notices the GPU process ended: a new GPU process runs.
                 restarted = wait(lambda: set(children(pid, "gpu-process")) - set(gpus), 20)
+                check("gpu: app still runs", alive(pid))
                 check("gpu: Chromium starts a new GPU process", bool(restarted), children(pid, "gpu-process"))
                 if status(cef_tab).get("gone") == "1":
                     sad_tab_reloads("gpu", cef_tab, pid)

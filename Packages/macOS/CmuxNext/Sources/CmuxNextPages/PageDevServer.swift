@@ -1,3 +1,4 @@
+import CmuxEgress
 import CryptoKit
 public import Foundation
 
@@ -43,16 +44,14 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         "cmux.feed",
         "cmux.files",
         "cmux.github",
+        "cmux.glass-parity",
         "cmux.group-editor",
         "cmux.history",
         "cmux.home-channels",
-        "cmux.home-messages",
         "cmux.icon-picker",
-        "cmux.import-history",
         "cmux.keybindings",
         "cmux.machines",
         "cmux.markdown",
-        "cmux.mobile-pairing",
         "cmux.onboarding",
         "cmux.passwords",
         "cmux.server-cards",
@@ -202,7 +201,7 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
 
     /// Sends `request` (``request(for:)``).
     @concurrent public static func fetch(_ request: URLRequest) async -> (Data, HTTPURLResponse)? {
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
+        guard let (data, response) = try? await CmuxEgress.shared(site: "CmuxNextPages.PageDevServer").data(for: request),
               let http = response as? HTTPURLResponse else { return nil }
         return (data, http)
     }
