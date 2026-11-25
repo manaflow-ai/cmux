@@ -1,4 +1,4 @@
-import type { Adapter, AgentEvent, AgentPlanStatus, AgentQuestionAnswers, AgentQuestionItem, AgentQuestionOutcome, CommandEntry, OptionChoice, OptionValue, SessionCtx, SessionOption } from "../types";
+import type { Adapter, AgentEvent, AgentQuestionAnswers, AgentQuestionItem, AgentQuestionOutcome, CommandEntry, OptionChoice, OptionValue, SessionCtx, SessionOption } from "../types";
 import { readLines, tryParse, truncate } from "./lines";
 import { prettifyModelLabel } from "./model-label";
 import { agentModelCatalog } from "../catalog";
@@ -634,11 +634,6 @@ function handleServerMessage(srv: AppServerRouting, msg: any) {
     case "thread/compacted":
       compactionSignal(sess, st, p.turnId, "notice");
       break;
-    case "turn/plan/updated": {
-      const plan = codexPlanEvent(p.plan);
-      if (plan) sess.emit(plan);
-      break;
-    }
     case "thread/goal/updated":
       goalUpdated(sess, st, p.goal);
       break;
@@ -847,19 +842,6 @@ function compactionSignal(sess: SessionCtx, st: CodexState, turnId: unknown, sig
   if (Math.max(lc.compactionItems, lc.compactionNotices) > shown) {
     sess.emit({ kind: "status", text: "Conversation compacted" });
   }
-}
-
-const PLAN_STATUS: Record<string, AgentPlanStatus> = { pending: "pending", inProgress: "in_progress", completed: "completed" };
-
-function codexPlanEvent(steps: unknown): Extract<AgentEvent, { kind: "plan" }> | null {
-  if (!Array.isArray(steps) || !steps.length) return null;
-  return {
-    kind: "plan",
-    entries: steps.map((step: any) => ({
-      text: typeof step?.step === "string" ? step.step : String(step?.step ?? ""),
-      status: PLAN_STATUS[step?.status] ?? "unknown",
-    })),
-  };
 }
 
 const GOAL_STATUS_PREFIX: Record<string, string> = {
