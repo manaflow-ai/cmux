@@ -1,6 +1,10 @@
 #if os(iOS)
 @testable import CmuxTabsKit
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 import Testing
 
 /// Where the page toolbar sits (`TabsKitTheme.Metrics.barEdge`). Leo 2026-11-23: "we keep the

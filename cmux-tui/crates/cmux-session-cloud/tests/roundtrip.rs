@@ -68,3 +68,127 @@ fn a_blob_from_another_key_or_a_tampered_store_does_not_open() {
     std::fs::write(&blob, sealed).unwrap();
     assert!(fetch::fetch_file(&stub::stub_path(&file), &cloud).is_err());
 }
+
+#[derive(Default)]
+struct Reads {
+    blobs: Vec<String>,
+    drop_at: Option<String>,
+}
+
+struct CountingStore {
+    files: FsStore,
+    reads: std::sync::Arc<std::sync::Mutex<Reads>>,
+}
+
+impl cmux_session_cloud::store::BlobStore for CountingStore {
+    fn put(&self, id: &str, bytes: &[u8]) -> anyhow::Result<()> {
+        self.files.put(id, bytes)
+    }
+
+    fn get(&self, id: &str) -> anyhow::Result<Vec<u8>> {
+        let mut reads = self.reads.lock().unwrap();
+        reads.blobs.push(id.to_owned());
+        if reads.drop_at.as_deref() == Some(id) {
+            reads.drop_at = None;
+            anyhow::bail!("connection dropped");
+        }
+        self.files.get(id)
+    }
+
+    fn has(&self, id: &str) -> anyhow::Result<bool> {
+        self.files.has(id)
+    }
+
+    fn set_root(&self, pair: &str, hashes: &[String]) -> anyhow::Result<()> {
+        self.files.set_root(pair, hashes)
+    }
+
+    fn describe(&self) -> String {
+        self.files.describe()
+    }
+}
+
+#[test]
+fn tail_opens_in_one_response_and_backfill_resumes_by_verified_id() -> anyhow::Result<()> {
+    use cmux_session_pack::{Params, Store, hex, pack, unhex};
+    use std::sync::{Arc, Mutex};
+
+    let dir = tempfile::tempdir()?;
+    let reads = Arc::new(Mutex::new(Reads::default()));
+    let cloud = Cloud {
+        store: Box::new(CountingStore {
+            files: FsStore::new(dir.path().join("cloud"))?,
+            reads: reads.clone(),
+        }),
+        key: Key::generate()?,
+        root_prefix: String::new(),
+    };
+    let shared = "from the first turn ".repeat(80);
+    let lines: Vec<_> = (0..8u64)
+        .map(|i| {
+            let body = if i == 0 || i == 7 { shared.clone() } else { format!("older turn {i}") };
+            format!(r#"{{"seq":{i},"at":{i},"dir":"in","kind":"turn_started","text":"{body}"}}"#)
+        })
+        .collect();
+    let log = lines.join("\n"); // Also preserve a last record without a newline.
+    let file = dir.path().join("events.ndjson");
+    std::fs::write(&file, &log)?;
+    let source = Store::new(dir.path().join("source"));
+    let params = Params { segment_bytes: 1, level: 1, ..Default::default() };
+    let (manifest, _) = pack(&source, "chat", &[file], &params, true).unwrap();
+    let record = offload::upload_pack(&source, "chat", 1, &cloud)?;
+    let path = dir.path().join("cold.zst.cloud");
+    std::fs::write(&path, serde_json::to_vec(&record)?)?;
+    let stub::History::Pack(record) = stub::history(&path)? else { panic!("expected v2") };
+
+    let cache_path = dir.path().join("receiver");
+    let cache = Store::new(&cache_path);
+    let opened = fetch::open_pack(&record, &cache, &cloud)?;
+    assert_eq!(opened.manifest, manifest);
+    assert_eq!(record.first_line, 7);
+    assert_eq!(opened.read_lines(7..8).unwrap(), [lines[7].as_bytes()]);
+    assert_eq!(reads.lock().unwrap().blobs, std::slice::from_ref(&record.tail.blob));
+    let (blob, table) = manifest.segments[0].blob_chunks.as_ref().unwrap();
+    assert!(cache.has(&unhex(blob).unwrap()) && cache.has(&unhex(table).unwrap()));
+    assert!(!cache.has(&unhex(&manifest.segments[0].events).unwrap()));
+    let ids = manifest.chunk_ids().unwrap();
+    let older: Vec<_> = ids
+        .iter()
+        .filter_map(|id| record.older.get(&hex(id)).map(|part| (*id, part.clone())))
+        .collect();
+    assert!(older.len() > 2);
+    reads.lock().unwrap().drop_at = Some(older[1].1.blob.clone());
+    assert!(fetch::backfill(&record, &cache, &ids, &cloud).is_err());
+    assert!(cache.verified(&older[0].0).unwrap());
+    assert!(!cache.has(&older[1].0));
+    drop(opened);
+    drop(cache);
+
+    // A new process has only the on-disk cache and the stub.
+    let cache = Store::new(&cache_path);
+    reads.lock().unwrap().blobs.clear();
+    let resumed = fetch::open_pack(&record, &cache, &cloud)?;
+
+    // A valid sealed blob containing a different valid chunk still fails the pack id check.
+    let mut swapped = record.clone();
+    swapped.older.insert(hex(&older[1].0), older[2].1.clone());
+    assert!(fetch::backfill(&swapped, &cache, &[older[1].0], &cloud).is_err());
+    assert!(!cache.has(&older[1].0));
+    fetch::backfill(&record, &cache, &ids, &cloud)?;
+    let fetched = reads.lock().unwrap().blobs.clone();
+    assert!(!fetched.contains(&record.tail.blob));
+    assert!(!fetched.contains(&older[0].1.blob));
+    assert_eq!(fetched[1..], older[1..].iter().map(|(_, p)| p.blob.clone()).collect::<Vec<_>>());
+    let mut restored = Vec::new();
+    resumed.cat(&mut restored).unwrap();
+    assert_eq!(restored, log.as_bytes());
+
+    // Even a correctly named file on disk must still verify on resume.
+    let id = hex(&older[0].0);
+    std::fs::write(cache_path.join("chunks").join(&id[..2]).join(id), b"cut short")?;
+    reads.lock().unwrap().blobs.clear();
+    fetch::backfill(&record, &cache, &ids, &cloud)?;
+    assert_eq!(reads.lock().unwrap().blobs, [older[0].1.blob.clone()]);
+    assert!(cache.verified(&older[0].0).unwrap());
+    Ok(())
+}

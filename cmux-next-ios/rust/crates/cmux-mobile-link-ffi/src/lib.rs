@@ -19,8 +19,11 @@ mod classic_leftovers;
 mod composer_outbox;
 mod follow_camera;
 mod link_side;
+pub mod local_link;
 mod mac_screen;
+mod pair_requests;
 mod share_approval;
+mod tabs;
 mod terminal_chat;
 mod terminal_prediction;
 mod terminal_projection;
@@ -35,6 +38,7 @@ pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};
 pub use link_side::{LinkOpenSide, link_open_side};
 pub use mac_screen::{MacScreenAnswer, MacScreenDisplay, MacScreenIceServer, MacScreenObserver, MacScreenRd};
 pub use share_approval::{ShareApprovalDraft, ShareAsk, share_approval_draft, share_approval_signed};
+pub use tabs::{TabsEvent, TabsMirror, TabsRow, TabsViewport};
 pub use terminal_chat::{
     TabFace, TerminalChatCandidate, TerminalChatFaces, TerminalChatFacts, TerminalChatSwap,
 };
@@ -108,6 +112,9 @@ pub enum LinkPath {
     Turn,
     /// Through a TURN server reached over TLS (UDP blocked).
     TurnTls,
+    /// Through cmux's own WebSocket relay over HTTPS (neither UDP nor TURN
+    /// gets through: a network that allows only cmux's hosts, or only HTTPS).
+    HttpsRelay,
     /// No working route at the moment.
     NoPath,
 }
@@ -118,6 +125,7 @@ impl From<cmux_mobile_link::LinkPath> for LinkPath {
             cmux_mobile_link::LinkPath::Direct => Self::Direct,
             cmux_mobile_link::LinkPath::Turn => Self::Turn,
             cmux_mobile_link::LinkPath::TurnTls => Self::TurnTls,
+            cmux_mobile_link::LinkPath::HttpsRelay => Self::HttpsRelay,
             cmux_mobile_link::LinkPath::NoPath => Self::NoPath,
         }
     }
@@ -218,6 +226,13 @@ pub enum CmuxMobileError {
     Closed { message: String },
 }
 
+/// The code of [`CmuxMobileError::Refused`] when no way to the Mac worked
+/// and each one's failure is known (PROTOCOL.md "When no path works"): the
+/// network blocks the link. Its message is the failures as one JSON object
+/// (`cmux_mobile_link::dial::diagnosis::PathFailures`), which the app turns
+/// into the person's sentence and the IT details.
+pub const NETWORK_BLOCKED: &str = "network_blocked";
+
 /// The code of [`CmuxMobileError::Refused`] when the cmux service refused the
 /// access token (HTTP 401). The app refreshes the token once; a refused fresh
 /// token is a revoked session (it stops redialing and asks to sign in).
@@ -242,6 +257,9 @@ impl From<DialError> for CmuxMobileError {
             DialError::Bye(reason) => Self::Refused { code: "bye".into(), message: reason },
             DialError::Timeout => Self::Timeout,
             DialError::Transport(message) | DialError::Unexpected(message) => Self::Transport { message },
+            DialError::Blocked(failures) => {
+                Self::Refused { code: NETWORK_BLOCKED.into(), message: failures.to_json() }
+            }
         }
     }
 }
@@ -294,6 +312,8 @@ pub struct LinkHandle {
     watcher: Mutex<Option<tokio::task::JoinHandle<()>>>,
     timeline: Timeline,
     session_id: String,
+    /// The WireGuard keys this link's tunnel handshook with (`None` on WebRTC).
+    tunnel_keys: Option<cmux_mobile_link::dial::TunnelKeys>,
     /// The WebRTC media session beside a WireGuard link, when both sides
     /// support one (cmux_mobile_link::hybrid).
     media: Option<cmux_mobile_link::hybrid::MediaManager>,
@@ -551,6 +571,16 @@ impl LinkHandle {
         self.link.is_closed()
     }
 
+    /// The WireGuard static public keys this link's tunnel handshook with, as `[dialer,
+    /// answerer]` (base64), or empty on a link that is not a tunnel. The phone's `auth` signs
+    /// them and checks the Mac's identity proof over them (cmux-mobile-host `pairing.rs`, v2).
+    pub fn tunnel_keys(&self) -> Vec<String> {
+        self.tunnel_keys
+            .as_ref()
+            .map(|keys| vec![keys.dialer.clone(), keys.answerer.clone()])
+            .unwrap_or_default()
+    }
+
     /// Milliseconds since the link last received any frame from the Mac.
     /// Any frame proves the link alive as a probe's pong would, so the app's
     /// heartbeat probes only a link quiet for a whole beat.
@@ -658,6 +688,13 @@ impl ChannelHandle {
         self.id
     }
 
+    /// Payload bytes this channel has queued for the transport so far. It moves while a long
+    /// write is taken by the link and stops when the link stalls: a request's deadline reads it
+    /// as progress, not a wall clock (`DaemonClient` on iOS).
+    pub fn sent_bytes(&self) -> u64 {
+        self.sender.sent_bytes()
+    }
+
     pub async fn send(&self, data: Vec<u8>) -> Result<(), CmuxMobileError> {
         let sender = Arc::clone(&self.sender);
         on_runtime(async move { sender.send(data.into()).await }).await?;
@@ -712,6 +749,11 @@ pub struct ConnectOptions {
     /// TLS on 443 (path `TurnTls`). WebRTC ignores it.
     #[uniffi(default = false)]
     pub block_udp: bool,
+    /// Debug "Relay via cmux (HTTPS) only": WireGuard sends no plain UDP and
+    /// takes no TURN allocation; it joins cmux's WebSocket relay at once and
+    /// rides it (path `HttpsRelay`). WebRTC ignores it.
+    #[uniffi(default = false)]
+    pub force_relay: bool,
     /// Debug: do not offer the media lane, so browser video rides its
     /// reliable channel on either transport (the comparison baseline).
     #[uniffi(default = false)]
@@ -779,6 +821,7 @@ pub async fn connect_with_options(
         include_loopback: false,
         relay_only: options.relay_only,
         block_udp: options.block_udp,
+        force_relay: options.force_relay,
         video_lane: !options.no_video_lane,
         webrtc_media: !options.no_webrtc_media
             && std::env::var_os("CMUX_MOBILE_DEV_NO_WEBRTC_MEDIA").is_none(),
@@ -793,6 +836,13 @@ pub fn cmux_mobile_version() -> String {
     env!("CARGO_PKG_VERSION").to_owned()
 }
 
+/// What the phone's terminal declares in `set-client-info` for the lean stream
+/// (`cmux_mobile_link::names::TERMINAL_LEAN_STREAM`).
+#[uniffi::export]
+pub fn terminal_lean_stream_capabilities() -> Vec<String> {
+    cmux_mobile_link::names::TERMINAL_LEAN_STREAM.iter().map(|name| (*name).to_owned()).collect()
+}
+
 #[doc(hidden)]
 pub struct ConnectRequest {
     pub base_url: String,
@@ -804,6 +854,8 @@ pub struct ConnectRequest {
     pub include_loopback: bool,
     pub relay_only: bool,
     pub block_udp: bool,
+    /// Debug: ride cmux's WebSocket relay only (`ConnectOptions::force_relay`).
+    pub force_relay: bool,
     /// Offer the media lane (browser video as RTP: a WebRTC track, or UDP inside the WireGuard tunnel).
     pub video_lane: bool,
     /// WireGuard: offer a WebRTC media session beside the link for browser
@@ -844,9 +896,22 @@ async fn connect_on(
             return Err(error);
         }
     };
+    finish_link(pool, &request, connected, signaling, timeline, observer).await
+}
+
+/// A dialed link's handle: its watcher, first ping and path report.
+async fn finish_link(
+    pool: &Arc<Warm>,
+    request: &ConnectRequest,
+    connected: cmux_mobile_link::Connected,
+    signaling: Arc<WarmSocket>,
+    timeline: Timeline,
+    observer: Option<Arc<dyn LinkObserver>>,
+) -> Result<Arc<LinkHandle>, CmuxMobileError> {
+    let transport = request.transport;
     let mut path = connected.path.clone();
     emit(&observer, LinkEvent::Connected { transport, path: (*path.borrow()).into() });
-    let media = connected.webrtc_media.then(|| media_manager(pool, &request, &connected, &signaling));
+    let media = connected.webrtc_media.then(|| media_manager(pool, request, &connected, &signaling));
     let mut media_status = media.as_ref().map(cmux_mobile_link::hybrid::MediaManager::status);
     let link = connected.link.clone();
     let watcher = tokio::spawn(async move {
@@ -925,6 +990,7 @@ async fn connect_on(
         watcher: Mutex::new(Some(watcher)),
         timeline,
         session_id: connected.session_id,
+        tunnel_keys: connected.tunnel_keys,
         media,
     }))
 }
@@ -937,13 +1003,16 @@ fn current_signaling(
 ) -> cmux_mobile_link::hybrid::SignalingSource {
     let key = socket.key.clone();
     let fallback = socket.client.clone();
+    let local = socket.local;
     let pool = Arc::clone(pool);
     Arc::new(move || {
         let key = key.clone();
         let fallback = fallback.clone();
         let pool = Arc::clone(&pool);
         Box::pin(async move {
-            match pool.pooled(&key).await {
+            // A local link signals through its own hub, not the service's socket.
+            let pooled = if local { None } else { pool.pooled(&key).await };
+            match pooled {
                 Some(socket) => Some(socket.client.clone()),
                 None => (fallback.closed_reason().is_none()).then_some(fallback),
             }
@@ -1009,6 +1078,8 @@ struct SocketKey {
 pub struct WarmSocket {
     key: SocketKey,
     client: SignalingClient,
+    /// A socket to a Mac's local hub (`local_link`): never pooled, never replaced by the service's.
+    local: bool,
 }
 
 impl Drop for WarmSocket {
@@ -1286,7 +1357,8 @@ impl Warm {
         Ok((self.open_locked(key, token, timeline).await?, false))
     }
 
-    /// A new socket for `key`, now the pooled one.
+    /// A new socket for `key`, now the pooled one (tests open one directly).
+    #[cfg(test)]
     async fn open(
         &self,
         key: &SocketKey,
@@ -1313,7 +1385,19 @@ impl Warm {
         .await
         .map_err(CmuxMobileError::from)?;
         timeline.mark("signaling_open");
-        let socket = Arc::new(WarmSocket { key: key.clone(), client });
+        Ok(self.store_opened(key, client, timeline).await)
+    }
+
+    /// Add a signaling client to the pool as soon as its upgrade completes.
+    /// The opening lock is held by the caller when this is part of a redial,
+    /// so another redial cannot replace it before the dial takes the socket.
+    async fn store_opened(
+        &self,
+        key: &SocketKey,
+        client: SignalingClient,
+        timeline: &Timeline,
+    ) -> Arc<WarmSocket> {
+        let socket = Arc::new(WarmSocket { key: key.clone(), client, local: false });
         let mut pool = self.sockets.lock().await;
         pool.retain(|s| s.key != *key && s.client.closed_reason().is_none());
         pool.push(Arc::clone(&socket));
@@ -1328,7 +1412,7 @@ impl Warm {
         if cmux_mobile_link::dial::wireguard::rehome(&socket.client) > 0 {
             timeline.mark("rehomed");
         }
-        Ok(socket)
+        socket
     }
 
     /// A new socket for `key` after a network change, unless one opened since `old` was the
@@ -1409,6 +1493,20 @@ pub async fn prewarm(base_url: String, token: String, team_id: String, device_id
 #[uniffi::export]
 pub fn set_cellular_path(cellular: bool) {
     cmux_mobile_link::dial::wireguard::set_cellular_path(cellular);
+}
+
+/// The Mac answered a typed batch's `send` `ack_ms` after its first key's tap
+/// (`DaemonTerminalSession`). The next `link_stat` carries it (PROTOCOL.md "Link stats").
+#[uniffi::export]
+pub fn record_key_ack(ack_ms: u32) {
+    cmux_mobile_link::key_echo::record_ack(ack_ms);
+}
+
+/// The first terminal output after a typed batch came `echo_ms` after its first
+/// key's tap; `ack_ms` when the Mac's answer to that batch had already come.
+#[uniffi::export]
+pub fn record_key_echo(echo_ms: u32, ack_ms: Option<u32>) {
+    cmux_mobile_link::key_echo::record_echo(echo_ms, ack_ms);
 }
 
 /// This process's build space (`set_build_space`); nil: none (no header).
@@ -1501,6 +1599,235 @@ mod network_probe_tests {
     }
 }
 
+#[cfg(test)]
+mod redial_tests {
+    use super::*;
+    use cmux_mobile_link::testing::{FakeOptions, FakeSignaling, TestTurn};
+
+    fn request(base_url: &str, device_id: &str, mac_device_id: &str) -> ConnectRequest {
+        ConnectRequest {
+            base_url: base_url.into(),
+            token: "user:alice".into(),
+            team_id: "team".into(),
+            device_id: device_id.into(),
+            mac_device_id: mac_device_id.into(),
+            transport: Transport::WireGuard,
+            include_loopback: true,
+            relay_only: true,
+            force_relay: false,
+            block_udp: false,
+            video_lane: false,
+            webrtc_media: false,
+            ultra: cmux_mobile_link::UltraSetting::Off,
+        }
+    }
+
+    fn key(request: &ConnectRequest) -> SocketKey {
+        SocketKey {
+            base_url: request.base_url.clone(),
+            team_id: request.team_id.clone(),
+            device_id: request.device_id.clone(),
+            build_space: build_space(),
+        }
+    }
+
+    fn options(turn: &TestTurn) -> DialOptions {
+        DialOptions {
+            ice_servers: vec![turn.udp_only()],
+            include_loopback: true,
+            relay_only: true,
+            timeout: Duration::from_secs(10),
+            timeline: Timeline::new(),
+            ..DialOptions::default()
+        }
+    }
+
+    async fn held(turn: &TestTurn, want: usize) -> bool {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while turn.allocations() != want {
+            if tokio::time::Instant::now() >= deadline {
+                return false;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        true
+    }
+
+    async fn holding_mac(server: &FakeSignaling, mac_device_id: &str) -> SignalingClient {
+        let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", mac_device_id)
+            .await
+            .expect("Mac signaling");
+        let serving = mac.clone();
+        tokio::spawn(async move { while serving.next_session().await.is_some() {} });
+        mac
+    }
+
+    fn redial(
+        pool: WarmPool,
+        request: ConnectRequest,
+        options: DialOptions,
+    ) -> impl std::future::Future<Output = Result<(cmux_mobile_link::Connected, Arc<WarmSocket>), CmuxMobileError>>
+    {
+        let pool = Arc::clone(&pool.0);
+        let key = key(&request);
+        async move { redial_after(&pool, &key, &request, &options, &options.timeline).await }
+    }
+
+    /// Dropping the FFI pool's real replacement dial releases the early TURN
+    /// allocation even while the Mac never answers the session.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn ffi_pool_redial_drop_releases_early_turn() {
+        let turn = TestTurn::start().await;
+        let server = FakeSignaling::start(FakeOptions {
+            ice_servers: vec![turn.udp_only()],
+            strip_direct_endpoints: true,
+            ..FakeOptions::default()
+        })
+        .await;
+        let pool = WarmPool::new();
+        let mac_id = uuid::Uuid::new_v4().to_string();
+        let _mac = holding_mac(&server, &mac_id).await;
+        let request = request(&server.base_url, &uuid::Uuid::new_v4().to_string(), &mac_id);
+        let options = options(&turn);
+        let mut dial = tokio::spawn(redial(pool.clone(), request, options));
+        tokio::select! {
+            allocated = held(&turn, 1) => assert!(allocated, "the replacement redial never allocated TURN"),
+            result = &mut dial => match result {
+                Ok(Ok(_)) => panic!("replacement redial unexpectedly connected"),
+                Ok(Err(error)) => panic!("replacement redial failed before allocation: {error:?}"),
+                Err(error) => panic!("replacement redial task failed: {error}"),
+            },
+        }
+        dial.abort();
+        assert!(held(&turn, 0).await, "{} TURN allocations held after drop", turn.allocations());
+        pool.reset().await;
+    }
+
+    /// A pool teardown during a replacement dial follows the app-background
+    /// path and leaves no allocation held by the abandoned redial.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn ffi_pool_teardown_mid_redial_releases_early_turn() {
+        let turn = TestTurn::start().await;
+        let server = FakeSignaling::start(FakeOptions {
+            ice_servers: vec![turn.udp_only()],
+            strip_direct_endpoints: true,
+            ..FakeOptions::default()
+        })
+        .await;
+        let pool = WarmPool::new();
+        let mac_id = uuid::Uuid::new_v4().to_string();
+        let _mac = holding_mac(&server, &mac_id).await;
+        let request = request(&server.base_url, &uuid::Uuid::new_v4().to_string(), &mac_id);
+        let options = options(&turn);
+        let dial = tokio::spawn(redial(pool.clone(), request, options));
+        assert!(held(&turn, 1).await, "the replacement redial never allocated TURN");
+        pool.reset().await;
+        dial.abort();
+        assert!(held(&turn, 0).await, "{} TURN allocations held after pool teardown", turn.allocations());
+    }
+
+    /// A flapping network makes the app redial one link ten times, each
+    /// attempt cancelling the one before (Swift drops the connect future).
+    /// Sampling the TURN server through the storm shows at most one held
+    /// allocation, and none after it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn ffi_pool_redial_storm_holds_at_most_one_turn_allocation() {
+        let turn = Arc::new(TestTurn::start().await);
+        let server = FakeSignaling::start(FakeOptions {
+            ice_servers: vec![turn.udp_only()],
+            strip_direct_endpoints: true,
+            ..FakeOptions::default()
+        })
+        .await;
+        let pool = WarmPool::new();
+        let mac_id = uuid::Uuid::new_v4().to_string();
+        let _mac = holding_mac(&server, &mac_id).await;
+        let device_id = uuid::Uuid::new_v4().to_string();
+        let maximum = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let sampling = {
+            let turn = Arc::clone(&turn);
+            let maximum = Arc::clone(&maximum);
+            tokio::spawn(async move {
+                loop {
+                    maximum.fetch_max(turn.allocations(), std::sync::atomic::Ordering::Relaxed);
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            })
+        };
+        let mut previous: Option<tokio::task::JoinHandle<_>> = None;
+        for _ in 0..10 {
+            if let Some(attempt) = previous.take() {
+                attempt.abort();
+                let _ = attempt.await;
+                assert!(held(&turn, 0).await, "a cancelled redial kept its TURN allocation");
+            }
+            let attempt = tokio::spawn(redial(
+                pool.clone(),
+                request(&server.base_url, &device_id, &mac_id),
+                options(&turn),
+            ));
+            assert!(held(&turn, 1).await, "a redial in the storm never allocated TURN");
+            previous = Some(attempt);
+        }
+        if let Some(attempt) = previous.take() {
+            attempt.abort();
+            let _ = attempt.await;
+        }
+        assert!(held(&turn, 0).await, "{} TURN allocations held after storm", turn.allocations());
+        sampling.abort();
+        let maximum = maximum.load(std::sync::atomic::Ordering::Relaxed);
+        assert!(maximum <= 1, "redial storm held {maximum} TURN allocations");
+    }
+
+    /// A redial waiting on the Mac does not hold the opening lock: a dial for
+    /// another team opens its socket while the redial is still negotiating.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn ffi_pool_redial_lets_another_key_open_mid_dial() {
+        let turn = Arc::new(TestTurn::start().await);
+        let server = FakeSignaling::start(FakeOptions {
+            ice_servers: vec![turn.udp_only()],
+            strip_direct_endpoints: true,
+            ..FakeOptions::default()
+        })
+        .await;
+        let pool = WarmPool::new();
+        let mac_id = uuid::Uuid::new_v4().to_string();
+        let _mac = holding_mac(&server, &mac_id).await;
+        let device_id = uuid::Uuid::new_v4().to_string();
+        let dial = tokio::spawn(redial(
+            pool.clone(),
+            request(&server.base_url, &device_id, &mac_id),
+            options(&turn),
+        ));
+        assert!(held(&turn, 1).await, "the redial never allocated TURN");
+        let mut other = request(&server.base_url, &device_id, &mac_id);
+        other.team_id = "other-team".into();
+        let opened = tokio::time::timeout(
+            Duration::from_secs(2),
+            pool.0.open(&key(&other), &other.token, &Timeline::new()),
+        )
+        .await
+        .map(|opened| opened.map(|_| ()));
+        dial.abort();
+        assert!(matches!(opened, Ok(Ok(()))), "another key's socket waited on the redial: {opened:?}");
+        assert!(held(&turn, 0).await, "{} TURN allocations held after drop", turn.allocations());
+        pool.reset().await;
+    }
+
+    /// A signaling upgrade failure does not leak an early allocation when the
+    /// pool cannot establish its replacement socket.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn ffi_pool_signaling_failure_releases_early_turn() {
+        let turn = TestTurn::start().await;
+        let pool = WarmPool::new();
+        let request = request("http://127.0.0.1:1", &uuid::Uuid::new_v4().to_string(), "missing-mac");
+        let options = options(&turn);
+        let result = redial(pool, request, options).await;
+        assert!(result.is_err());
+        assert!(held(&turn, 0).await, "{} TURN allocations held after signaling failure", turn.allocations());
+    }
+}
+
 /// The device's network changed or came back (iOS `NWPathMonitor`): every
 /// WireGuard link moves onto the new network at once without a redial, and
 /// the signaling socket is checked (and replaced when dead) so signaling
@@ -1522,7 +1849,76 @@ pub async fn reset_warm_state() {
     WarmPool::shared().reset().await;
 }
 
+/// The dial's options for `request` (the service's ICE servers; none for a hub dial).
+fn dial_options(request: &ConnectRequest, ice_servers: Vec<IceServer>, timeline: &Timeline) -> DialOptions {
+    DialOptions {
+        ice_servers,
+        // cmux's WebSocket relay, on the service the phone signs in and signals
+        // through: the last way to the Mac (PROTOCOL.md "WebSocket relay").
+        // CMUX_MOBILE_DEV_NO_RELAY=1 (simulator) dials without it.
+        relay: std::env::var_os("CMUX_MOBILE_DEV_NO_RELAY").is_none().then(|| {
+            cmux_mobile_link::dial::relay::RelayEndpoint::with_token(
+                request.base_url.clone(),
+                build_space(),
+                request.device_id.clone(),
+                request.token.clone(),
+            )
+        }),
+        // Debug "Relay via cmux (HTTPS) only" (simulator:
+        // SIMCTL_CHILD_CMUX_MOBILE_DEV_FORCE_RELAY=1).
+        force_relay: request.force_relay || std::env::var_os("CMUX_MOBILE_DEV_FORCE_RELAY").is_some(),
+        include_loopback: request.include_loopback,
+        // The rig's relay-only and UDP-blocked runs (simulator:
+        // SIMCTL_CHILD_CMUX_MOBILE_DEV_RELAY_ONLY=1, a phone on another network).
+        relay_only: request.relay_only || std::env::var_os("CMUX_MOBILE_DEV_RELAY_ONLY").is_some(),
+        // The rig's UDP-blocked runs (simulator:
+        // SIMCTL_CHILD_CMUX_MOBILE_DEV_BLOCK_UDP=1) without touching app settings.
+        block_udp: request.block_udp || std::env::var_os("CMUX_MOBILE_DEV_BLOCK_UDP").is_some(),
+        video_lane: request.video_lane,
+        webrtc_media: request.webrtc_media,
+        ultra: request.ultra,
+        // Read once, so the tunnel and its link agree (`dial_on`).
+        aligned_keepalives: cmux_mobile_link::keepalive::aligned(),
+        timeline: timeline.clone(),
+        ..DialOptions::default()
+    }
+}
+
 async fn dial(
+    pool: &Arc<Warm>,
+    request: &ConnectRequest,
+    timeline: &Timeline,
+) -> Result<(cmux_mobile_link::Connected, Arc<WarmSocket>), CmuxMobileError> {
+    // A Mac found nearby (its ad matches the Mac the phone paired with) is also dialed through its
+    // own hub: no service round trip, and a link even with no route out. The two race from the
+    // same instant and the first link up wins (the loser is dropped), so an ad that outlived its
+    // network (Wi-Fi gone, the Mac asleep) costs the service dial nothing.
+    let local = local_link::dial_local(request, timeline);
+    let service = dial_service(pool, request, timeline);
+    tokio::pin!(local, service);
+    let mut local_done = false;
+    loop {
+        tokio::select! {
+            result = &mut local, if !local_done => {
+                local_done = true;
+                if let Some(ok) = result {
+                    return Ok(ok);
+                }
+            }
+            result = &mut service => {
+                return match result {
+                    Ok(ok) => Ok(ok),
+                    Err(error) if local_done => Err(error),
+                    // No service (no route out, no account): the hub is the only way left.
+                    Err(error) => local.await.map(Ok).unwrap_or(Err(error)),
+                };
+            }
+        }
+    }
+}
+
+/// `dial` through the service: its signaling socket and ICE servers.
+async fn dial_service(
     pool: &Arc<Warm>,
     request: &ConnectRequest,
     timeline: &Timeline,
@@ -1555,23 +1951,7 @@ async fn dial(
         tokio::join!(pool.ice_servers(&request.base_url, &request.token, timeline), socket);
     let (socket, reused) = socket?;
     let ice_servers = without_turn_if_asked(ice_servers);
-    let options = DialOptions {
-        ice_servers,
-        include_loopback: request.include_loopback,
-        // The rig's relay-only and UDP-blocked runs (simulator:
-        // SIMCTL_CHILD_CMUX_MOBILE_DEV_RELAY_ONLY=1, a phone on another network).
-        relay_only: request.relay_only || std::env::var_os("CMUX_MOBILE_DEV_RELAY_ONLY").is_some(),
-        // The rig's UDP-blocked runs (simulator:
-        // SIMCTL_CHILD_CMUX_MOBILE_DEV_BLOCK_UDP=1) without touching app settings.
-        block_udp: request.block_udp || std::env::var_os("CMUX_MOBILE_DEV_BLOCK_UDP").is_some(),
-        video_lane: request.video_lane,
-        webrtc_media: request.webrtc_media,
-        ultra: request.ultra,
-        // Read once, so the tunnel and its link agree (`dial_on`).
-        aligned_keepalives: cmux_mobile_link::keepalive::aligned(),
-        timeline: timeline.clone(),
-        ..DialOptions::default()
-    };
+    let options = dial_options(request, ice_servers, timeline);
     let attempt = dial_on(&socket, request, &options, reused).await;
     match attempt {
         Ok(connected) => Ok((connected, socket)),
@@ -1580,12 +1960,7 @@ async fn dial(
             // that forgot it): redial on a fresh one, once.
             timeline.mark("signaling_stale");
             pool.evict(&socket).await;
-            let socket = pool.open(&key, &request.token, timeline).await?;
-            match dial_on(&socket, request, &options, false).await {
-                Ok(connected) => Ok((connected, socket)),
-                Err(Attempt::Stale) => unreachable!("only a reused socket is probed"),
-                Err(Attempt::Failed(error)) => Err(fail(pool, &socket, error).await),
-            }
+            redial_after(pool, &key, request, &options, timeline).await
         }
         Err(Attempt::Failed(error)) => Err(fail(pool, &socket, error).await),
     }
@@ -1607,6 +1982,63 @@ fn without_turn_if_asked(mut ice_servers: Vec<IceServer>) -> Vec<IceServer> {
 enum Attempt {
     Stale,
     Failed(DialError),
+}
+
+/// Open a replacement signaling socket and dial it as one redial operation.
+/// `connect_after` starts a WireGuard TURN allocation before the WebSocket
+/// upgrade finishes, so the two network handshakes overlap. The socket is
+/// installed as soon as the upgrade completes, retaining the pool's existing
+/// rehome behavior while the transport negotiation runs.
+///
+/// The opening lock is taken before the allocation starts and let go once
+/// the socket is in the pool, as `Warm::open` holds it: a redial waiting on
+/// another's upgrade holds no allocation, and a dial for another key waits
+/// for an upgrade, never for a whole dial.
+async fn redial_after(
+    pool: &Arc<Warm>,
+    key: &SocketKey,
+    request: &ConnectRequest,
+    options: &DialOptions,
+    timeline: &Timeline,
+) -> Result<(cmux_mobile_link::Connected, Arc<WarmSocket>), CmuxMobileError> {
+    let opening = pool.opening.lock().await;
+    let opened = Arc::new(tokio::sync::Mutex::new(None));
+    let opened_by_signaling = Arc::clone(&opened);
+    let pool_for_signaling = Arc::clone(pool);
+    let key_for_signaling = key.clone();
+    let timeline_for_signaling = timeline.clone();
+    let signaling = async move {
+        let client = SignalingClient::connect_in(
+            &key_for_signaling.base_url,
+            &request.token,
+            &key_for_signaling.team_id,
+            &key_for_signaling.device_id,
+            key_for_signaling.build_space.as_ref(),
+        )
+        .await?;
+        timeline_for_signaling.mark("signaling_open");
+        let socket = pool_for_signaling
+            .store_opened(&key_for_signaling, client.clone(), &timeline_for_signaling)
+            .await;
+        *opened_by_signaling.lock().await = Some(socket);
+        drop(opening);
+        Ok::<_, cmux_mobile_link::signaling::SignalingError>(client)
+    };
+    let result = cmux_mobile_link::dial::connect_after(
+        signaling,
+        &request.mac_device_id,
+        request.transport.into(),
+        options,
+        if options.aligned_keepalives { LinkConfig::aligned() } else { LinkConfig::default() },
+    )
+    .await;
+    let socket = opened.lock().await.take();
+    match (result, socket) {
+        (Ok((_signaling, connected)), Some(socket)) => Ok((connected, socket)),
+        (Ok(_), None) => unreachable!("connect_after succeeded without opening a signaling socket"),
+        (Err(error), Some(socket)) => Err(fail(pool, &socket, error).await),
+        (Err(error), None) => Err(error.into()),
+    }
 }
 
 /// A failed dial on a socket the backend dropped evicts it, so the retry

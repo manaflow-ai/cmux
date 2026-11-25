@@ -229,6 +229,7 @@ async fn relay_matrix(
             daemon_id: String::new(),
             same_user: true,
             ops: vec!["move".into()],
+            max_policy: None,
         }],
         Some(ledger.path().join("mesh-controls.json")),
     )
