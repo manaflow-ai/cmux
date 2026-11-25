@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "turn.failure.diskFull" : {
+      "comment" : "Agent pane: a failed turn's error card (the cause in one line); {harness} is the agent's name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "القرص ممتلئ، لذا لم يتمكن {harness} من المتابعة. حرّر بعض المساحة ثم أعد المحاولة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Disk je pun, pa {harness} nije mogao nastaviti. Oslobodite malo prostora, pa pokušajte ponovo."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Disken er fuld, så {harness} kunne ikke fortsætte. Frigør noget plads, og prøv igen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Der Datenträger ist voll, daher konnte {harness} nicht weitermachen. Gib etwas Speicher frei und versuche es erneut."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The disk is full, so {harness} couldn’t keep going. Free up some space, then retry."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El disco está lleno, así que {harness} no pudo continuar. Libera espacio y vuelve a intentarlo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le disque est plein, {harness} n’a donc pas pu continuer. Libérez de l’espace, puis réessayez."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il disco è pieno, quindi {harness} non è riuscito a continuare. Libera un po’ di spazio, poi riprova."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ディスクがいっぱいのため、{harness} は処理を続行できませんでした。空き容量を確保してから再試行してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ថាសពេញ ដូច្នេះ {harness} មិនអាចបន្តបានទេ។ សូមបង្កើនទំហំទំនេរ រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "디스크가 가득 차서 {harness}이(가) 계속할 수 없었습니다. 공간을 확보한 뒤 다시 시도하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Disken er full, så {harness} kunne ikke fortsette. Frigjør litt plass, og prøv igjen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dysk jest pełny, więc {harness} nie mógł kontynuować. Zwolnij trochę miejsca i spróbuj ponownie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O disco está cheio, então {harness} não conseguiu continuar. Libere espaço e tente de novo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Диск заполнен, поэтому {harness} не смог продолжить. Освободите место и повторите попытку."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ดิสก์เต็ม {harness} จึงทำงานต่อไม่ได้ ลบไฟล์เพื่อเพิ่มพื้นที่ แล้วลองอีกครั้ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Disk dolu, bu yüzden {harness} devam edemedi. Biraz yer açın, sonra yeniden deneyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Диск заповнений, тому {harness} не зміг продовжити. Звільніть місце й повторіть спробу."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ổ đĩa đã đầy nên {harness} không thể tiếp tục. Hãy giải phóng dung lượng rồi thử lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "磁盘已满，{harness} 无法继续。请释放一些空间后重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "磁碟已滿，{harness} 無法繼續。請釋放一些空間後再試一次。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

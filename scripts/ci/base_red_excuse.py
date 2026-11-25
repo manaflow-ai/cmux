@@ -1393,13 +1393,13 @@ NO_VERDICT = re.compile(r"^##\[error\]\s*(?:cmux-next/compile is not a pass for 
                         r"bad head sha |No build-fleet verdict for `)")
 # The jobs that can end without a verdict: an unreadable log of one is never comparable either.
 NO_VERDICT_JOBS = frozenset({"cmux-next fleet Release compile", "cmux-next app compile (build fleet)"})
-# The shared generated-files check only reads the verdict produced by the Swift or daemon job that built
+# The shared generated-files check only reads the verdict produced by the Swift, daemon or fast tier job that built
 # the package.  A failed prerequisite (especially a cancelled-before-start runner job) leaves that value
 # empty, so this check has no result of its own.  It must be rerun together with its host job; comparing its
 # fail-closed diagnostic with the base would turn missing evidence into an apparent PR red.
 GENERATED_VERDICT_JOB = "cmux-next generated files (shared build)"
 GENERATED_NO_VERDICT = re.compile(
-    r"^##\[error\]\s*(?:swift-test|daemon-test) \(cancelled\) gave no generated files verdict:"
+    r"^##\[error\]\s*(?:swift-test|daemon-test|fast-tier) \(cancelled\) gave no generated files verdict:"
 )
 # A summary gate whose dependencies judged nothing (cancelled, abandoned, skipped though required, an empty result)
 # says so in one annotation that starts "no verdict: " (scripts/ci/needs_verdict.py, NO_VERDICT_PREFIX). It ends red
@@ -7607,8 +7607,9 @@ def ws_check_branches(repo: str, base: str, sha: str, github) -> list[str]:
 WS_CHECK_BRANCHES: dict[tuple[str, str], Callable[[], list[str]]] = {}
 
 
-@once_per_judgement("git squash tree", key=lambda repo, head, tip, branches=None: (repo, head, tip))
-def ws_check_squash_tree(repo: str, head: str, tip: str, branches: Callable[[], list[str]] | None = None) -> str:
+@once_per_judgement("git squash tree", key=lambda repo, head, tip, branches=None, whole=False: (repo, head, tip, whole))
+def ws_check_squash_tree(repo: str, head: str, tip: str, branches: Callable[[], list[str]] | None = None,
+                         whole: bool = False) -> str:
     """The tree a merge-tested ws-check run of HEAD must have tested for HEAD to land on base tip TIP: HEAD merged with
     TIP (the tree a pinned squash makes), cut to the paths its fast_checks_hosts entry names, as the lane-gh broker cuts
     its snapshot (cmuxterm-hq tools/lane-gh-broker ci_snapshot and ci_merged_tree: HEAD's own tree when TIP has HEAD,
@@ -7670,6 +7671,8 @@ def ws_check_squash_tree(repo: str, head: str, tip: str, branches: Callable[[], 
             raise Refused(f"git's {repo} cache went shallow while {head[:12]} was merged with {tip[:12]}; judge again")
         if not HEX40.fullmatch(merged):
             raise Refused(f"git cannot merge {head[:12]} with {tip[:12]}: {done.stderr.strip()[-200:] or 'no tree'}")
+        if whole:  # a broker local run tests the merged tree uncut (local_kept_run)
+            return merged
         shown = run("show", f"{merged}:{WS_CHECK_HOSTS_FILE}")
         try:
             entry = (json.loads(shown.stdout).get("fast_checks_hosts") or {}).get(repo) if not shown.returncode else None
@@ -7714,7 +7717,8 @@ def ws_check_tested_tree(repo: str, base: str, sha: str, snapshot: dict, tips, g
     made, unread = [], []
     for tip in window:
         try:
-            want = ws_check_squash_tree(repo, sha, tip)
+            want = (ws_check_squash_tree(repo, sha, tip, whole=True) if snapshot.get("whole")
+                    else ws_check_squash_tree(repo, sha, tip))
         except Refused as error:  # one commit git cannot merge is no verdict on the others
             unread.append(f"{tip[:12]}: {error}")
             continue
@@ -7864,6 +7868,61 @@ def fleet_kept_log(repo: str, host: str, run: str, sha: str, state: str, env=os.
     return None
 
 
+# 2026-11-25: land-judge refused teamleaderleo/leo-workspace#10190 at c31fd01b as red_not_excused, "'ws-check' on
+# c31fd01b...: its status links nothing, not a manaflow-ai/cmuxterm-hq Actions run". Since hq#15545 the lane-gh broker
+# runs a leo-workspace head's ws-check on its own host when it has room (hq tools/lane-gh-broker/parts/43-calls-ci-
+# local.py): no Actions run, a broker-owned run_id (LOCAL_RUN_BASE + n) and a lane-gh-broker:// url, and the status it
+# posts links nothing (no http url to link). Read only as an Actions run, every such red was unclassifiable, and on a
+# day the broker's host takes most heads, so was most of every PR's ws-check red. The broker keeps the run beside its
+# record (ci/JID.json, ci/JID.local-log) exactly as a fleet run's, and a broker land's land-judge runs on that host, so
+# this reads it there (fleet_records_dirs): the record must be settled done, of this repo and head, with the status's
+# verdict and no mismatch, and its url must be this repo's local-run url; the log's receipt (written by the broker, not
+# the run) must name that run and snapshot, say lane-gh-broker-local, and name the record's merged tree. A local run
+# tests the whole merged tree (ci_merged_tree, uncut), so ws_check_tested_tree holds it to the uncut squash.
+LOCAL_RUN_BASE = 4_000_000_000_000_000  # hq CI_LOCAL_RUN_BASE, leo-workspace tools/ws-check LOCAL_RUN_BASE
+LOCAL_RUN_URL = r"lane-gh-broker://[\w.-]+/{repo}/local-runs/(\d+)"  # hq CI_LOCAL_URL_RE, for one repo
+LOCAL_RAN_ON = "lane-gh-broker-local"  # hq CI_LOCAL_RAN_ON
+
+
+def local_kept_run(repo: str, sha: str, state: str, url: str = "", env=os.environ) -> dict | None:
+    """{"run_id", "snapshot", "tree", "log"} of the ws-check run this host's lane-gh broker ran itself (no Actions run)
+    for REPO's head SHA, when its record is settled done with the verdict STATE names, no mismatch, and (when the status
+    links one, URL) that run's url; the newest such run. None when this host keeps none (or the status links another)."""
+    pattern = LOCAL_RUN_URL.format(repo=re.escape(repo))
+    if url and not re.fullmatch(pattern, url):
+        return None
+    found = []
+    for folder in fleet_records_dirs(env):
+        try:
+            records = sorted(folder.glob("*.json"))
+        except OSError:
+            continue
+        for path in records:
+            try:
+                record = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            local = record.get("local") if isinstance(record, dict) else None
+            run_id = record.get("run_id") if isinstance(local, dict) else None
+            if (not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < LOCAL_RUN_BASE
+                    or local.get("state") != "done" or record.get("repo") != repo or record.get("head") != sha
+                    or record.get("conclusion") != FLEET_VERDICTS.get(state) or record.get("mismatch")
+                    or not re.fullmatch(pattern, str(record.get("url") or ""))
+                    or (url and record.get("url") != url)
+                    or not (isinstance(record.get("snapshot"), str) and HEX40.fullmatch(record["snapshot"]))
+                    or not (isinstance(record.get("tree"), str) and HEX40.fullmatch(record["tree"]))):
+                continue
+            try:
+                text = path.with_name(f"{path.stem}.local-log").read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if text.strip():
+                found.append({"run_id": str(run_id), "snapshot": record["snapshot"], "tree": record["tree"],
+                              "log": text, "ended": str(record.get("ended") or "")})
+    # The newest run of this head: the status the broker posts last is its last run's.
+    return max(found, key=lambda run: (run["ended"], int(run["run_id"])), default=None)
+
+
 def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     """(kind, verdict) of SHA's ws-check status: kind "none" (no result), "pass" or "fail". A fail's verdict has
     "steps" ({step: {"tests", "lines", "failures" ({test: its failure text})}}), "url" and "at" (the status time);
@@ -7887,18 +7946,29 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     host = WS_CHECK_REPOS[repo]
     link = re.fullmatch(r"https://github\.com/" + re.escape(host) + r"/actions/runs/(\d+)(?:/job/\d+)?/?"
                         + WS_CHECK_FLEET_JOB, found["url"])
+    fleet = kept = local = None
     if not link:
-        raise Refused(f"{where}: its status links {found['url'] or 'nothing'}, not a {host} Actions run")
-    run = github.json(f"repos/{host}/actions/runs/{link[1]}")
-    jobs = last_real_jobs(host, int(link[1]), github)
-    # fleet-reconciler-ws-check.yml runs one check job per head, named for it; fast-checks.yml runs one, `checks`.
-    picked = ([job for job in jobs if sha in (job.get("name") or "")]
-              or [job for job in jobs if job.get("name") == "checks"])
-    if len(picked) != 1:
-        raise Refused(f"{where}: run {link[1]} has {len(picked)} ws-check jobs for it, not one")
-    job = picked[0]
-    fleet = kept = None
-    if link[2]:
+        # No Actions run: the lane-gh broker ran it on its own host (local_kept_run), and kept its log there.
+        local = local_kept_run(repo, sha, state, found["url"])
+        if local is None:
+            raise Refused(f"{where}: its status links {found['url'] or 'nothing'}, not a {host} Actions run, and this "
+                          f"host's lane-gh broker keeps no settled local run of {sha[:12]} ending {state} "
+                          "(local_kept_run: read on the broker host, within its record retention)")
+        link = (found["url"], local["run_id"], None)
+    if local is not None:
+        run, lines = {}, lines_of(local["log"])
+    else:
+        run = github.json(f"repos/{host}/actions/runs/{link[1]}")
+        jobs = last_real_jobs(host, int(link[1]), github)
+        # fleet-reconciler-ws-check.yml runs one check job per head, named for it; fast-checks.yml runs one, `checks`.
+        picked = ([job for job in jobs if sha in (job.get("name") or "")]
+                  or [job for job in jobs if job.get("name") == "checks"])
+        if len(picked) != 1:
+            raise Refused(f"{where}: run {link[1]} has {len(picked)} ws-check jobs for it, not one")
+        job = picked[0]
+    if local is not None:
+        pass  # the broker's own receipt is held below, with the run's WS_CHECK_RESULT
+    elif link[2]:
         # The build fleet ran it for the cancelled Actions job (WS_CHECK_FLEET_JOB): its log is the controller's.
         lines, fleet = ws_check_fleet_lines(where, link[1], run, job, link[2])
     else:
@@ -7932,7 +8002,21 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     if (not isinstance(failed, list) or not failed or not all(isinstance(step, str) and step for step in failed)
             or result.get("ok") is not False or len(set(failed)) != len(failed)):
         raise Refused(f"{where}: run {link[1]} has no WS_CHECK_RESULT line listing its failed steps")
-    if result.get("head") != sha or fleet is not None:
+    if local is not None:
+        # The broker always tests a snapshot commit of the head merged with its base, and writes the receipt itself.
+        receipt = next((text for text in reversed(lines) if text.startswith("FAST_CHECKS_RECEIPT=")), "")
+        try:
+            receipt = json.loads(receipt.split("=", 1)[1]) if receipt else {}
+        except ValueError:
+            receipt = {}
+        if not (isinstance(receipt, dict) and result.get("head") == local["snapshot"]
+                and receipt.get("source_sha") == local["snapshot"] and receipt.get("head_after") == local["snapshot"]
+                and str(receipt.get("run_id")) == link[1] and receipt.get("ran_on") == LOCAL_RAN_ON
+                and receipt.get("source_tree") == local["tree"]):
+            raise Refused(f"{where}: the log this host's broker kept for its local run {link[1]} has no "
+                          f"FAST_CHECKS_RECEIPT naming that run, its snapshot {local['snapshot'][:12]} and tree")
+        found["snapshot"] = {"run": link[1], "tree": local["tree"], "whole": True}
+    elif result.get("head") != sha or fleet is not None:
         # Through cmux-ci the run tests a snapshot commit of the head: its own receipt must name that snapshot and run.
         # A fleet run's always does (the broker always tests a snapshot), and says it ran on that controller worker.
         receipt = next((text for text in reversed(lines) if text.startswith("FAST_CHECKS_RECEIPT=")), "")
