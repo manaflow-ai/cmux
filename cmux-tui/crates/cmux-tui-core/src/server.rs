@@ -1613,6 +1613,11 @@ enum Command {
         /// same request (`{kind: "browser", url, engine, ...}`).
         #[serde(default)]
         first_tab: Option<frontend_browser_history::FirstTabParams>,
+        /// `user`: `name` is exactly what the caller asked for (`agents chat
+        /// new --name`), pinned like a rename (#56422). Absent or `auto`: a
+        /// starting name the automatic namer may replace.
+        #[serde(default)]
+        name_source: Option<crate::resource_name::NameSource>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
