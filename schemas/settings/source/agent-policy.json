@@ -561,6 +561,7 @@
         "experiments.terminalAgentMark",
         "experiments.menuStyleV2",
         "experiments.menuRowStates",
+        "experiments.composerHatGroups",
         "experiments.toastsV2",
         "experiments.foldSummaryCounts",
         "experiments.terminalHistoryFind",
