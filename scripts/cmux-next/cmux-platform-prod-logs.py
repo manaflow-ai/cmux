@@ -153,6 +153,8 @@ PLATFORM_MSGS = frozenset({
     "cloud.spend_cap.read_failed",
     "cloud.spend_cap.record_failed",
     "cloud.spend_cap.warning",
+    # A submit answer cut off with its intent still pending (cmux-platform CloudCore, retro r2b92b756): op and ms waited.
+    "cloud.submit.cut_off",
     "cloud_environment.vault_edge_grants",
     "config.team_id_kind",
     "connector.repo_token.requested",

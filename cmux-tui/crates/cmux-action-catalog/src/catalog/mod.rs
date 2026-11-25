@@ -37,6 +37,7 @@ mod divider;
 mod extension;
 mod file_page;
 mod files_pane;
+mod forum;
 mod git;
 mod hang_reports;
 mod help_link;
@@ -170,6 +171,7 @@ pub static GROUPS: &[&[Action]] = &[
     joined_machine::ACTIONS,
     app_store::ACTIONS,
     automations::ACTIONS,
+    forum::ACTIONS,
     tasks::ACTIONS,
     phone::ACTIONS,
     files_pane::ACTIONS,
