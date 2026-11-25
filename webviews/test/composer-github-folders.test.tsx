@@ -1570,6 +1570,51 @@ test("folders of chats an agent or a Chief started are never listed; the person'
   }
 });
 
+// A Chief's child chat gets its tags after it is made: the menu drops its folder then, with no folder or machine change.
+test("a chat tagged as a Chief's child after it was listed leaves the folder menu (cmux#53226)", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  const session = (sessionId: string, cwd: string, extra: Record<string, unknown> = {}) =>
+    ({ sessionId, cwd, harness: "claude", status: "ready", ...extra }) as never;
+  let setSessions: (next: never[]) => void = () => {};
+  function Tray() {
+    const github = useGitHubPicker(gh.store);
+    const [sessions, set] = useState<never[]>([
+      session("mine", "/Users/me/mine"),
+      session("child", "/Users/me/agent-made"),
+    ]);
+    setSessions = set;
+    return (
+      <ComposerContext
+        summary={{ sessionId: "", cwd: FOLDER }}
+        projectChoices={[]}
+        sessions={sessions}
+        onProject={() => undefined}
+        localName="This Mac"
+        runMode={{ mode: "cloud", onMode: () => {} }}
+        github={github}
+      />
+    );
+  }
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  await act(async () => root.render(<Tray />));
+  try {
+    await openFolderMenu();
+    expect(labels(".ui-combobox-scroll [role=option]")).toContain("agent-made");
+    await act(async () => doc().querySelector<HTMLButtonElement>(".acpmux-location-button")!.click());
+    await settle();
+    await act(async () =>
+      setSessions([session("mine", "/Users/me/mine"), session("child", "/Users/me/agent-made", { chiefChild: true })]),
+    );
+    await settle();
+    await openFolderMenu();
+    // Before: the cached list still offered the child's folder.
+    expect(labels(".ui-combobox-scroll [role=option]")).toContain("mine");
+    expect(labels(".ui-combobox-scroll [role=option]")).not.toContain("agent-made");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("the open menu keeps a repository's place when its main checkout arrives and becomes its lead row (cmux#53226)", async () => {
   const gh = host({ "github.status": ready, "github.repos.list": installed });
   setFolderUseTimes((folder) => ({ "/Users/me/wt/x-a": 3000, "/Users/me/notes": 1000 })[folder]);

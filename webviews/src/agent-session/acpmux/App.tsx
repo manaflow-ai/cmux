@@ -4185,16 +4185,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// This Mac's folder on the chip when Cloud was picked, for the way back (Cloud's own default is not This Mac's);
   /// a reused page's is no folder of the tab it now shows.
   const localDraftBeforeCloud = useRef<{ draft: string | undefined } | undefined>(undefined);
-  // Cloud's last pick as the app keeps it, for a chat page (no New Tab context): its composer's Cloud starts there.
+  /// Counts the folder choices made here (a pick, No folder, a worktree, a repository held for the send). A Cloud
+  /// default asked for before the latest one (the app's Cloud pick, the grant of its folder) never replaces it: No
+  /// folder clears the draft and the pick both, and a local pick names no folder until the host answers, so neither
+  /// tells it apart from no choice (cmux#53226).
+  const folderChoice = useRef(0);
   // Cloud's last pick as the app keeps it, for a chat page (no New Tab context): an unstarted chat already on Cloud
-  // takes it when the answer comes.
-  useEffect(
-    () =>
-      askAppCloudPick(callNative, () => {
-        if (composerModeNow.current === "cloud" && freshRef.current) cloudFolderDefaultLatest.current(true);
-      }),
-    [],
-  );
+  // takes it when the answer comes, unless a folder was chosen while it was out.
+  useEffect(() => {
+    const choiceAtAsk = folderChoice.current;
+    askAppCloudPick(callNative, () => {
+      if (composerModeNow.current !== "cloud" || !freshRef.current || folderChoice.current !== choiceAtAsk) return;
+      cloudFolderDefaultLatest.current(true);
+    });
+  }, []);
   const adoptNewTab = useCallback((host: NewTabHost) => {
     pickedProject.current = undefined;
     localDraftBeforeCloud.current = undefined;
@@ -4647,18 +4651,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       setProjectDraft(last);
       // Granted as a pick is, so the start copies it; until the host answers a Cloud send waits
       // (`folderGranting`). A folder the host refuses (removed) gives way to the tab's own as before. The grant
-      // only lands while this chat is still unstarted and on Cloud: it never opens a chat.
+      // only lands while this chat is still unstarted, on Cloud, and with no folder chosen since: it never opens a
+      // chat or replaces a choice.
+      const choice = folderChoice.current;
       void requestFolderLatest.current(
         last,
         (folder) => {
           setFolderGranting(0);
-          if (!freshRef.current || composerModeNow.current !== "cloud") return;
+          if (!freshRef.current || composerModeNow.current !== "cloud" || folderChoice.current !== choice) return;
           pickedProject.current = folder;
           setProjectDraft(folder);
         },
         (refusal) => {
           setFolderGranting(0);
-          if (refusal !== undefined && composerModeNow.current === "cloud") setProjectDraft(fallback);
+          if (refusal === undefined || composerModeNow.current !== "cloud" || folderChoice.current !== choice) return;
+          setProjectDraft(fallback);
         },
       );
       setFolderGranting(++folderGrantSeq.current);
@@ -7586,13 +7593,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// the folder once it is this pane's pick (a confirmation shown, or a reply a newer pick replaced, is neither).
   const chooseProject = useCallback(
     (cwd: string, peer?: string, refused?: () => void, accepted?: (folder: string) => void): Promise<void> => {
+      folderChoice.current += 1;
       folderContinuation.invalidate();
       continuationProjectGeneration.current += 1;
       pickedProject.current = undefined;
       dropDeferredGitHub();
       // A GitHub repository from a new Cloud chat's folder menu (githubRepos.ts, `github:owner/name`) is
-      // no folder on this Mac: the host has nothing to check, and the Cloud start sends it as its `cwd`.
+      // no folder on this Mac: the host has nothing to check, and the Cloud start sends it as its `cwd`. It
+      // replaces a folder request still out (a pick, the grant of Cloud's remembered folder), as a newer pick does.
       if (!peer && githubFolderRepo(cwd)) {
+        dropFolderRequest.current?.();
+        folderPick.current += 1;
         // The person's pick: a Cloud start in it is Cloud's next default (newtab/startedProject.ts).
         pickedProject.current = cwd;
         if (freshRef.current) setProjectDraft(cwd);
@@ -7663,6 +7674,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (cwd: string, github?: { repo: string; candidates: string[] }): number => {
       // A newer folder pick wins over this worktree, as between two picks; the request this one
       // replaces ends as cancelled.
+      folderChoice.current += 1;
       dropFolderRequest.current?.();
       const pick = ++folderPick.current;
       folderConfirmGeneration.current += 1;
@@ -10369,6 +10381,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         ? openEmptyProject
         : undefined,
     clearProject: () => {
+      folderChoice.current += 1;
       dropFolderRequest.current?.();
       folderContinuation.invalidate();
       continuationProjectGeneration.current += 1;
@@ -10383,6 +10396,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     },
     // A newer pick wins over a folder request or checkout still out, as between two picks.
     deferGitHub: (repo: string, candidates: string[]) => {
+      folderChoice.current += 1;
       dropFolderRequest.current?.();
       folderContinuation.invalidate();
       continuationProjectGeneration.current += 1;

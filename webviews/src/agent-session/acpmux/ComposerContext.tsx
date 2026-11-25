@@ -117,6 +117,8 @@ const placeFields = (session: Session): readonly unknown[] => [
   session.peer,
   session.hostKind,
   session.host,
+  // `availableFolders` lists only chats the person started: a child's tags arrive after it is made.
+  startedByPerson(session),
 ];
 /// `section`: a machine list's section name; `disabled`: listed, but not a pick (still connecting or down).
 type Location = {
