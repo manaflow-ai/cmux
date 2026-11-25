@@ -361,7 +361,9 @@ Rust mirror is `cmux-auto-session/src/fake/moves.rs`, and the conformance vector
     it may be paused and has to read the wish.
   - Asked again while it waits, a wish's time starts again. A move that changes nothing writes nothing.
 - The wish is `session.move: {to, device?, at}` in the view (left out when there is none). The lease answer
-  carries `move: "cloud" | "local"` only to the holder (`role: "holder"`), never to a standby or a `lost` caller.
+  carries `move: "cloud" | "local"` only to the holder (`role: "holder"`), never to a standby or a `lost` caller,
+  and with it `moveAt`: the wish's `at`. Asking again starts `at` again, so a holder that sees another `moveAt`
+  knows the person asked again.
 - `POST :id/give` (the holder, laptop or machine) `{holder, epoch}` -> `{session}`. The checks, in order: the
   fence (`auto.closed`, `auto.not_holder`, `auto.stale_epoch`); `auto.no_move` with no wish; `auto.not_copied`
   unless a snapshot exists and `snapshotSeq >= lastSeq`. To the Cloud the Auto machine is looked up at the give
@@ -411,7 +413,17 @@ Known limits of the store's rules:
   does not try that copy again until the folder changes. The laptop sees `coming_back` and Auto off is refused.
 - What a laptop did after the last copy that reached the store is not in a takeover: the machine goes on from the
   store's copy, and the laptop's later folder changes are kept as its leftover patch when it returns. Its later
-  conversation records stay in its own log only.
+  conversation records are not in the chat: the machine never had them, and the laptop's log is replaced by the
+  store's copy when the chat comes home. The exception is a prompt the person queued there that had not started:
+  the laptop sends it to the chat's Cloud inbox when it learns another holder has the chat, and once more before
+  it brings the Cloud's copy in, under the prompt's own id, so the holder runs it once. A prompt that waits
+  behind a turn that failed is sent too: a laptop with no network fails its turn, and losing the chat kills the
+  turn that ran. The holder refuses an id its log already has, so a prompt the store did have is not run twice.
+  Only the prompt's text is sent: an image or a file attached to it is not. Not sent: a prompt whose turn had
+  started on the laptop (its work is in the leftover patch), one with no text, one the store refuses (over
+  256 KiB, or an id it does not take; the prompts behind it still go), an inbox message the laptop had taken
+  and acked moments before it dropped off, and anything queued after a laptop daemon restart before the store
+  first answered it as the chat's holder (until then the daemon does not know what the store has).
 - `delivered` to a laptop holder means the store took the message for a holder whose lease is live. A laptop that
   has just gone to sleep reads it when it wakes, or the machine does after the takeover.
 
@@ -535,7 +547,8 @@ turn, without waiting for a lease to run out.
 - A parked chat has no holder to give it: to the Cloud it is assigned as a `takeover` at once (refused
   `auto.not_copied` with no snapshot); to a laptop it goes to that standby at once, owing an import.
 - The holder learns the wish from its lease answer (`move: "cloud" | "local"`, absent when there is none) and
-  from the chat's view (`session.move`). A machine is woken by the index as for an assignment.
+  from the chat's view (`session.move`). A machine is woken by the index as for an assignment. The lease answer
+  names the wish's time beside it (`moveAt`, the record's `move.at`; absent with no wish).
 - `POST /v1/auto-sessions/:id/give` (holder) `{holder, epoch}` -> `{session}`. Fenced like every holder write.
   Refused `auto.no_move` with no wish, and `auto.not_copied` unless a snapshot exists and
   `snapshotSeq >= lastSeq`: a chat never changes hands ahead of its copy. On success: epoch + 1, the wish is
@@ -552,6 +565,18 @@ The holder's side (core crate and daemons):
 - On a wish, the holder stops its agent now (the interrupt `transfer_begin` uses), sends its last events,
   stores a snapshot, then calls `give`. `auto.not_copied` means store the copy and ask again. After the give it
   is a standby (laptop) or has lost the chat (machine).
+- The store's answer to a give is true whenever it arrives. The person may take the move back while the give is
+  on its way (a renewal then answers `holder` with no wish, and the turn goes on here) and ask again; when the
+  first give then lands, the store has another holder. So a holder told that the store took a give, at an epoch
+  past the one it holds, has lost the chat at once in every state where it holds it (holding, serving, stopped,
+  any step of a give), as on a renewal answered `lost`: the tree is killed and what it wrote since its last
+  stored copy is kept. An answer at the holder's own epoch or below is to a give from before it got the chat,
+  and means nothing.
+- A give the store refuses (`auto.no_laptop`, `auto.no_machine`) leaves the chat at its holder and the wish in
+  the store. The person is told once, and the holder does not try that wish again while renewals still tell it.
+  The person asking again is a new wish and is tried again: the holder knows it by the wish's time (`moveAt`
+  in the lease answer, `move.at` in the answer to a move asked from this daemon), which asking again starts
+  again. An older store names no time; then a refused wish is tried again only once an answer comes without it.
 - The new holder imports as for a takeover or a handback. A turn that was running is settled once and continued
   with the moved-chat text that exists (`Cut::Move`), not the "machine went away" text.
 
@@ -566,6 +591,16 @@ The manual move carries those files (`hub/transfer.rs`, `native::locate`); the A
   `native::locate` names for a manual move.
 - An import puts them where the harness on this machine looks (`transfer_in`'s placement, which rewrites the
   folder-dependent part of the path), before the first resume.
+- One chat's copy never changes another chat's agent memory. Whoever holds a chat writes its copy, so the import
+  does not take the copy's word for whose a file is (`auto_session/import/bundle.rs` `agent_side`):
+  - A file that is here already is replaced (the old one kept beside it as `.before-cloud-copy`) only when it is
+    this chat's own: the chat is on this machine and the agent session it has here is the one the copy names.
+    For a chat that is new here, or whose agent session here is another, a file that is here is left as it is,
+    as a move by hand leaves it, and the import goes through. The same holds for cmux-harness's journal.
+  - When another chat of this daemon keeps the agent session the copy names, none of the copy's agent files are
+    placed and the chat goes on with the agent session it has here.
+  - A Codex rollout is a session's only when its name is `rollout-…-<session id>.jsonl`, for the carry
+    (`native::locate`) and for the placement alike; an id that is merely part of a name matches nothing.
 
 ### Daemon surface
 
@@ -573,9 +608,48 @@ The manual move carries those files (`hub/transfer.rs`, `native::locate`); the A
   These are the record's three states; the place picker's rows map to them as in the table above
   (This Mac = `local`).
 - `_acpmux/auto_session/move` `{sessionId, to: "cloud" | "local"}`: the wish, sent to the store.
+- `_acpmux/chat_move` `{sessionId, on: "local" | "cloud" | "auto"}` (the base's, 2026-11-25,
+  https://github.com/manaflow-ai/cmux/pull/56018: `cmux chat move --on`, `acpmux session place`, the agent's
+  `move_chat`) is `set` by `mode` behind `chat_place::consent`, so `cloud` moves the chat now and `local`
+  brings a chat the Cloud has home before Auto goes off. As the base landed it the request set `auto` and
+  `keepInCloud` only, which moved nothing and could not bring a chat home from the Cloud.
 - A chat's row gains `autoSession.mode` and `autoSession.moving` (`"cloud" | "local"`, absent when not moving).
-- `_acpmux/chat_place` and `_acpmux/chat_place_set` (the base's) read and apply the mode of a started chat
-  through the two requests above; for a chat that has not started they are unchanged.
+- `_acpmux/chat_place` and `_acpmux/chat_place_set` (the base's) stay what they are: the pick for a chat that
+  has not started. Nothing on the page calls the two requests above yet. As the base ships it (2026-11-24,
+  https://github.com/manaflow-ai/cmux/pull/53938), the Where menu's pick decides where the page starts the
+  chat; a chat it starts on this Mac is made on this laptop's daemon and gets Auto on when `cloud.autoCloud`
+  is on, and a chat it starts on a Cloud machine never reaches this laptop's holder loop. The daemon cannot
+  tell "Machine…, this Mac" from Auto's "this Mac has room", so both get Auto on: a control for "this Mac
+  only" and for "move now" on a started chat is the picker's to add, calling `set {mode}` and `move`.
+
+As built (2026-11-24, `acpmux/src/auto_session/runtime/moves.rs`, `surface.rs`, `record.rs`,
+`server/auto_gate.rs`):
+
+- `move` is answered once the store took the wish, with the row (`moving` set). A laptop that holds the chat
+  starts the give from that answer, without waiting for its next renewal; a chat the machine holds is given
+  at the machine's next renewal. A refusal is the request's error: one plain sentence, the store's code as
+  `data.reason`, `data.retryable`, and nothing changes.
+- `set {mode: "cloud"}` on a chat with Auto off registers it kept in the Cloud, then moves it; on an Auto chat
+  it is the move alone (the store keeps it in the Cloud from the same write). `set {mode: "auto"}` is Auto on,
+  not kept. `set {mode: "local"}` on a chat that is here is Auto off; on a chat the Cloud has, the chat is
+  moved home first and Auto goes off once it is here and this laptop stored a copy of its own (the record's
+  `local_wanted`; the row says `mode: "local"` from the moment it was asked). Asking for Auto or Cloud again
+  ends that.
+- `move` and `set` are the person's only, as `set` was: not an agent's connection, not a remote connection or
+  a peer. A Cloud machine's daemon refuses `move` (a chat is moved from the person's own devices).
+- Neither request is in the pane's policy (`cmux-agent-pane-policy/policy.json`): the page sends neither yet.
+- A laptop that wakes, or whose network changes, while its give is asked of the store (`giving`, step
+  `asking`) only renews: the store may have taken the chat, so the chat stays frozen until the give or the
+  renewal answers, and the turn the give stopped does not go on here meanwhile. Before the store was asked
+  (steps `stopping`, `copying`) a wake ends the give as before: stop, ask, and a wish in the answer starts
+  another. A laptop without an answer for 35 s stops itself in the middle of a give at any step. Either way, a
+  stopped laptop that is answered "holder" with the wish still set continues its tree and begins the give
+  again in that same step: the turn the first give stopped does not go on here between the two, and its
+  continuation stays the one owed here if the chat ends up staying (`runtime/give.rs` `turn_stopped`).
+- A give's copy waits for the chat's lane (`runtime/effects.rs` `copy`, `lane_done`). A holder caught in the
+  middle of taking its inbox writes the message into the log and then acks it; a copy read between the two
+  would hand the chat over with the message in neither the copy nor the inbox. Nothing new starts in the lane
+  of a chat that is given, so the wait ends with the one thing that was running.
 
 ### Surfaces: none of its own (the place picker's work owns them)
 
