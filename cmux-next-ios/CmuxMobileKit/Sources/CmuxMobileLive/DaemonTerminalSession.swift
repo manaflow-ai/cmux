@@ -154,6 +154,14 @@ public final class DaemonTerminalSession: TerminalSession {
     /// (`agent-cli-hybrid-v1`): a reattach names them, so the Mac sends what changed
     /// since that frame instead of the whole screen.
     private var hybridResume: (stream: String, frame: Int)?
+    /// Where this mirror stands in the Mac's byte stream (`terminal-resume-v1`): the offset
+    /// after the last byte drawn and its generation. A reattach names it, and the Mac sends
+    /// only the bytes the phone missed while it was away (the app switched to dictate, a
+    /// dropped link) instead of a reset and a whole replay with history (Leo, 2026-11-24:
+    /// "The like multi-second long reattach").
+    private var streamPosition: TerminalStreamPosition?
+    /// The bytes the last whole replay took: a resume past it costs more than a replay.
+    private var lastReplayBytes: Int?
     /// Agent CLI frames this session could not draw (``DaemonTerminalInbound/hybridFallback(reason:)``).
     /// The first makes a full resync (an attach that names no frame: a keyframe); after the
     /// second the session attaches in bytes mode (it declares no hybrid capability).
@@ -751,6 +759,7 @@ public final class DaemonTerminalSession: TerminalSession {
     }
 
     public func stop() {
+        streamPosition = nil
         eventTask?.cancel()
         eventTask = nil
         historyPrefetch?.cancel()
@@ -1089,6 +1098,14 @@ public final class DaemonTerminalSession: TerminalSession {
     }
 
     /// The size state and own participant of an attach reply (shared sizing).
+    /// Whether an `attach-surface` reply resumed the byte stream exactly (`resume: "exact"`,
+    /// `terminal-resume-v1`): its only event is the missed bytes, with no replay.
+    nonisolated static func resumedExactly(_ reply: Data) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
+              let data = object["data"] as? [String: Any] else { return false }
+        return data["resume"] as? String == "exact"
+    }
+
     nonisolated static func attachSizing(_ reply: Data) -> (TerminalSizeState?, String?) {
         guard let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
               let data = object["data"] as? [String: Any] else { return (nil, nil) }
@@ -1165,9 +1182,13 @@ public final class DaemonTerminalSession: TerminalSession {
             self.inbox = inbox
             let surface = surface
             let resumeFrom = hybridWanted ? hybridResume : nil
-            let resumeAlternate = resumeFrom != nil && isAlternateScreen
+            // A reattach in bytes mode from a known position (`terminal-resume-v1`). Not a
+            // history fetch: it replaces the mirror with more rows on purpose.
+            let bytesFrom = !hybridWanted && !replacement ? streamPosition : nil
+            let resumeAlternate = (resumeFrom != nil || bytesFrom != nil) && isAlternateScreen
+            let bytesResume = bytesFrom != nil
             eventTask = Task.detached { [weak self] in
-                var parser = DaemonTerminalEventParser(surface: surface, hybridResume: resumeFrom, alternate: resumeAlternate)
+                var parser = DaemonTerminalEventParser(surface: surface, hybridResume: resumeFrom, alternate: resumeAlternate, bytesResume: bytesResume)
                 for await line in events {
                     await inbox.push(parser.parse(line))
                 }
@@ -1219,6 +1240,10 @@ public final class DaemonTerminalSession: TerminalSession {
             if !windowReplay { historyWindowStart = nil }
             pasteSubmit = identify.map { Self.lists(Self.pasteSubmitCapability, $0) } ?? false
             typedSubmit = identify.map { Self.lists(Self.typedSubmitCapability, $0) } ?? false
+            // A daemon that does not list it would refuse the resume fields.
+            let resumable = identify.map { Self.lists(Self.terminalResumeCapability, $0) } ?? false
+            let resumeBounded = identify.map { Self.lists(Self.terminalResumeBoundedCapability, $0) } ?? false
+            let bytesResumeFrom = resumable ? bytesFrom : nil
             // Attached: this daemon's answer (or its silence: an older one) settles the composer's
             // waiting Sends. One that takes no keys gives them up; they never went out.
             identified = true
@@ -1255,6 +1280,21 @@ public final class DaemonTerminalSession: TerminalSession {
                         }
                         return try await client.request("attach-surface", params: ["surface": surface, "replay_history_rows": rows,
                                                                                    "replay_history_start": start])
+                    }
+                    // In bytes mode from a known position: the missed bytes, or (a gap) the
+                    // same replay as below.
+                    if let position = bytesResumeFrom {
+                        var params: [String: Any] = ["surface": surface, "resume_offset": position.offset, "resume_generation": position.generation]
+                        if resumeBounded { params["resume_max_bytes"] = max(Self.minResumeBytes, lastReplayBytes ?? 0) }
+                        if let size {
+                            params["cols"] = size.columns
+                            params["rows"] = size.rows
+                        }
+                        if let historyRows {
+                            params["replay_history_rows"] = historyRows
+                            if windowReplay, let start = historyWindowStart { params["replay_history_start"] = start }
+                        }
+                        return try await client.request("attach-surface", params: params)
                     }
                     switch (size, historyRows) {
                     case let (size?, rows?):
@@ -1331,7 +1371,6 @@ public final class DaemonTerminalSession: TerminalSession {
             // The replay rebuilds the screen and scrollback. The reset also
             // tells the screen where the Mac's screen starts in its taller
             // mirror (TerminalRowShift).
-            log.notice("surface \(self.surface, privacy: .public): mirror reset cause=\(self.everAttached ? "reattach" : "attach", privacy: .public) size=\(self.attachedWithSize.map { "\($0.columns)x\($0.rows)" } ?? "-", privacy: .public)")
             // The alternate screen is not touched here: the replay's
             // `vt-state` says its own final state before its rows (held or
             // still coming). Set to the primary screen first, a reattach to a
@@ -1346,8 +1385,14 @@ public final class DaemonTerminalSession: TerminalSession {
                 if case .hybridFrame(_, _, resumed: true) = event { return true }
                 return false
             } ?? false
+            // An exact byte resume (`terminal-resume-v1`): the Mac sent only what this mirror
+            // missed, as one `output`, so the screen and its history stay as they are.
+            let resumesBytes = bytesResumeFrom != nil && Self.resumedExactly(reply)
+            log.notice("surface \(self.surface, privacy: .public): attach resume=\(resumesBytes ? "exact" : bytesResumeFrom != nil ? "gap" : resumesHybrid ? "hybrid" : "none", privacy: .public)")
+            if !resumesBytes { streamPosition = nil }
             macKeepsGrid = false
-            if !resumesHybrid {
+            if !resumesHybrid, !resumesBytes {
+                log.notice("surface \(self.surface, privacy: .public): mirror reset cause=\(self.everAttached ? "reattach" : "attach", privacy: .public) size=\(self.attachedWithSize.map { "\($0.columns)x\($0.rows)" } ?? "-", privacy: .public)")
                 hybridResume = nil
                 reclaimHold.restart(alternate: isAlternateScreen)
                 show(.output(TerminalReclaimHold.reset))
@@ -1544,6 +1589,12 @@ public final class DaemonTerminalSession: TerminalSession {
             }
         case let .hybridFrame(stream, frame, _):
             hybridResume = (stream, frame)
+            // Cells, not the byte stream: no byte offset describes this screen.
+            streamPosition = nil
+        case .streamPosition(let position):
+            streamPosition = position
+        case .replayBytes(let bytes):
+            lastReplayBytes = bytes
         case .hybridFallback(let reason):
             // The screen may be behind the Mac's: never resume from it.
             hybridResume = nil
@@ -2419,8 +2470,17 @@ public final class DaemonTerminalSession: TerminalSession {
     static let pasteSubmitCapability = "send-expect-agent-v1"
     /// `send` with `submit` and typed text waits past a paste-burst window before Return.
     static let typedSubmitCapability = "send-typed-submit-v1"
+    /// `offset` and `generation` on the byte stream's events, and `resume_offset` /
+    /// `resume_generation` on `attach-surface`: a reattach gets only the missed bytes
+    /// (cmux-tui `terminal-resume-v1`).
+    static let terminalResumeCapability = "terminal-resume-v1"
+    /// `resume_max_bytes` on `attach-surface`: past it the daemon replays instead.
+    static let terminalResumeBoundedCapability = "terminal-resume-bounded-v1"
+    /// The smallest bound a resume asks for: a replay is rarely smaller.
+    static let minResumeBytes = 64 << 10
     /// What the attach channel lists in `set-client-info`.
-    static let clientCapabilities = [shortSizeLeaseCapability, sizeLeaseCapability, sharedSizingCapability, hostGridViewCapability, replayHistoryWindowCapability]
+    static let clientCapabilities = [shortSizeLeaseCapability, sizeLeaseCapability, sharedSizingCapability, hostGridViewCapability, replayHistoryWindowCapability,
+                                     terminalResumeCapability, terminalResumeBoundedCapability]
 
     /// The Mac's daemon sends an agent CLI's terminal (Claude Code, Codex, opencode) as the
     /// cells that changed instead of its PTY bytes (`agent-cli-frame` events).
