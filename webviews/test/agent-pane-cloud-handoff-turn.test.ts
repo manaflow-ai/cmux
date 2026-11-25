@@ -240,16 +240,28 @@ test("a steer that went into a running turn leaves its hand-off turn to the next
 
 /// A Cloud machine's acpmux (`origin: "remote"`) with no chat yet: `session/new` makes one, and
 /// `wire` records the order of what the page did (the app's hand-off ask included).
-async function cloudStart(options: { attachHeld?: Promise<void> } = {}) {
+async function cloudStart(options: { attachHeld?: Promise<void>; refuse?: number; old?: boolean } = {}) {
   let socket: any;
   let session: any;
+  /// The first `refuse` prompts are recorded, then refused.
+  let refuse = options.refuse ?? 0;
   const wire: string[] = [];
   const prompts: Record<string, unknown>[] = [];
   const other = { sessionId: "other-chat", harness: "claude", status: "ready", turnCount: 3 };
   const answer = async (method: string, params: any) => {
     switch (method) {
       case "initialize":
-        return { protocolVersion: 1, _meta: { acpmux: { origin: "remote", extensions: [], operations: [] } } };
+        return {
+          protocolVersion: 1,
+          _meta: {
+            acpmux: {
+              origin: "remote",
+              extensions: [],
+              operations: [],
+              capabilities: options.old ? [] : ["cloud-handoff-first-turn-v1"],
+            },
+          },
+        };
       case "_acpmux/watch":
         return { sessions: session ? [session, other] : [other] };
       case "session/new":
@@ -281,6 +293,16 @@ async function cloudStart(options: { attachHeld?: Promise<void> } = {}) {
         send(raw: string) {
           const message = JSON.parse(raw);
           if (message.id === undefined) return;
+          if (message.method === "session/prompt" && refuse > 0) {
+            refuse -= 1;
+            wire.push("session/prompt");
+            prompts.push(message.params);
+            const error = { code: -32603, message: "refused" };
+            queueMicrotask(() =>
+              socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: message.id, error }) }),
+            );
+            return;
+          }
           void answer(message.method, message.params).then((result) =>
             socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result }) }),
           );
@@ -320,55 +342,98 @@ test("a Cloud chat's first send asks its hand-off turn once, before the page has
   }
 });
 
-test("an ask made at the start that names no turn is asked again by the send, after the attach", async () => {
+// The first prompt of the chat its send just started does not wait for that ask (1.1 to 2.3 s of a
+// start between the attach and `session/prompt`, 2026-11-25): a new session's hand-off can only be
+// at turn 1, so the prompt names it at once and acpmux reports the turn once the hand-off is made.
+const ticks = async () => {
+  for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+};
+
+test("a started Cloud chat's first prompt is on the wire, under turn 1, before its hand-off ask answers", async () => {
   const run = await cloudStart();
   try {
-    const turns = [undefined, 2];
+    let answer: (turn: number | undefined) => void = () => undefined;
     let asks = 0;
-    run.chat.handoffTurn = async (sessionId) => (run.wire.push(`ask ${sessionId}`), turns[asks++]);
+    run.chat.handoffTurn = () => ((asks += 1), new Promise<number | undefined>((resolve) => (answer = resolve)));
+    // The send ends (acpmux took the prompt) while the app has not answered.
     await run.chat.send("fix the build", [], "p-1");
-    expect(run.wire).toEqual([
-      "session/new",
-      "ask cloud-1",
-      "attach cloud-1",
-      "attached cloud-1",
-      "ask cloud-1",
-      "session/prompt",
-    ]);
-    expect(promptIdOf(run.prompts[0])).toBe("handoff-2-p-1");
+    expect(run.wire.at(-1)).toBe("session/prompt");
+    expect(promptIdOf(run.prompts[0])).toBe("handoff-1-p-1");
+    answer(1);
+    await ticks();
+    // The answer sends nothing more, and turn 1 stays this prompt's: the next names the turn after.
+    expect(run.prompts).toHaveLength(1);
+    run.chat.handoffTurn = async () => ((asks += 1), 1);
+    await run.chat.send("still turn one, says the store", [], "p-2");
+    run.chat.handoffTurn = async () => ((asks += 1), 2);
+    await run.chat.send("and the tests", [], "p-3");
+    expect(asks).toBe(3);
+    expect(run.prompts.map(promptIdOf)).toEqual(["handoff-1-p-1", "p-2", "handoff-2-p-3"]);
   } finally {
     run.chat.close();
   }
 });
 
-test("no turn from either ask: the first prompt goes under its own id", async () => {
+test("an ask made at the start that names no turn is asked again beside the prompt, never ahead of it", async () => {
+  const run = await cloudStart();
+  try {
+    let answer: (turn: number | undefined) => void = () => undefined;
+    let asks = 0;
+    run.chat.handoffTurn = async (sessionId) => {
+      run.wire.push(`ask ${sessionId}`);
+      // The app did not show the new chat on its tab yet; the ask after the attach is held.
+      return (asks += 1) === 1 ? undefined : new Promise<number | undefined>((resolve) => (answer = resolve));
+    };
+    await run.chat.send("fix the build", [], "p-1");
+    expect(run.wire.filter((step) => step.startsWith("ask "))).toEqual(["ask cloud-1", "ask cloud-1"]);
+    expect(run.wire.indexOf("attached cloud-1")).toBeLessThan(run.wire.lastIndexOf("ask cloud-1"));
+    expect(promptIdOf(run.prompts[0])).toBe("handoff-1-p-1");
+    answer(1);
+    await ticks();
+    run.chat.handoffTurn = async () => 1;
+    await run.chat.send("and the tests", [], "p-2");
+    expect(run.prompts.map(promptIdOf)).toEqual(["handoff-1-p-1", "p-2"]);
+  } finally {
+    run.chat.close();
+  }
+});
+
+test("no turn from either ask: the first prompt's claim on turn 1 goes back to the next prompt", async () => {
   const run = await cloudStart();
   try {
     let asks = 0;
     run.chat.handoffTurn = async () => ((asks += 1), undefined);
     await run.chat.send("fix the build", [], "p-1");
+    await ticks();
     expect(asks).toBe(2);
-    expect(promptIdOf(run.prompts[0])).toBe("p-1");
+    // No hand-off was made, so acpmux's reports of this prompt go nowhere, as an unnamed one's do.
+    expect(promptIdOf(run.prompts[0])).toBe("handoff-1-p-1");
+    // The app opens the hand-off for the next prompt: its turn 1 is named, not left `starting`.
+    run.chat.handoffTurn = async () => ((asks += 1), 1);
+    await run.chat.send("and the tests", [], "p-2");
+    expect(run.prompts.map(promptIdOf)).toEqual(["handoff-1-p-1", "handoff-1-p-2"]);
   } finally {
     run.chat.close();
   }
 });
 
-test("an ask at the start that fails is asked again by the send, which goes on as its own ask does", async () => {
+test("an ask at the start that fails is asked again, and a turn that ask names keeps the claim", async () => {
   const run = await cloudStart();
   try {
     let asks = 0;
     run.chat.handoffTurn = () =>
-      (asks += 1) === 1 ? Promise.reject(new Error("the app is gone")) : Promise.resolve(3);
+      (asks += 1) === 1 ? Promise.reject(new Error("the app is gone")) : Promise.resolve(1);
     await run.chat.send("fix the build", [], "p-1");
+    await ticks();
     expect(asks).toBe(2);
-    expect(promptIdOf(run.prompts[0])).toBe("handoff-3-p-1");
+    await run.chat.send("and the tests", [], "p-2");
+    expect(run.prompts.map(promptIdOf)).toEqual(["handoff-1-p-1", "p-2"]);
   } finally {
     run.chat.close();
   }
 });
 
-test("an ask at the start that ran out its wait is not asked again: the app is not waited on twice", async () => {
+test("an ask at the start that ran out its wait is not asked again, and gives the claim back", async () => {
   const run = await cloudStart();
   try {
     let asks = 0;
@@ -378,10 +443,38 @@ test("an ask at the start that ran out its wait is not asked again: the app is n
       return undefined;
     };
     await run.chat.send("fix the build", [], "p-1");
+    await ticks();
     expect(asks).toBe(1);
-    expect(promptIdOf(run.prompts[0])).toBe("p-1");
+    expect(promptIdOf(run.prompts[0])).toBe("handoff-1-p-1");
+    // The app opened turn 1 after the wait and no report reached it: the next prompt names it.
+    run.chat.handoffTurn = async () => 1;
+    await run.chat.send("and the tests", [], "p-2");
+    expect(promptIdOf(run.prompts[1])).toBe("handoff-1-p-2");
   } finally {
     setSystemTime();
+    run.chat.close();
+  }
+});
+
+test("a Retry of the first prompt goes once more under the same id, and asks nothing", async () => {
+  const run = await cloudStart({ refuse: 1 });
+  try {
+    let answer: (turn: number | undefined) => void = () => undefined;
+    let asks = 0;
+    run.chat.handoffTurn = () => ((asks += 1), new Promise<number | undefined>((resolve) => (answer = resolve)));
+    await run.chat.send("fix the build", [], "p-1").catch(() => undefined);
+    expect(run.prompts.map(promptIdOf)).toEqual(["handoff-1-p-1"]);
+    const rows = (run.chat as unknown as { failedPrompts: Map<string, unknown> }).failedPrompts;
+    const failed = [...rows.keys()];
+    expect(failed).toHaveLength(1);
+    // The ask is still out: the Retry neither waits for it nor asks again.
+    await run.chat.retryPrompt(failed[0] ?? "");
+    expect(asks).toBe(1);
+    expect(run.prompts.map(promptIdOf)).toEqual(["handoff-1-p-1", "handoff-1-p-1"]);
+    answer(1);
+    await ticks();
+    expect(run.prompts).toHaveLength(2);
+  } finally {
     run.chat.close();
   }
 });
@@ -414,12 +507,12 @@ test("the send's own start (ensureSession, then send, as the page's Send does) u
   const run = await cloudStart();
   try {
     let asks = 0;
-    run.chat.handoffTurn = async () => ((asks += 1), 4);
+    run.chat.handoffTurn = async () => ((asks += 1), 1);
     expect(await run.chat.ensureSession()).toBe("cloud-1");
     expect(asks).toBe(1);
     await run.chat.send("fix the build", [], "p-1");
     expect(asks).toBe(1);
-    expect(promptIdOf(run.prompts[0])).toBe("handoff-4-p-1");
+    expect(promptIdOf(run.prompts[0])).toBe("handoff-1-p-1");
   } finally {
     run.chat.close();
   }
@@ -470,6 +563,24 @@ test("an ask made at the start is not used once another chat was shown: the send
     // The app names the turn that first ask opened again (a turn not run yet), here as the second answer.
     expect(asks).toBe(2);
     expect(promptIdOf(run.prompts[0])).toBe("handoff-6-p-1");
+  } finally {
+    run.chat.close();
+  }
+});
+
+// A machine whose acpmux is older drops a turn reported before its hand-off is made, so the page
+// names the first turn ahead only where acpmux names `cloud-handoff-first-turn-v1`.
+test("a started Cloud chat's first prompt waits for its hand-off ask on an acpmux that does not hold the turn", async () => {
+  const run = await cloudStart({ old: true });
+  try {
+    let answer: (turn: number | undefined) => void = () => undefined;
+    run.chat.handoffTurn = () => new Promise<number | undefined>((resolve) => (answer = resolve));
+    const sent = run.chat.send("fix the build", [], "p-1");
+    await ticks();
+    expect(run.prompts).toHaveLength(0);
+    answer(1);
+    await sent;
+    expect(promptIdOf(run.prompts[0])).toBe("handoff-1-p-1");
   } finally {
     run.chat.close();
   }

@@ -13,6 +13,7 @@
 /// under its own id: it runs as before, and only its report is missing. A turn the app opens after
 /// the wait stays `starting`, unnamed: the store does not run it, and the chat's next prompt that
 /// starts a turn names it (the app names a made or begun turn again until a prompt runs under it).
+/// The one prompt that does not wait: the first of a chat its send just started (``FIRST_HANDOFF_TURN``).
 
 /// The prompt id's prefix acpmux reads (`cloud_handoff.rs` `PROMPT_PREFIX`).
 export const HANDOFF_PROMPT_PREFIX = "handoff-";
@@ -21,6 +22,14 @@ export const HANDOFF_PROMPT_PREFIX = "handoff-";
 const NAMED_TURN = /^handoff-[1-9][0-9]{0,14}-./;
 /// The longest a send waits for the app to open its turn.
 export const TURN_WAIT_MS = 2_500;
+/// The turn a session's hand-off is made at (the store's create). The first prompt of a chat its
+/// send just started names it without waiting for the ask (direct.ts `sendNow`): the session is
+/// new, so no other turn can be its hand-off's, and the wait was 1.1 to 2.3 s of each Cloud start
+/// (2026-11-25). acpmux reports the turn once the hand-off is made (`cloud_handoff.rs` `Unmade`).
+export const FIRST_HANDOFF_TURN = 1;
+/// The capability id of an acpmux that holds that turn's report until the hand-off is made
+/// (`capabilities.rs`). One without it drops a report made first, so its first prompt waits as before.
+export const FIRST_HANDOFF_TURN_CAPABILITY = "cloud-handoff-first-turn-v1";
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 

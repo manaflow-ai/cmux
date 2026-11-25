@@ -258,7 +258,8 @@ pub struct PrewarmRequest {
 /// The parts of a coming `session/new` a hint names beyond its harness and folder: the model it
 /// pins (`_meta.acpmux.model`), its workspace (`_meta.acpmux.workspaceId`) and the owner's Cloud
 /// credential (`_meta.acpmux.credentials`, this machine's own socket only). An entry warmed with a
-/// credential is hinted only: never a spare or a last-used entry, which outlive the hint.
+/// credential is hinted, or the reserved home chat's (`reserved.rs`, which names the same
+/// parts): never a spare or a last-used entry, which are remembered without one.
 #[derive(Debug, Clone, Default)]
 pub struct PrewarmShape {
     pub model: Option<String>,
@@ -1015,11 +1016,17 @@ impl Hub {
                     p.codex_answer = Some(spec.answer.clone());
                     lock(&self.pool.claimed).insert(id.clone(), p);
                     // A home chat took the machine's reserved warm agent: the next home chat's
-                    // folder is reserved and warmed now, so it starts warm too.
+                    // folder is reserved and warmed now, so it starts warm too: on this chat's
+                    // model and credential, or the next chat like it would miss the refill.
                     let (reserved, ended) = lock(&self.pool.pool).end_reserved(&spec.key);
                     self.pool_discard(ended);
                     if reserved {
-                        self.refill_reserved_home(spec.key.cwd.clone());
+                        let like = PrewarmShape {
+                            model: spec.draft.model_request.clone(),
+                            workspace_id: None,
+                            credential: credential.cloned(),
+                        };
+                        self.refill_reserved_home(spec.key.cwd.clone(), like);
                     }
                     return Some(id);
                 }

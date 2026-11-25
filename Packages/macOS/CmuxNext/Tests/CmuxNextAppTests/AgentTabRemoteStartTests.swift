@@ -60,6 +60,15 @@ struct AgentTabRemoteStartTests {
         #expect(request["cwd"] == nil)
     }
 
+    /// The no-cwd flag is read off the handshake the machine's store already holds, with no connection
+    /// opened to ask for it (50-200 ms of each no-folder Cloud start). The fixture's own connections do
+    /// not advertise it and would answer a lookup with the work folder: a start that still asked sends that.
+    @Test func aNoFolderCloudStartReadsNoCwdOffTheKnownHandshakeNotAConnection() async throws {
+        let request = try await start(harness: nil, model: nil, seedCwd: nil, expectedCwd: nil, supportsNoCwd: false,
+                                     known: [DaemonCapability.agentSessionStartNoCwd.rawValue])
+        #expect(request["cwd"] == nil, "the start opened a connection to look the folder up")
+    }
+
     /// A Cloud chat with no folder whose link cannot be read fails as that link, never as "it needs a
     /// folder" (Leo's NIGHTLY 4191131679101 said the folder sentence while its link to the machine was down).
     @Test func aNoFolderCloudStartWhoseLinkIsDownSaysSoNotNeedsFolder() async throws {
@@ -136,8 +145,10 @@ struct AgentTabRemoteStartTests {
         #expect(!CloudLinkSocket(key: key, path: "/tmp/s", generation: nil).callerIsTeammate)
     }
 
-    private func makeTabs(seedCwd: String?) throws -> (AgentTabStore, String) {
+    /// `known`: the capabilities of the handshake the machine's store holds; nil for none yet.
+    private func makeTabs(seedCwd: String?, known: [String]? = nil) throws -> (AgentTabStore, String) {
         let store = DaemonStore()
+        if let known { store.noteHandshake(DaemonIdentity(capabilities: known, generation: "remote-start-fixture")) }
         var tab = TabSnapshot(surface: 7, kind: .conversation, title: "New chat")
         tab.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "registry:cloud-fixture", harness: "claude"))
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [tab])])
@@ -156,8 +167,8 @@ struct AgentTabRemoteStartTests {
     /// capability negotiation, and inspect the frame received by the remote daemon.
     private func start(harness: String?, model: String?, seedCwd: String? = "/home/dev/project",
                        expectedCwd: String? = "/home/dev/project", supportsNoCwd: Bool = false,
-                       remoteFolder: String? = nil) async throws -> [String: Any] {
-        let (tabs, key) = try makeTabs(seedCwd: seedCwd)
+                       remoteFolder: String? = nil, known: [String]? = nil) async throws -> [String: Any] {
+        let (tabs, key) = try makeTabs(seedCwd: seedCwd, known: known)
         tabs.remoteFolder = { _ in remoteFolder }
         var recorded: [(String, String, String?, String?)] = []
         tabs.onRemoteChatStarted = { recorded.append(($0, $1, $2, $3)) }

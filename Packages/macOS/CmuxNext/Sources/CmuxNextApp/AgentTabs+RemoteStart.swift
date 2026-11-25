@@ -78,8 +78,8 @@ extension AgentTabStore {
         let absolute = { (path: String?) in path.flatMap { $0.hasPrefix("/") ? $0 : nil } }
         // Non-Cloud hosts keep the folder fallback and refusal; a Cloud host gets no cwd and makes `~/chats/<id>` (its unread link fails as that).
         var fallback = absolute(chosen) ?? absolute(seed?.cwd) ?? (ownerLink == nil ? remoteFolderScoped?(scopedKey) ?? remoteFolder?(key) : nil)
-        var supportsNoCwd = false
-        if fallback == nil {
+        var supportsNoCwd = ownerLink != nil && store.supports(DaemonCapability.agentSessionStartNoCwd.rawValue) // the handshake's own flag (`daemon.supports`): a connection opened only to read it cost 50-200 ms of each no-folder Cloud start; a daemon whose handshake lacks it keeps the lookup below
+        if fallback == nil && !supportsNoCwd {
             let lister = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
             do { if ownerLink != nil { supportsNoCwd = try await lister.supportsNoCwd() }; if !supportsNoCwd { fallback = try await lister.folders().work } } catch where ownerLink != nil {
                 await lister.close(); throw (error as? AgentSessionAttachError).map { AgentRemoteStartRefusal(code: $0.code, machine: machineName ?? machine, detail: $0.message) } ?? error
