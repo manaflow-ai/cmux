@@ -10,6 +10,7 @@
 // code size, else the default. Sizes and width never follow the viewer: the two views have their
 // own defaults, and an upgrade must not move anyone's chat. Code follows the terminal font
 // (`--cmux-diff-code-font-family`) unless a code font is set.
+import { COMPACT_SHORT_TURNS_KEY, setCompactShortTurns } from "./conversation/compactShortTurns";
 import {
   DEFAULT_RAIL_SHOW,
   isRailShow,
@@ -192,6 +193,12 @@ export const FEATURE_TIPS_KEY = "updates.showFeatureTips";
 /// AutoCloud (autoCloud.ts): hidden in cmux-next.json, off unless set true. The host sends it with the
 /// chat's keys (Swift AgentPaneDisplaySetting.followedAppPaths). Not part of ChatDisplay.
 export const AUTO_CLOUD_KEY = "cloud.autoCloud";
+/// Settings > Cloud > Default Image: the Cloud environment a new Cloud chat starts from, "auto" (the
+/// default) or an environment id (chatCloudEnvironment.ts). The host sends it with the chat's keys
+/// (Swift AgentPaneDisplaySetting.followedAppPaths). Not part of ChatDisplay.
+export const DEFAULT_IMAGE_KEY = "cloud.defaultImage";
+/// A Cloud environment's id, as the cmux platform makes them.
+const CLOUD_ENVIRONMENT_ID = /^d?env_[0-9a-f]{24}$/;
 /// cmux-next.json only: the command rules and presets the running tray names background commands
 /// with (session-info/commandLabelSettings.ts; Swift CommandLabelsSetting). Not part of ChatDisplay.
 export const COMMAND_LABELS_KEY = "agentPane.display.commandLabels";
@@ -574,6 +581,7 @@ let transcriptView: TranscriptView = "normal";
 let presentation: Presentation = "transcript";
 let featureTipsOn = false;
 let autoCloudOn = false;
+let defaultImage = "auto";
 let commandLabels = "null";
 let promptCoachOn = true;
 let environmentCardOn = false;
@@ -643,6 +651,8 @@ export function setChatDisplay(value: unknown): void {
   const subagentOf = raw[SUBAGENT_OF_KEY] === true;
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
+  // Read by turns.ts at shaping time and part of each turn's cache key, so a change shapes the turns again.
+  setCompactShortTurns(raw[COMPACT_SHORT_TURNS_KEY] === true);
   // The pop's gate: written only when the setting changes, so a page that set its own
   // `data-send-pop` (the gallery's variants, the benches' arms) keeps it.
   const sendPop = raw[SEND_POP_KEY] === true;
@@ -665,6 +675,10 @@ export function setChatDisplay(value: unknown): void {
   const nextPresentation = isPresentation(storedPresentation) ? storedPresentation : "transcript";
   const tips = raw[FEATURE_TIPS_KEY] === true;
   const autoCloud = raw[AUTO_CLOUD_KEY] === true;
+  const storedImage = raw[DEFAULT_IMAGE_KEY];
+  // Only a Cloud environment id (`env_` or `denv_` and 24 hex digits, cmux-tui start_chat_cli.rs valid_environment): any
+  // other value (a typo set from the CLI) would fail every Cloud send, so it reads as Auto.
+  const image = typeof storedImage === "string" && CLOUD_ENVIRONMENT_ID.test(storedImage) ? storedImage : "auto";
   const labels = JSON.stringify(raw[COMMAND_LABELS_KEY] ?? null);
   const coach = raw[PROMPT_COACH_KEY] !== false;
   const environmentCard = raw[ENVIRONMENT_CARD_KEY] === true;
@@ -708,6 +722,7 @@ export function setChatDisplay(value: unknown): void {
     nextPresentation === presentation &&
     tips === featureTipsOn &&
     autoCloud === autoCloudOn &&
+    image === defaultImage &&
     labels === commandLabels &&
     coach === promptCoachOn &&
     environmentCard === environmentCardOn &&
@@ -734,6 +749,7 @@ export function setChatDisplay(value: unknown): void {
   presentation = nextPresentation;
   featureTipsOn = tips;
   autoCloudOn = autoCloud;
+  defaultImage = image;
   if (same) {
     // The faces changed what the measure stacks name until they load.
     if (facesChanged) current = { ...current };
@@ -870,6 +886,10 @@ const autoCloudSnapshot = () => autoCloudOn;
 /// Whether `cloud.autoCloud` is on in cmux-next.json (AUTO_CLOUD_KEY): the Where menu's Auto chevron
 /// and its Cloud leg (autoCloud.ts) show only with it and the plan.
 export const useAutoCloudKey = (): boolean => useSyncExternalStore(subscribe, autoCloudSnapshot, autoCloudSnapshot);
+/// Settings > Cloud > Default Image (DEFAULT_IMAGE_KEY): "auto" or the environment id a new Cloud
+/// chat starts from when it picks none (chatCloudEnvironment.ts).
+export const defaultCloudImage = (): string => defaultImage;
+export const useDefaultCloudImage = (): string => useSyncExternalStore(subscribe, defaultCloudImage, defaultCloudImage);
 /// Whether the prompt coach is on (PROMPT_COACH_KEY): the client reads it before it asks for or
 /// draws a rewrite (direct.ts), and a card already drawn hides when it goes off (rows/PromptCoachRow.tsx).
 export const promptCoachEnabled = (): boolean => promptCoachOn;
