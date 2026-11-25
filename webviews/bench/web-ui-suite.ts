@@ -191,7 +191,9 @@ export const BENCHES: readonly Bench[] = [
     file: "chat-100k-flat.bench.ts",
     args: ["100000", "20"],
     env: { CASES: "main" },
-    timeoutMs: 1_200_000,
+    // Seven launches, each about a minute of CPU settle and then its windows: still in long_x20 at 1200 s on an
+    // 8-vCPU runner (Actions run 45422305557). perf-cron.py's web-ui-flat run cap (2700 s) sits above it.
+    timeoutMs: 2_400_000,
     ownPart: true,
   },
   // Ten 100-turn chats in one shared renderer against an empty one (goal memory-per-chat): renderer PSS, MB per chat
@@ -214,14 +216,15 @@ export const BENCHES: readonly Bench[] = [
     ownPart: true,
   },
   // Its 20 chats grown live to 100k rows each (about 28 minutes on a 4-vCPU runner): perf-cron.py's web-ui-flat-grown
-  // part, under that part's 30-minute run cap. Its windows are 5 s (three of each kind, as in the main part) so the
+  // part, under that part's 55-minute run cap. Its windows are 5 s (three of each kind, as in the main part) so the
   // repeats fit under that cap.
   {
     name: "chat-100k-flat-grown",
     file: "chat-100k-flat.bench.ts",
     args: ["100000", "20"],
     env: { CASES: "grown-many", IDLE_S: "5", STREAM_S: "5" },
-    timeoutMs: 1_770_000,
+    // Timed out at 1770 s in two perf cron ticks running; perf-cron.py's web-ui-flat-grown run cap (3300 s) sits above.
+    timeoutMs: 3_000_000,
     ownPart: true,
   },
   // The sim's stress ladder (goal sim-fidelity-flat-ladder): chats and browser tabs at 1, 10 and 100 in one shared

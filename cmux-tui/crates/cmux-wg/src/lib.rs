@@ -61,6 +61,7 @@ mod ultra_auto;
 mod ultra_hello;
 mod ultra_rs;
 mod underlay;
+mod underlay_batch;
 mod watchdog;
 mod wire;
 
@@ -76,9 +77,11 @@ pub use pacing::Priority;
 pub use probe_schedule::{PathWatch, ProbeConfig, WatchStep};
 pub use single_path::MIN_SEND_BUFFER;
 pub use stream::WgStream;
+pub use tcp_stack::STREAM_WINDOW_ENV;
 pub use timers::TimerSchedule;
 pub use ultra::{UltraMode, UltraStats, is_parity as is_ultra_parity};
 pub use ultra_auto::UltraChoice;
 pub use underlay::{
-    DatagramSocket, DueProbes, Origin, RECEIVE_BUFFER, Received, SocketPath, UdpUnderlay, Underlay,
+    DatagramSocket, DueProbes, Origin, RECEIVE_BUFFER, ReceiveBatch, Received, SendBatch,
+    SocketPath, UdpUnderlay, Underlay,
 };
