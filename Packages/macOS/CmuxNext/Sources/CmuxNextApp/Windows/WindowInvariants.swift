@@ -25,7 +25,7 @@ enum WindowInvariants {
                 problems.append("window \(id) is presented but none of its workspaces is mirrored")
             }
         }
-        for window in value.openWindows where manager.controller(for: window.id) == nil {
+        for window in value.openWindows where manager.controller(for: window.id) == nil && !manager.deferredWindows.contains(window.id) {
             problems.append("open window \(window.id) has no controller")
         }
         return problems

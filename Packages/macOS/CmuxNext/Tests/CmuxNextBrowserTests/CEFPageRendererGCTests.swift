@@ -53,6 +53,39 @@ import Testing
         #expect(renderers.collected == [4, 4])
     }
 
+    @Test func theQuietBoundIsTheQuietFloorMoreThanWasLive() {
+        #expect(CEFPageRendererGC.quietBound(afterLastCollection: nil) == 16 * Self.mb)
+        #expect(CEFPageRendererGC.quietBound(afterLastCollection: 40 * Self.mb) == 56 * Self.mb)
+        #expect(CEFPageRendererGC.quietBound(afterLastCollection: 40 * Self.mb) < CEFPageRendererGC.bound(afterLastCollection: 40 * Self.mb))
+    }
+
+    @Test func theQuietCheckCollectsTheLastBurstsGarbageBelowTheBound() async {
+        let renderers = Renderers()
+        renderers.used = [4: 200 * Self.mb]
+        let gc = CEFPageRendererGC(
+            pages: { [Page(browser: 4, isCmuxPage: true, rendererClients: [6])] },
+            heapUsed: { renderers.used[$0] },
+            collect: { browser in
+                renderers.collected.append(browser)
+                renderers.used[browser] = 40 * Self.mb
+            })
+        await gc.check()
+        #expect(renderers.collected == [4])
+        // The last closes leave 60 MB of garbage: under twice what is live, so the burst's check keeps it.
+        renderers.used[4] = 100 * Self.mb
+        await gc.check()
+        #expect(renderers.collected == [4])
+        // Once closes stop, the quiet check collects it, twice (the second returns what the first unhooked).
+        await gc.check(quiet: true)
+        #expect(renderers.collected == [4, 4, 4])
+        #expect(gc.stats["quiet_collections"] == 1)
+        #expect(gc.stats["quiet_second_collections"] == 1)
+        // Less than the quiet floor of garbage: nothing.
+        renderers.used[4] = 50 * Self.mb
+        await gc.check(quiet: true)
+        #expect(renderers.collected == [4, 4, 4])
+    }
+
     @Test func readsUsedSizeAndTheScheme() async {
         #expect(await CEFPageRendererGC.usedSize(#"{"usedSize":142032280,"totalSize":181190656}"#) == 142_032_280)
         #expect(await CEFPageRendererGC.usedSize("{}") == nil)

@@ -263,6 +263,9 @@ test("read only, no row draws a control that acts on the owner's machine or daem
   const local = [
     translate("turn.copy"),
     translate("turn.failure.copyError"),
+    // Closes a failed turn's card in the reader's own browser (dismissedFailures.ts writes
+    // localStorage only); nothing reaches the owner's machine.
+    translate("toast.dismiss"),
     translate("message.label", { from: "reviewer", to: translate("message.self") }),
   ];
   const left = named.map((name) => name.split(" | ")[0]!.trim()).filter((name) => !local.includes(name));

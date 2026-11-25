@@ -76,7 +76,12 @@ fn move_needs_a_target_and_a_session() {
     assert!(request(&["teleport", "--to", "auto"]).unwrap_err().contains("SESSION"));
     assert!(request(&["move", "a", "--all-idle", "--to", "auto"]).is_err());
     assert!(request(&["move", "a", "--to"]).is_err());
-    assert!(request(&["move", "a", "--to", "cloud"]).unwrap_err().contains("acpmux machine ls"));
+    // `cloud` is the app's Move to Cloud now (agent_move_cloud.rs), not a refusal.
+    assert_eq!(request(&["move", "a", "--to", "cloud"]).unwrap().machine, "cloud");
+    assert_eq!(
+        request(&["move", "a", "--to", "Cloud", "--timings"]).unwrap().options,
+        ["--timings"]
+    );
     assert!(request(&["move", "a", "--to", "auto", "--bogus-thing"]).is_err());
 }
 
