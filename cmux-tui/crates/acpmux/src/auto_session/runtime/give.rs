@@ -85,7 +85,12 @@ impl<C: AutoCloud + 'static> Loop<C> {
     pub(super) async fn turn_stopped(&mut self, id: &str, stop: TurnStop, needs_run: bool) {
         let Some(tracked) = self.chats.get_mut(id) else { return };
         tracked.give.stopping = false;
-        tracked.give.carried = stop.carried;
+        // A give that begins again after one that stopped the turn (the laptop woke in
+        // between) finds no turn to stop: the continuation the first one logged is still the
+        // one owed here if the chat stays.
+        if stop.carried.is_some() {
+            tracked.give.carried = stop.carried;
+        }
         tracked.tool = None;
         self.step(id, Event::Changed { change: Change::QueueChanged, needs_run }).await;
         let event = if stop.stopped {

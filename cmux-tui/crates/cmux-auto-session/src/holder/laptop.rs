@@ -62,17 +62,17 @@ fn come_home(out: &mut Out, epoch: u64) {
 /// since; after any other holder, this renewal is answered "lost".
 ///
 /// A wish in the answer comes first: the person moved the chat, so it is given, and whoever
-/// gets it takes the inbox. A tree that was stopped is only continued in this step; the
-/// renewal sent with it brings the wish again to a chat that runs.
-fn held_again(out: &mut Out, answer: Answer, stopped: bool, now: u64) {
+/// gets it takes the inbox. A tree that was stopped is continued and the give begins in the
+/// same step, so nothing of the chat starts here in between: a give this laptop asked before
+/// it stopped may still reach the store, and a turn that went on here meanwhile would run
+/// beside the same turn where the chat went.
+fn held_again(out: &mut Out, answer: Answer, stopped: bool) {
     if stopped {
         out.push(Effect::ContinueTree);
     }
     out.to(State::Holding { epoch: answer.epoch });
-    match (give::wanted(out, answer.wish, answer.wish_at), stopped) {
-        (Some(to), false) => return give::begin(out, answer.epoch, to),
-        (Some(_), true) => out.renew(now),
-        (None, true | false) => {}
+    if let Some(to) = give::wanted(out, answer.wish, answer.wish_at) {
+        return give::begin(out, answer.epoch, to);
     }
     if answer.inbox_pending {
         out.push(Effect::DrainInbox);
@@ -184,7 +184,7 @@ pub(super) fn holding(out: &mut Out, epoch: u64, event: Event, now: u64) {
                 Verdict::Holder => {
                     out.chat.fresh_at = out.chat.fresh_at.max(sent_at);
                     out.renew_answered(sent_at, now);
-                    held_again(out, answer, false, now);
+                    held_again(out, answer, false);
                 }
                 Verdict::Standby | Verdict::Lost => lose(out, answer.epoch.max(epoch), now),
                 Verdict::Closed => close(out),
@@ -258,7 +258,7 @@ pub(super) fn giving(
                         }
                         None => {
                             out.push(Effect::Stay);
-                            held_again(out, answer, false, now);
+                            held_again(out, answer, false);
                         }
                     }
                 }
@@ -315,7 +315,7 @@ pub(super) fn stopped(out: &mut Out, epoch: u64, event: Event, now: u64) {
                 Verdict::Holder => {
                     out.chat.fresh_at = sent_at;
                     out.renew_answered(sent_at, now);
-                    held_again(out, answer, true, now);
+                    held_again(out, answer, true);
                 }
                 Verdict::Standby | Verdict::Lost => lose(out, answer.epoch.max(epoch), now),
                 Verdict::Closed => closed_while_stopped(out, epoch, answer.epoch),

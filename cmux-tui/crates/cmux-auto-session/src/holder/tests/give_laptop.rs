@@ -289,14 +289,13 @@ fn a_laptop_that_cannot_reach_the_cloud_stops_its_give_too() {
     assert!(has(&effects, "stay"), "{effects:?}");
     assert!(!chat.may_run() && chat.moving().is_none());
 
-    // The store answers again, still with the wish: the tree goes on first, and the renewal
-    // sent with it starts the give on a chat that runs.
+    // The store answers again, still with the wish: the tree goes on and the give begins
+    // again in the same step, so the turn the first give stopped does not go on here between
+    // the two.
     let (chat, effects) = step(chat, held(&effects, Some(CLOUD)), now + SELF_STOP_MS);
-    assert_eq!(chat.state, HOLDING);
-    assert_eq!(acts(&effects), ["continue_tree", "renew"]);
-    let (chat, effects) = step(chat, held(&effects, Some(CLOUD)), now + SELF_STOP_MS + 1);
-    assert_eq!(acts(&effects), ["stop_turn"]);
+    assert_eq!(acts(&effects), ["continue_tree", "stop_turn"]);
     assert_eq!(chat.state, giving(GiveStep::Stopping));
+    assert!(!chat.may_run());
 }
 
 #[test]

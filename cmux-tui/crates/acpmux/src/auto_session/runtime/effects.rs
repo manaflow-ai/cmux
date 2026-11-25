@@ -96,8 +96,9 @@ impl<C: AutoCloud + 'static> Loop<C> {
     /// A give's copy is the last the next holder gets of the chat, so it also waits for what
     /// the chat's lane is in the middle of: an inbox message taken a moment ago is written to
     /// the log and then acked, and a copy read between the two would leave it in neither the
-    /// copy nor the inbox. Nothing new starts in the lane of a chat that is given
-    /// (`run_lane`), and the lane's end starts the copy (`lane_done`).
+    /// copy nor the inbox. No drain starts in the lane of a chat that is given (`run_lane`;
+    /// what else may start there writes nothing to the log and ends by itself), and the
+    /// lane's end starts the copy (`lane_done`).
     fn copy(&mut self, id: &str, epoch: u64, copy: u64) {
         let Some(tracked) = self.chats.get_mut(id) else { return };
         let lane_writes = tracked.lane_busy && tracked.chat.moving().is_some();
@@ -105,6 +106,8 @@ impl<C: AutoCloud + 'static> Loop<C> {
             tracked.wanted = Some(copy);
             return;
         }
+        // Copies are asked for in order: one that still waits is older than this one.
+        tracked.wanted = None;
         tracked.copying = Some(epoch);
         let (after, tool) = (tracked.sent, tracked.tool.clone());
         let task = self.ctx.clone().copy(id.to_owned(), epoch, copy, after, tool);
