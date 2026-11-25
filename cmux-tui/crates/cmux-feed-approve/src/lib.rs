@@ -295,10 +295,7 @@ pub fn check(
     if proof.install != by {
         return Err(Failure::OtherInstall);
     }
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "a millisecond time fits an f64 exactly until the year 287396"
-    )]
+    // A millisecond time fits an f64 exactly until the year 287396.
     let signed = proof.timestamp_ms as f64;
     if signed > now_ms + MAX_SKEW_MS || now_ms - signed > MAX_AGE_MS {
         return Err(Failure::Stale);

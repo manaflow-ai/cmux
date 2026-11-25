@@ -62,7 +62,6 @@ fn signed(ts: i64, scope: Option<&str>, item: &str, shown: &str) -> Decision {
     }
 }
 
-#[expect(clippy::cast_possible_truncation, reason = "test times are whole ms")]
 fn ts(offset_ms: f64) -> i64 {
     (NOW + offset_ms) as i64
 }
