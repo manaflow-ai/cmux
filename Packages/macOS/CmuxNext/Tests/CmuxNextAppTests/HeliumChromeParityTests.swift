@@ -86,15 +86,14 @@ import Testing
         }
     }
 
-    /// tabs.patch: `kMinimumContentsWidthForCloseButtons` 56 (Chromium 68). A selected tab with 60 pt
-    /// of contents is roomy, so at rest it hides its x (cmux shows the x on hover, nxdog9).
+    /// Helium keeps the active tab's x visible at rest. Inactive tabs use the
+    /// same close-button geometry when hovered, without reserving a second size.
     @Test func tabsTakeHeliumsCloseButtonThreshold() {
         DensityTokens.$scoped.withValue(DensityPreset.cozy.tokens) {
             let metrics = TabStripMetrics.standard
-            #expect(metrics.closeMinContentsWidth == 56)
             let width = metrics.contentLeadingInset + metrics.contentTrailingInset + 60
             let rest = TabChromeVisibility.resolve(width: width, isPinned: false, isSelected: true, isHovered: false, style: .chrome, metrics: metrics)
-            #expect(!rest.showsClose, "a selected tab with 60 pt of contents shows its x at rest")
+            #expect(rest.showsClose, "the active tab hides its Helium close button at rest")
         }
     }
 
