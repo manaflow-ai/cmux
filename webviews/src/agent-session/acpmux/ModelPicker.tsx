@@ -2075,6 +2075,16 @@ export function ModelPicker(props: ModelPickerProps) {
                 {selected && !searching && !starredView && selected.notInstalled ? (
                   <>
                     <div className={emptyNote}>{t("harnesses.notInstalled")}</div>
+                    {/* Install leads the list, above the inert catalog models. */}
+                    {onAddAgent && (
+                      <button
+                        type="button"
+                        className={`acpmux-mp-row acpmux-mp-login ${modelRow} ${rowFill(false)}`}
+                        onClick={addHarness}
+                      >
+                        <span className="acpmux-menu-label flex-1 truncate">{t("harnesses.install")}</span>
+                      </button>
+                    )}
                     {/* Catalog models remain discoverable before install, while every row is inert. */}
                     {choicesFor(selected, lang).map((model) => (
                       <PickerOption
@@ -2088,15 +2098,6 @@ export function ModelPicker(props: ModelPickerProps) {
                         <span className="acpmux-menu-label min-w-0 flex-1 truncate">{model.name}</span>
                       </PickerOption>
                     ))}
-                    {onAddAgent && (
-                      <button
-                        type="button"
-                        className={`acpmux-mp-row acpmux-mp-login ${modelRow} ${rowFill(false)}`}
-                        onClick={addHarness}
-                      >
-                        <span className="acpmux-menu-label flex-1 truncate">{t("harnesses.install")}</span>
-                      </button>
-                    )}
                   </>
                 ) : selected && !searching && !starredView && loginFor(selected) !== undefined ? (
                   <>

@@ -685,6 +685,33 @@ export function QuickModelMenu({
   // information beyond the trigger and is intentionally omitted.
   const modelRows = (
     <>
+      {rows.length === 0 ? (
+        <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
+          {query
+            ? t(families ? "picker.noMatchesFor" : "picker.noMatchesForQuery", { query })
+            : (shown?.note ?? (ownModel ? t("picker.chiefOwnModel") : t("picker.noModels")))}
+        </MenuItem>
+      ) : (
+        // A harness that is not installed says why none of its models can start, and its Install row
+        // follows, both above the models, where the eye lands first.
+        !query &&
+        shown?.note &&
+        shown.setUp && (
+          <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
+            {shown.note}
+          </MenuItem>
+        )
+      )}
+      {!query && shown?.note && shown.logIn && (
+        <MenuItem className="acpmux-quick-item" onSelect={() => shown.logIn?.()}>
+          <span className="acpmux-menu-label">{t("harness.logIn")}</span>
+        </MenuItem>
+      )}
+      {!query && shown?.note && shown.setUp && (
+        <MenuItem className="acpmux-quick-item" onSelect={() => shown.setUp?.()}>
+          <span className="acpmux-menu-label">{t("harnesses.install")}</span>
+        </MenuItem>
+      )}
       <MenuRadioGroup
         value={currentValue}
         onValueChange={(value) => {
@@ -795,32 +822,6 @@ export function QuickModelMenu({
           );
         })}
       </MenuRadioGroup>
-      {rows.length === 0 ? (
-        <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
-          {query
-            ? t(families ? "picker.noMatchesFor" : "picker.noMatchesForQuery", { query })
-            : (shown?.note ?? (ownModel ? t("picker.chiefOwnModel") : t("picker.noModels")))}
-        </MenuItem>
-      ) : (
-        // A harness that is not installed lists its models and says why none can start.
-        !query &&
-        shown?.note &&
-        shown.setUp && (
-          <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
-            {shown.note}
-          </MenuItem>
-        )
-      )}
-      {!query && shown?.note && shown.logIn && (
-        <MenuItem className="acpmux-quick-item" onSelect={() => shown.logIn?.()}>
-          <span className="acpmux-menu-label">{t("harness.logIn")}</span>
-        </MenuItem>
-      )}
-      {!query && shown?.note && shown.setUp && (
-        <MenuItem className="acpmux-quick-item" onSelect={() => shown.setUp?.()}>
-          <span className="acpmux-menu-label">{t("harnesses.install")}</span>
-        </MenuItem>
-      )}
     </>
   );
   const list = (

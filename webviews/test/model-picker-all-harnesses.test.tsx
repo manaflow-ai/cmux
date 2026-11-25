@@ -168,6 +168,8 @@ describe("harnesses this machine does not have", () => {
       (item) => item.textContent?.trim() === "Install…",
     )!;
     expect(install).not.toBeUndefined();
+    // Install leads the list: it comes before every inert catalog model row.
+    expect(install.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await act(async () => install.click());
     expect(added).toBe(1);
   });

@@ -1759,12 +1759,8 @@ function Columns({
                 onScroll={(event) => markFades(event.currentTarget)}
                 data-col-focus={col === 1 ? "" : undefined}
               >
-                {models}
-                {query && rows.length === 0 && (
-                  <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
-                    <span className="acpmux-cols-name">{t("picker.noMatches")}</span>
-                  </div>
-                )}
+                {/* A harness this Mac lacks (or a signed-out one) leads its list with its note and its
+                  Install or Log In row, above its catalog models, where the eye lands first. */}
                 {tabEmpty && (
                   <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
                     <span className="acpmux-cols-name">
@@ -1800,6 +1796,12 @@ function Columns({
                   >
                     <span className="acpmux-cols-name">{t("harnesses.install")}</span>
                   </DrivenRow>
+                )}
+                {models}
+                {query && rows.length === 0 && (
+                  <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
+                    <span className="acpmux-cols-name">{t("picker.noMatches")}</span>
+                  </div>
                 )}
               </DrivenList>
             </div>
