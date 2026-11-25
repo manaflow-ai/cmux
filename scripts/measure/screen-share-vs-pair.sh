@@ -19,9 +19,10 @@
 # inputs=     the cmux leg's timed presses, one leg per kind (--cmux-input; default key): key,click,scroll
 #             times each through the host's injector, samples= presses per trial (default 30). run.jsonl
 #             holds every leg's rows; the fps trials run with the first kind only.
-# host=nightly  the shared Mac serves from the published NIGHTLY's Screen Sharing helper (its
+# host=nightly  the shared Mac serves from the NIGHTLY's Screen Sharing helper (its
 #             Contents/Library/cmux NIGHTLY Helper.app, what the app's `cmux rd serve` runs) through
-#             --host-bin, not the cmux-rd built at this commit; probe.txt names the DMG and version.
+#             --host-bin, not the cmux-rd built at this commit: the installed /Applications/cmux NIGHTLY.app
+#             (the granted copy), else the newest DMG in the appcast; probe.txt names which and its version.
 #             Default host=commit.
 # Exit: 0 measured, 1 the run failed, 2 bad arguments, 3 the partner is unreachable or the tools did not build.
 set -uo pipefail
@@ -86,17 +87,21 @@ scripts/measure/screen-stream-eval.sh tools-only=1 >"$work/tools.log" 2>&1 \
 
 host_args=()
 if [[ "$host" == nightly ]]; then
-  dmg="$(curl -fsSL --retry 3 --retry-all-errors https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
-    | grep -oE 'url="https://[^"]+-macos-arm64-[0-9]+\.dmg"' | head -1 | cut -d'"' -f2)"
-  [[ "$dmg" == https://* ]] || { echo "SSVP no NIGHTLY DMG in the feed" | tee -a "$work/probe.txt"; pack; exit 3; }
-  mnt="$work/mnt"; mkdir -p "$mnt" "$work/app"
-  curl -fsSL --proto '=https' --retry 3 --retry-all-errors -o "$work/nightly.dmg" "$dmg" \
-    && hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$work/nightly.dmg" >/dev/null \
-    && ditto "$(find "$mnt" -maxdepth 1 -name '*.app' | head -1)" "$work/app/cmux NIGHTLY.app"
-  hdiutil detach "$mnt" >/dev/null 2>&1
-  helper="$work/app/cmux NIGHTLY.app/Contents/Library/cmux NIGHTLY Helper.app/Contents/MacOS/cmux-screen-sharing"
-  [[ -x "$helper" ]] || { echo "SSVP no Screen Sharing helper in $dmg" | tee -a "$work/probe.txt"; pack; exit 3; }
-  version="$(plutil -extract CFBundleVersion raw -o - "$work/app/cmux NIGHTLY.app/Contents/Info.plist" 2>/dev/null)"
+  # The installed NIGHTLY first: its helper is the copy macOS granted Screen Recording and Accessibility.
+  app="/Applications/cmux NIGHTLY.app" dmg="installed"
+  if [[ ! -d "$app" ]]; then
+    dmg="$(curl -fsSL --retry 3 --retry-all-errors https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
+      | grep -oE 'url="https://[^"]+-macos-arm64-[0-9]+\.dmg"' | head -1 | cut -d'"' -f2)"
+    [[ "$dmg" == https://* ]] || { echo "SSVP no NIGHTLY installed and no DMG in the feed" | tee -a "$work/probe.txt"; pack; exit 3; }
+    mnt="$work/mnt" app="$work/app/cmux NIGHTLY.app"; mkdir -p "$mnt" "$work/app"
+    curl -fsSL --proto '=https' --retry 3 --retry-all-errors -o "$work/nightly.dmg" "$dmg" \
+      && hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$work/nightly.dmg" >/dev/null \
+      && ditto "$(find "$mnt" -maxdepth 1 -name '*.app' | head -1)" "$app"
+    hdiutil detach "$mnt" >/dev/null 2>&1
+  fi
+  helper="$app/Contents/Library/cmux NIGHTLY Helper.app/Contents/MacOS/cmux-screen-sharing"
+  [[ -x "$helper" ]] || { echo "SSVP no Screen Sharing helper in $app ($dmg)" | tee -a "$work/probe.txt"; pack; exit 3; }
+  version="$(plutil -extract CFBundleVersion raw -o - "$app/Contents/Info.plist" 2>/dev/null)"
   printf '#!/bin/sh\nexec %q "$@"\n' "$helper" >"$work/nightly-host"; chmod +x "$work/nightly-host"
   host_args=(--host-bin "$work/nightly-host")
   echo "SSVP host NIGHTLY ${version:-?} $dmg" | tee -a "$work/probe.txt"
