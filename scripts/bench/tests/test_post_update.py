@@ -100,6 +100,22 @@ class FreshCopy(unittest.TestCase):
         self.assertEqual(len({r["labels"]["arm"] for r in ctx.rows}), 2)
 
 
+class GoBack(unittest.TestCase):
+    def test_log(self) -> None:
+        # go-back.log is go-back-duress.sh's output format with made-up numbers: no step had run on the fleet yet.
+        ctx = ingest("go-back.log")
+        rows = {(r["metric"], r["labels"]["load"]): r for r in ctx.rows}
+        self.assertTrue(all(r["labels"]["mode"] == "go-back" for r in ctx.rows))
+        self.assertEqual(rows[("click_to_window", "quiet")]["value"], 3500)
+        self.assertEqual(rows[("click_to_window", "quiet")]["n"], 3)
+        # A go-back with no window is no sample, not a zero.
+        self.assertEqual(rows[("click_to_window", "loaded")]["n"], 2)
+        self.assertEqual(rows[("click_to_old_exit", "loaded")]["value"], 2000)
+        self.assertEqual(len(ctx.rows), 4)
+        self.assertEqual(ctx.host["chip"], "Apple M6")
+        self.assertEqual(ctx.rows[0]["harness"]["name"], "scripts/measure/go-back-duress.sh")
+
+
 class Modes(unittest.TestCase):
     def test_unknown_mode(self) -> None:
         with self.assertRaises(BenchError):

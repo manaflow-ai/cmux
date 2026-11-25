@@ -8,8 +8,8 @@
 // says so (sign-ins and downloads work once it is back); it goes by itself when the network returns.
 import { useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { DialogButton } from "../../ui/DialogButton";
-import { useConnectionQuiet } from "../../ui/lasting";
 import { StableLabel } from "../../ui/StableLabel";
+import { useConnectionQuiet } from "../../ui/lasting";
 import type { Strings } from "../shared/i18n";
 import { AgentsStep, DEFAULT_AGENTS_LOOK, type AgentsLook } from "./AgentsStep";
 import type { ProviderReadinessProps } from "../shared/signIn/ProviderReadiness";
@@ -84,7 +84,7 @@ function Scaffold({
   const agents = state.step === "agents";
   const make = state.step === "makeItYours";
   const sources = !agents && !make && state.importer != null ? <ImportSources importer={state.importer} /> : null;
-  // A blip offline says nothing; the line shows once the Mac has been offline CONNECTION_QUIET_MS.
+  // A network blip says nothing; only an outage past the shared quiet bound shows the line.
   const offlineShown = useConnectionQuiet(!online);
   return (
     <div className="onb-scaffold" data-step={state.step}>

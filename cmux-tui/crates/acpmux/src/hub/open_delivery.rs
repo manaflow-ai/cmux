@@ -761,6 +761,32 @@ pub(crate) fn release(d: &mut Delivery) {
     d.proof = None;
 }
 
+/// Whether open delivery `d` is done on its peer though no proof came: never proven, and its
+/// peer answered it a duplicate with a final outcome (its turn ended, was steered into, failed or
+/// was withdrawn there). Such a prompt went into a turn its own prompt id names no record of (an
+/// inbox digest, a joined or steered turn: `prompt_ledger.rs`), so [`take_proof`] never finds
+/// one, and each resend is answered the same duplicate. It used to be sent again on every link
+/// of its peer until it lapsed at 30 days: cosmic-gray, 2026-11-22, held 3,696 such deliveries
+/// and sent one of them 1,152 times in 215 h. Its peer kept it across links and ran it to an
+/// end; a resend runs nothing (`Delivery::open_on_peer`), so it closes, delivered.
+pub(crate) fn done_on_peer(d: &Delivery) -> bool {
+    d.proof.is_none() && d.accepted.as_ref().is_some_and(final_duplicate)
+}
+
+/// Whether `answer` is a peer's duplicate answer that carries the prompt's final outcome.
+pub(crate) fn final_duplicate(answer: &Value) -> bool {
+    let mux = answer.pointer("/_meta/acpmux");
+    let flag = |v: Option<&Value>| v == Some(&Value::Bool(true));
+    if !flag(answer.get("duplicate")) && !flag(mux.and_then(|m| m.get("duplicate"))) {
+        return false;
+    }
+    match mux.and_then(|m| m.get("status")).and_then(Value::as_str) {
+        Some(status) => matches!(status, "completed" | "cancelled" | "withdrawn" | "failed"),
+        // An inbox answer names no status: its stop reason is the turn's end.
+        None => answer.get("stopReason").and_then(Value::as_str).is_some_and(|r| !r.is_empty()),
+    }
+}
+
 /// What a delivery again was answered.
 pub(crate) enum Again {
     /// Taken (run now, or answered with its first outcome).
@@ -777,6 +803,10 @@ pub(crate) fn after_again(d: &mut Delivery, again: Again) -> bool {
     match again {
         Again::Taken(answer) => {
             d.accepted = Some(answer);
+            if done_on_peer(d) {
+                release(d);
+                return true;
+            }
             false
         }
         Again::Refused(error) => {

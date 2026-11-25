@@ -147,13 +147,14 @@
         // receiver that renews ahead and accepts it (cmux#35467). Production keeps 30 s until its image has that receiver.
         "CMUX_VM_RECEIVER_POLICY_LEASE_MS": "120000",
         // One provider call per create (README "One provider call per create"), for cmux-platform development's
-        // creates only; cmux-platform staging, which this Worker also serves, and production stay as before.
+        // and staging's creates; production stays as before. Staging cold-create trace (hq#23860 harness, n=10):
+        // ensure 4.17 s p50, of which the two reads before the create are 0.45 to 1.9 s.
         // Sized image: an image create that asks for exactly the size of the image's `large` snapshot boots it, so no
         // resize follows. No entry of VM_BOOT_IMAGES above carries `large` yet, so this changes nothing until a roll
         // publishes one. No reads: a first attempt sends no exact-slug read and no boot image read before the create.
         // Rollback: remove the line.
-        "CMUX_VM_SIZED_IMAGE_SERVICE_IDS": "cloud-platform-dev",
-        "CMUX_VM_CREATE_NO_READS_SERVICE_IDS": "cloud-platform-dev"
+        "CMUX_VM_SIZED_IMAGE_SERVICE_IDS": "cloud-platform-dev,cloud-platform-staging",
+        "CMUX_VM_CREATE_NO_READS_SERVICE_IDS": "cloud-platform-dev,cloud-platform-staging"
       }
     },
     // Workers custom domain in the cmux.dev zone; attached by the first

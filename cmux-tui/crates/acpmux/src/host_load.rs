@@ -8,11 +8,18 @@
 //! daemon, and a daemon that does not answer within `DAEMON_WAIT` leaves `busy`,
 //! `localTurns` and `heavy` out.
 //!
+//! `rootTotalBytes`, `rootUsedBytes` and `rootFreeBytes` are the root filesystem's; `diskSplit`
+//! is the last split of its used bytes into system, project and caches (`disk_usage.rs`), read
+//! from a file a background walk writes at most every five minutes, never walked on a sample.
+//!
 //! `heavy` is the heaviest known build or test the daemon's agents run now: the
 //! shell commands of their tool calls in flight (`hub/activity.rs`) and of their
 //! running background processes (`hub/processes.rs`), as the daemon reports them
 //! (`host_pressure.heavy`). Never a process scan (plans/cmux-next/pty-holder.md 4):
 //! the agents report what they run.
+//!
+//! `--watch` samples once a second and prints one JSON line when a line is crossed
+//! (`host_load_watch.rs`).
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -46,6 +53,18 @@ pub struct Load {
     pub disk_free_bytes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disk_free_fraction: Option<f64>,
+    /// The root filesystem (`/`): its size, the bytes in use and the bytes free to the work
+    /// user (`disk_usage.rs`). The disk cmux Cloud grows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_total_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_used_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_free_bytes: Option<u64>,
+    /// The last split of the root's used bytes into system, project and caches, at most
+    /// `disk_usage::WALK_EVERY` old once a walk has run (`disk_usage.rs`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disk_split: Option<crate::disk_usage::DiskSplit>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub busy: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -345,13 +364,19 @@ async fn daemon_status() -> Option<serde_json::Value> {
 fn read_host() -> Load {
     let mut load = Load::default();
     disk(&mut load);
+    if let Some(root) = crate::disk_usage::statvfs(std::path::Path::new("/")) {
+        load.root_total_bytes = Some(root.total);
+        load.root_used_bytes = Some(root.used);
+        load.root_free_bytes = Some(root.free);
+    }
+    load.disk_split = crate::disk_usage::split_for_sample();
     #[cfg(target_os = "linux")]
     linux(&mut load);
     load
 }
 
 #[cfg(unix)]
-fn disk(load: &mut Load) {
+pub(crate) fn disk(load: &mut Load) {
     use std::os::unix::ffi::OsStrExt;
     let Some(home) = std::env::var_os("HOME") else { return };
     let Ok(path) = std::ffi::CString::new(home.as_bytes()) else { return };
@@ -369,7 +394,7 @@ fn disk(load: &mut Load) {
 }
 
 #[cfg(not(unix))]
-fn disk(_: &mut Load) {}
+pub(crate) fn disk(_: &mut Load) {}
 
 #[cfg(target_os = "linux")]
 fn linux(load: &mut Load) {
