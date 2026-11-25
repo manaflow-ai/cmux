@@ -34,6 +34,7 @@ mod run;
 mod scheduler;
 mod state;
 mod terminal;
+mod turn_fold;
 pub use run::run;
 
 /// Make this process's acpmux CLI open sessions in this terminal UI (`acpmux::tui_entry::run`).
