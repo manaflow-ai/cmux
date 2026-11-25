@@ -498,11 +498,28 @@ async fn a_prompt_waiting_on_a_held_turn_lock_is_answered_queued_by_its_due_time
 /// next page is late, the same delivery can be retried without losing those numbers.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn admission_deadline_during_journal_restore_allows_same_id_after_restore() {
+    check_admission_while_restoring(false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn admission_deadline_during_deferred_setup_cannot_queue_into_a_parked_journal() {
+    check_admission_while_restoring(true).await;
+}
+
+async fn check_admission_while_restoring(hold_setup: bool) {
     let (hub, s) = chat().await;
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (_release, release_rx) = tokio::sync::oneshot::channel();
+    if hold_setup {
+        *hub.prompt_admission_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    }
     s.restoring.store(true, Ordering::SeqCst);
     hub.park_writes(&s, 17);
     let (tx, accepted) = tokio::sync::oneshot::channel();
     let run = prompt(&hub, &s, "recover", "after the restore", tx);
+    if hold_setup {
+        tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+    }
     let bound = super::prompt_admission::ANSWER_BOUND + Duration::from_secs(2);
     let refusal =
         tokio::time::timeout(bound, run).await.expect("bounded restore wait").unwrap().unwrap_err();
