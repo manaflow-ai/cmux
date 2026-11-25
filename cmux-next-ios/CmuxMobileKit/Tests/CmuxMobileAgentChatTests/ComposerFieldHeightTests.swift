@@ -58,6 +58,24 @@ import UIKit
         #expect(rule.lines(contentHeight: 0) == 1)
     }
 
+    @Test func attachmentsShareTheExactCapWithoutMovingTheContentEdge() {
+        for line: CGFloat in [17, 22, 40] {
+            let sizing = ComposerFieldHeight(lineHeight: line, verticalInset: 6)
+            for count in [1, 5, 6, 20] {
+                let content = CGFloat(count) * line + 6
+                let plain = sizing.height(contentHeight: content)
+                let field = sizing.height(contentHeight: content, reserve: 68)
+                let overlap = sizing.stripOverlap(contentHeight: content, reserve: 68)
+                #expect(field >= sizing.minHeight)
+                #expect(field + 68 <= sizing.maxHeight)
+                #expect(abs(field + 68 - overlap - plain) < 0.001)
+            }
+        }
+        #expect(rule.height(contentHeight: 126, reserve: 0) == 126)
+        #expect(rule.stripOverlap(contentHeight: 126, reserve: 0) == 0)
+        #expect(rule.height(contentHeight: 126, reserve: 500) == rule.minHeight)
+    }
+
     @Test func heightNeverShrinksAsLinesAreAdded() {
         var last: CGFloat = 0
         for lines in 1...20 {

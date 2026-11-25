@@ -187,6 +187,7 @@ struct TerminalComposer: View {
         ComposerCard(look: look.card, lineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight) {
             if !model.attachments.isEmpty {
                 AttachmentStrip(model: model)
+                    .frame(height: ComposerHeightCap.stripHeight, alignment: .top)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         } leading: {
@@ -211,7 +212,8 @@ struct TerminalComposer: View {
                 shouldInsert: { model.composerShouldInsert($0) },
                 onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil,
                 autocorrect: autocorrect,
-                reservedTop: model.attachments.isEmpty ? 0 : ComposerCardMetrics.attachmentStripHeight
+                stripReserve: ComposerHeightCap.stripReserve(hasAttachments: !model.attachments.isEmpty),
+                fieldRef: model.composerField
             )
         } trailing: {
             HStack(spacing: 0) {
