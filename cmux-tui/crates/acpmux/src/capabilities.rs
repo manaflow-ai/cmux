@@ -594,6 +594,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // A turn's before and after picture of the chat's page, for its edited-files card
     // (`hub/turn_shots.rs`).
     Capability { id: "turn-shots-v1", wire: &[method::MUX_TURN_SHOTS] },
+    // A turn's frames of the chat's page as it formed, for the frames strip and the live preview
+    // window (`hub/turn_frames.rs`, RFD 0151).
+    Capability { id: "turn-frames-v1", wire: &[method::MUX_TURN_FRAMES] },
     // `acp.session.fork` with `subagentId` (a subagent's own conversation as a chat of its own),
     // `mode`, and `model` without `harness` (`hub/fork_subagent.rs`).
     Capability { id: crate::hub::fork_subagent::CAPABILITY, wire: &[method::ACP_SESSION_FORK] },
