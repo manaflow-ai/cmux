@@ -261,6 +261,7 @@
     "service:daemon",
     "service:echo",
     "service:file",
+    "service:lan",
     "service:machine",
     "service:upload",
     "service:version"

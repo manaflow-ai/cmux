@@ -62,9 +62,9 @@ x25519-dalek.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+cmux-fault.workspace = true
 cmux-mobile-host = { path = "../cmux-mobile-host" }
 cmux-wire-lockstep.workspace = true
 cmux-mobile-link = { path = ".", features = ["testing"] }
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber.workspace = true
-cmux-fault.workspace = true

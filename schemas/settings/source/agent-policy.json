@@ -332,6 +332,7 @@
         "ui.reducedBackgrounds",
         "appearance.agentGlow",
         "appearance.experimentalControls",
+        "appearance.glassControls",
         "appearance.settingsBetaChips",
         "app.uiScale",
         "appearance.glassTransparency",
@@ -530,7 +531,8 @@
       "agent": "settable",
       "keys": [
         "labs.previewFeatures",
-        "labs.appStore"
+        "labs.appStore",
+        "labs.commentThreads"
       ]
     },
     {
@@ -559,6 +561,7 @@
         "experiments.terminalAgentMark",
         "experiments.menuStyleV2",
         "experiments.menuRowStates",
+        "experiments.composerHatGroups",
         "experiments.toastsV2",
         "experiments.foldSummaryCounts",
         "experiments.terminalHistoryFind",
@@ -868,6 +871,7 @@
         "agentPane.display.width",
         "agentPane.display.fullWidth",
         "agentPane.display.vscodeMinimap",
+        "agentPane.display.chatListStatusPills",
         "agentPane.display.headerBreadcrumb",
         "agentPane.display.pinnedPlan",
         "agentPane.display.environmentCard",
@@ -1026,6 +1030,29 @@
         "home.bubbleColors.sentText",
         "home.bubbleColors.received",
         "home.bubbleColors.receivedText"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Menu and popover look (theme files and look packs set them); looks only, ends no work.",
+      "keys": [
+        "appearance.menu.cornerRadius",
+        "appearance.menu.borderOpacity",
+        "appearance.menu.shadow",
+        "appearance.menu.fill",
+        "appearance.menu.padding",
+        "appearance.menu.highlightRadius",
+        "appearance.menu.rowHeight",
+        "appearance.menu.shortcuts",
+        "appearance.menu.sectionLabel",
+        "appearance.menu.separator",
+        "appearance.menu.destructiveInk",
+        "appearance.menu.submenu",
+        "appearance.menu.subtitle",
+        "appearance.popover.padding",
+        "appearance.popover.header",
+        "appearance.popover.progressHeight",
+        "appearance.popover.progressFill"
       ]
     },
     {
