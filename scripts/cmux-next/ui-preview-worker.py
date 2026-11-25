@@ -94,12 +94,14 @@ SWIFT_SCENES = {
 }
 SHELL_LINKED = {"CmuxNextUiLayerPreview", "CmuxNextSettings", "CmuxNextCompat"}
 WEB_CAP = 4
-# Both trees are whole but for the iOS app (0.5 of the tree's 1.35 GB, read by neither build). An allow-list drifts
-# out from under the builds: the shell's settings plugin came to run scripts/cmux-next/gen-settings-sources.py and
-# webviews' postinstall came to read release-notes/next/highlights, and every look failed on a file not checked out.
-TREE_SPARSE = ("/*", "!/cmux-next-ios/")
-SWIFT_SPARSE = TREE_SPARSE
-WEB_SPARSE = TREE_SPARSE
+# The Swift tree is whole but for the iOS app (0.5 of the tree's 1.35 GB, read by no macOS build). An allow-list drifts
+# out from under the builds: the shell's settings plugin came to run scripts/cmux-next/gen-settings-sources.py, and
+# every look failed on a file not checked out.
+SWIFT_SPARSE = ("/*", "!/cmux-next-ios/")
+# The web tree: everything but the large folders no web file imports. A hand list of folders drifted: bun install's
+# postinstall reads release-notes/ and schemas/, protocol:codegen the acpmux IR, gallery entries fixtures under
+# Packages/ and cmux-tui/crates/, the model catalog under web/data/; each missing one failed every web look.
+WEB_SPARSE = ("/*", "!/cmux-next-ios/", "!/ghostty/", "!/ghostty-next/")
 GALLERY_PORT = 4217
 KEEP_H = 36
 # Bounds, seconds.
