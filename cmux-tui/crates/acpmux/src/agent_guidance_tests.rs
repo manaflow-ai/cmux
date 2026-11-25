@@ -21,6 +21,7 @@ fn families_get_their_own_guidance() {
         "acpmux_wrap_up",
         "acpmux pr-wait",
         "cmux:cmux-quota",
+        "cmux:cmux-ui-preview",
         // A stale list never lingers (design/chat-plan-lifecycle.md).
         "rewrite or clear it",
         "no standing duties",

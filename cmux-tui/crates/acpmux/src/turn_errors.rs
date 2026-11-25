@@ -200,6 +200,14 @@ pub fn transient_cause(error: &str) -> Option<&'static str> {
     }
 }
 
+/// Whether `error` says the disk was full: `ENOSPC`, "No space left on device (os error 28)".
+pub fn is_disk_full(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    lower.contains("no space left on device")
+        || lower.contains("os error 28")
+        || lower.contains("enospc")
+}
+
 /// A process exit needs its stderr-enriched explanation; transport errors keep their raw cause.
 pub(crate) fn continuation_error<'a>(raw: Option<&'a str>, shown: &'a str) -> &'a str {
     match raw {
@@ -226,6 +234,11 @@ pub fn resume_cause(raw: &str, shown: &str) -> Option<&'static str> {
         || crate::recovery::auth_kind(shown).is_some()
     {
         return None;
+    }
+    // A full disk clears by itself (a build's output reclaimed, a cache pruned): the chat waits
+    // for free space, then goes on (`hub/auto_resume/disk_wait.rs`).
+    if is_disk_full(raw) || is_disk_full(shown) {
+        return Some("disk");
     }
     // Before the refused requests: a prompt past the window is a 400 that compacting answers.
     if is_context_overflow(raw) || is_context_overflow(shown) {

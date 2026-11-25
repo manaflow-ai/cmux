@@ -234,6 +234,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         return recorder
     }()
+    /// Session output bytes Ghostty parsed: each presented frame's painted-through offset (`painted`).
+    private var parsedBytes = 0
     /// A tap in a full-screen app: a click when the app asked for the mouse,
     /// and it focuses the terminal (not a tap that stops a fling).
     lazy var tuiTap = UITapGestureRecognizer(target: self, action: #selector(tuiTapped(_:)))
@@ -862,6 +864,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         surface.onPresent = { [weak self] in
             guard let self else { return }
             self.measured("present") { self.surfacePresented() }
+            self.panFrames.painted(self.parsedBytes)
             #if DEBUG
             self.rttLog.presented()
             #endif
@@ -2412,6 +2415,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// Ghostty parsed a batch (`raw` session bytes).
     private func outputProcessed(_ raw: Int) {
+        parsedBytes += raw
         pacer.finished()
         paintParsed += raw
         // A full-screen app taller than the phone (the Mac's rows as of the
