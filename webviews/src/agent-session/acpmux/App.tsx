@@ -10516,7 +10516,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     </Notice>
   );
   // The composer's status dot says the quiet recovery below instead, once mounted (composerStatusStore.ts).
-  usePublishHostRecovery(restartingAcpmux ? undefined : { linkDown, restoring: hostRestoring, failureShown: hostErrorSaid });
+  usePublishHostRecovery(
+    restartingAcpmux ? undefined : { linkDown, restoring: hostRestoring, failureShown: hostErrorSaid },
+  );
   // While the pane gets its chat back on its own, one quiet line says so: "Restoring sessions…"
   // while the host says acpmux restores, "Reconnecting…" while the link is down for real (`linkDown`).
   // A Restart acpmux in flight keeps its own line.
