@@ -1276,7 +1276,13 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// The tab's last-known picture (nil: signed out, or no workspace yet).
     func snapshotEntry(_ tabID: String) -> TabSnapshotEntry? {
         guard let macID = (workspaceSnapshot ?? listedWorkspace)?.macID else { return nil }
-        return snapshots.key(macID: macID, tabID: tabID).map { snapshots.entry($0) }
+        return snapshots.key(macID: macID, tabID: tabID).map { key in
+            let entry = snapshots.entry(key)
+            // A card built for a picture the cache let go (a memory warning, the oldest of many tabs, a tab
+            // past the first read) asks the disk again: its picture comes back, never a blank card.
+            if entry.image == nil { snapshots.warm([key]) }
+            return entry
+        }
     }
 
     /// Reads one tab's last-known picture from disk if it is not in memory (a card appearing).
@@ -2553,7 +2559,15 @@ struct WorkspaceTabPage: View {
                 .onAppear {
                     source.remember(context.safeAreaInsets, pageSize: context.pageSize)
                     source.pageAppeared(tabID)
+                    ScreenSharingOrientation.shared.tabPage(tabID, shows: context.isOnPage)
                 }
+                // Every tab page turns with the phone while it is full screen (Leo, 2026-11-23:
+                // "why do we not have a horizontal mode?"): a swipe to a browser or chat tab,
+                // or an address-bar edit, keeps the phone sideways; the tab grid is portrait.
+                .onChange(of: context.isOnPage) { _, onPage in
+                    ScreenSharingOrientation.shared.tabPage(tabID, shows: onPage)
+                }
+                .onDisappear { ScreenSharingOrientation.shared.tabPage(tabID, shows: false) }
         }
     }
 
@@ -2793,9 +2807,11 @@ struct WorkspaceTabCard: View {
                     if model.snapshot == nil, lastKnown == nil,
                        monograms, SiteMonogram.letter(tab.url?.host()) != nil {
                         SiteMonogramFace(host: tab.url?.host())
+                            .modifier(TabCardFaceRecord(tabID: tab.id, face: "placeholder"))
                     } else {
                         // Laid out as its page is: the card covers an opening page (`isContentReady`).
                         StreamedBrowserCard(model: model, insets: insets, lastKnown: lastKnown?.cgImage)
+                            .modifier(TabCardFaceRecord(tabID: tab.id, face: model.snapshot != nil ? "snapshot" : lastKnown != nil ? "lastKnown" : "placeholder"))
                     }
                 } else {
                     // The tab's model only if its page was shown: a card never makes a web view.
@@ -2804,14 +2820,17 @@ struct WorkspaceTabCard: View {
                 }
             case .simulator:
                 if let model = source.simulator(tab) {
-                    StreamedBrowserCard(model: model, fit: true,
-                                        lastKnown: source.snapshotEntry(tab.id)?.image?.cgImage)
+                    let lastKnown = source.snapshotEntry(tab.id)?.image
+                    StreamedBrowserCard(model: model, fit: true, lastKnown: lastKnown?.cgImage)
+                        .modifier(TabCardFaceRecord(tabID: tab.id, face: model.snapshot != nil ? "snapshot" : lastKnown != nil ? "lastKnown" : "placeholder"))
                 } else if let image = source.snapshotEntry(tab.id)?.image {
                     ZStack { Color.black; Image(uiImage: image).resizable().interpolation(.medium).scaledToFit() }
                         .accessibilityHidden(true)
+                        .modifier(TabCardFaceRecord(tabID: tab.id, face: "lastKnown"))
                 } else {
                     // No picture yet: the card's background, never a stand-in glyph.
                     Color.cmuxMobileBackground
+                        .modifier(TabCardFaceRecord(tabID: tab.id, face: "placeholder"))
                 }
             }
     }
