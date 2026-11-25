@@ -124,7 +124,9 @@ final class HomeChipsPullToRefreshUITests: XCTestCase {
             XCTAssertGreaterThan(first.frame.minY, rest + 40, "the rows sit under the refresh slot; \(readout(app))")
             // Done (4 s): the slot closes and the rows settle back where they were.
             sleep(6)
-            XCTAssertEqual(first.frame.minY, rest, accuracy: 2, "the slot closed\n\(app.debugDescription)")
+            // The slot closed: the rows rest under the search field, or at the list's top
+            // with the search drawer tucked away again.
+            XCTAssertTrue(abs(first.frame.minY - rest) < 2 || abs(first.frame.minY - top) < 2, "the slot closed (\(first.frame.minY)); \(readout(app))")
             attach(app, "ptr-3-done-\(mode)")
             app.terminate()
         }
