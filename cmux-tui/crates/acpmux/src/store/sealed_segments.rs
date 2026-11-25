@@ -54,7 +54,7 @@ impl LocalStore {
     /// into place ([module docs](self)); how many it put back. Under the cold lock, so no
     /// archive or rehydrate of the chat runs meanwhile; refused once the store is sealed.
     pub(super) fn thaw_sealed(&self, id: &str) -> Result<usize> {
-        let _cold = self.cold.lock_or_recover();
+        let _cold = self.cold.lock(id);
         let _sealed = self.unsealed(id)?;
         let events = self.dir(id).join("events");
         crate::config::refuse_lost_home(&events)?;

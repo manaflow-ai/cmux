@@ -2,8 +2,9 @@
  * wallpapers (plans/cmux-next/live-wallpapers.md). The first-party set with
  * its Metal translated at build time (no shader compiler), the manifest check, the
  * draw scheduler, the Frame uniform packer (CMUX_WALLPAPER_FRAME_FLOATS floats), and the pointer's, its trail's and
- * agent activity's smoothing. No globals; results that own strings have their own free
- * function. cmux_wallpaper_abi_version() returns ABI_VERSION (src/wallpaper.rs). */
+ * agent activity's smoothing, and motion scenes' player (an opaque handle that packs the
+ * 2048-byte Scene block; plans/cmux-next/motion-scenes.md). No globals; results that own
+ * strings and handles have their own free function. cmux_wallpaper_abi_version() returns ABI_VERSION (src/wallpaper.rs). */
 
 #ifndef CMUX_WALLPAPER_FFI_H
 #define CMUX_WALLPAPER_FFI_H
@@ -32,6 +33,15 @@
 #define CMUX_WALLPAPER_TRAIL_FLOATS 64
 
 /*
+ A motion scene running in one backdrop: its keyframes and its physics
+ world. Made by `cmux_wallpaper_scene_new` or
+ `cmux_wallpaper_scene_new_first_party`, freed by `cmux_wallpaper_scene_free`.
+ Not thread-safe: use one handle from one thread at a time (the view's main
+ thread).
+ */
+typedef struct CmuxWallpaperScene CmuxWallpaperScene;
+
+/*
  The result of `cmux_wallpaper_validate_manifest`; free it with
  `cmux_wallpaper_manifest_result_free`. On success `json` is the manifest
  with every optional key filled in (params' titles, variants' themes); on
@@ -50,7 +60,9 @@ typedef struct {
  timer), for `hold_reason`: 1 occluded, 2 covered, 3 minimized, 4 app
  hidden, 5 screens asleep, 6 session inactive, 7 Low Power Mode, 8 thermal,
  9 Reduce Motion, 10 animations off, 11 too heavy (mark it in the picker),
- 12 idle; with `draw_one`, draw one frame at `scale` first (the view has
+ 12 idle, 13 a motion scene at rest (ask again after a pointer move or a
+ press has gone through `cmux_wallpaper_scene_evaluate`); with `draw_one`,
+ draw one frame at `scale` first (the view has
  none yet). `run` true: draw every `interval_s` seconds (`fps`, the display
  link's preferred rate) at backing scale `scale`; `hold_reason` is 0. When
  `scale` differs from the input's, set the strikes to 0.
@@ -132,6 +144,11 @@ typedef struct {
      The manifest's `idle_after` in seconds; 0 means the default (20).
      */
     double idle_after_s;
+    /*
+     A motion scene at rest (`cmux_wallpaper_scene_at_rest`); false for a
+     program wallpaper.
+     */
+    bool at_rest;
 } CmuxWallpaperScheduleInput;
 
 /*
@@ -502,5 +519,108 @@ float cmux_wallpaper_activity_since_event(const CmuxWallpaperActivity *state, do
  `state` is null or points to a valid `CmuxWallpaperActivity`.
  */
 bool cmux_wallpaper_activity_settled(const CmuxWallpaperActivity *state, double t);
+
+/*
+ A scene player for a wallpaper's `wallpaper.json` (which names `scene` or
+ `lottie`) and that file's bytes. Null when either is refused; then, when
+ `error` is not null, `*error` is the reason (a JSON pointer, a colon and
+ the message), freed with `cmux_wallpaper_string_free`. On success `*error`
+ is set to null. Free the handle with `cmux_wallpaper_scene_free`.
+
+ # Safety
+ `manifest_json` and `scene` are null or point to their lengths' readable
+ bytes; `error` is null or points to a writable `char *`.
+ */
+CmuxWallpaperScene *cmux_wallpaper_scene_new(const uint8_t *manifest_json,
+                                             size_t manifest_len,
+                                             const uint8_t *scene,
+                                             size_t scene_len,
+                                             char **error);
+
+/*
+ A scene player for first-party wallpaper `index` (`cmux_wallpaper_first_party_*`
+ order) from the scene bytes embedded in the library. Null when that
+ wallpaper is not a scene or the index is past the count. Free it with
+ `cmux_wallpaper_scene_free`.
+ */
+CmuxWallpaperScene *cmux_wallpaper_scene_new_first_party(size_t index);
+
+/*
+ Frees a scene player. Null is a no-op.
+
+ # Safety
+ `scene` is null or a handle `cmux_wallpaper_scene_new*` returned, not yet freed.
+ */
+void cmux_wallpaper_scene_free(CmuxWallpaperScene *scene);
+
+/*
+ Frees a string this library returned through an out-parameter
+ (`cmux_wallpaper_scene_new`'s `error`). Null is a no-op.
+
+ # Safety
+ `text` is null or such a string, not yet freed.
+ */
+void cmux_wallpaper_string_free(char *text);
+
+/*
+ The floats in the Scene block (`cmux_wallpaper_scene_evaluate` writes this
+ many: 512, 2048 bytes, fragment buffer 1). Size the buffer from this.
+ */
+uint32_t cmux_wallpaper_scene_floats(void);
+
+/*
+ Steps the scene's physics to `now` (the host's monotonic clock in
+ seconds, `CACurrentMediaTime`, the pointer's clock: a double, so the fixed
+ step stays exact after hours), with the pointer and button in `input`,
+ and writes the Scene block for `input` (its keyframes at `input->time`)
+ to `out`. Call it once per drawn frame, with the same `input` as
+ `cmux_wallpaper_frame_pack`; while the view holds at rest, call it on each
+ press, release and pointer move (no draw): a press on a draggable body
+ wakes the physics, and the button's edges are seen only through these
+ calls. Then ask `cmux_wallpaper_scene_at_rest` and the scheduler again.
+ False, and nothing written, when a pointer is null or `out_len` is below
+ `cmux_wallpaper_scene_floats()`.
+
+ # Safety
+ `scene` is null or a live handle not used on another thread meanwhile;
+ `input` is null or points to a valid `CmuxWallpaperFrameInput`; `out` is
+ null or points to `out_len` writable floats.
+ */
+bool cmux_wallpaper_scene_evaluate(CmuxWallpaperScene *scene,
+                                   const CmuxWallpaperFrameInput *input,
+                                   double now,
+                                   float *out,
+                                   size_t out_len);
+
+/*
+ True when nothing on screen changes without input: no keyframes, and the
+ physics, if any, asleep. The scheduler's `at_rest`. True for null.
+
+ # Safety
+ `scene` is null or a live handle.
+ */
+bool cmux_wallpaper_scene_at_rest(const CmuxWallpaperScene *scene);
+
+/*
+ True when the scene shows the image slot (`badge`: the person's avatar and
+ name): bind that image at fragment texture 0. False for null.
+
+ # Safety
+ `scene` is null or a live handle.
+ */
+bool cmux_wallpaper_scene_has_image(const CmuxWallpaperScene *scene);
+
+/*
+ The scene engine program in Metal Shading Language 2.1, translated when the
+ library was built: one program draws every scene. `vertex vs_main`,
+ `fragment fs_main`, the Frame uniform at buffer 0 in both, the Scene block
+ at fragment buffer 1, the image at fragment texture 0 and its sampler at
+ fragment sampler 0. Static UTF-8 bytes (not NUL-terminated, never freed),
+ their count in `*len`; null and 0 when this library carries no engine.
+
+ # Safety
+ `len` is null or points to a writable `size_t`.
+ */
+const uint8_t *cmux_wallpaper_scene_engine_msl(size_t *len);
 
 #endif  /* CMUX_WALLPAPER_FFI_H */

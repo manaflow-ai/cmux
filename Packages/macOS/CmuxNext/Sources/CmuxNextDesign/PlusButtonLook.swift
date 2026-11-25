@@ -178,7 +178,7 @@ public final class PlusButtonLook {
         // by its own short side at the tabs' ratio (Lucas 2026-11-15: one shape at every density).
         let corner = hoverStyle == .circle && !showsChevron && !split ? side / 2 // radius-allow: the opt-in circle hover look
             : roundsAsTabBarControl ? Metrics.tabBarControlCornerRadius(fitting: fill.size)
-            : split ? Metrics.buttonCornerRadius(proportionalTo: min(TitlebarBandButton.side, Metrics.tabHeight))
+            : split ? Metrics.buttonCornerRadius(proportionalTo: Metrics.tabBarControlSide)
             : Metrics.buttonCornerRadius(proportionalTo: min(fill.width, fill.height))
         let corners: CACornerMask = split ? [.layerMinXMinYCorner, .layerMinXMaxYCorner] : allCorners
         // In the split look the + leans half a step toward its ⌄, which leans back, so the pair reads as one control.

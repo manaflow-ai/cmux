@@ -220,6 +220,7 @@ export const navItems: NavEntry[] = [
       { titleKey: "nextCli", href: "/docs/next/cli", locales: baseDocsLocales },
       { titleKey: "nextMcp", href: "/docs/next/mcp", locales: baseDocsLocales },
       { titleKey: "nextSettings", href: "/docs/next/settings", locales: baseDocsLocales },
+      { titleKey: "nextNetwork", href: "/docs/next/network-requirements", locales: baseDocsLocales },
     ],
   },
   { titleKey: "changelog", href: "/docs/changelog" },

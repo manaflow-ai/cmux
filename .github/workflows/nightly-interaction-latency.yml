@@ -48,6 +48,7 @@ jobs:
       - name: Test the planner
         run: python3 -I tests/test_ci_nightly_interaction_latency.py
 
+      # An unread state stops the job (after retries): the plan and the state are never written from nothing.
       - name: Read the last state
         env:
           GH_TOKEN: ${{ github.token }}
@@ -62,12 +63,18 @@ jobs:
             --head "$GITHUB_SHA" --before "$BEFORE" --out "$RUNNER_TEMP/plan.json"
           echo "count=$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["run"]))' "$RUNNER_TEMP/plan.json")" >> "$GITHUB_OUTPUT"
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: steps.plan.outputs.count != '0'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         if: steps.plan.outputs.count != '0'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       - name: Install webview dependencies
         if: steps.plan.outputs.count != '0'
@@ -87,7 +94,7 @@ jobs:
 
       # Also after a failed or timed-out bench step: the interactions it did not measure are written stale.
       - name: Write the state
-        if: ${{ always() && !cancelled() }}
+        if: ${{ always() && !cancelled() && steps.plan.outcome == 'success' }}
         env:
           RUNNER_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
         run: |
@@ -95,7 +102,7 @@ jobs:
             --plan "$RUNNER_TEMP/plan.json" --results "$RUNNER_TEMP/results" --out "$RUNNER_TEMP/state" --runner "$RUNNER_LABEL"
 
       - name: Publish the state
-        if: ${{ always() && !cancelled() }}
+        if: ${{ always() && !cancelled() && steps.plan.outcome == 'success' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nightly-interaction-latency

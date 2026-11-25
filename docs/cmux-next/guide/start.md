@@ -8,10 +8,10 @@ This page takes you from nothing to an agent that works for you on a cmux Cloud 
 
 ## Point an agent at this page
 
-The shortest way in. Paste this one line into Claude Code, Codex or any coding agent on your Mac, opened on the folder you want to work on. The agent reads this page and does the rest. It stops only for what you must do yourself: the browser sign-ins and the card that allows a paid machine.
+The shortest way in. Paste this one line into Claude Code, Codex or any coding agent on your Mac, opened on the folder you want to work on. The link is this page as plain Markdown, in the cmux repository, so any agent can read it without signing in. The agent reads it and does the rest. It stops only for what you must do yourself: the browser sign-ins and the card that allows a paid machine.
 
 ```text
-Read https://cmux.com/docs/nightly/next/start.md and follow its "If you are an agent" steps to set up cmux on this Mac and get me a working agent on cmux Cloud. Tell me only what I must do myself.
+Set me up with cmux Cloud: https://raw.githubusercontent.com/manaflow-ai/cmux/feat-cmux-next/docs/cmux-next/start.md (follow its "If you are an agent" steps on this Mac, and tell me only what I must do myself)
 ```
 
 ## If you are an agent
@@ -74,7 +74,7 @@ Start me a chat on cmux Cloud and show me it works: run `cmux whoami`; if I am s
 Open the chats on your Mac from an iPhone, Cloud chats included, and keep them going: read the history, send a message, stop a turn. The phone reaches them through your Mac, so the Mac stays on and signed in. The iPhone app is in beta. Paste this into Chief or any agent chat in cmux on your Mac.
 
 ```text
-Set up the cmux iPhone app with this Mac and get me to a working agent on it: run `cmux settings get mobile.allowIPhoneConnections` and `cmux cloud open-mobile-pairing`. If iPhone connections are off, tell me to turn them on there (only I can). Then tell me to install cmux on my iPhone, sign in there with the same cmux account, and allow the phone on this Mac when it asks. When I say the phone is paired, run `cmux chat --on vm --harness claude --prompt 'Say hello in one sentence.' --wait --json`, show me its reply, and tell me to open that chat on the phone and send it one message. Then read the chat and show me the agent's answer to what I sent.
+Set up the cmux iPhone app with this Mac and get me to a working agent on it: run `cmux settings get mobile.allowIPhoneConnections` and `cmux cloud open-mobile-pairing` (it opens Settings > Accounts > iPhone). iPhone connections are on by default; if they are off, tell me to turn them on there (only I can). Then tell me to install cmux on my iPhone and sign in there with the same cmux account: this Mac shows up on the phone by itself, and I allow the phone on this Mac when it asks. When I say the phone is paired, run `cmux chat --on vm --harness claude --prompt 'Say hello in one sentence.' --wait --json`, show me its reply, and tell me to open that chat on the phone and send it one message. Then read the chat and show me the agent's answer to what I sent.
 ```
 
 The phone is working when the message you sent from it gets an answer in that chat.

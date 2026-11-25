@@ -2,8 +2,9 @@
 // The composer's corner and its hat's (the running tray over it), three ways (ask-2351b8cf41,
 // Leo 2026-11-22: "we should consider rounding off our composer and its hat a bit more maybe see
 // chatgpt too"). Each corner is concentric with what sits in the box (composerLocation.css
-// --grid-composer-radius): the selected `large` is half a round control plus the inset (22),
-// `moderate` the + plate's corner plus the inset (16), `pill` half the one-line box (24).
+// --grid-composer-radius): the selected `moderate` is the + chip's corner plus the inset (16, Claude Code's
+// corner; ask-7e26f58612, Leo 2026-11-23: "now the composer is a bit too round i think"), `large` half a round
+// control plus the inset (22), `pill` half the one-line box (24).
 import { agentPaneEntry, type AgentPaneVariant } from "../../gallery/format";
 import { assistant, chat, row, user } from "../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../gallery/clock";
@@ -51,10 +52,8 @@ export default agentPaneEntry({
   widths: { narrow: 420, wide: 1100 },
   covers: ["agent-session/acpmux/composerLocation.css"],
   variants: {
-    large: variant(
-      "Selected: 22, half a round control (the mic, Send) plus the inset; the hat over it takes the same corner.",
-    ),
-    moderate: variant("Alternative: 16, the + plate's 8 corner plus the inset.", "moderate"),
+    moderate: variant("Selected: 16, the + chip's 8 corner plus the inset; the hat over it takes the same corner."),
+    large: variant("Alternative: 22, half a round control (the mic, Send) plus the inset.", "large"),
     pill: variant("Alternative: 24, half the one-line box, so one line is a full pill.", "pill"),
   },
 });

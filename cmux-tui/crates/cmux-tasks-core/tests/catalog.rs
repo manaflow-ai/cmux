@@ -33,6 +33,22 @@ fn every_mutation_entry_round_trips_into_its_op() {
 }
 
 #[test]
+fn every_mutation_ignores_params_a_newer_caller_adds() {
+    for entry in catalog::all().iter().filter(|e| e.class == Class::Mutation) {
+        let mut params = Map::new();
+        for p in entry.params {
+            let value = sample(p.ty);
+            params.insert(p.name.to_owned(), if p.repeated { json!([value]) } else { value });
+        }
+        params.insert("future_field".to_owned(), json!({"from": "a newer caller"}));
+        let wire = json!({"op": entry.name, "params": params});
+        let op: Op = serde_json::from_value(wire.clone())
+            .unwrap_or_else(|e| panic!("{}: {e}: {wire}", entry.name));
+        assert_eq!(op.name(), entry.name);
+    }
+}
+
+#[test]
 fn names_and_cli_paths_are_unique() {
     let mut names = std::collections::BTreeSet::new();
     let mut paths = std::collections::BTreeSet::new();

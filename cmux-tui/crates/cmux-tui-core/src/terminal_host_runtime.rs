@@ -698,6 +698,10 @@ pub use shared::unadoptable::*;
 // name the function `sys::barrier_sync`, and they see each name of this file.
 #[cfg(unix)]
 pub(crate) use sys::barrier_sync as sync_before_rename;
+// The shared directory of this user's host sockets (`/tmp/cmux-th-<uid>`),
+// for the process census's look for sockets no record names.
+#[cfg(unix)]
+pub(crate) use sys::endpoint_dir as terminal_host_endpoint_dir;
 #[cfg(windows)]
 pub(crate) use sys::{HostProcessStartFailed, kill_process_group};
 #[cfg(any(unix, windows))]

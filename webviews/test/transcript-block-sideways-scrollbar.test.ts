@@ -18,7 +18,8 @@
 // Under the scrollbar fade (Lawrence 2026-10-23, msg 11494: "auto-fades away, and grows bigger on
 // near-hover so it's easier to grab"; the agent pane's default, `data-cmux-scroller-fade` on
 // <html>), the same thumb fades like every other scroller: none at rest, shown while the lines
-// scroll sideways, and thicker while the pointer is near the block's bottom edge. Without the fade
+// scroll sideways, and thicker while the pointer is near the shown thumb's bar (hover alone shows
+// nothing, Leo 2026-11-22). Without the fade
 // (a page that never sets it, such as the guest page) it stays at rest, as above.
 //
 // Before: the diff's thumb was transparent until the rows scrolled, the output had the engine's
@@ -408,7 +409,7 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
         });
 
       for (const block of fading)
-        test(`${block.variant}: under the scrollbar fade, no thumb at rest, one while it scrolls, thicker near its bar`, async () => {
+        test(`${block.variant}: under the scrollbar fade, no thumb at rest or hovered, one while it scrolls, thicker near its bar`, async () => {
           const page = await open(engine, block);
           try {
             await page.evaluate(() => document.documentElement.setAttribute("data-cmux-scroller-fade", ""));
@@ -424,26 +425,54 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
             await painted(page);
             const scrolling = await thumb(page, await measure(page, block));
             const thin = await thickness(page, await measure(page, block));
-            await boxMark(page, block, "data-cmux-scrolling", false);
-            await faded(page, block);
-            await painted(page);
-            const rested = await thumb(page, await measure(page, block));
-            // The pointer comes down to the bar.
+            // The pointer comes down to the bar while the thumb shows: it widens.
             await page.mouse.move(box.left + box.width / 2, box.bottom - 3, { steps: 4 });
             await boxMark(page, block, "data-cmux-scroller-near", true);
             await painted(page);
             const near = await thumb(page, await measure(page, block));
             const wide = await thickness(page, await measure(page, block));
+            // It leaves, the scroll ends, the thumb fades out.
+            await page.mouse.move(box.left + box.width / 2, box.bottom - box.lane - 24, { steps: 4 });
+            await boxMark(page, block, "data-cmux-scroller-near", false);
+            await boxMark(page, block, "data-cmux-scrolling", false);
+            await faded(page, block);
+            await painted(page);
+            const rested = await thumb(page, await measure(page, block));
+            // At rest the pointer on the bar alone shows nothing (Leo 2026-11-22: "hovering only
+            // doesnt show").
+            await page.mouse.move(box.left + box.width / 2, box.bottom - 3, { steps: 4 });
+            await painted(page);
+            await painted(page);
+            const hovered = await thumb(page, await measure(page, block));
+            const hoverNear = await page.evaluate(({ scroller, shadow }) => {
+              const body = document.querySelector(scroller)!;
+              const box = shadow
+                ? [...body.querySelectorAll("*")]
+                    .map((element) => element.shadowRoot?.querySelector("[data-code]"))
+                    .find(Boolean)
+                : body;
+              return box?.hasAttribute("data-cmux-scroller-near") ?? false;
+            }, block);
             console.log(
-              `${engine} ${block.variant} fade: ${JSON.stringify({ rest, scrolling, rested, near, thin, wide })}`,
+              `${engine} ${block.variant} fade: ${JSON.stringify({ rest, scrolling, rested, hovered, near, thin, wide })}`,
             );
             expect({
               rest: rest.thumb,
               scrolling: scrolling.thumb,
               rested: rested.thumb,
+              hovered: hovered.thumb,
+              hoverNear,
               near: near.thumb,
               thicker: wide > thin,
-            }).toEqual({ rest: false, scrolling: true, rested: false, near: true, thicker: true });
+            }).toEqual({
+              rest: false,
+              scrolling: true,
+              rested: false,
+              hovered: false,
+              hoverNear: false,
+              near: true,
+              thicker: true,
+            });
           } finally {
             await page.close();
           }
