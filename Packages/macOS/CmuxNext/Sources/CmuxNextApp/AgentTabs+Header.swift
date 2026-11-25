@@ -14,7 +14,10 @@ extension AgentTabStore {
         let watch = AgentChatHeaderWatch(state: { [weak self] in
             guard let self else { return AgentPaneHeaderState() }
             let chat = resolve(provisional, machine: scoped.machine)
-            return toggles.headerState(chat: chat, store: record(for: resolvedKey(scoped))?.store, pullRequest: gitLinkScoped?(resolvedKey(scoped))?.isLocal == true ? pullRequest : nil)
+            var state = toggles.headerState(chat: chat, store: record(for: resolvedKey(scoped))?.store, pullRequest: gitLinkScoped?(resolvedKey(scoped))?.isLocal == true ? pullRequest : nil)
+            state.placeData = placeState(resolvedKey(scoped)) // read here, so every step of a move pushes
+            state.evacuateData = evacuateState()
+            return state
         }, push: { [weak self] state in
             guard let view = self?.existingView(provisional, machine: scoped.machine) else { return }
             AgentPaneHeaderState.push(state, to: view)
@@ -99,7 +102,7 @@ extension AgentTabStore {
             // openOnRight decides again in its turn (RightColumnTurns): the decision that placed it is the one passed to created.
             place: { [weak self] chat, _, created, finished in self?.openOnRight(of: chat, machine: machine, origin: focus ? .user : .script, open: { [weak self] pane, daemon, split in guard let self else { throw CancellationError() }; let tab = try open(in: pane, of: daemon, session: session, split: split); revealTurn(AgentSubagentPanes.reveal(agent), in: tab.key, machine: daemon.machineID); return tab }, // the reveal is on the tab before its first show (view(for:) adopts the spare from it), not once the store answered
                 created: { [weak self] key, decision in let scoped = AgentTabKey(machine: machine ?? "", key: key); created(key); SubagentTabTitles.shared.bind(agent, of: session, toTab: key) { [weak self] in self?.locateScoped(AgentTabKey(machine: scoped.machine, key: $0)) != nil }; if case .tab(.some) = decision, !focus { self?.selectInPaneScoped(scoped) } }, finished: finished) ?? false },
-            column: { [weak self] in self?.rightColumnScoped(self?.tabKey($0, machine: machine) ?? AgentTabKey(machine: "", key: $0)) ?? .init() }, again: { [weak self] request in _ = self?.openSubagent(request.agent, of: session, focus: request.focus, asked: request.asked, beside: request.chat, machine: machine) })) }
+            column: { [weak self] in self?.rightColumnScoped(self?.tabKey($0, machine: machine) ?? AgentTabKey(machine: "", key: $0)) ?? .init() }, again: { [weak self] request in _ = self?.openSubagent(request.agent, of: session, focus: request.focus, asked: request.asked, beside: request.chat, machine: machine) }, watchUser: AgentSubagentPanes.watchUser)) }
 
     /// A subagent's line under a chat row in the sidebar: opens `agent`'s pane beside chat tab `tab` with focus, through
     /// the tracker the chat's own subagent cards use (``openSubagent(_:of:focus:asked:beside:machine:)``). False when the

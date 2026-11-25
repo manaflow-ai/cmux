@@ -14,6 +14,7 @@ import time
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "cmux-next"))
 from bench_launch import BenchApp  # noqa: E402
+import live_apply  # noqa: E402
 
 VIEW = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift")
 ORIGINAL = "layer?.backgroundColor = nil"
@@ -43,6 +44,14 @@ def pixels(png):
             elif b > 180 and r < 60 and g < 170:
                 blue += 1
     return red, blue
+
+
+def static_verdict(before, after):
+    """live_apply.py's verdict for the VIEW edit from `before` to `after`."""
+    import difflib
+    lines = [("-" if d[0] == "-" else "+", d[1:]) for d in difflib.unified_diff(before.splitlines(), after.splitlines(), n=0, lineterm="")
+             if d[:1] in "+-" and d[:3] not in ("+++", "---")]
+    return live_apply.swift_reasons(lines, False) or "swift-live"
 
 
 def main():
@@ -92,8 +101,8 @@ def main():
             time.sleep(0.05)
         return None
 
-    def patch(generation, old, new, *more):
-        current = open(VIEW).read()
+    def patch(generation, old, new, *more, append=""):
+        current = open(VIEW).read() + append
         for before, after in ((old, new),) + more:
             current = current.replace(before, after)
         with open(VIEW, "w") as f:
@@ -143,6 +152,14 @@ def main():
         # A bad patch (red again, standing in for one a probe fails), then its rollback: blue again.
         result["generations"].append(patch(3, blue, red))
         result["generations"].append(roll_back(4))
+        # Generation 5: the colour comes from a NEW `static let` in an extension and a new file-level `let`
+        # (stored state, but constants: the patch brings its own copy and the app's functions repoint to it).
+        # live_apply.py calls this diff swift-live, not a rebuild (cmux#STATIC_LET).
+        before_static = open(VIEW).read()
+        static_edit = patch(5, red, "layer?.backgroundColor = Self.liveStaticFill",
+                            append="\nextension HomeHostView {\n    static let liveStaticFill: CGColor = liveFileFill\n}\n\nlet liveFileFill: CGColor = NSColor.systemRed.cgColor\n")
+        static_edit["classifier"] = static_verdict(before_static, open(VIEW).read())
+        result["generations"].append(static_edit)
         # Live means the same process all along (cmuxterm-hq#7149 L3: same pid).
         result["same_pid"] = app.process.poll() is None and app.process.pid in app.running_pids()
     finally:
@@ -167,6 +184,14 @@ def main():
         # Red back to where it was before any patch (within 1000 px), not merely less of it.
         and rollback.get("red_px", 0) <= base.get("red_px", 0) + 1000
         and rollback.get("rollback_to_redraw_s", 99) < 2)
+    gen5 = gens.get(5, {})
+    # The new static and file-level constants patch in place: red again, same process, classified swift-live.
+    result["static_let_patched"] = bool(
+        result.get("same_pid")
+        and gen5.get("patch_exit") == 0
+        and gen5.get("classifier") == "swift-live"
+        and gen5.get("red_px", 0) > base.get("red_px", 0) + 1000
+        and gen5.get("red_px", 0) > rollback.get("red_px", 0))
     with open(os.path.join(opts.out, "result.json"), "w") as f:
         json.dump(result, f, indent=2)
     print(json.dumps(result))
@@ -182,7 +207,7 @@ def main():
         if os.path.exists(app.log_path):
             lines = [line for line in open(app.log_path, errors="replace") if "live" in line.lower()]
             print("live-code-app: the app's log lines naming live code:\n" + "".join(lines[-20:]))
-    sys.exit(0 if result["shown"] and result["rolled_back"] else 1)
+    sys.exit(0 if result["shown"] and result["rolled_back"] and result["static_let_patched"] else 1)
 
 
 if __name__ == "__main__":
