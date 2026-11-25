@@ -117,6 +117,7 @@ describe("GitHub token refusals", { timeout: 60_000 }, () => {
     const done = await op(a.session, "integration.complete", { state, code: "c", setup_action: "request" })
     expect(done.body.ok).toBe(false)
     expect(done.body.error.message).toContain("When an owner approves it, choose Connect GitHub in cmux again")
-    expect(gh.calls).toHaveLength(0)
+    // Only who asked is read (github-install-requests.ts): the code exchange and GET /user, no installation.
+    expect(gh.calls.map((c) => c.url)).toEqual(["https://github.com/login/oauth/access_token", "https://api.github.com/user"])
   })
 })

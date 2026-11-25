@@ -122,6 +122,20 @@ export class FeedDO extends OwnerDO<FeedState> {
     return { ok: false, message: rej && rej.t === "reject" ? rej.message : "the feed did not take the request" }
   }
 
+  /**
+   * A team's ConnectionDO posts a notice to this person (a GitHub owner approved their App install request,
+   * integrations/github-install-requests.ts). Same principal as integrationApproval; notices only. Idempotent by `key`.
+   */
+  async integrationNotice(entity: string, team: string, notice: Record<string, unknown>, key: string): Promise<{ ok: true; item: string } | { ok: false; message: string }> {
+    if (notice.type !== "notice") return { ok: false, message: "only notices" }
+    const principal: Principal = { identity: `system:connections:${team}`, kind: "system", user: entity }
+    const res = await this.submit(entity, principal, { t: "op", op: "feed.post", params: notice, idempotency_key: key, origin: "script" })
+    const result = res.frames.find((f) => f.t === "result")
+    if (result && result.t === "result") return { ok: true, item: (result.value as { item: { id: string } }).item.id }
+    const rej = res.frames.find((f) => f.t === "reject")
+    return { ok: false, message: rej && rej.t === "reject" ? rej.message : "the feed did not take the notice" }
+  }
+
   /** The team of the integration approve item `item` (same poster-scope check), or null (cx-3bi.16.12). */
   async integrationItemTeam(entity: string, item: string): Promise<string | null> {
     if (!this.isBound(entity)) return null
