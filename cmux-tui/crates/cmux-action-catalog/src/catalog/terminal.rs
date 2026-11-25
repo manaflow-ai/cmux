@@ -117,6 +117,26 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "terminal paste-last-screenshot",
         ..Action::DEFAULT
     },
+    // Insert Path: a file panel, then the chosen files' and folders' paths, shell-quoted and
+    // space-separated, pasted into the terminal's input, as a drop of those files does. A `path`
+    // argument (action.run, MCP) inserts that path without the panel. Ctrl-Cmd-I in a terminal
+    // only: the browser's View Site Information keeps it there.
+    Action {
+        id: "insertPath",
+        group: GROUP,
+        title: t("ActionCatalog", "action.insertPath", "Insert Path…"),
+        keywords: &["file", "folder", "path", "choose", "browse", "paste"],
+        default_shortcut: Some(Shortcut { key: "i", modifiers: CTRL | CMD }),
+        category: "terminal",
+        symbol: "text.insert",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("liveInput")), context_menu_exemption: Some("liveInput"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::PATH.optional()],
+        requires: &["terminalFocused"],
+        targets: &["pane"],
+        cli_name: "terminal insert-path",
+        ..Action::DEFAULT
+    },
     Action {
         id: "terminal.keep",
         group: GROUP,
