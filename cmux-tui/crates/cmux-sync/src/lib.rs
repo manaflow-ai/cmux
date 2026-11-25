@@ -22,6 +22,8 @@
 //!   beat gossiped through two peers counts once.
 //! - [`truth`]: which replica the phone should believe ("the phone sees whichever is most
 //!   truthful"): the one whose version vector dominates, then the freshest heartbeat.
+//! - [`three_tree`]: two-way file sync decided from local, remote and the revision both last agreed
+//!   on, so the same edits reach the same tree in either order and a delete never beats an edit.
 //!
 //! Nothing here does I/O or reads a clock: the host passes `now` in milliseconds and moves the
 //! [`map::Delta`]s and [`presence::Beat`]s over its own transport, so every rule is tested by
@@ -30,6 +32,7 @@
 pub mod hlc;
 pub mod map;
 pub mod presence;
+pub mod three_tree;
 pub mod truth;
 pub mod vv;
 
