@@ -512,6 +512,7 @@ impl Hub {
         (title, Attempt { model, ms })
     }
 
+    #[cfg(test)]
     pub(super) fn apply_generated_title(
         self: &Arc<Self>,
         session: &Arc<Session>,

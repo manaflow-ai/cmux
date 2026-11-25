@@ -16,6 +16,26 @@ pub struct AppOpenArgs {
     pub options: Vec<String>,
 }
 
+/// `session rebalance`: one pass of the lane rebalancer on this host (`crate::rebalance`).
+#[derive(Args, Debug, Clone, PartialEq, Eq)]
+pub struct RebalanceArgs {
+    /// Say what would move and where, and change nothing.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Move even while the registry's lane_overflow.rebalance.enabled is off.
+    #[arg(long, conflicts_with = "dry_run")]
+    pub force: bool,
+    /// The most sessions this pass moves (the registry's max_moves, else 4).
+    #[arg(long, value_name = "N")]
+    pub max_moves: Option<usize>,
+    /// The longest each move waits for a turn that started meanwhile to end, in seconds.
+    #[arg(long, value_name = "SECS", default_value_t = 60)]
+    pub timeout: u64,
+    /// Move a receipt's session back here (the id a pass printed, in rebalance.jsonl).
+    #[arg(long, value_name = "RECEIPT", conflicts_with_all = ["dry_run", "force", "max_moves"])]
+    pub undo: Option<String>,
+}
+
 /// `session move` (and its flat spelling `move-sessions`): which chats move, and where.
 #[derive(Args, Debug, Clone, PartialEq, Eq)]
 pub struct MoveSessionsArgs {
@@ -341,6 +361,10 @@ pub enum Command {
     /// Print the agent guide: how a script or another agent drives acpmux. Also `guide`, `--guide`, `--skill`.
     #[command(aliases = aliases::SKILL)]
     Skill,
+    /// A sub-agent's job on a fork of this machine: the job JSON on stdin, its frames on
+    /// stdout (`placement/sub_fork_run.rs`; the parent's runner starts it over ssh).
+    #[command(name = "sub-fork-job", hide = true)]
+    SubForkJob,
     /// Execute one authenticated Cloud trigger operation from a JSON stdin envelope.
     #[command(name = "trigger-chat", hide = true)]
     TriggerChat {
@@ -978,6 +1002,9 @@ pub enum Command {
     /// struct, so the two spellings cannot drift apart again.
     #[command(hide = true)]
     MoveSessions(MoveSessionsArgs),
+    /// `session rebalance`'s flat form.
+    #[command(hide = true)]
+    Rebalance(RebalanceArgs),
     #[command(hide = true)]
     Transfer {
         session: String,
@@ -1524,6 +1551,11 @@ pub enum SessionCmd {
     /// worktree, a plain folder under the home maps to the same path under the machine's home. The
     /// chat here never runs again, and `resolve` and agent links lead to its new place.
     Move(MoveSessionsArgs),
+    /// Move this machine's excess chats off when it holds more live chats than its lanes.max_lanes:
+    /// only chats between turns with no work running below them, at most a few a pass, to the
+    /// machines placement gives room. Each move leaves a receipt whose undo moves it back. Off
+    /// unless the fleet registry's lane_overflow.rebalance.enabled is true (then it only plans).
+    Rebalance(RebalanceArgs),
     /// Move a chat, with its history, queue and draft, to the daemon at another socket.
     Transfer {
         session: String,
@@ -2031,6 +2063,7 @@ pub fn flatten(c: Command) -> Command {
                 Command::Transfer { session, to, cwd, name, interrupt, after_turn }
             }
             SessionCmd::Move(args) => Command::MoveSessions(args),
+            SessionCmd::Rebalance(args) => Command::Rebalance(args),
             SessionCmd::Tail { session, last, follow, since } => {
                 Command::Tail { session, last, follow, since }
             }
