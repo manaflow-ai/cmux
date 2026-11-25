@@ -2051,7 +2051,9 @@ describe("the tally header", () => {
     }
   });
 
-  test("a lone running subagent is counted too: no step words swap in", async () => {
+  // A `tally` header with one kind says it in words, never a bare number (Leo, 2026-11-25: "did we fix
+  // this yet? can you fix this?" on a hat that read a mark and "2"; 2026-11-23: "this 2 is too bare").
+  test("a lone running subagent is named, not a bare 1: no step words swap in", async () => {
     pinFoldHead("tally");
     const one = trayItems(
       [agent("Solo", { startedAt: Date.now() - 5000, action: "Running a command" })],
@@ -2066,7 +2068,8 @@ describe("the tally header", () => {
       const head = shown.root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
       expect(head.hasAttribute("data-lone")).toBe(false);
       expect(head.querySelector(".acpmux-running-tray__latest")).toBeNull();
-      expect(head.querySelector(".acpmux-running-tray__kinds")?.textContent).toBe("1");
+      expect(head.querySelector(".acpmux-running-tray__kinds")?.textContent).toBe("Solo");
+      expect(head.textContent).not.toMatch(/^\s*1\s*$/);
       expect(head.textContent).not.toContain("Running a command");
     } finally {
       await shown.done();
