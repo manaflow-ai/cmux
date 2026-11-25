@@ -22,7 +22,7 @@ pub(crate) fn targets(
     let mut seen = HashSet::new();
     let mut peers: Vec<&Value> = rows
         .iter()
-        .filter(|row| super::peer_down(row).is_none())
+        .filter(|row| super::link_down(row).is_none())
         .filter(|row| {
             let Some(name) = row.get("name").and_then(Value::as_str).filter(|n| !n.is_empty())
             else {

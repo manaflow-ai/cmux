@@ -82,21 +82,17 @@ extension TerminalHandlers {
         case .page, .conversation:
             guard let home = home(content) else { return ctx.refuse(RefusalStrings.notATerminal) }
             home.stepFind(forward: forward, takeFocus: invocation.allowsViewChange)
-        case .browser(let entry):
-            entry.chrome?.perform(forward ? .findNext : .findPrevious)
+        case .browser(let entry): entry.chrome?.perform(forward ? .findNext : .findPrevious)
         case .terminal(let entry):
             // A closed bar opens: with the last query, else as Find does (seeded with the selection).
             entry.session.find.navigate(forward ? .next : .previous, seed: selection(of: entry), takeFocus: invocation.allowsViewChange)
-        case .placeholder, .notice:
-            return
+        case .placeholder, .notice: return
         }
     }
 
     static func bindInput(into registry: ActionRegistry, context ctx: AppActionContext) {
-        registry.bind("terminal.sendText", invoke: { invocation in
-            guard let text = invocation["text"]?.stringValue ?? ctx.refuse(RefusalStrings.textArgumentRequired) else { return }
-            send(text, paste: false, invocation, ctx)
-        })
+        registry.bind("terminal.sendText", invoke: { typeArgument($0, "text", { $0 }, ctx) })
+        registry.bindEffect("terminal.goToDirectory", effect: { typeArgument($0, "path", WindowRules().goToDirectoryInput, ctx); return .done })
         registry.bind("sendCtrlFToTerminal", invoke: { send("\u{06}", paste: false, $0, ctx) })
         // Ctrl-L: the shell redraws at the top and the old screen stays in scrollback.
         registry.bind("clearScreenKeepScrollback", invoke: { send("\u{0C}", paste: false, $0, ctx) })
@@ -129,6 +125,10 @@ extension TerminalHandlers {
         })
     }
 
+    /// Types the KEY argument as INPUT turns it into keys (Go to Directory: a shell `cd` line, so remote terminals too).
+    private static func typeArgument(_ invocation: ActionInvocation, _ key: String, _ input: (String) -> String?, _ ctx: AppActionContext) {
+        if let text = invocation[key]?.stringValue.flatMap(input) ?? ctx.refuse(RefusalStrings.textArgumentRequired) { send(text, paste: false, invocation, ctx) }
+    }
     static func send(_ text: String, paste: Bool, _ invocation: ActionInvocation, _ ctx: AppActionContext) {
         guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
         guard tab.kind == .pty else { return ctx.refuse(RefusalStrings.notATerminal) }

@@ -34,8 +34,10 @@ public final class InlineMarkdownCache {
         let output = NSMutableAttributedString()
         for run in parsed.runs {
             let intent = run.inlinePresentationIntent ?? []
-            var descriptor = font.fontDescriptor
-            if intent.contains(.code) { descriptor = descriptor.withDesign(.monospaced) ?? descriptor }
+            // Code starts from the system monospaced font at the row's size and weight: a text
+            // style's descriptor (`preferredFont`) ignores `withDesign(.monospaced)` once its traits
+            // are set, so a code span in a table cell drew in the proportional face (#52600's test).
+            let descriptor = intent.contains(.code) ? Self.monospaced(like: font).fontDescriptor : font.fontDescriptor
             var traits = descriptor.symbolicTraits
             if intent.contains(.stronglyEmphasized) { traits.insert(.traitBold) }
             if intent.contains(.emphasized) { traits.insert(.traitItalic) }
@@ -53,6 +55,13 @@ public final class InlineMarkdownCache {
             output.append(NSAttributedString(string: String(parsed[run.range].characters), attributes: attributes))
         }
         return output
+    }
+
+    /// The system monospaced font at `font`'s size and weight.
+    private static func monospaced(like font: UIFont) -> UIFont {
+        let traits = font.fontDescriptor.object(forKey: .traits) as? [UIFontDescriptor.TraitKey: Any]
+        let weight = (traits?[.weight] as? CGFloat).map { UIFont.Weight(rawValue: $0) } ?? .regular
+        return UIFont.monospacedSystemFont(ofSize: font.pointSize, weight: weight)
     }
 
     static func render(_ source: String) -> AttributedString {

@@ -757,10 +757,10 @@ cmux Home, and your final reply of each turn is posted there.
   and the last turn's stats; `chief engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
   `chief engine set --preset opus|hybrid|codex` switches the whole Chief:
-  Opus 5.5 at medium everywhere, Opus 5.5 medium turns with every
+  Opus at medium everywhere, Opus medium turns with every
   subagent on codex, or codex everywhere (turns, compactor, subagents).
 - Reactions: a user's tapback on your message reaches you as a `reaction`
-  note; a cheap classifier (Claude Haiku) first decides whether it wakes
+  note; a cheap classifier (a small Claude model) first decides whether it wakes
   you. Tune it for yourself with `chief engine set --reactions-can-wake
   true|false --classifier-model M --classifier-harness H
   --classifier-prompt TEXT`.
@@ -992,10 +992,10 @@ cmux Home, and your final reply of each turn is posted there.
   and the last turn's stats; `{chief} engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
   `{chief} engine set --preset opus|hybrid|codex` switches the whole Chief:
-  Opus 5.5 at medium everywhere, Opus 5.5 medium turns with every
+  Opus at medium everywhere, Opus medium turns with every
   subagent on codex, or codex everywhere (turns, compactor, subagents).
 - Reactions: a user's tapback on your message reaches you as a `reaction`
-  note; a cheap classifier (Claude Haiku) first decides whether it wakes
+  note; a cheap classifier (a small Claude model) first decides whether it wakes
   you. Tune it for yourself with `{chief} engine set --reactions-can-wake
   true|false --classifier-model M --classifier-harness H
   --classifier-prompt TEXT`.
@@ -1132,6 +1132,11 @@ report.
   `--no-verify`, unless the hook fails only on files you did not touch;
   then say so in your report.
 {github}
+- Skills: Chief's skills, the ones cmux ships among them, are in
+  `~/.cmux/chief/skills/<name>/SKILL.md` when that folder exists.
+  `head -4 ~/.cmux/chief/skills/*/SKILL.md` lists them; read a
+  skill's SKILL.md before you do what its description names, instead of
+  working it out again.
 - Decisions: pick the sensible default yourself, act on it and name it in
   your report (\"Default picked: ...\"); never stop to ask which one. Ask
   only before money, legal, destructive (deleting data, force pushes) or

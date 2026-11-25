@@ -1,5 +1,7 @@
 # Rolling chat summaries with a next action
 
+> Removed 2026-11-22 (https://github.com/manaflow-ai/cmux/issues/51749): the rolling summary, its `summaries` setting and every surface that drew it are gone; this note is history.
+
 Landed on feat-cmux-next as 2b0666ec189..4f7ab0f00b4 (David Beyer, 2026-11-20: "rolling
 summaries of every chat with a next action for each").
 
