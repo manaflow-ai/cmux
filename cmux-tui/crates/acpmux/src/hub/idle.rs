@@ -718,7 +718,7 @@ impl Hub {
     }
 
     /// What holds `session` at work, or None when nothing does.
-    fn at_work(&self, session: &Session) -> Option<SessionAtWork> {
+    pub(super) fn at_work(&self, session: &Session) -> Option<SessionAtWork> {
         let turn = self.turn_at_work(session);
         let subagents =
             session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running();
@@ -726,7 +726,9 @@ impl Hub {
         let processes = self.running_processes(session) + self.bg_running_count(session);
         // A move off this machine not yet committed or aborted: the chat stays frozen here until
         // its watch settles it, so a pause now would strand it mid-move.
-        let moving = session.moving().is_some() && session.meta().moved_to.is_none();
+        // Auto's own freeze is no move: a chat another holder runs has no work here.
+        let moving = session.moving().is_some_and(|mark| mark != super::AUTO_AWAY)
+            && session.meta().moved_to.is_none();
         if !(turn || subagents > 0 || below || processes > 0 || moving) {
             return None;
         }
