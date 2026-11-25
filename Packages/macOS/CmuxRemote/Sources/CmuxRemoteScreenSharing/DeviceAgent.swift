@@ -14,6 +14,9 @@ private let logger = Logger(subsystem: "com.cmuxterm.remote", category: "device-
 struct ScreenSharingState: Codable, Equatable, Sendable {
     var userID: String?
     var hubURL: String?
+    /// The build space the app anchored this device in (`dev:<slug>` for a tagged dev build, nil for the default
+    /// space): the renewal goes to that space's User DO, the only one that knows the anchor.
+    var buildSpace: String?
     /// The app has told this worker its join consent at least once; until then no session serves.
     var consentKnown = false
     /// The app's join consent: when `enabled`, a session needs `view` (or `full` for Full Control).
@@ -132,13 +135,23 @@ final class DeviceAgent {
 
     // MARK: Account
 
-    /// The app anchored this device for `userID` on `hubURL`.
-    func anchored(userID: String, hubURL: String) {
-        let changedAccount = state.userID != userID || state.hubURL != hubURL
+    /// The app anchored this device for `userID` on `hubURL`, in `buildSpace` (nil: the default space).
+    func anchored(userID: String, hubURL: String, buildSpace: String? = nil) {
+        let changedAccount = state.userID != userID || state.hubURL != hubURL || state.buildSpace != buildSpace
         state.userID = userID
         state.hubURL = hubURL
+        state.buildSpace = buildSpace
         state.save(statePath)
         if changedAccount || hub == nil { startHub() }
+    }
+
+    /// `dev:` and a slug of lowercase ASCII letters, digits and inner dashes, at most 64 (the hub's pattern).
+    nonisolated static func isBuildSpace(_ value: String) -> Bool {
+        guard value.hasPrefix("dev:") else { return false }
+        let slug = Array(value.utf8.dropFirst(4))
+        func edge(_ b: UInt8) -> Bool { (0x61...0x7A).contains(b) || (0x30...0x39).contains(b) }
+        guard let first = slug.first, let last = slug.last, slug.count <= 64, edge(first), edge(last) else { return false }
+        return slug.allSatisfy { edge($0) || $0 == UInt8(ascii: "-") }
     }
 
     /// The app signed out: this device leaves the hub until it anchors again.
@@ -195,7 +208,8 @@ final class DeviceAgent {
     private func startHub() {
         stopHub()
         guard let identity, let userID = state.userID, let text = state.hubURL, let url = URL(string: text) else { return }
-        let client = DeviceHubClient(baseURL: url, identity: identity, source: .deviceRenewal(userID: userID))
+        let client = DeviceHubClient(baseURL: url, identity: identity, source: .deviceRenewal(userID: userID),
+                                     buildSpace: state.buildSpace.map(DeviceHubBuildSpace.dev) ?? .nightly)
         let relay = self.relay
         let socket = DeviceHubSocket(connector: RelayingConnector(inner: URLSessionDeviceHubConnector(client: client), relay: relay))
         let hub = DeviceHub(client: client, socket: socket, secrets: KeychainRelaySecretStore(bundleIdentifier: keychainScope),
