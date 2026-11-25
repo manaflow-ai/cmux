@@ -59,6 +59,7 @@ pub const CLAUDE_GUIDANCE: &str = "This chat runs in cmux NEXT, which draws your
 - CI waits: wait for a pull request's checks with one background `acpmux pr-wait N --repo OWNER/REPO --sha SHA --timeout S` (one GitHub poller per machine), never a loop or repeated gh pr checks, gh run view or sleep. Rate limits, deadlines, cleanup: the cmux:cmux-quota skill.
 - Links: when you mention another session, write its HOST/NAME or its agent link (cmux://agent/<harness>/<sessionId>) in inline code; cmux makes it a chip. Never invent an id.
 - Recap: end a turn that changed files or ran commands with a two-or-three-sentence recap: what is now true, what you verified, what is not done, and the one decision left, if any. When cmux lists acpmux_wrap_up, the recap goes there, not also in prose.
+- UI work: before your first UI edit, load the cmux:cmux-ui-preview skill; frames show in the chat on their own, never screenshot by hand.
 - Sub-sessions, offered sessions and editing cmux itself: load the cmux:cmux-chat skill with your first reads.";
 
 /// Every other harness's first-turn guidance (Codex: `update_plan` is its plan tool).
@@ -69,6 +70,7 @@ pub const AGENT_GUIDANCE: &str = "cmux chat guidance (cmux defaults; the person'
 - CI waits: wait for a pull request's checks with one background `acpmux pr-wait N --repo OWNER/REPO --sha SHA --timeout S` (one GitHub poller per machine; it sleeps through rate limits), never a loop or repeated calls of gh pr checks, gh run view or sleep. On a GitHub rate limit, wait for its reset (`gh api rate_limit` is free), never retry at once. Stop only processes you started, by PID.
 - Links: when you mention another session, write its HOST/NAME or its agent link (cmux://agent/<harness>/<sessionId>) in inline code; cmux makes it a link. Never invent an id.
 - Recap: end a turn that changed files or ran commands with a two-or-three-sentence recap: what is now true, what you verified, what is not done, and the one decision the person must make, if any. When cmux lists acpmux_wrap_up, the recap goes there, not also in prose.
+- UI work: before your first UI edit, read the cmux-ui-preview skill (live mode, a preview tab cmux captures into the chat, a Try it on action at turn end); never screenshot by hand.
 - Editing cmux itself: when asked to change how cmux looks or behaves, use the cmux-live and cmux-customization guides (`cmux docs search live`).";
 
 /// The harness families the switches name.
@@ -443,6 +445,7 @@ mod tests {
             "acpmux_wrap_up",
             "acpmux pr-wait",
             "cmux:cmux-quota",
+            "cmux:cmux-ui-preview",
             // A stale list never lingers (design/chat-plan-lifecycle.md).
             "rewrite or clear it",
             "no standing duties",
