@@ -15,6 +15,7 @@
 #![cfg_attr(not(unix), allow(dead_code, unused_imports, unused_variables, unused_mut))]
 
 pub mod accept_errors;
+pub(crate) mod acp_key_auth;
 pub mod acp_todo_plan;
 pub mod acpmux_mcp;
 pub mod acpmux_mcp_names;
@@ -49,6 +50,7 @@ pub mod caller_stats;
 pub mod capabilities;
 pub mod catalog;
 pub mod chat_fork;
+pub mod chat_place;
 pub mod chat_size_fixture;
 pub mod chatgpt;
 pub mod chats;
@@ -63,6 +65,7 @@ pub mod client;
 pub mod clock;
 pub(crate) mod clock_text;
 pub mod close_why;
+pub mod cloud_folder;
 pub mod cloud_host;
 pub mod cloud_model_plane;
 pub mod cloud_repo_mcp;
@@ -100,6 +103,7 @@ pub mod deps;
 pub mod desktop_bridge;
 pub mod desktop_link;
 pub mod directory_input;
+pub mod disk_evict;
 pub mod disk_usage;
 pub(crate) mod disk_writer;
 pub mod folder_instructions;
@@ -179,9 +183,11 @@ pub mod idempotency;
 #[cfg(windows)]
 mod job;
 mod joined_model_plane;
+pub mod terminal_autocompact;
 /// `cmux github` and the GitHub MCP bridge on a joined machine ask its hub (`joined_model_plane`).
 #[cfg(unix)]
 pub use joined_model_plane::install_github_source;
+pub mod chat_secrets;
 /// Hot paths for the instruction-count bench (`benches/icount.rs`); not an API.
 #[doc(hidden)]
 pub mod icount;
@@ -223,6 +229,8 @@ pub mod mcp_args;
 /// Each chat's `cmux` MCP server over loopback HTTP, started on use and stopped when idle.
 pub mod mcp_gateway;
 pub mod mcp_hint;
+#[cfg(unix)]
+pub mod mcp_pool;
 pub mod memory_mount;
 pub mod mesh;
 pub mod mesh_control;
@@ -270,6 +278,8 @@ pub mod person_tokens;
 pub mod fleet_elastic;
 pub mod place_mode;
 pub mod placement;
+// `acpmux machine cells`: lane hosts against their caps and the registry (RFD 0181 B2).
+pub mod cell_report;
 pub mod plan_build_records;
 #[cfg(not(unix))]
 mod platform;
@@ -343,6 +353,7 @@ pub mod session_search;
 pub mod session_service;
 pub mod session_status;
 mod session_store;
+mod session_total;
 pub mod sha256;
 /// The approval behind Share This Mac confirmed on the owner's other device (`share_approval.rs`).
 pub mod share_approval;
