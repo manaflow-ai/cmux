@@ -1785,6 +1785,7 @@ version = "0.1.0"
 name = "cmux-composer-send"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "serde_json",
 ]
 

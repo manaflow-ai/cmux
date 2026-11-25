@@ -32,7 +32,12 @@ to() { local s=$1; shift; perl -e 'alarm shift; exec @ARGV' "$s" "$@"; }
 # The cmux CLI on a fleet PATH is a dev shim; use the CLI inside an app bundle.
 app_cli() { local c; for c in "$1/Contents/Resources/bin/cmux" "$1/Contents/MacOS/cmux-cli"; do [ -x "$c" ] && { echo "$c"; return; }; done; }
 pack() { tar -czf "$out/report.tgz" -C "$out" --exclude report.tgz . 2>/dev/null; }
-trap pack EXIT
+# Every process this run started lives under $work: stop them all at exit, so no scratch app or daemon outlives the step.
+reap() { local pids; pids=$(pgrep -f "$work/" | grep -v "^$$\$" || true); [ -n "$pids" ] && { note "reap $pids"; kill $pids 2>/dev/null; }; }
+trap 'reap; pack' EXIT
+inventory() { # inventory LABEL: every cmux process on the host (path, RSS), and memory pressure
+  { echo "--- inventory $1"; ps -axo pid=,rss=,comm= | grep -i "cmux" | grep -v persona-walk
+    memory_pressure 2>/dev/null | tail -1; } >>"$log" 2>&1; }
 
 probe() {
   note "mode=probe host=$(hostname -s) user=$(id -un) uid=$(id -u)"
@@ -83,8 +88,12 @@ p0() {
   local t
   t=$(now_ms); install_nightly || return 1; step install "$t"
   local cli; cli=$(app_cli "$APP"); note "scratch cli=$cli"
+  inventory before-launch
+  # A fresh person has no cmux state: own HOME and TMPDIR (the daemon socket is under TMPDIR, keyed by uid, so a
+  # NIGHTLY already running as this user would otherwise serve this copy its sessions).
+  mkdir -p "$work/home" "$work/tmp"
   t=$(now_ms)
-  open -n -a "$APP" 2>>"$log"
+  open -n --env HOME="$work/home" --env TMPDIR="$work/tmp/" --env CFFIXED_USER_HOME="$work/home" -a "$APP" 2>>"$log"
   local pid="" win=""
   for _ in $(seq 1 240); do
     [ -n "$pid" ] || pid=$(pgrep -nf "$APP/Contents/MacOS/" || true)
@@ -97,13 +106,13 @@ p0() {
   shot 02-after-5s
   # P0 task 1: a person types their first command into whatever the app shows.
   t=$(now_ms)
-  cua type_text '{"text":"echo persona-ok"}' >>"$log" 2>&1 || note "type_text rc=$?"
-  cua press_key '{"key":"return","scope":"desktop"}' >>"$log" 2>&1 || note "press_key rc=$?"
+  cua type_text "{\"pid\":$pid,\"text\":\"echo persona-ok\"}" >>"$log" 2>&1 || note "type_text rc=$?"
+  cua press_key "{\"pid\":$pid,\"key\":\"return\"}" >>"$log" 2>&1 || note "press_key rc=$?"
   python3 -c 'import time;time.sleep(1)'
   step first_command "$t"
   shot 03-first-command
   [ -n "$cli" ] && to 30 "$cli" computer-use status >"$out/cu-status.txt" 2>&1
-  [ -n "$pid" ] && kill "$pid"
+  inventory after-walk
 }
 
 case "$mode" in
