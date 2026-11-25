@@ -192,7 +192,7 @@ impl Client {
     fn http(&self) -> &reqwest::Client {
         self.http.get_or_init(|| {
             let _ = rustls::crypto::ring::default_provider().install_default();
-            reqwest::Client::builder()
+            crate::happy_dial::http_client()
                 .redirect(reqwest::redirect::Policy::none())
                 .connect_timeout(Duration::from_secs(10))
                 .timeout(Duration::from_secs(30))
@@ -358,10 +358,10 @@ impl Client {
             }
             let result = self.complete(pending, &query, places).await;
             let page = match &result {
-                Ok(_) => "Signed in to cmux with ChatGPT. You can close this tab.".to_owned(),
-                Err(f) => format!("ChatGPT sign-in did not finish ({}). Return to cmux.", f.code),
+                Ok(_) => Page::signed_in(),
+                Err(f) => Page::failed(&f.code),
             };
-            let _ = respond(&mut stream, "200 OK", &page).await;
+            let _ = respond_page(&mut stream, "200 OK", &page).await;
             return result;
         }
     }
@@ -583,14 +583,122 @@ async fn read_target(stream: &mut tokio::net::TcpStream) -> Option<String> {
     }
 }
 
+/// A page of the loopback listener: the cmux mark and a centered card, in light and dark.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Page {
+    pub ok: bool,
+    pub title: String,
+    pub detail: String,
+    /// The failure code, shown small under the detail.
+    pub code: Option<String>,
+}
+
+impl Page {
+    pub(crate) fn signed_in() -> Self {
+        Self {
+            ok: true,
+            title: "Signed in to cmux".into(),
+            detail: "ChatGPT is connected. You can close this tab and return to cmux.".into(),
+            code: None,
+        }
+    }
+
+    pub(crate) fn failed(code: &str) -> Self {
+        let detail = match code {
+            "access_denied" => "The sign-in was cancelled. Return to cmux to try again.",
+            "no_chatgpt_account" => {
+                "This OpenAI account has no ChatGPT plan. Return to cmux and sign in with a ChatGPT account."
+            }
+            _ => "ChatGPT sign-in did not finish. Return to cmux and try again.",
+        };
+        Self {
+            ok: false,
+            title: "Sign-in didn\u{2019}t finish".into(),
+            detail: detail.into(),
+            code: Some(code.to_owned()),
+        }
+    }
+
+    /// A short notice (a stray or bad request) in the same frame.
+    pub(crate) fn notice(text: &str) -> Self {
+        Self { ok: false, title: text.into(), detail: String::new(), code: None }
+    }
+
+    pub(crate) fn html(&self) -> String {
+        auth_page(self.ok, &self.title, &self.detail, self.code.as_deref())
+    }
+}
+
+/// The cmux NEXT sign-in page's frame (web/app/handler: `cmux-sign-in.tsx`'s `Page` and
+/// `Heading`, `auth-error/page.tsx`'s body, the "Last used" chip for the code) with the tokens of
+/// web/app/globals.css, for a page a loopback listener serves with no web build behind it.
+/// Keep in step with the copies in optchat-chief's `mcp_hub::oauth` and coderouter's `oauth`.
+pub(crate) fn auth_page(ok: bool, title: &str, detail: &str, code: Option<&str>) -> String {
+    let detail = if detail.is_empty() {
+        String::new()
+    } else {
+        format!("<p class=\"body\">{}</p>", escape(detail))
+    };
+    let code = code.map(|c| format!("<p class=\"code\">{}</p>", escape(c))).unwrap_or_default();
+    format!(
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
+<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
+<meta name=\"color-scheme\" content=\"light dark\"><meta name=\"robots\" content=\"noindex\">\
+<title>{title} \u{b7} cmux</title><style>{AUTH_PAGE_CSS}</style></head>\
+<body><main><section data-auth-state=\"{state}\"><h1>{title}</h1>{detail}{code}</section></main></body></html>",
+        title = escape(title),
+        state = if ok { "ok" } else { "error" },
+    )
+}
+
+/// web/app/globals.css's tokens and the Tailwind classes of the sign-in page, written out, in
+/// the site's Geist (system fonts until it loads, or offline).
+pub(crate) const AUTH_PAGE_CSS: &str = "\
+@import url(\"https://fonts.googleapis.com/css2?family=Geist:wght@400;600&family=Geist+Mono&display=swap\");\
+:root{--background:#fafafa;--foreground:#171717;--muted:#707070;--border:#e5e5e5}\
+@media (prefers-color-scheme:dark){:root{--background:#0a0a0a;--foreground:#ededed;--muted:#a3a3a3;--border:#262626}}\
+*,::before,::after{box-sizing:border-box;margin:0;padding:0;border:0 solid}\
+html{line-height:1.5;-webkit-text-size-adjust:100%;\
+font-family:Geist,ui-sans-serif,system-ui,sans-serif,\"Apple Color Emoji\",\"Segoe UI Emoji\";\
+-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}\
+body{background:var(--background);color:var(--foreground)}\
+main{display:flex;min-height:100vh;align-items:center;justify-content:center;padding:48px 16px}\
+section{width:100%;max-width:340px}\
+h1{font-size:22px;font-weight:600;letter-spacing:-0.02em}\
+.body{margin-top:6px;font-size:14px;line-height:24px;color:var(--muted)}\
+.code{display:inline-block;margin-top:24px;border:1px solid var(--border);padding:0 6px;\
+font-family:\"Geist Mono\",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:18px;\
+color:var(--muted)}";
+
+fn escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 async fn respond(
     stream: &mut tokio::net::TcpStream,
     status: &str,
     text: &str,
 ) -> std::io::Result<()> {
-    let body = format!(
-        "<!doctype html><meta charset=\"utf-8\"><title>cmux</title><p style=\"font-family:system-ui;margin:3em\">{text}</p>"
-    );
+    respond_page(stream, status, &Page::notice(text)).await
+}
+
+async fn respond_page(
+    stream: &mut tokio::net::TcpStream,
+    status: &str,
+    page: &Page,
+) -> std::io::Result<()> {
+    let body = page.html();
     let head = format!(
         "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
         body.len()

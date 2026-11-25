@@ -47,6 +47,9 @@ import tempfile
 import threading
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_stable  # noqa: E402
+
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--app", required=True)
@@ -288,7 +291,11 @@ def launch():
     LAUNCHED.append(app.pid)
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
         stop(2, "the tagged app did not come up")
-    time.sleep(2)  # the first workspace
+    # The first workspace: a pane shows, then the restored panes stop changing (run 2 reads their kinds next).
+    if not wait(panes, 30):
+        stop(2, "the tagged app showed no pane in 30 s after it came up")
+    wait_stable(lambda: sorted(json.dumps(p, sort_keys=True) for p in panes()), "the launch's panes", timeout=15,
+                interval=0.2, raise_on_timeout=False)
 
 
 def quit_app():
@@ -422,8 +429,11 @@ def main():
     profile_dir = STATE["profile_dir"] = os.path.dirname(os.path.dirname(store))
     RESULT["profile_directory"] = os.path.basename(profile_dir)
     RESULT["run1"]["files"] = file_count(store)
+    browsers = sum(1 for p in panes() if p.get("kind") == "browser")
     close_page()
-    time.sleep(2)  # the tab's close
+    # The tab's close: its browser pane is gone.
+    if not wait(lambda: sum(1 for p in panes() if p.get("kind") == "browser") < max(1, browsers), 15):
+        stop(2, "the page's browser pane did not close in 15 s")
     quit_app()
 
     # Run 2: the clear, before Chromium opens the profile.

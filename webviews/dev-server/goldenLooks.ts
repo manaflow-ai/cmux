@@ -3,6 +3,7 @@
 // CMUX_GOLDEN_SETUPS, comma separated) and agent-pane/theme.css. Served to the gallery as
 // virtual:cmux-gallery/looks (galleryHost.ts); `bun run golden:looks --setup DIR` passes
 // CMUX_GOLDEN_SETUPS so an outside look (a look's own repo) draws beside the built-in ones.
+// CMUX_GOLDEN_EVERY_LOOK=1 adds every other look the checkout carries (discoverLooks).
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -64,6 +65,8 @@ export function schemeFromThemeFile(file: ThemeFile, source: string): GoldenSche
   const set = Object.fromEntries(Object.entries(picked).filter(([, value]) => value)) as GoldenScheme["colors"];
   if (set && Object.keys(set).length) scheme.colors = set;
   if (typeof file["appearance.accent"] === "string") scheme.accent = file["appearance.accent"];
+  if (file["appearance.selection"] === "accent" || file["appearance.selection"] === "neutral")
+    scheme.selection = file["appearance.selection"];
   const sidebar = hex(file["appearance.surfaces.sidebar.color"]);
   const agentPane = hex(file["appearance.surfaces.agentPane.color"]);
   if (sidebar || agentPane) scheme.surfaces = { ...(sidebar && { sidebar }), ...(agentPane && { agentPane }) };
@@ -136,6 +139,7 @@ export function lookFromSetup(dir: string, base: Partial<RegistryLook> = {}): Go
     title: base.title ?? setup.name ?? path.basename(dir),
     note: base.note ?? setup.tagline ?? "",
     source: shown(dir),
+    setupDir: path.resolve(dir),
     settings,
     schemes,
     ...(fs.existsSync(css) ? { themeCSS: readText(css) } : {}),
@@ -165,12 +169,93 @@ function missing(look: RegistryLook): string | null {
   return absent ? `${absent} is not in this checkout` : null;
 }
 
+/** Folders under `dir` (recursive, past dot folders and node_modules), each with its file names. */
+function walkFolders(dir: string, visit: (folder: string, files: string[]) => void): void {
+  if (!fs.existsSync(dir)) return;
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  visit(
+    dir,
+    entries.filter((entry) => entry.isFile()).map((entry) => entry.name),
+  );
+  for (const entry of entries)
+    if (entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules")
+      walkFolders(path.join(dir, entry.name), visit);
+}
+
+/** A theme file alone as a look: drawn in the scheme it is for, over cmux's default chat. */
+export function lookFromThemeFile(file: string): GoldenLook {
+  const theme = parseJsonc(readText(file)) as ThemeFile;
+  const source = shown(file);
+  const scheme = schemeFromThemeFile(theme, source);
+  const dark = themeFileIsDark(theme);
+  return {
+    // theme-charcoal, theme-customize-leo-neon-leo-neon: the path past its folders, as a variant name.
+    id: `theme-${source
+      .replace(/^Resources\/theme-files\/|^examples\//, "")
+      .replace(/\/themes\//, "/")
+      .replace(/\.json$/, "")
+      .replace(/[^a-zA-Z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .toLowerCase()}`,
+    title: typeof theme.name === "string" ? theme.name : path.basename(file, ".json"),
+    note: `The theme file ${source}, in ${dark ? "dark" : "light"}.`,
+    source,
+    settings: {},
+    schemes: dark ? { light: {}, dark: scheme } : { light: scheme, dark: {} },
+  };
+}
+
+/**
+ * Every look the checkout carries, found rather than listed, so a new one is picked up by itself:
+ * each shipped theme file (Resources/theme-files/*.json), each setup folder under examples/ (a folder
+ * with a cmux-setup.json: a look pack, examples/looks/NAME), and each theme file under examples/
+ * outside a setup folder (any themes/*.json).
+ */
+export function discoverLooks(root = REPO_ROOT): GoldenLook[] {
+  const looks: GoldenLook[] = [];
+  const shipped = path.join(root, "Resources/theme-files");
+  if (fs.existsSync(shipped))
+    for (const name of fs.readdirSync(shipped).sort())
+      if (name.endsWith(".json")) looks.push(lookFromThemeFile(path.join(shipped, name)));
+  const setups: string[] = [];
+  const themeFiles: string[] = [];
+  walkFolders(path.join(root, "examples"), (folder, files) => {
+    if (files.includes("cmux-setup.json")) setups.push(folder);
+    if (path.basename(folder) === "themes")
+      for (const name of files) if (name.endsWith(".json")) themeFiles.push(path.join(folder, name));
+  });
+  setups.sort();
+  for (const dir of setups) looks.push(lookFromSetup(dir));
+  const inSetup = (file: string) => setups.some((dir) => file.startsWith(`${dir}${path.sep}`));
+  for (const file of themeFiles.sort()) if (!inSetup(file)) looks.push(lookFromThemeFile(file));
+  return looks;
+}
+
+/**
+ * The schemes a look is drawn in: each it gives a theme file for, both when it changes more than a
+ * theme file (settings, a stylesheet, a composer look) or gives none (cmux's default).
+ */
+export function drawnSchemes(look: GoldenLook): ("light" | "dark")[] {
+  const themed = (["light", "dark"] as const).filter((scheme) => look.schemes[scheme].source);
+  const more = Object.keys(look.settings).length > 0 || Boolean(look.themeCSS) || Boolean(look.composerLook);
+  return more || themed.length === 0 ? ["light", "dark"] : themed;
+}
+
 export type GoldenLooks = { looks: GoldenLook[]; skipped: { id: string; reason: string }[] };
+
+/**
+ * Where `bun run golden:looks --setup DIR --preview` writes a look repo's own golden still: the path the
+ * Settings looks gallery reads for each look it lists (fallback `screenshots/chat.png`).
+ */
+export function previewPath(setupDir: string, scheme: "light" | "dark"): string {
+  return path.join(setupDir, "preview", `golden-${scheme}.png`);
+}
 
 /** Every look of the registry this checkout can draw, then each setup folder in `extraSetups`. */
 export function readGoldenLooks(
   extraSetups = (process.env.CMUX_GOLDEN_SETUPS ?? "").split(",").filter(Boolean),
   registryFile = GOLDEN_LOOKS_FILE,
+  everyLook = process.env.CMUX_GOLDEN_EVERY_LOOK === "1",
 ): GoldenLooks {
   const registry = JSON.parse(readText(registryFile)) as { looks: RegistryLook[] };
   const looks: GoldenLook[] = [];
@@ -203,6 +288,17 @@ export function readGoldenLooks(
     if (ids.has(look.id)) look.id = `${look.id}-setup`;
     ids.add(look.id);
     looks.push(look);
+  }
+  // CMUX_GOLDEN_EVERY_LOOK=1 (the golden contrast test, `bun run golden:looks --every`): every other
+  // look the checkout carries too (discoverLooks), past those the registry already draws.
+  if (everyLook) {
+    const drawn = new Set(looks.map((look) => look.source));
+    for (const look of discoverLooks()) {
+      if (drawn.has(look.source)) continue;
+      if (ids.has(look.id)) look.id = `${look.id}-found`;
+      ids.add(look.id);
+      looks.push(look);
+    }
   }
   return { looks, skipped };
 }

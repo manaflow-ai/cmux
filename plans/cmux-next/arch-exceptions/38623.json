@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-21",
+  "row": "app_lines",
+  "allow": 7,
+  "why": "#38623 binds Edit Chief, Set Chief Model/Effort and Make Agent a Chief in AppActions+Workspaces: the binder (HomeChiefRegistryActions) is in CmuxNextHomeEngine, but its openEditor closure needs the App-only openChannelsRoute and its conversations closure the App-only HomeService.isCloudConversation, so the 7 call-site lines stay in CmuxNextApp.",
+  "author": "claude sonnet 5.5 (stall-38623 helper)",
+  "owner": "teamleaderleo",
+  "receipt": "Review (router-review): SHIP at d6f43ed5444da2108fd6cfa337a64c23b25a7828",
+  "expiry": "2026-12-21"
+}

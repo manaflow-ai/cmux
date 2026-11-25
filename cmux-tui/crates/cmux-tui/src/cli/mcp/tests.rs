@@ -70,6 +70,9 @@ struct Fake {
     /// The requests `Backend::resource_sender` sent (a live file's reloads); no sender
     /// when unset.
     reloads: Option<std::sync::Arc<std::sync::Mutex<Vec<Value>>>>,
+    /// `Backend::resource_job`: a terminal wait sent from its own thread answers
+    /// `resource_result` after this long; none (a wait on the server's thread) when unset.
+    wait_job: Option<Duration>,
     sent: RefCell<Vec<Value>>,
 }
 
@@ -190,6 +193,21 @@ impl Backend for Fake {
         Some(std::sync::Arc::new(move |plan: RequestPlan| {
             reloads.lock().unwrap().push(request_value(&plan).expect("a valid request"));
             Ok(json!({}))
+        }))
+    }
+
+    fn resource_job(&self, _session: Option<&str>) -> Option<ResourceJob> {
+        let delay = self.wait_job?;
+        let answer = self.resource_result.clone().unwrap_or_else(|| json!({}));
+        Some(Box::new(move |plan, _prefixes| {
+            assert!(matches!(
+                plan.operation,
+                super::super::command::WireOperation::Typed(
+                    ResourceOperation::TerminalWait | ResourceOperation::TerminalWaitExit
+                )
+            ));
+            std::thread::sleep(delay);
+            Ok(answer)
         }))
     }
 
@@ -861,7 +879,9 @@ fn agents_snapshot_rejects_invalid_pagination_before_reading_owners() {
 fn the_server_refuses_unless_cmux_json_enables_it() {
     let directory = tempfile::tempdir().expect("temp dir");
     let path = directory.path().join("cmux.json");
-    assert!(refusal(&path).is_some(), "a missing file is off");
+    assert!(refusal(&path).is_none(), "a missing file is on (agents.cmuxMcp is on by default)");
+    std::fs::write(&path, r#"{"agents": {"cmuxMcp": "off"}}"#).unwrap();
+    assert!(refusal(&path).is_some(), "the setting off and no mcp.enabled is off");
     std::fs::write(&path, r#"{"mcp": {"enabled": false}}"#).unwrap();
     assert!(refusal(&path).is_some());
     std::fs::write(&path, r#"{"mcp": {"enabled": "yes"}}"#).unwrap();
@@ -878,7 +898,7 @@ fn the_server_refuses_unless_cmux_json_enables_it() {
 }
 
 /// The off server's reason names the setting the person actually changes:
-/// Settings > Agents > cmux Tools for Agents in cmux (Turn On), or
+/// Settings > Agents > cmux Tools for Agents in cmux (On), or
 /// `cmux settings set agents.cmuxMcp on --confirm`, not `mcp.enabled` (the
 /// switch this flow never sets). An explicit `"mcp": {"enabled": false}` is
 /// named as itself. Read outside an agent chat, in every locale.
@@ -886,13 +906,17 @@ fn the_server_refuses_unless_cmux_json_enables_it() {
 fn the_refusal_names_the_setting_the_person_turns_on() {
     let directory = tempfile::tempdir().expect("temp dir");
     let path = directory.path().join("cmux-next.json");
-    for text in
-        [None, Some(r#"{"agents": {"cmuxMcp": "off"}}"#), Some(r#"{"agents": {"cmuxMcp": "ask"}}"#)]
-    {
+    // No file, no key or `ask`: on by default, so nothing refuses.
+    for text in [None, Some("{}"), Some(r#"{"agents": {"cmuxMcp": "ask"}}"#)] {
         match text {
             Some(text) => std::fs::write(&path, text).unwrap(),
             None => drop(std::fs::remove_file(&path)),
         }
+        assert_eq!(refusal_for(&path, Caller::Outside, None), None, "{text:?}");
+        assert_eq!(refusal_for(&path, Caller::AgentChat, None), None, "{text:?}");
+    }
+    for text in [r#"{"agents": {"cmuxMcp": "off"}}"#, r#"{"agents.cmuxMcp": "off"}"#] {
+        std::fs::write(&path, text).unwrap();
         let message = refusal_for(&path, Caller::Outside, None).expect("off");
         assert!(message.contains("agents.cmuxMcp on --confirm"), "{message}");
         assert!(!message.contains("mcp.enabled"), "{message}");
@@ -905,7 +929,7 @@ fn the_refusal_names_the_setting_the_person_turns_on() {
     assert!(
         english
             .disabled
-            .contains("Turn On in cmux Settings > Agents > cmux Tools for Agents in cmux")
+            .contains("choose On in cmux Settings > Agents > cmux Tools for Agents in cmux")
     );
     for messages in messages::all() {
         assert!(messages.disabled.contains("cmux settings set agents.cmuxMcp on --confirm"));
@@ -923,7 +947,7 @@ fn the_refusal_names_the_setting_the_person_turns_on() {
 /// of any name, answers the reason as an error and runs nothing.
 #[test]
 fn the_off_server_completes_the_handshake_and_answers_every_call_with_the_reason() {
-    let reason = "cmux's tools are off: choose Turn On";
+    let reason = "cmux's tools are off: choose On";
     let server = off::Off::new(reason.to_owned());
     let init = server
         .handle(&json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -963,17 +987,18 @@ fn jsonc_comments_and_trailing_commas_are_dropped_outside_strings() {
     let text = "{\"url\": \"https://a//b/*c*/\", // note\n \"list\": [1, 2,], /* x */ }";
     let value: Value = serde_json::from_str(&config::strip_jsonc(text)).expect("valid JSON");
     assert_eq!(value, json!({"url": "https://a//b/*c*/", "list": [1, 2]}));
-    assert_eq!(config::enabled_in("").ok(), Some(false));
-    assert_eq!(config::enabled_in("{\"mcp\": {}}").ok(), Some(false));
+    // No key: on, as `agents.cmuxMcp` is on by default.
+    assert_eq!(config::enabled_in("").ok(), Some(true));
+    assert_eq!(config::enabled_in("{\"mcp\": {}}").ok(), Some(true));
 }
 
 #[test]
-fn yes_to_cmux_tools_in_coding_agents_turns_the_server_on_unless_mcp_enabled_says_otherwise() {
+fn cmux_tools_in_coding_agents_turn_the_server_on_unless_mcp_enabled_says_otherwise() {
     assert_eq!(config::enabled_in(r#"{"agents": {"cmuxMcp": "on"}}"#).ok(), Some(true));
     assert_eq!(config::enabled_in(r#"{"agents.cmuxMcp": "on"}"#).ok(), Some(true));
-    assert_eq!(config::enabled_in(r#"{"agents": {"cmuxMcp": "ask"}}"#).ok(), Some(false));
+    assert_eq!(config::enabled_in(r#"{"agents": {"cmuxMcp": "ask"}}"#).ok(), Some(true));
     assert_eq!(config::enabled_in(r#"{"agents": {"cmuxMcp": "off"}}"#).ok(), Some(false));
-    // The person's own switch wins over the answer.
+    // The person's own switch wins over the setting.
     let both = r#"{"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": false}}"#;
     assert_eq!(config::enabled_in(both).ok(), Some(false));
     let both = r#"{"agents": {"cmuxMcp": "off"}, "mcp": {"enabled": true}}"#;
@@ -1724,6 +1749,7 @@ mod retained;
 mod settings;
 mod slides;
 mod terminal_wait_timeout;
+mod wait_head_of_line;
 
 fn code_mode_server(fake: Fake) -> Server<Fake> {
     let mut server = Server::new(fake, None);
@@ -1819,6 +1845,18 @@ fn code_mode_lists_only_exec_and_a_script_reaches_every_tool() {
     assert_eq!(both["isError"], true, "{both}");
     let other = call(&mut server, "cmux_exec", json!({"source": "return 1;"}));
     assert_eq!(other["isError"], true, "{other}");
+}
+
+/// A script makes more calls than the old limit of 2000; past the call log's length they are
+/// only counted.
+#[test]
+fn code_mode_scripts_make_more_calls_than_the_old_limit() {
+    let mut server = code_mode_server(Fake::with_actions());
+    let script = "for (let i = 0; i < 2100; i++) { await cmux.workspace_list({}); } return 1;";
+    let ran = call(&mut server, "cmux_exec", json!({"script": script}));
+    assert_eq!(ran["isError"], false, "{ran}");
+    assert_eq!(ran["structuredContent"]["calls"], 2100);
+    assert_eq!(ran["structuredContent"]["result"], 1);
 }
 
 #[test]

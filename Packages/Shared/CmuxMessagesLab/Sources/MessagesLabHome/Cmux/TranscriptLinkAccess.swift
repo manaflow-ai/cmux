@@ -120,6 +120,20 @@ final class TranscriptLinkElement: NSAccessibilityElement {
 
     override func isAccessibilityElement() -> Bool { true }
     override func accessibilityPerformPress() -> Bool { controller?.openLink(target, ref: ref) ?? false }
+    /// The same press as a named action. AppKit lists no AXPress in this element's AXActionNames (the
+    /// onboarding walk of 2026-11-23T05:04Z: the link sat in the tree with role AXLink but CuaDriver, which
+    /// indexes only a node that advertises an action or a settable value, gave it no index), and a custom
+    /// action is always listed, so an automation client and VoiceOver's actions menu both reach it.
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        [NSAccessibilityCustomAction(name: CmuxStrings.openLinkAction) { [weak self] in self?.accessibilityPerformPress() ?? false }]
+    }
+}
+
+extension CmuxStrings {
+    /// A transcript link's accessibility action (TranscriptLinkElement): opens it as a click does.
+    static var openLinkAction: String {
+        String(localized: "home.transcript.link.open", defaultValue: "Open link", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
 }
 
 extension ChatController {

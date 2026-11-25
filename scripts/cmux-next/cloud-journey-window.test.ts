@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { COLD_CREATE_SIZE, COLD_CREATE_STEP, sizeReadingProblem, JOURNEY_ONLY_STEPS, publicError, publicMachineFacts, spareFields, spareNotice } from "./cloud-journey";
+import { CHAT_START_SIZE, COLD_CREATE_SIZE, COLD_CREATE_STEP, DEFAULT_SIZE_STEP, defaultSizeProblem, sizeReadingProblem, JOURNEY_ONLY_STEPS, publicError, publicMachineFacts, spareFields, spareNotice } from "./cloud-journey";
 import { runJourney } from "./cloud-journey-fake";
 
 const journeyOnly = (name: string) => (JOURNEY_ONLY_STEPS as readonly string[]).includes(name);
@@ -20,6 +20,30 @@ describe("the first-text window holds only what a person's chat waits on", () =>
     }
     expect(probe.outcome).toBe("ok");
     expect(probe.create_to_first_text_ms).toBeNumber();
+  });
+});
+
+describe("a new machine at the default size is recorded at 2 vCPU / 4096 MB / 20480 MB", () => {
+  test("the chat start size is the platform's spare size (cmux-platform#1756)", () => {
+    expect({ ...CHAT_START_SIZE }).toEqual({ cpu: 2, memory_mb: 4096, disk_mb: 20480 });
+    expect(defaultSizeProblem({ cpu: 2, memory_mb: 4096, disk_mb: 20480 })).toBeNull();
+    expect(defaultSizeProblem({ cpu: 4, memory_mb: 16384, disk_mb: 65536 })).toContain("4/16384/65536");
+    expect(defaultSizeProblem(undefined)).toContain("?/?/?");
+  });
+
+  test("the journey asks the default size and its read-back passes, after the reply", () => {
+    const { steps, log } = runJourney({ spare: "report", exec: "ok" });
+    expect(log).toContain(`create size ${JSON.stringify({ cpu: 2, memory_mb: 4096, disk_mb: 20480 })}`);
+    const at = steps.findIndex((s) => s.step === DEFAULT_SIZE_STEP);
+    expect(steps[at]?.status).toBe("pass");
+    expect(at).toBeGreaterThan(steps.findIndex((s) => s.step === "reply"));
+  });
+
+  test("a machine recorded at another size fails the read-back", () => {
+    const { steps } = runJourney({ spare: "report", exec: "ok", recordedSize: { cpu: 4, memory_mb: 16384, disk_mb: 65536 } });
+    const step = steps.find((s) => s.step === DEFAULT_SIZE_STEP);
+    expect(step?.status).toBe("fail");
+    expect(step?.detail).toContain("4/16384/65536");
   });
 });
 
@@ -63,8 +87,8 @@ describe("a failed step after create reads the machine's facts before anything i
   test("a claimed machine answering 503 vm_unavailable: the first exec says so, the facts are read, then the delete", () => {
     const { steps, probe, log } = runJourney({ spare: "report", exec: "unavailable" });
     const failed = steps.filter((s) => s.status === "fail");
-    // The agent start is now the first step to reach the machine: it names the unavailable machine.
-    expect(failed[0].step).toBe("start agent (claude)");
+    // The owner-kind wait is now the first step to reach the machine: it names the unavailable machine.
+    expect(failed[0].step).toBe("machine kind owner");
     expect(failed[0].detail).toContain("did not take its first exec");
     expect(failed[0].detail).toContain("vm_unavailable");
     // The journey-only checks still ran, and `first exec` still fails on it.

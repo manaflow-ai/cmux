@@ -10,7 +10,8 @@ attached (the chat on screen). The model is the stand-in of scripts/cmux-next/ac
 first calls one cmux tool (`--tool`, default `mcp__cmux__cmux_exec`; Codex the function of that name), then
 answers "ok".
 
-Then, `--settle` seconds after the last turn ended, `ps` is read every `--interval` seconds for
+Then, once the daemon's process tree has held the same pids for 3 s after the last turn ended (at most
+`--settle` x 4, at least 60 s, of waiting), `ps` is read every `--interval` seconds for
 `--sample` seconds (phase `awake`). Only the daemon's process tree counts (the daemon, each
 `hosts/<id>.json` host and harness, and everything under them). Per kind (argv-matched):
   count   processes (median over the samples)
@@ -367,8 +368,24 @@ def open_chats(client, harness, n, scratch, parallel):
     return out
 
 
+def settle_tree(daemon, settle, quiet=3.0):
+    """Wait until the daemon's process tree keeps the same pids for `quiet` s (the turn's tool and MCP
+    children have come and gone), under a deadline of max(60, 4 x settle) s."""
+    deadline = time.monotonic() + max(60.0, 4.0 * settle)
+    last, since = None, time.monotonic()
+    while time.monotonic() < deadline:
+        pids = frozenset(tree(ps_table(), roots_of(daemon)))
+        if pids != last:
+            last, since = pids, time.monotonic()
+        elif time.monotonic() - since >= quiet:
+            return
+        time.sleep(0.5)
+    print(f"MCP-FANOUT-NOTE process tree still changing after {max(60.0, 4.0 * settle):.0f} s; sampling anyway",
+          file=sys.stderr, flush=True)
+
+
 def measure(daemon, settle, sample, interval):
-    time.sleep(settle)
+    settle_tree(daemon, settle)
     samples = []
     t_end = time.monotonic() + sample
     while True:
@@ -468,10 +485,15 @@ def cleanup(client, daemon, sids, known):
         except Exception:
             pass
     daemon.close()
-    time.sleep(2)
-    # Anything of this run's tree that outlived the daemon: ended by pid (they are ours).
-    rows = ps_table()
-    left = [p for p in known if p in rows and p != os.getpid()]
+    # Give the tree up to 10 s to exit on its own with the daemon; anything still there is ended by pid
+    # (they are ours).
+    deadline = time.monotonic() + 10
+    while True:
+        rows = ps_table()
+        left = [p for p in known if p in rows and p != os.getpid()]
+        if not left or time.monotonic() >= deadline:
+            break
+        time.sleep(0.2)
     for sig in (signal.SIGTERM, signal.SIGKILL):
         for p in left:
             try:
@@ -546,7 +568,7 @@ def run_one(args, harness, n, stand, url):
         if args.after_idle:
             wait = args.after_idle - (time.monotonic() - t_last)
             if wait > 0:
-                time.sleep(wait)
+                time.sleep(wait)  # sleep-ok: the idle read is taken --after-idle s after the last turn (past hibernation)
             rows = ps_table()
             known |= set(tree(rows, roots_of(daemon)))
             idle = add_total(snapshot_counts(daemon))
@@ -559,7 +581,7 @@ def run_one(args, harness, n, stand, url):
             # first call of a chat whose MCP servers were stopped.
             wait = args.idle_call - (time.monotonic() - t_last)
             if wait > 0:
-                time.sleep(wait)
+                time.sleep(wait)  # sleep-ok: the chat must sit idle --idle-call s (past hibernation) before the call
             before = snapshot_counts(daemon)
             ts = time.monotonic()
             try:

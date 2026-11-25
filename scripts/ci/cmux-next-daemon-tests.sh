@@ -16,6 +16,9 @@ set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
 cd "$root/cmux-tui"
+# Match the cmux-tui-artifacts job environment so the extracted gate stays identical to CI.
+export CARGO_INCREMENTAL=0 CMUX_GHOSTTY_SRC="" GHOSTTY_ZIG_SOURCE=ghostty-next
+unset CMUX_ZIG ZIG
 log_dir="${RUNNER_TEMP:-$(mktemp -d)}"
 log="$log_dir/cmux-next-tests.txt"
 

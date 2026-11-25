@@ -64,6 +64,16 @@ function renderCard(ctx) {
 Where a scene is drawn in a web page instead (the web renderer), the same prop draws the page's
 glass at the same level.
 
+### No rebuild
+
+Saving the view's script redraws its glass in the running app: the daemon reloads the script and the
+window draws the new level, as it does for a theme file. Nothing is built or relaunched. The app reads
+back what a view draws: the control socket's `apps.views` lists each open view's `glasses` (the levels
+it draws, depth first) beside its `texts`. `scripts/cmux-next/edit-repaint.py --cases glass` times it:
+each round saves the script with the section's card on `popover`, then `chip`, and measures how long
+the window takes to show it (`--mode readback` reads `apps.views`; the default pixel mode compares
+window snapshots).
+
 ## Glass in a web page: the kit's `Glass`
 
 A web page built on the kit ([webviews/src/kit](../../webviews/src/kit/README.md)) puts a region on

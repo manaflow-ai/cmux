@@ -55,6 +55,20 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "session route",
+        &[
+            (
+                "Decide the next step for a dead session from its facts",
+                "acpmux session route --facts facts.json",
+            ),
+            ("Read the facts from stdin", "acpmux session route --facts -"),
+            (
+                "Ask what to do with a dead session: restart, move or a successor",
+                "acpmux session route --facts /tmp/review-27-death.json",
+            ),
+        ],
+    ),
+    (
         "session cancel",
         &[
             ("Cancel the turn coord is running", "acpmux session cancel coord"),
@@ -123,6 +137,15 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "session icon",
+        &[
+            ("Give the session this shell runs in a mango icon", "acpmux session icon @ 🥭"),
+            ("Use an SF Symbol", "acpmux session icon @ sf:leaf.fill"),
+            ("Print a session's icon", "acpmux session icon Mango"),
+            ("Clear it", "acpmux session icon @ none"),
+        ],
+    ),
+    (
         "session detach",
         &[
             (
@@ -140,6 +163,17 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "acpmux session inbox coord",
             ),
             ("Send them to coord now as one prompt", "acpmux session inbox coord --digest"),
+        ],
+    ),
+    (
+        "session rebalance",
+        &[
+            (
+                "Say which chats would leave this over-full machine, and where",
+                "acpmux session rebalance --dry-run",
+            ),
+            ("Move them, at most two this pass", "acpmux session rebalance --max-moves 2"),
+            ("Move one back", "acpmux session rebalance --undo rb-1790000000000-0"),
         ],
     ),
     (
