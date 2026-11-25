@@ -29,7 +29,9 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 
 use regex::RegexBuilder;
-use serde_json::{Value, json};
+use serde_json::Value;
+#[cfg(test)]
+use serde_json::json;
 
 use super::{Hub, Session};
 
@@ -223,6 +225,7 @@ fn log_firing(rule_id: &str, at: &str, session: &str) {
 
 /// The rules now: the settings' array, then the file's. `None` when the feature is off or there
 /// are none.
+#[cfg_attr(not(test), allow(unused_variables))]
 fn rules_now(key: &str) -> Option<Vec<Rule>> {
     // Tests only: rules for one session id, so no other test's turns see them.
     #[cfg(test)]
