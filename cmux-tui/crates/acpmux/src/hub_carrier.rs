@@ -1055,9 +1055,9 @@ impl HubCarrier {
                             }
                             Ok(Err(_)) | Err(_) => {
                                 mux.close().await;
-                                return KeptOpen::Failed(
-                                    "the machine did not answer the kept circuit's hello".into(),
-                                );
+                                return KeptOpen::Failed(mux.ended().unwrap_or_else(|| {
+                                    "the machine did not answer the kept circuit's hello".into()
+                                }));
                             }
                         }
                         match first {
@@ -1688,7 +1688,7 @@ impl ServerAuthenticator for PeerKeys {
     }
 }
 
-struct Incoming {
+pub(crate) struct Incoming {
     carrier: Arc<HubCarrier>,
     websocket: SocketAddr,
     allowed: Arc<RwLock<HashSet<[u8; 32]>>>,
