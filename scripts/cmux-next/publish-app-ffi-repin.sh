@@ -90,7 +90,7 @@ gh_retry() {
   # tokens, then github.token; scripts/ci/ci_pool_tokens.py), each another installation's hour, before any wait.
   local -a spares=()
   local token="${GH_TOKEN:-}"  # the token this call asks with; a spare replaces it here, never in the caller's GH_TOKEN
-  local -a as=()  # empty: the caller's environment as it is; after a move: GH_TOKEN=<the spare>
+  local moved=0  # 1 after a move: each ask runs with GH_TOKEN=$token, else the caller's environment as it is
   if [[ -n "${READ_TOKEN:-}" && "${GH_TOKEN:-}" == "$READ_TOKEN" ]]; then
     read -ra spares <<<"${READ_TOKEN_SPARES:-}"
   fi
@@ -101,9 +101,9 @@ gh_retry() {
   while :; do
     status=0
     if [[ "$1" == gh && "${2:-}" == api ]]; then
-      env ${as[@]+"${as[@]}"} "$1" api --include "${@:3}" >"$out" 2>"$out.err" || status=$?
+      if ((moved)); then GH_TOKEN="$token" "$1" api --include "${@:3}"; else "$1" api --include "${@:3}"; fi >"$out" 2>"$out.err" || status=$?
     else
-      env ${as[@]+"${as[@]}"} "$@" >"$out" 2>"$out.err" || status=$?
+      if ((moved)); then GH_TOKEN="$token" "$@"; else "$@"; fi >"$out" 2>"$out.err" || status=$?
     fi
     split_include "$out"
     if ((status == 0)) || ! rate_limited "$out"; then
@@ -113,7 +113,7 @@ gh_retry() {
     if ((${#spares[@]})); then
       echo "rate limit: GitHub refused $what on the read token; asking again at once on the next spare (${#spares[@]} left)" >&3
       token="${spares[0]}"
-      as=("GH_TOKEN=$token")
+      moved=1
       spares=("${spares[@]:1}")
       continue
     fi
