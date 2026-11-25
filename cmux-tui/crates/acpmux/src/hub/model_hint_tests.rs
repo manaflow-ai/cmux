@@ -37,11 +37,15 @@ fn a_missing_harness_names_its_next_step() {
     assert!(codex.contains("`cmux harness install codex`"), "{codex}");
     let gemini = hint_text("unknown harness \"gemini\"".into(), "gemini", &[], None);
     assert!(gemini.contains("`cmux harness add gemini --example gemini`"), "{gemini}");
-    for agent in ["grok", "cursor", "antigravity"] {
+    // An agent with a shipped example profile (`cli::harness::example`) is added from it.
+    for agent in ["cursor", "antigravity"] {
         let out = hint_text(format!("unknown harness {agent:?}"), &format!("{agent}/x"), &[], None);
         assert!(out.contains(&format!("{agent:?} is not set up here")), "{out}");
-        assert!(out.contains("`cmux harness add ID --registry`"), "{out}");
+        assert!(out.contains(&format!("`cmux harness add {agent} --example {agent}`")), "{out}");
     }
+    let out = hint_text("unknown harness \"grok\"".into(), "grok/x", &[], None);
+    assert!(out.contains("\"grok\" is not set up here"), "{out}");
+    assert!(out.contains("`cmux harness add ID --registry`"), "{out}");
     assert_eq!(hint_text("bad".into(), "a b", &[], None), "bad");
 }
 

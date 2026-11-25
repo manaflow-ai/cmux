@@ -529,7 +529,6 @@ fn refresh_detached(cache: &Path) {
         return;
     }
     // Not marked: start none, or two could race.
-    #[cfg_attr(test, allow(unused_variables))]
     let Some(lease) = claim_refresh(cache) else { return };
     #[cfg(not(test))]
     {
@@ -545,8 +544,12 @@ fn refresh_detached(cache: &Path) {
                 "refreshes the relay cache after this ls exits; its relay child is killed at send_relay::LS_DEADLINE",
             );
         }
+        drop(lease);
     }
-    drop(lease);
+    // In tests nothing is spawned: the lease stands for the detached refresh, held as its child
+    // would hold its own for the rest of the read, so the next caller sees a refresh running.
+    #[cfg(test)]
+    std::mem::forget(lease);
 }
 
 /// `ls --refresh-relay-cache`: one relay listing, by [`send_relay::LS_DEADLINE`], kept as the

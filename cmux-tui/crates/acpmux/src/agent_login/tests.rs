@@ -663,7 +663,8 @@ async fn unsupported_ways_and_team_machines_for_gemini_and_grok() {
     // An owner machine saves the Gemini key with no CLI run.
     save_api_key(&m, &cli, Agent::Gemini, "AIzaOwner1").await.unwrap();
     assert!(signed_in_at(Agent::Gemini, &root.join("home/.gemini")));
-    let e = save_api_key(&m, &cli, Agent::Gemini, "not a key").await.unwrap_err();
+    // A paste's whitespace is stripped (#56165), so a bad key is one with other characters.
+    let e = save_api_key(&m, &cli, Agent::Gemini, "naïve-key").await.unwrap_err();
     assert_eq!(e.reason, reason::BAD_CODE);
     // A team machine: refused before anything runs or is written.
     std::fs::create_dir_all(root.join("etc/cmux")).unwrap();
@@ -876,7 +877,8 @@ async fn opencode_signs_in_with_a_key_only() {
     let e = start(&m, &cli, Agent::OpenCode).await.unwrap_err();
     assert_eq!(e.reason, reason::UNSUPPORTED, "{e:?}");
     assert!(Agent::OpenCode.takes_api_key() && !Agent::OpenCode.signs_in_by_link());
-    let e = save_api_key(&m, &cli, Agent::OpenCode, "two words").await.unwrap_err();
+    // Whitespace is stripped (#56165); a character outside printable ASCII is not a key.
+    let e = save_api_key(&m, &cli, Agent::OpenCode, "naïve-key").await.unwrap_err();
     assert_eq!(e.reason, reason::BAD_CODE, "{e:?}");
     save_api_key(&m, &cli, Agent::OpenCode, "  sk-oc-0123456789 \n").await.expect("saved");
     let store = home.join(".local/share/opencode");
