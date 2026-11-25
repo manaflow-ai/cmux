@@ -675,10 +675,14 @@ class WorkflowShape(unittest.TestCase):
         steps = gates_job["steps"]
         gates = steps.index(step_named(steps, "Fast gates on the merge"))
         total = 0
+        pool_only = "${{ startsWith(runner.name, 'cmux-runner-pool-') }}"
         for step in steps[:gates]:
             with self.subTest(step=step["name"]):
                 self.assertIn("timeout-minutes", step)
-                total += int(step["timeout-minutes"])
+                # A pool VM's mirror checkout runs instead of actions/checkout (#55973), never as well: one of the
+                # pair counts.
+                if step.get("if") != pool_only:
+                    total += int(step["timeout-minutes"])
         self.assertLessEqual(total, 40)
         # Node never comes from GitHub's node-versions releases (setup-node's download): the tool cache or nodejs.org.
         node = step_named(steps, "Setup Node")
@@ -735,6 +739,9 @@ class WorkflowShape(unittest.TestCase):
         for step in steps:
             # The pinned toolchain restores (scripts/ci/toolchain-r2.sh) are best-effort too: a miss is setup's download.
             if "toolchain-r2.sh\" restore " in str(step.get("run", "")):
+                continue
+            # So are the Bun package cache steps, bounded since #55346: a miss or a hung restore is a cold install.
+            if str(step.get("uses", "")).startswith(("actions/cache@", "actions/cache/restore@")):
                 continue
             if step.get("continue-on-error") is True and not any(r in step["name"] for r in receipt_steps):
                 with self.subTest(gated=step["name"]):
