@@ -7,6 +7,7 @@ import { nextStepCardHeight, permissionCardHeight } from "./permissions/cardHeig
 import { freshMeasureContext } from "./measureContext";
 import type { SentFrom } from "./conversation/sentFromHarness";
 import type { PeerLinkDetail } from "./linkState";
+import type { ComposerStatus } from "./composerStatusModel";
 import { BUBBLE } from "./transcriptSpacing";
 import {
   footerAfter,
@@ -1408,6 +1409,10 @@ export type AcpmuxSnapshot = {
     machine?: string;
     peer?: string;
     hostKind?: "local" | "cloud";
+    /// The composer footer's status dot items and quiet facts, as acpmux decided them
+    /// (`composerStatus`, acpmux `protocol/composer_status.rs`); absent from an older acpmux. Read
+    /// through composerStatusModel.ts `readComposerStatus`, which takes a null field as absent.
+    composerStatus?: ComposerStatus;
     /// Where an Auto chat stands (acpmux `autoSession`, autoSession/autoSession.ts): unset from an
     /// acpmux without Auto, and the pane then offers and draws nothing of it.
     autoSession?: AutoSession;
