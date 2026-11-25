@@ -16,8 +16,21 @@ import { sessionModelVerdict } from "./cloud-journey";
 import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
+import { parseClaimedMarkers, parseWarmHomeAnswer } from "./cloud-journey";
 
 describe("cloud journey", () => {
+  test("parses claimed reserved-home markers", () => {
+    expect(parseClaimedMarkers(".claimed-surface-2\nnoise\n.claimed-surface-1\n.claimed-surface-2\n")).toEqual([".claimed-surface-1", ".claimed-surface-2"]);
+    expect(parseClaimedMarkers("\nno marker\n")).toEqual([]);
+  });
+
+  test("parses warm-home answers and unsupported images", () => {
+    expect(parseWarmHomeAnswer('{"accepted":true,"state":"ready"}')).toEqual({ state: "ready", reason: "reserved home chat is ready" });
+    expect(parseWarmHomeAnswer('{"accepted":false,"state":"busy"}')).toEqual({ state: "not_ready", reason: "warm-home answered state=busy" });
+    expect(parseWarmHomeAnswer("")).toEqual({ state: "unsupported", reason: "warm-home is unavailable on this guest image" });
+    expect(parseWarmHomeAnswer("warm-home: command not found")).toEqual({ state: "unsupported", reason: "warm-home returned no JSON answer" });
+  });
+
   test("session model is read from the Claude transcript: a record naming the asked model does not pass a different one", async () => {
     // Production 2026-11-10 (cmux#40383): the second chat's record named Haiku while the pooled agent ran Sonnet.
     const fake = (transcript: string, info = '{"model":"claude-haiku-5-5","agentSessionId":"sid-1"}') => {
@@ -542,10 +555,12 @@ describe("cloud journey: leaked machine sweep", () => {
     expect(ids([
       { id: "vm_running", name: `cloud journey auto ${old}`, status: "running" },
       { id: "vm_paused_gw", name: `cloud journey auto ${old} gateway`, status: "paused" },
+      { id: "vm_move_b", name: `cloud journey auto ${old} move B`, status: "running" },
+      { id: "vm_cold", name: `cloud journey auto ${old} cold`, status: "paused" },
       { id: "vm_young", name: `cloud journey auto ${young}`, status: "paused" },
       { id: "vm_gone", name: `cloud journey auto ${old}`, status: "deleted" },
       { id: "vm_deleting", name: `cloud journey auto ${old}`, status: "deleting" },
-    ])).toEqual(["vm_running", "vm_paused_gw"]);
+    ])).toEqual(["vm_running", "vm_paused_gw", "vm_move_b", "vm_cold"]);
     // Just inside the bound is a concurrent run's machine; just past it is leaked.
     const edge = { id: "vm_edge", name: `cloud journey auto ${tagAt(now - STALE_JOURNEY_MS)}`, status: "paused" };
     expect(ids([edge])).toEqual([]);
@@ -585,6 +600,8 @@ describe("cloud journey: leaked machine sweep", () => {
       { id: "vm_named", name: `my cloud journey auto ${old}`, status: "paused" },
       { id: "vm_bad", name: "cloud journey auto jr-!!", status: "paused" },
       { id: "vm_tiny", name: "cloud journey auto jr-zz", status: "paused" },
+      { id: "vm_tiny_sfx", name: "cloud journey auto jr-zz move B", status: "paused" },
+      { id: "vm_glued", name: `cloud journey auto ${old}x`, status: "paused" },
       { id: "vm_future", name: `cloud journey auto ${tagAt(now + 3600_000)}`, status: "paused" },
       null,
     ])).toEqual([]);

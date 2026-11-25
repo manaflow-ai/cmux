@@ -93,6 +93,7 @@ on:
       - "docs/mdm/managed-preferences.md"
       - "docs/ci/health-report.md"
       - "docs/privacy.md"
+      - "docs/network-requirements.md"
       - "**/notices/**"
       - "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md"
       - "cmux-tui/README.md"
@@ -431,6 +432,107 @@ jobs:
           retention-days: 1
           overwrite: true
 
+  # The action exports on a Linux runner of our own pool (Leo, 2026-11-25: "if it works on linux and is at least as
+  # fast if not faster, then we ought to just go ahead"). scripts/cmux-next/regenerate-action-exports-linux.sh
+  # builds CmuxNext's action model files (LinuxActionExports/sources.txt, in a scratch package) against
+  # cmux-action-catalog at the app's CCmuxAppFFI pin and writes the same four files the Mac's parity tests do, in
+  # about 15 s of build where the Mac's whole-package `swift test` build took about 14 min. Every step that can fail
+  # is continue-on-error, so the job ends green and `verified` says whether it made them: when it did not (a model
+  # file took an AppKit name the Linux shape lacks), action-exports below regenerates them on a Mac and says so.
+  action-exports-linux:
+    name: action exports (Linux)
+    needs: [action-areas, generated-exports]
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled() && needs.action-areas.result == 'success' && needs.action-areas.outputs.actions == 'true' && needs.generated-exports.outputs.hit != 'true' && needs.generated-exports.outputs.coming != 'true' && (vars.CMUX_ACTION_EXPORTS_LINUX || 'on') != '0') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 25
+    container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
+    defaults:
+      run:
+        shell: bash
+    permissions:
+      contents: read
+    outputs:
+      # Made (or found fresh) and, when any changed, uploaded: the Mac job then leaves the action exports alone.
+      verified: ${{ steps.regenerate.outcome == 'success' && (steps.regenerate.outputs.exports != 'true' || steps.upload.outcome == 'success') && 'true' || 'false' }}
+      exports: ${{ steps.regenerate.outcome == 'success' && steps.upload.outcome == 'success' && 'true' || 'false' }}
+    steps:
+      # git before the checkout, or it downloads a tarball with no history to fetch the pin's commit into.
+      - name: Install git, python3 and curl
+        timeout-minutes: 5
+        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends git python3 curl ca-certificates
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
+          persist-credentials: false
+          submodules: false
+
+      - name: Fetch the base and head commit graphs
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git fetch --no-tags --no-recurse-submodules --filter=tree:0 --unshallow origin "$BASE_SHA" "$HEAD_SHA"
+
+      - name: Autofix scripts from the base
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/autofix"
+          git ls-tree -r --format='%(objecttype) %(objectname)' "$BASE_SHA" -- scripts/cmux-next | awk '$1 == "blob" { print $2 }' |
+            git -c fetch.negotiationAlgorithm=noop fetch --quiet --no-tags --no-write-fetch-head --recurse-submodules=no \
+              --filter=blob:none --stdin origin || echo "::warning::batched blob fetch failed; restore fetches them one at a time"
+          git --work-tree="$RUNNER_TEMP/autofix" restore --source="$BASE_SHA" --worktree -- scripts/cmux-next
+
+      - name: Refuse stale generator inputs
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          checker="$RUNNER_TEMP/autofix/scripts/cmux-next/check-generator-inputs.sh"
+          [[ -x "$checker" ]] || checker="$GITHUB_WORKSPACE/scripts/cmux-next/check-generator-inputs.sh"
+          "$checker" --base-ref "$BASE_SHA" --merge-ref HEAD
+
+      - name: Set up pinned cmux-tui Rust
+        id: rust
+        continue-on-error: true
+        timeout-minutes: 8
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      # The script runs from the checkout (the merge commit): it reads the package's own Package.swift and
+      # sources, which a base copy could not match.
+      - name: Regenerate the action exports
+        id: regenerate
+        if: steps.rust.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          scripts/cmux-next/regenerate-action-exports-linux.sh "$RUNNER_TEMP/action-exports" 2>&1 | tee "$RUNNER_TEMP/action-exports.txt"
+          if grep -q '^regenerated: ' "$RUNNER_TEMP/action-exports.txt"; then
+            echo "exports=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        id: upload
+        if: steps.regenerate.outcome == 'success' && steps.regenerate.outputs.exports == 'true'
+        continue-on-error: true
+        timeout-minutes: 5
+        with:
+          name: action-exports-linux
+          path: ${{ runner.temp }}/action-exports
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
   # Regenerates the action and settings exports on a Mac with a read-only token
   # and hands them to repair as the action-exports artifact (files at their
   # repository paths). A pull request whose catalog or settings do not build
@@ -438,10 +540,11 @@ jobs:
   # them back (an Autofix-Run head would skip the exports on every later run).
   action-exports:
     name: action exports (Mac)
-    needs: [action-areas, generated-exports]
+    needs: [action-areas, generated-exports, action-exports-linux]
     # Only when generated-exports took no pack and no generated-files job of this head is coming to regenerate
-    # them (it is skipped for a fork, so a fork regenerates here).
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled() && needs.action-areas.result == 'success' && (needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true') && needs.generated-exports.outputs.hit != 'true' && needs.generated-exports.outputs.coming != 'true') }}
+    # them (it is skipped for a fork, so a fork regenerates here). The action exports are action-exports-linux's:
+    # this Mac makes them only as its fallback, when that job did not (it logs why), and the settings exports.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled() && needs.action-areas.result == 'success' && ((needs.action-areas.outputs.actions == 'true' && needs.action-exports-linux.outputs.verified != 'true') || needs.action-areas.outputs.settings == 'true') && needs.generated-exports.outputs.hit != 'true' && needs.generated-exports.outputs.coming != 'true') }}
     # The exports need a logged-in session: an owned gui runner, or Blacksmith macOS (where
     # cmux-next.yml's generated files make the same exports). They take the owned gui label only
     # when action-areas saw a gui runner idle (mac_runner, cmux_next_media_runner.py --idle-now
@@ -580,9 +683,15 @@ jobs:
 
       # A catalog that does not build is the pull request's own red elsewhere;
       # this job then hands over nothing and the other repairs still run.
+      - name: Say why the Mac makes the action exports
+        if: needs.action-areas.outputs.actions == 'true' && needs.action-exports-linux.outputs.verified != 'true'
+        env:
+          LINUX_RESULT: ${{ needs.action-exports-linux.result }}
+        run: echo "::warning title=mac fallback::action exports (Linux) did not make the action exports (job ${LINUX_RESULT:-not run}); regenerating them on this Mac."
+
       - name: Regenerate the action exports
         id: regenerate
-        if: needs.action-areas.outputs.actions == 'true'
+        if: needs.action-areas.outputs.actions == 'true' && needs.action-exports-linux.outputs.verified != 'true'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -637,7 +746,7 @@ jobs:
         id: require-exports
         if: always()
         env:
-          ACTIONS_REQUESTED: ${{ needs.action-areas.outputs.actions }}
+          ACTIONS_REQUESTED: ${{ needs.action-areas.outputs.actions == 'true' && needs.action-exports-linux.outputs.verified != 'true' }}
           SETTINGS_REQUESTED: ${{ needs.action-areas.outputs.settings }}
           ACTIONS_EXPORTS: ${{ steps.regenerate.outputs.exports }}
           SETTINGS_EXPORTS: ${{ steps.settings.outputs.exports }}
@@ -693,7 +802,7 @@ jobs:
     name: autofix repairs
     # The action exports come first: the docs shortcuts are rewritten from them.
     # The other repairs still run when the Mac job fails or is skipped.
-    needs: [action-areas, generated-exports, action-exports]
+    needs: [action-areas, generated-exports, action-exports-linux, action-exports]
     # A head with nothing to repair (action-areas' repairs: no autofix-areas.sh key on)
     # takes no runner: on 11-21 10:00-17:00Z, 109 of 282 merged commits needed no repair, and the job's full
     # checkout cost 1-3 minutes each time. Regenerated exports still run it (it commits them), and an empty repairs
@@ -708,7 +817,7 @@ jobs:
     # the event's head and merge commit, so the repair is of exactly the red head. A re-run also skips the draft
     # tier's term: the event payload of a re-run still says draft after the PR is ready, and a lane's red PR is
     # usually a draft. A push event still runs it.
-    if: ${{ (github.event_name != 'pull_request' || github.run_attempt > 1) && !cancelled() && (needs.action-areas.outputs.repairs != 'false' || needs.action-exports.outputs.exports == 'true' || needs.generated-exports.outputs.exports == 'true') }}
+    if: ${{ (github.event_name != 'pull_request' || github.run_attempt > 1) && !cancelled() && (needs.action-areas.outputs.repairs != 'false' || needs.action-exports.outputs.exports == 'true' || needs.action-exports-linux.outputs.exports == 'true' || needs.generated-exports.outputs.exports == 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # clippy compiles the changed crates (cached below): 40 minutes when it can run (AUTOFIX_GATE_CLIPPY's clause
     # below), 25 otherwise. On 2026-11-23 17:43-23:43Z, 65 of 948 runs ran into the 40-minute limit (about 10,400
@@ -860,7 +969,7 @@ jobs:
         id: bun
         continue-on-error: true
         timeout-minutes: 4
-        if: steps.areas.outputs.shortcuts == 'true' || steps.areas.outputs.apphost == 'true' || needs.action-exports.outputs.exports == 'true' || needs.generated-exports.outputs.exports == 'true' || steps.areas.outputs.cloud == 'true' || steps.areas.outputs.webviews == 'true'
+        if: steps.areas.outputs.shortcuts == 'true' || steps.areas.outputs.apphost == 'true' || needs.action-exports.outputs.exports == 'true' || needs.action-exports-linux.outputs.exports == 'true' || needs.generated-exports.outputs.exports == 'true' || steps.areas.outputs.cloud == 'true' || steps.areas.outputs.webviews == 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -946,6 +1055,14 @@ jobs:
           name: action-exports
           path: ${{ runner.temp }}/action-exports
 
+      # The Linux job's action exports, into the same folder (the Mac's artifact then holds only settings exports).
+      - name: Download the action exports made on Linux
+        if: steps.areas.outputs.skip == 'false' && needs.action-exports-linux.outputs.exports == 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: action-exports-linux
+          path: ${{ runner.temp }}/action-exports
+
       - name: Repair
         if: steps.areas.outputs.skip == 'false'
         env:
@@ -958,7 +1075,7 @@ jobs:
           SHORTCUTS: ${{ steps.areas.outputs.shortcuts }}
           APPHOST: ${{ steps.areas.outputs.apphost }}
           ACTIONS: ${{ steps.areas.outputs.actions || needs.action-areas.outputs.actions }}
-          EXPORTS_VERIFIED: ${{ needs.generated-exports.outputs.hit == 'true' && 'true' || needs.action-exports.outputs.verified }}
+          EXPORTS_VERIFIED: ${{ (needs.generated-exports.outputs.hit == 'true' || needs.action-exports-linux.outputs.verified == 'true') && 'true' || needs.action-exports.outputs.verified }}
           SETTINGS: ${{ steps.areas.outputs.settings || needs.action-areas.outputs.settings }}
           SETTINGS_VERIFIED: ${{ needs.generated-exports.outputs.hit == 'true' && 'true' || needs.action-exports.outputs.settings-verified }}
           RATCHETS: ${{ steps.areas.outputs.ratchets }}

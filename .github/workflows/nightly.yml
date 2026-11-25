@@ -1569,6 +1569,8 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && !env.LEFT_SLOT
         run: |
           set -euo pipefail
+          # Keep the pinned archives across jobs on this Mac. The installer checks their hashes on every hit.
+          export ZIG_TARBALL_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/cmux/zig-tarballs"
           ./scripts/install-zig-ci.sh
           GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
 
@@ -2981,7 +2983,8 @@ jobs:
   resolve-nightly-cmux-tui-client:
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
+    # retry-nightly-next dispatches a new run at attempt 1. Use the rerun pool for those dispatches too.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
     permissions:
       contents: read
       actions: read
@@ -3229,7 +3232,7 @@ jobs:
       contents: read
       actions: read
     # Only moves and reads files; Mach-O checks run in verify-signed-nightly. It uses about one core.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 220 || 100 }}
     strategy:
       fail-fast: false
@@ -3478,7 +3481,7 @@ jobs:
       contents: read
       actions: read
     # After a primary success it only reads that result.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 220 || 100 }}
     strategy:
       fail-fast: false
@@ -6828,6 +6831,9 @@ jobs:
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       # Warm in one tree per Mac under $HOME, by flag (nightly_build_state.py); no shared compiler store or host root.
       CMUX_NIGHTLY_KEEP_STATE: "1"
+      # A cold 54 MB Zig transfer on the signer can take over 8 minutes (run 45512239356).
+      ZIG_DOWNLOAD_BUDGET_SECONDS: "1800"
+      ZIG_DOWNLOAD_ATTEMPTS: "8"
       CMUX_CI_FLEET_CACHE_OFF: "1"
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
       NIGHTLY_COMPILE_ARCHS: ${{ needs.decide.outputs.compile_archs }}
