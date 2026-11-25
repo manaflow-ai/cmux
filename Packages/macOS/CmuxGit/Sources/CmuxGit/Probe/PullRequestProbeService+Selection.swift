@@ -130,14 +130,16 @@ extension PullRequestProbeService {
         let timestamp = rawTimestamp?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !timestamp.isEmpty else { return nil }
 
-        let formatter = ISO8601DateFormatter()
-        if let date = formatter.date(from: timestamp) {
+        if let date = try? Self.githubTimestampStyle.parse(timestamp) {
             return date
         }
-
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.date(from: timestamp)
+        return try? Self.githubFractionalTimestampStyle.parse(timestamp)
     }
+
+    /// Value-type parsers shared by every candidate, so selection allocates no
+    /// formatter per pull request.
+    private static let githubTimestampStyle = Date.ISO8601FormatStyle()
+    private static let githubFractionalTimestampStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
 
     /// Decodes JSON `Data`, returning `nil` on any decode failure.
     nonisolated static func decodeJSON<T: Decodable>(_ type: T.Type, from data: Data) -> T? {
