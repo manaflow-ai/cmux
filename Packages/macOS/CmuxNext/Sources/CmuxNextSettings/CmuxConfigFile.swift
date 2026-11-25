@@ -2,7 +2,7 @@ import CmuxNextCompat
 public import Foundation
 import os
 
-/// Reads `~/.config/cmux/cmux-next.json` and sends its writes to the file's one writer, the
+/// Reads `~/.config/cmux-next/cmux-next.json` and sends its writes to the file's one writer, the
 /// daemon's settings owner (``SettingsFileWriter``, cmux-tui `cmux-config` `settings.edit`;
 /// plans/cmux-next/settings-react.md section 1). An actor so file IO and parsing stay off the main
 /// actor and writes go out in call order. The owner edits the JSONC source in place (comments and
@@ -26,7 +26,8 @@ public actor CmuxConfigFile {
         self.writer = writer
     }
 
-    /// The conventional location, `<home>/.config/cmux/cmux-next.json`, unless
+    /// The conventional location, `<home>/.config/cmux-next/cmux-next.json` (NEXT's own folder, never
+    /// classic cmux's `~/.config/cmux`; ``BuildStatePaths/settingsFile``), unless
     /// `CMUX_NEXT_CONFIG_FILE` names another file. The override keeps test
     /// launches of tagged builds from reading or writing the user's file
     /// (`home` is the account's home, which ignores `$HOME`).
@@ -37,10 +38,10 @@ public actor CmuxConfigFile {
         if let path = environment[overrideKey], !path.isEmpty {
             return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         }
-        return file("cmux-next.json", under: home)
+        return home.appending(path: ".config/\(BuildStatePaths.nextFolder)/cmux-next.json")
     }
 
-    /// `<root>/.config/cmux/<name>`: NEXT's default file and Classic's import source share the folder.
+    /// `<root>/.config/cmux/<name>`: Classic's folder, the import source.
     private static func file(_ name: String, under root: URL) -> URL {
         root.appending(path: ".config/cmux").appending(path: name)
     }

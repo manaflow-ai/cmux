@@ -7,7 +7,7 @@
 //! 1. managed: `/Library/Application Support/cmux/harnesses/*.toml` (macOS),
 //!    `/etc/cmux/harnesses/*.toml` (other unix);
 //! 2. user files: `$XDG_CONFIG_HOME/cmux/harnesses/*.toml`, default
-//!    `~/.config/cmux/harnesses/`;
+//!    `~/.config/cmux/harnesses/` (`~/.config/cmux-next/harnesses/` on macOS);
 //! 3. cmux-next.json `agents.harnesses` (never classic cmux's cmux.json: the
 //!    app copies its keys into cmux-next.json once the person accepts the
 //!    Classic import).
@@ -62,7 +62,7 @@ pub struct ProfileSources {
     /// The user's harness folder: every write (`cmux harness add`, icons,
     /// endpoints) goes here.
     pub user_dir: Option<PathBuf>,
-    /// The person's folder (`~/.config/cmux/harnesses`) when a DEV build keeps
+    /// The person's folder (`~/.config/cmux/harnesses`, `cmux-next` on macOS) when a DEV build keeps
     /// `user_dir` in its own acpmux home: read below `user_dir`, never written,
     /// so a DEV build offers the person's own harnesses (`claude-sr2`) without
     /// putting its test profiles in front of shipped builds.
@@ -77,9 +77,10 @@ impl ProfileSources {
     pub fn current() -> Self {
         let xdg = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty());
         let explicit_config = xdg.is_some();
-        let config_dir = xdg
-            .map(|v| PathBuf::from(v).join("cmux"))
-            .or_else(|| dirs::home_dir().map(|home| home.join(".config").join("cmux")));
+        let config_base =
+            xdg.map(PathBuf::from).or_else(|| dirs::home_dir().map(|h| h.join(".config")));
+        // cmux NEXT's own folder (`cmux-next` on macOS) holds the harnesses.
+        let config_dir = config_base.as_ref().map(|base| base.join(cmux_config::NEXT_DIR));
         let managed = if std::env::consts::OS == "macos" {
             PathBuf::from("/Library/Application Support/cmux/harnesses")
         } else {
@@ -93,7 +94,8 @@ impl ProfileSources {
     }
 
     /// The sources for the managed folder, the person's config folder
-    /// (`~/.config/cmux`) and a DEV build's own harness folder, if any.
+    /// (`~/.config/cmux`, `~/.config/cmux-next` on macOS), cmux-next.json
+    /// and a DEV build's own harness folder, if any.
     fn with_build_dir(
         managed: PathBuf,
         config_dir: Option<PathBuf>,

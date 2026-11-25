@@ -1,8 +1,8 @@
 //! The cmux settings file, read only (the app's settings owner writes it):
-//! `CMUX_NEXT_CONFIG_FILE`, else `~/.config/cmux/cmux-next.json`:
-//! `cmux_config::location`'s `config_path`, read with `cmux_config::jsonc`,
-//! the settings owner's own reader. Classic is imported by the app only after
-//! the person consents. Read at each use,
+//! `CMUX_NEXT_CONFIG_FILE`, else `~/.config/cmux/cmux-next.json` (in
+//! `~/.config/cmux-next/` on macOS): `cmux_config::location`'s `config_path`,
+//! read with `cmux_config::jsonc`, the settings owner's own reader. Classic is
+//! imported by the app only after the person consents. Read at each use,
 //! so a settings change applies to the next new chat.
 
 use cmux_config::{jsonc, location};
@@ -27,6 +27,7 @@ pub enum Settings {
 /// The single NEXT settings file `read` looks at. The settings watcher
 /// (`hub/settings_watch.rs`) watches it.
 pub fn paths() -> Vec<PathBuf> {
+    location::migrate_legacy_once();
     vec![resolved_path()]
 }
 
