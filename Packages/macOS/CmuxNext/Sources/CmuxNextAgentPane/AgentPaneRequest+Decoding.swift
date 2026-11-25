@@ -134,71 +134,9 @@ extension AgentPaneRequest {
                   let data = try? JSONSerialization.data(withJSONObject: params),
                   let text = String(data: data, encoding: .utf8) else { self = .unsupported(method); return }
             self = .uiPointerReport(text)
-        case "ready":
-            self = params?["reconnect"] as? Bool == true ? .reconnect : .ready
-        case "chat.missing":
-            if let session = params?["session"] as? String, !session.isEmpty {
-                self = .missingChat(session: session, reason: params?["reason"] as? String ?? "unknown")
-            } else {
-                self = .unsupported(method)
-            }
-        case "chat.persistSession":
-            if let id = params?["sessionId"] as? String, !id.isEmpty {
-                self = .persistSession(id)
-            } else {
-                self = .unsupported(method)
-            }
-        case "chat.cloudStartQueue":
-            if let text = params?["text"] as? String {
-                self = .cloudStartQueue(text)
-            } else {
-                self = .unsupported(method)
-            }
-        case "chat.unsentDraft":
-            if let text = params?["text"] as? String {
-                self = .unsentDraft(text)
-            } else {
-                self = .unsupported(method)
-            }
-        case "chat.leftover":
-            if let text = params?["text"] as? String {
-                self = .newChatLeftover(text)
-            } else {
-                self = .unsupported(method)
-            }
-        case "chat.leftoverTaken":
-            if let text = params?["text"] as? String {
-                self = .newChatLeftoverTaken(text)
-            } else {
-                self = .unsupported(method)
-            }
-        case "pane.checkpointAvailability":
-            if let available = params?["available"] as? Bool {
-                self = .checkpointAvailability(available)
-            } else {
-                self = .unsupported(method)
-            }
-        case "pane.commandAvailability":
-            if let commands = params?["commands"] as? [String] {
-                self = .commandAvailability(commands)
-            } else {
-                self = .unsupported(method)
-            }
-        case "pane.framePacing":
-            if let intervals = params?["intervals"] as? [Double], !intervals.isEmpty {
-                self = .framePacing(Array(intervals.prefix(Self.maximumPacingFrames)))
-            } else {
-                self = .unsupported(method)
-            }
         case "pane.saveLog":
             if let save = AgentPaneSave(text: params?["text"], suggestedName: params?["suggestedName"], kind: .log) {
                 self = .saveFile(save)
-            } else {
-                self = .unsupported(method)
-            }
-        case "pane.finishSound":
-            if let kind = (params?["kind"] as? String).flatMap(AgentPaneFinishSound.Kind.init(rawValue:)) {
-                self = .finishSound(kind)
             } else {
                 self = .unsupported(method)
             }
@@ -207,18 +145,6 @@ extension AgentPaneRequest {
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneSave.Kind.init(rawValue:)), kind != .log,
                let save = AgentPaneSave(text: params?["text"], suggestedName: params?["suggestedName"], kind: kind) {
                 self = .saveFile(save)
-            } else {
-                self = .unsupported(method)
-            }
-        case "pane.showContextUsage", "pane.showDictation", "pane.setScrollToBottomOnSend":
-            if let show = params?["show"] as? Bool {
-                let path: [String]
-                switch method {
-                case "pane.showDictation": path = AgentPaneComposerSetting.showDictationPath
-                case "pane.setScrollToBottomOnSend": path = AgentPaneComposerSetting.scrollToBottomOnSendPath
-                default: path = AgentPaneComposerSetting.showContextUsagePath
-                }
-                self = .composerSetting(path: path, show: show)
             } else {
                 self = .unsupported(method)
             }
@@ -243,20 +169,6 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "pane.setRemoteControl":
-            // Session Info's Remote Control switch: one Bool, nothing else.
-            if let on = params?["on"] as? Bool, Set((params ?? [:]).keys) == ["on"] {
-                self = .remoteControl(on: on)
-            } else {
-                self = .unsupported(method)
-            }
-        case "pane.noticeAction":
-            // A native notice's button (AgentPaneNotice): its id, nothing else.
-            if let id = params?["id"] as? String, Set((params ?? [:]).keys) == ["id"] {
-                self = .paneNoticeAction(id: id)
-            } else {
-                self = .unsupported(method)
-            }
         case "tips.state":
             // `{}` reads the records, `{id, state}` keeps one, `{claim, feature?}` asks to show a tip.
             if let tips = AgentPaneFeatureTipRequest(params) {
@@ -277,38 +189,6 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "pane.clientReady":
-            if let ready = params?["ready"] as? Bool {
-                self = .clientReady(ready)
-            } else {
-                self = .unsupported(method)
-            }
-        case "pane.painted":
-            self = .painted(fromKeptTail: params?["drewKeptTail"] as? Bool ?? false,
-                            settled: params?["settled"] as? Bool ?? false,
-                            copy: params?["copy"] as? Bool ?? false,
-                            live: params?["live"] as? Bool ?? false)
-        case "pane.inputEchoed":
-            if let epochMs = params?["echoedEpochMs"] as? Double, epochMs.isFinite {
-                self = .inputEchoed(at: Date(timeIntervalSince1970: epochMs / 1_000))
-            } else {
-                self = .unsupported(method)
-            }
-        case "pane.launchSettle":
-            if let epochMs = params?["settledEpochMs"] as? Double, epochMs.isFinite,
-               let px = params?["maxMovePx"] as? Double, px.isFinite, px >= 0,
-               let shifts = params?["shifts"] as? Double, shifts.isFinite, shifts >= 0 {
-                self = .launchSettle(settledAt: Date(timeIntervalSince1970: epochMs / 1_000), maxMovePx: px,
-                                     element: params?["element"] as? String ?? "other", shifts: Int(min(shifts, 1_000_000)))
-            } else {
-                self = .unsupported(method)
-            }
-        case "pane.renderRate":
-            if let full = params?["full"] as? Bool {
-                self = .renderRate(full)
-            } else {
-                self = .unsupported(method)
-            }
         case "tab.open":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)), kind != .agent {
                 let text = params?["text"] as? String ?? ""
@@ -325,81 +205,8 @@ extension AgentPaneRequest {
             }
         case "run.attach":
             self = AgentPaneRunAttach(params: params ?? [:]).map(AgentPaneRequest.runAttach) ?? .invalidRunAttach
-        case "tab.typeAhead":
-            if let text = params?["text"] as? String {
-                self = .typeAhead(String(text.prefix(Self.maximumOpenTabText)))
-            } else {
-                self = .unsupported(method)
-            }
         case "account.add":
             self = AgentPaneAddAccount(params: params).map(AgentPaneRequest.addAccount) ?? .unsupported(method)
-        case "harness.update":
-            // Harness ids (profile file names), never a command: one `id`, or `ids` for Update all.
-            let harnessId = { (value: Any?) -> String? in
-                guard let id = value as? String, !id.isEmpty, id.utf8.count <= 128,
-                      id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "-_.".contains($0)) }) else { return nil }
-                return id
-            }
-            if let id = harnessId(params?["id"]) {
-                self = .harnessUpdate(ids: [id], each: false)
-            } else if let list = params?["ids"] as? [Any], (1 ... 32).contains(list.count) {
-                let ids = list.compactMap(harnessId)
-                self = ids.count == list.count && Set(ids).count == ids.count ? .harnessUpdate(ids: ids, each: true) : .unsupported(method)
-            } else {
-                self = .unsupported(method)
-            }
-        case "acpmux.restart":
-            self = .restartAcpmux
-        case "harness.restart":
-            self = .harnessRestart
-        case "shell.run":
-            if let command = params?["command"] as? String,
-               !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-               command.utf8.count <= Self.maximumOpenTabText {
-                // A relative folder would resolve against the app's, not the chat's.
-                let cwd = (params?["cwd"] as? String).flatMap { $0.hasPrefix("/") && $0.utf8.count <= 4096 ? $0 : nil }
-                self = .shellRun(command: command, cwd: cwd)
-            } else {
-                self = .unsupported(method)
-            }
-        case "shell.read":
-            if let id = Self.shellID(params), let after = (params?["after"] as? NSNumber)?.intValue, after >= 0 {
-                self = .shellRead(id: id, after: after)
-            } else {
-                self = .unsupported(method)
-            }
-        case "shell.complete":
-            if let line = params?["line"] as? String, line.utf8.count <= AgentPaneShellCompletion.maximumLine {
-                let cwd = (params?["cwd"] as? String).flatMap { $0.hasPrefix("/") && $0.utf8.count <= 4096 ? $0 : nil }
-                self = .shellComplete(line: line, cwd: cwd)
-            } else {
-                self = .unsupported(method)
-            }
-        case "shell.stop":
-            if let id = Self.shellID(params) { self = .shellStop(id: id) } else { self = .unsupported(method) }
-        case "newTab.inputReady":
-            if let token = params?["token"] as? String, !token.isEmpty, token.count <= 128 { self = .newTabInputReady(token) }
-            else { self = .unsupported(method) }
-        case "newTab.touched":
-            self = .touched
-        case "newTab.context":
-            self = .newTabContext
-        case "newTab.cloudPick":
-            self = .newTabCloudPick
-        case "newTab.warm":
-            // The page's own JSON text (newtab/warmSnapshot.ts), kept as it is: one list has one text, so the pages of one
-            // list share one part (``AgentPaneNewTabShared``). No parse and sorted re-encode of up to 512 KB on main.
-            if let text = params?["warm"] as? String, !text.isEmpty, text.utf8.count <= AgentPaneNewTab.maximumWarmBytes {
-                self = .newTabWarm(text)
-            } else {
-                self = .unsupported(method)
-            }
-        case "newTab.setTemplate":
-            if let template = params?["template"] as? String, !template.isEmpty, template.count <= 32 {
-                self = .editNewTab(.template(template))
-            } else {
-                self = .unsupported(method)
-            }
         case "readAloud.speak", "readAloud.stop":
             self = AgentPaneReadAloud.Command(method: method, params: params).map(AgentPaneRequest.readAloud) ?? .unsupported(method)
         case "nowPlaying.command":

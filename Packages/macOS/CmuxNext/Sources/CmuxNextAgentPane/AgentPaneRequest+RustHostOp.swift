@@ -4,7 +4,8 @@ import Foundation
 import os
 
 /// The page messages Rust decodes (cmux-tui cmux-window-rules `chat::host_op`, its tests the checks' tests): the
-/// Cloud environment editor, the Cloud reservation, the Cloud repository actions and the GitHub section. The host
+/// Cloud environment editor, the Cloud reservation, the Cloud repository actions, the GitHub section and the pane's
+/// own messages (lifecycle, paint and pacing reports, composer switches, the shell box, the New Tab page). The host
 /// hands Rust the page's message over the app FFI's JSON channel (`window_chat_agent_host_op`) and builds the
 /// request from the checked answer; it checks nothing itself. Every other method is still decoded in
 /// ``AgentPaneRequest/init(body:)`` until it moves (cmuxterm-hq docs/rfd/drafts/why-swift.md).
@@ -37,6 +38,43 @@ extension AgentPaneRequest {
         var atOpen: Bool?
         var auto: Bool?
         var github: GitHub?
+        var pane: Pane?
+    }
+
+    /// One of the pane's own messages (`pane::PaneOp`): `op` names it.
+    private nonisolated struct Pane: Decodable {
+        var op: String
+        var session: String?
+        var reason: String?
+        var id: String?
+        var text: String?
+        var available: Bool?
+        var commands: [String]?
+        var intervals: [Double]?
+        var kind: String?
+        var setting: String?
+        var show: Bool?
+        var on: Bool?
+        var ready: Bool?
+        var fromKeptTail: Bool?
+        var settled: Bool?
+        var copy: Bool?
+        var live: Bool?
+        var epochMs: Double?
+        var settledEpochMs: Double?
+        var maxMovePx: Double?
+        var element: String?
+        var shifts: Int?
+        var full: Bool?
+        var ids: [String]?
+        var each: Bool?
+        var command: String?
+        var cwd: String?
+        var after: Int?
+        var line: String?
+        var token: String?
+        var warm: String?
+        var template: String?
     }
 
     /// The request for a page message Rust decodes; `.unsupported(method)` for one it refuses or when the FFI does
@@ -67,6 +105,8 @@ extension AgentPaneRequest {
             return .cloudRepository(AgentPaneCloudRepositoryRequest(method: method, params: params))
         case "gitHub":
             return op.github.flatMap(gitHub).map(AgentPaneRequest.gitHub)
+        case "pane":
+            return op.pane.flatMap(pane)
         default:
             return nil
         }
@@ -83,6 +123,60 @@ extension AgentPaneRequest {
         case "cloneUrl":
             guard let url = request.url, let key = request.key else { return nil }
             return .cloneURL(url: url, key: key)
+        default: return nil
+        }
+    }
+
+    private nonisolated static func pane(_ p: Pane) -> AgentPaneRequest? {
+        switch p.op {
+        case "ready": return .ready
+        case "reconnect": return .reconnect
+        case "missingChat": return p.session.map { .missingChat(session: $0, reason: p.reason ?? "unknown") }
+        case "persistSession": return p.id.map(AgentPaneRequest.persistSession)
+        case "cloudStartQueue": return p.text.map(AgentPaneRequest.cloudStartQueue)
+        case "unsentDraft": return p.text.map(AgentPaneRequest.unsentDraft)
+        case "newChatLeftover": return p.text.map(AgentPaneRequest.newChatLeftover)
+        case "newChatLeftoverTaken": return p.text.map(AgentPaneRequest.newChatLeftoverTaken)
+        case "checkpointAvailability": return p.available.map(AgentPaneRequest.checkpointAvailability)
+        case "commandAvailability": return p.commands.map(AgentPaneRequest.commandAvailability)
+        case "framePacing": return p.intervals.map(AgentPaneRequest.framePacing)
+        case "finishSound": return p.kind.flatMap(AgentPaneFinishSound.Kind.init(rawValue:)).map(AgentPaneRequest.finishSound)
+        case "composerSetting":
+            guard let show = p.show else { return nil }
+            switch p.setting {
+            case "showDictation": return .composerSetting(path: AgentPaneComposerSetting.showDictationPath, show: show)
+            case "scrollToBottomOnSend": return .composerSetting(path: AgentPaneComposerSetting.scrollToBottomOnSendPath, show: show)
+            case "showContextUsage": return .composerSetting(path: AgentPaneComposerSetting.showContextUsagePath, show: show)
+            default: return nil
+            }
+        case "remoteControl": return p.on.map { .remoteControl(on: $0) }
+        case "paneNoticeAction": return p.id.map { .paneNoticeAction(id: $0) }
+        case "clientReady": return p.ready.map(AgentPaneRequest.clientReady)
+        case "painted":
+            return .painted(fromKeptTail: p.fromKeptTail ?? false, settled: p.settled ?? false, copy: p.copy ?? false, live: p.live ?? false)
+        case "inputEchoed": return p.epochMs.map { .inputEchoed(at: Date(timeIntervalSince1970: $0 / 1_000)) }
+        case "launchSettle":
+            guard let ms = p.settledEpochMs, let px = p.maxMovePx, let shifts = p.shifts else { return nil }
+            return .launchSettle(settledAt: Date(timeIntervalSince1970: ms / 1_000), maxMovePx: px, element: p.element ?? "other", shifts: shifts)
+        case "renderRate": return p.full.map(AgentPaneRequest.renderRate)
+        case "typeAhead": return p.text.map(AgentPaneRequest.typeAhead)
+        case "harnessUpdate":
+            guard let ids = p.ids, let each = p.each else { return nil }
+            return .harnessUpdate(ids: ids, each: each)
+        case "restartAcpmux": return .restartAcpmux
+        case "harnessRestart": return .harnessRestart
+        case "shellRun": return p.command.map { .shellRun(command: $0, cwd: p.cwd) }
+        case "shellRead":
+            guard let id = p.id, let after = p.after else { return nil }
+            return .shellRead(id: id, after: after)
+        case "shellComplete": return p.line.map { .shellComplete(line: $0, cwd: p.cwd) }
+        case "shellStop": return p.id.map { .shellStop(id: $0) }
+        case "newTabInputReady": return p.token.map(AgentPaneRequest.newTabInputReady)
+        case "touched": return .touched
+        case "newTabContext": return .newTabContext
+        case "newTabCloudPick": return .newTabCloudPick
+        case "newTabWarm": return p.warm.map(AgentPaneRequest.newTabWarm)
+        case "newTabTemplate": return p.template.map { .editNewTab(.template($0)) }
         default: return nil
         }
     }

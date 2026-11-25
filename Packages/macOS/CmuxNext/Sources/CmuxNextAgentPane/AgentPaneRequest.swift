@@ -41,7 +41,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A New Tab page showed that leftover as its draft (`chat.leftoverTaken`): its window's slot gives it up.
     case newChatLeftoverTaken(String)
     /// A settled transcript scroll's frame intervals in milliseconds, at
-    /// most ``maximumPacingFrames``; returns the native display interval and rate mode.
+    /// most 640 (Rust `chat::host_op::pane::MAXIMUM_PACING_FRAMES`); returns the native display interval and rate mode.
     case framePacing([Double])
     /// Applies the page's adaptive rate decision; fixed-rate panes ignore it.
     case renderRate(Bool)
@@ -536,7 +536,6 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         }
     }
 
-    public static let maximumPacingFrames = 640
     /// Longest `tab.open` text kept; a command or address is far shorter.
     public static let maximumOpenTabText = 8192
     /// Longest `sandbox.run` task: the Run API's own cap (web/services/runs/model.ts).
@@ -546,10 +545,4 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     public static let maximumLogBytes = 16 * 1024 * 1024
 
     public static let handlerName = "agentSession"
-
-    /// A shell run's id as ``AgentPaneShell`` mints them.
-    static func shellID(_ params: [String: Any]?) -> String? {
-        guard let id = params?["id"] as? String, !id.isEmpty, id.utf8.count <= 64 else { return nil }
-        return id
-    }
 }
