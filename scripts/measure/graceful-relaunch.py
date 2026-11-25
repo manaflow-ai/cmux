@@ -11,18 +11,17 @@ screen, starts graceful-relaunch-windows.js (the window server's on-screen list,
 Recording grant: bounds, owner, alpha), relaunches the copy the way an update does (`debug.updater relaunch`, what
 Sparkle runs before its installer relaunches: the quit keeps sessions; then `open` once the old process is gone, as
 the installer and the relaunch helpers do), and reads, for every saved window frame, which process had a window
-there in every sample: the old copy, the afterimage (osascript, RelaunchAfterimage), or the new copy.
+there in every sample: the old copy or the new copy (Restart to Update is a plain quit and relaunch, no afterimage).
 
   python3 scripts/measure/graceful-relaunch.py --app COPY.app --socket SOCK [--rounds 3] [--seconds 14] [--out DIR]
 
 Per round (one JSON line `GRACEFUL-RELAUNCH {...}`, and DIR/round-N.json with the samples):
-  blank_ms / blank_frames   time (and 60 Hz frames) some saved frame had no window of any of the three over it
+  blank_ms / blank_frames   time (and 60 Hz frames) some saved frame had no window of either copy over it
   first_blank_ms            when that started, from the trigger
   old_gone_ms               the old copy's last window left the screen
   new_first_ms              the new copy's first window at a saved frame
   restored_ms               every saved frame had a new copy's window (time to restored)
   windows_saved / windows_restored / frames_restored   counts, and whether every frame came back exactly
-  afterimage_ms             how long the afterimage was on screen (0: none)
 """
 import argparse, json, os, socket, statistics, subprocess, sys, time
 
@@ -81,34 +80,29 @@ def analyze(samples, epoch, trigger_ms, old_pid, owner, mains=None):
     saved = sorted({tuple(r[5:9]) for r in before[-1][1] if r[0] == old_pid and r[3] == 0 and r[4] > 0
                     and (mains is None or any(same((r[5], r[7], r[8]), m) for m in mains))})
     out = {"windows_saved": len(saved), "blank_ms": 0.0, "first_blank_ms": None, "old_gone_ms": None,
-           "new_first_ms": None, "restored_ms": None, "afterimage_ms": 0.0}
+           "new_first_ms": None, "restored_ms": None}
     if not saved:
         out["error"] = "the copy had no window on screen"
         return out
     after = [s for s in samples if s[0] >= trigger_ms]
-    afterimage_first = afterimage_last = None
     restored_frames = set()
     for i, (t, rows) in enumerate(after):
         dt = (after[i + 1][0] - t) if i + 1 < len(after) else 0
         rel = t - trigger_ms
         layer0 = [r for r in rows if r[3] == 0 and r[4] > 0.01]
         olds = [r for r in layer0 if r[0] == old_pid]
-        overlays = [r for r in layer0 if r[1] == "osascript"]
         news = [r for r in layer0 if r[0] != old_pid and r[1] == owner]
         if olds:
             out["old_gone_ms"] = None
         elif out["old_gone_ms"] is None:
             out["old_gone_ms"] = rel
-        if overlays:
-            afterimage_first = rel if afterimage_first is None else afterimage_first
-            afterimage_last = rel
         covered = 0
         new_here = set()
         for frame in saved:
             has_new = any(same(frame, tuple(r[5:9])) for r in news)
             if has_new:
                 new_here.add(frame)
-            if has_new or any(same(frame, tuple(r[5:9])) for r in olds + overlays):
+            if has_new or any(same(frame, tuple(r[5:9])) for r in olds):
                 covered += 1
         if new_here and out["new_first_ms"] is None:
             out["new_first_ms"] = rel
@@ -119,8 +113,6 @@ def analyze(samples, epoch, trigger_ms, old_pid, owner, mains=None):
             out["blank_ms"] += dt
             if out["first_blank_ms"] is None:
                 out["first_blank_ms"] = rel
-    if afterimage_first is not None:
-        out["afterimage_ms"] = afterimage_last - afterimage_first
     out["blank_ms"] = round(out["blank_ms"], 1)
     out["blank_frames"] = round(out["blank_ms"] / FRAME_MS, 1)
     out["windows_restored"] = len(restored_frames)
@@ -138,7 +130,7 @@ def one_round(args, n):
     mains = [(w["frame"]["x"], w["frame"]["width"], w["frame"]["height"]) for w in listed or [] if w.get("kind") == "main" and w.get("visible")] if listed else None
     path = os.path.join(args.out, f"round-{n}.jsonl")
     sampler = subprocess.Popen(["/usr/bin/osascript", "-l", "JavaScript", os.path.join(HERE, "graceful-relaunch-windows.js"),
-                                str(args.seconds), path, owner_exe, owner, "osascript"],
+                                str(args.seconds), path, owner_exe, owner],
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(0.8)
     trigger = time.time()
@@ -177,7 +169,7 @@ def main():
     args = p.parse_args()
     os.makedirs(args.out, exist_ok=True)
     rounds = [one_round(args, n) for n in range(1, args.rounds + 1)]
-    keys = ["blank_ms", "blank_frames", "quit_ms", "old_gone_ms", "new_first_ms", "restored_ms", "afterimage_ms"]
+    keys = ["blank_ms", "blank_frames", "quit_ms", "old_gone_ms", "new_first_ms", "restored_ms"]
     median = {k: statistics.median([r[k] for r in rounds if isinstance(r.get(k), (int, float))] or [0]) for k in keys}
     median["frames_restored"] = all(r.get("frames_restored") for r in rounds)
     print("GRACEFUL-RELAUNCH-MEDIAN " + json.dumps(median), flush=True)

@@ -2,7 +2,8 @@
 //! [`crate::state`]) once nothing can need it again (RFD 0007, hard case 8). One [`pass`] runs at
 //! the daemon's start and on a timer, does a bounded amount of work ([`Limits`]) and says what it
 //! freed and why ([`Report`]). Each projection's cache is capped on its own
-//! (`overlay::DEFAULT_CACHE_MAX_BYTES`).
+//! (`overlay::DEFAULT_CACHE_MAX_BYTES`), and its content store keeps a floor of free disk
+//! (`overlay::content::DEFAULT_CONTENT_FLOOR`).
 //!
 //! What goes, and the one rule that keeps edits safe:
 //!

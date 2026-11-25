@@ -13,7 +13,8 @@ run-name: ${{ github.event_name == 'workflow_dispatch' && format('pair-e2e {0}',
 # A tool, not a gate: it runs only when dispatched, or on a push to a pair-e2e/** branch (a branch made
 # to test one PR, e.g. pair-e2e/pr-49393: the PR head merged with the base it needs). No pull request,
 # merge queue or branch protection reads it. Dispatch needs this file on the default branch; until a copy
-# is registered there, push a pair-e2e/** branch, which runs the file in that branch.
+# is registered there, push a pair-e2e/** branch, which runs the file in that branch. A lane VM's broker
+# pushes only lane/** branches and dispatches no workflow, so a lane/pair-e2e-** push runs it too.
 #
 # Evidence: SUMMARY.md only (the run summary and a 3-day artifact). The screens and logs stay on the VM:
 # the account's Settings > Devices list names other Macs signed in to it.
@@ -25,7 +26,7 @@ on:
         required: true
         type: string
   push:
-    branches: ["pair-e2e/**"]
+    branches: ["pair-e2e/**", "lane/pair-e2e-**"]
 
 permissions:
   contents: read
@@ -68,16 +69,27 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
 
       # As cloud-chat-proof.yml's tagged build: the webviews build runs on node and the pinned bun.
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
       - name: Setup Node
+        timeout-minutes: 5
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       - name: Ensure an iOS simulator runtime
         run: xcrun simctl list runtimes available | grep -Eq '\biOS\b' || xcodebuild -downloadPlatform iOS

@@ -18,6 +18,7 @@ const HELP: &str = "\
 Usage: cmux agent-config settings get --agent claude|codex [--cwd DIR] [--json]
        cmux agent-config settings set --agent claude|codex --key KEY --value VALUE [--scope SCOPE] [--cwd DIR] [--json]
        cmux agent-config settings unset --agent claude|codex --key KEY [--scope SCOPE] [--cwd DIR] [--json]
+       cmux agent-config settings allow|deny|ask --rule RULE [--remove] [--scope SCOPE] [--cwd DIR] [--json]
        cmux agent-config settings env set --agent claude|codex --name NAME (--value VALUE | --value-stdin) [--scope SCOPE] [--cwd DIR] [--json]
        cmux agent-config settings env unset --agent claude|codex --name NAME [--scope SCOPE] [--cwd DIR] [--json]
 
@@ -27,6 +28,11 @@ Claude Code's and Codex's own settings, as each agent reads them.
           (env and secret values masked), the curated keys cmux edits, and the files
   set     write one curated key in one scope's file (default: user)
   unset   remove it, so the next scope or the agent's default applies
+  allow, deny, ask
+          add one Claude Code permission rule to permissions.allow, .deny or .ask in one
+          scope's file (default: user), or take it out with --remove. A rule is a tool name
+          with an optional specifier: Bash(npm run test:*), Read(./.env), WebFetch(domain:x.com),
+          mcp__github. The lists merge across scopes; deny wins over ask over allow.
   env     set or unset one variable every session the agent starts gets: Claude Code's
           env.NAME, Codex's shell_environment_policy.set.NAME. The value is never printed
           back (get lists it masked); --value-stdin reads it from the first line of stdin,
@@ -48,11 +54,13 @@ the backup's path.
 --cwd names the project the project scopes resolve in (default: this folder).
 ";
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Verb {
     Get,
     Set,
     Unset,
+    /// `allow`, `deny` or `ask`: one Claude Code permission rule.
+    Rule(&'static str),
     EnvSet,
     EnvUnset,
 }
@@ -67,6 +75,8 @@ struct Request {
     value_stdin: bool,
     scope: Option<String>,
     cwd: Option<PathBuf>,
+    rule: Option<String>,
+    remove: bool,
 }
 
 pub(in crate::cli) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -142,6 +152,19 @@ pub(in crate::cli) fn run_if_requested(args: &[String]) -> Option<i32> {
             request.scope.as_deref(),
         )
         .map(|written| written.json()),
+        Verb::Rule(list) => settings::rule(
+            &ctx,
+            list,
+            request.rule.as_deref().unwrap_or_default(),
+            !request.remove,
+            request.scope.as_deref(),
+        )
+        .map(|written| {
+            let mut answer = written.json();
+            answer["rule"] = json!(request.rule);
+            answer["removed"] = json!(request.remove);
+            answer
+        }),
     };
     Some(match result {
         Ok(answer) => {
@@ -192,18 +215,28 @@ fn parse(words: &[String]) -> Result<Request, String> {
         Some("get") => Verb::Get,
         Some("set") => Verb::Set,
         Some("unset") => Verb::Unset,
+        Some("allow") => Verb::Rule("allow"),
+        Some("deny") => Verb::Rule("deny"),
+        Some("ask") => Verb::Rule("ask"),
         Some("env") => match iter.next().map(String::as_str) {
             Some("set") => Verb::EnvSet,
             Some("unset") => Verb::EnvUnset,
             _ => return Err("settings env needs set or unset".to_owned()),
         },
         Some(other) => {
-            return Err(format!("unknown settings verb {other:?}; use get, set, unset or env"));
+            return Err(format!(
+                "unknown settings verb {other:?}; use get, set, unset, env, allow, deny or ask"
+            ));
         }
-        None => return Err("settings needs a verb (get, set, unset or env)".to_owned()),
+        None => {
+            return Err(
+                "settings needs a verb (get, set, unset, env, allow, deny or ask)".to_owned()
+            );
+        }
     };
     let env = matches!(verb, Verb::EnvSet | Verb::EnvUnset);
     let (mut agent, mut key, mut value, mut scope, mut cwd) = (None, None, None, None, None);
+    let (mut rule, mut remove) = (None, false);
     let mut value_stdin = false;
     while let Some(word) = iter.next() {
         let (flag, inline) = match word.split_once('=') {
@@ -230,8 +263,29 @@ fn parse(words: &[String]) -> Result<Request, String> {
             "--value" => value = Some(take()?),
             "--scope" => scope = Some(take()?),
             "--cwd" => cwd = Some(PathBuf::from(take()?)),
+            "--rule" => rule = Some(take()?),
+            "--remove" if inline.is_none() => remove = true,
             other => return Err(format!("settings does not take {other:?}")),
         }
+    }
+    if let Verb::Rule(list) = verb {
+        // Permission rules are Claude Code's; Codex has approval_policy and sandbox_mode instead.
+        if agent.is_some_and(|a| a != Agent::Claude) {
+            return Err(format!(
+                "{list} rules are Claude Code's; Codex uses approval_policy and sandbox_mode"
+            ));
+        }
+        if key.is_some() || value.is_some() {
+            return Err(format!("{list} takes --rule, not --key or --value"));
+        }
+        if rule.is_none() {
+            return Err(format!("{list} needs --rule RULE, as in --rule 'Bash(npm run test:*)'"));
+        }
+        let agent = Agent::Claude;
+        return Ok(Request { verb, agent, key, value, value_stdin, scope, cwd, rule, remove });
+    }
+    if rule.is_some() || remove {
+        return Err("--rule and --remove go with allow, deny or ask".to_owned());
     }
     let agent = agent.ok_or("settings needs --agent claude or --agent codex")?;
     match verb {
@@ -250,11 +304,24 @@ fn parse(words: &[String]) -> Result<Request, String> {
         Verb::EnvUnset if value.is_some() => return Err("env unset takes no --value".to_owned()),
         _ => {}
     }
-    Ok(Request { verb, agent, key, value, value_stdin, scope, cwd })
+    Ok(Request { verb, agent, key, value, value_stdin, scope, cwd, rule, remove })
 }
 
 /// The answer for a person at a terminal.
 fn human(request: &Request, answer: &Value) -> String {
+    if let Verb::Rule(list) = request.verb {
+        let what = if request.remove { "removed from" } else { "added to" };
+        let mut out = format!(
+            "{} {what} permissions.{list} ({} scope) in {}\n",
+            request.rule.as_deref().unwrap_or_default(),
+            answer["scope"].as_str().unwrap_or_default(),
+            answer["path"].as_str().unwrap_or_default()
+        );
+        if let Some(backup) = answer["backup"].as_str() {
+            out.push_str(&format!("backup: {backup}\n"));
+        }
+        return out;
+    }
     if request.verb != Verb::Get {
         let what = if matches!(request.verb, Verb::Set | Verb::EnvSet) { "set" } else { "unset" };
         let mut out = format!(
@@ -362,7 +429,9 @@ mod tests {
                 value: None,
                 value_stdin: false,
                 scope: None,
-                cwd: Some("/p".into())
+                cwd: Some("/p".into()),
+                rule: None,
+                remove: false,
             }
         );
         let set =
@@ -376,6 +445,23 @@ mod tests {
         assert!(parse(&words("settings get")).is_err());
         assert!(parse(&words("mcp list --agent claude")).is_err());
         assert!(parse(&words("settings get --agent claude --bogus")).is_err());
+    }
+
+    #[test]
+    fn parses_permission_rules() {
+        let allow = parse(&words("settings allow --rule Bash(npm:*) --scope project")).unwrap();
+        assert_eq!(allow.verb, Verb::Rule("allow"));
+        assert_eq!(allow.agent, Agent::Claude);
+        assert_eq!(allow.rule.as_deref(), Some("Bash(npm:*)"));
+        assert!(!allow.remove);
+        let deny = parse(&words("settings deny --agent claude --rule=WebFetch --remove")).unwrap();
+        assert_eq!((deny.verb, deny.remove), (Verb::Rule("deny"), true));
+        assert!(parse(&words("settings ask")).is_err());
+        assert!(parse(&words("settings allow --agent codex --rule Bash")).is_err());
+        assert!(parse(&words("settings allow --rule Bash --key model")).is_err());
+        assert!(
+            parse(&words("settings set --agent claude --key model --value x --remove")).is_err()
+        );
     }
 
     #[test]

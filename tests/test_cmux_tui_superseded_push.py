@@ -269,6 +269,16 @@ def check_verdicts():
         got = run_check(api, repo, script, "push", "refs/heads/feat-cmux-next", head, {"RUN_ATTEMPT": "2"})
         _check(got == "false", f"tree-preflight: a re-run of a moved feat-cmux-next push builds ({got!r}, want 'false')")
         _check(api.requests == [], f"tree-preflight: a feat-cmux-next re-run asks the API nothing ({api.requests})")
+        # A coalescing window's one build (base-coalesce.yml's base output is set) builds even once the tip
+        # moved: the window's later pushes are coalesced and build nothing (2026-11-23 05:48-07:50Z).
+        for base_out in (newer, "unknown"):
+            api.reset({"git/ref/heads/feat-cmux-next": (200, {"object": {"sha": newer}})})
+            got = run_check(api, repo, script, "push", "refs/heads/feat-cmux-next", head, {"COALESCE_BASE": base_out})
+            _check(got == "false", f"tree-preflight: a coalesce window's build of a moved feat-cmux-next push builds "
+                   f"(base {base_out!r}: {got!r}, want 'false')")
+        api.reset({"git/ref/heads/feat-cmux-next": (200, {"object": {"sha": newer}})})
+        got = run_check(api, repo, script, "push", "refs/heads/feat-cmux-next", head, {"COALESCE_BASE": ""})
+        _check(got == "true", f"tree-preflight: with coalescing off, a moved feat-cmux-next push skips ({got!r})")
         # The daemon-test re-check keeps its rule: a feat-cmux-next push is never superseded there.
         api.reset({"git/ref/heads/feat-cmux-next": (200, {"object": {"sha": newer}})})
         got = run_check(api, repo, daemon_step["run"], "push", "refs/heads/feat-cmux-next", head,
