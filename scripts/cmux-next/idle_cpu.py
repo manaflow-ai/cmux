@@ -73,7 +73,35 @@ BENCH_CEF_SWITCHES = "disable-component-update"
 # --cef-trace: Chromium's startup trace as a ring buffer (the idle tail stays, the startup goes) of at most this size;
 # the JSON file is a few times that, in a temporary folder removed once read.
 CEF_TRACE_BUFFER_KB = 65536
-CEF_TRACE_CATEGORIES = "toplevel,toplevel.flow,ipc,mojom"
+# loading and blink.resource: each request's URL (a page that polls or streams at idle, 8571eee5's 2.7/s
+# RunReadCallback on the I/O thread).
+CEF_TRACE_CATEGORIES = "toplevel,toplevel.flow,ipc,mojom,loading,blink.resource"
+
+# Argument keys that name what an event serves: a mojo interface or method, a URL, a posting place.
+_NAMING_ARG = re.compile(r"(interface|method|tag|url|func|file|name)", re.I)
+
+
+def _flat_args(args, prefix: str = ""):
+    """`key=value` for each scalar of a trace event's arguments (nested keys joined by dots) whose key names what the
+    event serves (_NAMING_ARG)."""
+    if not isinstance(args, dict):
+        return
+    for key, value in args.items():
+        path = f"{prefix}{key}"
+        if isinstance(value, dict):
+            yield from _flat_args(value, path + ".")
+        elif isinstance(value, (str, int)) and not isinstance(value, bool) and _NAMING_ARG.search(key):
+            yield f"{path}={value}"
+
+
+def _urls(args) -> list:
+    """Every URL among an event's arguments, without its query or fragment."""
+    found = []
+    for pair in _flat_args(args):
+        key, _, value = pair.partition("=")
+        if key.lower().endswith("url") and "://" in value:
+            found.append(value.split("?", 1)[0].split("#", 1)[0])
+    return found
 
 
 BROWSER_THREADS = ("CrBrowserMain", "Chrome_IOThread")
@@ -144,17 +172,30 @@ def cef_trace_tasks(trace, skip_s: float = 30.0, top: int = 40) -> dict:
     rows.sort(key=lambda r: (-r["count"], r["process"], r["thread"], r["posted_from"]))
     # The browser process's main and I/O threads (only it names them so: a renderer's is Chrome_ChildIOThread): every
     # other event there by name, the mojom category's IPC messages among them, which RunTask rows do not name.
-    named = {}
+    # Each with the arguments that name what it served (a mojo interface, a URL), busiest first.
+    named, named_args, urls = {}, {}, {}
     for e in events:
+        if e.get("ph") not in ("X", "B", "i", "I", "n") or not start <= e.get("ts", -1) <= end:
+            continue
+        for url in _urls(e.get("args")):
+            ukey = (processes.get(e.get("pid"), str(e.get("pid"))), url)
+            urls[ukey] = urls.get(ukey, 0) + 1
         thread = threads.get((e.get("pid"), e.get("tid")))
-        if thread not in BROWSER_THREADS or e.get("ph") not in ("X", "B", "i", "I", "n") \
-                or e.get("name") == "ThreadControllerImpl::RunTask" or not start <= e.get("ts", -1) <= end:
+        if thread not in BROWSER_THREADS or e.get("name") == "ThreadControllerImpl::RunTask":
             continue
         key = (thread, e.get("name", "?"))
         named[key] = named.get(key, 0) + 1
-    event_rows = [{"thread": t, "name": n, "count": c, "per_s": round(c / seconds, 2)} for (t, n), c in named.items()]
+        per = named_args.setdefault(key, {})
+        for pair in _flat_args(e.get("args")):
+            per[pair] = per.get(pair, 0) + 1
+    event_rows = [{"thread": t, "name": n, "count": c, "per_s": round(c / seconds, 2),
+                   "args": [{"arg": a, "per_s": round(k / seconds, 2)}
+                            for a, k in sorted(named_args[(t, n)].items(), key=lambda i: (-i[1], i[0]))[:6]]}
+                  for (t, n), c in named.items()]
     event_rows.sort(key=lambda r: (-r["count"], r["thread"], r["name"]))
-    return {"seconds": round(seconds, 1), "tasks": rows[:top], "events": event_rows[:top]}
+    url_rows = [{"process": p, "url": u, "count": c, "per_s": round(c / seconds, 2)} for (p, u), c in urls.items()]
+    url_rows.sort(key=lambda r: (-r["count"], r["process"], r["url"]))
+    return {"seconds": round(seconds, 1), "tasks": rows[:top], "events": event_rows[:top], "urls": url_rows[:top]}
 
 
 def _settled(path: str, wait_s: float = 3.0) -> bool:
@@ -592,8 +633,12 @@ def rows_of(procs: dict, spans: list) -> list[dict]:
             if u0 is None or u1 is None:
                 continue
             span = max(t1 - t0, 1e-3)
+            # Package-idle and interrupt wakeups apart (bench_memory.usage): on a busy Mac the first reads near 0.
+            idle = (u1[5] - u0[5]) if len(u0) > 5 and len(u1) > 5 else None
             per.append({"cpu_pct": round(100 * (u1[3] - u0[3]) / 1e9 / span, 3),
                         "wakeups_per_s": round((u1[4] - u0[4]) / span, 2),
+                        "idle_wakeups_per_s": round(idle / span, 2) if idle is not None else None,
+                        "interrupt_wakeups_per_s": round((u1[4] - u0[4] - idle) / span, 2) if idle is not None else None,
                         "switches_per_s": round((c1 - c0) / span, 2) if c0 is not None and c1 is not None else None})
         if not per:
             continue
@@ -603,6 +648,8 @@ def rows_of(procs: dict, spans: list) -> list[dict]:
             return values[len(values) // 2] if values else None
         rows.append({"pid": pid, "kind": kind, "command": cmd[:200], "windows": per,
                      "cpu_pct": mid("cpu_pct"), "wakeups_per_s": mid("wakeups_per_s"),
+                     "idle_wakeups_per_s": mid("idle_wakeups_per_s"),
+                     "interrupt_wakeups_per_s": mid("interrupt_wakeups_per_s"),
                      "switches_per_s": mid("switches_per_s")})
     rows.sort(key=lambda row: -(row["cpu_pct"] or 0))
     return rows
@@ -986,8 +1033,13 @@ def main(argv: list[str] | None = None) -> int:
             while time.monotonic() < deadline and not (os.path.exists(target) and _settled(target)):
                 time.sleep(2)
             result["cef_trace"] = read_cef_trace(cef_trace_dir)
-            log("IDLE-CPU-CEF-TRACE " + json.dumps({k: v for k, v in result["cef_trace"].items() if k != "events"})[:6000])
-            log("IDLE-CPU-CEF-EVENTS " + json.dumps(result["cef_trace"].get("events", []))[:6000])
+            log("IDLE-CPU-CEF-TRACE " + json.dumps({k: v for k, v in result["cef_trace"].items()
+                                                    if k not in ("events", "urls")})[:6000])
+            # One line per event: its naming arguments make a row long, and a cut line hides the rest.
+            for row in result["cef_trace"].get("events", [])[:25]:
+                log("IDLE-CPU-CEF-EVENT " + json.dumps(row)[:1500])
+            for row in result["cef_trace"].get("urls", [])[:25]:
+                log("IDLE-CPU-CEF-URL " + json.dumps(row)[:600])
         result["app_threads"] = threads
         result["renderer_threads"] = [{str(pid): groups for pid, groups in window.items()} for window in renderer_threads]
         result["pages"] = page_activity(lambda method, params=None: client.call(method, params, timeout=30))
@@ -1005,6 +1057,7 @@ def main(argv: list[str] | None = None) -> int:
                         f"{entry['name']!r}x{entry['threads']}={entry['cpu_ms_per_s']}" for entry in groups[:16]))
         for row in rows:
             log(f"IDLE-CPU {row['kind']} pid={row['pid']} cpu_pct={row['cpu_pct']} wakeups_per_s={row['wakeups_per_s']} "
+                f"idle_wakeups_per_s={row['idle_wakeups_per_s']} interrupt_wakeups_per_s={row['interrupt_wakeups_per_s']} "
                 f"switches_per_s={row['switches_per_s']} windows={json.dumps([[w['cpu_pct'], w['wakeups_per_s']] for w in row['windows']])}")
         kinds: dict = {}
         for row in rows:
