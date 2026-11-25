@@ -59,6 +59,8 @@ draw them yet; `--kind menu` is refused until `cmux.context_menu/1` lands.
   SDK's `workspaces()`, `agents()`, `chats()`, which cmux reads once, caches and pushes.
 - **No raw sizes or colors.** Use the kit (`Panel`, `Row`, `Button`, `EmptyState`, the widget
   helpers) and `cmux.theme` tones; follow the folder's `DESIGN.md`.
+  That kit is the SDK's scene DSL, not the React kit in `webviews/src/kit`; which to use where:
+  [webviews/src/kit/README.md](../../webviews/src/kit/README.md#which-kit-do-i-use).
 - **No focus, placement or navigation of your own.** A view cannot take focus or place itself;
   actions run from a click (`cmux.actions.run`, scope `actions:run`, which the person turns on).
 - **No network or file access you did not declare.** `cmux.net.fetch` needs `net:<host>` in

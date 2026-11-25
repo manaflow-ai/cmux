@@ -343,6 +343,8 @@ for a notice and `cmux.theme` for the tone names. Never a literal color
 (`tint: cmux.theme.success`) and font names. The kit, its rules and a
 copy-paste focus timer template are in
 [references/local-app-views.md](references/local-app-views.md#matching-the-app).
+This kit is the scene globals, not the React kit `webviews/src/kit` (Instrument); which to use
+where: [webviews/src/kit/README.md](../../webviews/src/kit/README.md#which-kit-do-i-use).
 
 The worked example, as copy-paste files, and the recipe for adding a view:
 [references/local-app-views.md](references/local-app-views.md).
