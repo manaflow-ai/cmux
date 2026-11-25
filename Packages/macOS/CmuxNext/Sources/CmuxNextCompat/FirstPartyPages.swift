@@ -21,7 +21,7 @@ public nonisolated struct FirstPartyPages {
         "cmux.home-channels", "cmux.icon-picker",
         "cmux.keybindings", "cmux.machines", "cmux.onboarding",
         "cmux.passwords", "cmux.server-cards", "cmux.settings", "cmux.setup-card",
-        "cmux.stash", "cmux.stats", "cmux.task-manager", "cmux.tasks",
+        "cmux.stash", "cmux.stats", "cmux.task-manager", "cmux.tasks", "cmux.terminal-history",
         "cmux.site-settings", "cmux.site-data", "cmux.certificate", "cmux.cookie-import",
         "cmux.sidebar-chats",
     ]

@@ -18,15 +18,12 @@ trap 'rm -rf "$TMP"' EXIT
 fail() { printf 'FAIL: %s\n' "$@" >&2; exit 1; }
 pass() { printf 'ok: %s\n' "$1"; }
 
-# A scratch root with the scripts under test and the app host files sync-app-runtime.sh reads.
+# A scratch root with the scripts under test.
 tree="$TMP/tree"
-mkdir -p "$tree/scripts/cmux-next" "$tree/cmux-tui/crates/cmux-app-host/generated" \
-  "$tree/cmux-tui/crates/cmux-app-host/schema/v2"
+mkdir -p "$tree/scripts/cmux-next"
 for f in sync-app-runtime.sh build-web-bundles.sh check-app-bundle.sh; do
   cp "$ROOT/scripts/cmux-next/$f" "$tree/scripts/cmux-next/$f"
 done
-cp "$ROOT/cmux-tui/crates/cmux-app-host/generated/scopes.json" "$tree/cmux-tui/crates/cmux-app-host/generated/"
-cp "$ROOT/cmux-tui/crates/cmux-app-host/schema/v2/scope-classes.json" "$tree/cmux-tui/crates/cmux-app-host/schema/v2/"
 
 fixture_app() { # dir manifest-file id
   mkdir -p "$1/dist" "$1/assets"

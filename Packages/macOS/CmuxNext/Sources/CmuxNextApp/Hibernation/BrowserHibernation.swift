@@ -804,7 +804,7 @@ final class BrowserHibernation {
         )
         placeholder.onWake = { [weak self] wake in self?.wakeForNavigation(key, wake) }
         placeholder.onPictureShown = { [weak self] in self?.wakeLog.pictureShown(key) }
-        if let snapshot = saved.snapshot { snapshots.insert(snapshot, for: key) }
+        if let snapshot = saved.snapshot { snapshots.insert(snapshot, for: key); cache.phonePictures?.offerThumbnail(snapshot.image, tab: key) } // also the phones' picture: a page never shown sent none
         cache.swapPage(key, with: placeholder)
         cache.dormantTabs.set(key, true)
         hiddenAt[key] = nil

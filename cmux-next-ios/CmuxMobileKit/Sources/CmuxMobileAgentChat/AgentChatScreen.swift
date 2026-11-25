@@ -22,6 +22,18 @@ struct ChatRestingStack: Codable, Equatable {
     static let fallback = ChatRestingStack(height: 96, bottomGap: 80)
 }
 
+/// A transcript's reading place: the row at the top of the visible part, by its row id, and how
+/// far the view is scrolled past that row's top, in points.
+public struct ChatReadingAnchor: Equatable, Sendable {
+    public var row: String
+    public var offset: Double
+
+    public init(row: String, offset: Double) {
+        self.row = row
+        self.offset = offset
+    }
+}
+
 /// View state of one open agent chat, shared by its transcript and its
 /// bottom stack. The pushed `AgentChatScreen` owns one; a workspace tab
 /// (CmuxTabsKit) keeps one per tab so the transcript (the tab's page) and
@@ -35,6 +47,12 @@ public final class AgentChatSurface {
     }
     /// Told when the draft changes: a workspace tab keeps it on disk (`ComposerDraftStore`).
     @ObservationIgnored public var onTextChange: (@MainActor (String) -> Void)?
+    /// Where the reader was when the app last ran (a workspace tab's chat, `LastPlaceMemory`):
+    /// applied once, when the transcript first lays out its cached rows, instead of the newest
+    /// turn. A row that is not among them leaves the chat on its newest turn.
+    @ObservationIgnored public var restoreAnchor: ChatReadingAnchor?
+    /// Told when the reader comes to rest: the row at the top, or nil on the newest turn.
+    @ObservationIgnored public var onReadingAnchor: (@MainActor (ChatReadingAnchor?) -> Void)?
     /// The transcript holds its rows as they are (the page is shown as a
     /// small card on the tab grid): streamed changes wait and apply in one
     /// reload when this goes back to false, or on `refreshHeldTranscript()`.
@@ -714,19 +732,25 @@ struct AgentChatLoadingState: View {
     var body: some View {
         VStack(spacing: 12) {
             CmuxSpinner()
+            // The words keep their room while hidden, so they fade in later without moving the
+            // spinner (``AgentChatStore/loadingTextShows``).
             Text(Self.text(store))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+                .opacity(store.loadingTextShows ? 1 : 0)
+                .animation(.cmuxMobileSmooth.unlessReduceMotion, value: store.loadingTextShows)
         }
         .multilineTextAlignment(.center)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(Self.text(store)))
         .accessibilityIdentifier("agentChat.loadingHistory")
     }
 }
 
-/// Kept rows show while the chat is away from the Mac or catches up with it; after
-/// ``QuietStatusGate/threshold`` a small chip floats just above the composer
-/// (``AgentChatStore/connectionLine`` is its VoiceOver sentence). An overlay, never
+/// Kept rows show while the chat is away from the Mac or catches up with it, and nothing floats
+/// over the composer: its kinds (connecting, updating) do not paint (``ConnectionChip/Kind/paints``;
+/// Leo, 2026-11-24: "all the connecting... indicators ... nah let's not do that"). The view stays
+/// so the store's line keeps one place to land if a state that paints is ever routed here. An overlay, never
 /// in the stack, so it pushes nothing up (Leo, 2026-11-21: "these messages should
 /// not be pushing up the text ... a symbol or short thing, not a sentence. stop
 /// layout shifting").
@@ -740,6 +764,7 @@ struct AgentChatConnectionLine: View {
                     .padding(.leading, 20)
                     .alignmentGuide(.top) { $0[.bottom] + 8 }
                     .accessibilityIdentifier("agentChat.connectionLine")
+                    .placeholderBound("chat.connection.chip", .milliseconds(0))
                     .transition(.opacity)
             }
         }
@@ -1113,6 +1138,8 @@ struct UserBubble: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 11)
                 .background(Color.cmuxMobileChatBubble, in: .rect(cornerRadius: 20, style: .continuous))
+                // A bubble with no words and no attachment is an empty grey bubble: never drawn.
+                .placeholderBound("chat.user.empty", .milliseconds(0), when: prompt.isEmpty && attachments.isEmpty)
         }
         .selectionMenu(menuRows)
         .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in Self.maxWidth(in: width) }
@@ -1186,6 +1213,9 @@ struct SentAttachments: View {
     @State private var fetched: [String: Data] = [:]
     /// Thumbnails decoded off the main thread, by picture id (never decoded in a body).
     @State private var decoded: [String: UIImage] = [:]
+    /// Pictures whose bytes could not be read or decoded: their tile shows what they are (name,
+    /// size), not the waiting fill forever.
+    @State private var unreadable: Set<String> = []
     private let thumbnails = SentAttachmentThumbnails.shared
     @Environment(\.attachmentLoader) private var loader
 
@@ -1246,6 +1276,13 @@ struct SentAttachments: View {
         preview = FilePreviewRequest(artifacts: artifacts, source: source, start: ordered.firstIndex { $0.id == attachment.id } ?? 0)
     }
 
+    /// What a sent picture whose bytes cannot be read shows: its name, and its size when known.
+    static func lastKnown(_ attachment: AgentAttachment) -> String {
+        let name = attachment.name.isEmpty ? String(localized: "Photo") : attachment.name
+        guard let bytes = attachment.byteCount, bytes > 0 else { return name }
+        return "\(name)\n\(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))"
+    }
+
     @ViewBuilder
     private func thumbnail(_ attachment: AgentAttachment, size: CGSize) -> some View {
         let side = SentAttachmentThumbnails.side(size)
@@ -1257,6 +1294,21 @@ struct SentAttachments: View {
             if let picture, let image = decoded[picture.id]
                 ?? (picture.data ?? fetched[picture.id]).flatMap({ thumbnails.image(picture, data: $0, side: side) }) {
                 Image(uiImage: image).resizable().scaledToFill()
+            } else if let picture, unreadable.contains(picture.id) {
+                // Its bytes are not to be had: the last known of it (its name and size), never a
+                // waiting state.
+                Color.cmuxMobileFill.overlay {
+                    VStack(spacing: 4) {
+                        Image(systemName: attachment.video == nil ? "photo" : "film").font(.title3)
+                        Text(SentAttachments.lastKnown(attachment))
+                            .font(.caption2)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                    }
+                    .foregroundStyle(.secondary)
+                    .padding(8)
+                }
             } else {
                 Color.cmuxMobileFill.overlay {
                     Image(systemName: attachment.video == nil ? "photo" : "film").font(.title3).foregroundStyle(.secondary)
@@ -1276,8 +1328,14 @@ struct SentAttachments: View {
                 fetched[picture.id] = loaded
                 data = loaded
             }
-            guard let data, decoded[picture.id] == nil else { return }
-            if let image = await thumbnails.decode(picture, data: data, side: side) { decoded[picture.id] = image }
+            guard !Task.isCancelled else { return }
+            guard let data else { unreadable.insert(picture.id); return }
+            guard decoded[picture.id] == nil else { return }
+            if let image = await thumbnails.decode(picture, data: data, side: side) {
+                decoded[picture.id] = image
+            } else if !Task.isCancelled {
+                unreadable.insert(picture.id)
+            }
         }
         .accessibilityElement()
         .accessibilityLabel(Text(attachment.video.map { "Video, \(attachment.name), \(AgentVideo.length($0.durationMs))" }

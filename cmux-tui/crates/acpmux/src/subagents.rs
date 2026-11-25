@@ -197,6 +197,11 @@ impl SubagentTree {
             || self.previews.values().any(|p| p.agent_id.as_deref() == Some(to))
     }
 
+    /// Whether `session_id` is one this session knows: one of its subagents, or a root thread.
+    pub fn knows(&self, session_id: &str) -> bool {
+        self.parents.contains_key(session_id) || self.is_root(session_id)
+    }
+
     /// Whether `session_id` is one of this session's subagents.
     pub fn owns(&self, session_id: &str) -> bool {
         self.own.as_deref() != Some(session_id) && self.parents.contains_key(session_id)
