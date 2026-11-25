@@ -62,7 +62,8 @@ public struct CloudCLICall: Sendable {
     /// answer line as is: `{"ok": true, "body": B}` or `{"ok": false, "error": {"kind", "code", "message", …}}`.
     /// The token is read per call and goes on stdin, never in argv.
     @MainActor
-    func cloudAPI(_ call: String, args: [String: any Sendable], signedIn auth: CloudAuth, socket: String) async -> Data {
+    func cloudAPI(_ call: String, args: [String: any Sendable], signedIn auth: CloudAuth, socket: String,
+                  timeout: Duration = .seconds(60)) async -> Data {
         let failed = { (kind: String, message: String) in
             (try? JSONSerialization.data(withJSONObject: ["ok": false, "error": ["kind": kind, "message": message]])) ?? Data()
         }
@@ -72,7 +73,7 @@ public struct CloudCLICall: Sendable {
         if let team = auth.teamID { request["team"] = team }
         guard let stdin = try? JSONSerialization.data(withJSONObject: request) else { return failed("transport", "the request is not JSON") }
         do {
-            return try await run(["--socket", socket, "cloud", "api"], stdin: stdin, timeout: .seconds(60))
+            return try await run(["--socket", socket, "cloud", "api"], stdin: stdin, timeout: timeout)
         } catch {
             return failed("transport", String(describing: error))
         }
@@ -97,8 +98,118 @@ public struct CloudCLICall: Sendable {
         return answer.ok ? nil : (answer.error?.code ?? answer.error?.kind ?? "transport", answer.error?.message ?? "")
     }
 
+    /// A Chief on its own Cloud machine (New Chief's "On its own Cloud machine"): the cmux-cloud-api crate's
+    /// `machine.chief_start` on this Mac's daemon at `socket` makes the machine sized for a Chief, pairs it, places the
+    /// Chief on it, keeps it from idle-pausing and starts its host. `key` names this one start: the same key again
+    /// finishes a half-done start and never makes a second machine. The Chief's main conversation, or the refusal
+    /// code (`chief.host_missing`, `chief.pair_failed`, …) or failure kind, and its message.
+    @MainActor
+    public func startChiefOnMachine(key: String, name: String, signedIn auth: CloudAuth,
+                                    socket: String?) async -> Result<String, CloudCallRefusal> {
+        guard let socket else { return .failure(CloudCallRefusal(code: "transport", message: "")) }
+        struct Answer: Decodable {
+            struct Body: Decodable { var conversation: String? }
+            struct Failure: Decodable { var kind: String?; var code: String?; var message: String? }
+            var ok: Bool
+            var body: Body?
+            var error: Failure?
+        }
+        // The Rust call bounds itself (machine boot, pairing, the host); this outlasts it.
+        let line = await cloudAPI("machine.chief_start", args: ["key": key, "name": name], signedIn: auth, socket: socket,
+                                  timeout: .seconds(1_560))
+        guard let answer = try? JSONDecoder().decode(Answer.self, from: line) else {
+            return .failure(CloudCallRefusal(code: "transport", message: ""))
+        }
+        if answer.ok, let conversation = answer.body?.conversation { return .success(conversation) }
+        return .failure(CloudCallRefusal(code: answer.error?.code ?? answer.error?.kind ?? "transport",
+                                         message: answer.error?.message ?? ""))
+    }
+
+    /// `cmux cloud auth-handoff-relay` (cmux-tui `cli/cloud_auth_handoff_relay.rs`) for `auth.handoff.mint` and
+    /// `auth.handoff.redeem` (`cmux auth handoff`): `op` is `mint` or `redeem`, the request its params as JSON
+    /// bytes, the answer `{ok: true, value}` or `{ok: false, error: {code, message}}`. The two cmux-api requests and
+    /// their rules are that Rust's. This hands it the signed-in human Stack session for a mint (read per call, on
+    /// stdin, never argv) and the account signed in now for a redeem, signs in with the session a redeem answers
+    /// through the browser sign-in's own completion, and answers only the reply, never a token. A redeem whose
+    /// account changed while it ran signs nothing in.
+    @MainActor
+    public func authHandoffRelay(signedIn auth: CloudAuth) -> @Sendable (String, Data) async -> Data {
+        let api = auth.configuration.ownerAPIBaseURL().absoluteString
+        let account: @Sendable (Bool) async -> (credential: String?, user: String?) = { @MainActor [weak auth] mint in
+            guard let auth else { return (nil, nil) }
+            if mint {
+                guard await auth.restoredAccessToken() != nil, let access = try? await auth.tokens().access else { return (nil, nil) }
+                return (access, nil)
+            }
+            await auth.awaitRestored()
+            return (nil, auth.isSignedIn ? auth.user?.id : nil)
+        }
+        let signIn: @Sendable (String?, String, String) async -> Bool = { @MainActor [weak auth] before, access, refresh in
+            guard let auth, (auth.isSignedIn ? auth.user?.id : nil) == before else { return false }
+            return await auth.browserSignIn.completeHandoff(accessToken: access, refreshToken: refresh)
+        }
+        let unchanged: @Sendable (String?) async -> Bool = { @MainActor [weak auth] before in
+            guard let auth else { return false }
+            return (auth.isSignedIn ? auth.user?.id : nil) == before
+        }
+        return { [self] op, request in
+            let mint = op == "mint"
+            let (credential, before) = await account(mint)
+            if mint, credential == nil { return Self.handoffRefusal("not_signed_in", "Sign in to cmux on this Mac first.") }
+            guard let stdin = Self.handoffEnvelope(api: api, credential: credential, op: op, request: request, expectedUser: before),
+                  let line = try? await run(["cloud", "auth-handoff-relay"], stdin: stdin, timeout: .seconds(23)) else {
+                return Self.handoffUnavailable
+            }
+            guard !mint, let redeemed = Self.handoffRedeemed(line) else { return line }
+            if let session = redeemed.session {
+                guard await signIn(before, session.access, session.refresh) else { return Self.handoffUnavailable }
+            } else if await !unchanged(before) {
+                return Self.handoffUnavailable
+            }
+            return redeemed.reply
+        }
+    }
+
+    /// The relay's stdin: the origin, the credential and the request (`device` and `code` from the params, `op` and
+    /// `expected_user` this app's own).
+    nonisolated private static func handoffEnvelope(api: String, credential: String?, op: String, request: Data, expectedUser: String?) -> Data? {
+        let params = (try? JSONSerialization.jsonObject(with: request)) as? [String: Any] ?? [:]
+        var body = params.filter { $0.key == "device" || $0.key == "code" }
+        body["op"] = op
+        if let expectedUser { body["expected_user"] = expectedUser }
+        let envelope: [String: Any] = ["api": api, "credential": credential.map { $0 as Any } ?? NSNull(), "request": body]
+        return try? JSONSerialization.data(withJSONObject: envelope)
+    }
+
+    /// A redeem's `{session, reply}`: the session's tokens, if any, and the reply as an answer line; nil for a refusal.
+    nonisolated private static func handoffRedeemed(_ line: Data) -> (session: (access: String, refresh: String)?, reply: Data)? {
+        guard let answer = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any], answer["ok"] as? Bool == true,
+              let value = answer["value"] as? [String: Any], let reply = value["reply"] as? [String: Any],
+              let replyLine = try? JSONSerialization.data(withJSONObject: ["ok": true, "value": reply]) else { return nil }
+        let session = value["session"] as? [String: Any]
+        guard let session else { return (nil, replyLine) }
+        guard let access = session["access_token"] as? String, let refresh = session["refresh_token"] as? String else {
+            return (nil, handoffUnavailable)
+        }
+        return ((access, refresh), replyLine)
+    }
+
+    nonisolated private static func handoffRefusal(_ code: String, _ message: String) -> Data {
+        (try? JSONSerialization.data(withJSONObject: ["ok": false, "error": ["code": code, "message": message]])) ?? Data()
+    }
+
+    nonisolated private static var handoffUnavailable: Data {
+        handoffRefusal("unavailable", "cmux could not be reached. Try again in a moment.")
+    }
+
     private static func unreachable(_ message: String) -> Data {
         let answer: [String: Any] = ["ok": false, "error": ["code": "owner.unreachable", "message": message]]
         return (try? JSONSerialization.data(withJSONObject: answer)) ?? Data(#"{"ok":false,"error":{"code":"owner.unreachable","message":""}}"#.utf8)
     }
+}
+
+/// A `cmux cloud api` call's refusal: the platform's code or the call's failure kind, and its message.
+public nonisolated struct CloudCallRefusal: Error, Hashable, Sendable {
+    public var code: String
+    public var message: String
 }

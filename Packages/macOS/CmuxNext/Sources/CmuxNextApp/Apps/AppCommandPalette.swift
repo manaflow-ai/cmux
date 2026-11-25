@@ -13,28 +13,14 @@ enum AppCommandPalette {
         var app: AppRecord
         var command: AppRecord.Command
 
-        /// `command` names this entry: the full op (`coderouter.app.connect_account`),
-        /// or the last segment in either case style (`connect_account`, `connectAccount`).
-        func matches(_ command: String) -> Bool {
-            let op = self.command.op
-            if op == command { return true }
-            let last = op.split(separator: ".").last.map(String.init) ?? op
-            return last == command || last == Self.snakeCase(command)
-        }
-
-        static func snakeCase(_ name: String) -> String {
-            name.reduce(into: "") { out, character in
-                if character.isUppercase, !out.isEmpty { out.append("_") }
-                out.append(Character(character.lowercased()))
-            }
-        }
+        func matches(_ command: String) -> Bool { self.command.matches(command) }
     }
 
     /// Commands an invocation from `origin` may run: the palette (user)
     /// reaches presented apps only; the CLI, MCP and automations also reach a
     /// hidden app whose `hidden_access` allows that channel (V9).
     @MainActor static func entries(_ apps: AppsService, origin: ActionOrigin = .user) -> [Entry] {
-        let presence = apps.presence
+        let presence = apps.client.presence
         return apps.client.apps.filter { reaches($0, origin: origin, presented: presence.isPresented($0.id)) }.flatMap { app in
             app.commands.map { Entry(app: app, command: $0) }
         }
@@ -54,7 +40,7 @@ enum AppCommandPalette {
 
     /// Root palette items: "Open <App>" for apps with a page or a web app (``AppOpenTarget``), then their commands.
     @MainActor static func rootItems(_ services: AppServices) -> [PaletteItem] {
-        let presence = services.apps.presence
+        let presence = services.apps.client.presence
         let opens = services.apps.client.apps.filter { presence.isPresented($0.id) && $0.isActive && AppOpenTarget($0) != .none }.map { app in
             let name = app.manifest.name.resolved()
             return PaletteItem(id: "open:\(app.id)", title: AppsAppStrings.open(name), subtitle: name,
@@ -64,7 +50,12 @@ enum AppCommandPalette {
                                                                                                           origin: .user))
                                }))
         }
-        return opens + entries(services.apps).map { item($0, services) }
+        let overlays = services.apps.overlays.offered.map { offer in // "Open <App> Overlay": the person's pick is the gesture
+            PaletteItem(id: "overlay:\(offer.app)", title: offer.title, subtitle: offer.app, symbol: "macwindow.on.rectangle", keywords: [offer.app, "overlay"],
+                        primary: PaletteCommand(id: "open", title: AppsAppStrings.run, symbol: "return", effect: .perform { [weak services] in
+                            try? services?.apps.overlays.open(offer.app, in: services?.windows.active?.window, origin: .user) }))
+        }
+        return opens + overlays + entries(services.apps).map { item($0, services) }
     }
 
     @MainActor static func page(_ services: AppServices) -> PalettePageSpec {

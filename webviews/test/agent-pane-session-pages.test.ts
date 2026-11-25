@@ -1,9 +1,11 @@
 // l10n-allow-file: test fixture titles, not shipped UI.
-// A daemon with a long session list opens a chat without first downloading the whole list
-// (cx-2lv1k). The pane asks `_acpmux/watch` for the newest page, opens its chat, then reads the
-// rest with `_acpmux/sessions` cursors behind it, so the list still ends up whole: the composer's
-// projects, the picker and links to old chats need every session. A session purged or changed
-// while a page is on its way keeps its newer state, and a link to a chat on a late page opens it.
+// A daemon with a long session list opens a chat without downloading the whole list (cx-2lv1k).
+// The pane asks `_acpmux/watch` for the newest page, opens its chat and follows the list from
+// there; the rest is read with `_acpmux/sessions` cursors only when something asks for every chat
+// (`wantAllSessions`: the composer's @ chat search), so a pane's cost never grows with the list
+// (Leo, 2026-11-04: "never ... acceptable ... linear time growth degradation"). A session purged
+// or changed while a page is on its way keeps its newer state, and a link to a chat on a late page
+// opens it, asked by itself (`_acpmux/resolve`).
 // The stand-in daemon refuses what the cmux host's pane policy (policy.json) refuses, as the host
 // would: #20644 sent params the policy lacked and local chats lost their list (cx-ibngi).
 //
@@ -141,6 +143,11 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
       case "_acpmux/watch":
       case "_acpmux/sessions":
         return list(params);
+      // One chat by id (acpmux hub/locate.rs `card`), as a link past the first page asks.
+      case "_acpmux/resolve": {
+        const session = sessions.find((item) => item.sessionId === params.query);
+        return { session: session ? { ...session, host: null, peer: null, link: null } : null };
+      }
       case "_acpmux/attach": {
         const session = sessions.find((item) => item.sessionId === params.sessionId);
         return { session, events: events(String(params.sessionId)), hasMore: false, lastSeq: 3 };
@@ -275,8 +282,15 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
     return page;
   }
   const state = (page: Page) => page.evaluate(() => (window as any).cmuxAcpmuxDebug.chatState() as Record<string, any>);
+  /// Asks for every chat, as the composer's @ chat search does.
+  const wantAll = async (page: Page) => {
+    await page.waitForFunction(() => typeof (window as any).cmuxAcpmuxDebug?.wantAllSessions === "function", null, {
+      timeout: 60_000,
+    });
+    await page.evaluate(() => (window as any).cmuxAcpmuxDebug.wantAllSessions());
+  };
 
-  test("a chat opens after the newest page of a long session list, and the rest arrives behind it", async () => {
+  test("a chat opens on the newest page of a long session list, and the rest comes only when asked", async () => {
     holdPages();
     const page = await open(NEWEST);
     const errors: string[] = [];
@@ -287,9 +301,15 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
     expect(bytesBeforeAttach).toBeLessThanOrEqual(160 * 1024);
     const watch = requests.find((request) => request.method === "_acpmux/watch")!;
     expect(watch.params.limit).toBeLessThanOrEqual(200);
+    // Open and settled, the pane read no page after the first.
+    await caughtUp(page);
+    expect(requests.filter((request) => request.method === "_acpmux/sessions")).toEqual([]);
+    // The first page, and the one row the probe of `caughtUp` changed.
+    expect((await state(page)).sessions.length).toBeLessThanOrEqual(201);
 
     // While a later page is on its way, a session is purged and another one changes. The page was
     // read before both, so it carries the old state; the pane keeps the newer one.
+    await wantAll(page);
     await laterPagesAsked(1);
     socket!.send(
       JSON.stringify({
@@ -360,6 +380,7 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
       releaseStatus();
       releaseAttach();
       await page.getByText(`Open ${NEWEST}`, { exact: true }).waitFor({ timeout: 60_000 });
+      await wantAll(page);
       await laterPagesAsked(1);
       release();
       await listEnded();
@@ -387,6 +408,10 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
     const opened = await state(page);
     expect(opened.sessionId).toBe(LATE);
     expect(opened.missingSession).toBeNull();
+    // Asked by itself: one resolve, no later page and no whole-list read.
+    expect(requests.filter((r) => r.method === "_acpmux/resolve").map((r) => r.params.query)).toContain(LATE);
+    expect(requests.filter((r) => r.method === "_acpmux/sessions")).toEqual([]);
+    expect(requests.filter((r) => r.method === "_acpmux/watch" && r.params.limit === undefined)).toEqual([]);
     await page.close();
   });
 
@@ -395,6 +420,7 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
     release();
     const page = await open(NEWEST);
     await page.getByText(`Open ${NEWEST}`, { exact: true }).waitFor({ timeout: 60_000 });
+    await wantAll(page);
     await page.waitForFunction((count) => (window as any).cmuxAcpmuxDebug.chatState().sessions.length >= count, COUNT, {
       timeout: 60_000,
     });
@@ -436,20 +462,16 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
     const page = await open(LATE);
     await page.getByText(`Open ${LATE}`, { exact: true }).waitFor({ timeout: 60_000 });
 
-    holdPages();
     requests.length = 0;
     notify("_acpmux/lagged", { watch: true, dropped: 1 });
     notify("_acpmux/lagged", { watch: true, dropped: 1 });
-    await laterPagesAsked(1);
-    release();
-    await page.waitForFunction((count) => (window as any).cmuxAcpmuxDebug.chatState().sessions.length >= count, COUNT, {
-      timeout: 60_000,
-    });
-    await listEnded();
+    await until("the pane read the list again", () => requests.some((r) => r.method === "_acpmux/watch" && r.answered));
     await caughtUp(page);
     const after = await state(page);
     expect(after.sessionId).toBe(LATE);
     expect(after.missingSession).toBeNull();
+    // The first page again, and the chat on screen by itself: never every page.
+    expect(requests.filter((r) => r.method === "_acpmux/sessions")).toEqual([]);
     await page.close();
   });
 
@@ -463,6 +485,7 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
     faults.repeatCursor = true;
     const page = await open(NEWEST);
     await page.getByText(`Open ${NEWEST}`, { exact: true }).waitFor({ timeout: 60_000 });
+    await wantAll(page);
     await listed(page, COUNT);
     // The pages stop at the cursor that came back, and the whole list is read instead.
     await listEnded();
@@ -478,31 +501,34 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
     faults.failWhole = 1;
     const page = await open(NEWEST);
     await page.getByText(`Open ${NEWEST}`, { exact: true }).waitFor({ timeout: 60_000 });
+    await wantAll(page);
     await listed(page, COUNT);
     expect((await state(page)).sessions.length).toBe(COUNT);
     await page.close();
   });
 
-  test("a lagged watch while the chat attaches ends the older list's pages", async () => {
+  test("a lagged watch while the chat attaches reads the first page again, no later one", async () => {
     holdAttach();
     const page = await open(NEWEST);
     await until("the pane attached", () => requests.some((request) => request.method === "_acpmux/attach"), 30_000);
     notify("_acpmux/lagged", { watch: true, dropped: 1 });
-    // The reread's own later pages: the list after its first page.
-    await laterPagesAsked(COUNT / 200 - 1);
-    await listEnded();
-    await caughtUp(page);
+    await until(
+      "the pane read the list again",
+      () => requests.filter((r) => r.method === "_acpmux/watch" && r.answered).length >= 2,
+    );
     releaseAttach();
     await page.getByText(`Open ${NEWEST}`, { exact: true }).waitFor({ timeout: 60_000 });
-    await listed(page, COUNT);
     await caughtUp(page);
-    expect(laterPages()).toBe(COUNT / 200 - 1);
+    expect(laterPages()).toBe(0);
+    // The first page, and the one row the probe of `caughtUp` changed.
+    expect((await state(page)).sessions.length).toBeLessThanOrEqual(201);
     await page.close();
   });
 
   test("after a lagged reread, a chat that changed meanwhile sorts by when it changed", async () => {
     const page = await open(NEWEST);
     await page.getByText(`Open ${NEWEST}`, { exact: true }).waitFor({ timeout: 60_000 });
+    await wantAll(page);
     await listed(page, COUNT);
     requests.length = 0;
     holdPages();
@@ -519,20 +545,6 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
     const ids: string[] = (await state(page)).sessions.map((session: { sessionId: string }) => session.sessionId);
     expect(ids[0]).toBe(MOVED);
     expect(ids.length).toBe(COUNT);
-    await page.close();
-  });
-
-  test("a whole list too large for one reply is read on from its cursor before a linked chat is judged", async () => {
-    faults.boundedWhole = 500;
-    const page = await open(LATE);
-    await page.getByText(`Open ${LATE}`, { exact: true }).waitFor({ timeout: 60_000 });
-    const opened = await state(page);
-    expect(opened.sessionId).toBe(LATE);
-    expect(opened.missingSession).toBeNull();
-    await listed(page, COUNT);
-    // The rest of the whole list came by `_acpmux/sessions` from its cursor, with no `limit`.
-    const rest = requests.filter((r) => r.method === "_acpmux/sessions" && r.params.limit === undefined);
-    expect(rest.map((r) => r.params.cursor)).toEqual(["o500", "o1000"]);
     await page.close();
   });
 

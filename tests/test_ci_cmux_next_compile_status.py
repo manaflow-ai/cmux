@@ -87,6 +87,12 @@ def step_script() -> str:
 
 
 @unittest.skipUnless(shutil.which("jq"), "jq is not installed")
+def without_no_state(text):
+    """The step always writes `state=` (note-519: `none` when no read answered); these tests judge the handoff
+    lines, so drop the `state=none` line. Tests of a real state read it unfiltered through their own assertions."""
+    return "".join(l for l in text.splitlines(True) if l.strip() != "state=none")
+
+
 class StatusMapping(unittest.TestCase):
     def run_step(self, reply: dict | None, **env: str) -> tuple[int, list[dict], list[str]]:
         if reply is None or reply.get("state") == "running":
@@ -107,8 +113,8 @@ class StatusMapping(unittest.TestCase):
                      "RESULTS": "https://results/v1", "REPLY": str(Path(tmp, "reply.json")),
                      "POSTS": str(Path(tmp, "posts")), "READS": str(Path(tmp, "reads")),
                      "GITHUB_OUTPUT": str(Path(tmp, "output")), **env})
-            self.stdout, self.output = done.stdout, (Path(tmp, "output").read_text()
-                                                     if Path(tmp, "output").exists() else "")
+            self.stdout, self.output = done.stdout, without_no_state(Path(tmp, "output").read_text()
+                                                                     if Path(tmp, "output").exists() else "")
             self.tries = [json.loads(line)["state"] for line in Path(tmp, "posts.tries").read_text().splitlines()] \
                 if Path(tmp, "posts.tries").exists() else []
             posts = [json.loads(line) for line in Path(tmp, "posts").read_text().splitlines()] \
@@ -139,6 +145,37 @@ class StatusMapping(unittest.TestCase):
                 self.assertEqual([(post["state"], post["context"]) for post in posts],
                                  [("pending", "cmux-next/compile"), (state, "cmux-next/compile")])
 
+    def test_a_head_the_controller_posts_ends_the_job_at_its_first_read(self):
+        """cmuxterm-hq#17850: the controller posts cmux-next/compile itself on a pull request head whose receipt says
+        "status_poster": "controller"; this job then ends without waiting for the compile or posting a verdict."""
+        for state in ("queued", "running"):
+            with self.subTest(state=state):
+                code, posts, reads = self.run_step(self.reply(state, status_poster="controller"), PR="28059")
+                self.assertEqual(code, 0)
+                self.assertEqual([p["state"] for p in posts], ["pending"])
+                self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&pr=28059&wait=1"])
+                self.assertIn("posts cmux-next/compile itself", self.stdout)
+                self.assertEqual(self.output.strip(), f"state={state}")
+
+    def test_a_controller_mark_hands_nothing_off_that_this_job_would_not(self):
+        # A verdict in the receipt is relayed as before, marked or not.
+        code, posts, _ = self.run_step(self.reply("pass", status_poster="controller"), PR="28059")
+        self.assertEqual((code, posts[-1]["state"]), (0, "success"))
+        code, posts, _ = self.run_step(self.reply("fail", status_poster="controller"), PR="28059")
+        self.assertEqual((code, posts[-1]["state"]), (1, "failure"))
+        # A marked receipt of another recipe or head is still a mismatch, never a hand-off.
+        for bad in ({"recipe_version": 1}, {"configuration": "debug"}, {"sha": "b" * 40}, {"repo": "someone/cmux"}):
+            with self.subTest(bad=bad):
+                code, posts, _ = self.run_step(self.reply("running", status_poster="controller", **bad), PR="28059")
+                self.assertEqual((code, posts[-1]["state"]), (1, "failure"))
+        # A push head has no pull request for the controller to post on: the mark is ignored and the job waits.
+        code, posts, reads = self.run_step(self.reply("running", status_poster="controller"))
+        self.assertEqual((code, posts[-1]["state"]), (1, "failure"))
+        self.assertTrue(reads and not reads[0].endswith("&wait=1"), reads)
+        # An unmarked pull request receipt drops back to the long blocking read after the first look.
+        _, _, reads = self.run_step(self.reply("running"), PR="28059", WAIT_SECONDS="8", READ_GAP="1")
+        self.assertTrue(len(reads) >= 2 and reads[0].endswith("&wait=1") and not reads[1].endswith("&wait=1"), reads)
+
     def test_a_failure_links_the_compile_log(self):
         _, posts, _ = self.run_step(self.reply("fail"))
         self.assertEqual(posts[-1]["target_url"], "https://github.com/manaflow-ai/cmux/actions/runs/9")
@@ -150,9 +187,10 @@ class StatusMapping(unittest.TestCase):
         # The shared deadline: a read waits at most what is left of the bound for a usable answer (300 s) less 30 s.
         _, _, reads = self.run_step(self.reply("pass"))
         self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&wait=270"])
-        # A pull request's read names it, so the controller can queue a head it never saw (cmuxterm-hq#5571).
+        # A pull request's read names it, so the controller can queue a head it never saw (cmuxterm-hq#5571). Its
+        # first read takes the receipt as it is (wait=1): the controller may post this head's status itself.
         _, _, reads = self.run_step(self.reply("pass"), PR="28059")
-        self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&pr=28059&wait=270"])
+        self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&pr=28059&wait=1"])
         _, _, reads = self.run_step(self.reply("pass"), PR="1;x")
         self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&wait=270"])
         _, _, reads = self.run_step(self.reply("pass"), BAD_BOUND="3000")
@@ -548,7 +586,7 @@ class ResultsServiceDown(unittest.TestCase):
                 env={"PATH": os.environ["PATH"], "RUNNER_TEMP": tmp, "GITHUB_OUTPUT": str(output), "GH_TOKEN": "t",
                      "SHA": SHA, "REPO": REPO, "API": f"{self.server.url}/repos/{REPO}",
                      "RUN_URL": "https://github.com/run/1", "RESULTS": f"{self.server.url}/v1", **env})
-            return done.returncode, done.stdout, output.read_text() if output.exists() else ""
+            return done.returncode, done.stdout, without_no_state(output.read_text() if output.exists() else "")
 
     def compile_status(self, **env: str) -> tuple[int, str, str]:
         return self.bash(step_script(), PROBE_GAP="1", READ_GAP="1", **env)

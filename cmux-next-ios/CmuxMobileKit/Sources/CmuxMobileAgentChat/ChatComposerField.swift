@@ -19,10 +19,14 @@ struct ChatComposerField: UIViewRepresentable {
     /// A copied image or file pasted into the field (edit menu Paste or
     /// Command-V): the composer attaches it.
     var onPasteAttachments: (() -> Void)?
+    /// The draft gained or lost a line (typed, or set from outside): the bottom stack's next
+    /// height change moves on `ComposerLineMotion`, not the stack's slower spring.
+    var onLineChange: (() -> Void)?
 
     static let maxLines = ComposerFieldHeight.defaultMaxLines
     static let accessibilityIdentifier = "chat.composer.field"
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.chatFaceHidden) private var faceHidden
 
     func makeUIView(context: Context) -> ChatComposerTextView {
         let view = ChatComposerTextView()
@@ -45,11 +49,13 @@ struct ChatComposerField: UIViewRepresentable {
         view.setContentHuggingPriority(.required, for: .vertical)
         view.text = text
         view.placeholder = placeholder
+        markReadyIfShown()
         return view
     }
 
     func updateUIView(_ view: ChatComposerTextView, context: Context) {
         context.coordinator.parent = self
+        markReadyIfShown()
         view.onPasteAttachments = onPasteAttachments == nil ? nil : { [weak coordinator = context.coordinator] in
             coordinator?.parent.onPasteAttachments?()
         }
@@ -61,6 +67,7 @@ struct ChatComposerField: UIViewRepresentable {
         }
         if view.text != text {
             view.text = text
+            if view.lineCountChangePending { onLineChange?() }
             view.invalidateIntrinsicContentSize()
         }
         if view.placeholder != placeholder { view.placeholder = placeholder }
@@ -79,6 +86,13 @@ struct ChatComposerField: UIViewRepresentable {
                 }
             }
         }
+    }
+
+    /// Launch to chat open: the frame that first shows a composer (LaunchMarks), not one built
+    /// on a terminal's chat face parked out of sight (`chatFaceHidden`); a face swap updates it.
+    private func markReadyIfShown() {
+        guard !faceHidden else { return }
+        LaunchMarks.shared.markNextFrame("chat_composer_ready")
     }
 
     /// A field torn down while focused (the permission bar replaced it) leaves no focus behind.
@@ -106,7 +120,14 @@ struct ChatComposerField: UIViewRepresentable {
         }
 
         func textViewDidChange(_ textView: UITextView) {
-            parent.text = textView.text
+            if (textView as? ComposerReturnTextView)?.lineCountChangePending == true {
+                // A line came or went: the field grows (or shrinks) on the same short spring the
+                // stack and the transcript above it take, one motion (`ComposerLineMotion`).
+                parent.onLineChange?()
+                withAnimation(ComposerLineMotion.animation.unlessReduceMotion) { parent.text = textView.text }
+            } else {
+                parent.text = textView.text
+            }
             (textView as? ComposerReturnTextView)?.updatePlaceholder()
             textView.invalidateIntrinsicContentSize()
             (textView as? ComposerReturnTextView)?.followCaret()
@@ -118,6 +139,12 @@ struct ChatComposerField: UIViewRepresentable {
 }
 
 /// The chat field: takes a focus asked for before it had a window once it gets one.
+extension EnvironmentValues {
+    /// The chat is built but not shown: a terminal tab's chat face parked at zero opacity
+    /// behind its terminal (`TerminalChatPair`).
+    @Entry public var chatFaceHidden = false
+}
+
 final class ChatComposerTextView: ComposerReturnTextView {
     var focusWhenInWindow = false
 

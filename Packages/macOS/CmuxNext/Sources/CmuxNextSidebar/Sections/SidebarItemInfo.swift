@@ -26,6 +26,8 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var isHidden: Bool
     /// The item's action shortcut as menus show it (`⌘,`), for the tooltip.
     public var shortcut: String?
+    /// A caller-supplied tooltip, used for transient rows whose title is only a short state word.
+    public var tooltip: String?
     /// The shorter caption a tile draws under its glyph; nil uses `title`.
     public var caption: String?
     /// An agent's brand mark (`AgentBrandID`), drawn instead of `icon` (a Recents chat).
@@ -39,6 +41,8 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     /// A workspace with no icon of its own and no favicon (WORKSPACE-ROWS-NO-DEFAULT-ICON): a look
     /// with a title draws no glyph; an icon-only look and a tile draw the title's first letter.
     public var textOnly = false
+    /// The item's icon is its workspace's shown tab's (``SidebarWorkspace/iconFromShownTab``), not the workspace's own.
+    public var iconFromShownTab = false
     /// A workspace in Pinned drawn as a row: a pin leads it, before its icon and title.
     public var leadingPin = false
     /// The open workspace a workspace tile names: its row shows a workspace row's hover more
@@ -66,14 +70,18 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     /// What VoiceOver reads for the row; nil reads `title`. For a row whose title only makes sense
     /// under the item before it (a remote machine's room row names its machine here).
     public var accessibilityTitle: String?
+    /// The item's agent chat's task progress (a Chief subagent's `taskList`): a row look draws its quiet "3/7" before
+    /// the trailing marks, as a chat row does (`WorkspaceRowContent.trailingStatus`); nil draws nothing.
+    public var taskProgress: SidebarTaskProgress?
 
     public init(title: String, symbol: String, icon: IconName? = nil, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false,
-                isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, brand: String? = nil,
+                isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, tooltip: String? = nil, brand: String? = nil,
                 emoji: String? = nil) {
         self.icon = icon
         self.emoji = emoji
         self.brand = brand
         self.shortcut = shortcut
+        self.tooltip = tooltip
         self.isHidden = isHidden
         self.caption = caption
         self.title = title
@@ -151,7 +159,7 @@ extension SidebarBuiltIn {
     /// SF Symbol of the built-in.
     public var symbol: String {
         switch self {
-        case .home: "house"
+        case .home: "sparkles" // the Home item is the Chief (2026-11-20)
         case .settings: "gearshape"
         case .account: "person.crop.circle"
         case .notifications: "bell"
@@ -171,7 +179,7 @@ extension SidebarBuiltIn {
     /// The built-in's cmux icon.
     public var icon: IconName {
         switch self {
-        case .home: .home
+        case .home: .agentChief
         case .settings: .settings
         case .account: .account
         case .notifications: .notification
@@ -222,13 +230,22 @@ extension SidebarBuiltIn {
     }
 
     public var defaultInfo: SidebarItemInfo { SidebarItemInfo(title: title, symbol: symbol, icon: icon, caption: caption) }
+
+    /// ``defaultInfo``, hidden for the App Store while it is hidden until it is ready.
+    /// - Parameter showsStore: Whether the App Store shows (`CmuxConfigSnapshot.showsAppStore`, Labs on).
+    /// - Returns: The built-in's presentation; the App Store's is hidden when `showsStore` is false.
+    public func defaultInfo(showsStore: Bool) -> SidebarItemInfo {
+        var info = defaultInfo
+        if self == .appStore, !showsStore { info.isHidden = true }
+        return info
+    }
 }
 
 extension SidebarItemInfo {
     /// An icon's tooltip: the title, and the shortcut when there is one
     /// ("Settings (⌘,)").
     public var toolTip: String {
-        shortcut.map { SectionStrings.titleWithShortcut(title, $0) } ?? title
+        tooltip ?? shortcut.map { SectionStrings.titleWithShortcut(title, $0) } ?? title
     }
 }
 

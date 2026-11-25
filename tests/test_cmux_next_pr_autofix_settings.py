@@ -320,6 +320,9 @@ class FleetBundleHandsBackEveryExport(unittest.TestCase):
             (repo / rel).parent.mkdir(parents=True, exist_ok=True)
             (repo / rel).write_text("old\n")
         bin_dir.mkdir()
+        # This fixture supplies a fake Swift compiler, not a Mac toolchain.
+        (bin_dir / "uname").write_text("#!/bin/sh\necho Linux\n")
+        (bin_dir / "uname").chmod(0o755)
         # swift test writes the exports from the package directory, as the export tests do.
         (bin_dir / "swift").write_text(
             "#!/usr/bin/env bash\n"

@@ -21,16 +21,31 @@
 
 use crate::endpoint::{Endpoint, EndpointEvent, MAX_PATHS, Route};
 use crate::turn::{TurnClient, TurnEvent, TurnReceive};
+use crate::wake::{AddressWatch, SleepWatch};
 use crate::{KeyPair, LinkError, Role};
+use cmux_rd_proto::{DatagramDeparture, DatagramHeader, MAX_DEPARTURE_RECEIPTS};
 use cmux_transport::PathKind;
 use cmux_transport::stun::{TransactionId, binding_request, parse_binding_success};
+use std::collections::BTreeMap;
+use std::collections::VecDeque;
 use std::io;
 use std::mem::size_of_val;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::os::fd::{AsRawFd, RawFd};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Instant;
+
+#[path = "media_queue.rs"]
+mod media_queue;
+#[path = "no_path.rs"]
+mod no_path;
+#[path = "socket.rs"]
+mod socket;
+
+use media_queue::{MediaFrame, MediaQueue};
+use socket::send_to_observed;
 
 /// STUN requests are retried this often until each server answers or gives up.
 const STUN_RETRY_US: u64 = 300_000;
@@ -89,11 +104,7 @@ impl Candidate {
         if self.kind == CandidateKind::Relay {
             return PathKind::TurnRelay;
         }
-        let local = match self.addr.ip() {
-            IpAddr::V4(v4) => v4.is_private() || v4.is_link_local() || v4.is_loopback(),
-            IpAddr::V6(v6) => (v6.segments()[0] & 0xfe00) == 0xfc00 || v6.is_loopback(),
-        };
-        if self.kind == CandidateKind::Host && local {
+        if self.kind == CandidateKind::Host && crate::endpoint::is_local(self.addr.ip()) {
             PathKind::DirectLan
         } else {
             PathKind::DirectWan
@@ -155,6 +166,78 @@ pub enum NetEvent {
     },
     /// The link failed (handshake timeout, wrong peer, socket error); the driver stopped.
     Failed(String),
+    /// A connect step happened, once each per driver: where connect time goes
+    /// ([`ConnectPhase`]). `at_us` counts from [`Net::start`]; `route` is the
+    /// path it happened on, when there is one.
+    Phase {
+        phase: ConnectPhase,
+        at_us: u64,
+        route: Option<Route>,
+    },
+}
+
+impl NetEvent {
+    /// A [`NetEvent::Phase`] as the one stdout line `cmux rd serve`, `connect`
+    /// and `bench --link` print for it:
+    /// `{"phase":"first_check_answered","ms":0.42,"route":"172.20.21.17:61200"}`
+    /// (`ms` from [`Net::start`]; `route` is `relay<N>><peer>` for a relayed
+    /// path and absent when there is none). The app's line reader reads a line
+    /// it does not know as empty, so the line is safe on the app's pipe too.
+    pub fn phase_line(&self) -> Option<String> {
+        let Self::Phase { phase, at_us, route } = self else { return None };
+        let ms = *at_us as f64 / 1000.0;
+        let route = match route {
+            Some(Route::Udp(addr)) => format!(",\"route\":\"{addr}\""),
+            Some(Route::Relay { relay, peer }) => format!(",\"route\":\"relay{relay}>{peer}\""),
+            None => String::new(),
+        };
+        Some(format!("{{\"phase\":\"{}\",\"ms\":{ms:.3}{route}}}", phase.name()))
+    }
+}
+
+/// The steps of a connect, in the order a healthy one reaches them (gathering
+/// runs beside the others, and nothing on the link waits for it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectPhase {
+    /// Every local candidate was reported (`CandidatesDone`).
+    GatherDone,
+    /// The first packet to the peer left on any path (msg1 or a punch).
+    FirstCheckSent,
+    /// The first packet from the peer arrived on any path.
+    FirstCheckAnswered,
+    /// The first handshake message was sent or received.
+    HandshakeStart,
+    /// The link is up (`Established`).
+    HandshakeDone,
+    /// The selector picked the first path (`PathChanged` with a route).
+    Nominated,
+}
+
+impl ConnectPhase {
+    const ALL: [Self; 6] = [
+        Self::GatherDone,
+        Self::FirstCheckSent,
+        Self::FirstCheckAnswered,
+        Self::HandshakeStart,
+        Self::HandshakeDone,
+        Self::Nominated,
+    ];
+
+    /// The name the binaries print (`{"phase": NAME, ...}`).
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::GatherDone => "gather_done",
+            Self::FirstCheckSent => "first_check_sent",
+            Self::FirstCheckAnswered => "first_check_answered",
+            Self::HandshakeStart => "handshake_start",
+            Self::HandshakeDone => "handshake_done",
+            Self::Nominated => "nominated",
+        }
+    }
+
+    fn bit(self) -> u8 {
+        1 << Self::ALL.iter().position(|p| *p == self).unwrap_or(0)
+    }
 }
 
 /// Servers still resolving when the link started: `None` until they are
@@ -165,20 +248,39 @@ enum Command {
     RemoteCandidate(Candidate),
     StunLater(Later<SocketAddr>),
     TurnLater(Later<TurnServer>),
-    Datagram(Vec<u8>),
     Control(Vec<u8>),
+    Datagram(Vec<u8>),
     NetworkChange,
+    PeerLost(Option<u64>),
     Close,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NetStats {
+    pub departure_overflows: u64,
+    pub queue_frames: usize,
+    pub queue_datagrams: usize,
+    pub dropped_frames: u64,
+    pub dropped_datagrams: u64,
+    pub dropped_replaced_frames: u64,
+    pub dropped_replaced_datagrams: u64,
+    pub dropped_evicted_for_protected_frames: u64,
+    pub dropped_evicted_for_protected_datagrams: u64,
+    pub dropped_rejected_protected_frames: u64,
+    pub dropped_rejected_protected_datagrams: u64,
 }
 
 /// A running driver. Dropping it closes the link and stops the thread.
 pub struct Net {
+    departures: mpsc::Receiver<DatagramDeparture>,
+    departure_overflows: Arc<AtomicU64>,
     commands: mpsc::Sender<Command>,
     events: mpsc::Receiver<NetEvent>,
     command_wake: Pipe,
     event_wake: Pipe,
     thread: Option<thread::JoinHandle<()>>,
     local_addr: SocketAddr,
+    media_queue: Arc<Mutex<MediaQueue>>,
 }
 
 /// A non-blocking pipe used as a wake-up: a byte means "look at the queue".
@@ -273,6 +375,23 @@ fn now_us(start: Instant) -> u64 {
     u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX)
 }
 
+/// A clock that keeps counting while the machine sleeps, unlike `Instant`
+/// (macOS: `CLOCK_MONOTONIC` counts sleep, `Instant` reads uptime; Linux:
+/// `CLOCK_BOOTTIME`). Only its differences matter ([`SleepWatch`]).
+fn with_sleep_us() -> u64 {
+    #[cfg(target_vendor = "apple")]
+    const CLOCK: libc::clockid_t = libc::CLOCK_MONOTONIC;
+    #[cfg(not(target_vendor = "apple"))]
+    const CLOCK: libc::clockid_t = libc::CLOCK_BOOTTIME;
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: clock_gettime writes one timespec into a live local.
+    if unsafe { libc::clock_gettime(CLOCK, &mut ts) } != 0 {
+        return 0;
+    }
+    u64::try_from(ts.tv_sec).unwrap_or_default().saturating_mul(1_000_000)
+        + u64::try_from(ts.tv_nsec).unwrap_or_default() / 1_000
+}
+
 /// Grow both queues so a keyframe burst is not dropped before the driver can
 /// read it. The kernel may cap the request; the default is still useful on
 /// platforms that accept the larger value.
@@ -341,12 +460,20 @@ impl Net {
         endpoint.set_keep_awake(keep_awake_us());
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
+        let (departure_tx, departure_rx) = mpsc::sync_channel(MAX_DEPARTURE_RECEIPTS);
+        let departure_overflows = Arc::new(AtomicU64::new(0));
+        let media_queue = Arc::new(Mutex::new(MediaQueue::default()));
         let command_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
         let event_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
         let mut driver = Driver {
+            departures: departure_tx,
+            departure_overflows: Arc::clone(&departure_overflows),
+            departure_wake: false,
             socket,
             endpoint,
             commands: command_rx,
+            media_queue: Arc::clone(&media_queue),
+            pending_datagrams: VecDeque::new(),
             command_fd: command_wake.read,
             events: event_tx,
             event_fd: event_wake.write,
@@ -379,6 +506,10 @@ impl Net {
             start: Instant::now(),
             gathered: std::cell::Cell::new([0; 3]),
             heard: 0,
+            sleep_watch: SleepWatch::default(),
+            address_watch: AddressWatch::default(),
+            phases: std::cell::Cell::new(0),
+            refused: BTreeMap::new(),
         };
         // Host candidates are known at once.
         for ip in interface_addresses().into_iter().filter(|_| !config.relay_only) {
@@ -396,12 +527,15 @@ impl Net {
             .spawn(move || driver.run())
             .map_err(|e| LinkError::Io(e.to_string()))?;
         Ok(Self {
+            departures: departure_rx,
+            departure_overflows,
             commands: command_tx,
             events: event_rx,
             command_wake,
             event_wake,
             thread: Some(thread),
             local_addr,
+            media_queue,
         })
     }
 
@@ -451,6 +585,32 @@ impl Net {
         self.command(Command::Datagram(datagram));
     }
 
+    /// Queues one complete encoded frame. If a frame is already pending, it
+    /// is evicted as a whole so no stale fragments survive into the next one.
+    pub fn send_datagram_frame(&self, datagrams: Vec<Vec<u8>>, droppable: bool) {
+        if let Ok(mut queue) = self.media_queue.lock() {
+            queue.push(MediaFrame { datagrams, droppable });
+        }
+        self.command_wake.wake();
+    }
+
+    /// Drain at most one bounded batch, without waiting for the driver.
+    pub fn drain_departures(&self, out: &mut Vec<DatagramDeparture>) {
+        out.extend(self.departures.try_iter().take(MAX_DEPARTURE_RECEIPTS));
+    }
+
+    pub fn departure_overflows(&self) -> u64 {
+        self.departure_overflows.load(Ordering::Relaxed)
+    }
+
+    /// A snapshot of the bounded media queue and its drop counters.
+    pub fn stats(&self) -> NetStats {
+        let mut stats =
+            self.media_queue.lock().map_or_else(|_| NetStats::default(), |queue| queue.stats());
+        stats.departure_overflows = self.departure_overflows();
+        stats
+    }
+
     /// One control record (ordered, reliable).
     pub fn send_control(&self, record: Vec<u8>) {
         self.command(Command::Control(record));
@@ -459,6 +619,14 @@ impl Net {
     /// The machine's network changed (interface, address, wake from sleep).
     pub fn network_changed(&self) {
         self.command(Command::NetworkChange);
+    }
+
+    /// Fails the link ([`NetEvent::Failed`]) once the established peer sent
+    /// nothing for `after` ([`crate::PEER_LOST_US`] for a viewer): a host that
+    /// died without a close. `None` (the default) waits forever.
+    pub fn set_peer_lost(&self, after: Option<std::time::Duration>) {
+        let us = after.map(|d| u64::try_from(d.as_micros()).unwrap_or(u64::MAX));
+        self.command(Command::PeerLost(us));
     }
 }
 
@@ -508,9 +676,15 @@ struct StunQuery {
 }
 
 struct Driver {
+    departures: mpsc::SyncSender<DatagramDeparture>,
+    departure_overflows: Arc<AtomicU64>,
+    departure_wake: bool,
     socket: UdpSocket,
     endpoint: Endpoint,
     commands: mpsc::Receiver<Command>,
+    media_queue: Arc<Mutex<MediaQueue>>,
+    /// Protected one-datagram sends received before the Noise link is ready.
+    pending_datagrams: VecDeque<Vec<u8>>,
     command_fd: RawFd,
     events: mpsc::Sender<NetEvent>,
     event_fd: RawFd,
@@ -530,9 +704,84 @@ struct Driver {
     gathered: std::cell::Cell<[u32; 3]>,
     /// Packets from anywhere but a STUN or TURN server, handed to the link.
     heard: u64,
+    /// A sleep or an address change re-checks every path ([`crate::wake`]).
+    sleep_watch: SleepWatch,
+    address_watch: AddressWatch<IpAddr>,
+    /// The [`ConnectPhase`]s already reported, one bit each.
+    phases: std::cell::Cell<u8>,
+    /// Sends the system refused, by OS error (`-1`: none given), for a failure's reason.
+    refused: BTreeMap<i32, u64>,
+}
+
+/// Sends `packet` to `to`, counting a refusal in `refused`. A refused send is not an error
+/// of the session (another path may work), but one that is never named reads as a silent
+/// network: a Mac app without Local Network access sees every LAN send fail with
+/// `EHOSTUNREACH` while the peer hears nothing (cmuxterm-hq CMUX-572).
+fn send_counted(
+    socket: &UdpSocket,
+    refused: &mut BTreeMap<i32, u64>,
+    packet: &[u8],
+    to: SocketAddr,
+) -> Option<(u64, usize)> {
+    send_to_observed(socket, refused, packet, to)
+}
+
+/// `; sends refused: <error> xN, ..`, or nothing when every send went out.
+fn refused_text(refused: &BTreeMap<i32, u64>) -> String {
+    if refused.is_empty() {
+        return String::new();
+    }
+    let each: Vec<String> = refused
+        .iter()
+        .map(|(code, n)| {
+            let error = if *code < 0 {
+                "unknown error".to_owned()
+            } else {
+                io::Error::from_raw_os_error(*code).to_string()
+            };
+            format!("{error} x{n}")
+        })
+        .collect();
+    format!("; sends refused: {}", each.join(", "))
 }
 
 impl Driver {
+    /// The machine slept, or its addresses changed, since the last turn: the
+    /// path chosen before may be gone, so the next sends go on every path
+    /// while every path is probed at once ([`crate::wake`]). Runs before any
+    /// queued frame goes out.
+    fn watch_wake(&mut self, now: u64) {
+        let slept = self.sleep_watch.observe(now, with_sleep_us());
+        let moved =
+            self.address_watch.due(now) && self.address_watch.observe(interface_addresses(), now);
+        if slept || moved {
+            self.endpoint.set_local_networks(cmux_transport::local_networks());
+            self.endpoint.on_network_change();
+        }
+    }
+
+    fn drain_media(&mut self, now: u64) -> Result<(), LinkError> {
+        if !self.endpoint.link().is_established() {
+            return Ok(());
+        }
+        let frame = self.media_queue.lock().ok().and_then(|mut queue| queue.pop());
+        let Some(frame) = frame else { return Ok(()) };
+        for datagram in frame.datagrams {
+            self.send_media_datagram(&datagram, now)?;
+        }
+        Ok(())
+    }
+
+    fn drain_pending_datagrams(&mut self, now: u64) -> Result<(), LinkError> {
+        if !self.endpoint.link().is_established() {
+            return Ok(());
+        }
+        while let Some(datagram) = self.pending_datagrams.pop_front() {
+            self.send_media_datagram(&datagram, now)?;
+        }
+        Ok(())
+    }
+
     fn emit(&self, event: NetEvent) {
         if let NetEvent::Candidate(c) = &event {
             let mut gathered = self.gathered.get();
@@ -541,6 +790,33 @@ impl Driver {
             }
             self.gathered.set(gathered);
         }
+        let phase = match &event {
+            NetEvent::CandidatesDone => Some((ConnectPhase::GatherDone, None)),
+            NetEvent::Endpoint(EndpointEvent::Link(crate::Event::Established)) => {
+                Some((ConnectPhase::HandshakeDone, None))
+            }
+            NetEvent::Endpoint(EndpointEvent::PathChanged { route: Some(route), .. }) => {
+                Some((ConnectPhase::Nominated, Some(*route)))
+            }
+            _ => None,
+        };
+        self.send_event(event);
+        if let Some((phase, route)) = phase {
+            self.phase(phase, route);
+        }
+    }
+
+    /// Reports `phase` the first time it happens.
+    fn phase(&self, phase: ConnectPhase, route: Option<Route>) {
+        let seen = self.phases.get();
+        if seen & phase.bit() != 0 {
+            return;
+        }
+        self.phases.set(seen | phase.bit());
+        self.send_event(NetEvent::Phase { phase, at_us: now_us(self.start), route });
+    }
+
+    fn send_event(&self, event: NetEvent) {
         if self.events.send(event).is_ok() {
             // SAFETY: one byte from a local to the event pipe's write end (owned by `Net`,
             // which joins this thread before closing it).
@@ -548,23 +824,51 @@ impl Driver {
         }
     }
 
-    fn send(&mut self, route: Route, packet: &[u8], now: u64) {
-        match route {
-            Route::Udp(addr) => {
-                let _ = self.socket.send_to(packet, addr);
-            }
-            Route::Relay { relay, peer } => {
-                let Some(r) = self.relays.get_mut(usize::from(relay)) else { return };
-                if let Some(wrapped) = r.client.send(peer, packet, now) {
-                    let _ = self.socket.send_to(&wrapped, r.server);
+    fn send_media_datagram(&mut self, datagram: &[u8], now: u64) -> Result<(), LinkError> {
+        // Preserve identity before sealing; never infer departure from enqueue.
+        let header = DatagramHeader::decode(datagram).ok().map(|(header, _)| header);
+        for transmit in self.endpoint.send_datagram(datagram)? {
+            if let Some((departed_us, wire_bytes)) =
+                self.send(transmit.route, &transmit.packet, now)
+                && let Some(header) = header.filter(|header| {
+                    matches!(
+                        header.kind,
+                        cmux_rd_proto::DatagramKind::Video
+                            | cmux_rd_proto::DatagramKind::Fec
+                            | cmux_rd_proto::DatagramKind::UpMedia
+                    )
+                })
+            {
+                let receipt = DatagramDeparture { header, departed_us, wire_bytes };
+                if self.departures.try_send(receipt).is_ok() {
+                    self.departure_wake = true;
+                } else {
+                    self.departure_overflows.fetch_add(1, Ordering::Relaxed);
                 }
+            }
+        }
+        Ok(())
+    }
+
+    fn send(&mut self, route: Route, packet: &[u8], now: u64) -> Option<(u64, usize)> {
+        match route {
+            Route::Udp(addr) => send_counted(&self.socket, &mut self.refused, packet, addr),
+            Route::Relay { relay, peer } => {
+                let r = self.relays.get_mut(usize::from(relay))?;
+                let wrapped = r.client.send(peer, packet, now)?;
+                send_counted(&self.socket, &mut self.refused, &wrapped, r.server)
             }
         }
     }
 
     fn flush(&mut self, now: u64) -> Result<(), LinkError> {
         for t in self.endpoint.poll_transmit(now)? {
-            self.send(t.route, &t.packet, now);
+            if self.send(t.route, &t.packet, now).is_some() {
+                self.phase(ConnectPhase::FirstCheckSent, Some(t.route));
+                if is_handshake(&t.packet) {
+                    self.phase(ConnectPhase::HandshakeStart, Some(t.route));
+                }
+            }
         }
         for event in self.endpoint.take_events() {
             self.emit(NetEvent::Endpoint(event));
@@ -625,7 +929,12 @@ impl Driver {
             }
             q.attempts += 1;
             q.next_us = now + STUN_RETRY_US;
-            let _ = self.socket.send_to(&binding_request(q.transaction), q.server);
+            send_counted(
+                &self.socket,
+                &mut self.refused,
+                &binding_request(q.transaction),
+                q.server,
+            );
         }
         self.maybe_done(now);
     }
@@ -645,7 +954,7 @@ impl Driver {
     fn turn_tick(&mut self, now: u64) {
         for r in &mut self.relays {
             for packet in r.client.poll_transmit(now) {
-                let _ = self.socket.send_to(&packet, r.server);
+                send_counted(&self.socket, &mut self.refused, &packet, r.server);
             }
         }
         self.turn_events(now);
@@ -706,6 +1015,12 @@ impl Driver {
 
     /// Feeds one link packet to the endpoint. True when the peer closed the session.
     fn deliver(&mut self, route: Route, packet: &[u8], now: u64) -> Result<bool, LinkError> {
+        if self.phases.get() & ConnectPhase::HandshakeDone.bit() == 0 {
+            self.phase(ConnectPhase::FirstCheckAnswered, Some(route));
+            if is_handshake(packet) {
+                self.phase(ConnectPhase::HandshakeStart, Some(route));
+            }
+        }
         for event in self.endpoint.on_packet(route, packet, now)? {
             let closed = matches!(event, EndpointEvent::Link(crate::Event::Closed));
             self.emit(NetEvent::Endpoint(event));
@@ -734,6 +1049,12 @@ impl Driver {
     }
 
     fn deadline_ms(&self, now: u64) -> i32 {
+        if self.endpoint.link().is_established()
+            && (self.media_queue.lock().is_ok_and(|queue| !queue.frames.is_empty())
+                || !self.pending_datagrams.is_empty())
+        {
+            return 0;
+        }
         let stun = self.stun.iter().filter(|q| !q.done).map(|q| q.next_us).min();
         let later =
             (self.stun_later.is_some() || self.turn_later.is_some()).then_some(now + LATER_POLL_US);
@@ -749,36 +1070,37 @@ impl Driver {
         }
     }
 
-    /// What this side gathered, what the peer sent, and how many packets it
-    /// heard: a failure says whether the handshake ever reached this side
-    /// (`heard 0`: a NAT, firewall or missing route dropped it) and which
-    /// routes each side had. Counts only, never an address.
-    fn routes_seen(&self) -> String {
-        let [host, srflx, relay] = self.gathered.get();
+    /// What this side gathered and what the peer sent, by kind, for a failure's reason
+    /// ([`no_path`]): whether the handshake ever reached this side and which routes each
+    /// side had (the sends the system refused follow it, [`refused_text`]). Counts only, never an address.
+    fn candidate_counts(&self) -> (no_path::Counts, no_path::Counts) {
         let mut peer = [0u32; 3];
         for c in &self.remote {
             if let Some(n) = peer.get_mut(kind_index(c.kind)) {
                 *n += 1;
             }
         }
-        let [p_host, p_srflx, p_relay] = peer;
-        format!(
-            "local host {host} srflx {srflx} relay {relay}; \
-             peer host {p_host} srflx {p_srflx} relay {p_relay}; heard {}",
-            self.heard
-        )
+        (self.gathered.get(), peer)
     }
 
     fn run(&mut self) {
-        if let Err(e) = self.serve() {
-            self.emit(NetEvent::Failed(format!("{e} ({})", self.routes_seen())));
-        }
+        let Err(error) = self.serve() else { return };
+        // Counted after the run: what was gathered and heard by the time it failed.
+        let (local, peer) = self.candidate_counts();
+        let why = match error {
+            // No path at all: say so in words the viewer's failed card can show.
+            LinkError::HandshakeTimeout => no_path::handshake_timeout(local, peer, self.heard),
+            e => format!("{e} ({})", no_path::counts(local, peer, self.heard)),
+        };
+        let why = format!("{why}{}", refused_text(&self.refused));
+        self.emit(NetEvent::Failed(why));
     }
 
     fn serve(&mut self) -> Result<(), LinkError> {
         let mut buf = vec![0u8; MAX_PACKET];
         loop {
             let now = now_us(self.start);
+            self.watch_wake(now);
             self.later_tick();
             self.stun_tick(now);
             self.turn_tick(now);
@@ -796,6 +1118,7 @@ impl Driver {
                 > 0
             {}
             let now = now_us(self.start);
+            self.watch_wake(now);
             while let Ok(command) = self.commands.try_recv() {
                 match command {
                     Command::RemoteCandidate(c) => self.on_remote_candidate(c, now),
@@ -803,27 +1126,33 @@ impl Driver {
                         self.stun_later = (!self.relay_only).then_some(later);
                     }
                     Command::TurnLater(later) => self.turn_later = Some(later),
-                    Command::Datagram(d) => {
+                    Command::Control(r) => self.endpoint.send_control(r, now)?,
+                    Command::Datagram(datagram) => {
+                        // Input, cursor and repair traffic never replaces queued video.
                         if self.endpoint.link().is_established() {
-                            for t in self.endpoint.send_datagram(&d)? {
-                                self.send(t.route, &t.packet, now);
-                            }
+                            self.send_media_datagram(&datagram, now)?;
+                        } else {
+                            self.pending_datagrams.push_back(datagram);
                         }
                     }
-                    Command::Control(r) => self.endpoint.send_control(r, now)?,
                     Command::NetworkChange => {
                         self.endpoint.set_local_networks(cmux_transport::local_networks());
                         self.endpoint.on_network_change();
                     }
+                    Command::PeerLost(us) => self.endpoint.set_peer_lost(us),
                     Command::Close => {
+                        // What was queued before the close goes out first: a host's `ended`
+                        // reason sent just before it drops the link (`failed: <why>`) must reach
+                        // the viewer, not vanish behind the close packet.
+                        self.flush(now)?;
                         if self.endpoint.link().is_established() {
                             for t in self.endpoint.close()? {
-                                self.send(t.route, &t.packet, now);
+                                let _ = self.send(t.route, &t.packet, now);
                             }
                         }
                         for r in &mut self.relays {
                             for packet in r.client.close() {
-                                let _ = self.socket.send_to(&packet, r.server);
+                                send_counted(&self.socket, &mut self.refused, &packet, r.server);
                             }
                         }
                         return Ok(());
@@ -872,60 +1201,19 @@ impl Driver {
                     Err(_) => break,
                 }
             }
+            self.flush(now)?;
+            self.drain_pending_datagrams(now)?;
+            self.drain_media(now)?;
+            if std::mem::take(&mut self.departure_wake) {
+                // One wake per driver turn, not a syscall per media datagram.
+                // SAFETY: one byte to the nonblocking event pipe owned by Net.
+                unsafe { libc::write(self.event_fd, [1u8].as_ptr().cast(), 1) };
+            }
         }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn set_socket_buffer(socket: &UdpSocket, option: libc::c_int, value: i32) {
-        // SAFETY: the descriptor is open for the borrow of `socket`, and the
-        // option value points at a live integer of the length passed.
-        let result = unsafe {
-            libc::setsockopt(
-                socket.as_raw_fd(),
-                libc::SOL_SOCKET,
-                option,
-                (&value as *const i32).cast(),
-                size_of_val(&value) as libc::socklen_t,
-            )
-        };
-        assert_eq!(result, 0, "setsockopt failed: {}", io::Error::last_os_error());
-    }
-
-    fn socket_buffer(socket: &UdpSocket, option: libc::c_int) -> i32 {
-        let mut value = 0i32;
-        let mut length = size_of_val(&value) as libc::socklen_t;
-        // SAFETY: the descriptor is open, and the kernel writes at most the
-        // size of `value` bytes to the pointer and length supplied.
-        let result = unsafe {
-            libc::getsockopt(
-                socket.as_raw_fd(),
-                libc::SOL_SOCKET,
-                option,
-                (&mut value as *mut i32).cast(),
-                &mut length,
-            )
-        };
-        assert_eq!(result, 0, "getsockopt failed: {}", io::Error::last_os_error());
-        value
-    }
-
-    #[test]
-    fn grow_udp_buffers_expands_both_queues() {
-        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
-        // Use a small starting point so the assertion does not depend on the
-        // host's default buffers already being larger than our request.
-        set_socket_buffer(&socket, libc::SO_SNDBUF, 4096);
-        set_socket_buffer(&socket, libc::SO_RCVBUF, 4096);
-        let before =
-            [socket_buffer(&socket, libc::SO_SNDBUF), socket_buffer(&socket, libc::SO_RCVBUF)];
-        grow_udp_buffers(&socket);
-        let after =
-            [socket_buffer(&socket, libc::SO_SNDBUF), socket_buffer(&socket, libc::SO_RCVBUF)];
-        assert!(after[0] > before[0], "send buffer did not grow: {before:?} -> {after:?}");
-        assert!(after[1] > before[1], "receive buffer did not grow: {before:?} -> {after:?}");
-    }
+/// A Noise handshake message (msg1, msg2 or msg3).
+fn is_handshake(packet: &[u8]) -> bool {
+    matches!(packet.first(), Some(&(crate::TAG_HANDSHAKE_1..=crate::TAG_HANDSHAKE_3)))
 }

@@ -252,15 +252,12 @@ class DropJob(unittest.TestCase):
         self.assertIn("--delete", step["run"])
         self.assertEqual(step["env"]["GITHUB_TOKEN"], "${{ steps.cmux-bot-token.outputs.token }}")
 
-    def test_the_machine_channel_build_runs_only_where_its_one_reader_runs(self):
+    def test_no_job_reads_a_machine_channel_artifact(self):
+        # MUSL_BUILT_ONCE: build-linux, which uploaded machine-channel-* (about 230 MB a target), is gone, and
+        # point-machine-channel-early reads build's artifacts.
         jobs = artifacts_jobs()
-        build_linux = " ".join(str(jobs["build-linux"]["if"]).split())
-        reader = " ".join(str(jobs["point-machine-channel-early"]["if"]).split())
-        for clause in ("github.event_name == 'push'", "github.ref == 'refs/heads/feat-cmux-next'"):
-            self.assertIn(clause, build_linux)
-            self.assertIn(clause, reader)
-        others = [name for name, job in jobs.items() if name not in ("point-machine-channel-early", "drop-build-artifacts")
-                  and any("machine-channel-cmux-tui" in str((s.get("with") or {}).get("pattern", ""))
+        self.assertNotIn("build-linux", jobs)
+        others = [name for name, job in jobs.items() if any("machine-channel-cmux-tui" in str((s.get("with") or {}).get("pattern", ""))
                           + str((s.get("with") or {}).get("name", "")) for s in job.get("steps", []))]
         self.assertEqual(others, [])
 

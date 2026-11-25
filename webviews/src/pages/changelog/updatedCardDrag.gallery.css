@@ -12,7 +12,7 @@
   right: 12px;
   height: var(--composer-material-height);
   border: 1px dashed color-mix(in srgb, var(--page-text, CanvasText) 28%, transparent);
-  border-radius: var(--composer-material-radius, 12px);
+  border-radius: var(--grid-card-radius, 16px);
   pointer-events: none;
 }
 .wn-drag-ghost[data-anchor="top"] { top: 8px; }

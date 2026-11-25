@@ -18,7 +18,7 @@
 use super::{Hub, Session};
 use crate::protocol::session::UsageStats;
 use crate::store::{SessionMeta, SessionStatus};
-use crate::usage_stats::{DAY_MS, Models, Source, Tracker};
+use crate::usage_stats::{DAY_MS, HOUR_MS, Models, Source, Tracker};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -195,8 +195,9 @@ impl Hub {
             }
             let mut stats = stats.lock().unwrap_or_else(|e| e.into_inner());
             let same = |a: &UsageStats, b: &UsageStats| {
-                UsageStats { updated_at: 0, ..a.clone() }
-                    == UsageStats { updated_at: 0, ..b.clone() }
+                a.updated_at / HOUR_MS == b.updated_at / HOUR_MS
+                    && UsageStats { updated_at: 0, ..a.clone() }
+                        == UsageStats { updated_at: 0, ..b.clone() }
             };
             let changed: Vec<(String, UsageStats)> = fresh
                 .iter()
@@ -298,3 +299,14 @@ impl Hub {
 #[cfg(test)]
 #[path = "usage_view_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+impl Hub {
+    /// Sets `id`'s stats as a pass that found them does: kept, and its row told changed.
+    pub(crate) fn set_usage_stats_for_test(&self, id: &str, stats: UsageStats) {
+        self.usage_stats.stats.lock().unwrap_or_else(|e| e.into_inner()).insert(id.into(), stats);
+        if let Some(session) = self.session_by_id(id) {
+            self.events.row_changed(&session);
+        }
+    }
+}

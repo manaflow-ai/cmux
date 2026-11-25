@@ -1,8 +1,8 @@
 use serde_json::json;
 
 use super::{
-    Resolved, Short, app_list, cloud_words, confirmed, misuse, not_listed, parse, resolve,
-    restore_machine, table,
+    Resolved, Short, app_list, cloud_words, confirmed, misuse, not_listed, parse, pausable,
+    resolve, restore_machine, table,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -305,4 +305,23 @@ fn an_unlisted_vm_id_for_an_app_verb_is_named_verbatim() {
         respelled["message"].as_str().unwrap_or_default().contains("vm_a7b3c9d0"),
         "{respelled}"
     );
+}
+
+/// ask-b97d36a28a: `vm pause --all` pauses only the running VMs, by id, with their names.
+#[test]
+fn pause_all_picks_the_running_vms() {
+    let listed = json!({"machines": [
+        {"machine_id": "vm_a1", "title": "dev", "status": "running"},
+        {"machine_id": "vm_b2", "title": "build", "status": "paused"},
+        {"machine_id": "vm_c3", "status": "running"},
+        {"machine_id": "vm_d4", "title": "broken", "status": "failed"},
+    ], "creating": [{"name": "new", "status": "creating"}]});
+    assert_eq!(
+        pausable(&listed),
+        vec![("vm_a1".to_owned(), "dev".to_owned()), ("vm_c3".to_owned(), "vm:vm_c3".to_owned())]
+    );
+    assert!(pausable(&json!({"machines": []})).is_empty());
+    let short = parse(&words(&["vm", "pause", "--all"])).expect("pause --all parses");
+    assert_eq!(short.cloud_verb, "pause-machine");
+    assert!(short.named.is_none() && short.tail == words(&["--all"]));
 }

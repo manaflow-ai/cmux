@@ -235,8 +235,16 @@ echo "SCREEN-STREAM-EVAL-MACHINE $run"
 pids=()
 cleanup() {
   for pid in ${pids[@]+"${pids[@]}"}; do kill "$pid" 2>/dev/null || true; done
+  # A run cut short leaves the current target's host (and iphone-sim's simulator) running: its
+  # host-stop ends them. host-stop is a no-op for a host that already stopped.
+  if [[ -n "${script:-}" && -f "${script:-}" && -n "${EVAL_STATE:-}" ]]; then
+    bash "$script" host-stop >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT
+# A signal ends the run through EXIT, so cleanup runs then too.
+trap 'exit 143' TERM
+trap 'exit 130' INT
 
 # results.json from whatever the targets wrote; blocked=REASON marks a run that measured nothing.
 finish() {
@@ -311,6 +319,23 @@ else
     { finish "could not build the marker"; exit 4; }
 fi
 granted() { grep -q '"accessibility":true' <<<"$1" && grep -q '"screen_recording":true' <<<"$1"; }
+# follow_log LOG DONE: print LOG from its start as it grows, and end at its end once the file DONE exists, so the
+# caller waits for the follower itself to have printed every last line.
+follow_log() {
+  python3 -I -c 'import os, sys, time
+log, done = sys.argv[1], sys.argv[2]
+with open(log, "rb") as f:
+    while True:
+        finished = os.path.exists(done)  # before the read: what was written before DONE is read
+        chunk = f.read(65536)
+        if chunk:
+            sys.stdout.buffer.write(chunk)
+            sys.stdout.buffer.flush()
+        elif finished:
+            break
+        else:
+            time.sleep(0.1)' "$1" "$2"
+}
 grants=$("$EVAL_BIN/screen-eval-preflight")
 echo "SCREEN-STREAM-EVAL-GRANTS $grants"
 if ! granted "$grants" && [[ -z "${CMUX_SCREEN_EVAL_IN_LAUNCHER:-}" ]]; then
@@ -350,12 +375,15 @@ if ! granted "$grants" && [[ -z "${CMUX_SCREEN_EVAL_IN_LAUNCHER:-}" ]]; then
       done
       # The app ends the run when this process is gone (a killed step), and the step log follows its output.
       : >"$launch/out.log"
-      tail -n +1 -F "$launch/out.log" &
+      rm -f "$launch/out.done"
+      follow_log "$launch/out.log" "$launch/out.done" &
       follow=$!
       pids+=("$follow")
       open -W -n -g -a "$app" --stdout "$launch/out.log" --stderr "$launch/err.log" ${env_args[@]+"${env_args[@]}"} \
         --env "CMUX_SCREEN_EVAL_PARENT=$$" --args "$root/scripts/measure/screen-stream-eval.sh" "$launch/status" ${forward[@]+"${forward[@]}"} || true
-      sleep 1 # the last lines reach the follower
+      # Until the follower has printed the last lines and ended, 10 s.
+      : >"$launch/out.done"
+      for _ in $(seq 1 100); do kill -0 "$follow" 2>/dev/null || break; sleep 0.1; done
       kill "$follow" 2>/dev/null || true
       tail -n 80 "$launch/err.log" 2>/dev/null >&2
       status=$(cat "$launch/status" 2>/dev/null || echo 4)
@@ -386,7 +414,13 @@ if [[ -n "$lan" ]]; then
   pids+=("$server")
   echo "SCREEN-STREAM-EVAL-STAGE peer waiting for the viewer Mac at $lan:$peer_port"
   # Once: does the server answer on the LAN address from this Mac? (403 without the token is an answer.)
-  sleep 1
+  # First until its port takes a connection (or it exits), 10 s; the check below reports either way.
+  for _ in $(seq 1 100); do
+    kill -0 "$server" 2>/dev/null || break
+    python3 -I -c 'import socket, sys; socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=0.5).close()' \
+      "$lan" "$peer_port" 2>/dev/null && break
+    sleep 0.1
+  done
   echo "SCREEN-STREAM-EVAL-PEER-SELF $(python3 -I -c 'import sys, urllib.request
 try:
     urllib.request.urlopen(f"http://{sys.argv[1]}:{sys.argv[2]}/clock", timeout=5)
@@ -489,11 +523,16 @@ PY
 
   # A target whose `caps` verb prints window-only (cu-png, rd-window: no input path to time) skips
   # the latency stage, and eval.py then judges it on its window rows alone. Every other target
-  # answers `caps` with nothing or an error and runs both stages.
-  window_only=0
-  if bash "$script" caps 2>/dev/null | grep -qx window-only; then
+  # answers `caps` with nothing or an error and runs both stages. latency-only (iphone-sim: its
+  # viewer has no passive window yet) is the other way round: latency, and no window or OCR repeats.
+  window_only=0 latency_only=0
+  caps=$(bash "$script" caps 2>/dev/null || true)
+  if grep -qx window-only <<<"$caps"; then
     window_only=1
     : >"$dir/window-only"
+  elif grep -qx latency-only <<<"$caps"; then
+    latency_only=1
+    : >"$dir/latency-only"
   fi
 
   # Latency: the marker (cmux-rd-host/scripts/mac-marker) above everything, then the host.
@@ -526,6 +565,7 @@ PY
   # Window and OCR: the scene's fixed timeline under one passive viewer, $repeats times (a fresh host
   # each time); eval.py reports each number's median and keeps every repeat's.
   for rep in $(seq 1 "$repeats"); do
+    [[ "$latency_only" == 1 ]] && break
     echo "SCREEN-STREAM-EVAL-STAGE $name window $rep/$repeats"
     go="$EVAL_STATE/go" stop="$EVAL_STATE/stop"
     rm -f "$go" "$stop" "$dir/host-$rep.png"
@@ -645,6 +685,6 @@ finish
 # A run with no successful measured target is not a baseline a later run should
 # diff against. Apple transport kbps, decoded FPS and first-frame latency can be
 # unavailable; its OCR or sampled-change evidence still counts when the target
-# itself completed successfully.
-python3 -I -c 'import json, sys; t = json.load(open(sys.argv[1]))["targets"].values(); measured = lambda x: x.get("ok") and (any(v is not None for v in (x.get("kbps") or {}).values()) or any(v is not None for v in (x.get("fps") or {}).values()) or any(v is not None for v in (x.get("sampled_fps") or {}).values()) or (x.get("extra") or {}).get("first_frame_ms") is not None or (x.get("ocr") or {}).get("cer") is not None); sys.exit(0 if any(measured(x) for x in t) else 5)' "$out/results.json" || exit 5
+# itself completed successfully. A latency-only target (iphone-sim) counts by its latency.
+python3 -I -c 'import json, sys; t = json.load(open(sys.argv[1]))["targets"].values(); measured = lambda x: x.get("ok") and (any(v is not None for v in (x.get("kbps") or {}).values()) or any(v is not None for v in (x.get("fps") or {}).values()) or any(v is not None for v in (x.get("sampled_fps") or {}).values()) or (x.get("extra") or {}).get("first_frame_ms") is not None or (x.get("ocr") or {}).get("cer") is not None or any(((x.get("latency") or {}).get(k) or {}).get("p50_ms") is not None for k in ("key", "pointer"))); sys.exit(0 if any(measured(x) for x in t) else 5)' "$out/results.json" || exit 5
 exit 0

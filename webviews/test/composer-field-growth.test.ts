@@ -2,41 +2,47 @@ import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { Schema } from "@milkdown/kit/prose/model";
 import { EditorState } from "@milkdown/kit/prose/state";
-import { fieldGrowth, growthHoldsTop } from "../src/agent-session/acpmux/composer/fieldGrowth";
+import { fieldGrowth, growthHoldsText } from "../src/agent-session/acpmux/composer/fieldGrowth";
 import { FIELD_GROWTH_EVENT, type FieldGrowthEvent } from "../src/agent-session/acpmux/composer/fieldGrowthEvent";
 import { teardownDom } from "./support/domTeardown";
-
-const observers = new Set<() => void>();
-let callbacks: FrameRequestCallback[] = [];
-/** The frame after an edit: its animation callbacks run, then its layout is made and its observers deliver. */
-const frame = () => {
-  const due = callbacks;
-  callbacks = [];
-  for (const callback of due) callback(0);
-  for (const callback of observers) callback();
-};
 
 test("one line grows and shrinks in CSS pixels at every composer zoom", async () => {
   const dom = new JSDOM("<!doctype html><body></body>", { pretendToBeVisual: true });
   const { window } = dom;
   const scope = globalThis as Record<string, unknown>;
+  type ResizeCallback = (entries: ResizeObserverEntry[]) => void;
+  const resizeObservers = new Set<{ callback: ResizeCallback }>();
+  class TestResizeObserver {
+    constructor(readonly callback: ResizeCallback) {
+      resizeObservers.add(this);
+    }
+    observe() {}
+    disconnect() {
+      resizeObservers.delete(this);
+    }
+  }
+  // Frames run when the test says, so the edit's wait for its observer is counted in frames.
+  let rafQueue = new Map<number, FrameRequestCallback>();
+  let rafId = 0;
+  const runFrame = () => {
+    const due = rafQueue;
+    rafQueue = new Map();
+    for (const callback of due.values()) callback(0);
+  };
   const globals = {
     window,
+    requestAnimationFrame: (callback: FrameRequestCallback) => {
+      rafId += 1;
+      rafQueue.set(rafId, callback);
+      return rafId;
+    },
+    cancelAnimationFrame: (id: number) => rafQueue.delete(id),
     document: window.document,
     navigator: window.navigator,
     MutationObserver: window.MutationObserver,
     CustomEvent: window.CustomEvent,
     getComputedStyle: window.getComputedStyle.bind(window),
-    // The frame's observer step, run by hand (`frame` below) after each edit.
-    ResizeObserver: class {
-      constructor(callback: () => void) {
-        observers.add(callback);
-      }
-      observe() {}
-      disconnect() {}
-    },
-    requestAnimationFrame: (callback: FrameRequestCallback) => callbacks.push(callback),
-    cancelAnimationFrame: () => {},
+    ResizeObserver: TestResizeObserver,
   };
   const saved = Object.keys(globals).map((key) => [key, key in scope, scope[key]] as const);
   Object.assign(scope, globals);
@@ -54,11 +60,9 @@ test("one line grows and shrinks in CSS pixels at every composer zoom", async ()
       field.className = "acpmux-md-field";
       field.style.cssText = "height:48px;line-height:20px;box-sizing:border-box";
       window.document.body.append(field);
-      // Reads of the field's layout, and in the edit's own task (`editing`): a forced layout per key.
-      let editing = false;
-      let readsInEdit = 0;
+      let rectReads = 0;
       field.getBoundingClientRect = () => {
-        if (editing) readsInEdit += 1;
+        rectReads += 1;
         return new window.DOMRect(0, 0, 600, Number.parseFloat(field.style.height) * zoom);
       };
       let capped = false;
@@ -82,67 +86,79 @@ test("one line grows and shrinks in CSS pixels at every composer zoom", async ()
       const view = new EditorView(field, {
         state: EditorState.create({ schema, plugins: [fieldGrowth(() => false)] }),
       });
-      // The text's own box is as tall as the field's content here: a line typed grows it.
-      view.dom.getBoundingClientRect = () => {
-        if (editing) readsInEdit += 1;
-        return new window.DOMRect(0, 0, 600, Number.parseFloat(field.style.height) * zoom - 8);
-      };
-      frame();
-      /** An edit, in its own task, then the frame that shows it. */
-      const edit = (text: string) => {
-        editing = true;
-        view.dispatch(view.state.tr.insertText(text));
-        editing = false;
-        frame();
+      const notifyResize = () => {
+        const entry = { target: field } as unknown as ResizeObserverEntry;
+        for (const observer of Array.from(resizeObservers)) observer.callback([entry]);
       };
       try {
         for (const height of [68, 48, 68, 48]) {
           const before = Number.parseFloat(field.style.height);
           field.style.height = `${height}px`;
           // The browser may scroll to the new caret before the editor reports its edit.
+          const grows = height > before;
+          const beforeDispatchReads = rectReads;
           field.scrollTop = 20;
-          edit("x");
+          view.dispatch(view.state.tr.insertText("x"));
+          // The text rides the field's bottom edge (Leo 2026-11-22: "the caret gets shot down
+          // past the composer as it goes"): a growth holds its end there by the scroll (the end is 0
+          // here: the text fits the height it lands on); a shrink rides the top edge, at no scroll.
+          // Stable-height typing does not force a layout read. A changed height is picked up by
+          // ResizeObserver before the frame paints.
+          expect(rectReads).toBe(beforeDispatchReads);
+          // The frame after the edit: its rAF callbacks run before its observers.
+          runFrame();
+          notifyResize();
           expect(field.scrollTop).toBe(0);
           expect(Number.parseFloat(String(frames[0]!.height)) * zoom).toBeCloseTo(before * zoom);
           expect(Number.parseFloat(String(frames.at(-1)!.height)) * zoom).toBeCloseTo(height * zoom);
+          expect(frames[0]!.paddingTop).toBeUndefined();
           expect(target).toBeCloseTo(height * zoom);
-          // One line keeps its top, rather than scrolling to reveal the caret during growth.
-          expect(growthHoldsTop(field)).toBe(true);
+          expect(growthHoldsText(field)).toBe(true);
           expect(view.someProp("handleScrollToSelection", (handle) => handle(view))).toBe(true);
-          // Native caret scrolling can also run after the transaction, during the animation.
-          field.scrollTop = 12;
-          field.dispatchEvent(new window.Event("scroll"));
-          expect(field.scrollTop).toBe(0);
-          // A second key on the same line reads nothing and keeps the motion; the caret reveal's
-          // scroll after it is held at the top.
-          const frames0 = frames;
-          field.scrollTop = 8;
-          edit("y");
-          field.dispatchEvent(new window.Event("scroll"));
-          expect(field.scrollTop).toBe(0);
-          expect(frames).toBe(frames0);
-          expect(growthHoldsTop(field)).toBe(true);
+          if (grows) {
+            // Native caret scrolling can also run after the transaction, during the animation.
+            field.scrollTop = 12;
+            field.dispatchEvent(new window.Event("scroll"));
+            expect(field.scrollTop).toBe(0);
+            // A second key on the same line retargets and keeps the text's end on the bottom edge.
+            field.scrollTop = 8;
+            view.dispatch(view.state.tr.insertText("y"));
+            expect(field.scrollTop).toBe(0);
+            expect(growthHoldsText(field)).toBe(true);
+          }
           animation!.dispatchEvent(new window.Event("finish"));
-          expect(growthHoldsTop(field)).toBe(false);
+          expect(growthHoldsText(field)).toBe(false);
         }
-        // A growth past 1.5 lines, in CSS pixels at every zoom, keeps the caret in view instead.
+        // A resize that is no edit's (a window rewrap, frames after the last key) moves nothing.
+        view.dispatch(view.state.tr.insertText("z"));
+        runFrame();
+        runFrame();
+        frames = [];
+        field.style.height = "88px";
+        notifyResize();
+        expect(frames).toEqual([]);
+        expect(growthHoldsText(field)).toBe(false);
+        field.style.height = "48px";
+        notifyResize();
+        // A large paste the field still fits rides the bottom edge too (it revealed the caret from
+        // the top before, which drew the new lines below the box mid-move).
         field.style.height = "188px";
-        edit("large paste");
-        expect(growthHoldsTop(field)).toBe(false);
+        view.dispatch(view.state.tr.insertText("large paste"));
+        notifyResize();
+        expect(growthHoldsText(field)).toBe(true);
         animation!.dispatchEvent(new window.Event("finish"));
         // At the maximum height, caret reveal and native scrolling remain available.
         capped = true;
         field.style.height = "208px";
         field.scrollTop = 60;
-        edit("past the cap");
-        expect(growthHoldsTop(field)).toBe(false);
+        view.dispatch(view.state.tr.insertText("past the cap"));
+        notifyResize();
+        expect(growthHoldsText(field)).toBe(false);
         expect(view.someProp("handleScrollToSelection", (handle) => handle(view))).toBeUndefined();
         expect(field.scrollTop).toBe(60);
         field.scrollTop = 80;
         field.dispatchEvent(new window.Event("scroll"));
         expect(field.scrollTop).toBe(80);
-        // No edit read the field's layout in its own task: the frame's observer read it.
-        expect(readsInEdit).toBe(0);
       } finally {
         view.destroy();
         field.remove();

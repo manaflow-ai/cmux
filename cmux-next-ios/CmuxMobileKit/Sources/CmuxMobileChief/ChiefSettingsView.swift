@@ -36,6 +36,8 @@ public struct ChiefSettingsView: View {
     @State private var stopNote: String?
     @State private var muted: Bool
     @State private var receipts: Bool
+    /// ``ChiefAIConsent``: off, the next send asks again.
+    @State private var aiConsent = ChiefAIConsent.isGranted
     /// The window's top safe inset (the status bar): Messages' avatar top.
     @State private var windowSafeTop: CGFloat = Self.lastWindowSafeTop
     /// The header row's top at rest, in the window (the list runs under the
@@ -72,6 +74,7 @@ public struct ChiefSettingsView: View {
             // Messages' Find My slot: the account's Cloud machine (hidden unless it pays and one ran).
             ChiefComputerSection(computer: computer)
             notificationsSection
+            aiSection
             #if DEBUG
             diagnosticsSection
             #endif
@@ -348,6 +351,26 @@ public struct ChiefSettingsView: View {
         .listRowBackground(ChiefInfoGeometry.card)
     }
 
+    /// App Review 5.1.2(i) and 1.2: the AI sharing the person agreed to, which they can
+    /// withdraw here, and a way to report a reply.
+    private var aiSection: some View {
+        Section {
+            Toggle(String(localized: "mobile.chief.aiConsent.toggle", defaultValue: "Share Messages with AI", bundle: .module),
+                   isOn: $aiConsent)
+                .tint(Color(uiColor: .systemGreen))
+                .accessibilityIdentifier("chief.settings.aiConsent")
+                .onChange(of: aiConsent) { _, on in ChiefAIConsent.set(on) }
+            Button(ChiefReport.title) { ChiefReport.open(conversationID: session.conversationID) }
+                .accessibilityIdentifier("chief.settings.report")
+        } footer: {
+            Text(String(format: String(localized: "mobile.chief.aiConsent.footer",
+                                       defaultValue: "Chief's replies come from third-party AI models: %@. With sharing off, Chief asks before your next message. %@",
+                                       bundle: .module),
+                        ChiefAIConsent.providers, ChiefReport.footer))
+        }
+        .listRowBackground(ChiefInfoGeometry.card)
+    }
+
     // MARK: Actions
 
     @State private var retrying = false
@@ -458,7 +481,7 @@ public struct ChiefSettingsView: View {
         if let backend = error as? ConversationBackendError, backend.code == -1 { return backend.message }
         // No answer from the Mac is not Chief refusing (the old copy blamed Chief for a dropped link).
         switch ChiefEngineProblem(error) {
-        case .macUnreachable: return String(localized: "Your Mac didn't answer. Check that it's on and connected, then try again.")
+        case .macUnreachable: return String(localized: "Can't reach your Mac. Make sure it's awake and connected, then try again.")
         case .chiefBusy: return String(localized: "mobile.chief.busy", defaultValue: "Chief is busy. Try again.", bundle: .module)
         default: break
         }
@@ -591,7 +614,7 @@ struct ChiefQuickAction: View {
             .frame(width: ChiefInfoGeometry.quickActionSize, height: ChiefInfoGeometry.quickActionSize)
             .contentShape(.circle)
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressFillCircle)
         .disabled(!enabled)
         .accessibilityLabel(title)
         .accessibilityValue(busy ? Text("In progress") : Text(""))

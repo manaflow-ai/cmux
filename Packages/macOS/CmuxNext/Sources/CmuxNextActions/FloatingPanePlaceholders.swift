@@ -12,7 +12,7 @@ public struct FloatingPanePlaceholders {
     public static let ids: [ActionID] = ["toggleFloatingPane", "newFloatingPane", "toggleQuickTerminal"]
 
     static var reason: String {
-        String(localized: "floatingPanes.unavailable", defaultValue: "This build of cmux has no floating panes yet.", bundle: .module)
+        String(localized: "floatingPanes.unavailable", defaultValue: "This build of cmux has no floating panes yet.", bundle: .localizedModule)
     }
 
     public static func bind(into registry: ActionRegistry) {

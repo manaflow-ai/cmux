@@ -102,7 +102,14 @@ export function ComposerHatStage({
             {before && <span hidden />}
             {/* The real card's classes, so its ring and lit top rim (composerStates.css) are the
                 line the hat sits on (Leo, 2026-11-09: "theres a line behind the hat toggle"). */}
-            <div className="acpmux-composer" data-composer-look={surface === "codex-strip" ? "codex" : undefined}>
+            {/* The marks the real composer sets for its queue and strip (Composer.tsx `data-queue`,
+                `data-strip`): its rules read them, not a `:has()`. */}
+            <div
+              className="acpmux-composer"
+              data-composer-look={surface === "codex-strip" ? "codex" : undefined}
+              data-queue={surface === "queue" ? "" : undefined}
+              data-strip={surface === "codex-strip" ? "" : undefined}
+            >
               {/* The part the pill sits on, when it is not the card (data-stage-top, for the test). */}
               {surface === "queue" && (
                 <ol className="ui-glass ui-glass-floats acpmux-composer-queue" data-stage-top="">

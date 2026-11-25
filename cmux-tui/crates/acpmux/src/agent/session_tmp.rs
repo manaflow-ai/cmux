@@ -74,6 +74,26 @@ pub(crate) fn per_user_base() -> PathBuf {
         .unwrap_or_else(|| std::env::temp_dir().join(format!("acpmux-unit-session-tmp-{uid}")))
 }
 
+/// Whether `path` is inside the sessions' temporary folders (`<base>/t/...`, also as macOS's
+/// `/private/tmp/...`). acpmux never makes a folder there again once it is gone: a session's own
+/// is made only at its agent's start, and anything an agent made inside one (a probe session's
+/// `mktemp -d` folder) is that agent's scratch. So a session whose folder is in here and gone
+/// never runs again (Leo's cosmic-gray, 2026-11-23: relayed messages to a probe chat whose
+/// folder an agent's scratch cleanup removed were tried again every minute, forever).
+pub(crate) fn holds(path: &Path) -> bool {
+    holds_in(&per_user_base(), path)
+}
+
+fn holds_in(base: &Path, path: &Path) -> bool {
+    let root = base.join(TMP_SUBDIR);
+    // macOS's `/tmp` is `/private/tmp`: a folder recorded either way is the same folder.
+    let other = match root.strip_prefix("/private") {
+        Ok(bare) => Path::new("/").join(bare),
+        Err(_) => Path::new("/private").join(root.strip_prefix("/").unwrap_or(&root)),
+    };
+    path.starts_with(&root) || path.starts_with(&other)
+}
+
 /// One daemon's root: `<base>/t/<first 8 hex of fnv1a64(acpmux home)>`.
 pub(crate) fn daemon_root(base: &Path, acpmux_home: &Path) -> PathBuf {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
@@ -175,11 +195,21 @@ fn private_child(parent: &Path, name: &str, uid: u32) -> Option<PathBuf> {
 /// daemon's own host and never starts one, so that agent keeps the
 /// `$TMPDIR/cmux/browser-host.sock` it resolves and starts its own host
 /// there. A Mac agent without `TMPDIR` keeps it unset: a pinned `/tmp` would
-/// move `remote_runtime`'s `/tmp/cmux-rd-<euid>`. Elsewhere (Linux without
-/// a runtime dir) `XDG_RUNTIME_DIR` is not pinned: `systemctl --user` and
+/// move `remote_runtime`'s `/tmp/cmux-rd-<euid>`.
+///
+/// Elsewhere (Linux) a pinned `/tmp` would not do: `systemctl --user` and
 /// the app servers' socket folder (cmux-tui-core `server_tmp`) read a set
-/// `XDG_RUNTIME_DIR` as the systemd runtime dir and refuse `/tmp`; there the
-/// agent keeps the shared `TMPDIR` and gets only `ACPMUX_SESSION_TMPDIR`.
+/// `XDG_RUNTIME_DIR` as the systemd runtime dir and refuse `/tmp`. An agent
+/// without one gets the user's own systemd runtime dir, `user_runtime_dir`
+/// ([`user_runtime_dir`]: `/run/user/<uid>`, a 0700 directory of this
+/// user's), the one every login shell on the machine has, as its
+/// `XDG_RUNTIME_DIR`; then `systemctl --user` reaches the user's manager
+/// and clients resolve their sockets where a person's shell there does
+/// (gcp-agent-lane-1, 2026-11-17: a daemon started with no runtime dir gave
+/// every lane the shared `/tmp`, and two lanes' `/tmp/claude-<uid>/body.md`
+/// were one file). With no such dir the agent keeps the shared `TMPDIR`,
+/// and `CLAUDE_CODE_TMPDIR` (Claude Code's own temporary folder, and its
+/// sandboxed commands' `TMPDIR`) is `dir`.
 ///
 /// `profile_blank` names a key the profile sets to an empty value: the
 /// profile's env is applied after this one, so a pin of that key would not
@@ -189,6 +219,7 @@ pub(crate) fn env_for(
     agent: impl Fn(&str) -> Option<String>,
     profile_blank: impl Fn(&str) -> bool,
     pin_runtime_dir: bool,
+    user_runtime_dir: Option<&Path>,
     uid: u32,
 ) -> Vec<(&'static str, OsString)> {
     let set = |key: &str| agent(key).filter(|v| !v.is_empty());
@@ -197,10 +228,16 @@ pub(crate) fn env_for(
         out.push(("TMPDIR", dir.as_os_str().to_owned()));
         return out;
     }
-    if !pin_runtime_dir
-        || profile_blank("XDG_RUNTIME_DIR")
-        || profile_blank("CMUX_BROWSER_HOST_SOCKET")
-    {
+    if !pin_runtime_dir {
+        if let Some(runtime) = user_runtime_dir.filter(|_| !profile_blank("XDG_RUNTIME_DIR")) {
+            out.push(("TMPDIR", dir.as_os_str().to_owned()));
+            out.push(("XDG_RUNTIME_DIR", runtime.as_os_str().to_owned()));
+        } else if set("CLAUDE_CODE_TMPDIR").is_none() && !profile_blank("CLAUDE_CODE_TMPDIR") {
+            out.push(("CLAUDE_CODE_TMPDIR", dir.as_os_str().to_owned()));
+        }
+        return out;
+    }
+    if profile_blank("XDG_RUNTIME_DIR") || profile_blank("CMUX_BROWSER_HOST_SOCKET") {
         return out;
     }
     let Some(tmpdir) = set("TMPDIR") else { return out };
@@ -211,6 +248,21 @@ pub(crate) fn env_for(
         out.push(("CMUX_BROWSER_HOST_SOCKET", socket.into_os_string()));
     }
     out
+}
+
+/// The user's systemd runtime dir, `<root>/<uid>` (`/run/user`), when it is
+/// a real directory (lstat) of `uid`'s that no one else can write or list:
+/// what logind makes for a user with a session or lingering.
+pub(crate) fn user_runtime_dir_in(root: &Path, uid: u32) -> Option<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let dir = root.join(uid.to_string());
+    let meta = std::fs::symlink_metadata(&dir).ok()?;
+    (meta.file_type().is_dir() && meta.uid() == uid && meta.mode() & 0o077 == 0).then_some(dir)
+}
+
+/// [`user_runtime_dir_in`] `/run/user` on Linux; no other system has one.
+pub(crate) fn user_runtime_dir(uid: u32) -> Option<PathBuf> {
+    if cfg!(target_os = "linux") { user_runtime_dir_in(Path::new("/run/user"), uid) } else { None }
 }
 
 /// Remove `dir` when it is a real directory (lstat: a symlink there is left,
@@ -391,6 +443,20 @@ pub(crate) fn stale_for_daemon(
 
 #[cfg(all(test, unix))]
 mod tests {
+    #[test]
+    fn holds_only_the_session_temp_folders_in_either_spelling() {
+        let base = Path::new("/tmp/acpmux-501");
+        let probe = "t/93dddea7/01a18a35-b1e8-7951-ba2f-703bf916b9a6/first-turn-probe-3w0m8ppi";
+        assert!(super::holds_in(base, &base.join(probe)));
+        assert!(super::holds_in(base, &Path::new("/private/tmp/acpmux-501").join(probe)));
+        assert!(super::holds_in(Path::new("/private/tmp/acpmux-501"), &base.join(probe)));
+        // The per-user directory's sockets, a plain /tmp folder, a project: not session temp.
+        assert!(!super::holds_in(base, &base.join("acpmux.sock")));
+        assert!(!super::holds_in(base, Path::new("/tmp/send-async-gone-1")));
+        assert!(!super::holds_in(base, Path::new("/Users/leoli/Projects")));
+        assert!(!super::holds_in(base, Path::new("/tmp/acpmux-5011/t/x")));
+    }
+
     use super::*;
     use std::os::unix::fs::PermissionsExt as _;
 
@@ -478,7 +544,7 @@ mod tests {
         let dir = Path::new("/tmp/acpmux-1/t/0/s");
         let agent = |k: &str| (k == "XDG_RUNTIME_DIR").then(|| "/run/user/1".to_owned());
         for pin in [true, false] {
-            let env = env_for(dir, agent, |_| false, pin, 1);
+            let env = env_for(dir, agent, |_| false, pin, Some(Path::new("/run/user/1")), 1);
             assert_eq!(
                 env,
                 vec![(SESSION_TMPDIR_ENV, dir.into()), ("TMPDIR", dir.into())],
@@ -520,7 +586,7 @@ mod tests {
         ];
         for case in cases {
             let before = |k: &str| case.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string());
-            let changes = env_for(dir, before, |_| false, true, 501);
+            let changes = env_for(dir, before, |_| false, true, None, 501);
             let after = |k: &str| {
                 changes
                     .iter()
@@ -543,6 +609,7 @@ mod tests {
             |k| (k == "TMPDIR").then(|| "/var/folders/ab/T/".into()),
             |_| false,
             true,
+            None,
             501,
         );
         assert!(env.contains(&("XDG_RUNTIME_DIR", "/var/folders/ab/T/".into())));
@@ -559,7 +626,7 @@ mod tests {
             "CMUX_TUI_SOCKET" => Some("/var/folders/ab/T/cmux-501/tui.sock".to_owned()),
             _ => None,
         };
-        let changes = env_for(dir, before, |_| false, true, 501);
+        let changes = env_for(dir, before, |_| false, true, None, 501);
         assert!(!changes.iter().any(|(k, _)| *k == "CMUX_BROWSER_HOST_SOCKET"), "{changes:?}");
         assert!(changes.contains(&("XDG_RUNTIME_DIR", "/var/folders/ab/T/".into())));
         let after = |k: &str| {
@@ -573,13 +640,76 @@ mod tests {
     }
 
     #[test]
-    fn linux_without_a_runtime_dir_keeps_the_shared_tmpdir() {
+    fn linux_without_a_runtime_dir_gets_the_users_own() {
+        // gcp-agent-lane-1, 2026-11-17: a daemon with no runtime dir gave
+        // every lane the shared /tmp, so two lanes wrote one body.md.
         let dir = Path::new("/tmp/acpmux-1/t/0/s");
-        let env = env_for(dir, |k| (k == "TMPDIR").then(|| "/tmp".into()), |_| false, false, 1);
+        let runtime = Path::new("/run/user/1");
+        let tmp = |k: &str| (k == "TMPDIR").then(|| "/tmp".to_owned());
+        let none = |_: &str| None::<String>;
+        for before in [&tmp as &dyn Fn(&str) -> Option<String>, &none] {
+            let env = env_for(dir, before, |_| false, false, Some(runtime), 1);
+            assert_eq!(
+                env,
+                vec![
+                    (SESSION_TMPDIR_ENV, dir.into()),
+                    ("TMPDIR", dir.into()),
+                    ("XDG_RUNTIME_DIR", runtime.into())
+                ]
+            );
+        }
+        // Two sessions, two folders.
+        let other = Path::new("/tmp/acpmux-1/t/0/o");
+        let tmpdir = |d: &Path| {
+            env_for(d, tmp, |_| false, false, Some(runtime), 1)
+                .into_iter()
+                .find(|(k, _)| *k == "TMPDIR")
+                .map(|(_, v)| v)
+        };
+        assert_ne!(tmpdir(dir), tmpdir(other));
+    }
+
+    #[test]
+    fn linux_with_no_runtime_dir_at_all_names_claude_codes_folder() {
+        let dir = Path::new("/tmp/acpmux-1/t/0/s");
+        let tmp = |k: &str| (k == "TMPDIR").then(|| "/tmp".to_owned());
+        let env = env_for(dir, tmp, |_| false, false, None, 1);
+        assert_eq!(env, vec![(SESSION_TMPDIR_ENV, dir.into()), ("CLAUDE_CODE_TMPDIR", dir.into())]);
+        // A profile's own CLAUDE_CODE_TMPDIR, set or blank, stays.
+        let own = |k: &str| (k == "CLAUDE_CODE_TMPDIR").then(|| "/p".to_owned());
+        let env = env_for(dir, own, |_| false, false, None, 1);
         assert_eq!(env, vec![(SESSION_TMPDIR_ENV, dir.into())]);
+        let env = env_for(dir, tmp, |k| k == "CLAUDE_CODE_TMPDIR", false, None, 1);
+        assert_eq!(env, vec![(SESSION_TMPDIR_ENV, dir.into())]);
+        // A profile that blanks XDG_RUNTIME_DIR: no runtime dir is pinned.
+        let env = env_for(dir, tmp, |k| k == "XDG_RUNTIME_DIR", false, Some(Path::new("/r")), 1);
+        assert_eq!(env, vec![(SESSION_TMPDIR_ENV, dir.into()), ("CLAUDE_CODE_TMPDIR", dir.into())]);
         // A profile that blanks XDG_RUNTIME_DIR would undo the pin on a Mac too.
-        let env = env_for(dir, |_| None, |k| k == "XDG_RUNTIME_DIR", true, 1);
+        let env = env_for(dir, |_| None, |k| k == "XDG_RUNTIME_DIR", true, None, 1);
         assert_eq!(env, vec![(SESSION_TMPDIR_ENV, dir.into())]);
+    }
+
+    #[test]
+    fn only_a_private_dir_of_the_users_is_a_runtime_dir() {
+        let s = Scratch::new("runtime");
+        // SAFETY: getuid has no preconditions.
+        let uid = unsafe { libc::getuid() };
+        let mine = s.0.join(uid.to_string());
+        assert_eq!(user_runtime_dir_in(&s.0, uid), None);
+        std::fs::create_dir(&mine).unwrap();
+        std::fs::set_permissions(&mine, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(user_runtime_dir_in(&s.0, uid), Some(mine.clone()));
+        // Open to others.
+        std::fs::set_permissions(&mine, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(user_runtime_dir_in(&s.0, uid), None);
+        // A symlink to a private directory.
+        std::fs::set_permissions(&mine, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let other = s.0.join("x");
+        std::fs::create_dir(&other).unwrap();
+        std::os::unix::fs::symlink(&mine, other.join(uid.to_string())).unwrap();
+        assert_eq!(user_runtime_dir_in(&other, uid), None);
+        // Another user's.
+        assert_eq!(user_runtime_dir_in(&s.0, uid.wrapping_add(1)), None);
     }
 
     #[test]

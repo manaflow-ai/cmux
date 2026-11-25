@@ -70,6 +70,8 @@ public final class SettingsController {
     @ObservationIgnored fileprivate var lastGoodThemeFile: ThemeFileInput?
 
     @ObservationIgnored let applier: SettingsApplier
+    /// The active theme file's own font files, registered while it applies.
+    @ObservationIgnored let themeFonts = ThemeFonts()
     @ObservationIgnored private var diagnosticToasts: SettingsDiagnosticToasts?
     @ObservationIgnored private var watcher: ConfigFileWatcher?
     /// Watches the active theme file and the themes folder (`ThemeFileSetting`).
@@ -445,7 +447,7 @@ public final class SettingsController {
             let parsed = try JSONC.parse(source)
             if case .object = parsed { root = parsed } else { problem = "root is not an object" }
         } catch {
-            problem = String(describing: error)
+            problem = JSONC.problem(error, in: source)
         }
         // Managed layers always merge, over the last good file when this one
         // is unreadable, so MDM forced values apply even while the user's
@@ -456,9 +458,12 @@ public final class SettingsController {
         let themes = ThemeFilesRead(effective.root, configDirectory: configDirectory, managed: Set(effective.managedKeys.keys),
                                     lastGood: lastGoodTheme, listing: listingThemes)
         effective.root = themes.applied
+        // The sidebar look fills only what every layer above leaves unset (SidebarLookPreset).
+        effective.root = SidebarLookPreset.filling(effective.root)
         var snapshot = CmuxConfigSnapshot.parse(
             effective.root, validDensities: valid.densities, validMetrics: valid.metrics, configDirectory: configDirectory
         )
+        snapshot.themeDensity = themes.density
         if let problem { snapshot.diagnostics.insert(SettingsDiagnostic(kind: .unreadableFile, path: "", message: problem), at: 0) }
         snapshot.diagnostics += effective.diagnostics + themes.diagnostics
         var inputs = LoadInputs(source: source, managed: managed, team: team)
@@ -475,6 +480,8 @@ public final class SettingsController {
             // A file change ends a preview: the loaded values apply.
             previewingKey = nil
             previewSnapshot = nil
+            // The look's own font files first, so the families it names resolve as it applies.
+            themeFonts.use(loaded.themes.overlay?.fontFiles ?? [])
             diagnostics = applier.apply(loaded.snapshot)
             // For the next launch: AppKit keeps this launch's text weight (ProcessFontSmoothing).
             // The chrome text cmux draws itself (the sidebar, tabs) takes the new weight now, as
@@ -518,6 +525,8 @@ extension SettingsController {
         /// The root with the theme file applied.
         let applied: JSONValue
         let overlay: ThemeFileOverlay?
+        /// The file's own density, unless a managed layer or the person's own density row (an exception) holds it.
+        let density: DensityTokens?
         let activeSource: String?
         /// The text the applied overlay was read from: the active file's, or its last good text while
         /// the file does not parse. Nil when no file applies.
@@ -543,6 +552,7 @@ extension SettingsController {
             let settingPath = ThemeFileSetting.configPath.joined(separator: ".")
             guard let name = ThemeFileSetting.name(in: root) else {
                 overlay = nil
+                density = nil
                 activeSource = nil
                 goodSource = nil
                 applied = root
@@ -567,12 +577,24 @@ extension SettingsController {
             }
             goodSource = good
             self.overlay = overlay
-            applied = overlay.applied(to: root, managed: managed)
+            // The keys the person changed over the file keep their own value (#44894).
+            let exceptions = ThemeFileExceptionsSetting.keys(in: root)
+            applied = overlay.applied(to: root, managed: managed.union(exceptions))
             // Each row the file sets says where its value comes from.
             let file = "\(ThemeFileSetting.folderName)/\(name).\(ThemeFileSetting.fileExtension)"
-            diagnostics = overlay.diagnostics + overlay.values.map { $0.path.joined(separator: ".") }
+            // The file's own density is over both density rows, unless the person changed one over the file.
+            density = overlay.density(under: managed.union(exceptions))
+            let densityRows = density == nil ? [] : [DensitySetting.configPath, CustomDensitySelectionSetting.configPath]
+                .filter { path in !overlay.values.contains { $0.path == path } }.map { $0.joined(separator: ".") }
+            diagnostics = overlay.diagnostics + (overlay.values.map { $0.path.joined(separator: ".") } + densityRows)
                 .filter { id in !managed.contains { $0 == id || id.hasPrefix($0 + ".") || $0.hasPrefix(id + ".") } }
-                .map { SettingsDiagnostic(kind: .setByThemeFile, path: $0, message: "set by the theme file; change it there, or unset Theme File", file: file) }
+                .map { id in
+                    exceptions.contains(id)
+                        ? SettingsDiagnostic(kind: .overThemeFile, path: id,
+                                             message: "your value applies over the theme file's; Reset returns to the file's", file: file)
+                        : SettingsDiagnostic(kind: .setByThemeFile, path: id,
+                                             message: "set by the theme file; a change here applies over it", file: file)
+                }
         }
     }
 

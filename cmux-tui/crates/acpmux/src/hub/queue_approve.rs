@@ -178,9 +178,70 @@ impl Hub {
     /// approved rules: those are returned, for the move to name in its manifest
     /// (`approvedWaiting`, `transfer_out.rs`), so that only a receiver whose own `initialize`
     /// listed [`crate::author::QUEUE_APPROVAL_FEATURE`] takes the bundle (review of #28859).
+    #[cfg(test)]
     pub(in crate::hub) fn held_prompts(&self, bundle: &Path) -> Result<Vec<String>, RpcError> {
+        self.held_prompts_with(None, bundle)
+    }
+
+    /// [`Self::held_prompts`] of a pre-copied move's log (`transfer_precopy.rs`): the records of
+    /// chat `prefix.0` through seq `prefix.1`, read from its log's kind index (the prefix is
+    /// checked to be the log's head under the freeze), then the bundle's.
+    pub(in crate::hub) fn held_prompts_with(
+        &self,
+        prefix: Option<(&str, u64)>,
+        bundle: &Path,
+    ) -> Result<Vec<String>, RpcError> {
         use std::io::BufRead;
+        const KINDS: [&str; 6] = [
+            "queued",
+            "user_message",
+            "turn_started",
+            "queue_removed",
+            "queue_updated",
+            "queue_approved",
+        ];
         let check = || -> anyhow::Result<(Vec<String>, Vec<String>)> {
+            let mut waiting = queue_waiting::Waiting::default();
+            let mut approved: HashMap<String, u64> = HashMap::new();
+            let mut feed = |e: EventRecord| {
+                let turn = e.msg.get("turnId");
+                if matches!(e.kind.as_str(), "queued" | "user_message" | "turn_started")
+                    && let Some(id) = e.msg.get("promptId")
+                {
+                    waiting.remove_other_turns(id, turn);
+                }
+                match e.kind.as_str() {
+                    "queued" => waiting.push(e),
+                    // Older daemons do not understand queue_declined. Until the subsequent
+                    // legacy queue_removed is in this snapshot, they would still run it.
+                    "queue_removed" | "user_message" | "turn_started" => waiting.remove_turn(turn),
+                    "queue_updated" => {
+                        if let Some(q) = waiting.first_of_turn(turn) {
+                            for k in ["revision", "awaitingOwner"] {
+                                q.msg.set(k, e.msg.get(k).cloned().unwrap_or(Value::Null));
+                            }
+                        }
+                    }
+                    "queue_approved" => {
+                        if let (Some(turn), Some(revision)) = (
+                            turn.and_then(Value::as_str),
+                            e.msg.get("revision").and_then(Value::as_u64),
+                        ) {
+                            approved.insert(turn.to_owned(), revision);
+                        }
+                    }
+                    _ => {}
+                }
+            };
+            if let Some((id, through)) = prefix {
+                self.store.scan_kinds(id, &KINDS, &mut |e| {
+                    let within = e.seq <= through;
+                    if within {
+                        feed(e);
+                    }
+                    within
+                })?;
+            }
             // Every segment, in name order, as import restores them (`copy_bundle_events`).
             let mut segments = Vec::new();
             for entry in std::fs::read_dir(bundle.join("events"))? {
@@ -190,45 +251,12 @@ impl Hub {
                 }
             }
             segments.sort();
-            let mut waiting = queue_waiting::Waiting::default();
-            let mut approved: HashMap<String, u64> = HashMap::new();
             for segment in segments {
                 let file = std::fs::File::open(segment)?;
                 for line in std::io::BufReader::new(file).lines() {
                     let line = line?;
-                    if line.trim().is_empty() {
-                        continue;
-                    }
-                    let e: EventRecord = serde_json::from_str(&line)?;
-                    let turn = e.msg.get("turnId");
-                    if matches!(e.kind.as_str(), "queued" | "user_message" | "turn_started")
-                        && let Some(id) = e.msg.get("promptId")
-                    {
-                        waiting.remove_other_turns(id, turn);
-                    }
-                    match e.kind.as_str() {
-                        "queued" => waiting.push(e),
-                        // Older daemons do not understand queue_declined. Until the subsequent
-                        // legacy queue_removed is in this snapshot, they would still run it.
-                        "queue_removed" | "user_message" | "turn_started" => {
-                            waiting.remove_turn(turn)
-                        }
-                        "queue_updated" => {
-                            if let Some(q) = waiting.first_of_turn(turn) {
-                                for k in ["revision", "awaitingOwner"] {
-                                    q.msg.set(k, e.msg.get(k).cloned().unwrap_or(Value::Null));
-                                }
-                            }
-                        }
-                        "queue_approved" => {
-                            if let (Some(turn), Some(revision)) = (
-                                turn.and_then(Value::as_str),
-                                e.msg.get("revision").and_then(Value::as_u64),
-                            ) {
-                                approved.insert(turn.to_owned(), revision);
-                            }
-                        }
-                        _ => {}
+                    if !line.trim().is_empty() {
+                        feed(serde_json::from_str(&line)?);
                     }
                 }
             }

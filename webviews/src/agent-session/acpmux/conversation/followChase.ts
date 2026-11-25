@@ -180,6 +180,10 @@ export type FollowChase = {
   /// the same clock, and moves at most what is left of ARRIVAL_FRAME_LINES (`alongsideMove`). Kept
   /// until replaced; animations that ended move nothing.
   alongside(animations: ReadonlySet<Animation> | undefined): void;
+  /// `rested` runs each time the chase comes to rest from a move (home, or `stop`), never while it
+  /// is held: the transcript reads and places its mounted rows then (VirtualTranscript.tsx
+  /// `settleMotion`). It may run inside a commit, so it must not render there.
+  onRest(rested: (() => void) | undefined): void;
 };
 
 /// The send motion's length (ms, `--agent-motion-send`), at the host's `scale` when it sets none.
@@ -288,6 +292,10 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
   let arrival:
     | { from: number; at: number; duration: number; ease: (progress: number) => number; sent: boolean }
     | undefined;
+  /// What runs when the chase comes to rest (`onRest`), and whether it drew the thread off home
+  /// since it last rested.
+  let rested: (() => void) | undefined;
+  let drawnOff = false;
   let frame: number | undefined;
   /// When the pending `frame` was asked for (performance.now ms).
   let askedAt = 0;
@@ -345,12 +353,14 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     } else {
       thread.style.willChange = "translate";
       thread.style.translate = `0 ${x}px`;
+      drawnOff = true;
     }
     // The live line held at the bottom moves against the thread in the same frame (pinnedLiveLine.ts).
     drawPinned(thread, x);
   };
   const stop = () => {
     cancelRecheck();
+    const moving = drawnOff || frame !== undefined || x !== 0;
     if (frame !== undefined) thread?.ownerDocument.defaultView?.cancelAnimationFrame(frame);
     frame = undefined;
     last = undefined;
@@ -364,6 +374,8 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     stepped = 0;
     arrival = undefined;
     draw();
+    drawnOff = false;
+    if (moving) rested?.();
   };
   const step = (now: number) => {
     frame = undefined;
@@ -522,6 +534,9 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     alongside(animations) {
       along = animations;
     },
+    onRest(next) {
+      rested = next;
+    },
     carry(node, px) {
       if (!(Math.abs(px) >= 0.01)) return;
       if (thread && thread !== node) stop();
@@ -602,7 +617,12 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       // the trail bound; the `spring` arm keeps a line to `below`, the rest of it moving at once.
       // Each move says which it is: a finite `below` after a send's rise keeps to it again (a rise
       // kept to the chase's rest let later streamed text pass under the composer past the bound).
-      rising = (arm === "blocks" && !held) || below === Number.POSITIVE_INFINITY;
+      // A move down while a rise still draws the rows down (the room a cleared composer card gives
+      // back a pass after a prompt's rows came) shortens that rise: kept to `below`, the rest of the
+      // rise moved at once and that room then drew the rows back down (the `spring`, `chunk` and
+      // `linear` arms' bounce as a prompt comes in, 149 px up in a frame and 10 to 32 px back).
+      rising =
+        (arm === "blocks" && !held) || below === Number.POSITIVE_INFINITY || (rising && !held && moved > 0 && x > 0);
       // Within the bound before this move, a block that lands past it starts a stretch of its own
       // with all of BURST_S (the last stretch's deadline moved it up to a line a frame, its time
       // already spent).

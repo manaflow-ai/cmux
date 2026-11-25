@@ -1,0 +1,53 @@
+//! A chat that moved to a peer still answers here, for the clients that hold it by this
+//! daemon's connection: its tombstone (`SessionMeta::moved_to`, `transfer_out.rs`) names the
+//! peer, and a request for it goes on to the copy there (`server/peer_forward.rs`) instead of
+//! being refused as `transfer.moved`. The chat's stream follows it too (`server/follow.rs`).
+
+use super::*;
+
+/// The most moves one request follows, peer to peer (the outbox's own bound for a message,
+/// `server/outbox.rs` `MAX_MOVES_FOLLOWED`).
+pub const MAX_MOVES_FOLLOWED: u64 = 16;
+
+/// `_meta.acpmux` field: how many tombstones this request was forwarded through.
+pub const MOVED_HOPS_FIELD: &str = "movedHops";
+
+impl Hub {
+    /// The peer copy of the chat `key` names here, when that chat is this daemon's tombstone
+    /// of a move (`moved_to`) whose `host` is a peer of this daemon with its link up: the peer,
+    /// the chat's id there, and its row from that peer's list (`Null` before the row came).
+    /// None for any other chat, for a host that is no peer's name, and for a peer that is
+    /// down: the caller then answers as before (`transfer.moved`).
+    pub fn moved_forward(&self, key: &str) -> Option<(Arc<crate::peer::Peer>, String, Value)> {
+        let session = self.resolve(key).ok()?;
+        let to = session.read_meta(|m| m.moved_to.clone())?;
+        let peer = self.peer_by_name(to.get("host")?.as_str()?)?;
+        if !peer.ready() {
+            return None;
+        }
+        let id = to
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .unwrap_or(&session.id)
+            .to_owned();
+        let row = self
+            .resolve_remote(&format!("{}/{id}", peer.name))
+            .filter(|(p, rid, _)| p.name == peer.name && *rid == id)
+            .map_or(Value::Null, |(_, _, row)| row);
+        Some((peer, id, row))
+    }
+
+    /// Where a request for `key` goes when not here: a peer's chat (`resolve_remote`, for a key
+    /// that names no chat of this daemon), or the peer copy of a chat that moved away
+    /// ([`Self::moved_forward`]), with whether it is that one.
+    pub fn remote_or_moved(
+        &self,
+        key: &str,
+    ) -> Option<(Arc<crate::peer::Peer>, String, Value, bool)> {
+        if self.resolve(key).is_err() {
+            return self.resolve_remote(key).map(|(peer, id, row)| (peer, id, row, false));
+        }
+        self.moved_forward(key).map(|(peer, id, row)| (peer, id, row, true))
+    }
+}

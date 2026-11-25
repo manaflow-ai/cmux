@@ -25,7 +25,7 @@ import { makeFakeUpstream } from "./fake-upstream.ts";
 import { makeS3aFakes } from "./s3a-fakes.ts";
 import { TeamAdmin } from "../../src/auth/team-admin.ts";
 import { ApiKeyAdminStore } from "../../src/db/api-keys.ts";
-import { applyServiceScopeGrants, parseServiceScopeGrants, ServiceKeys } from "../../src/auth/service-keys.ts";
+import { applyServiceScopeGrants, parseServiceScopeGrants, ServiceKeys, teamKeysOf } from "../../src/auth/service-keys.ts";
 import { makeMeshFakes, type MeshFakeOptions } from "./mesh-fakes.ts";
 import { AgentStore, type ClientSessionRow } from "../../src/db/agents.ts";
 
@@ -64,6 +64,15 @@ export interface HarnessOptions {
   readonly stackWebhookSecret?: string;
   /** The CMUX_VM_CI_TRUST var; tokens from `githubToken` are signed by the harness's stand-in for GitHub's key. */
   readonly ciTrust?: string;
+  /** CMUX_VM_SIZED_IMAGE_SERVICE_IDS and CMUX_VM_CREATE_NO_READS_SERVICE_IDS: service key ids; both off by default. */
+  readonly createSwitches?: CreateSwitches;
+  /** The CMUX_VM_TEAM_KEYS var (src/auth/team-keys.ts), merged with the service keys as the Worker does. */
+  readonly teamKeys?: string;
+}
+
+export interface CreateSwitches {
+  readonly sizedImageServiceIds?: ReadonlyArray<string>;
+  readonly noReadsServiceIds?: ReadonlyArray<string>;
 }
 
 /** One audit row as a test sees it. */
@@ -113,7 +122,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const upstream = makeFakeUpstream(UPSTREAM_KEY);
   /** Client sessions (migration 0016), as cmux_vm.vm_client_sessions holds them. */
   const clientSessions: ClientSessionRow[] = [];
-  const upstreamClient = makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: (request) => upstream.fetch(request) });
+  const upstreamClient = makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1 });
   const upstreamRequests = upstream.calls;
   const audit: AuditRow[] = [];
   /** Tenants whose plan allows creating VMs. */
@@ -218,7 +227,11 @@ export async function makeHarness(options: HarnessOptions = {}) {
       }),
   });
 
+  // Read at request time, so a test can turn a switch off between two attempts, as a redeployed var would.
+  let createSwitches: CreateSwitches = options.createSwitches ?? {};
   const policy = tenantPolicyLayer({
+    get sizedImageServiceIds() { return createSwitches.sizedImageServiceIds ?? []; },
+    get createNoReadsServiceIds() { return createSwitches.noReadsServiceIds ?? []; },
     ...(options.httpsProxyOrigins === undefined ? {} : { httpsProxyOrigins: options.httpsProxyOrigins }),
     environment: options.environment ?? "local",
     ...(options.devTestTenants === undefined ? {} : { devTestTenantIds: options.devTestTenants }),
@@ -265,7 +278,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     Layer.succeed(ServiceKeys, {
       find: (sha256) =>
         Effect.sync(() =>
-          Option.map(Option.fromNullable(serviceKeys.find((key) => key.sha256 === sha256)), (key) =>
+          Option.orElse(Option.map(Option.fromNullable(serviceKeys.find((key) => key.sha256 === sha256)), (key) =>
             applyServiceScopeGrants(
               [
                 {
@@ -278,7 +291,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
               ],
               parseServiceScopeGrants(options.serviceScopeGrants).grants,
             )[0]!,
-          ),
+          ), () => Option.fromNullable(teamKeysOf([], options.teamKeys).find((key) => key.sha256 === sha256))),
         ),
     }),
     auditStore,
@@ -412,7 +425,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     recordFault,
     meshRecordFault,
     setProviderConfig(baseUrl = UPSTREAM_URL, apiKey = UPSTREAM_KEY) {
-      Object.assign(upstreamClient, makeUpstreamClient({ baseUrl, apiKey: Redacted.make(apiKey), environment: "local", fetch: (request) => upstream.fetch(request) }));
+      Object.assign(upstreamClient, makeUpstreamClient({ baseUrl, apiKey: Redacted.make(apiKey), environment: "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1 }));
     },
     /** One agent reaper run, as the Worker's cron does. */
     reap,
@@ -431,6 +444,8 @@ export async function makeHarness(options: HarnessOptions = {}) {
     /** Whether `tenant`'s plan allows creating VMs (team_alpha and team_bravo do by default). */
     /** Simulates a redeployed operator catalog while retaining the tenant ledger. */
     setBootImages(raw: string) { configuredImages = parseVmImages(raw).images; },
+    /** Simulates redeployed create switches while retaining the tenant ledger. */
+    setCreateSwitches(next: CreateSwitches) { createSwitches = next; },
     setBilling(tenant: string, allowed: boolean) {
       if (allowed) billed.add(tenant);
       else billed.delete(tenant);

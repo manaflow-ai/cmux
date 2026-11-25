@@ -114,6 +114,10 @@ impl Hub {
         let awaiting_first_delta = AtomicBool::new(false);
         // This tap's number: once a Stop ended its agent, nothing it logs is a sign of work.
         let tap_number = session.taps.fetch_add(1, Ordering::SeqCst) + 1;
+        // The last stderr line of this agent that says why it would die, for its `exited` record
+        // (`exit_reason.rs`). Kept here, in entry order: the hub's stderr tail may not have
+        // taken the host's last lines yet when its exit entry comes through.
+        let last_stderr: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
             let muted = tap_number <= tap_session.muted_taps.load(Ordering::SeqCst);
             // The sign of work is published before a tool call's end can bring the stalled
@@ -151,6 +155,12 @@ impl Hub {
                     if method == crate::agent::HOST_STDERR =>
                 {
                     let text = params.as_ref().and_then(|p| p.get("text")).cloned();
+                    if let Some(line) = text.as_ref().and_then(Value::as_str).map(str::trim)
+                        && super::exit_reason::explains_exit(line)
+                    {
+                        *last_stderr.lock().unwrap_or_else(|e| e.into_inner()) =
+                            Some(line.to_owned());
+                    }
                     return tap_hub
                         .append_logged(
                             &tap_session,
@@ -184,8 +194,11 @@ impl Hub {
                             if intentional { "stopped" } else { "exited" },
                             if hibernating {
                                 json!({"code": code, "hibernated": true})
-                            } else {
+                            } else if intentional {
                                 json!({"code": code})
+                            } else {
+                                let last = last_stderr.lock().unwrap_or_else(|e| e.into_inner());
+                                super::exit_reason::exited_data(code, last.as_deref())
                             },
                             host_seq,
                         )
@@ -222,6 +235,20 @@ impl Hub {
                             // A failed subagent's resume, and its end when only these lines
                             // show it (`subagent_retry.rs`).
                             tap_hub.observe_task_line(&tap_session, line);
+                        }
+                        // What ends a subagent whose end the bridge could not tell
+                        // (`subagents::expiry`): the status Claude gave its task, and Claude's
+                        // whole list of the tasks that still run.
+                        if !muted && let Some(line) = params.as_ref() {
+                            match method.as_str() {
+                                "claude.system.task_notification" => {
+                                    tap_hub.subagent_task_notified(&tap_session, line)
+                                }
+                                "claude.system.background_tasks_changed" => {
+                                    tap_hub.subagent_tasks_changed(&tap_session, line)
+                                }
+                                _ => {}
+                            }
                         }
                         // Raw stream-json line; translated messages follow. Claude's echo of a
                         // prompt (`--replay-user-messages`) carries its model-sized copies, and
@@ -328,7 +355,8 @@ impl Hub {
             // Whether this update changed which background subagents run: a root learned late
             // drops its phantom with no subagent event of its own (`SubagentTree::set_root`).
             let mut background_changed = false;
-            // Whether it changed how many subagents run (`subagents_running`, the hover card's count).
+            // Whether it changed how many subagents run (`subagents_running`, the hover card's count)
+            // or the latest ones the sidebar nests under the chat (`recentSubagents`).
             let mut running_changed = false;
             // The plan a harness's own todo call makes where its adapter sends none
             // (`acp_todo_plan.rs`): logged after the call's result.
@@ -360,10 +388,15 @@ impl Hub {
                 tree.set_own(own.as_deref());
                 let before = tree.background_running();
                 let running_before = tree.running_count();
+                let recent_before = tree.recent_revision();
                 tree.set_roots(own.iter().chain(&retired).map(String::as_str));
+                tree.set_clock(crate::store::now_ms());
                 subagent = tree.annotate_live(params, !kind.ends_with(".replay"));
                 background_changed = tree.background_running() != before;
-                running_changed = tree.running_count() != running_before;
+                // A subagent that ended and one that started in its place keep the count but
+                // change the list the sidebar nests under the chat (`recentSubagents`).
+                running_changed = tree.running_count() != running_before
+                    || tree.recent_revision() != recent_before;
                 drop(tree);
                 // The chat's own words in a turn the person did not start (`background_turn.rs`).
                 if subagent.is_none() && !muted && !kind.ends_with(".replay") {
@@ -504,6 +537,11 @@ impl Hub {
                     rec.msg.pointer("/params/_meta/acpmux/subagents").and_then(Value::as_array)
             {
                 tap_hub.observe_subagents(&tap_session, events);
+            }
+            // A subagent quiet past its bound ages out (`subagents::expiry`), checked at most
+            // once a minute as the chat's lines arrive.
+            if d == "in" && !muted {
+                tap_hub.sweep_aged_subagents(&tap_session, false);
             }
             logged
         })

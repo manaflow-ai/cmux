@@ -1,4 +1,4 @@
-//! The `git` command lines of the safe operation cases.
+//! The `git` and `project` command lines of the safe operation cases.
 
 pub(super) fn git_cases() -> Vec<(Vec<&'static str>, &'static str)> {
     const CHECKPOINT: &str = "ckpt_0000000000000000000000000000000e";
@@ -104,10 +104,15 @@ pub(super) fn git_cases() -> Vec<(Vec<&'static str>, &'static str)> {
             "git.worktree.setup",
         ),
         (
+            vec!["git", "worktree", "setup", "run", "--path", "/repo", "--approve", "ab12"],
+            "git.worktree.setup.run",
+        ),
+        (
             vec!["git", "files", "--path", "/repo", "--limit", "20", "app", "tsx"],
             "git.files.search",
         ),
         (vec!["git", "list", "--path", "/repo", "--limit", "500"], "git.files.list"),
+        (vec!["project", "actions", "--path", "/repo", "--no-global"], "project.actions.list"),
         (
             vec![
                 "git",

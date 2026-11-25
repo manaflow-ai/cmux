@@ -1,0 +1,34 @@
+{
+  "caption": "Archive a chat from the sidebar's Priority view: it folds under Archived, and Restore lists it again.",
+  "frameInterval": 0.25,
+  "settings": {
+    "sidebar": {
+      "priorityView": {
+        "enabled": true,
+        "shown": true
+      }
+    }
+  },
+  "harnessFixture": {
+    "harnesses": {
+      "fake": {
+        "argv": [
+          "/usr/bin/python3",
+          "{repo}/cmux-tui/crates/acpmux/tests/fake_agent.py"
+        ],
+        "description": "acpmux's test agent (What's New clip tours)"
+      }
+    }
+  },
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "A new agent chat", "rpc": {"method": "action.run", "params": {"action": "palette.newAgentChat", "focus": true}}, "wait": 3},
+    {"title": "On the fake harness (acpmux's test agent)", "rpc": {"method": "debug.agent_pane", "params": {"action": "new_chat", "harness": "fake"}}, "wait": 3},
+    {"title": "A short reply, so the chat ranks in Priority", "rpc": {"method": "debug.agent_pane", "params": {"action": "send_prompt", "text": "Plan the garden layout"}}, "wait": 3},
+    {"title": "Archive Chat: the row folds under Archived", "rpc": {"method": "action.run", "params": {"action": "agentPane.archiveChat"}}, "wait": 2.5, "clip": true},
+    {"title": "The Archived fold", "wait": 1.5, "clip": true},
+    {"title": "End", "wait": 0.3}
+  ],
+  "crop": [0, 0, 0.22, 0.7],
+  "hold": 1.6
+}

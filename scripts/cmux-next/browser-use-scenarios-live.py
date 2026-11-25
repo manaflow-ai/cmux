@@ -22,7 +22,10 @@ capture slot (`capture-host launch`) or a tagged build started in the background
 Writes DIR/<engine>/<scenario>-NN-<step>[-mid].png, DIR/results.json and
 DIR/index.html (the gallery). Exit 1 when any check fails.
 """
-import argparse, functools, html, http.server, json, os, socket, socketserver, subprocess, sys, threading, time
+import argparse, functools, hashlib, html, http.server, json, os, socket, socketserver, subprocess, sys, tempfile, threading, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True)
@@ -68,6 +71,22 @@ def wait(check, seconds, step=0.2):
             return value
         time.sleep(step)  # test harness polling a live app
     return None
+
+
+SETTLE_SHOT = os.path.join(tempfile.mkdtemp(prefix="browser-use-settle-"), "settle.png")
+
+
+def window_hash():
+    """A hash of the main window's pixels (debug.window_snapshot), or None where it cannot snapshot."""
+    if os.path.exists(SETTLE_SHOT):
+        os.unlink(SETTLE_SHOT)
+    rpc("debug.window_snapshot", {"path": SETTLE_SHOT})
+    return hashlib.sha1(open(SETTLE_SHOT, "rb").read()).hexdigest() if os.path.exists(SETTLE_SHOT) else None
+
+
+def drawn(what):
+    """Until the window's pixels stop changing (best effort: the screenshots after it are the evidence)."""
+    wait_stable(window_hash, what, timeout=10, interval=0.05, reads=3, raise_on_timeout=False)
 
 
 class Quiet(http.server.SimpleHTTPRequestHandler):
@@ -130,9 +149,11 @@ class Run:
         if reply.get("error"):
             self.check(False, f"{step}: {verb} {json.dumps(params)} -> {reply['error']}")
             return reply
-        time.sleep(0.12)  # mid-glide: the glide takes 0.2-0.6 s
+        time.sleep(0.12)  # sleep-ok: the mid-glide shot is a fixed moment into the 0.2-0.6 s glide
         self.shot(step, mid=True)
-        time.sleep(0.9)  # at rest: glide and spring settled, caption still shown
+        # At rest: the cursor's position stops changing (glide and spring settled; the caption still shows).
+        wait_stable(lambda: (lambda c: c and [c.get("x"), c.get("y"), c.get("hidden")])(self.cursor()),
+                    f"{self.agent}'s cursor after {step}", timeout=5, interval=0.05, reads=4, raise_on_timeout=False)
         self.shot(step)
         if expect_cursor:
             cursor = self.cursor()
@@ -161,7 +182,7 @@ def navigate(run, url, title):
     run.page("navigate", url=url)
     ok = wait(lambda: run.js("document.readyState === 'complete' && document.title") == title, 30)
     run.check(ok, f"{title} loads")
-    time.sleep(0.4)
+    drawn(f"{title} drawn")
 
 
 def scenario_login(run, base):
@@ -199,7 +220,9 @@ def scenario_tabs(run, base):
     run.check(grew, f"a target=_blank link opens a new tab ({before} before)")
     run.shot("new-tab-opened")
     rpc("browser.page.select_tab", {"tab": run.tab})
-    time.sleep(0.6)
+    # Until the page is shown again (visible), then the window draws it.
+    wait(lambda: run.js("document.visibilityState") == "visible", 5, 0.05)
+    drawn("the first tab shown again")
     run.act("hover-popup", "hover", selector="#popup")
 
 
@@ -253,7 +276,7 @@ def record(run, seconds):
     """Starts a recording of the window; one runs at a time, so wait for the last to end."""
     left = LAST_RECORD[0] + seconds + 0.5 - time.time()
     if left > 0:
-        time.sleep(left)  # the previous recording is still running (it stops by itself)
+        time.sleep(left)  # sleep-ok: the previous recording runs its fixed `seconds` and stops by itself, with no done signal
     folder = os.path.join(opts.out, run.engine, f"{run.name}-rec")
     reply = rpc("debug.window_record", {"dir": folder, "seconds": seconds})
     LAST_RECORD[0] = time.time()
