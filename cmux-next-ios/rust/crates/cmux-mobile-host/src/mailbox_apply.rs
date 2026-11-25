@@ -26,8 +26,9 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use cmux_deadline::{IdleDeadline, Stalled};
 use futures_util::future::BoxFuture;
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{SinkExt, Stream, StreamExt};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
@@ -38,11 +39,21 @@ use crate::config::AcpmuxTarget;
 use crate::mailbox::{ActionKind, Applier, Rejection, Reply, terminal_surface};
 use crate::policy::{DaemonPolicy, Verdict};
 
-/// How long one service round trip may take.
+/// How long one daemon or Chief round trip may take: one answer line on a socket that sends
+/// nothing else for the request to show progress with.
 const ROUND_TRIP: Duration = Duration::from_secs(10);
+/// How long acpmux may say nothing at all (no frame on hostd's own WebSocket) before a round trip
+/// to it is given up. Any frame restarts it: a busy acpmux that is still talking is not failed.
+/// Leo, 2026-11-24: "10s timeout for messages being sendsble is a shame. if it's making good
+/// progress, it shiukd be allowed to keep going?"
+const ACPMUX_SILENCE: Duration = Duration::from_secs(10);
+/// The backstop past which an acpmux round trip that kept talking but never answered is left.
+/// Like a silent one it is `Unavailable`: the reply is kept and tried again, never refused.
+const ACPMUX_CAP: Duration = Duration::from_secs(10 * 60);
 /// How long a sent prompt is watched for an immediate refusal.
 const PROMPT_ACCEPT: Duration = Duration::from_secs(2);
-/// How long the connection that sent a prompt stays open for its turn.
+/// How long the connection that sent a prompt stays open for its turn once acpmux says nothing:
+/// a silence bound, so a turn that keeps streaming keeps its connection.
 const PROMPT_TURN: Duration = Duration::from_secs(3600);
 /// The oldest terminal notification that still takes a reply.
 pub const TERMINAL_REPLY_AGE: Duration = Duration::from_secs(15 * 60);
@@ -489,10 +500,13 @@ impl LiveApplier {
 
     async fn prompt(&self, reply: &Reply) -> Result<(), Rejection> {
         let mut acpmux = Acpmux::connect(&self.acpmux).await?;
-        let info = acpmux
-            .call("_acpmux/info", json!({"sessionId": reply.target.session_id}))
-            .await
-            .map_err(|_| Rejection::NotPending)?;
+        // An acpmux that went quiet is not an answer: the reply is kept and tried again.
+        let info = acpmux.call("_acpmux/info", json!({"sessionId": reply.target.session_id})).await.map_err(
+            |rejection| match rejection {
+                Rejection::Unavailable(why) => Rejection::Unavailable(why),
+                _ => Rejection::NotPending,
+            },
+        )?;
         let session = resolved_session(&info)?;
         let mut params = prompt_params(reply);
         params["sessionId"] = Value::String(session.clone());
@@ -572,42 +586,66 @@ impl Acpmux {
         Ok(id)
     }
 
-    async fn answer(&mut self, id: &str) -> Result<Value, Rejection> {
-        while let Some(frame) = self.socket.next().await {
-            let Ok(Message::Text(text)) = frame else { continue };
-            let Ok(reply) = serde_json::from_str::<Value>(&text) else { continue };
-            if reply.get("id").and_then(Value::as_str) != Some(id) {
-                continue;
-            }
-            if let Some(error) = reply.get("error") {
-                let message = error.get("message").and_then(Value::as_str).unwrap_or("refused");
-                return Err(refused(message.to_owned()));
-            }
-            return Ok(reply.get("result").cloned().unwrap_or(Value::Null));
-        }
-        Err(refused("acpmux closed"))
-    }
-
     async fn call(&mut self, method: &str, params: Value) -> Result<Value, Rejection> {
         let id = self.send(method, params).await?;
-        tokio::time::timeout(ROUND_TRIP, self.answer(&id))
-            .await
-            .map_err(|_| refused("acpmux did not answer"))?
+        answer_within(&mut self.socket, &id, ACPMUX_SILENCE, Some(ACPMUX_CAP)).await
     }
 
     /// Sends a prompt: refused if acpmux says so at once; otherwise accepted,
     /// and the connection stays open in the background until its turn ends.
     async fn prompt(mut self, params: Value) -> Result<(), Rejection> {
         let id = self.send("session/prompt", params).await?;
-        match tokio::time::timeout(PROMPT_ACCEPT, self.answer(&id)).await {
-            Ok(result) => result.map(|_| ()),
-            Err(_) => {
+        match answer_within(&mut self.socket, &id, PROMPT_ACCEPT, Some(PROMPT_ACCEPT)).await {
+            // Not answered at once: accepted. The connection stays open for the turn.
+            Err(Rejection::Unavailable(_)) => {
                 tokio::spawn(async move {
-                    let _ = tokio::time::timeout(PROMPT_TURN, self.answer(&id)).await;
+                    let _ = answer_within(&mut self.socket, &id, PROMPT_TURN, None).await;
                 });
                 Ok(())
             }
+            result => result.map(|_| ()),
         }
+    }
+}
+
+/// Reads acpmux `frames` until the answer to `id`. Every frame acpmux sends restarts the `silence`
+/// bound, so only an acpmux that said nothing for it (or kept talking past `cap`) is given up,
+/// and that is `Unavailable`: the reply is kept and tried again, not refused. Each acpmux step is
+/// safe to try again (`_acpmux/info` first; a prompt runs once per `promptId`).
+async fn answer_within<S, E>(
+    frames: &mut S,
+    id: &str,
+    silence: Duration,
+    cap: Option<Duration>,
+) -> Result<Value, Rejection>
+where
+    S: Stream<Item = Result<Message, E>> + Unpin,
+{
+    let mut deadline = IdleDeadline::<tokio::time::Instant>::new(silence, cap);
+    loop {
+        let frame = tokio::select! {
+            frame = frames.next() => frame,
+            () = tokio::time::sleep_until(deadline.end()) => {
+                return Err(match deadline.stalled() {
+                    Some(Stalled::Cap { elapsed }) => {
+                        unavailable(format!("acpmux kept talking but did not answer in {elapsed:?}"))
+                    }
+                    _ => unavailable(format!("acpmux said nothing for {silence:?}")),
+                });
+            }
+        };
+        let Some(frame) = frame else { return Err(refused("acpmux closed")) };
+        deadline.progressed();
+        let Ok(Message::Text(text)) = frame else { continue };
+        let Ok(reply) = serde_json::from_str::<Value>(&text) else { continue };
+        if reply.get("id").and_then(Value::as_str) != Some(id) {
+            continue;
+        }
+        if let Some(error) = reply.get("error") {
+            let message = error.get("message").and_then(Value::as_str).unwrap_or("refused");
+            return Err(refused(message.to_owned()));
+        }
+        return Ok(reply.get("result").cloned().unwrap_or(Value::Null));
     }
 }
 
@@ -991,5 +1029,98 @@ mod live_notification_exposure_tests {
             tokio::time::timeout(std::time::Duration::from_secs(5), backend).await.unwrap().unwrap();
         assert!(commands.iter().any(|cmd| cmd == "list-agents"));
         assert!(!commands.iter().any(|cmd| cmd == "send"));
+    }
+}
+
+#[cfg(test)]
+mod acpmux_silence_tests {
+    use super::*;
+    use tokio::sync::mpsc;
+    use tokio::time::Instant;
+
+    type Frames = std::pin::Pin<Box<dyn Stream<Item = Result<Message, std::convert::Infallible>> + Send>>;
+
+    /// acpmux as a stream of frames fed by `tx`.
+    fn acpmux() -> (mpsc::UnboundedSender<Message>, Frames) {
+        let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
+        let frames = futures_util::stream::poll_fn(move |cx| rx.poll_recv(cx).map(|m| m.map(Ok)));
+        (tx, Box::pin(frames))
+    }
+
+    /// `elapsed` is `expected`, give or take the timer's millisecond.
+    fn about(elapsed: Duration, expected: Duration) {
+        assert!(
+            elapsed >= expected && elapsed < expected + Duration::from_millis(5),
+            "{elapsed:?} vs {expected:?}"
+        );
+    }
+
+    fn notice() -> Message {
+        Message::Text(json!({"jsonrpc":"2.0","method":"session/update","params":{}}).to_string().into())
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_acpmux_that_keeps_talking_is_waited_for_past_the_old_round_trip() {
+        // Leo, 2026-11-24: "if it's making good progress, it shiukd be allowed to keep going?"
+        // A frame every 8 s for 2 minutes against the 10 s bound that used to count from the send:
+        // the answer at 2 minutes is taken, not refused.
+        let (tx, mut frames) = acpmux();
+        let talker = tokio::spawn(async move {
+            for _ in 0..15 {
+                tokio::time::sleep(Duration::from_secs(8)).await;
+                tx.send(notice()).unwrap();
+            }
+            let answer = json!({"jsonrpc":"2.0","id":"mailbox-1","result":{"ok":true}});
+            tx.send(Message::Text(answer.to_string().into())).unwrap();
+            tx
+        });
+        let started = Instant::now();
+        let answer = answer_within(&mut frames, "mailbox-1", ACPMUX_SILENCE, Some(ACPMUX_CAP)).await;
+        assert_eq!(answer, Ok(json!({"ok":true})));
+        about(started.elapsed(), Duration::from_secs(120));
+        drop(talker.await.unwrap());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_silent_acpmux_is_given_up_at_the_silence_bound_and_the_reply_kept() {
+        let (tx, mut frames) = acpmux();
+        let started = Instant::now();
+        let answer = answer_within(&mut frames, "mailbox-1", ACPMUX_SILENCE, Some(ACPMUX_CAP)).await;
+        assert!(matches!(answer, Err(Rejection::Unavailable(_))), "{answer:?}");
+        about(started.elapsed(), ACPMUX_SILENCE);
+        drop(tx);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_acpmux_that_talked_then_went_quiet_is_given_up_one_bound_after_its_last_frame() {
+        let (tx, mut frames) = acpmux();
+        let talker = tokio::spawn(async move {
+            for _ in 0..3 {
+                tokio::time::sleep(Duration::from_secs(8)).await;
+                tx.send(notice()).unwrap();
+            }
+            tx
+        });
+        let started = Instant::now();
+        let answer = answer_within(&mut frames, "mailbox-1", ACPMUX_SILENCE, Some(ACPMUX_CAP)).await;
+        assert!(matches!(answer, Err(Rejection::Unavailable(_))), "{answer:?}");
+        about(started.elapsed(), Duration::from_secs(24) + ACPMUX_SILENCE);
+        drop(talker.await.unwrap());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_acpmux_that_talks_forever_without_answering_ends_at_the_backstop_kept() {
+        let (tx, mut frames) = acpmux();
+        let talker = tokio::spawn(async move {
+            while tx.send(notice()).is_ok() {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        });
+        let started = Instant::now();
+        let answer = answer_within(&mut frames, "mailbox-1", ACPMUX_SILENCE, Some(ACPMUX_CAP)).await;
+        assert!(matches!(answer, Err(Rejection::Unavailable(_))), "{answer:?}");
+        about(started.elapsed(), ACPMUX_CAP);
+        drop(frames);
+        talker.await.unwrap();
     }
 }

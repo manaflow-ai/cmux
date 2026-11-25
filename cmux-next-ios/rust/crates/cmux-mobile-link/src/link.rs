@@ -50,7 +50,9 @@ const LANE_CONFIRM: Duration = Duration::from_secs(10);
 /// is still connecting before it falls back to the main stream.
 const LANE_WAIT: Duration = Duration::from_secs(2);
 /// How long a channel's owner may leave its full queue unread before that
-/// channel is closed (`overflow`).
+/// channel is closed (`overflow`). A silence bound: each event waits afresh
+/// for one free slot, so an owner that reads at all within it keeps the
+/// channel however long its backlog takes.
 const CHANNEL_STALL: Duration = Duration::from_secs(3);
 /// Bytes one channel may hold between the link reader and its owner's queue
 /// ([`Inbox`]) before the reader waits for it. Above the god sessions' bursts
@@ -3069,6 +3071,49 @@ mod tests {
         phone.close("done");
         let (_mac, code) = server.await.unwrap();
         assert_eq!(code, "overflow");
+    }
+
+    /// [`CHANNEL_STALL`] is a silence bound on the channel's owner, not a
+    /// total: each event waits for one free slot in the owner's queue, so an
+    /// owner that drains a backlog slowly (one event every 2 s for 2 minutes,
+    /// far past 3 s from the first full queue) keeps its channel, and one that
+    /// stops reading is closed `overflow` one bound after its last read.
+    #[tokio::test(start_paused = true)]
+    async fn a_slowly_draining_channel_is_kept_and_a_stopped_one_closed() {
+        let (a, b) = tokio::io::duplex(1024 * 1024);
+        let config = LinkConfig { keepalive: None, ..LinkConfig::default() };
+        let phone = Link::new(a, Role::Phone, config.clone(), None);
+        let mac = Link::new(b, Role::Mac, config, None);
+        let flood = async {
+            let mut incoming = mac.accept().await.expect("incoming");
+            for _ in 0..CHANNEL_DEPTH + 100 {
+                incoming.channel.send(Bytes::from_static(&[7u8; 64])).await.unwrap();
+            }
+            loop {
+                match incoming.channel.recv().await {
+                    Some(ChannelEvent::Closed(info)) => return (info.code, tokio::time::Instant::now()),
+                    Some(_) => {}
+                    None => return ("gone".to_owned(), tokio::time::Instant::now()),
+                }
+            }
+        };
+        let drain = async {
+            let mut channel = phone.open("flood", serde_json::json!({})).await.unwrap();
+            for read in 0..60 {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                let event = channel.recv().await;
+                assert!(matches!(event, Some(ChannelEvent::Data(_))), "read {read}: {event:?}");
+            }
+            let stopped = tokio::time::Instant::now();
+            tokio::time::sleep(CHANNEL_STALL * 3).await;
+            (channel, stopped)
+        };
+        let ((code, closed_at), (_channel, stopped)) = tokio::join!(flood, drain);
+        assert_eq!(code, "overflow");
+        assert!(closed_at >= stopped + CHANNEL_STALL - Duration::from_secs(2), "closed while still read");
+        assert!(closed_at <= stopped + CHANNEL_STALL + Duration::from_secs(1), "closed late");
+        phone.close("done");
+        mac.close("done");
     }
 
     /// Any inbound frame proves the peer is alive: a link receiving data

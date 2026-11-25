@@ -534,6 +534,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-deadline"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+]
+
+[[package]]
 name = "cmux-fault"
 version = "0.1.0"
 dependencies = [
@@ -573,6 +580,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-build-space",
+ "cmux-deadline",
  "cmux-fault",
  "cmux-message-preview",
  "cmux-mobile-link",

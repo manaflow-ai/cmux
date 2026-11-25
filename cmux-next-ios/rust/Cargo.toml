@@ -24,6 +24,8 @@ cmux-braid-path = { path = "../../cmux-tui/crates/cmux-braid-path" }
 cmux-build-space = { path = "../../cmux-tui/crates/cmux-build-space" }
 cmux-wg = { path = "../../cmux-tui/crates/cmux-wg" }
 cmux-fault = { path = "../../cmux-tui/crates/cmux-fault" }
+# Deadlines counted from the last progress, not the start (cmux-mobile-host: cloud prompts, mailbox round trips).
+cmux-deadline = { path = "../../cmux-tui/crates/cmux-deadline", features = ["tokio"] }
 # The terminal composer's Send: one keyed request, kept across a reconnect.
 cmux-composer-send = { path = "../../cmux-tui/crates/cmux-composer-send" }
 cmux-transport = { path = "../../cmux-tui/crates/cmux-transport" }
