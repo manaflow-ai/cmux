@@ -191,8 +191,9 @@ fn requests(text: &str) -> Vec<Req> {
             .or_else(|| m.get("id").and_then(Value::as_str))
             .map(str::to_string);
         if let Some(i) = key.as_ref().and_then(|k| by_id.get(k)) {
-            let r = &mut reqs[*i];
-            r.out = r.out.max(num(u.get("output_tokens")));
+            if let Some(r) = reqs.get_mut(*i) {
+                r.out = r.out.max(num(u.get("output_tokens")));
+            }
             continue;
         }
         let cc = u.get("cache_creation");
