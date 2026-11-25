@@ -35,6 +35,11 @@ pub mod customize {
 
 pub use cmux_app_manifest::{Issue, PackageReport, Severity, is_valid};
 
+/// The scene motion contract (`cmux.motion/1`): the typed `animation`, `loop`, `transition` and
+/// `contentTransition` vocabulary, its clamps, and the normalizer the app host runs on every scene
+/// batch, so a tool can check a motion value exactly as cmux will.
+pub use cmux_app_host::motion;
+
 use serde_json::{Map, Value, json};
 use std::path::Path;
 

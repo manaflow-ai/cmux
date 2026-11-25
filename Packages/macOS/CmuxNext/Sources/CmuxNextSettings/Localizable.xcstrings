@@ -228304,6 +228304,270 @@
         }
       }
     },
+    "settings.developerTools.overloadNotice": {
+      "comment": "Settings > Advanced > Developer Tools: toggle that shows the agent chat's 'This Mac is overloaded' banner",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحذير التحميل الزائد في المحادثات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upozorenje o preopterećenju u razgovorima"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advarsel om overbelastning i chats"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Überlastungswarnung in Chats"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overload Warning in Chats"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aviso de sobrecarga en los chats"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alerte de surcharge dans les discussions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avviso di sovraccarico nelle chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットでの過負荷警告"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការព្រមានពីការផ្ទុកលើសក្នុងការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅의 과부하 경고"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advarsel om overbelastning i chatter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostrzeżenie o przeciążeniu w czatach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aviso de sobrecarga nos chats"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предупреждение о перегрузке в чатах"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำเตือนเครื่องทำงานหนักเกินในแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbetlerde aşırı yük uyarısı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попередження про перевантаження в чатах"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cảnh báo quá tải trong cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天中的过载警告"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天中的過載警告"
+          }
+        }
+      }
+    },
+    "settings.developerTools.overloadNotice.help": {
+      "comment": "Settings > Advanced > Developer Tools: help under the Overload Warning in Chats toggle",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض شريطًا فوق مربع الكتابة عندما يكون الحمل أو التبديل على هذا الـ Mac مرتفعًا جدًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikazuje traku iznad polja za pisanje kada je opterećenje ili swap ovog Maca previsok."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser et banner over skrivefeltet, når denne Macs belastning eller swap er for høj."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt über dem Eingabefeld ein Banner, wenn Last oder Swap dieses Mac zu hoch sind."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows a banner above the composer when this Mac's load or swap is too high."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra un banner sobre el redactor cuando la carga o el swap de este Mac son demasiado altos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche une bannière au-dessus de la zone de saisie quand la charge ou le swap de ce Mac est trop élevé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra un banner sopra il compositore quando il carico o lo swap di questo Mac è troppo alto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac の負荷やスワップが高すぎるとき、入力欄の上にバナーを表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញបដាពីលើប្រអប់សរសេរ នៅពេលបន្ទុក ឬ swap របស់ Mac នេះខ្ពស់ពេក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 부하나 스왑이 너무 높을 때 입력창 위에 배너를 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser et banner over skrivefeltet når belastningen eller swap på denne Macen er for høy."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuje baner nad polem wiadomości, gdy obciążenie lub swap tego Maca są zbyt wysokie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra um banner acima do compositor quando a carga ou o swap deste Mac estão altos demais."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывает баннер над полем ввода, когда нагрузка или подкачка этого Mac слишком высоки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงแบนเนอร์เหนือช่องพิมพ์เมื่อโหลดหรือ swap ของ Mac เครื่องนี้สูงเกินไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac'in yükü veya takas alanı çok yüksek olduğunda yazma alanının üstünde bir başlık gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показує банер над полем введення, коли навантаження або підкачка цього Mac надто високі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện biểu ngữ phía trên ô soạn thảo khi tải hoặc swap của máy Mac này quá cao."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当此 Mac 的负载或交换空间过高时，在输入框上方显示横幅。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當此 Mac 的負載或交換空間過高時，在輸入框上方顯示橫幅。"
+          }
+        }
+      }
+    },
     "settings.developerTools.appPages": {
       "extractionState": "manual",
       "localizations": {
@@ -253885,6 +254149,60 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "帶載入指示的提示條會在原處變成結果；關閉分頁或工作區、封存聊天後會出現「還原」。"}}
       }
     },
+    "settings.experiments.toastGlass": {
+      "comment": "Settings > Experimental row title: toasts (small notices that appear and go away) in chats drawn on the app's own glass.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "زجاج الإشعارات المنبثقة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Staklo obavijesti"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Glas til meddelelser"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Glas für Hinweise"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Toast Glass"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cristal de avisos"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Verre des notifications"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Vetro degli avvisi"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "トーストのガラス"}},
+        "km": {"stringUnit": {"state": "translated", "value": "កញ្ចក់ការជូនដំណឹងខ្លី"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "토스트 유리"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Glass for varsler"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Szkło powiadomień"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Vidro dos avisos"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Стекло всплывающих уведомлений"}},
+        "th": {"stringUnit": {"state": "translated", "value": "กระจกของการแจ้งเตือนแบบป๊อปอัป"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bildirim camı"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Скло спливних сповіщень"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Kính của thông báo nhanh"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "提示条玻璃"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "提示條玻璃"}}
+      }
+    },
+    "settings.experiments.toastGlass.help": {
+      "comment": "Settings > Experimental > Toast Glass help: toasts in chats use the same glass material as the app's native toasts.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "تظهر الإشعارات المنبثقة في المحادثات على الزجاج نفسه الذي تستخدمه إشعارات التطبيق."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Obavijesti u chatovima stoje na istom staklu kao i obavijesti same aplikacije."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Meddelelser i chats ligger på det samme glas som appens egne meddelelser."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Hinweise in Chats liegen auf demselben Glas wie die eigenen Hinweise der App."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Toasts in chats sit on the same glass as the app's own toasts."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Los avisos de los chats usan el mismo cristal que los avisos propios de la app."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Les notifications des discussions utilisent le même verre que les notifications de l’app."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Gli avvisi nelle chat usano lo stesso vetro degli avvisi dell’app."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "チャット内のトーストが、アプリ自体のトーストと同じガラスに表示されます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ការជូនដំណឹងខ្លីក្នុងការជជែក ប្រើកញ្ចក់ដូចគ្នានឹងការជូនដំណឹងរបស់កម្មវិធីផ្ទាល់។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "채팅의 토스트가 앱 자체 토스트와 같은 유리 위에 표시됩니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Varsler i chatter ligger på det samme glasset som appens egne varsler."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Powiadomienia w czatach leżą na tym samym szkle co powiadomienia samej aplikacji."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Os avisos nos chats usam o mesmo vidro que os avisos do próprio app."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Всплывающие уведомления в чатах лежат на том же стекле, что и уведомления самого приложения."}},
+        "th": {"stringUnit": {"state": "translated", "value": "การแจ้งเตือนแบบป๊อปอัปในแชทจะอยู่บนกระจกเดียวกับการแจ้งเตือนของแอปเอง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Sohbetlerdeki bildirimler, uygulamanın kendi bildirimleriyle aynı camın üzerinde durur."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Спливні сповіщення в чатах лежать на тому самому склі, що й сповіщення самого застосунку."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Thông báo nhanh trong cuộc trò chuyện nằm trên cùng lớp kính với thông báo của chính ứng dụng."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "聊天中的提示条使用与应用自身提示条相同的玻璃。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "聊天中的提示條使用與 App 本身提示條相同的玻璃。"}}
+      }
+    },
     "settings.experiments.quietConnect": {
       "comment": "Settings > Experimental row title: connection notices (Resuming…, Connecting…) stay quiet while a connection comes up quickly.",
       "extractionState": "manual",
@@ -254099,6 +254417,60 @@
         "vi": {"stringUnit": {"state": "translated", "value": "Cmd-F trong terminal tìm trong toàn bộ lịch sử, với tùy chọn chữ hoa/thường, nguyên từ và regex."}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "在终端中按 Cmd-F 会搜索其全部历史，可选区分大小写、全词匹配和正则表达式。"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "在終端機按 Cmd-F 會搜尋其全部歷史，可選區分大小寫、全字比對和正規表示式。"}}
+      }
+    },
+    "settings.experiments.themedPrompts": {
+      "comment": "Settings > Experimental row title: prompts that float over other apps (a teammate asking to control this Mac) use the theme's glass and colors.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "مطالبات عائمة بالسمة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Plutajući upiti s temom"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Svævende prompter med tema"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Schwebende Abfragen im Design"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Themed Floating Prompts"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Avisos flotantes con tema"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Invites flottantes thématisées"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Richieste fluttuanti con tema"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "テーマ付きフローティングプロンプト"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប្រអប់សួរអណ្តែតតាមរចនាប័ទ្ម"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "테마 적용 플로팅 프롬프트"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Flytende forespørsler med tema"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Pływające monity z motywem"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Avisos flutuantes com tema"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Плавающие запросы в стиле темы"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ข้อความถามแบบลอยตามธีม"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Temalı Kayan İstemler"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Плаваючі запити в стилі теми"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Lời nhắc nổi theo chủ đề"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "主题化浮动提示"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "主題化浮動提示"}}
+      }
+    },
+    "settings.experiments.themedPrompts.help": {
+      "comment": "Settings > Experimental row help for Themed Floating Prompts.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "تستخدم المطالبات فوق التطبيقات الأخرى، مثل طلب زميل التحكم في هذا الـ Mac، زجاج سمتك وألوانها."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Upiti preko drugih aplikacija, npr. kad kolega traži kontrolu nad ovim Macom, koriste staklo i boje vaše teme."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Prompter over andre apps, f.eks. når en kollega beder om at styre denne Mac, bruger dit temas glas og farver."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Abfragen über anderen Apps, etwa wenn ein Teammitglied diesen Mac steuern möchte, nutzen Glas und Farben deines Designs."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Prompts over other apps, such as a teammate asking to control this Mac, use your theme's glass and colors."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Los avisos sobre otras apps, como cuando un compañero pide controlar este Mac, usan el cristal y los colores de tu tema."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Les invites au-dessus des autres apps, comme un coéquipier qui demande à contrôler ce Mac, utilisent le verre et les couleurs de votre thème."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Le richieste sopra le altre app, ad esempio un collega che chiede di controllare questo Mac, usano il vetro e i colori del tuo tema."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "チームメイトがこの Mac の操作を求めるときなど、他のアプリの上に出るプロンプトがテーマのガラスと色を使います。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប្រអប់សួរនៅលើកម្មវិធីផ្សេង ដូចជាមិត្តរួមក្រុមសុំគ្រប់គ្រង Mac នេះ ប្រើកញ្ចក់ និងពណ៌នៃរចនាប័ទ្មរបស់អ្នក។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "팀원이 이 Mac 제어를 요청할 때처럼 다른 앱 위에 뜨는 프롬프트가 테마의 글래스와 색상을 사용합니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Forespørsler over andre apper, for eksempel når en kollega ber om å styre denne Macen, bruker temaets glass og farger."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Monity nad innymi aplikacjami, np. gdy członek zespołu prosi o sterowanie tym Makiem, używają szkła i kolorów Twojego motywu."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Avisos sobre outros apps, como um colega pedindo para controlar este Mac, usam o vidro e as cores do seu tema."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Запросы поверх других приложений, например когда коллега просит управлять этим Mac, используют стекло и цвета вашей темы."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ข้อความถามที่อยู่เหนือแอปอื่น เช่น เมื่อเพื่อนร่วมทีมขอควบคุม Mac เครื่องนี้ จะใช้กระจกและสีของธีมคุณ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Diğer uygulamaların üzerindeki istemler, örneğin bir ekip arkadaşınızın bu Mac'i denetlemek istemesi, temanızın camını ve renklerini kullanır."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Запити поверх інших застосунків, наприклад коли колега просить керувати цим Mac, використовують скло й кольори вашої теми."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Lời nhắc trên các ứng dụng khác, như khi đồng đội xin điều khiển máy Mac này, dùng kính và màu của chủ đề bạn."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "浮在其他应用上方的提示（例如队友请求控制这台 Mac）使用你主题的玻璃和颜色。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "浮在其他 App 上方的提示（例如隊友要求控制這台 Mac）使用你主題的玻璃和顏色。"}}
       }
     },
     "settings.experiments.composerButtonsVisible": {

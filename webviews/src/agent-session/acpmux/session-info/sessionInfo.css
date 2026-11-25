@@ -1096,12 +1096,17 @@ button.acpmux-session-info-port:hover,
   gap: var(--grid-gap);
   min-width: 0;
 }
-.acpmux-session-info-pr__title {
+/* The title takes the row's whole width at rest: the hover-only ⋯ lies over its end, and its end
+   fades instead of an ellipsis (.ui-reveal-text, ui/motion/motion.css; Leo, 2026-11-24: "you're
+   early ellipsis-ing because of a button that doesnt even always show"). An untitled row's
+   `repo #N` title fades too, not its line's ellipsis. */
+.acpmux-session-info-pr__title,
+.acpmux-session-info-pr__title.acpmux-session-info-pr__ref {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
-  text-overflow: ellipsis;
+  text-overflow: clip;
 }
 .acpmux-session-info-pr__line {
   display: flex;
@@ -1203,8 +1208,15 @@ button.acpmux-session-info-port:hover,
   text-overflow: ellipsis;
   letter-spacing: var(--text-detail--letter-spacing);
 }
-.acpmux-session-info-pr__more {
-  margin-top: var(--grid-pill-inset);
+/* The ⋯ lies over the row's end, its right edge on the title's, and takes no room of its own: a
+   button that shows on hover only does not cut the title at rest (ChangesSection.tsx,
+   ui/revealCover.ts measures it for the title's fade). The row's padding stays after it. */
+.acpmux-session-info-pr__actions {
+  position: absolute;
+  z-index: 1;
+  top: var(--grid-pill-inset);
+  right: var(--grid-gap);
+  display: flex;
 }
 /* One ⋯ per pull request row, shown only on the row you point at or tab into, and kept lit while its
    menu is open: a control repeated on every row is noise (Leo, 2026-10-26, on hover-revealed
@@ -1236,6 +1248,7 @@ button.acpmux-session-info-port:hover,
   margin-top: 0;
 }
 .acpmux-session-info-source {
+  position: relative;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -1272,11 +1285,27 @@ button.acpmux-session-info-port:hover,
   height: var(--grid-icon-box);
   color: var(--agent-muted);
 }
+/* The label runs to the row's end, under where a pull request's ⋯ shows on hover, so a short label
+   never sits under the fade; a long one fades at its end instead of an ellipsis (.ui-reveal-text,
+   ui/motion/motion.css; Leo, 2026-11-24: "if the buttons show on hover, then we should show the
+   whole line before ellipsis-ing"). */
 .acpmux-session-info-source__label {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
+  text-overflow: clip;
   white-space: nowrap;
+}
+/* The ⋯ lies over the label's end, on the row's own padding edge, and takes no room of its own
+   (SourcesSection.tsx; ui/revealCover.ts measures it for the label's fade). */
+.acpmux-session-info-source__actions {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  bottom: 0;
+  right: var(--grid-gap);
+  display: flex;
+  align-items: center;
 }
 /* A pull request source's ⋯ (View diff), shown as a Changes row's is: on the row you point at or tab
    into, lit while its menu is open, always on touch screens. */
