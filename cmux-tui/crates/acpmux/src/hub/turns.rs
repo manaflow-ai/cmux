@@ -366,10 +366,14 @@ impl Hub {
         if let Some(text) = opts.coach.take() {
             self.coach_prompt(session, &prompt_id, &text);
         }
+        // A chat that moved here (a Mac-first turn handed to its Cloud machine) reads its log
+        // for every client prompt id, as a resend does: the turn the other host ran is answered
+        // from its record, never run again (`moved_prompt_fence.rs`).
+        let resend = opts.resend || super::moved_prompt_fence::reads_log(session);
         // A resent inbox message answers as its notice did, a failure as the same error.
         // A resend reads the chat's indexed records (a whole kind index, hashed): off the
         // workers, as Leo's daemon had two workers busy in it for a whole sample (2026-11-22).
-        if opts.resend
+        if resend
             && let Some(answer) =
                 crate::qos::off_worker(|| self.logged_inbox_answer(session, &prompt_id))
         {
@@ -381,7 +385,7 @@ impl Hub {
             prompt_ledger::prune(&mut ledger);
             return answer;
         }
-        if opts.resend
+        if resend
             && let Some(logged) =
                 crate::qos::off_worker(|| self.logged_prompt_past_inbox(session, &prompt_id))
         {
@@ -1393,6 +1397,8 @@ impl Hub {
             .seq;
         // The chat's page before the turn changes it (`turn_shots.rs`), off the turn's path.
         super::turn_shots::turn_began(session, &turn_id);
+        // Its frames as the page forms (`turn_frames.rs`), at no agent tokens.
+        super::turn_frames::turn_began(session, &turn_id);
         // The prompt as the agent gets it, before the checks below: making its model-sized copies
         // may take a moment, in which a Stop or a remote device may come (`model_copies.rs`).
         let wire = agent_blocks(self, session, &blocks).await;
@@ -2293,6 +2299,7 @@ impl Hub {
         self.fail_unstarted_turn(session, prompt_id, turn_id, e, joined);
         // Its before picture has no after coming (`turn_shots.rs`).
         super::turn_shots::turn_refused(session, turn_id);
+        super::turn_frames::turn_refused(session, turn_id);
         if session.status() == SessionStatus::Disconnected {
             self.set_status(session, NotWaiting::Ready);
         }
@@ -3115,6 +3122,7 @@ impl Hub {
                 let _ = tokio::task::spawn_blocking(move || {
                     super::file_uploads::remove_session(&id);
                     super::turn_shots::remove_session(&id);
+                    super::turn_frames::remove_session(&id);
                     // And the PDFs it saved in its project (`acp_prompt_blocks`).
                     remove_pdf_attachments(&cwd, &id);
                 })
