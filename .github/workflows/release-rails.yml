@@ -75,10 +75,15 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - id: install
         run: bun install --frozen-lockfile
       - name: Typecheck
@@ -110,10 +115,15 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"

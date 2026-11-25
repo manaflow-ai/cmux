@@ -20,7 +20,7 @@ public struct CloudAutomationsScreen: View {
         content
             .navigationTitle("Automations")
             .navigationBarTitleDisplayMode(.inline)
-            .refreshable { await model.load() }
+            .refreshable { await model.load(reportFailure: true) }
             .task { await model.load() }
             .modifier(CloudAutomationAlerts(model: model, deleting: $deleting, showsFailure: !model.showsDetail))
             .background(theme.colors.bgGrouped.color.ignoresSafeArea())
@@ -29,6 +29,7 @@ public struct CloudAutomationsScreen: View {
     @ViewBuilder private var content: some View {
         switch model.phase {
         case .loading:
+            // placeholder-ok: This personal Cloud list has never answered for this account.
             CmuxSpinner(label: Text("Loading automations…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("automations.loading")

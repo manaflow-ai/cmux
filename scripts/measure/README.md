@@ -33,12 +33,17 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | tui-idle | `tui-idle-ram.sh` (`tui-idle-ram.py`, `dhat-top.py`) on Linux CI | The idle cmux-tui daemon's anonymous PSS, PSS, threads, binary sections and (dhat=1) Rust heap at commits. |
 | ci-vm-idle | `ci-vm-idle.py` from a local capture | GCP CI VM running time, idle time and list-price cost for persistent and JIT runner pools. The wrapper records VM-hours as seconds and USD as integer cents for stable scalar rows. |
 | chat-size | `chat-size-sweep.sh` on the Linux fleet | Real daemon open, pages at three depths, first token, prompt index and RSS at 1 MB, 100 MB, 1 GB and 4 GB, with ratios and a Markdown table. |
+| tool-transport | `tool-transport.py` on this host (read-only) | Agent tool calls from Claude Code transcripts: calls per model step and the share already sent together, model think time vs each tool's call-to-result time, how often the next Read names a file from the previous result (prefetch best case), and the acpmux MCP gateway's per-call reconnect cost (fresh loopback connection vs connect alone). |
 | agent-turn | `cargo bench -p acpmux --bench turn_overhead` (`benches/turn_overhead.rs`) on Linux CI | One agent turn through a real acpmux daemon with a stand-in model that answers at once: send, harness, store, deliver, render, turn, shown (median and p95 over 100 turns). |
 | cloud-turn | `cargo bench -p acpmux --features hub-carrier --bench turn_overhead -- --route local`, then `--route relay` (`benches/turn_overhead.rs`, `turn_overhead/relay.rs`) on Linux CI | The agent-turn turns with the chat crossing a real relay on loopback (the Cloud carrier's relay, its client and the Noise link), beside the local route from the same binary: the same stages plus relay_in, relay_out and a pane attach (connect, handshake, first frame). |
 | daemon-latency | `tui-idle-ram.sh runs=0 latency=1` (`cmux-tui/scripts/bench-daemon-latency.py`, acpmux `start_under_load_bench`) on Linux CI | bin/cmux hot paths at commits in alternating rounds: daemon requests, the CLI end to end, acpmux send to first token (cold and warm). One run per commit, so `compare` matches the sides. |
 | acpmux-watch-bytes | acpmux `hub/stream_tell_tests.rs` (cargo, Linux CI) | Bytes one acpmux watcher is sent while 20 chats stream and the list is read 60 times. |
+| download-bridge | `download-bridge.sh` on a fleet Mac or here | A big npm install (webviews' deps) cold and warm on this link, and the bytes a Mac gets per scheme: install there, sync back, or the download bridge's lazy read set (ask-70d77cbccc). |
 | typing | `webviews/bench/composer-typing.bench.ts` (load modes L0-L3, Chromium and WebKit) on Linux CI | Composer keydown-to-paint p95/p99 and key integrity under idle, stream, ten streaming documents and a 100k-row stream. |
 | mcp-fanout | `mcp-fanout.sh` (`mcp-fanout.py`) on a fleet Mac, any published app (`app=`) | MCP tool-server processes, RSS, idle CPU per kind at N open chats; first cmux tool call latency. |
+| pane-resize-drag | `webviews/bench/pane-resize-drag.bench.ts` (`ci.sh`) on Linux CI, Chromium and WebKit | Per-frame time of a divider drag beside a 200/700/2000-turn chat: p50, p95, max, frames over 50 ms, by drag, resume and settle. |
+| wallpaper_cost | `wallpaper-cost.sh` (`wallpaper-cost.py`) on a fleet Mac nobody uses (it moves the pointer) | A live wallpaper's app CPU %, GPU % and footprint against a painting, and idle, occluded, minimized and Low Power holds. |
+| snappy | `snappy-bench.sh` (`snappy-bench.py`, page probe `webviews/bench/snappy-probe.js`); `--import` reads its snappy.json or `snappy-bench.py --summarize` of a live app's perf watch | Agent chat Enter to the sent row's frame, the reserved turn in that frame, layout shifts per send and per turn transition (send, mid-turn send, /compact) as one counter, first token, chat switch; plain, 1000-turn chat, 12 chats open, offline (`--cpu-load` for a loaded CPU). The perf cron's chat-snappy part. |
 | transcript-shifts | `webviews/scripts/agent-pane/transcript-shifts.bench.ts` on Linux CI (headless Chrome, synthetic daemon) | Agent chat transcript: visible-row shifts per replay phase (stream, page up, fold, composer) and first paint at 500 and 50k rows. |
 | ext-reload | `ext-reload-nightly.sh` (`ext-reload-nightly.py`, `edit-repaint.py` in read-back mode) on a fleet Mac, any published app (`dmg=`) | Extension hot reload on a NIGHTLY: save to the watcher's reload, and save to shown in the window per case, with no rebuild asked. |
 | workspace-factory | `workspace-factory.sh` (`workspace-factory/`, the `wsfactory` Rust factory) on a fleet Mac | A per-job throwaway workspace (APFS clone of a read-only seed) against today's cold and warm-slot step workspaces: start, build, cache hit, disk left behind. |
@@ -51,6 +56,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | projection-scale | `projection-scale/measure.py` (Linux, any host; `--import rows.jsonl`) | RFD 0065's matrix on one harness: a projection's serve, link and mount, then cold and warm `find`, `rg` and `git status` (seconds, bytes down, asks), and git clone options against a local `git daemon` (depth 1, blob:none, sparse, `.git`-only zstd archive, overlay), with projected seconds per RFD 0067 link profile. |
 | chief-latency | `chief-latency.sh` (`Native/OptChat/optchat-chief/measure/chief_driver.py --scenario latency`, `chief_latency.py`) on a fleet Mac, real model through SR2 | A scratch Chief built at two refs, alternating rounds of 15 typical asks (trivial, memory, tool, long reply, one and two subagents, a view rebuild): input tokens of each turn's first request and of every request, first token (warm, cold), turn p50/p90, cold share, refused sends, and a before/after markdown table for a PR body. |
 | local-chat | `local-chat-first-reply.sh` (`local_chat_first_reply.py`) on a fleet Mac, a bench build at this checkout or `build=SHA`, real model through SR2 | Local chat select to first reply the way a person starts one (New chat, the composer's Send, a ready spare after a daemon restart), the hq `local-chat` probe's timed chat on a commit instead of the NIGHTLY: p50 of select_to_first_text_ms, its stages (before turn, turn, after turn) and turn marks (agent ready, to agent, first model). |
+| autocloud-repo-ready | `autocloud-repo-ready.sh` on any host with network (`--host anywhere`) | AutoCloud start's repo-ready time: a full `git clone` against the warm blobless mirror + alternates acpmux uses now (cmux#55715), cold and warm: seconds, MB from GitHub, speedup. |
 
 
 ## Dev loop
@@ -89,6 +95,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `host-line-shift-duress.sh` | The agent pane's chat rows and composer moving when the link drops and comes back, during a long streaming chat, optionally on a loaded machine, at commits. | - | 2026-11-23 | active |
 | `update-click-ab.sh` | Real Sparkle update, Restart to Update clicked soon after staging, base vs head. | CMUX-571 | 2026-11-15 | active |
 | `update-click-ab.py` | Summarizes update-click-ab.sh runs into medians. | CMUX-571 | 2026-11-15 | active |
+| `update-migration.sh` | Real Sparkle update from one commit's build to another's with terminals that have no tab (each kept by an attach stream, more than 16 at once): the ones whose stream returns keep their processes, the abandoned ones end; `control=1` shows what the old build loses. | cmux#54839 | 2026-11-25 | active |
 | `go-back-duress.sh` | Go back to the previous build (updates.rollback) right after an update, with live agent turns and terminals, on a quiet and a loaded Mac: click to the kept build's first window. | #41013, ask-c013f6fec6 | 2026-11-23 | active |
 | `update-idle-e2e.sh` | Update When Idle end to end: a staged update installs by itself only after the running turn ended, the draft was cleared and the idle time passed; agent host counts and pids before and after; base as the control (`update-harness/idle_e2e.py`). | update-when-idle | 2026-11-19 | active |
 | `update-e2e.sh` | End to end auto-update of a real nightly (correctness, not a timing). | R114 | 2026-10-04 | stale |
@@ -113,6 +120,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `omnibar-click.sh` | Omnibar mouse-down to the frame that shows focus. | - | 2026-10-27 | active |
 | `hover-preload.sh` | Pointer sweep over sidebar rows: hover preload wakes and cost. | - | 2026-11-07 | active |
 | `chat-open.sh` | Sidebar click to first content for a chat. | - | 2026-11-03 | active |
+| `action-trace.sh` | Each user action's spans (launch, send to first token paint, chat switch, new chat) against its speed-of-light floor, from the daemon's Chrome trace (`CMUX_TRACE_FILE`): the trace JSON and one `ACTION-GAP name dur_us floor_us gap_us` line per span; `--burn=N` for duress. | Leo 2026-11-25, speed of light | 2026-11-25 | active |
 | `pane-compile-cef.sh` | Whether the agent pane's ES-module code cache is consumed on a reload in cmux NEXT's CEF, its compiles and FCP (`--build-at=SHA` per arm). | - | 2026-11-23 | active |
 | `right-pane-open.sh` | Click to first content for every right-side open of a chat. | - | 2026-11-07 | active |
 | `fork-open.sh` | Fork Conversation to a usable fork, for every Fork To destination. | - | 2026-11-07 | active |
@@ -170,6 +178,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `mcp-fanout.sh` | MCP tool-server processes, RSS and idle CPU per kind at N open chats (Claude, Codex) on any build (`app=`). | nightly-mcp-fanout | 2026-11-17 | active |
 | `mcp-fanout.py` | Python driver for mcp-fanout.sh. | nightly-mcp-fanout | 2026-11-17 | active |
 | `perf-10x-idle.sh` | Idle CPU, wakeups and RSS at 1, 10 and 50 workspaces; with `axes=`, the marginal idle cost (CPU, footprint, wakeups, disk bytes per hour, GPU utilization) of one more chat or terminal, hidden or visible, per process. | perf-10x, CMUX-672 | 2026-11-19 | active |
+| `wallpaper-cost.sh` | A live wallpaper's CPU, GPU time and footprint per wallpaper and per hold (bench wallpaper_cost). | live wallpapers | 2026-11-17 | active |
+| `wallpaper-cost.py` | Python driver for wallpaper-cost.sh. | live wallpapers | 2026-11-17 | active |
 | `perf-idle-ab.sh` | Interleaved base vs head idle A/B in one step. | - | 2026-11-14 | active |
 | `perf-idle-power.sh` | Idle power and wakeups in the scenarios of a browser comparison. | msg 2654 | 2026-11-15 | active |
 | `perf-bench.sh` | xbench: cmux NEXT against other browsers (power, scroll, video, tab switch, launch). | msg 2654 | 2026-11-15 | active |
@@ -212,6 +222,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `remote-agent-path.sh` | What an agent on another machine feels through cmux Remote. | - | 2026-11-15 | active |
 | `relay-path-probe.sh` | Every path the iPhone link can take to a Mac (WireGuard direct, TURN/UDP, TURN/TLS 443, WebRTC direct and relay): setup p50/p95, link RTT p50/p95/p99 and loss, hub colo, ICE and TURN allocation times, as JSON and a table (`cmux-mobile-path-probe`). | Leo ask-6242128727, relay-path-latency | 2026-11-21 | active |
 | `cloud-machine-directory.py` | Before and after CLI directory benchmark with a guest-program provider. | - | 2026-11-12 | active |
+| `git-cache-bench.sh` | A clone straight from GitHub against the per-VM git cache proxy (cold, then the second clone), n=3, and 4 clones at once; capped, bytes pulled per clone. | Leo ask-6b8661d57a | 2026-11-25 | active |
 | `cloud-machine-read.py` | Two built binaries through the same fake-provider file-read route. | - | 2026-11-12 | active |
 
 ## Agents and chat
@@ -293,6 +304,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `ext-rows-nightly.py` | App half of ext-rows-nightly.sh: one function per row. | - | 2026-11-19 | active |
 | `meet-browser.sh` | What a video-call page needs, on a published NIGHTLY side instance (Chromium, WebKit) against Google Chrome on the same Mac: getUserMedia with and without fake-device switches, getDisplayMedia, Picture-in-Picture, notifications, a loopback 720p WebRTC call with CPU, meet.google.com load cold and warm, hidden-tab timer drift. | - | 2026-11-22 | active |
 | `meet-browser.py` | Driver half of meet-browser.sh: the local test page, cmux over its control socket, Chrome over DevTools. | - | 2026-11-22 | active |
+| `browser-auth-webkit.sh` | Login flows in a NIGHTLY side instance's browser tab (`engine=webkit` or `chromium`): popup with opener and postMessage, window.close, cross-host redirect, SameSite and Secure cookies, third-party iframe cookie and storage (runs scripts/cmux-next/browser-auth-flows-live.py). | - | 2026-11-25 | active |
 | `rift-eval.sh` | APFS clone workspaces vs git worktree for an agent's first green build. | - | 2026-11-11 | active |
 | `cloud-partial-hydrate.sh` | A Cloud checkout's time to first read with the rest downloading in the background (hot files, wants, kill and resume) against the whole checkout. | - | 2026-11-24 | active |
 | `nightly-cas-identity.sh` | Byte proof: a build with a reused compilation cache equals a clean build. | - | 2026-10-20 | active |

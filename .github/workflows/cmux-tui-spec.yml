@@ -63,13 +63,9 @@ on:
       - "schemas/theme/theme-ink-vectors.json"
       - "schemas/transcript-look/transcript-look.json"
       - "scripts/measure/screen-stream-eval/wifi-away-holds.json"
-      - "skills/cmux-acpmux/SKILL.md"
+      - "skills/*/SKILL.md"
       - "skills/cmux-browser/**"
-      - "skills/cmux-computer-use/SKILL.md"
-      - "skills/cmux-cua/SKILL.md"
       - "skills/cmux-customization/**"
-      - "skills/cmux-live/SKILL.md"
-      - "skills/cmux/SKILL.md"
       - "scripts/ci/webviews_test_results.py"
       - "scripts/cmux-next/run-v2-gates.sh"
       - "scripts/cmux-next/tests/run-v2-gates.test.sh"
@@ -113,6 +109,7 @@ on:
       - "web/public/tui/install-static.sh"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json"
       - "web/services/vms/drivers/linuxRelease.ts"
+      - "web/app/globals.css"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_call:
@@ -434,7 +431,7 @@ jobs:
         with:
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-acpmux-lib-test
+          shared-key: cmux-tui-acpmux-lib-test-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true
@@ -553,6 +550,8 @@ jobs:
       - name: Restore the base's last test log
         if: ${{ steps.tree.outputs.hit != 'true' && github.event_name == 'pull_request' }}
         uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
           path: ${{ runner.temp }}/acpmux-base-run
           key: acpmux-tests-base-log-${{ steps.scope.outputs.base || 'none' }}
@@ -869,7 +868,7 @@ jobs:
         with:
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-acpmux-sim
+          shared-key: cmux-tui-acpmux-sim-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true
@@ -964,7 +963,7 @@ jobs:
         with:
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-carrier-sim
+          shared-key: cmux-tui-carrier-sim-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true
@@ -1200,7 +1199,7 @@ jobs:
         with:
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-pr-clippy
+          shared-key: cmux-tui-pr-clippy-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true
