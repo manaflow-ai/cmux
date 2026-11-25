@@ -179,8 +179,13 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
       "agent-tools-browser-program-cmux-browser-host",
       "agent-tools-display-wm-apt-fetch",
       "agent-tools-display-wm-apt-install",
+      "agent-tools-browser-path",
       "agent-tools-browser-lists",
     ]);
+    // An agent's `chromium --headless` finds the baked Chrome on PATH.
+    const browserPath = phases.find((p) => p.name === "agent-tools-browser-path")!.command;
+    for (const name of ["chromium", "chromium-browser", "google-chrome"]) expect(browserPath).toContain(`/usr/local/bin/${name}`);
+    expect(browserPath).toContain(rolesManifest(lock).roles.browser!.env.CMUX_BROWSER_HOST_CHROMIUM!);
     // The desktop session's closure, pinned from the lock like the browser's: each .deb by its locked sha256.
     const wm = phases.find((p) => p.name === "agent-tools-display-wm-apt-fetch")!.command;
     for (const [name, version] of Object.entries(lock.apt.ubuntu.firstUse["display-wm"])) expect(wm).toContain(lock.apt.ubuntu.debs[`${name}=${version}`]!.sha256);
