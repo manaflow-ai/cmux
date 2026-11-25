@@ -2584,7 +2584,7 @@ pub fn reset(snapshot: &Snapshot) {
             "process-scan-baseline.tsv", "state-roots-baseline.tsv", "raw-spawn-baseline.tsv",
             "raw-flock-baseline.tsv", "spawn-owner-baseline.tsv", "app-id-special-cases-baseline.tsv",
             "swift-type-scale-baseline.tsv", "focus-routes-baseline.tsv", "visible-only-baseline.tsv",
-            "keychain-no-prompt-baseline.tsv"})
+            "keychain-no-prompt-baseline.tsv", "classic-ids-baseline.tsv"})
 
     def test_a_line_baseline_takes_only_the_lines_the_push_removed(self):
         spec = importlib.util.spec_from_file_location("prepush_gate_line_baselines", SOURCE / GATE)

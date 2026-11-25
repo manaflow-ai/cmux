@@ -550,6 +550,7 @@ RATCHET_BASELINES = {
     "app-id-special-cases-baseline.tsv": ((0,), 1),
     "swift-type-scale-baseline.tsv": ((0, 1), 2),
     "visible-only-baseline.tsv": ((0, 1), 2),
+    "classic-ids-baseline.tsv": ((0, 1), 2),
 }
 # Shrink-only baselines kept as a list of lines (path and the line's text): a push that fixes a listed site removes
 # its line, and the installed copy over both trees then reads the fix as "fixed, remove from the baseline", a new
