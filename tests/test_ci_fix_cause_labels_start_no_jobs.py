@@ -328,11 +328,10 @@ class FixCauseLabelsStartNoJobs(unittest.TestCase):
         workflows = label_target_workflows()
         context = event("labeled", "fix-cause:ci-config", state="open")
         self.assertEqual(jobs_started(workflows["risk-tier.yml"], context), ["evidence"])
-        # Into main every label plans: the gate runs for a migration change; without one, plan's verdict
-        # stands and the skipped gate reports success.
+        # Into main every label plans and gates, including when the migration tree is unchanged.
         into_main = event("labeled", "fix-cause:ci-config", state="open", base="main")
         self.assertIn("gate", jobs_started(workflows["backend-migrations.yml"], into_main, MIGRATION_CHANGE))
-        self.assertEqual(jobs_started(workflows["backend-migrations.yml"], into_main), ["plan"])
+        self.assertEqual(jobs_started(workflows["backend-migrations.yml"], into_main), ["plan", "gate"])
 
     def test_other_labels_on_closed_pull_requests_are_unchanged(self):
         workflows = label_target_workflows()
