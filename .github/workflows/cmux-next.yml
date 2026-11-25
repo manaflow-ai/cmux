@@ -7645,7 +7645,7 @@ jobs:
           [[ "$state" != error ]] || { echo "::error::no verdict: cmux-next/compile for $SHA: the results service was down and no fallback compile ran ($FAST/$MAC); re-run all jobs"; exit 3; }
           [[ "$state" == success ]] || { echo "::error title=Compile check::the Release compile (fallback) of $SHA failed ($FAST/$MAC); see its log"; exit 1; }
 
-  # Why: docs/ci/cmux-next-workflow-notes.md#note-558
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-head-fail-fast
   app-compile-fleet-fail-fast:
     name: head fail-fast after app compile
     needs: app-compile-fleet
@@ -7657,7 +7657,7 @@ jobs:
       actions: write
       contents: read
 
-  # Why: docs/ci/cmux-next-workflow-notes.md#note-558
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-head-fail-fast
   fast-tier-fail-fast:
     name: head fail-fast after fast tier
     needs: fast-tier
@@ -7669,7 +7669,7 @@ jobs:
       actions: write
       contents: read
 
-  # Why: docs/ci/cmux-next-workflow-notes.md#note-558
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-head-fail-fast
   fast-tier-cargo-fail-fast:
     name: head fail-fast after fast tier (cargo)
     needs: fast-tier-cargo
@@ -7681,7 +7681,7 @@ jobs:
       actions: write
       contents: read
 
-  # Why: docs/ci/cmux-next-workflow-notes.md#note-558
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-head-fail-fast
   web-bundles-fail-fast:
     name: head fail-fast after web bundles
     needs: web-bundles
@@ -7693,7 +7693,7 @@ jobs:
       actions: write
       contents: read
 
-  # Why: docs/ci/cmux-next-workflow-notes.md#note-558
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-head-fail-fast
   generated-files-fail-fast:
     name: head fail-fast after generated files
     needs: generated-files
