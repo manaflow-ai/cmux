@@ -1332,8 +1332,8 @@ pub struct SessionResourceConfig {
     pub disk_mb: Option<u64>,
     /// `cpuClass`: the CPU class a macOS session's harness runs at once its
     /// start is over (it starts at normal), `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
-    /// overrides it, a profile's env overrides both. Unset: `background`, or `normal` for a
-    /// Claude Code launcher or a Codex app-server (`cpu_class::default_for`).
+    /// overrides it, a profile's env overrides both. Unset: `normal`, a terminal shell's
+    /// priority and disk tier (`cpu_class::default_for`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_class: Option<crate::cpu_class::CpuClass>,
 }
@@ -1740,6 +1740,10 @@ pub struct Config {
     /// `_acpmux/vm_host {on: false}` writes `false`, `{on: true}` removes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vm_host: Option<bool>,
+    /// `autoCloudEnroll`: this machine's AutoCloud enrollment as `_acpmux/autocloud_enroll` last
+    /// set it (`autocloud_enroll.rs`); absent, the settings key `cloud.autoCloudEnroll` decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_cloud_enroll: Option<serde_json::Value>,
     /// `pool`: hidden pre-created sessions that make a harness switch instant (`hub/pool/`).
     #[serde(default, skip_serializing_if = "PoolConfig::is_default")]
     pub pool: PoolConfig,

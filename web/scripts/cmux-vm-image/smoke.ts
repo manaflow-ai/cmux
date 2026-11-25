@@ -24,6 +24,8 @@
  * DNS (dns.ts): cmux-dns-check --restart restarts systemd-resolved (and tailscaled when
  * installed), then needs the resolv.conf stub link and a public name resolving (a tailnet name too
  * when logged in to one).
+ * IPv6 routes (ipv6-route.ts): no block route over public IPv6 (a dead-IPv6 host's `unreachable 2000::/3`), an IPv6
+ * default route, and a route lookup for a public IPv6 address that names a device (RFD 0067 item 5).
  * The daemon handshake (identify.ts) must serve REQUIRED_IMAGE_CAPABILITIES and, with
  * --expect-capabilities, every listed capability; --team-vm also checks /srv/team.
  * The session host stays up 60 s after boot and after one forced rebind, with no legacy or migration
@@ -48,6 +50,7 @@ import { GUEST_DIR, TEAM_FILES_ROOT, teamVmDirsCommand, TMP_LEFTOVERS } from "./
 import { CREDENTIAL_FILES_CHECK, devTreeCredentialCheckCommand, devTreeUserPaths } from "./dev-tree";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_SMOKE_COMMAND, dnsCheckProblems } from "./dns";
+import { ipv6RouteProblems, ipv6RouteSmokeCommand } from "./ipv6-route";
 import { machineHealthSmokeCommand, machineHealthSmokeProblems } from "./machine-health";
 import { argValue, createVm, type CreateTlsRule, deleteVm, firstExec, freestyleClient, Ledger, run, sleep, type Vm } from "./guest";
 import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
@@ -505,7 +508,9 @@ async function automationChecks(vm: Vm, report: Report): Promise<void> {
 
 /** The health loop runs clean and the guard drop-ins apply (machine-health.ts). */
 /**
- * Roles are parked (no Xvfb running), first-use packages are absent, and CJK fonts are baked. openbox is role
+ * Roles are parked (no Xvfb running), first-use packages are absent, and CJK fonts are baked. ffmpeg and ffprobe are
+ * baked in the agents layer since #56284 (the Computer Use driver still sees its refusing shims), so ffprobe must be on
+ * PATH. openbox is role
  * display-wm's: a first-use package, except that an agent-tools image bakes it for the desktop session
  * (AGENT_TOOLS_BAKED_ROLES, #44696). The agent tools' cmux-cua wrapper marks that image.
  */
@@ -514,7 +519,7 @@ export function rolesOffFontsOnCommand(): string {
     `test -s ${ROLES_MANIFEST_PATH}`,
     "! pgrep -x Xvfb >/dev/null",
     `{ test -x ${AGENT_TOOLS_BIN}/cmux-cua || ! command -v openbox >/dev/null; }`,
-    "! command -v ffmpeg >/dev/null",
+    "command -v ffprobe >/dev/null",
     "command -v Xvfb >/dev/null",
     "ls /usr/share/fonts/opentype/noto/ | grep -q '^NotoSansCJK'",
     "echo roles-off-fonts-on",
@@ -534,6 +539,14 @@ async function resolverChecks(vm: Vm, report: Report): Promise<void> {
   const problems = dnsCheckProblems(dns.code, dns.stdout);
   report.dns = dns.stdout.trim().split("\n");
   check(report, "dns-resolved-restart", problems.length === 0, problems.join("\n") || dns.stdout.trim());
+}
+
+/** Public IPv6 stays routed: no block route over 2000::/3 (a dead-IPv6 host's fix) and an IPv6 default route (ipv6-route.ts, RFD 0067 item 5). */
+async function ipv6RouteChecks(vm: Vm, report: Report): Promise<void> {
+  const out = await run(vm, ipv6RouteSmokeCommand(), 90_000);
+  const problems = ipv6RouteProblems(out.code, out.stdout);
+  report.ipv6Routes = out.stdout.trim().split("\n");
+  check(report, "ipv6-public-routed", problems.length === 0, problems.join("\n") || out.stdout.trim().split("\n").filter((l) => !l.startsWith("==")).join(" ; "));
 }
 
 /**
@@ -658,6 +671,7 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
       await automationChecks(kept[1].vm, report);
       await machineHealthChecks(kept[1].vm, report);
       await resolverChecks(kept[1].vm, report);
+      await ipv6RouteChecks(kept[1].vm, report);
       if (options.agentProbe) {
         const probe = await agentBindProbe(kept[1].vm);
         check(report, "vm-agent-bind-probe", probe.ok, probe.detail);

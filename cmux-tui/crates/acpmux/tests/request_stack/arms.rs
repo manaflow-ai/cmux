@@ -205,6 +205,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         ("_acpmux/host_health", Run(json!({}))),
         ("_acpmux/peer_status", Run(json!({}))),
         ("_acpmux/vm_host", Run(json!({}))),
+        ("_acpmux/autocloud_enroll", Run(json!({}))),
         ("_acpmux/host_notice", Run(json!({"text": "test notice"}))),
         ("_acpmux/peer_snapshot", Run(json!({"sessionId": "nopeer/x1"}))),
         ("_acpmux/place", Run(json!({}))),
@@ -443,6 +444,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             ),
         ),
         (method::MUX_TURN_SHOTS, Run(json!({"sessionId": "$S", "turnId": "t1"}))),
+        (method::MUX_TURN_FRAMES, Run(json!({"sessionId": "$S", "turnId": "t1"}))),
         (
             method::MUX_CUSTOMIZE_RUN,
             Any(
@@ -483,6 +485,10 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (
             method::MUX_TEAM_ACK,
             Any(json!({"id": "x"}), "team messaging is off without a mesh relay (invalid params)"),
+        ),
+        (
+            method::MUX_TEAM_LISTEN,
+            Any(json!({"op": "ls"}), "team messaging is off without a mesh relay (invalid params)"),
         ),
         (
             method::MUX_REGISTER,

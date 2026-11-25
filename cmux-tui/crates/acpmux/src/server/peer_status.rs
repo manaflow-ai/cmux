@@ -107,7 +107,9 @@ pub(crate) async fn host_health_with(
     );
     // Whether this machine's owner enrolled it in AutoCloud, whose work it takes, and whether it
     // takes any now (owner away, inside its hours): the placer's enrolled tier (`place_mode`).
-    v.set("autoCloud", json!(crate::autocloud_enroll::report_now()));
+    // What `_acpmux/autocloud_enroll` saved wins over the settings key (`Enrollment::resolve`).
+    let saved = hub.config.read().await.auto_cloud_enroll.clone();
+    v.set("autoCloud", json!(crate::autocloud_enroll::report_now(saved.as_ref())));
     // What the machine health loop found wrong and could not fix
     // (`machine_health.rs`); none on a machine without the loop.
     if let Some(problems) = super::machine_health::problems().await {
