@@ -130,7 +130,11 @@ fn the_token_line_compacts_a_large_window_the_percent_misses() {
     let expires = now + 300_000;
     let line = settings_min_tokens(None);
     assert_eq!(line, DEFAULT_MIN_TOKENS);
-    assert_eq!(line, super::super::cold_wake::COMPACT_ABOVE_TOKENS, "the cold batch's line");
+    assert_eq!(
+        line,
+        super::super::cold_wake::DEFAULT_COMPACT_ABOVE_TOKENS,
+        "the cold batch's line"
+    );
     let big = usage(91_754, 1_000_000, Some(expires));
     assert_eq!(wait_ms(&big, 0.3, u64::MAX, now), None, "the percent alone: 300K, missed");
     assert_eq!(wait_ms(&big, 0.3, line, now), Some(300_000 - LEAD_MS), "the token line");
@@ -145,4 +149,28 @@ fn the_token_line_compacts_a_large_window_the_percent_misses() {
     assert_eq!(settings_min_tokens(Some(&high)), MIN_TOKENS_RANGE.1, "clamped");
     let junk = json!({"agents.cacheCompact.minContextTokens": "x"});
     assert_eq!(settings_min_tokens(Some(&junk)), DEFAULT_MIN_TOKENS);
+}
+
+/// [`ENV_MIN_TOKENS`] beats the file; one that does not parse is ignored; both are clamped.
+#[test]
+fn the_token_lines_environment_beats_the_settings_file() {
+    let file = json!({"agents": {"cacheCompact": {"minContextTokens": 120_000}}});
+    let env = |v: &'static str| move |k: &str| (k == ENV_MIN_TOKENS).then(|| v.to_owned());
+    assert_eq!(settings_min_tokens_with(Some(&file), env("80000")), 80_000);
+    assert_eq!(settings_min_tokens_with(Some(&file), env("lots")), 120_000);
+    assert_eq!(settings_min_tokens_with(None, env("5")), MIN_TOKENS_RANGE.0);
+    assert_eq!(settings_min_tokens_with(None, |_| None), DEFAULT_MIN_TOKENS);
+}
+
+/// The Settings row (`schemas/settings/source/agent-cache.json`) says what the daemon does.
+#[test]
+fn the_token_lines_settings_row_matches_the_daemon() {
+    let src = include_str!("../../../../../schemas/settings/source/agent-cache.json");
+    let doc: Value = serde_json::from_str(src).unwrap();
+    let rows = doc["lists"][0]["rows"].as_array().unwrap();
+    let row = rows.iter().find(|r| r["key"] == SETTING_MIN_TOKENS).expect("a Settings row");
+    assert_eq!(row["default"], json!(DEFAULT_MIN_TOKENS));
+    assert_eq!(row["range"]["min"], json!(MIN_TOKENS_RANGE.0));
+    assert_eq!(row["range"]["max"], json!(MIN_TOKENS_RANGE.1));
+    assert!(row["note"].as_str().unwrap().contains(ENV_MIN_TOKENS), "the note names its env");
 }

@@ -62,6 +62,35 @@
           ]
         },
         {
+          "key": "agents.cacheCompact.minContextTokens",
+          "name": "cacheCompactMinTokens",
+          "note": "The context (tokens) from which the timer compacts a chat, whatever share of its window that is; a chat at this or at agents.cacheCompact.minContextPercent compacts. 50000 by default, the cold batch's line: on one lane VM (2026-11-25) all 300 Claude chats had a 1M window, 191 held 50K or more, none reached 30%, and nothing compacted warm in 48 h. ACPMUX_CACHE_COMPACT_MIN_CONTEXT_TOKENS=N in the acpmux daemon's environment overrides it (clamped to the same range).",
+          "title": {
+            "key": "settings.agents.cacheCompact.minTokens",
+            "text": "Or Above Context Used (Tokens)"
+          },
+          "help": {
+            "key": "settings.agents.cacheCompact.minTokens.help",
+            "text": "Chats with at least this much context are compacted, whatever share of their window that is."
+          },
+          "kind": "number",
+          "range": {
+            "min": 10000,
+            "max": 500000,
+            "step": 5000,
+            "unit": "count"
+          },
+          "default": 50000,
+          "keywords": [
+            "cache",
+            "compact",
+            "threshold",
+            "context",
+            "tokens",
+            "claude"
+          ]
+        },
+        {
           "key": "agents.coldWake.enabled",
           "name": "coldWakeEnabled",
           "note": "On: once a large idle chat's prompt cache lapsed, acpmux gathers the inbox notices and agent messages that would wake it into one batch on an interval (1-5 min, longer for larger or longer-cold chats) and delivers them as one turn (cmux-tui/crates/acpmux/src/hub/cold_wake.rs). A block, a question and the person's own prompt never wait. On by default; ACPMUX_COLD_WAKE=0|1 in the acpmux daemon's environment overrides it.",

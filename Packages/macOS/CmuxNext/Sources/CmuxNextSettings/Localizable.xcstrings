@@ -220744,6 +220744,270 @@
         }
       }
     },
+    "settings.agents.cacheCompact.minTokens": {
+      "comment": "Settings > General > Prompt Cache: title of the token threshold field for compacting before the cache expires",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أو فوق السياق المستخدم (رموز)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ili iznad iskorištenog konteksta (tokena)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eller over brugt kontekst (tokens)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oder ab genutztem Kontext (Tokens)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Or Above Context Used (Tokens)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O por encima del contexto usado (tokens)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ou au-delà du contexte utilisé (jetons)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppure oltre il contesto usato (token)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "または使用コンテキストがこれを超える場合 (トークン)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឬលើសបរិបទដែលបានប្រើ (តូខឹន)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "또는 사용한 컨텍스트가 이 값 이상일 때 (토큰)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eller over brukt kontekst (tokens)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lub powyżej użytego kontekstu (tokeny)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ou acima do contexto usado (tokens)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Или при использовании контекста от (токенов)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หรือเมื่อใช้บริบทเกิน (โทเค็น)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veya kullanılan bağlam şunun üzerindeyse (token)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Або понад використаний контекст (токенів)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoặc khi ngữ cảnh đã dùng vượt (token)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "或上下文用量超过（令牌）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "或上下文用量超過（權杖）"
+          }
+        }
+      }
+    },
+    "settings.agents.cacheCompact.minTokens.help": {
+      "comment": "Settings > General > Prompt Cache: help under the token threshold field",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُضغط المحادثات التي لديها هذا القدر من السياق على الأقل أياً كانت نسبتها من النافذة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatovi s barem ovoliko konteksta sažimaju se bez obzira na udio prozora."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats med mindst så meget kontekst komprimeres, uanset hvor stor en del af vinduet det er."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats mit mindestens so viel Kontext werden komprimiert, egal welcher Anteil des Fensters das ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats with at least this much context are compacted, whatever share of their window that is."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los chats con al menos este contexto se compactan, sea cual sea su parte de la ventana."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les chats ayant au moins ce contexte sont compactés, quelle que soit la part de leur fenêtre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chat con almeno questo contesto vengono compattate, qualunque sia la quota della finestra."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテキストがこれ以上のチャットは、ウィンドウに占める割合に関係なく圧縮します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកដែលមានបរិបទយ៉ាងហោចណាស់ប៉ុណ្ណេះ ត្រូវបានបង្រួម ទោះជាចំណែកនៃផ្ទាំងប៉ុន្មានក៏ដោយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컨텍스트가 이 이상인 채팅은 창에서 차지하는 비율과 관계없이 압축합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatter med minst så mye kontekst komprimeres, uansett hvor stor del av vinduet det er."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czaty z co najmniej takim kontekstem są kompaktowane bez względu na udział w oknie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats com pelo menos esse contexto são compactados, seja qual for a parte da janela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чаты с таким контекстом или больше сжимаются, какую бы долю окна он ни занимал."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชตที่มีบริบทอย่างน้อยเท่านี้จะถูกบีบอัด ไม่ว่าจะเป็นสัดส่วนเท่าใดของหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En az bu kadar bağlamı olan sohbetler, penceredeki payı ne olursa olsun sıkıştırılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чати з таким контекстом або більшим стискаються, хоч би яку частку вікна він займав."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện có ít nhất ngần này ngữ cảnh sẽ được nén, bất kể chiếm bao nhiêu phần cửa sổ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下文至少为此值的聊天会被压缩，无论占窗口多少比例。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下文至少為此值的聊天會被壓縮，無論佔視窗多少比例。"
+          }
+        }
+      }
+    },
     "settings.agents.cacheCompact.minContext": {
       "comment": "Settings > General > Prompt Cache: number field, the share of the context window (percent) a chat must use before it is compacted",
       "extractionState": "manual",
