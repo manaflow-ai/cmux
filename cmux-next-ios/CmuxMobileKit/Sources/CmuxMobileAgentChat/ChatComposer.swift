@@ -211,7 +211,12 @@ struct ChatComposer: View {
             index += 1
             if index % 4 == 0, !oneParagraph { text += "\n\n" }
         }
-        return String(text.prefix(count))
+        // End on a word boundary: a draft cut mid-word ("...befo") fuses the first typed word
+        // into it ("befothe"), and autocorrect then rewrites that word, so the keys a test typed
+        // are not the text it reads back. The length stays exactly `count`.
+        guard count > 0 else { return "" }
+        let cut = String(text.prefix(count - 1))
+        return cut.hasSuffix("\n") ? cut + "\n" : cut + " "
     }
     #endif
 
@@ -332,7 +337,9 @@ struct ChatComposer: View {
                 // keyboard's Return sends, Shift-Return starts a new line.
                 ChatComposerField(text: $text, placeholder: placeholder, isFocused: focus, onSend: sendFromKeyboard,
                                   onPasteAttachments: pasteAttachments,
-                                  onLineChange: { store.lineMotionPending = true })
+                                  onLineChange: { store.lineMotionPending = true },
+                                  reservedTop: !attachments.isEmpty || preparingVideos > 0
+                                      ? ComposerCardMetrics.attachmentStripHeight : 0)
                     .onAppear { if expandRequested { focus.wrappedValue = true } }
             }
         } trailing: {
@@ -765,7 +772,7 @@ struct ChatComposer: View {
             .scrollBounceBehavior(.basedOnSize)
         }
         .clipShape(.rect(cornerRadius: 20, style: .continuous))
-        .glassEffect(.regular, in: .rect(cornerRadius: 20, style: .continuous))
+        .cmuxMobileFloatingGlass(in: .rect(cornerRadius: 20, style: .continuous))
         .padding(.horizontal, 12)
     }
 
@@ -797,7 +804,7 @@ struct ChatComposer: View {
                 .accessibilityLabel(Text("Mention \(artifact.reference)"))
             }
         }
-        .glassEffect(.regular, in: .rect(cornerRadius: 20, style: .continuous))
+        .cmuxMobileFloatingGlass(in: .rect(cornerRadius: 20, style: .continuous))
         .padding(.horizontal, 12)
     }
 
@@ -925,7 +932,7 @@ struct QueuedPromptsView: View {
         }
         .padding(.horizontal, 14)
         .frame(minHeight: 40)
-        .glassEffect(.regular, in: .capsule)
+        .cmuxMobileFloatingGlass(in: .capsule)
         .accessibilityElement(children: .contain)
     }
 
@@ -959,7 +966,7 @@ struct QueuedPromptsView: View {
                 }
                 .padding(.horizontal, 14)
                 .frame(height: 40)
-                .glassEffect(.regular, in: .capsule)
+                .cmuxMobileFloatingGlass(in: .capsule)
         }
         .accessibilityIdentifier("chat.queued")
     }
