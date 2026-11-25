@@ -25,7 +25,7 @@ function drawn(rows: readonly AcpmuxRow[]) {
   });
 }
 
-async function open(events: EventRecord[], whole: boolean, gapFill: boolean) {
+async function open(events: EventRecord[], whole: boolean, gapFill: boolean, pagedFirst: boolean) {
   const daemon = new FakeDaemon();
   daemon.add(
     { sessionId: SESSION, cwd: "/home/dev/x", title: "x", harness: "claude", status: "idle", updatedAt: clock!.now },
@@ -35,15 +35,25 @@ async function open(events: EventRecord[], whole: boolean, gapFill: boolean) {
   const internal = client as any;
   if (whole) internal.olderIndexedRecords = () => undefined;
   if (!gapFill) internal.startIndexedGapFill = () => {};
-  // The reader scrolled up a page first, as before a click on the rail: the held records start a turn.
-  const paged = client.loadOlder(undefined, false, true);
-  await clock!.advance(60_000);
-  await paged;
+  // The chat opened on its newest page, which starts inside a turn; or the reader scrolled up a page first, and the
+  // held records start one.
+  if (pagedFirst) {
+    const paged = client.loadOlder(undefined, false, true);
+    await clock!.advance(60_000);
+    await paged;
+  }
   return { client, internal, rows };
 }
 
-async function jump(events: EventRecord[], whole: boolean, gapFill: boolean, pick: (prompts: EventRecord[]) => number) {
-  const { client, internal, rows } = await open(events, whole, gapFill);
+async function jump(
+  events: EventRecord[],
+  whole: boolean,
+  gapFill: boolean,
+  pagedFirst: boolean,
+  pick: (prompts: EventRecord[]) => number,
+) {
+  const { client, internal, rows } = await open(events, whole, gapFill, pagedFirst);
+  const cut = !(internal.events[0].kind === "user_message");
   const tailStart: number = internal.firstSeq;
   const prompts = events.filter((event) => event.kind === "user_message" && event.seq < tailStart);
   internal.promptIndex = {
@@ -73,7 +83,7 @@ async function jump(events: EventRecord[], whole: boolean, gapFill: boolean, pic
   const jumped = client.loadThrough(target);
   await clock!.advance(60_000);
   expect(await jumped).toBe(true);
-  const result = { rows: drawn(rows()), folded, tailStart, target };
+  const result = { rows: drawn(rows()), folded, tailStart, target, cut };
   client.close();
   return result;
 }
@@ -85,25 +95,29 @@ const SHAPES: [string, GodOptions][] = [
 ];
 
 for (const [name, options] of SHAPES)
-  for (const gapFill of [false, true])
-    test(`an indexed page folded alone draws what the whole refold does: ${name}, ${gapFill ? "after the gap fills" : "at the click"}`, async () => {
-      clock = new VirtualClock().install();
-      const events = logFor(SESSION, "small", options).events;
-      // Clicks folded alone with no hole between the page and the held records, and with one the gap fill reads.
-      const alone = { next: 0, hole: 0 };
-      // Prompts just above the held records (no hole, or a small one) and further up (a hole the gap fill reads).
-      for (const back of [1, 2, 3, 5, 8, 13, 21, 26, 30, 35, 40, 50, 60]) {
-        const pick = (prompts: EventRecord[]) => prompts[Math.max(0, prompts.length - back)]!.seq;
-        const folded = await jump(events, false, gapFill, pick);
-        const whole = await jump(events, true, gapFill, pick);
-        expect(folded.rows).toEqual(whole.rows);
-        if (folded.folded > 0) {
-          // The page reads INDEXED_PAGE_RADIUS (240) records on each side of its target.
-          if (folded.target + 241 < folded.tailStart) alone.hole += 1;
-          else alone.next += 1;
+  for (const pagedFirst of [false, true])
+    for (const gapFill of [false, true])
+      test(`an indexed page folded alone draws what the whole refold does: ${name}, ${pagedFirst ? "paged up first" : "on open"}, ${gapFill ? "after the gap fills" : "at the click"}`, async () => {
+        clock = new VirtualClock().install();
+        const events = logFor(SESSION, "small", options).events;
+        // Clicks folded alone with no hole between the page and the held records, and with one the gap fill reads.
+        const alone = { next: 0, hole: 0, cut: 0 };
+        // Prompts just above the held records (no hole, or a small one) and further up (a hole the gap fill reads).
+        for (const back of [1, 2, 3, 5, 8, 13, 21, 26, 30, 35, 40, 50, 60]) {
+          const pick = (prompts: EventRecord[]) => prompts[Math.max(0, prompts.length - back)]!.seq;
+          const folded = await jump(events, false, gapFill, pagedFirst, pick);
+          const whole = await jump(events, true, gapFill, pagedFirst, pick);
+          if (!pagedFirst && folded.cut && folded.folded > 0) alone.cut += 1;
+          expect(folded.rows).toEqual(whole.rows);
+          if (folded.folded > 0) {
+            // The page reads INDEXED_PAGE_RADIUS (240) records on each side of its target.
+            if (folded.target + 241 < folded.tailStart) alone.hole += 1;
+            else alone.next += 1;
+          }
         }
-      }
-      // The incremental fold ran in both cases, not only the whole refold it falls back to.
-      expect(alone.next).toBeGreaterThan(0);
-      expect(alone.hole).toBeGreaterThan(0);
-    });
+        // The incremental fold ran in both cases, not only the whole refold it falls back to.
+        expect(alone.next).toBeGreaterThan(0);
+        expect(alone.hole).toBeGreaterThan(0);
+        // On open the held records start inside a turn: that turn's held head folded again with the page.
+        if (!pagedFirst) expect(alone.cut).toBeGreaterThan(0);
+      });

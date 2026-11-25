@@ -16636,10 +16636,15 @@ export class AcpmuxDirectClient {
     // (`foldOlder`): a rail click near the held records folded only its page, not every record held again.
     // Base: each click refolded the page and the whole held window (up to HELD_RECORDS), 130 ms of
     // `reduceEvent` at n=500 (bench/chat-fast-scroll.bench.ts), and more under a throttled CPU.
-    const older = this.olderIndexedRecords(page, tailStart);
-    this.events = mergeEventRecords(this.events, page);
+    const alone = this.olderIndexedRecords(page, tailStart);
+    if (alone && alone.head > 0) {
+      // The held records start inside a turn the page completes (a chat opens on its newest page, which most often
+      // starts mid-turn): that turn's held head lets go of its rows (`dropHeldRun`) and folds again with the page.
+      this.dropHeldRun(0, alone.head);
+    }
+    this.events = mergeEventRecords(this.events, alone ? alone.older : page);
     this.sawPrompts(page);
-    if (older) this.foldOlder(older);
+    if (alone) this.foldOlder(alone.older);
     // Preserve the live queue/permissions and the reconnect reader anchor while replaying the
     // newly held records, as `checkFinishedTurn` does for a narrow repair read.
     else this.rebuildKeepingLiveState(Math.min(before, ...page.map((event) => event.seq)) - 1);
@@ -16663,22 +16668,40 @@ export class AcpmuxDirectClient {
   }
 
   /// The records of indexed `page` that fold above the held ones (`foldOlder`), oldest first, when it is safe to
-  /// fold them alone; undefined when the held window must be refolded whole (`mergeIndexedPage`). Safe as
-  /// `fetchOlder`'s older pages are: every record the page brings is older than the held ones, and those start
-  /// a turn the page's records ended before (or a hole lies between them), so no row is drawn from records on
+  /// fold them alone, with the held records before the first held turn start (`head`, dropped first); undefined when
+  /// the held window must be refolded whole (`mergeIndexedPage`). Safe as `fetchOlder`'s older pages are: every
+  /// record the page brings is older than the held ones kept, and those start a turn the page's records (and the
+  /// head) ended before (or a hole lies between them), so no row is drawn from records on
   /// both sides; no forced Stop's result or compaction fence moves a held prompt; no turn opener or shed split
   /// stands in for the records the page brings.
-  private olderIndexedRecords(page: readonly EventRecord[], tailStart: number): EventRecord[] | undefined {
-    if (!Number.isFinite(tailStart) || this.events.length === 0 || !startsTurn(this.events[0]!)) return undefined;
+  private olderIndexedRecords(
+    page: readonly EventRecord[],
+    tailStart: number,
+  ): { older: EventRecord[]; head: number } | undefined {
+    if (!Number.isFinite(tailStart) || this.events.length === 0) return undefined;
     if (this.turnOpener || this.splits.size > 0) return undefined;
     if (this.compactionFenceSeq !== undefined || this.retiredCompactionTurnId !== undefined) return undefined;
-    const older: EventRecord[] = [];
+    // Held records that start inside a turn: the ones before the first held turn start (`head`) fold again with the
+    // page, when no row or subagent is drawn from records on both sides of that start (`spanCut`, as a shed cuts).
+    let head = 0;
+    if (!startsTurn(this.events[0]!)) {
+      head = this.events.findIndex(startsTurn);
+      if (head <= 0) return undefined;
+      const unspanned = spanCut(this.events, head, (seq) => {
+        let from = this.rows.spanningFrom(seq);
+        for (const [id, first] of this.subagentFirstSeen)
+          if (first < seq && (this.subagentLastSeen.get(id) ?? -Infinity) >= seq) from = Math.min(from, first);
+        return from;
+      });
+      if (unspanned !== head) return undefined;
+    }
+    const older: EventRecord[] = this.events.slice(0, head);
     for (const event of page) {
       if (event.seq < tailStart) older.push(event);
       // A page record among the held ones that they do not hold changes their rows: refold them.
       else if (!holdsSeq(this.events, event.seq)) return undefined;
     }
-    if (older.length === 0) return undefined;
+    if (older.length === head) return undefined;
     older.sort((a, b) => a.seq - b.seq);
     const crossesStop = older.some(
       (event) =>
@@ -16691,8 +16714,8 @@ export class AcpmuxDirectClient {
     // The page's last turn ended (`endsTurnBefore`): next to the held records, a prompt into a running turn goes on
     // drawing its reply, and above a hole, a turn left open draws as running (its typing row) until the gap fills.
     // Only a whole refold draws those. A page above a hole ends at a turn's end (`wholeTurnsAboveHole`).
-    if (!endsTurnBefore([...older, this.events[0]!], older.length)) return undefined;
-    return older;
+    if (!endsTurnBefore([...older, this.events[head]!], older.length)) return undefined;
+    return { older, head };
   }
 
   private clearIndexedHistory(): void {
