@@ -57,7 +57,9 @@ next_batch.py). With --key, a run that another run of the key deferred to
 (a cmux-tui-tree-deferred-<key> artifact, tree-owner-wait) is not superseded:
 that run waits for its tree.
 
-Every API failure answers no: the run then does its work as before.
+Every API failure answers no: the run then does its work as before. One exception: under
+CMUX_TUI_BRANCH_ON_REQUEST (the default) an on-request branch head whose cmux-next dispatch lookup
+cannot be read is superseded, since nothing shows that anyone asked for its tree.
 
 A lane branch's head is read over git (`git ls-remote` on CMUX_TUI_REF_REMOTE,
 which the workflow sets to the repository's clone URL), not the REST API: a
@@ -226,12 +228,26 @@ def unreviewed_verdict(ref: str, sha: str) -> tuple[bool, str] | None:
             return None
     # A cmux-next dispatch on the branch (#22303) probes this exact commit's tree with no base fallback,
     # so a head some dispatch already asked about keeps its publisher.
-    status, data = api(f"actions/workflows/cmux-next.yml/runs?head_sha={sha}&event=workflow_dispatch&per_page=1")
+    path = f"actions/workflows/cmux-next.yml/runs?head_sha={sha}&event=workflow_dispatch&per_page=1"
+    branch = ref.removeprefix("refs/heads/")
+    try:
+        status, data = api(path)
+    except ApiError as error:
+        status, data = str(error), None
     if status != 200 or not isinstance(data, dict):
-        raise ApiError(f"GET cmux-next.yml dispatches of {sha}: HTTP {status}")
+        if not on_request:
+            raise ApiError(f"GET cmux-next.yml dispatches of {sha}: HTTP {status}")
+        # ON-REQUEST-FAILS-CLOSED (ci-min-14): an unread lookup no longer keeps the run. With every token
+        # rate-limited this answered 403 and "could not tell" built three targets nobody asked for: on
+        # 11-24 10Z..11-25 10Z (build controller timing feed) 71 plain-branch pushes built a tree, about
+        # 7,570 runner-min of the workflow's 19,400 push min, and all 3 preflight logs read said "HTTP 403;
+        # keeping the run". A dispatch that came after this push's preflight is already the usual case:
+        # it finds no tree, and a dispatch of this workflow on the branch (the hot verify rust look's) builds it.
+        return True, (f"{sha[:12]} ({branch}) is built on request only, and the cmux-next dispatch lookup "
+                      f"could not be read (HTTP {status}), so nothing shows a request. To publish this tree, "
+                      "dispatch cmux-tui-artifacts.yml on the branch or add the trailer Cmux-Daemon-Tests: run")
     if data.get("total_count") or data.get("workflow_runs"):
         return None
-    branch = ref.removeprefix("refs/heads/")
     if on_request:
         return True, (f"{sha[:12]} ({branch}) is built on request only: nobody asked for its tree. "
                       "A pull request's same-tree checks use its merge tree or the base tree, and a hot verify "
@@ -314,7 +330,15 @@ def verdict(event: str, ref: str, sha: str, key: str, run_id: str,
         # A moved branch is superseded whatever its pull requests say, so its
         # head (a free git read) goes first and the API lookups only follow
         # for a current head or a deleted branch.
-        stale, reason = lane_verdict(ref, sha)
+        try:
+            stale, reason = lane_verdict(ref, sha)
+        except ApiError:
+            # ON-REQUEST-FAILS-CLOSED: under build on request a current head builds only when asked, so an
+            # unread branch head (git ls-remote timed out: run 139495154136, 11-25 20:37Z, built its three
+            # targets) leaves the request lookup below to decide. The open-pull-request rule fails open.
+            if os.environ.get("CMUX_TUI_BRANCH_ON_REQUEST", "1") == "0":
+                raise
+            stale, reason = False, "the branch head could not be read"
         if not stale:
             unreviewed = unreviewed_verdict(ref, sha)
             if unreviewed is not None:

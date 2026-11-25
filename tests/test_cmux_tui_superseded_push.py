@@ -256,9 +256,32 @@ def check_verdicts():
              {pulls_path: (200, []), dispatch_path: no_dispatch,
               "git/ref/heads/release-next": (200, {"object": {"sha": head}})}, "false"),
         ]
+        # ON-REQUEST-FAILS-CLOSED (ci-min-14): under build on request (the default) a head whose cmux-next
+        # dispatch lookup cannot be read is superseded; these cases describe the open-pull-request rule
+        # that vars.CMUX_TUI_BRANCH_ON_REQUEST=0 restores, where a failed lookup still keeps the run.
+        open_pull_rule = {"a lane/ push runs when the dispatch lookup fails", "a lane/ push runs when the API fails", "a lane/ head an open pull request has runs",
+                          "a lane/ push runs when the pull request lookup fails",
+                          "a rust-migration/ head an open pull request has runs"}
+        cases += [
+            ("an on-request lane/ head is superseded when the dispatch lookup is rate-limited", "push",
+             "refs/heads/lane/x", head, {dispatch_path: (403, {"message": "rate limited"}),
+                                         "git/ref/heads/lane/x": (200, {"object": {"sha": head}})}, "true"),
+            ("an on-request bare branch head is superseded when the dispatch lookup fails", "push",
+             "refs/heads/some-lane", head, {dispatch_path: (502, {}),
+                                            "git/ref/heads/some-lane": (200, {"object": {"sha": head}})}, "true"),
+            ("an on-request head is superseded when neither its branch head nor its dispatches can be read", "push",
+             "refs/heads/some-lane", head, {"git/ref/heads/some-lane": (500, {}), dispatch_path: (403, {})}, "true"),
+            ("an on-request head whose branch head cannot be read runs when a dispatch asked for it", "push",
+             "refs/heads/some-lane", head, {"git/ref/heads/some-lane": (500, {}),
+                                            dispatch_path: (200, {"total_count": 1, "workflow_runs": [{"id": 9}]})}, "false"),
+            ("an on-request head a cmux-next dispatch asked for still runs", "push", "refs/heads/some-lane", head,
+             {dispatch_path: (200, {"total_count": 1, "workflow_runs": [{"id": 9}]}),
+              "git/ref/heads/some-lane": (200, {"object": {"sha": head}})}, "false"),
+        ]
         for why, event, ref, sha, routes, want in cases:
             api.reset(routes)
-            got = run_check(api, repo, script, event, ref, sha)
+            extra = {"CMUX_TUI_BRANCH_ON_REQUEST": "0"} if why in open_pull_rule else None
+            got = run_check(api, repo, script, event, ref, sha, extra)
             _check(got == want, f"tree-preflight: {why} ({got!r}, want {want!r})")
             if ref == "refs/heads/main" or event != "push":
                 _check(api.requests == [], f"tree-preflight: {why} without asking the API ({api.requests})")
@@ -377,7 +400,9 @@ def check_verdicts():
                 else:
                     subprocess.run(["git", "-C", remote, "update-ref", "-d", "refs/pull/7/head"], check=False)
                 api.reset(routes)
-                got = run_check(api, repo, script, "push", ref, head, over_git)
+                # The open-pull-request rule (refs/pull/N/head over git) is the CMUX_TUI_BRANCH_ON_REQUEST=0 mode.
+                got = run_check(api, repo, script, "push", ref, head,
+                                dict(over_git, CMUX_TUI_BRANCH_ON_REQUEST="0") if pull_head == head else over_git)
                 _check(got == want, f"over git: {why} ({got!r}, want {want!r})")
                 paths = [r.split("?")[0].removeprefix(f"/repos/{REPO}/") for r in api.requests]
                 _check(paths == asked, f"over git: {why} asks exactly {asked} ({paths})")
@@ -482,7 +507,8 @@ def check_wiring():
     _check((owner_wait.get("environment") or {}).get("name") == "ci-routing-agent",
            "owner-wait's protected routing token stays in its environment")
     for name in ("darwin-fallback-plan", "cmux-next-daemon-tests"):
-        _check("environment" not in all_jobs[name], f"{name} has no unused routing environment")
+        # The daemon tests' feat-cmux-next cache-writer environment (next-cache-writer) is not a routing one.
+        _check("ci-routing-agent" not in str(all_jobs[name].get("environment", "")), f"{name} has no unused routing environment")
 
     daemon = all_jobs["cmux-next-daemon-tests"]
     steps = daemon["steps"]
