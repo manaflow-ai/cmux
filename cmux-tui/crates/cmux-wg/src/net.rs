@@ -456,6 +456,9 @@ const HANDSHAKE_SAMPLE_MAX: Duration = Duration::from_secs(5);
 fn note_answered(responded_at: &mut Option<Instant>, handshake_rtt: &mut Option<Duration>) {
     if let Some(at) = responded_at.take() {
         let rtt = Instant::now().saturating_duration_since(at);
+        if std::env::var_os("CMUX_WG_RTO_TRACE").is_some() {
+            eprintln!("cmux-wg rto-trace: answered handshake timed at {rtt:?}");
+        }
         if rtt < HANDSHAKE_SAMPLE_MAX {
             *handshake_rtt = Some(rtt);
         }
@@ -838,6 +841,17 @@ impl Driver {
             self.stack.path_changed();
         }
         let path_rtt = self.path_rtt();
+        if std::env::var_os("CMUX_WG_RTO_TRACE").is_some() {
+            let rto = crate::tcp_stack::rto_for_path(path_rtt);
+            if rto != self.stack.initial_rto() {
+                eprintln!(
+                    "cmux-wg rto-trace: initial rto {rto:?} (pacer srtt {:?}, handshake rtt {:?}, session {})",
+                    self.pacer.srtt(),
+                    self.handshake_rtt,
+                    self.tunn.time_since_last_handshake().is_some()
+                );
+            }
+        }
         self.stack.set_path_rtt(path_rtt);
         self.release_held_connects();
         loop {
@@ -946,6 +960,12 @@ impl Driver {
     /// completed or answered, `output` being what this side sent back.
     fn time_handshake(&mut self, input: DatagramClass, output: DatagramClass) {
         let now = Instant::now();
+        if std::env::var_os("CMUX_WG_RTO_TRACE").is_some() {
+            eprintln!(
+                "cmux-wg rto-trace: handshake in {input:?} out {output:?}, since own initiation {:?}",
+                self.initiated_at.map(|at| now.saturating_duration_since(at))
+            );
+        }
         if input == DatagramClass::WireGuardResponse {
             let rtt = self.initiated_at.map(|at| now.saturating_duration_since(at));
             if let Some(rtt) = rtt.filter(|rtt| *rtt < HANDSHAKE_SAMPLE_MAX) {
@@ -988,6 +1008,13 @@ impl Driver {
     ) {
         if reply.is_closed() {
             return;
+        }
+        if std::env::var_os("CMUX_WG_RTO_TRACE").is_some() {
+            eprintln!(
+                "cmux-wg rto-trace: connect to {remote}: session {}, initial rto {:?}",
+                self.tunn.time_since_last_handshake().is_some(),
+                self.stack.initial_rto()
+            );
         }
         if self.tunn.time_since_last_handshake().is_none() {
             self.held_connects.push(HeldConnect { remote, reply, since: Instant::now() });

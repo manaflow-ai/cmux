@@ -300,6 +300,11 @@ impl TcpStack {
     /// start with [`rto_for_path`] of it. A socket that already has an RTT
     /// sample, or backed off, keeps its own; one waiting on a segment sent
     /// before keeps that segment's deadline.
+    /// The RTO new sockets start with (trace only).
+    pub(crate) fn initial_rto(&self) -> Duration {
+        self.initial_rto
+    }
+
     pub(crate) fn set_path_rtt(&mut self, rtt: Option<Duration>) {
         let rto = rto_for_path(rtt);
         if rto == self.initial_rto {
