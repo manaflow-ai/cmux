@@ -310,8 +310,10 @@ impl<X: HostRunner> PodSlots<X> {
             &argv(&[
                 "sh",
                 "-c",
-                // The root is the pod's HOME: owner-only, or its acpmux refuses its state dir.
-                "mkdir -p -- \"$1\" \"$(dirname -- \"$2\")\" && chmod 0700 -- \"$1\" && cat > \"$2\"",
+                // The root is the pod's HOME. It and the pods dir are owner-only, or the pod's
+                // acpmux refuses a writable ancestor of its state dir.
+                "mkdir -p -- \"$1\" \"$(dirname -- \"$2\")\" \\
+                 && chmod 0700 -- \"$(dirname -- \"$1\")\" \"$1\" && cat > \"$2\"",
                 "sh",
                 &self.root(slot),
                 &self.meta(slot),
@@ -517,7 +519,7 @@ mod tests {
     }
 
     #[test]
-    fn create_makes_the_root_owner_only_whatever_the_umask() {
+    fn create_makes_the_root_and_pods_dir_owner_only_whatever_the_umask() {
         use std::os::unix::fs::PermissionsExt as _;
         // Without the chmod, mkdir gives the host's umask (002 on our VMs: drwxrwxr-x),
         // and the pod's acpmux refuses a writable ancestor of its state dir.
@@ -525,9 +527,10 @@ mod tests {
         let pods = PodSlots::new(RealFs, dir.to_str().unwrap());
         let size = SlotSize { vcpus: 1, memory_mib: 256 };
         assert_eq!(pods.create(&slot("a"), size).unwrap(), SlotState::Running);
-        let mode = std::fs::metadata(dir.join("a")).unwrap().permissions().mode() & 0o777;
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        let (root, pods_dir) = (mode(&dir.join("a")), mode(&dir));
         std::fs::remove_dir_all(&dir).unwrap();
-        assert_eq!(mode, 0o700, "{mode:o}");
+        assert_eq!((root, pods_dir), (0o700, 0o700), "{root:o} {pods_dir:o}");
     }
 
     #[test]

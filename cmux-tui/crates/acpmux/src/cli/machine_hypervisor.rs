@@ -23,6 +23,16 @@ fn state_dir(opts: &HypervisorOpts) -> PathBuf {
     opts.state_dir.clone().unwrap_or_else(|| crate::config::home().join("hypervisor"))
 }
 
+/// The state dir, made owner-only whatever the umask (an existing wider one is refused, as
+/// acpmux refuses any): it holds the leases and the spool, and a pod's `HOME` under it boots
+/// an acpmux daemon that refuses a writable ancestor.
+fn private_state_dir(opts: &HypervisorOpts) -> Result<PathBuf> {
+    let dir = state_dir(opts);
+    crate::owner_only::private_dir(&dir)
+        .with_context(|| format!("make the state dir {} owner-only", dir.display()))?;
+    Ok(dir)
+}
+
 fn libvirt(opts: &HypervisorOpts) -> LibvirtConfig {
     let mut config = LibvirtConfig::new(state_dir(opts).join("images"));
     config.connect = opts.connect.clone();
@@ -54,7 +64,7 @@ pub async fn run(cmd: HypervisorCmd, json_out: bool) -> Result<()> {
 fn run_blocking(cmd: HypervisorCmd, json_out: bool) -> Result<()> {
     match cmd {
         HypervisorCmd::Serve { opts, base_image, network, template, interval_secs, once } => {
-            let dir = state_dir(&opts);
+            let dir = private_state_dir(&opts)?;
             let mut config = libvirt(&opts);
             config.base_image = base_image;
             config.network = network;
@@ -94,8 +104,8 @@ fn run_blocking(cmd: HypervisorCmd, json_out: bool) -> Result<()> {
             std::io::stdin().read_to_string(&mut text)?;
             let command: Command =
                 serde_json::from_str(&text).context("parse the command on stdin")?;
-            let env =
-                SpoolSource::new(state_dir(&opts).join("spool")).submit(command, id, now_ms())?;
+            let dir = private_state_dir(&opts)?;
+            let env = SpoolSource::new(dir.join("spool")).submit(command, id, now_ms())?;
             if json_out {
                 print_json(&serde_json::to_value(&env)?);
             } else {
@@ -104,7 +114,7 @@ fn run_blocking(cmd: HypervisorCmd, json_out: bool) -> Result<()> {
             Ok(())
         }
         HypervisorCmd::Ls { opts } => {
-            let dir = state_dir(&opts);
+            let dir = private_state_dir(&opts)?;
             let driver = driver(&opts, libvirt(&opts));
             let book = crate::hypervisor::lease::LeaseBook::load(&dir.join("leases.json"))?;
             let slots = driver.list()?;
@@ -131,5 +141,40 @@ fn run_blocking(cmd: HypervisorCmd, json_out: bool) -> Result<()> {
             }
             Ok(())
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt as _;
+
+    fn opts(dir: &std::path::Path) -> HypervisorOpts {
+        HypervisorOpts {
+            state_dir: Some(dir.to_path_buf()),
+            connect: None,
+            driver: HypervisorDriverKind::Pods,
+            pods_dir: None,
+            pod_init: None,
+            pod_init_args: Vec::new(),
+            pod_env: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn the_state_dir_is_made_owner_only_and_a_wider_one_is_refused() {
+        // A pod's HOME sits under the state dir; its acpmux daemon refuses a writable ancestor,
+        // so a state dir made under umask 002 (drwxrwxr-x) left every pod's init dead.
+        let base = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(base.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let dir = base.path().join("hypervisor");
+        assert_eq!(private_state_dir(&opts(&dir)).unwrap(), dir);
+        let mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700, "{mode:o}");
+
+        let wide = base.path().join("wide");
+        std::fs::create_dir(&wide).unwrap();
+        std::fs::set_permissions(&wide, std::fs::Permissions::from_mode(0o775)).unwrap();
+        assert!(private_state_dir(&opts(&wide)).is_err());
     }
 }
