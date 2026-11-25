@@ -200,6 +200,14 @@ fn a_broker_pr_create_tool_counts_the_url_its_answer_names() {
         "rawOutput": {"output": "{\"ok\": true, \"data\": {\"html_url\": \"https://github.com/o/r/pull/8\"}}"}});
     assert_eq!(track(&mut calls, &codex).as_deref(), Some("https://github.com/o/r/pull/8"));
     assert!(calls.is_empty());
+
+    // The repository MCP helper opens the PR itself and returns the same structured URL.
+    let publish = json!({"toolCallId": "p1", "title": "mcp__repo__repo_publish",
+        "rawInput": {"repo": "o/r", "branch": "lane/x"}});
+    let published = json!({"toolCallId": "p1", "status": "completed",
+        "content": [{"type": "text", "text": "{\"data\":{\"html_url\":\"https://github.com/o/r/pull/9\"}}"}]});
+    assert_eq!(track(&mut calls, &publish), None);
+    assert_eq!(track(&mut calls, &published).as_deref(), Some("https://github.com/o/r/pull/9"));
 }
 
 #[test]

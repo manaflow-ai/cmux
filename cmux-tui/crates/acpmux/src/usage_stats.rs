@@ -138,6 +138,7 @@ impl Source {
 struct Bucket {
     tokens: u64,
     by_model: BTreeMap<String, u64>,
+    cache_read_by_model: BTreeMap<String, u64>,
     cost_usd: f64,
     priced: bool,
     compactions: u64,
@@ -278,7 +279,9 @@ impl Tracker {
         let known = |n: u64| self.complete.then_some(n);
         let (mut day, mut hour_spawns, mut priced) = (Bucket::default(), 0_u64, false);
         let mut hourly = BTreeMap::<String, u64>::new();
+        let mut cache_read_hourly = BTreeMap::<String, u64>::new();
         let mut previous_hour = BTreeMap::<String, u64>::new();
+        let mut cache_read_previous_hour = BTreeMap::<String, u64>::new();
         let hour_start = now - now % HOUR_MS;
         let previous = hour_start.saturating_sub(HOUR_MS)..hour_start;
         for (minute, b) in &self.minutes {
@@ -295,12 +298,17 @@ impl Tracker {
             if rolling {
                 hour_spawns = hour_spawns.saturating_add(b.spawns);
             }
-            for (included, totals) in
-                [(rolling, &mut hourly), (previous.contains(minute), &mut previous_hour)]
-            {
+            for (included, totals, cache_read_totals) in [
+                (rolling, &mut hourly, &mut cache_read_hourly),
+                (previous.contains(minute), &mut previous_hour, &mut cache_read_previous_hour),
+            ] {
                 if included {
                     for (model, tokens) in &b.by_model {
                         let total = totals.entry(model.clone()).or_default();
+                        *total = total.saturating_add(*tokens);
+                    }
+                    for (model, tokens) in &b.cache_read_by_model {
+                        let total = cache_read_totals.entry(model.clone()).or_default();
                         *total = total.saturating_add(*tokens);
                     }
                 }
@@ -322,7 +330,11 @@ impl Tracker {
             subagents24h: known(day.spawns),
             tokens24h: known(day.tokens),
             tokens_by_model1h: self.complete.then_some(hourly),
+            cache_read_by_model1h: self.complete.then_some(cache_read_hourly),
             tokens_by_model_previous_utc_hour: self.complete.then_some(previous_hour),
+            cache_read_by_model_previous_utc_hour: self
+                .complete
+                .then_some(cache_read_previous_hour),
             // Rounded to the cent's hundredth: a sum of list prices, not a bill.
             cost_usd24h: (self.complete && priced)
                 .then(|| (day.cost_usd * 10_000.0).round() / 10_000.0),
@@ -434,11 +446,11 @@ impl Tracker {
                 let cost = models.prices(&model).map(|p| t.cost(&p));
                 if let Some(b) = self.bucket(at, now) {
                     b.tokens = b.tokens.saturating_add(t.total);
-                    let total = b
-                        .by_model
-                        .entry(if model.is_empty() { "unknown".into() } else { model })
-                        .or_default();
+                    let model_key = if model.is_empty() { "unknown".into() } else { model };
+                    let total = b.by_model.entry(model_key.clone()).or_default();
                     *total = total.saturating_add(t.total);
+                    let cache_read = b.cache_read_by_model.entry(model_key).or_default();
+                    *cache_read = cache_read.saturating_add(t.cache_read);
                     b.calls = b.calls.saturating_add(1);
                     b.prompt_read = b.prompt_read.saturating_add(t.cache_read);
                     b.prompt_rest =

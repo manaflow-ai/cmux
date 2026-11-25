@@ -221,10 +221,16 @@ fn is_filter(command: &str) -> bool {
     matches!(command.split_whitespace().next(), Some("tail" | "head" | "tee" | "cat"))
 }
 
-/// A tool that opens a pull request through the lane VM broker: `mcp__github__pr_create` (Claude
-/// Code's name for an MCP tool), `github.pr_create` or a bare `pr_create`.
+/// A tool that opens a pull request through a broker or repository helper. GitHub's
+/// `pr_create` names and repo MCP's `repo_publish` both return the created URL in their
+/// structured result, so they can be joined to the session without scraping chat text.
 fn is_pr_create_tool(name: &str) -> bool {
-    name == "pr_create" || name.ends_with("__pr_create") || name.ends_with(".pr_create")
+    name == "pr_create"
+        || name.ends_with("__pr_create")
+        || name.ends_with(".pr_create")
+        || name == "repo_publish"
+        || name.ends_with("__repo_publish")
+        || name.ends_with(".repo_publish")
 }
 
 /// A tool that starts a background command (acpmux's `bg_start`), whose output arrives later.
