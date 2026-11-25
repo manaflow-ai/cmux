@@ -628,7 +628,9 @@ run = '''
 base="$(git rev-parse -q --verify 'HEAD^1')"
 bash scripts/ci/fetch-complexity-base.sh "$base"
 cd web
-bash ../scripts/ci/bun-install.sh --frozen-lockfile
+# Under the job's install lock like every other step: web-typecheck installs into this same web/node_modules
+# at the same time, and two unlocked installs there left it half-written (next/navigation missing, #55938).
+flock "$CI_TOOLS/bun-install.lock" bash ../scripts/ci/bun-install.sh --frozen-lockfile
 ./node_modules/.bin/oxlint --config .oxlintrc.json --print-config app/page.tsx >/dev/null
 bun run lint:complexity -- --base "$base" --head "$(git rev-parse HEAD)"
 '''
@@ -1655,10 +1657,25 @@ inputs = [
   "scripts/ci/cmux-tui-test-target.sh",
   "scripts/ci/r2-cache.sh",
   "scripts/blacksmith-testbox-source-mtimes.py",
+  "scripts/ci/crate_results.py",
   "ghostty-next",
 ]
 run = '''
 cd cmux-tui
+# Each crate's tests are reused when its own inputs (its files, its path dependencies' files, what its sources name
+# outside it, Cargo.lock, the toolchain) passed before anywhere in the fleet: scripts/ci/crate_results.py. Only the
+# crates that missed run; when none did, nothing is installed, restored or compiled.
+# It prints REUSED_ALL for that; any other failure (no output) runs every crate.
+crates="$(mktemp /tmp/cmux-next-crates.XXXXXX.json)"
+all_members="$(../scripts/ci/cmux-next-daemon-test-packages.sh)"
+plan="$(python3 ../scripts/ci/crate_results.py plan "$crates" -- $all_members || true)"
+if [ "$plan" = REUSED_ALL ]; then
+  echo "cmux_next_ test members: every one reused; nothing to run"
+  rm -f "$crates"
+  exit 0
+fi
+[ -n "$plan" ] || plan="$all_members"
+read -r -a members <<<"$plan"
 channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
 rustup toolchain install "$channel" --profile minimal --component clippy,rustfmt
 # The build env cmux-tui-artifacts.yml's feat-cmux-next push job tests with, so its saved target is fresh here: no
@@ -1671,7 +1688,6 @@ unset CMUX_ZIG ZIG
 home="$(mktemp -d /tmp/acpmux-home.XXXXXX)"
 export ACPMUX_HOME="$home" ACPMUX_SOCKET=""
 log="$(mktemp /tmp/cmux-next-tests.XXXXXX.txt)"
-read -r -a members <<<"$(../scripts/ci/cmux-next-daemon-test-packages.sh)"
 echo "cmux_next_ test members: ${members[*]}"
 status=1
 for attempt in 1 2 3; do
@@ -1695,6 +1711,8 @@ done
 acpmux="$(command -v acpmux || true)"
 [ -z "$acpmux" ] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
 rm -rf "$home" "$log"
+[ "$status" -ne 0 ] || python3 ../scripts/ci/crate_results.py post "$crates" || true
+rm -f "$crates"
 exit "$status"
 '''
 
@@ -1772,7 +1790,7 @@ job = "ios"
 alone = true
 timeout = 3600
 title = "CmuxMobileKit tests (macOS swift test, iOS simulator)"
-about = "builds CmuxMobileLinkFFI.xcframework (and checks the checked-in bindings match), runs the kit's swift test on macOS, then its tests on an iOS 26 iPhone simulator"
+about = "takes CmuxMobileLinkFFI.xcframework from the build fleet or builds it (and checks the checked-in bindings match), runs the kit's swift test on macOS, then its tests on an iOS 26 iPhone simulator"
 # The kit and every local package it links (scripts/ci/ios_app_package_paths.py --check keeps the list exact), and
 # its toolchain. A change to only notes or cmux-next-ios/verify/ evidence builds nothing new (cmux#43251 took a
 # simulator Mac for SECURITY.md and verify/parity-mac.md). A note under a package's Resources/ ships in the bundle,
@@ -1806,6 +1824,7 @@ inputs = [
   ".xcode-version",
   "scripts/ci/ios_app_package_paths.py",
   "scripts/ci/ios_link_ffi_key.py",
+  "scripts/ci/ios_link_ffi.sh",
   "scripts/ci/ios_sim_udid.py",
   ".github/actions/setup-cmux-tui-rust/**",
   ".github/actions/runner-cargo-home/**",
@@ -1823,9 +1842,10 @@ ignore = ["cmux-next-ios/verify/**", "**/*.md", "!cmux-next-ios/verify/agent-cli
 needs = ["rust"]
 run = '''
 (cd cmux-next-ios/rust && rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal)
-JOBS=8 bash cmux-next-ios/rust/scripts/build-xcframework.sh
-# The xcframework and target/ are gitignored; the script rewrites the bindings and restores Cargo.lock, so any
-# tracked change is drift.
+# The build fleet's copy of the head when it has one for these inputs, else this Mac builds it (a logged Mac fallback).
+bash scripts/ci/ios_link_ffi.sh 8
+# The xcframework and target/ are gitignored; a Mac build rewrites the bindings and restores Cargo.lock, so any
+# tracked change is drift (the fleet's build passes only when its bindings match the checked-in ones).
 if ! git diff --exit-code -- cmux-next-ios/; then
   echo "::error::build-xcframework.sh changed tracked files (CmuxMobileLinkFFI.swift or Cargo.lock); run it and commit the result"
   exit 1
@@ -1892,13 +1912,16 @@ inputs = [
   "cmux-tui/vendor/smoltcp/**",
   "scripts/ci/ios_reliability_matrix.py",
   "scripts/ci/ios_sim_udid.py",
+  "scripts/ci/ios_link_ffi.sh",
+  "scripts/ci/ios_link_ffi_key.py",
 ]
 run = '''
 out="${RUNNER_TEMP:-$CI_TOOLS}/matrix"
 mkdir -p "$out"
 (cd cmux-next-ios/rust && rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal)
-# Incremental after the kit's build on this checkout; the whole build when the kit was not routed.
-JOBS=4 bash cmux-next-ios/rust/scripts/build-xcframework.sh
+# The kit's copy when it took the fleet's; else the fleet's, else incremental after the kit's build on this
+# checkout, or the whole build when the kit was not routed.
+bash scripts/ci/ios_link_ffi.sh 4
 udid="$(python3 -I scripts/ci/ios_sim_udid.py)"
 # Not -quiet: the report reads each test's result and its MATRIX lines.
 (cd cmux-next-ios/CmuxMobileKit && xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" \
