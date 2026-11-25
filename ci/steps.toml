@@ -1572,8 +1572,8 @@ done
 exit "$status"
 '''
 
-# Leo, 2026-11-25: "layout shifts and awkward looking animations". The chat's send, thinking, compaction and
-# reload flows, each held to a layout-shift budget in Chromium and WebKit (the gallery's box tracker judges every
+# Leo, 2026-11-25: "layout shifts and awkward looking animations". The chat's send, thinking, compaction,
+# steer-during-compaction, background-task and reload flows, each held to a layout-shift budget in Chromium and WebKit (the gallery's box tracker judges every
 # frame), with a planted 24 px jump per flow that must break it. The pane runs on the papercut stand-in daemon, so
 # no acpmux build. Alone: its WebKit install takes apt's lock, as agent-pane-real-acpmux's does.
 [step.chat-flow-shift-budget]
@@ -1581,7 +1581,7 @@ job = "web-browser"
 timeout = 900
 alone = true
 title = "Chat flow layout-shift budget"
-about = "the chat's send, thinking, compaction and reload flows held to a layout-shift budget (test/chat-flow-shift-budget-browser.test.ts)"
+about = "the chat's send, thinking, compaction, steer-during-compaction, background-task and reload flows held to a layout-shift budget (test/chat-flow-shift-budget-browser.test.ts)"
 needs = ["bun", "node"]
 inputs = [
   "webviews/**",

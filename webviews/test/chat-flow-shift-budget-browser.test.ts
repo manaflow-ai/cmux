@@ -1,11 +1,16 @@
 // cmux-web-test-timeout: 900
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // The chat's layout-shift budget, flow by flow (Leo, 2026-11-25: "layout shifts and awkward looking
-// animations"). Four flows a person runs every day each get a budget the transcript and the composer
+// animations"). Six flows a person runs every day each get a budget the transcript and the composer
 // must stay inside, judged on every painted frame:
 //   send        type a prompt, Return, the reply streams in and the turn ends;
 //   thinking    a turn that thinks first (a live thinking row), then answers;
 //   compaction  /compact: a compaction row runs, finishes and its summary lands;
+//   compaction-steer  /compact, and a prompt sent while it runs: the compaction folds, then the next
+//               turn's Working for and Thinking take its place (Leo, 2026-11-25: "the worked for
+//               collapsing the compaction and then the next worked for + thinking is weird");
+//   background  a turn starts a background shell, answers and ends; the shell's end lands on the
+//               idle chat afterwards;
 //   reload      the page reloads onto the same chat: from its first frame nothing drawn moves, and
 //               the composer and the newest row come back where they were.
 // The check is the gallery's box tracker (src/gallery/shift.ts) judged by followJudge.ts, the same one
@@ -34,13 +39,16 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 /// The composer's box, judged by where it paints.
 const COMPOSER = `${MAIN_DOCK} .acpmux-composer-box`;
 
-export type FlowName = "send" | "thinking" | "compaction" | "reload";
+export type FlowName = "send" | "thinking" | "compaction" | "compaction-steer" | "background" | "reload";
+export const FLOWS: FlowName[] = ["send", "thinking", "compaction", "compaction-steer", "background", "reload"];
 /// Per flow: the worst stray move (px), the composer's move over a step (px) and Chromium's
 /// layout-shift score. A budget only comes down: a fix that lowers a flow's number lowers its row.
 export const BUDGET: Record<FlowName, { stray: number; composer: number; cls: number }> = {
   send: { stray: 1, composer: 1, cls: 0.01 },
   thinking: { stray: 1, composer: 1, cls: 0.01 },
   compaction: { stray: 1, composer: 1, cls: 0.01 },
+  "compaction-steer": { stray: 1, composer: 1, cls: 0.01 },
+  background: { stray: 1, composer: 1, cls: 0.01 },
   reload: { stray: 1, composer: 1, cls: 0.01 },
 };
 /// Where base already shifts, the measured worst stands until a fix lowers it (a ratchet, per engine).
@@ -57,7 +65,13 @@ export type StepReport = {
   step: string;
   /** The worst stray move in the step (px), and the first few, labelled. */
   stray: number;
-  strays: { label: string; dy: number; dx: number; follow: number; frame: number }[];
+  strays: {
+    label: string;
+    dy: number;
+    dx: number;
+    follow: number;
+    frame: number;
+  }[];
   /** How far the composer's bottom moved from the step's start to its end (px). */
   composer: number;
   /** Chromium's layout-shift entries over the step (no recent input), summed; null in WebKit. */
@@ -102,8 +116,16 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
     method: "session/update",
     params: { sessionId: "agent-1", update: body },
   });
-  const chunk = (text: string) => update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } });
-  const thought = (text: string) => update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text } });
+  const chunk = (text: string) =>
+    update({
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text },
+    });
+  const thought = (text: string) =>
+    update({
+      sessionUpdate: "agent_thought_chunk",
+      content: { type: "text", text },
+    });
   const words = (text: string) => text.split(/(?<= )/);
 
   type Pane = Awaited<ReturnType<typeof papercutPane>>;
@@ -140,9 +162,23 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
     send: "Only the queue needs the cap.",
     thinking: "asks the link for the current one",
     compaction: "/compact",
+    "compaction-steer": "The cap now lives in one place.",
+    background: "The dev server is up on port 5173.",
   };
   /// Text a step must show once it settles: the live row the flow is about, before its turn folds it away.
-  const SHOWS: Record<string, RegExp> = { thinking: /Thinking/, "compaction runs": /Compacting/ };
+  const SHOWS: Record<string, RegExp> = {
+    thinking: /Thinking/,
+    "compaction runs": /Compacting/,
+    "next thinking": /Thinking/,
+  };
+  /// A background shell: the tool call that starts it, its result, and acpmux's task row going running.
+  const BG = {
+    taskId: "bg-call-flow",
+    toolCallId: "call-flow-bg",
+    command: "bun run dev",
+    description: "bun run dev",
+    origin: "bash",
+  };
   const flows = (turn: string): Record<Exclude<FlowName, "reload">, [string, Play][]> => ({
     send: [
       ["send", send(`Which retry loops sleep a fixed time? (${turn})`, turn)],
@@ -187,14 +223,27 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
       [
         "compaction runs",
         async (pane) =>
-          pane.record("compaction", update({ sessionUpdate: "compaction", state: "running", reason: "manual" }), "in"),
+          pane.record(
+            "compaction",
+            update({
+              sessionUpdate: "compaction",
+              state: "running",
+              reason: "manual",
+            }),
+            "in",
+          ),
       ],
       [
         "compaction ends",
         async (pane) =>
           pane.record(
             "compaction",
-            update({ sessionUpdate: "compaction", state: "completed", reason: "manual", tokensBefore: 182000 }),
+            update({
+              sessionUpdate: "compaction",
+              state: "completed",
+              reason: "manual",
+              tokensBefore: 182000,
+            }),
             "in",
           ),
       ],
@@ -203,11 +252,143 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
         async (pane) =>
           pane.record(
             "compaction_summary",
-            update({ sessionUpdate: "compaction_summary", text: `Summary (${turn}): retry caps, upload queue.` }),
+            update({
+              sessionUpdate: "compaction_summary",
+              text: `Summary (${turn}): retry caps, upload queue.`,
+            }),
             "in",
           ),
       ],
       ["turn ends", ends],
+    ],
+    "compaction-steer": [
+      ["send", send("/compact", turn)],
+      [
+        "compaction runs",
+        async (pane) =>
+          pane.record(
+            "compaction",
+            update({
+              sessionUpdate: "compaction",
+              state: "running",
+              reason: "manual",
+            }),
+            "in",
+          ),
+      ],
+      // Typed and sent while the compaction runs: it waits for the compaction's turn to end.
+      ["steer during compaction", send(`Now move the retry cap into one place. (${turn})`, `${turn}-next`)],
+      [
+        "compaction ends",
+        async (pane) => {
+          pane.record(
+            "compaction",
+            update({
+              sessionUpdate: "compaction",
+              state: "completed",
+              reason: "manual",
+              tokensBefore: 182000,
+            }),
+            "in",
+          );
+          pane.record(
+            "compaction_summary",
+            update({
+              sessionUpdate: "compaction_summary",
+              text: `Summary (${turn}): retry caps, upload queue.`,
+            }),
+            "in",
+          );
+          pane.record("turn_result", { status: "completed" });
+        },
+      ],
+      [
+        "next thinking",
+        async (pane, page) => {
+          pane.record("turn_started", {});
+          await stream(
+            thought,
+            "agent_thought_chunk",
+            words("The cap is read in three places; one constant will do. "),
+          )(pane, page);
+        },
+      ],
+      [
+        "next answer",
+        stream(chunk, "agent_message_chunk", words("The cap now lives in one place. The three callers read it.")),
+      ],
+      ["turn ends", ends],
+    ],
+    background: [
+      ["send", send(`Run the dev server and tell me when it is up. (${turn})`, turn)],
+      [
+        "background starts",
+        async (pane) => {
+          const call = {
+            toolCallId: BG.toolCallId,
+            title: BG.command,
+            kind: "execute",
+          };
+          pane.record(
+            "tool_call",
+            update({
+              sessionUpdate: "tool_call",
+              ...call,
+              status: "in_progress",
+              rawInput: {
+                command: BG.command,
+                description: BG.command,
+                run_in_background: true,
+              },
+            }),
+            "in",
+          );
+          await pause(200);
+          pane.record(
+            "tool_call_update",
+            update({
+              sessionUpdate: "tool_call_update",
+              toolCallId: BG.toolCallId,
+              status: "completed",
+              content: [
+                {
+                  type: "content",
+                  content: {
+                    type: "text",
+                    text: "Command running in background with ID: bg-1",
+                  },
+                },
+              ],
+            }),
+            "in",
+          );
+          await pause(100);
+          pane.record(
+            "background_task_update",
+            update({
+              sessionUpdate: "background_task_update",
+              ...BG,
+              state: "running",
+            }),
+            "in",
+          );
+        },
+      ],
+      ["reply", stream(chunk, "agent_message_chunk", words("The dev server is up on port 5173."))],
+      ["turn ends", ends],
+      [
+        "background ends",
+        async (pane) =>
+          pane.record(
+            "background_task_update",
+            update({
+              sessionUpdate: "background_task_update",
+              ...BG,
+              state: "completed",
+            }),
+            "in",
+          ),
+      ],
     ],
   });
 
@@ -247,12 +428,18 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
   /// Layout-shift entries from each document's start (Chromium; WebKit has none), read and cleared per step.
   const installClsRecorder = (page: Page) =>
     page.addInitScript(() => {
-      const w = window as unknown as { cmuxFlowCls: number; cmuxFlowClsLive: boolean };
+      const w = window as unknown as {
+        cmuxFlowCls: number;
+        cmuxFlowClsLive: boolean;
+      };
       w.cmuxFlowCls = 0;
       w.cmuxFlowClsLive = false;
       try {
         new PerformanceObserver((list) => {
-          for (const entry of list.getEntries() as unknown as { value: number; hadRecentInput: boolean }[])
+          for (const entry of list.getEntries() as unknown as {
+            value: number;
+            hadRecentInput: boolean;
+          }[])
             if (!entry.hadRecentInput) w.cmuxFlowCls += entry.value;
         }).observe({ type: "layout-shift", buffered: true });
         w.cmuxFlowClsLive = true;
@@ -262,7 +449,10 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
     });
   const takeCls = (page: Page) =>
     page.evaluate(() => {
-      const w = window as unknown as { cmuxFlowCls: number; cmuxFlowClsLive: boolean };
+      const w = window as unknown as {
+        cmuxFlowCls: number;
+        cmuxFlowClsLive: boolean;
+      };
       const value = w.cmuxFlowClsLive ? Math.round(w.cmuxFlowCls * 10000) / 10000 : null;
       w.cmuxFlowCls = 0;
       return value;
@@ -292,7 +482,12 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
     };
     void plant();
   };
-  const seedArgs = { px: SEED_PX, frames: 4, rowSelector: TRANSCRIPT_ROW, composer: COMPOSER };
+  const seedArgs = {
+    px: SEED_PX,
+    frames: 4,
+    rowSelector: TRANSCRIPT_ROW,
+    composer: COMPOSER,
+  };
 
   const reports: Record<string, StepReport[]> = {};
   const browsers = new Map<string, Browser>();
@@ -302,7 +497,10 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
   beforeAll(async () => {
     for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
     const first = browsers.values().next().value!;
-    pane = await papercutPane(() => current ?? first, { turns: 10, running: false });
+    pane = await papercutPane(() => current ?? first, {
+      turns: 10,
+      running: false,
+    });
   });
   afterAll(async () => {
     await pane?.close();
@@ -325,7 +523,13 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
     return {
       step,
       stray: follow.worst,
-      strays: follow.stray.slice(0, 4).map(({ label, dy, dx, follow, frame }) => ({ label, dy, dx, follow, frame })),
+      strays: follow.stray.slice(0, 4).map(({ label, dy, dx, follow, frame }) => ({
+        label,
+        dy,
+        dx,
+        follow,
+        frame,
+      })),
       composer: Math.round(Math.abs((await composerBottom(page)) - composerBefore) * 10) / 10,
       cls: await takeCls(page),
     } satisfies StepReport;
@@ -339,7 +543,12 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
       await installClsRecorder(page);
       if (flow === "reload") {
         await installBoxTrackerOnLoad(page);
-        if (seeded) await page.addInitScript(SEED, { ...seedArgs, frames: 10, once: true });
+        if (seeded)
+          await page.addInitScript(SEED, {
+            ...seedArgs,
+            frames: 10,
+            once: true,
+          });
       }
     });
     try {
@@ -364,9 +573,23 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
           stray: Math.round(Math.max(follow.worst, back) * 10) / 10,
           strays: [
             ...(back > 0.5
-              ? [{ label: "newest row's place after the reload", dy: back, dx: 0, follow: 0, frame: -1 }]
+              ? [
+                  {
+                    label: "newest row's place after the reload",
+                    dy: back,
+                    dx: 0,
+                    follow: 0,
+                    frame: -1,
+                  },
+                ]
               : []),
-            ...follow.stray.slice(0, 4).map(({ label, dy, dx, follow, frame }) => ({ label, dy, dx, follow, frame })),
+            ...follow.stray.slice(0, 4).map(({ label, dy, dx, follow, frame }) => ({
+              label,
+              dy,
+              dx,
+              follow,
+              frame,
+            })),
           ],
           composer,
           cls: await takeCls(page),
@@ -400,7 +623,7 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
 
   for (const [engine] of engines)
     describe(engine, () => {
-      for (const flow of ["send", "thinking", "compaction", "reload"] as const) {
+      for (const flow of FLOWS) {
         test(`${flow}: the transcript and the composer stay inside the flow's shift budget`, async () => {
           const budget = { ...BUDGET[flow], ...KNOWN[`${engine} ${flow}`] };
           expect(overBudget(await runFlow(engine, flow, false), budget)).toEqual([]);
