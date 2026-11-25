@@ -8,6 +8,8 @@ runs from it, so the swap is the file alone.
 
     python3 -m unittest scripts/cmux-next/tests/test_hot_apply.py
 """
+import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -517,6 +519,47 @@ class HotApplyRust(unittest.TestCase):
         self.assertIn("fetch", receipt["phases"])
         self.assertEqual(self.sha(), self.new)
 
+    def test_a_build_the_app_already_has_is_copied_not_downloaded(self):
+        # The app runs SHA's build already (a NIGHTLY of it, an apply whose cache was cleared): its own
+        # bin/ files that hash to the published sha256 seed the cache, and nothing is downloaded.
+        self.cmux.write_bytes(self.new_body)
+        app_host = self.app / "Contents/Resources/bin/cmux-app-host"
+        app_host.write_bytes(b"new host")
+        self.publish_companions({"cmux-app-host": b"new host"})
+        tree, built = self.tmp / "tree" / self.key, self.tmp / "commits" / FIX
+        (tree / self.name).unlink()
+        next(built.glob("cmux-tui-app-host-*")).unlink()
+        code, receipt, err = self.hot("prefetch", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        state = self.tmp / "state" / "builds"
+        self.assertEqual((state / self.new / "cmux").read_bytes(), self.new_body)
+        self.assertEqual((state / hashlib.sha256(b"new host").hexdigest() / "cmux-app-host").read_bytes(), b"new host")
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(receipt["unchanged"], ["rust"])
+
+    def test_an_app_file_of_other_bytes_is_no_seed(self):
+        # bin/cmux is the app's old build: the published one is downloaded, and checked.
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app), "--dry-run")
+        self.assertEqual(code, 0, err)
+        self.assertIn("fetch", receipt["phases"])
+        self.assertEqual((self.tmp / "state" / "builds" / self.new / "cmux").read_bytes(), self.new_body)
+        self.assertFalse((self.tmp / "state" / "builds" / self.old).exists())
+
+    def test_a_companion_that_does_not_hash_leaves_nothing_kept(self):
+        # The build's files download at once: one that is not its sha256 fails the run, and no copy of it stays.
+        self.publish_companions({"cmux-app-host": b"new host", "cmux-cloud": b"new cloud"})
+        built = self.tmp / "commits" / FIX
+        next(built.glob("cmux-tui-cloud-server-*")).write_bytes(b"tampered")
+        code, receipt, _ = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 1)
+        self.assertIn("does not hash to", receipt["error"])
+        self.assertEqual(self.sha(), self.old)
+        builds = self.tmp / "state" / "builds"
+        self.assertFalse((builds / hashlib.sha256(b"new cloud").hexdigest()).exists() and
+                         any((builds / hashlib.sha256(b"new cloud").hexdigest()).iterdir()))
+        self.assertEqual([p for p in builds.rglob("tmp*")], [])
+
     def test_a_completion_without_this_host_s_binary_is_not_kept(self):
         (self.tmp / "tree" / self.key / "completion.json").write_text(json.dumps({"key": self.key, "binaries": {}}))
         code, _, _ = self.hot("prefetch", FIX, "--app", str(self.app))
@@ -562,7 +605,7 @@ class HotKeys(unittest.TestCase):
         subprocess.run(["rm", "-rf", str(self.tmp)])
 
     def publish(self, sha, **changed):
-        keys = {"schema": 1, "commit": sha, "tree_key": "1" * 40, "web": "0" * 64, "web_key": "2" * 64, "web_abi": 3,
+        keys = {"schema": 2, "commit": sha, "tree_key": "1" * 40, "web": "0" * 64, "web_key": "2" * 64, "web_abi": 3,
                 "shell": "3" * 64, "ffi": "4" * 64, "helpers": "5" * 64, **changed}
         (self.tmp / "keys" / f"{sha}.json").write_text(json.dumps(keys))
 
@@ -662,6 +705,25 @@ class HotKeys(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(json.loads(done.stdout)["parts"], ["rust"])
 
+    def test_keys_sorted_by_other_rules_fall_back_to_the_diff(self):
+        # A live_apply.py rule change moves files between digests: the two records do not compare.
+        self.publish(self.base, rules="a" * 64)
+        self.publish(FIX, rules="b" * 64)
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--base", self.base, "--app", str(self.tmp / "none")],
+                              capture_output=True, text=True, env=self.env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        plan = json.loads(done.stdout)
+        self.assertNotIn("via", plan)
+        self.assertEqual(plan["parts"], ["rust"])  # cmux#37155's real diff
+        self.publish(FIX, rules="a" * 64)
+        code, plan, err = self.plan()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(plan["via"], "published keys")
+
+    def test_the_keys_name_the_rules_that_sorted_them(self):
+        hot = load_hot("hot_apply_rules_digest_under_test")
+        self.assertRegex(hot.rules_digest(), r"^[0-9a-f]{64}$")
+
     def test_equal_keys_are_a_no_op(self):
         self.publish(self.base)
         self.publish(FIX)
@@ -671,7 +733,7 @@ class HotKeys(unittest.TestCase):
 
     def test_a_missing_or_malformed_key_file_falls_back_to_the_diff(self):
         self.publish(self.base)
-        (self.tmp / "keys" / f"{FIX}.json").write_text(json.dumps({"schema": 1, "commit": FIX}))
+        (self.tmp / "keys" / f"{FIX}.json").write_text(json.dumps({"schema": 2, "commit": FIX}))
         done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--base", self.base, "--app", str(self.tmp / "none")],
                               capture_output=True, text=True, env=self.env)
         self.assertEqual(done.returncode, 0, done.stderr)
@@ -953,28 +1015,31 @@ class LiveFrom(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         return json.loads(done.stdout)
 
-    def test_a_daemon_only_commit_reaches_back_past_itself(self):
-        out = self.live_from(FIX, 3)
-        self.assertEqual(out["live_from"][0], FIX)
-        self.assertEqual(len(out["live_from"]), 3)
-        self.assertIsNone(out["floor"])  # no FFI change within the limit
-
-    def test_an_ffi_source_only_change_does_not_set_a_floor(self):
+    def test_an_ffi_source_only_change_sets_a_full_app_floor(self):
+        hot = load_hot("hot_apply_ffi_floor_under_test")
         out = self.live_from(FFI, 2)
         self.assertEqual(out["live_from"][0], FFI)
-        self.assertEqual(len(out["live_from"]), 2)
-        self.assertNotEqual(out["floor"], FFI)
+        self.assertEqual(out["live_from"], [FFI])
+        self.assertEqual(out["floor"], FFI)
+        self.assertTrue(out["floor_paths"])
+        self.assertEqual(hot.pins_daemon(ROOT, FFI), [])
 
-    def test_the_remote_viewer_ffi_source_only_change_does_not_set_a_floor(self):
+    def test_the_remote_viewer_ffi_source_only_change_sets_a_full_app_floor(self):
+        hot = load_hot("hot_apply_ffi_floor_under_test")
         out = self.live_from(FFI_SOURCE_ONLY, 1)
         self.assertEqual(out["live_from"], [FFI_SOURCE_ONLY])
-        self.assertIsNone(out["floor"])
-        self.assertEqual(out["floor_paths"], [])
+        self.assertEqual(out["floor"], FFI_SOURCE_ONLY)
+        self.assertIn("cmux-tui/crates/cmux-rd-core/src/reassembly.rs", out["floor_paths"])
+        self.assertIn("cmux-tui/crates/cmux-rd-ffi/src/tests.rs", out["floor_paths"])
+        self.assertEqual(hot.pins_daemon(ROOT, FFI_SOURCE_ONLY), [])
 
     def test_a_repin_is_the_ffi_floor(self):
         out = self.live_from(FFI_REPIN, 1)
         self.assertEqual((out["live_from"], out["floor"]), ([FFI_REPIN], FFI_REPIN))
-        self.assertEqual(out["floor_paths"], ["Packages/macOS/CmuxNext/app-ffi-pin.json"])
+        self.assertEqual(out["floor_paths"], [
+            "Packages/macOS/CmuxNext/Package.swift",
+            "Packages/macOS/CmuxNext/app-ffi-pin.json",
+        ])
 
     def test_rust_the_swift_build_reads_outside_ffi_still_sets_a_floor(self):
         hot = load_hot("hot_apply_pins_daemon_under_test")
@@ -998,6 +1063,149 @@ class LiveFrom(unittest.TestCase):
                     mock.patch.object(hot, "ffi_input", return_value=False), \
                     mock.patch.object(hot.ffi_part, "app_pin_source", return_value="same"):
                 self.assertEqual(hot.pins_daemon(Path(repo), sha), [path])
+
+
+class LiveFromWholeApp(unittest.TestCase):
+    """A bin-only live update must not claim changes it leaves in the app."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="live-from-whole-app-")
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name)
+        self.hot = load_hot("hot_apply_whole_app_under_test")
+        self.git("init", "-q")
+        self.git("config", "user.email", "t@example.com")
+        self.git("config", "user.name", "t")
+        # The app bundles this helper separately from app try's bin payload.
+        project = self.repo / "cmux.xcodeproj/project.pbxproj"
+        project.parent.mkdir(parents=True)
+        project.write_text('"$(SRCROOT)/cmux-tui"\n'
+                           '"$(SRCROOT)/cmux-tui/crates/cmux-mobile-host/src/main.rs"\n'
+                           '"$(SRCROOT)/cmux-tui/Cargo.toml"\n'
+                           '"$(SRCROOT)/cmux-tui/Cargo.lock"\n'
+                           '"$(SRCROOT)/cmux-tui/crates/cmux-git"\n'
+                           '"$(SRCROOT)/Native/DiffSidecar"\n'
+                           '"$(SRCROOT)/Native/DiffSidecar/Cargo.toml"\n'
+                           '"$(SRCROOT)/Native/DiffSidecar/Cargo.lock"\n')
+        (self.repo / "cmux-tui/crates/cmux-git").mkdir(parents=True)
+        (self.repo / "Native/DiffSidecar").mkdir(parents=True)
+        self.base = self.commit("README.md", "base\n")
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.repo), *args], check=True,
+                              capture_output=True, text=True).stdout.strip()
+
+    def commit(self, path, content):
+        target = self.repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)
+        self.git("add", ".")
+        self.git("commit", "-qm", "fixture")
+        return self.git("rev-parse", "HEAD")
+
+    def test_non_carried_layers_floor_the_published_list(self):
+        for path, content in (
+            ("Packages/macOS/CmuxNext/Sources/CmuxNextViews/Panel.swift", "struct Panel {}\n"),
+            ("Packages/macOS/CmuxNext/Resources/config.json", "{}\n"),
+            ("webviews/src/main.tsx", "export const panel = 1;\n"),
+            ("cmux-tui/frontends/web/src/main.ts", "export const panel = 1;\n"),
+        ):
+            with self.subTest(path=path):
+                native = self.commit(path, content)
+                daemon = self.commit("cmux-tui/crates/cmux-wg/src/lib.rs", native)
+                out = self.hot.live_from(self.repo, daemon, 3)
+                self.assertEqual(out["live_from"], [daemon, native])
+                self.assertEqual(out["floor"], native)
+                self.assertIn(path, out["floor_paths"])
+                self.assertEqual(self.hot.pins_daemon(self.repo, native), [])
+
+    def test_daemon_from_walks_past_the_whole_app_floor(self):
+        # The nightly-live channel swaps only the daemon: an app built before a Swift or web change can still
+        # run the newer daemon, so daemon_from goes on past live_from's floor, to the root commit here (it adds
+        # the project file, so it is the daemon floor itself).
+        native = self.commit("Packages/macOS/CmuxNext/Sources/CmuxNextViews/Panel.swift", "struct Panel {}\n")
+        daemon = self.commit("cmux-tui/crates/cmux-wg/src/lib.rs", "pub fn daemon() {}\n")
+        out = self.hot.live_from(self.repo, daemon, 3)
+        self.assertEqual((out["live_from"], out["floor"]), ([daemon, native], native))
+        self.assertEqual(out["daemon_from"], [daemon, native, self.base])
+        self.assertEqual(out["daemon_floor"], self.base)
+
+    def test_function_body_and_deleted_swift_also_need_the_full_app(self):
+        path = "Packages/macOS/CmuxNext/Sources/CmuxNextViews/Panel.swift"
+        self.commit(path, "func value() -> Int {\n    return 1\n}\n")
+        changed = self.commit(path, "func value() -> Int {\n    return 2\n}\n")
+        self.assertEqual(self.hot.live_from(self.repo, changed, 2)["live_from"], [changed])
+        self.git("rm", path)
+        self.git("commit", "-qm", "remove Swift")
+        deleted = self.git("rev-parse", "HEAD")
+        self.assertEqual(self.hot.live_from(self.repo, deleted, 2)["live_from"], [deleted])
+
+    def test_daemon_and_non_app_changes_remain_live(self):
+        daemon = self.commit("cmux-tui/crates/cmux-wg/src/lib.rs", "pub fn daemon() {}\n")
+        docs = self.commit("docs/example.md", "documentation\n")
+        self.assertEqual(self.hot.live_from(self.repo, docs, 2)["live_from"], [docs, daemon])
+
+    def test_uncarried_helper_sets_a_floor_without_changing_daemon_compatibility(self):
+        path = "cmux-tui/crates/cmux-mobile-host/src/main.rs"
+        helper = self.commit(path, "fn main() {}\n")
+        out = self.hot.live_from(self.repo, helper, 2)
+        self.assertEqual(out["live_from"], [helper])
+        self.assertIn(path, out["floor_paths"])
+        self.assertEqual(self.hot.pins_daemon(self.repo, helper), [])
+
+    def test_workspace_dependencies_can_change_separately_bundled_helpers(self):
+        for path in ("cmux-tui/Cargo.toml", "cmux-tui/Cargo.lock"):
+            with self.subTest(path=path):
+                head = self.commit(path, "# changed workspace dependency\n")
+                out = self.hot.live_from(self.repo, head, 2)
+                self.assertEqual(out["live_from"], [head])
+                self.assertIn(path, out["floor_paths"])
+
+    def test_diff_sidecar_source_floors_the_published_list(self):
+        path = "Native/DiffSidecar/src/lib.rs"
+        head = self.commit(path, "pub fn diff() {}\n")
+        out = self.hot.live_from(self.repo, head, 2)
+        self.assertEqual((out["live_from"], out["floor"]), ([head], head))
+        self.assertIn(path, out["floor_paths"])
+
+    def test_a_script_the_app_bundles_floors_the_published_list(self):
+        project = self.repo / "cmux.xcodeproj/project.pbxproj"
+        project.write_text(project.read_text() + '"$(SRCROOT)/scripts/cmux-next/cmux-code-mode-runner",\n')
+        self.git("commit", "-qam", "bundle the runner")
+        path = "scripts/cmux-next/cmux-code-mode-runner"
+        head = self.commit(path, "#!/bin/sh\necho changed\n")
+        out = self.hot.live_from(self.repo, head, 2)
+        self.assertEqual((out["live_from"], out["floor"]), ([head], head))
+        self.assertIn(path, out["floor_paths"])
+        # A script the app does not bundle stays live.
+        other = self.commit("scripts/cmux-next/unrelated-tool.sh", "#!/bin/sh\n")
+        self.assertEqual(self.hot.live_from(self.repo, other, 2)["live_from"][:2], [other, head])
+
+    def test_the_mac_mobile_host_floors_the_list_but_the_iphone_app_does_not(self):
+        self.commit("scripts/cmux-next/build-mobile-host.sh",
+                    "#!/bin/bash\ninputs=(cmux-next-ios/rust cmux-tui/crates/cmux-rd-core\n  cmux-tui/Cargo.toml)\n")
+        host = self.commit("cmux-next-ios/rust/crates/cmux-mobile-host/src/main.rs", "fn main() {}\n")
+        out = self.hot.live_from(self.repo, host, 2)
+        self.assertEqual((out["live_from"], out["floor"]), ([host], host))
+        self.assertIn("cmux-next-ios/rust/crates/cmux-mobile-host/src/main.rs", out["floor_paths"])
+        linked = self.commit("cmux-tui/crates/cmux-rd-core/src/lib.rs", "pub fn rd() {}\n")
+        self.assertEqual(self.hot.live_from(self.repo, linked, 2)["live_from"], [linked])
+        phone = self.commit("cmux-next-ios/Sources/App.swift", "struct App {}\n")
+        self.assertEqual(self.hot.live_from(self.repo, phone, 2)["live_from"], [phone, linked])
+
+    def test_separately_bundled_helper_manifests_floor_the_published_list(self):
+        for path in (
+            "cmux-tui/crates/cmux-git/Cargo.toml",
+            "Native/DiffSidecar/Cargo.toml",
+            "Native/DiffSidecar/Cargo.lock",
+        ):
+            with self.subTest(path=path):
+                head = self.commit(path, "# changed helper dependency graph\n")
+                out = self.hot.live_from(self.repo, head, 2)
+                self.assertEqual(out["live_from"], [head])
+                self.assertEqual(out["floor"], head)
+                self.assertIn(path, out["floor_paths"])
+                self.assertEqual(self.hot.pins_daemon(self.repo, head), [])
 
 
 class PinCompatibility(unittest.TestCase):
@@ -1035,6 +1243,15 @@ class PinCompatibility(unittest.TestCase):
         result = self.hot.live_from(self.repo, removed)
         self.assertEqual(result["live_from"], [removed])
         self.assertEqual(result["floor_paths"], [self.hot.ffi_part.PIN_FILE])
+
+    def test_a_repin_floors_daemon_from_too(self):
+        self.pin.unlink()
+        removed = self.commit()
+        (self.repo / "docs.md").write_text("docs\n")
+        docs = self.commit()
+        result = self.hot.live_from(self.repo, docs)
+        self.assertEqual((result["live_from"], result["daemon_from"]), ([docs, removed], [docs, removed]))
+        self.assertEqual(result["daemon_floor_paths"], [self.hot.ffi_part.PIN_FILE])
 
     def test_malformed_pin_cannot_publish_compatibility_or_a_digest(self):
         self.pin.write_text("not JSON\n")
@@ -1075,6 +1292,125 @@ class PinCompatibility(unittest.TestCase):
             plan = self.hot._plan(self.repo, self.repo / "unused.app", target, False, self.added)
             self.assertIn("ffi", plan["parts"])
             self.assertIn("rust", plan["parts"])
+
+    def test_a_branch_on_a_repin_the_app_lacks_takes_the_pinned_release(self):
+        # 2026-11-17: the NIGHTLY (pin a) predated a repin on feat-cmux-next (pin c) that the PR forked after, and the
+        # PR did not move the pin. hot-apply refused every branch's ffi part, then held the daemon back for the repin,
+        # so 7 of the 8 failed Rust looks ended `apply --parts rust exited 3`. The pin is feat-cmux-next's: published.
+        import app_ffi_pin
+        self.pin.write_text(app_ffi_pin.render("c" * 40, "d" * 64))
+        repin = self.commit()
+        self.git("update-ref", self.hot.BASE_REF, repin)
+        daemon = self.repo / "cmux-tui/crates/cmux-wg/src/lib.rs"
+        daemon.parent.mkdir(parents=True)
+        daemon.write_text("// the branch's daemon change\n")
+        branch = self.commit()
+        with mock.patch.object(self.hot, "tree_key", side_effect=lambda _repo, sha: sha), \
+                mock.patch.object(self.hot, "published", return_value=True), \
+                mock.patch.object(self.hot.ffi_part, "additive", return_value=[]):
+            self.assertTrue(self.hot.pin_on_base(self.repo, branch))
+            plan = self.hot._plan(self.repo, self.repo / "unused.app", branch, True, self.added)
+            self.assertIn("ffi", plan["parts"], plan)
+            self.assertIn("rust", plan["parts"], plan)
+            self.assertEqual(plan["ffi"]["source"], "c" * 40)
+            # A branch that moves the pin itself names a release nothing published: still held back.
+            self.git("update-ref", self.hot.BASE_REF, self.added)
+            self.assertFalse(self.hot.pin_on_base(self.repo, branch))
+            plan = self.hot._plan(self.repo, self.repo / "unused.app", branch, True, self.added)
+            self.assertNotIn("ffi", plan["parts"])
+            self.assertNotIn("rust", plan["parts"])
+
+    def test_rust_alone_is_held_back_until_the_release_it_rides_with_is_in(self):
+        # Review of cmux#46195: `cmux app try` applies --parts rust only. A plan that puts the fork's release in
+        # beside the daemon must not swap the daemon alone onto the app's old library; the look says --ffi-in.
+        planned = {"head": "h" * 40, "parts": ["ffi", "rust"], "left": {}, "notes": [], "tree_key": "k" * 64,
+                   "ffi": {"source": "c" * 40, "app_pin_source": "a" * 40, "release": "cmux-app-ffi-" + "c" * 40}}
+        args = argparse.Namespace(command="apply", repo=str(self.repo), app=str(self.repo / "unused.app"),
+                                  sha="h" * 40, branch=True, base=None, unsigned_daemon=False, parts="rust",
+                                  dry_run=False, ffi_in=False, binary=None, socket=None)
+        fetched = mock.Mock(side_effect=RuntimeError("stop at the fetch"))
+        with mock.patch.dict(os.environ, {"CMUX_HOT_APPLY_STATE_DIR": str(self.repo / "state")}), \
+                mock.patch.object(self.hot, "plan", side_effect=lambda *_a: json.loads(json.dumps(planned))), \
+                mock.patch.object(self.hot, "fetch_build", fetched), \
+                mock.patch.object(self.hot, "put_back", return_value={}), \
+                mock.patch("builtins.print"):
+            self.assertEqual(self.hot.command_apply(args), 3)
+            fetched.assert_not_called()
+            args.ffi_in = True
+            with contextlib.suppress(Exception):
+                self.hot.command_apply(args)
+            fetched.assert_called_once()
+
+
+class StringCatalogs(unittest.TestCase):
+    """A string catalog gen-strings.mjs reads is web: the bundle built for a commit carries its words."""
+
+    WEB_CATALOG = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings"
+    SWIFT_CATALOG = "Packages/macOS/CmuxNext/Sources/CmuxNextOnlySwift/Localizable.xcstrings"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="hot-apply-strings-")
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name)
+        self.hot = load_hot("hot_apply_strings_under_test")
+        self.git("init", "-q")
+        self.git("config", "user.email", "t@example.com")
+        self.git("config", "user.name", "t")
+        gen = self.repo / "webviews/scripts/pages/gen-strings.mjs"
+        gen.parent.mkdir(parents=True)
+        gen.write_text(f'export const PAGES = {{ settings: {{ catalogs: [{{ file: "{self.WEB_CATALOG}" }}] }} }};\n')
+        (self.repo / "webviews/src").mkdir(parents=True)
+        (self.repo / "webviews/src/web-abi.json").write_text('{"abi": 3}\n')
+        for catalog in (self.WEB_CATALOG, self.SWIFT_CATALOG):
+            (self.repo / catalog).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / catalog).write_text("{}\n")
+        self.base = self.commit()
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit(self, *edited):
+        for path in edited:
+            (self.repo / path).write_text(f"{path} edited\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "fixture", "--allow-empty")
+        return self.git("rev-parse", "HEAD")
+
+    def plan(self, sha):
+        return self.hot._plan(self.repo, self.repo / "unused.app", sha, False, self.base)
+
+    def test_a_catalog_the_web_pages_read_applies_with_the_web_and_says_translations_wait(self):
+        plan = self.plan(self.commit(self.WEB_CATALOG))
+        self.assertEqual(plan["parts"], ["web"])
+        self.assertNotIn("strings", plan["left"])
+        self.assertTrue(any("Swift's translations wait for the next build" in n and self.WEB_CATALOG in n
+                            for n in plan["notes"]), plan["notes"])
+
+    def test_a_swift_only_catalog_stays_left(self):
+        plan = self.plan(self.commit(self.SWIFT_CATALOG))
+        self.assertEqual(plan["parts"], [])
+        self.assertEqual(plan["left"]["strings"], [self.SWIFT_CATALOG])
+
+    def test_both_split_and_a_web_abi_the_app_lacks_keeps_the_web_catalog(self):
+        sha = self.commit(self.WEB_CATALOG, self.SWIFT_CATALOG)
+        plan = self.plan(sha)
+        self.assertEqual(plan["parts"], ["web"])
+        self.assertEqual(plan["left"]["strings"], [self.SWIFT_CATALOG])
+        (self.repo / "webviews/src/web-abi.json").write_text('{"abi": 4}\n')
+        plan = self.plan(self.commit(self.WEB_CATALOG))
+        self.assertEqual(plan["parts"], [])
+        self.assertIn("web ABI", plan["left"])
+
+    def test_the_keys_put_a_web_catalog_in_the_web_digest_and_a_swift_one_in_the_shell_digest(self):
+        sha = self.commit(self.WEB_CATALOG)
+        swift = self.commit(self.SWIFT_CATALOG)
+        with mock.patch.object(self.hot, "_tree_key", return_value="1" * 40), \
+                mock.patch.object(self.hot, "_web_key", return_value="2" * 64):
+            base, web, only_swift = (self.hot.hot_keys(self.repo, c) for c in (self.base, sha, swift))
+        self.assertNotEqual(web["web"], base["web"])
+        self.assertEqual(web["shell"], base["shell"])
+        self.assertEqual(only_swift["web"], web["web"])
+        self.assertNotEqual(only_swift["shell"], web["shell"])
 
 
 class WebCache(unittest.TestCase):
@@ -1592,6 +1928,30 @@ class HotApplyFFI(unittest.TestCase):
         self.assertIn("rust", plan["parts"])
         self.assertNotIn("Rust the app links (FFI)", plan["left"])
 
+    def test_a_copy_that_is_not_running_takes_the_library_and_stays_stopped(self):
+        # hot-verify.py puts a lagging NIGHTLY's copy on its branch's release before the copy first opens: the swap
+        # must not open it (the look launches it itself and records its pid), nor open it on the way back.
+        self.carry_dylib()
+        new = self.tmp / "new.dylib"
+        new.write_bytes(b"new library")
+        launched = []
+        with mock.patch.object(self.ffi, "app_pid", return_value=None), \
+                mock.patch.object(self.ffi, "imports", return_value=set()), \
+                mock.patch.object(self.ffi, "exports", return_value=set()), \
+                mock.patch.object(self.ffi, "prepare", side_effect=lambda src, app, how, ident, work: src), \
+                mock.patch.object(self.ffi, "launch", side_effect=lambda *a: launched.append(a) or {}):
+            step, undo = self.ffi.swap(self.app, new, self.tmp / "state", "adhoc", None, self.hot_module().PHASES)
+            self.assertEqual((self.app / self.ffi.DYLIB).read_bytes(), b"new library")
+            self.assertIsNone(step["quit_pid"])
+            self.assertIsNone(step["launch"])
+            back = self.ffi.put_back(self.app, undo)
+        self.assertEqual(launched, [])
+        self.assertIsNone(back["launch"])
+        self.assertEqual((self.app / self.ffi.DYLIB).read_bytes(), b"old library")
+
+    def hot_module(self):
+        return load_hot("hot_apply_ffi_swap_under_test")
+
     def test_fetch_checks_the_published_library(self):
         digest = self.publish()
         library, got = self.fetch_library()
@@ -1637,6 +1997,26 @@ class HotApplyFFI(unittest.TestCase):
         finally:
             self.ffi.signature, self.ffi.validates_no_libraries = saved
 
+    def test_the_library_must_export_what_the_app_framework_imports(self):
+        # CMUX-629: the stub executable binds nothing from the library; CmuxNextApp.framework does.
+        code = self.app / self.ffi.CODE_FRAMEWORK_BINARY
+        code.parent.mkdir(parents=True)
+        code.write_bytes(b"framework")
+        read = []
+
+        def run(*args, check=True):
+            read.append(args[-1])
+            return subprocess.CompletedProcess(args, 0, "                 (undefined) external _cmux_layout_apply"
+                                               " (from libcmux_app_ffi)\n", "")
+
+        saved = self.ffi._run
+        try:
+            self.ffi._run = run
+            self.assertEqual(self.ffi.imports(self.app), {"_cmux_layout_apply"})
+        finally:
+            self.ffi._run = saved
+        self.assertEqual(read, [str(code)])
+
     def test_the_app_opens_through_launchd_where_open_fails(self):
         # A terminal of the app outlives `cmux app quit --keep-sessions`, but `open` fails there (error -600), and
         # over ssh: the user's GUI domain opens the app, and the one-shot agent goes once the app answers.
@@ -1658,12 +2038,51 @@ class HotApplyFFI(unittest.TestCase):
         finally:
             self.ffi._run, self.ffi.answering_pid, self.ffi.app_pid, self.ffi.STAY_SECONDS = saved
         self.assertEqual((step["pid"], step["opened_via"]), (4242, "launchd"))
-        self.assertEqual([c[:2] for c in calls], [("open", str(self.app)), ("launchctl", "bootstrap"),
+        self.assertEqual([c[:2] for c in calls], [("open", "-g"), ("launchctl", "bootstrap"),
                                                   ("launchctl", "bootout")])
+        self.assertEqual(calls[0][2:], (str(self.app), "--args", "--cmux-update-reopened-behind"))
         plist = Path(calls[1][3])
         self.assertFalse(plist.parent.exists(), "the one-shot agent's plist is removed")
         self.assertEqual(calls[2][2], f"gui/{os.getuid()}/{plist.stem}")
 
+
+    def test_a_relaunch_stays_behind_unless_the_app_was_in_front(self):
+        # Leo, 2026-10-31: "WHY THE F*** DOES THE DEV BUILD KEEP STEALING F*** FOCUS". A swap nobody watched
+        # reopens the app behind the app the person types in; a person who was in the app gets it back in front.
+        calls = []
+
+        def run(*args, check=True):
+            calls.append(args)
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        saved = self.ffi._run, self.ffi.answering_pid, self.ffi.app_pid, self.ffi.STAY_SECONDS
+        try:
+            self.ffi._run = run
+            self.ffi.answering_pid = lambda app: 4242
+            self.ffi.app_pid = lambda app: 4242
+            self.ffi.STAY_SECONDS = 0
+            self.ffi.launch(self.app, 4141)
+            self.ffi.launch(self.app, 4141, front=True)
+        finally:
+            self.ffi._run, self.ffi.answering_pid, self.ffi.app_pid, self.ffi.STAY_SECONDS = saved
+        self.assertEqual(calls, [("open", "-g", str(self.app), "--args", "--cmux-update-reopened-behind"),
+                                 ("open", str(self.app))])
+
+    def test_frontmost_reads_lsappinfo_and_says_no_when_it_cannot(self):
+        def fake(answers):
+            def run(argv, **_):
+                return subprocess.CompletedProcess(argv, 0, answers[argv[1]], "")
+            return run
+
+        front = {"front": "ASN:0x0-0x1a01a:\n", "info": '"pid"=4242\n'}
+        with mock.patch.object(self.ffi.subprocess, "run", side_effect=fake(front)):
+            self.assertTrue(self.ffi.is_frontmost(4242))
+            self.assertFalse(self.ffi.is_frontmost(7))
+        with mock.patch.object(self.ffi.subprocess, "run", side_effect=fake({"front": "", "info": ""})):
+            self.assertFalse(self.ffi.is_frontmost(4242))
+        with mock.patch.object(self.ffi.subprocess, "run", side_effect=FileNotFoundError("lsappinfo")):
+            self.assertFalse(self.ffi.is_frontmost(4242))
+        self.assertFalse(self.ffi.is_frontmost(None))
 
 REPIN = "01936a9c77c22a3735bee357aa417eb7f0bf110e"  # app-ffi-repin: app-ffi-pin.json and Package.swift's checksum line
 REPIN_FROM = "e238ea5486824ff4fc766954d4bc91d37b90af0c"  # the release its parent pins

@@ -113,10 +113,11 @@ final class HomeChatRig {
         return store.transcript(for: Self.conversation).contains { $0.key == key && $0.seq != nil }
     }
 
-    /// The Chief posts `parts` under `key` in `threadRoot`'s thread and the store has its echo.
+    /// The Chief posts `parts` under `key` in `threadRoot`'s thread (answering `parent` there, a nested
+    /// reply, when given) and the store has its echo.
     @discardableResult
-    func post(_ parts: [MessagePart], key: IdempotencyKey, threadRoot: MessageID? = nil) async -> Bool {
-        guard await source.post(parts, from: chief, in: Self.conversation, key: key, threadRoot: threadRoot) != nil else { return false }
+    func post(_ parts: [MessagePart], key: IdempotencyKey, threadRoot: MessageID? = nil, parent: MessageID? = nil) async -> Bool {
+        guard await source.post(parts, from: chief, in: Self.conversation, key: key, threadRoot: threadRoot, parent: parent) != nil else { return false }
         await Self.until { [store] in store.transcript(for: Self.conversation).contains { $0.key == key && $0.seq != nil } }
         return store.transcript(for: Self.conversation).contains { $0.key == key && $0.seq != nil }
     }

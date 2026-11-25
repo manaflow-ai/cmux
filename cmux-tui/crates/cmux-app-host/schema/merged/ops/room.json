@@ -1,0 +1,45 @@
+{
+  "family": "room",
+  "ops": {
+    "room.create": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "76c906cedc728670"
+    },
+    "room.delete": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "f2e5180b146d27c9"
+    },
+    "room.follow": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "83039ebd7f5bd28c"
+    },
+    "room.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "5d311ecdf5caaa87"
+    },
+    "room.move": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "e435f8ad71bc8250"
+    },
+    "room.pin": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "0440457bccb675a5"
+    },
+    "room.unpin": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "608174117511d8e2"
+    },
+    "room.update": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "bfc6a719fd5c9069"
+    }
+  }
+}

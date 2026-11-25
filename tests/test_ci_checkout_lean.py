@@ -13,6 +13,8 @@ It fails when
   (b) a full-tree blob:none checkout (no sparse-checkout) is in neither list;
   (c) an entry names a workflow or job that no longer has such a checkout, or has no reason.
 
+A `lean` job may list narrower patterns of its own under `own_patterns`; (a) then holds it to those.
+
 `python3 tests/test_ci_checkout_lean.py --write` adds the table's patterns to every `lean` step that lacks them.
 """
 
@@ -59,6 +61,11 @@ def is_lean(options: dict, want: list[str]) -> bool:
     return patterns(options) == want and options.get("sparse-checkout-cone-mode") is False
 
 
+def wanted(data: dict, wf: str, job: str) -> list[str]:
+    """The patterns a lean job must use: its own `own_patterns` entry, else the table's."""
+    return data.get("own_patterns", {}).get(wf, {}).get(job, data["sparse_checkout"])
+
+
 def is_allow_list(options: dict) -> bool:
     """A sparse checkout that takes only the paths it names, not the whole tree minus some."""
     found = patterns(options)
@@ -76,7 +83,7 @@ class CheckoutLeanTest(unittest.TestCase):
         for wf, job, i, options in self.steps:
             if is_allow_list(options):
                 continue  # names the paths it takes (the signer's controls checkout), so it is already narrower
-            if job in self.table["lean"].get(wf, {}) and not is_lean(options, self.want):
+            if job in self.table["lean"].get(wf, {}) and not is_lean(options, wanted(self.table, wf, job)):
                 bad.append(f"{wf} :: {job} step {i}: sparse-checkout {patterns(options)!r}, "
                            f"cone mode {options.get('sparse-checkout-cone-mode')!r}")
         self.assertEqual(bad, [], f"run `python3 tests/test_ci_checkout_lean.py --write`, or move the job to "
@@ -93,7 +100,7 @@ class CheckoutLeanTest(unittest.TestCase):
 
     def test_entries_are_live_and_reasoned(self):
         live = {(wf, job) for wf, job, _, options in self.steps
-                if patterns(options) is None or is_lean(options, self.want)}
+                if patterns(options) is None or is_lean(options, wanted(self.table, wf, job))}
         stale, unreasoned = [], []
         for kind in ("lean", "full"):
             for wf, jobs in self.table[kind].items():
@@ -108,6 +115,15 @@ class CheckoutLeanTest(unittest.TestCase):
     def test_patterns_keep_the_tree_and_drop_only_named_paths(self):
         self.assertEqual(self.want[0], "/*")
         self.assertTrue(all(p.startswith("!/") and p.endswith("/") for p in self.want[1:]), self.want)
+
+    def test_own_patterns_name_live_lean_jobs_and_only_narrow_the_table(self):
+        for wf, jobs in self.table.get("own_patterns", {}).items():
+            for job, own in jobs.items():
+                self.assertIn(job, self.table["lean"].get(wf, {}), f"{wf} :: {job} has own_patterns but is not lean")
+                self.assertEqual(own[0], "/*", f"{wf} :: {job}: own patterns start from the whole tree")
+                for pattern in self.want[1:]:
+                    covered = any(drop.startswith("!/") and pattern[1:].startswith(drop[1:]) for drop in own[1:])
+                    self.assertTrue(covered, f"{wf} :: {job}: own patterns must keep the table's drop {pattern}")
 
 
 def write() -> int:

@@ -46,8 +46,8 @@ extension HangLoad {
     /// page-ins: 812, faults: 30500 (this process, since the stall's first sample)
     /// ```
     ///
-    /// Busy is CPU for at least half of the hang, the line the debug hang assertion draws too
-    /// (``MainThreadWatchdog/hangFailsAssertion(elapsedNanos:mainThreadCPUNanos:assertNanos:)``).
+    /// Busy is CPU for at least half of the hang, the line the debug busy-hang fault draws too
+    /// (``MainThreadWatchdog/hangIsBusy(elapsedNanos:mainThreadCPUNanos:assertNanos:)``).
     func lines(duration: Duration) -> [String] {
         var cpuLine = "main thread cpu: unknown"
         if let mainThreadCPU, duration > .zero {

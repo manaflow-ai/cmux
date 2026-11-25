@@ -151,7 +151,14 @@ fn load_config(
     serde_json::from_str(&text).map_err(|e| wrap(format!("parse config {}: {e}", path.display())))
 }
 
-fn default_config_path(env: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
+/// The default config file, read when it exists: `CMUX_VM_DEFAULT_CONFIG` (a cmux DEV build names its own,
+/// so the person's `vm.json` is NIGHTLY's and stable's only), else `$XDG_CONFIG_HOME/cmux/vm.json` or
+/// `~/.config/cmux/vm.json`. Unlike `CMUX_VM_CONFIG` it is no explicit file: a missing one is no error and
+/// the stored agent token still comes first.
+pub fn default_config_path(env: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
+    if let Some(own) = env("CMUX_VM_DEFAULT_CONFIG").filter(|value| !value.is_empty()) {
+        return Some(PathBuf::from(own));
+    }
     let base = env("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .or_else(|| env("HOME").map(|home| PathBuf::from(home).join(".config")))?;
@@ -250,5 +257,39 @@ mod tests {
             panic!("an expired token resolved");
         };
         assert_eq!(error.exit_code(), crate::exit::UNAUTHENTICATED);
+    }
+
+    /// A cmux DEV build names its own default config (`CMUX_VM_DEFAULT_CONFIG`): the person's
+    /// `~/.config/cmux/vm.json` is never read for it, and a missing own file is no error.
+    #[test]
+    fn dev_build_own_default_config_replaces_the_shared_file() {
+        let base =
+            std::env::temp_dir().join(format!("cmux-vm-default-config-{}", std::process::id()));
+        std::fs::create_dir_all(base.join("home/.config/cmux")).unwrap();
+        std::fs::write(
+            base.join("home/.config/cmux/vm.json"),
+            r#"{"apiKey":"cmuxvm_sk_person"}"#,
+        )
+        .unwrap();
+        let home = base.join("home").to_string_lossy().into_owned();
+        let own = base.join("own-vm.json");
+        let own_text = own.to_string_lossy().into_owned();
+        let env = |name: &str| match name {
+            "HOME" => Some(home.clone()),
+            "CMUX_VM_DEFAULT_CONFIG" => Some(own_text.clone()),
+            _ => None,
+        };
+        let missing = Settings::resolve_with_token(None, None, None, &env, None, 0);
+        assert!(
+            missing
+                .as_ref()
+                .map_or(true, |settings| settings.api_key != "cmuxvm_sk_person"),
+            "the person's vm.json was read for a DEV build"
+        );
+        std::fs::write(&own, r#"{"apiKey":"cmuxvm_sk_dev"}"#).unwrap();
+        let settings =
+            Settings::resolve_with_token(None, None, None, &env, None, 0).expect("resolve");
+        assert_eq!(settings.api_key, "cmuxvm_sk_dev");
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

@@ -15,6 +15,9 @@ pub mod op_names {
     pub const AUTOMATION_LIST: &str = "automation.list";
     pub const AUTOMATION_RUN: &str = "automation.run";
     pub const AUTOMATION_RUNS_LIST: &str = "automation.runs.list";
+    pub const AUTOMATION_SECRET_LIST: &str = "automation.secret.list";
+    pub const AUTOMATION_SECRET_REMOVE: &str = "automation.secret.remove";
+    pub const AUTOMATION_SECRET_SET: &str = "automation.secret.set";
     pub const AUTOMATION_SETTINGS_GET: &str = "automation.settings.get";
     pub const AUTOMATION_SETTINGS_SET: &str = "automation.settings.set";
     pub const AUTOMATION_TELEPORT_ABORT: &str = "automation.teleport.abort";
@@ -61,6 +64,9 @@ pub mod op_names {
     pub const CLOUD_SNAPSHOT_DELETE: &str = "cloud.snapshot.delete";
     pub const CLOUD_SNAPSHOT_LIST: &str = "cloud.snapshot.list";
     pub const CLOUD_SNAPSHOT_RESTORE: &str = "cloud.snapshot.restore";
+    pub const CLOUD_SURGE_CREATE: &str = "cloud.surge.create";
+    pub const CLOUD_SURGE_PREVIEW: &str = "cloud.surge.preview";
+    pub const CLOUD_USAGE_CURRENT: &str = "cloud.usage.current";
     pub const CLOUD_VM_ATTENTION_EMIT: &str = "cloud.vm.attention.emit";
     pub const CLOUD_VM_EVENT_EMIT: &str = "cloud.vm.event.emit";
     pub const CLOUD_VM_NETWORK_POLICY: &str = "cloud.vm.network_policy";
@@ -260,6 +266,9 @@ pub mod op_names {
         AUTOMATION_LIST,
         AUTOMATION_RUN,
         AUTOMATION_RUNS_LIST,
+        AUTOMATION_SECRET_LIST,
+        AUTOMATION_SECRET_REMOVE,
+        AUTOMATION_SECRET_SET,
         AUTOMATION_SETTINGS_GET,
         AUTOMATION_SETTINGS_SET,
         AUTOMATION_TELEPORT_ABORT,
@@ -306,6 +315,9 @@ pub mod op_names {
         CLOUD_SNAPSHOT_DELETE,
         CLOUD_SNAPSHOT_LIST,
         CLOUD_SNAPSHOT_RESTORE,
+        CLOUD_SURGE_CREATE,
+        CLOUD_SURGE_PREVIEW,
+        CLOUD_USAGE_CURRENT,
         CLOUD_VM_ATTENTION_EMIT,
         CLOUD_VM_EVENT_EMIT,
         CLOUD_VM_NETWORK_POLICY,
@@ -508,6 +520,9 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "automation.list" => visitor.visit::<AutomationListOp>(),
         "automation.run" => visitor.visit::<AutomationRunOp>(),
         "automation.runs.list" => visitor.visit::<AutomationRunsListOp>(),
+        "automation.secret.list" => visitor.visit::<AutomationSecretListOp>(),
+        "automation.secret.remove" => visitor.visit::<AutomationSecretRemoveOp>(),
+        "automation.secret.set" => visitor.visit::<AutomationSecretSetOp>(),
         "automation.settings.get" => visitor.visit::<AutomationSettingsGetOp>(),
         "automation.settings.set" => visitor.visit::<AutomationSettingsSetOp>(),
         "automation.teleport.abort" => visitor.visit::<AutomationTeleportAbortOp>(),
@@ -554,6 +569,9 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "cloud.snapshot.delete" => visitor.visit::<CloudSnapshotDeleteOp>(),
         "cloud.snapshot.list" => visitor.visit::<CloudSnapshotListOp>(),
         "cloud.snapshot.restore" => visitor.visit::<CloudSnapshotRestoreOp>(),
+        "cloud.surge.create" => visitor.visit::<CloudSurgeCreateOp>(),
+        "cloud.surge.preview" => visitor.visit::<CloudSurgePreviewOp>(),
+        "cloud.usage.current" => visitor.visit::<CloudUsageCurrentOp>(),
         "cloud.vm.attention.emit" => visitor.visit::<CloudVmAttentionEmitOp>(),
         "cloud.vm.event.emit" => visitor.visit::<CloudVmEventEmitOp>(),
         "cloud.vm.network_policy" => visitor.visit::<CloudVmNetworkPolicyOp>(),

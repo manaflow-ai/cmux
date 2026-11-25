@@ -22,8 +22,13 @@ final class RemoteInputController {
     /// The App's cmux shortcut matcher (KeyboardShortcutSettings).
     var isLocalShortcut: (NSEvent) -> Bool = { _ in false }
     var inputSourceIsASCIICapable: () -> Bool = RemoteInputController.currentInputSourceIsASCIICapable
+    /// What a key code types on the viewer's current layout with these
+    /// modifiers (nil when unknown), for `RemoteKeyboardPolicy.sendsAsText`.
+    var layoutCharacters: (UInt16, NSEvent.ModifierFlags) -> String? = RemoteInputController.currentLayoutCharacters
     /// The view returns the keyboard to the viewer (resigns first responder).
     var onReleaseKeyboard: (() -> Void)?
+    /// Events went to the sink: the person is using the desktop.
+    var onInput: (() -> Void)?
     /// Control mode and first responder. Turning it off releases everything.
     var isActive = false {
         didSet { if oldValue, !isActive { releaseAll() } }
@@ -51,6 +56,19 @@ final class RemoteInputController {
             return .local
         case .physical:
             guard isActive else { return .local }
+            let characters = event.characters
+            // A key code with no HID usage types nothing on the host (it was dropped).
+            let mapped = RemoteHIDKeyMap().usage(forKeyCode: event.keyCode) != nil
+            if !(characters ?? "").isEmpty, RemoteKeyboardPolicy().sendsAsText(
+                characters: characters,
+                layoutCharacters: mapped ? layoutCharacters(event.keyCode, event.modifierFlags) : "",
+                modifiers: event.modifierFlags) {
+                // Its key code would type something else on the host: send the text,
+                // and not the key's up.
+                if !keyboard.heldKeys.contains(event.keyCode) { textRoutedKeys.insert(event.keyCode) }
+                emit(RemoteInputEvent.textEvents(characters ?? ""))
+                return .handled
+            }
             emit(keyboard.keyDown(keyCode: event.keyCode, isRepeat: event.isARepeat))
             return .handled
         case .textInput:
@@ -130,8 +148,9 @@ final class RemoteInputController {
     }
 
     private func emit(_ events: [RemoteInputEvent]) {
-        guard let sink else { return }
+        guard let sink, !events.isEmpty else { return }
         for event in events { sink.send(event) }
+        onInput?()
     }
 
     /// Whether the selected input source can type ASCII (false for an IME
@@ -141,5 +160,29 @@ final class RemoteInputController {
               let raw = TISGetInputSourceProperty(source, kTISPropertyInputSourceIsASCIICapable) else { return true }
         let value = Unmanaged<CFBoolean>.fromOpaque(raw).takeUnretainedValue()
         return CFBooleanGetValue(value)
+    }
+
+    /// The characters `keyCode` types on the current keyboard layout with the
+    /// Shift, Option and Caps Lock of `modifiers`, dead keys typed as their
+    /// accent; nil when the layout has no Unicode data.
+    nonisolated static func currentLayoutCharacters(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> String? {
+        guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
+              let raw = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return nil }
+        let data = Unmanaged<CFData>.fromOpaque(raw).takeUnretainedValue()
+        guard let bytes = CFDataGetBytePtr(data) else { return nil }
+        var carbon = 0
+        if modifiers.contains(.shift) { carbon |= shiftKey }
+        if modifiers.contains(.option) { carbon |= optionKey }
+        if modifiers.contains(.capsLock) { carbon |= alphaLock }
+        var deadKeyState: UInt32 = 0
+        var length = 0
+        var chars = [UniChar](repeating: 0, count: 8)
+        let status = bytes.withMemoryRebound(to: UCKeyboardLayout.self, capacity: 1) { layout in
+            UCKeyTranslate(
+                layout, keyCode, UInt16(kUCKeyActionDown), UInt32((carbon >> 8) & 0xFF), UInt32(LMGetKbdType()),
+                OptionBits(kUCKeyTranslateNoDeadKeysMask), &deadKeyState, chars.count, &length, &chars)
+        }
+        guard status == noErr else { return nil }
+        return String(utf16CodeUnits: chars, count: length)
     }
 }

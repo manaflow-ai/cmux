@@ -1,6 +1,6 @@
 // The Set Up cmux card's protocol (cmux-page://cmux.setup-card/, host: CmuxNextApp HomeSetupCard).
 // The host sends the rows' state as values (setupModel.ts `SetupState`); the card owns its words.
-import type { SetupAction, SetupState } from "../home-messages/cards/setup/setupModel";
+import type { SetupAction, SetupState } from "./setupModel";
 
 export const SETUP_OPS = {
   /** `{}` → `SetupState`. */
