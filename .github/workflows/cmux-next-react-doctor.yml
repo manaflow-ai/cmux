@@ -86,6 +86,9 @@ jobs:
   # bisects it over the covered range. Pull requests and dispatches are unchanged (the coalesce job is skipped on
   # them). vars.NEXT_REACT_DOCTOR_COALESCE = '0' scans every push again.
   coalesce:
+    # actions: read: base-coalesce lists this workflow's runs to re-run a window whose run failed.
+    permissions:
+      actions: read
     uses: ./.github/workflows/base-coalesce.yml
     with:
       key: cmux-next-react-doctor
