@@ -606,7 +606,7 @@
           "title": {"key": "settings.category.experimental", "text": "Experimental"},
           "symbol": "flask",
           "groups": [
-            {"group": "settings.group.labs", "keys": ["appearance.experimentalControls", "appearance.settingsBetaChips"]},
+            {"group": "settings.group.labs", "keys": ["appearance.experimentalControls", "appearance.glassControls", "appearance.settingsBetaChips"]},
             {"group": "settings.group.experiments", "note": "Taste prototypes, each behind its own switch, all off by default."},
             {"group": "settings.group.appearanceTuning"}
           ]
