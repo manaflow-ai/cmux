@@ -174,6 +174,7 @@ mod pending;
 #[path = "person_prove_tests.rs"]
 mod person_prove_tests;
 mod place;
+mod place_set;
 mod plan_build;
 mod processes;
 mod project_new;
