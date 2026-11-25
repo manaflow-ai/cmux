@@ -739,12 +739,13 @@ export class MockAcpmuxSocket {
     if (request.id === undefined) return;
     void this.answer(request.method, request.params ?? {}).then(
       (result) => this.deliver({ jsonrpc: "2.0", id: request.id, result }),
-      (error: Error & { code?: string; details?: unknown; data?: unknown }) =>
+      (error: Error & { code?: string; rpcCode?: number; details?: unknown; data?: unknown }) =>
         this.deliver({
           jsonrpc: "2.0",
           id: request.id,
           error: {
-            code: -32000,
+            // A test's own JSON-RPC code (acpmux's not found, -32002) when it sets one.
+            code: typeof error.rpcCode === "number" ? error.rpcCode : -32000,
             message: error.message,
             data:
               error.data ??
