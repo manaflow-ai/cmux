@@ -58,7 +58,7 @@ locks() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^locks=//p'; }
 [[ "$(locks cmux-tui/crates/x/src/lib.rs)" == false ]] || fail "a Rust source change alone must not run the lock repair"
 settings() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^settings=//p'; }
 for path in Packages/macOS/CmuxNext/Sources/CmuxNextSettings/CmuxConfigSnapshot.swift \
-  Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings schemas/settings/settings-schema.json; do
+  Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d/settings.demo.title.xcstrings schemas/settings/settings-schema.json; do
   [[ "$(settings "$path")" == true ]] || fail "a change to $path must regenerate the settings exports"
 done
 [[ "$(settings webviews/src/main.tsx)" == false ]] || fail "a webviews change must not regenerate the settings exports"

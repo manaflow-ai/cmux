@@ -86,13 +86,7 @@ impl Hub {
         &self,
         deadline: tokio::time::Instant,
     ) -> Vec<cmux_scope::CloseReport> {
-        let peers: Vec<_> = self
-            .peers
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .values()
-            .cloned()
-            .collect();
+        let peers: Vec<_> = self.peers.load().values().cloned().collect();
         // Cancellation alone is insufficient for a peer's ssh child: `stop` also kills the
         // tunnel, which prevents the retry loop from opening another link during handoff.
         for peer in &peers {
@@ -148,7 +142,7 @@ impl Hub {
         self.wake_start_retries();
         // Stop reconnecting at the fence, not after the session drain: otherwise a peer
         // could reopen ssh throughout the entire shutdown grace.
-        for peer in self.peers.lock().unwrap_or_else(std::sync::PoisonError::into_inner).values() {
+        for peer in self.peers.load().values() {
             peer.stop();
         }
     }
