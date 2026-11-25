@@ -216,6 +216,7 @@ import {
   COMPUTER_USE_PREVIEW_RESERVE,
   useComputerUsePreview,
   computerUsePreviewDocked,
+  useComputerUsePreviewControls,
   useComputerUsePreviewRoom,
 } from "./computerUse/computerUsePreview";
 import {
@@ -9133,11 +9134,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const previewRoom = useComputerUsePreviewRoom();
   const previewShown = computerUsePreview !== null && previewRoom && !quick && !inspectorOpen;
   const sessionInfoPushes = useChatDisplay().sessionInfo === "push";
+  const previewMovable = useComputerUsePreviewControls();
   // Moved, larger or hidden, the card no longer sits beside the column: the column takes its room back.
   const previewBeside =
     previewShown &&
     computerUsePreview !== null &&
-    computerUsePreviewDocked(computerUsePreview) &&
+    computerUsePreviewDocked(computerUsePreview, previewMovable) &&
     !(sessionInfo.shown && sessionInfoPushes);
   // The Environment card and the changes pill (session-info/EnvironmentCard.tsx), off by default: a
   // look turns them on. The card takes the chat's top right only when the gutter beside the column

@@ -5,7 +5,7 @@ import Testing
 
 /// The chat's Computer Use preview card sends `chat.computerUsePreview {action, x?, y?, size?}`: a
 /// drag or a resize (`place`) and the chip that brings a hidden card back (`show`) join open and
-/// close (Leo, 2026-11-22: "THE ABILITY TO DRAG IT AROUND AND FUCKING HIDE IT"); the card the page
+/// close (Leo, 2026-11-22, asking for "the ability to drag it around and" hide it); the card the page
 /// gets says where the daemon keeps it and whether it is hidden.
 struct AgentPaneComputerUsePreviewActionTests {
     /// Params as the page's JSON arrives (JSONSerialization: numbers and booleans are NSNumbers).

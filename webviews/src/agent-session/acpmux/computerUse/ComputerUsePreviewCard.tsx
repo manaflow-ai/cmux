@@ -14,7 +14,9 @@
 // size, and the daemon remembers where it was for the session (computerUsePreview.ts). The button on the
 // window's top right corner makes it fill the pane and back (Leo, 2026-10-29: "And why can't I full
 // screen this picture?"). Hidden, a small "Show Preview" chip stays at the card's place and brings it
-// back. Moved, larger or hidden, the column takes back the room it kept for the card.
+// back. Moved, larger or hidden, the column takes back the room it kept for the card. Moving, full size
+// and the chip are behind Labs > Show Preview Features (off by default, `useComputerUsePreviewControls`):
+// off, the card is the top right card a click enlarges and the close button hides.
 // With Session Info open, the card sits directly under it (session-info/underSessionInfo.ts) and keeps
 // its own room there.
 // While it runs, the agent's cursor shows where the helper draws it on screen (the window stream
@@ -40,6 +42,7 @@ import {
   dragFraction,
   moveComputerUsePreview,
   showComputerUsePreview,
+  useComputerUsePreviewControls,
   useComputerUsePreviewMoves,
   type ComputerUsePreview,
   type ComputerUsePreviewMove,
@@ -78,6 +81,7 @@ export function ComputerUsePreviewCard({
   const dragged = useRef(false);
   const { card: left, leaving } = useLeavingCard(preview, card);
   const shown = useComputerUsePreviewMoves(left);
+  const movable = useComputerUsePreviewControls();
   const frame = useLoadedFrame(shown?.frame);
   useUnderSessionInfoRoom(card);
   if (!shown) return null;
@@ -85,7 +89,7 @@ export function ComputerUsePreviewCard({
   const place = computerUsePreviewPlace(shown);
   const expanded = place.size === "large";
   const full = place.size === "full";
-  const docked = computerUsePreviewDocked(shown) && !dragging;
+  const docked = computerUsePreviewDocked(shown, movable) && !dragging;
   const at = dragging ?? place;
   const move = (change: ComputerUsePreviewMove) => {
     moveComputerUsePreview(session, change);
@@ -134,7 +138,7 @@ export function ComputerUsePreviewCard({
   }
   // A press on the card: a drag once it moves past the slop, else the click that enlarges it.
   const onPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
-    if (event.button !== 0 || full || !card) return;
+    if (!movable || event.button !== 0 || full || !card) return;
     const pane = card.offsetParent?.getBoundingClientRect();
     const box = card.getBoundingClientRect();
     if (!pane) return;
@@ -239,15 +243,17 @@ export function ComputerUsePreviewCard({
       >
         <Close size={12} />
       </button>
-      <button
-        type="button"
-        className="acpmux-cu-preview__full"
-        aria-label={t(full ? "computerUse.preview.exitFullSize" : "computerUse.preview.fullSize")}
-        aria-pressed={full}
-        onClick={() => move({ size: full ? "small" : "full" })}
-      >
-        <Expand size={12} />
-      </button>
+      {movable && (
+        <button
+          type="button"
+          className="acpmux-cu-preview__full"
+          aria-label={t(full ? "computerUse.preview.exitFullSize" : "computerUse.preview.fullSize")}
+          aria-pressed={full}
+          onClick={() => move({ size: full ? "small" : "full" })}
+        >
+          <Expand size={12} />
+        </button>
+      )}
     </div>
   );
 }

@@ -1,7 +1,6 @@
 //! Where Computer Use's live preview card sits in its cmux surface, and
-//! whether it shows (Leo, 2026-11-22: "WHERE IS THE FUCKING PREVIEW OF THE
-//! FUCKING RUNNING SITUATION AND THE ABILITY TO DRAG IT AROUND AND FUCKING
-//! HIDE IT"). The daemon keeps it per Computer Use session, so every surface
+//! whether it shows (Leo, 2026-11-22, asked where the preview of the running
+//! situation was, and for "the ability to drag it around and" hide it). The daemon keeps it per Computer Use session, so every surface
 //! that draws the card (an agent chat's page, a terminal pane's card) reads
 //! one answer, and a page that loads again puts the card back where the
 //! person left it.
@@ -109,7 +108,7 @@ impl PreviewPlaces {
     }
 
     fn entry(&mut self, session: &str) -> &mut Entry {
-        self.tick += 1;
+        self.tick = self.tick.wrapping_add(1);
         let tick = self.tick;
         if !self.entries.contains_key(session) && self.entries.len() >= MAX_PLACES {
             let oldest = self

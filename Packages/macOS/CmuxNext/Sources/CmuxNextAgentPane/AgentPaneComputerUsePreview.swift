@@ -7,7 +7,7 @@ public import Foundation
 /// computerUsePreview.ts) and sends a click back as `chat.computerUsePreview {action}`: `open` shows
 /// the session in Agent Activity, `close` hides the card for that session (it turns into a chip),
 /// `show` brings it back, and `place {x?, y?, size?}` is where the person dragged it or how large
-/// they made it (Leo, 2026-11-22: "THE ABILITY TO DRAG IT AROUND AND FUCKING HIDE IT"). The daemon
+/// they made it (Leo, 2026-11-22, asking for "the ability to drag it around and" hide it). The daemon
 /// keeps the place and hidden state per session and sends them back on every card (`place`, `hidden`).
 public nonisolated struct AgentPaneComputerUsePreview: Hashable, Sendable {
     /// The Computer Use session the card shows (`cua_<profile>_<ulid>`).

@@ -51,6 +51,7 @@ import type { CloudTypingPrewarm } from "../cloudTypingPrewarm";
 import { harnessProfiles } from "../harnessProfiles";
 import { setStartModeSource } from "../startMode";
 import { setStartRecoveryPreview } from "../startRecoveryPreview";
+import { setComputerUsePreviewControls } from "../computerUse/computerUsePreview";
 import { setPromptSurfaces } from "../surfaces/promptSurface";
 import { preparedMockTransport } from "../mockTransport";
 import { BridgeSocket } from "../bridgeSocket";
@@ -710,6 +711,7 @@ export function paneSnapshotEffect({
       // pick; nothing creates a paid VM without one.
       setPromptSurfaces(on === true);
       setStartRecoveryPreview(on === true);
+      setComputerUsePreviewControls(on === true);
       // Workflows no longer follow Advanced > Labs; only applyWorkflowLabs switches them.
     },
     applyLiveTree(on) {

@@ -24,6 +24,9 @@ public final class ComputerUsePreviewRouter {
     /// Sends the person's change to a session's card to the daemon (`computer_use.preview
     /// {session, x?, y?, size?, hidden?}`).
     private let place: @MainActor (_ session: String, _ update: [String: JSONValue]) -> Void
+    /// Whether a terminal pane's card can be dragged, made full size and hidden to a chip
+    /// (`labs.previewFeatures`, off by default): off, it is the top right card a click enlarges.
+    private let controls: @MainActor () -> Bool
     /// The terminal view of the tab whose terminal is `terminal` (`CMUX_TUI_TERMINAL_ID`), with the
     /// tab's id, if it has a surface.
     private let terminal: @MainActor (_ terminal: String) -> (tab: String, host: TerminalHostView)?
@@ -43,10 +46,12 @@ public final class ComputerUsePreviewRouter {
 
     public init(chat: @escaping @MainActor (String) -> AgentPaneView?,
                 terminal: @escaping @MainActor (String) -> (tab: String, host: TerminalHostView)?,
-                place: @escaping @MainActor (_ session: String, _ update: [String: JSONValue]) -> Void = { _, _ in }) {
+                place: @escaping @MainActor (_ session: String, _ update: [String: JSONValue]) -> Void = { _, _ in },
+                controls: @escaping @MainActor () -> Bool = { false }) {
         self.chat = chat
         self.terminal = terminal
         self.place = place
+        self.controls = controls
     }
 
     /// Follows `store`'s `computer-use-preview` events (pushed, never polled).
@@ -147,6 +152,7 @@ public final class ComputerUsePreviewRouter {
             terminalCards[tab] = view
             host.computerUsePreview = view
         }
+        view.movable = controls()
         view.show(card)
     }
 

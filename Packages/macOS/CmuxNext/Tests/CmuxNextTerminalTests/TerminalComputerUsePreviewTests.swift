@@ -82,12 +82,13 @@ struct TerminalComputerUsePreviewTests {
         #expect(!card.expanded)
     }
 
-    /// Leo, 2026-11-22: "THE ABILITY TO DRAG IT AROUND AND FUCKING HIDE IT". The card sits at its
+    /// Leo, 2026-11-22, asking for "the ability to drag it around and" hide it. The card sits at its
     /// place in the room the pane leaves around it, a drag's place is the inverse, and a move goes
     /// to the App with the session.
     @Test func aMovedCardSitsAtItsPlaceInsideThePane() throws {
         let card = TerminalComputerUsePreview()
         card.area = CGRect(x: 12, y: 12, width: 776, height: 576)
+        card.movable = true
         var moves: [TerminalComputerUsePreview.Move] = []
         card.onMove = { session, move in
             #expect(session == "terminal:t1:42")
@@ -130,6 +131,7 @@ struct TerminalComputerUsePreviewTests {
 
     @Test func closeLeavesTheChipAndTheChipBringsTheCardBack() throws {
         let card = TerminalComputerUsePreview()
+        card.movable = true
         var closed: [String] = []
         var shownAgain: [String] = []
         card.onClose = { closed.append($0) }
@@ -152,6 +154,7 @@ struct TerminalComputerUsePreviewTests {
     @Test func fullSizeFillsTheRoomAndAClickBringsItBack() {
         let card = TerminalComputerUsePreview()
         card.area = CGRect(x: 12, y: 12, width: 976, height: 500)
+        card.movable = true
         var sizes: [TerminalComputerUsePreview.Size?] = []
         card.onMove = { _, move in sizes.append(move.size) }
         card.show(Self.card())
@@ -161,5 +164,33 @@ struct TerminalComputerUsePreviewTests {
         #expect(card.intrinsicContentSize.width > TerminalComputerUsePreview.expandedWidth)
         card.toggleExpanded()
         #expect(card.place.size == .small && sizes == [.full, .small])
+    }
+
+    /// Labs > Show Preview Features off (the default): the top right card a click enlarges, with no
+    /// drag, no full size and no chip; a close takes it away, and the daemon's place or hidden card is
+    /// not drawn.
+    @Test func withTheControlsOffTheCardIsTheTopRightOne() {
+        let card = TerminalComputerUsePreview()
+        card.area = CGRect(x: 12, y: 12, width: 776, height: 576)
+        var closed: [String] = []
+        card.onClose = { closed.append($0) }
+        var placed = Self.card()
+        placed.place = .init(x: 0, y: 1, size: .full)
+        card.show(placed)
+        let size = CGSize(width: 180, height: 112)
+        #expect(card.origin(for: size) == CGPoint(x: 608, y: 476), "the top-trailing corner, not the daemon's place")
+        #expect(!card.full)
+        card.toggleFull()
+        #expect(!card.full)
+        card.toggleExpanded()
+        #expect(card.expanded)
+        card.perform(NSSelectorFromString("close"))
+        #expect(card.isHidden && card.card == nil && !card.collapsed && closed == ["terminal:t1:42"])
+        var hidden = Self.card()
+        hidden.hidden = true
+        card.show(hidden)
+        #expect(card.isHidden && !card.collapsed, "no chip")
+        card.movable = true
+        #expect(card.collapsed && !card.isHidden, "turned on, the hidden card shows as the chip")
     }
 }

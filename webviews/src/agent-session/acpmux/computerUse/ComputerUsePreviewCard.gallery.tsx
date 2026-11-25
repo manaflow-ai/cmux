@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery fixtures (a sample app name and drawn frames), not shipped UI.
-import { useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { SessionInfoPanel } from "../session-info/SessionInfo";
@@ -8,6 +8,8 @@ import { useUnderSessionInfo } from "../session-info/underSessionInfo";
 import { ComputerUsePreviewCard } from "./ComputerUsePreviewCard";
 import {
   computerUsePreviewDocked,
+  setComputerUsePreviewControls,
+  useComputerUsePreviewControls,
   useComputerUsePreviewMoves,
   useComputerUsePreviewRoom,
   type ComputerUsePreview,
@@ -64,7 +66,15 @@ const personOnly: ComputerUsePreview = {
   telepointers: { person: personOver },
 };
 
-type Props = { preview: ComputerUsePreview; chat?: boolean; sessionInfo?: SessionInfoPlacement; dropTarget?: boolean };
+type Props = {
+  preview: ComputerUsePreview;
+  chat?: boolean;
+  sessionInfo?: SessionInfoPlacement;
+  dropTarget?: boolean;
+  /// Labs > Show Preview Features off (the shipped default): no drag, no Full Size, no chip. The other
+  /// variants show the card with it on.
+  labsOff?: boolean;
+};
 
 /// A prompt long enough to reach the card's side: with the column's room kept, it wraps before the card.
 const prompt =
@@ -94,8 +104,14 @@ function GallerySessionInfo({ placement }: { placement: SessionInfoPlacement }) 
   );
 }
 
-function GalleryComputerUsePreview({ preview, chat, sessionInfo, dropTarget }: Props) {
+function GalleryComputerUsePreview({ preview, chat, sessionInfo, dropTarget, labsOff }: Props) {
   const [shell, setShell] = useState<HTMLElement | null>(null);
+  // As the pane does on Labs > Show Preview Features (pane/paneSnapshot.ts applyPreview).
+  useLayoutEffect(() => {
+    setComputerUsePreviewControls(!labsOff);
+    return () => setComputerUsePreviewControls(false);
+  }, [labsOff]);
+  const movable = useComputerUsePreviewControls();
   // As the pane does (App.tsx): no card in a pane too narrow to keep its room. A close, a drag, a
   // resize or the chip goes through the page's store, which the card draws at once (no host here
   // to echo it).
@@ -103,7 +119,7 @@ function GalleryComputerUsePreview({ preview, chat, sessionInfo, dropTarget }: P
   const shown = room ? preview : null;
   // Moved, larger or hidden, the card no longer sits beside the column: the column takes its room back.
   const moved = useComputerUsePreviewMoves(shown);
-  const beside = moved !== null && computerUsePreviewDocked(moved) && !sessionInfo;
+  const beside = moved !== null && computerUsePreviewDocked(moved, movable) && !sessionInfo;
   // As Session Info does (SessionInfo.tsx SessionInfoPresence): it publishes where the card under it goes.
   useUnderSessionInfo(shell, sessionInfo !== undefined, sessionInfo === "push", FLOAT_MARGIN, UNDER_HEADER);
   return (
@@ -294,7 +310,7 @@ export default componentEntry<Props>({
       },
     },
     close: {
-      note: 'A close: the card gives way to a small Show Preview chip where it sat (Leo, 2026-11-22: "THE ABILITY TO DRAG IT AROUND AND FUCKING HIDE IT"). Before, the card was gone with no way back.',
+      note: 'A close: the card gives way to a small Show Preview chip where it sat (Leo, 2026-11-22, asking for "the ability to drag it around and" hide it). Before, the card was gone with no way back.',
       props: { preview: as("cua_gallery_close") },
       play: close,
       checks: {
@@ -351,6 +367,40 @@ export default componentEntry<Props>({
           value: 0.85,
           reason:
             "Full Size makes the card fill the pane, as the person asked (measured 0.767): the card's own box is the shift.",
+        },
+      },
+    },
+    "labs-off": {
+      note: "Labs > Show Preview Features off (the default): the card a host placed at the bottom left still draws at the top right, small, with no Full Size button; a press does not drag it.",
+      props: {
+        preview: { ...as("cua_gallery_labs_off"), place: { x: 0, y: 1, size: "small" } },
+        chat: true,
+        labsOff: true,
+      },
+    },
+    "labs-off-expanded": {
+      note: "Labs off: a click still enlarges the card over the chat's top right, and the column keeps the room it kept for the small card.",
+      props: { preview: as("cua_gallery_labs_off_expanded"), chat: true, labsOff: true },
+      play: expand("Calculator, live"),
+      checks: {
+        layoutShiftMax: {
+          value: 0.025,
+          reason:
+            "The click enlarges the card: its own box grows over the chat's top right, which is the step's point.",
+        },
+      },
+    },
+    "labs-off-close": {
+      note: "Labs off: a close takes the card away for the session, with no Show Preview chip, as before.",
+      props: { preview: as("cua_gallery_labs_off_close"), labsOff: true },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Hide Preview" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cu-preview") === null);
+      },
+      checks: {
+        layoutShiftMax: {
+          value: 0.002,
+          reason: "Hide takes the card away; nothing else in the pane moves.",
         },
       },
     },
