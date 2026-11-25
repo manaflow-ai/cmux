@@ -16,7 +16,6 @@ struct ManagedPolicyBridge {
     let auth: CloudAuth
 
     func start() {
-        let settings = settings
         // The current values apply now, before Cloud starts; changes follow.
         apply(settings.forcedManagedValuesNow())
         // task-owner: app-lifetime observation of the managed policy; ends with the process
