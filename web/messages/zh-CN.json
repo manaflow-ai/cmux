@@ -380,6 +380,7 @@
     "typingCodingAgents": "编程 agent",
     "typingMultitasking": "多任务",
     "subtitle": "基于 Ghostty 构建的免费开源原生 macOS 终端。支持垂直标签页、agent 需要关注时的通知环、分割面板，以及用于可编程性的 <cliLink>CLI</cliLink>。",
+    "nextCallout": "新功能：试用 <link>cmux NEXT</link>，下一代 cmux 的预览版。",
     "features": "功能特性",
     "faq": "常见问题",
     "communitySection": "社区",
@@ -5775,5 +5776,13 @@
     "unavailableTitle": "无法确认你的登录",
     "unavailableBody": "我们的登录服务繁忙。请等待几秒钟后再次打开邀请。你无需重新登录。",
     "retry": "重试"
+  },
+  "analyticsConsent": {
+    "label": "分析",
+    "message": "我们可以使用分析来了解网站的使用情况吗？除非你允许，否则不会收集任何信息，也不会设置分析 Cookie。",
+    "privacy": "隐私政策",
+    "accept": "允许",
+    "decline": "不用了",
+    "settings": "分析设置"
   }
 }

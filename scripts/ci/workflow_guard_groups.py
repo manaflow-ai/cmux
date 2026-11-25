@@ -53,11 +53,7 @@ GROUPS = (
 # derived from ci-guards.yml by direct_path_owners() and need no entry here.
 PATH_OWNERS = {
     "scripts/ci/signing-runner-claim.sh": frozenset(("ci",)),
-    "scripts/ci/glaeda-signing-hooks.txt": frozenset(("ci",)),
     ".github/workflows/ci-main-full-suite.yml": frozenset(("ci",)),
-    # tests/test_ci_ios_ui_nightly.py loads the script by path and reads both workflows.
-    ".github/workflows/ios-ui-tests-nightly.yml": frozenset(("ci",)),
-    "scripts/ci/ios_ui_nightly.py": frozenset(("ci",)),
     # tests/test_ci_gate_absent_signal.py imports the gate verdict.
     "scripts/ci/gate_verdict.py": frozenset(("ci",)),
 
@@ -153,8 +149,13 @@ PATH_OWNERS = {
     # The delivery workflow list: test_nightly_delivery_concurrency.py (release-notary) and
     # queue_janitor.py (ci) both import it.
     "scripts/ci/delivery_workflows.py": frozenset(("ci", "release-notary")),
-    # The shared-group check test_nightly_delivery_concurrency.py (release-notary) imports.
-    "scripts/ci/delivery_concurrency.py": frozenset(("release-notary",)),
+    # The shared-group check test_nightly_delivery_concurrency.py (release-notary) and
+    # cron_concurrency.py (test_ci_cron_concurrency.py, ci) import.
+    "scripts/ci/delivery_concurrency.py": frozenset(("ci", "release-notary")),
+    # The cron/delivery concurrency rule test_ci_cron_concurrency.py (ci) imports; the backlog replay
+    # reads it too.
+    "scripts/ci/cron_concurrency.py": frozenset(("ci",)),
+    "scripts/ci/backlog_drain_replay.py": frozenset(("ci",)),
     # test_ci_starved_labels.py (ci) loads it by path; queue_janitor.py imports it.
     "scripts/ci/starved_labels.py": frozenset(("ci",)),
     "scripts/ci/required_status_checks.py": frozenset(("ci",)),
@@ -201,6 +202,8 @@ PATH_OWNERS = {
     # preflight and tesseract tool, and reads the action and its fixtures.
     "scripts/ci/pr_media_gate.py": frozenset(("ci",)),
     "scripts/ci/pr_media_ocr_tesseract.py": frozenset(("ci",)),
+    # tests/test_ci_pr_media_lint.py (ci) loads the warn-only lint by path.
+    "scripts/ci/pr_media_lint.py": frozenset(("ci",)),
     ".github/actions/pr-media-publish/action.yml": frozenset(("ci",)),
     ".github/actions/pr-media-publish/canary.png": frozenset(("ci",)),
     "tests/fixtures/pr_media_gate/clean.png": frozenset(("ci",)),

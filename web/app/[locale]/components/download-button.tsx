@@ -43,6 +43,7 @@ export function DownloadButton({
   const tb = useTranslations("browserDownloads");
   const tf = useTranslations("footer");
   const tw = useTranslations("waitlist");
+  const tn = useTranslations("next");
   const pathname = usePathname();
   const isSmall = size === "sm";
   const [waitlistPlatform, setWaitlistPlatform] =
@@ -202,6 +203,19 @@ export function DownloadButton({
                   <span className="flex-1 text-left">{tp("macos")}</span>
                 </Menu.Item>
                 <Menu.Item
+                  render={<Link href="/next" />}
+                  onClick={() =>
+                    posthog.capture("cmuxterm_download_clicked", {
+                      location,
+                      platform: "next",
+                    })
+                  }
+                  className={menuItemClass}
+                >
+                  <NextIcon />
+                  <span className="flex-1 text-left">{tn("title")}</span>
+                </Menu.Item>
+                <Menu.Item
                   render={<Link href="/ios" target="_blank" rel="noreferrer" />}
                   onClick={() =>
                     posthog.capture("cmuxterm_download_clicked", {
@@ -306,6 +320,20 @@ function ExternalLinkIcon() {
       <path d="M9.5 3.5h3v3" />
       <path d="m12.5 3.5-5 5" />
     </svg>
+  );
+}
+
+/** cmux NEXT's own app icon, at the menu's 16 px glyph size. */
+function NextIcon() {
+  return (
+    <img
+      src="/next/icon-96.webp"
+      alt=""
+      width={16}
+      height={16}
+      className="rounded-[4px]"
+      aria-hidden="true"
+    />
   );
 }
 
