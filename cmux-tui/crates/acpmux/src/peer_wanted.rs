@@ -231,6 +231,16 @@ impl Peer {
         self.waking() || self.link().down_since.is_none_or(young)
     }
 
+    /// Whether a client that waits on the peer now gets a connect attempt within about
+    /// `Backoff::WANTED_CAP`: the outage is young enough for its ask to cut the wait
+    /// (`asks_shorten`), and no refused ssh login holds the attempts back. A new chat for it
+    /// (`server/requests.rs` `new_on_peer`) waits for the link only then; a machine long gone is
+    /// refused at once, as before.
+    pub(crate) fn reconnects_soon(&self) -> bool {
+        !self.login_refused.load(std::sync::atomic::Ordering::SeqCst)
+            && self.asks_shorten(crate::store::now_ms())
+    }
+
     /// Waits out one backoff delay, or its `Backoff::wanted` bound while the peer is wanted
     /// (read again at each ask and each clock check, so an ask mid-wait cuts it). A wait that
     /// this computer slept through ends at the wake, with the backoff started over: the delay
@@ -297,6 +307,25 @@ mod tests {
     fn peer() -> std::sync::Arc<Peer> {
         let (tx, _notices) = mpsc::channel(64);
         Peer::new("huge-blue", "ws://127.0.0.1:9", None, None, tx)
+    }
+
+    /// remote-ssh-reconnect probe: a chat started as the network comes back after a 150 s drop
+    /// waits for the link (`new_on_peer`); one for a machine gone for longer is refused at once.
+    #[test]
+    fn a_new_chat_waits_on_a_young_outage_only() {
+        let peer = peer();
+        let now = crate::store::now_ms();
+        peer.with_link(|l| {
+            l.down(now - 150_000, Duration::from_secs(1));
+        });
+        assert!(peer.reconnects_soon(), "a 150 s outage still reconnects within a second");
+        peer.login_refused.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(!peer.reconnects_soon(), "a refused login holds its attempts back");
+        let gone = self::peer();
+        gone.with_link(|l| {
+            l.down(now - 2 * WANTED_OUTAGE_FOR.as_millis() as u64, Duration::from_secs(60));
+        });
+        assert!(!gone.reconnects_soon(), "a machine gone for long is refused at once");
     }
 
     /// cosmic-gray, 2026-11-21: reads that kept asking about swarm VMs long gone re-dialed each
