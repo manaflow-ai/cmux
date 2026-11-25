@@ -5,7 +5,8 @@ Launches the DMG's app from a fresh home through scripts/ci/fresh_home_launch_sm
 ~/.codex: a first-time sign-in), and once Home has rendered:
 
   1. opens Settings > Accounts (`settings.open`), or with --flow onboarding stays on what a fresh launch shows;
-  2. presses "Add Account" under "ChatGPT and Codex" through the accessibility API (ax-press.swift);
+  2. presses "Add Account" under "ChatGPT and Codex" through the accessibility API (ax-press.swift; cua-driver
+     when this process has no Accessibility grant, as on a display worker);
   3. waits for the sign-in page (a tab on auth.openai.com in snapshot.get), then presses the card's Cancel.
      Nothing is ever typed into the page: no account is signed in.
 
@@ -19,6 +20,7 @@ import argparse
 import glob
 import json
 import os
+import pwd
 import shutil
 import socket
 import subprocess
@@ -31,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ci"))
 import fresh_home_launch_smoke as smoke  # noqa: E402
 
 HANG_S = 0.25
+CUA = "/Applications/CuaDriver.app/Contents/MacOS/cua-driver"
 
 
 def rpc(sock_path, method, params=None, timeout=30.0):
@@ -59,6 +62,7 @@ class Journey:
         self.pings = []  # (at_s, ms)
         self.stop = threading.Event()
         self.events = []
+        self.cua_ready = False
 
     def mark(self, what, **extra):
         at = round(time.monotonic() - self.t0, 3)
@@ -66,11 +70,66 @@ class Journey:
         print(f"STEP {at:8.3f}s {what} {json.dumps(extra) if extra else ''}", flush=True)
 
     def ax(self, *args, timeout=30):
+        if self.cua_ready and args and args[0] in ("has", "press", "dump"):
+            return self.cua_ax(*args)
         try:
             done = subprocess.run([self.opts.ax, str(self.pid), *args], capture_output=True, text=True, timeout=timeout)
             return done.returncode, (done.stdout + done.stderr).strip()
         except (OSError, subprocess.SubprocessError) as error:
             return 99, str(error)
+
+    def cua(self, tool, args):
+        """cua-driver (CUA), which holds the display workers' Accessibility grant when this process has none."""
+        env = {k: v for k, v in os.environ.items() if k != "CFFIXED_USER_HOME"}
+        env["HOME"] = pwd.getpwuid(os.getuid()).pw_dir
+        try:
+            done = subprocess.run([CUA, "call", tool, json.dumps(args)], capture_output=True, text=True, timeout=90, env=env)
+            return json.loads(done.stdout or "{}")
+        except (OSError, subprocess.SubprocessError, ValueError):
+            return {}
+
+    def cua_elements(self):
+        """The app's largest window and its accessibility elements in tree order (web content included)."""
+        wins = [w for w in self.cua("list_windows", {"pid": self.pid}).get("windows", [])
+                if (w.get("bounds") or {}).get("width", 0) > 300]
+        if not wins:
+            return None, []
+        win = max(wins, key=lambda w: (w["bounds"]["width"] * w["bounds"].get("height", 0)))
+        state = self.cua("get_window_state", {"pid": self.pid, "window_id": win["window_id"], "include_screenshot": False,
+                                              "include_accessibility_tree": True, "max_depth": 80, "max_elements": 8000})
+        found = []
+
+        def walk(obj):
+            if isinstance(obj, dict):
+                if "role" in obj and ("element_token" in obj or "element_index" in obj):
+                    found.append(obj)
+                for value in obj.values():
+                    walk(value)
+            elif isinstance(obj, list):
+                for value in obj:
+                    walk(value)
+        walk(state)
+        return win, found
+
+    @staticmethod
+    def names(element, text):
+        return any(str(element.get(key, "")).strip() == text for key in ("label", "title", "value", "description"))
+
+    def cua_ax(self, verb, *rest):
+        win, elements = self.cua_elements()
+        if verb == "dump":
+            return 0, "\n".join(f"{e.get('role')} {e.get('label') or e.get('title') or e.get('value') or ''}" for e in elements)
+        label = rest[-1]
+        anchor = rest[0] if len(rest) > 1 else ""
+        start = next((i for i, e in enumerate(elements) if anchor and anchor in str(e.get("label", "")) + str(e.get("value", ""))), 0)
+        hits = [e for e in elements[start:] if self.names(e, label) and "button" in str(e.get("role", "")).lower()]
+        if not hits:
+            return 1, f"no {label!r} button (after {anchor!r})"
+        if verb == "has":
+            return 0, "found"
+        key = "element_token" if "element_token" in hits[0] else "element_index"
+        reply = self.cua("click", {"pid": self.pid, "window_id": win["window_id"], key: hits[0][key], "action": "press"})
+        return (0 if reply else 2), json.dumps(reply)[:300]
 
     def dump(self, name):
         code, text = self.ax("dump", timeout=60)
@@ -140,7 +199,10 @@ class Journey:
         report["env_path"] = env.get("PATH")
         threading.Thread(target=self.pinger, daemon=True).start()
         try:
-            self.mark("rendered", trusted=self.ax("trusted")[1])
+            trusted = self.ax("trusted")[1]
+            # Untrusted (a display worker's step): cua-driver presses instead, with its own grant.
+            self.cua_ready = trusted != "trusted" and os.access(CUA, os.X_OK)
+            self.mark("rendered", trusted=trusted, via="cua-driver" if self.cua_ready else "ax-press")
             self.dump("start")
             if self.opts.flow == "settings":
                 started = time.monotonic()
