@@ -308,6 +308,13 @@ pub struct Session {
     /// new one when the turn ends (`profile_respawn.rs`). Lists say `respawn pending: profile
     /// changed` until a start runs the new profile.
     pub(super) profile_respawn: AtomicBool,
+    /// Its agent restarts once nothing runs in it (`idle.rs` `quiet_respawn`): its host runs a
+    /// binary an update replaced (`stale_host_respawn.rs`), or its profile changed while a
+    /// background process or subagent was at work in it (`profile_respawn.rs`). The idle
+    /// pass ends it as it ends an idle agent (every gate and the census), after a short quiet
+    /// period instead of the idle one; its next prompt starts it on what is installed then.
+    /// Cleared with `profile_respawn`, when its agent ends or starts.
+    pub(super) respawn_when_quiet: AtomicBool,
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
     pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
     /// True while the chat is closed: its inbound loop hands `inbound_rx` back and ends once
@@ -390,6 +397,11 @@ pub struct Session {
     /// The agent message that holds its turn's start in an idle chat for the gather window, by
     /// its turn id, and when that window ends (`digest.rs` `AGENT_GATHER_MS`).
     pub(super) gathering: StdMutex<Option<(String, tokio::time::Instant)>>,
+    /// The cold batch open in this idle chat (`cold_wake.rs`): when what it holds goes in.
+    pub(super) cold_batch: StdMutex<Option<super::cold_wake::Batch>>,
+    /// Whether the turn starting now takes a cold batch: its notice leads the agent messages
+    /// queued behind it (`digest.rs` `take_joined`).
+    pub(super) cold_batch_turn: AtomicBool,
     /// The person's prompt that holds its turn's start in a held chat, and when that hold ends
     /// (`person_hold.rs`).
     pub(super) person_hold: StdMutex<Option<super::person_hold::Hold>>,

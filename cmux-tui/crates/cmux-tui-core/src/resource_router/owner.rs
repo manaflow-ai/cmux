@@ -166,6 +166,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::DiffCommentsSave
         | ResourceOperation::DiffCommentsDelete
         | ResourceOperation::DiffCommentsSend
+        | ResourceOperation::DiffCommentsThread
         | ResourceOperation::GitReviewStart
         | ResourceOperation::GitReviewComment
         | ResourceOperation::GitReviewPost => OperationOwner::Git,
@@ -413,6 +414,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::CloudMachineShareChat
         | ResourceOperation::CloudMachineChiefStart
         | ResourceOperation::CloudMachineChiefResize
+        | ResourceOperation::CloudMachineFork
         // The app's language packs (server/language_packs_op.rs): a download on a worker thread.
         | ResourceOperation::LanguagePacksEnsure
         | ResourceOperation::OriginConfirmationIssue => OperationOwner::Connection,
