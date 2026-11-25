@@ -638,6 +638,8 @@ mod tests {
         let server = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
             let mut seen = String::new();
+            // tungstenite's handshake callback returns its own large `ErrorResponse`; this test never builds one.
+            #[allow(clippy::result_large_err)]
             let callback = |request: &Request, mut response: Response| {
                 seen = request.uri().to_string();
                 response.headers_mut().insert("sec-websocket-protocol", SUBPROTOCOL.parse().unwrap());
