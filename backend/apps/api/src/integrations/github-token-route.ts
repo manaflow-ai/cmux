@@ -7,7 +7,7 @@ import { personalTeamIdFor } from "../domains/user.ts"
 import type { Env } from "../env.ts"
 import { ssoGate } from "../policy-gate.ts"
 import { principalForOwner, selectTeam } from "../team-select.ts"
-import type { TokenAsk } from "./github-tokens.ts"
+import { ownConnectionsMayAnswer, type TokenAsk, type TokenReply } from "./github-tokens.ts"
 import { platformRead } from "../platform-api.ts"
 import { githubNext } from "./github-next.ts"
 
@@ -39,6 +39,21 @@ const no = (status: number, code: string, message: string): Fail => ({ status, c
 const unreachable = (what: string) => no(503, "integration.unavailable", `${what} could not be checked; retry`)
 
 const connections = (env: Env, team: string) => env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(team))
+
+/**
+ * The person's personal team, where their own GitHub connections are asked when `who.team` has none on the repository's
+ * owner (cmux#55104, github-tokens.ts ownConnectionsUnder); undefined when `who.team` is that team or no person is known.
+ */
+const ownTeam = (who: { p: Principal; team: string }): string | undefined => {
+  const personal = who.p.user ? personalTeamIdFor(who.p.user) : undefined
+  return personal !== undefined && personal !== who.team ? personal : undefined
+}
+
+/** The asking team's policy, then the mint from the person's own connections; null when either could not be asked. */
+const ownToken = async (env: Env, who: { p: Principal; team: string }, personal: string, ask: TokenAsk): Promise<TokenReply | null> => {
+  const policy = await connections(env, who.team).githubPolicy(who.team).catch(() => null)
+  return policy === null ? null : connections(env, personal).githubTokenOwn(personal, who.p, ask, policy).catch(() => null)
+}
 
 /**
  * Where the machine-only seam (POST /machine-token) answers: every deployed environment, so Cloud
@@ -115,9 +130,23 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
     // `truncated` says more remain, and `cursor` continues from there.
     const repos: Array<{ full_name: string; private: boolean; default_branch: string | null }> = []
     let cursor = url.searchParams.get("cursor")
+    // The team's connections, else (none this person may use) their own in their personal team, as the token route.
+    let list = (query: { query?: string; cursor?: string }) => connections(env, who.team).githubRepos(who.team, who.p, query)
+    const personal = ownTeam(who)
     for (let page = 0; page < REPO_PAGES_PER_ANSWER && repos.length < REPOS_PER_ANSWER; page++) {
       const query = { ...(asked === null ? {} : { query: asked }), ...(cursor === null ? {} : { cursor }) }
-      const listed = await connections(env, who.team).githubRepos(who.team, who.p, query).catch(() => null)
+      let listed = await list(query).catch(() => null)
+      if (page === 0 && personal !== undefined && listed !== null && !listed.ok && listed.code === "integration.not_found") {
+        const policy = await connections(env, who.team).githubPolicy(who.team).catch(() => null)
+        if (policy === null) return failed(unreachable("the team's GitHub policy"))
+        const own = (query: { query?: string; cursor?: string }) => connections(env, personal).githubReposOwn(personal, who.p, query, policy)
+        const answered = await own(query).catch(() => null)
+        // The person has no connection of their own either: the team's answer stands.
+        if (answered === null || answered.ok || answered.code !== "integration.not_found") {
+          list = own
+          listed = answered
+        }
+      }
       if (listed === null) return failed(unreachable("the team's GitHub repositories"))
       if (!listed.ok) return failed(listed)
       for (const repo of listed.value.repos) repos.push({ full_name: repo.full_name, private: repo.private, default_branch: repo.default_branch ?? null })
@@ -132,7 +161,16 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
     const team = raw === undefined ? undefined : decode(TeamId as unknown as Schema.Codec<string, unknown>, raw)
     if (isFail(team)) return failed(team)
     const who = await caller(request, env, team)
-    return isFail(who) ? failed(who) : Response.json(await connections(env, who.team).githubStatus(who.team, who.p), { headers: NO_STORE })
+    if (isFail(who)) return failed(who)
+    const status = await connections(env, who.team).githubStatus(who.team, who.p)
+    // No connection in this team: the one the person linked in their personal team, as the token route mints from it.
+    const personal = ownTeam(who)
+    if (status.connection === null && status.configured && personal !== undefined) {
+      const policy = await connections(env, who.team).githubPolicy(who.team).catch(() => null)
+      const own = policy === null ? null : await connections(env, personal).githubStatusOwn(personal, who.p, policy).catch(() => null)
+      if (own?.connection) return Response.json(own, { headers: NO_STORE })
+    }
+    return Response.json(status, { headers: NO_STORE })
   }
   if (request.method !== "POST") return failed(no(405, "request.invalid", "POST"))
   const json = (await request.json().catch(() => undefined)) as unknown
@@ -159,7 +197,14 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
     }
     const ttlSec = sub === "machine-token" ? (body as typeof GitHubMachineTokenRequest.Type).ttlSec : undefined
     const ask: TokenAsk = { repo: body.repo, permissions: body.permissions as Record<string, "read" | "write">, ...(body.connection ? { connection: body.connection } : {}), ...(body.label ? { label: body.label } : {}), ...(ttlSec === undefined ? {} : { ttlSec }), ...(who.machine ? { machine: who.machine } : {}) }
-    const r = await connections(env, who.team).githubToken(who.team, who.p, ask).catch(() => null)
+    let r: TokenReply | null = await connections(env, who.team).githubToken(who.team, who.p, ask).catch(() => null)
+    // The team has nothing on the repository's owner: the person's own connection, linked in their personal team, may.
+    // Its answer wins only when it says more than the team's (a token, or a refusal about a connection it has).
+    const personal = ownTeam(who)
+    if (r !== null && !r.ok && personal !== undefined && ownConnectionsMayAnswer(r, ask)) {
+      const own = await ownToken(env, who, personal, ask)
+      if (own !== null && (own.ok || !ownConnectionsMayAnswer(own, ask))) r = own
+    }
     return r === null ? failed(unreachable("the team's GitHub connection")) : r.ok ? Response.json(r.value, { headers: NO_STORE }) : failed(r)
   }
   const body = decode(GitHubTokenRevokeRequest as unknown as Schema.Codec<typeof GitHubTokenRevokeRequest.Type, unknown>, json)
@@ -182,6 +227,13 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
     if (!admin) return failed(no(403, "auth.forbidden", "revoking another install's tokens needs a team admin"))
   }
   const target = body.install ?? own
-  const revoked = await connections(env, who.team).githubRevoke(who.team, target ? { install: target } : { principal: `session:${who.p.user}` }).catch(() => null)
+  const whose = target ? { install: target } : { principal: `session:${who.p.user}` }
+  let revoked = await connections(env, who.team).githubRevoke(who.team, whose).catch(() => null)
+  // Tokens minted from the person's own connections (cmux#55104) are in their personal team's ledger: the caller's own go too.
+  const personal = ownTeam(who)
+  if (revoked !== null && personal !== undefined && (target === undefined || target === own)) {
+    const more = await connections(env, personal).githubRevoke(personal, whose).catch(() => null)
+    revoked = more === null ? null : revoked + more
+  }
   return revoked === null ? failed(unreachable("the team's GitHub tokens")) : Response.json({ revoked }, { headers: NO_STORE })
 }
