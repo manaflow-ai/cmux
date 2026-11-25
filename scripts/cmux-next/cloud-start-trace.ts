@@ -127,16 +127,33 @@ export function p50(values: number[]): number | null {
   return v.length % 2 ? v[m] : Math.round((v[m - 1] + v[m]) / 2);
 }
 
-/** One run's numbers from a journey probe.json / journey.json or an hq probe row: null when it has no marks. */
+/** The CLI's own step list (`cloud start-chat --json` stages_ms, kept on hq app probe rows) as the same parts. */
+const STEP_PARTS: Record<string, string> = { machine: "claim", connect: "connect", copy: "login", approvals: "acpmux_connect", anchor: "acpmux_connect", start: "harness_spawn", "link send": "request_sent", "link observe": "first_token" };
+export function stepParts(stages: any): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const step of Array.isArray(stages?.steps) ? stages.steps : []) {
+    const inner = step?.step === "cloud start-session" && Array.isArray(step?.parts) ? step.parts : [step];
+    for (const s of inner) {
+      const name = STEP_PARTS[s?.step];
+      if (name && typeof s.ms === "number") out[name] = (out[name] ?? 0) + s.ms;
+    }
+  }
+  return out;
+}
+
+/** One run's numbers from a journey probe.json / journey.json or an hq probe row: null when it has no times. */
 export function snappyRun(row: any): { send_first_token_ms: number | null; parts: Record<string, number>; sign_in_ms?: number; run?: string } | null {
   const marks: Record<string, number> | undefined = row?.create_marks_ms
     ?? [...(Array.isArray(row?.steps) ? row.steps : [])].reverse().find((s: any) => s?.fields?.create_marks_ms)?.fields?.create_marks_ms;
-  if (!marks || typeof marks !== "object") return null;
-  const first = typeof marks.first_text === "number" ? marks.first_text
+  const fromSteps = stepParts(row?.stages_ms);
+  if ((!marks || typeof marks !== "object") && !Object.keys(fromSteps).length) return null;
+  const first = typeof marks?.first_text === "number" ? marks.first_text
     : typeof row?.select_to_first_text_ms === "number" ? row.select_to_first_text_ms : null;
-  const parts = snappyParts(marks);
+  // The CLI's step list when the row has one (it splits the start-session the marks see as one span), else the marks.
+  const parts = Object.keys(fromSteps).length ? fromSteps : snappyParts(marks);
+  if (!marks) return { send_first_token_ms: first, parts, ...(typeof row?.launch_to_signed_in_ms === "number" ? { sign_in_ms: row.launch_to_signed_in_ms } : {}), ...(typeof row?.run === "string" && /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/actions\/runs\/\d+$/.test(row.run) ? { run: row.run } : {}) };
   // An hq row's reply time when its marks stop at `sent` (the app reads the reply, not a first-text mark).
-  if (parts.first_token === undefined && first !== null && marks.sent !== undefined && first >= marks.sent) parts.first_token = first - marks.sent;
+  if (parts.first_token === undefined && first !== null && marks?.sent !== undefined && first >= marks.sent) parts.first_token = first - marks.sent;
   return {
     send_first_token_ms: first,
     parts,

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { floorOnce, floorRoute, modelFloor, p50, snappyParts, snappyReport, snappyRun, SNAPPY_PARTS } from "./cloud-start-trace.ts";
+import { floorOnce, floorRoute, modelFloor, p50, snappyParts, snappyReport, snappyRun, SNAPPY_PARTS, stepParts } from "./cloud-start-trace.ts";
 
 const marks = { create: 0, created: 2658, running: 2701, login: 3082, login_ready: 3082, session_start: 6320, session_ready: 10089, send: 10092, sent: 10558, first_text: 14000 };
 
@@ -26,6 +26,14 @@ describe("snappy-bench/v1 cloud leg", () => {
     expect(hq?.sign_in_ms).toBe(8246);
     expect(hq?.run).toBeUndefined();
     expect(snappyRun({ outcome: "fail" })).toBeNull();
+  });
+
+  test("an hq row's CLI step list splits the start-session into the same parts", () => {
+    const stages = { steps: [{ step: "cloud list-machines", ms: 6 }, { step: "cloud start-session", ms: 27228, parts: [{ step: "machine", ms: 7282 }, { step: "connect", ms: 10826 }, { step: "copy", ms: 0 }, { step: "approvals", ms: 2509 }, { step: "anchor", ms: 1703 }, { step: "start", ms: 3501 }] }, { step: "link send", ms: 956 }, { step: "link observe", ms: 3598 }] };
+    expect(stepParts(stages)).toEqual({ claim: 7282, connect: 10826, login: 0, acpmux_connect: 4212, harness_spawn: 3501, request_sent: 956, first_token: 3598 });
+    const run = snappyRun({ stages_ms: stages, select_to_first_text_ms: 31798 });
+    expect(run?.send_first_token_ms).toBe(31798);
+    expect(run?.parts.connect).toBe(10826);
   });
 
   test("the report has the schema's fields, the p50s and the slowest part", () => {
