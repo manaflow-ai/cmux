@@ -1,3 +1,4 @@
+import CmuxEgress
 import CryptoKit
 import Foundation
 
@@ -275,7 +276,7 @@ struct URLSessionSignalSocket: ScreenSignalSocket {
     let task: URLSessionWebSocketTask
 
     @Sendable static func open(_ request: URLRequest) async throws -> any ScreenSignalSocket {
-        let task = SignalSocket.session.webSocketTask(with: request)
+        let task = CmuxEgress.websocket(SignalSocket.session, with: request, site: "CmuxVNCWebRTC.TicketSignaling")
         task.maximumMessageSize = 1 << 20
         task.resume()
         return URLSessionSignalSocket(task: task)
