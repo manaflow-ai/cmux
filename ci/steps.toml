@@ -630,6 +630,30 @@ python3 scripts/ci/zig_package_mirror.py check ${args[@]+"${args[@]}"} || status
 exit "$status"
 '''
 
+# Every on-disk format a cmux-tui build leaves for the next build ships its migration (Leo, 2026-11-24,
+# ask-1f9e8b7422: "we need to make sure in the future these kinds of cutovers always have proper migrations.").
+# The registry is cmux-tui/persisted-formats/formats.toml; the cmux_next_persisted_* Rust tests load its fixtures
+# through the real readers (the cmux_next_ daemon tests step). Seconds.
+[step.persisted-formats]
+job = "linux"
+timeout = 300
+title = "Persisted formats ship their migration"
+about = "every stored-format version constant in cmux-tui is registered; a migrate format keeps every old fixture byte for byte and has one for its current version; no version goes down; an unreviewed format changes only with a policy"
+inputs = [
+  "cmux-tui/**",
+  "scripts/ci/persisted_formats.py",
+  "tests/test_ci_persisted_formats.py",
+  "tests/git_fixture_env.py",
+]
+run = '''
+base="$(git rev-parse HEAD^1)"
+git cat-file -e "$base^{commit}"
+status=0
+python3 -I scripts/ci/persisted_formats.py --base "$base" || status=1
+python3 -I tests/test_ci_persisted_formats.py || status=1
+exit "$status"
+'''
+
 # ci-web.yml's web-typecheck job, which a feat-cmux-next pull request reached through ci.yml's `web` call when
 # web_subareas.py routed its `typecheck` subarea: a TS/JS/JSON file under web/, web/bun.lock, or ci-web.yml and
 # web_subareas.py themselves. The job keeps pushes, dispatch, the post-merge batch and pull requests into other
@@ -1356,25 +1380,64 @@ exit "$status"
 # superset of what scripts/ci/cmux_next_route.py routes to the tier (it reads the SwiftPM target graph), and each
 # step's first line asks scripts/ci/mac_tiers.py, which runs that router over $CI_PATHS_FILE, so a path the globs
 # over-route skips in a second.
-[step.mac-swift-canary]
-job = "mac"
-timeout = 1200
-title = "Swift canary"
-about = "a debug build of each CmuxNext target the change reaches (cmux_next_route.py swift_canary_targets)"
+[step.swift-canary]
+# Was the `mac` job's mac-swift-canary: a Mac compiled each CmuxNext target the change reaches in Debug. The build
+# fleet's pool already compiles and links the whole app (every production target the canary could name) in Debug at
+# every same-repository pull request head (scripts/ci/fleet_compile_result.py --phase app-debug, the record
+# cmux-next.yml's app-compile-fleet reads), so this step reads that one compile instead of compiling again on a Mac.
+# `alone`: it runs after the job's other steps, by when the fleet's compile (submitted at the push) has an answer.
+# A fork's head is not compiled by the fleet; its Mac Release compile (cmux-next.yml release-compile) compiles it.
+# No pass (a fail, or no verdict in 25 min): the Mac fallback compiles it (Leo, 2026-11-25: "having our mac fleet be
+# able to like... exist as fallbacks if we fucked up logic for linux and whatnot is still fine").
+#
+# Leo, 2026-11-25: "stop waiting on ci to get these fucking things in" and "we need to not only build, but use".
+job = "linux"
+timeout = 1800
+alone = true
+title = "Swift canary (build fleet)"
+about = "the build fleet's Debug compile of the app at the pull request's head, every target the change reaches (fleet_compile_result.py --phase app-debug)"
 inputs = ["Packages/macOS/CmuxNext/Sources/**.swift"]
 run = '''
 python3 -I scripts/ci/mac_tiers.py has swift_canary > "$CI_TOOLS/canary-tiers.txt" || exit 0
-targets="$(sed -n 's/^swift_canary_targets=//p' "$CI_TOOLS/canary-tiers.txt")"
-read -r -a targets <<< "$targets"
-if ((${#targets[@]} == 0)); then
-  echo "the Swift canary is routed with no target" >&2
-  exit 1
+event="${GITHUB_EVENT_PATH:-}"
+read -r head pr fork < <(python3 -I - "$event" <<'PY'
+import json, sys
+try:
+    e = json.load(open(sys.argv[1]))
+except (OSError, ValueError, IndexError):
+    e = {}
+pr = e.get("pull_request") or {}
+head = (pr.get("head") or {})
+repo = (head.get("repo") or {}).get("full_name") or ""
+base = (e.get("repository") or {}).get("full_name") or ""
+print(head.get("sha") or "-", pr.get("number") or "-", "1" if repo and base and repo != base else "0")
+PY
+)
+if [ "$head" = "-" ]; then
+  head="$(git rev-parse -q --verify 'HEAD^2' 2>/dev/null || git rev-parse HEAD)"
 fi
-cd "${CMUX_MAC_ROOT:-$PWD}/Packages/macOS/CmuxNext"
-for target in "${targets[@]}"; do
-  echo "Canary target: $target"
-  swift build --configuration debug --target "$target"
-done
+if [ "$fork" = "1" ]; then
+  echo "a fork's head: the build fleet compiles only same-repository heads; the Mac Release compile compiles this one"
+  exit 0
+fi
+repo="${GITHUB_REPOSITORY:-manaflow-ai/cmux}"
+args=(--sha "$head" --repo "$repo" --phase app-debug --wait 1500 --no-record 600)
+[ "$pr" = "-" ] || args+=(--pr "$pr")
+word="$(python3 -I scripts/ci/fleet_compile_result.py "${args[@]}")" || word=none
+fallback() {
+  # The Mac fallback (pr-pipeline.yml mac-fallback) compiles the targets on a Mac and its verdict is the canary's.
+  # Each one is logged (a warning here, the mac-fallback job's run in the timing records) so the fleet side gets fixed.
+  echo "::warning title=fleet fallback::Swift canary: the build fleet said $word at $head; a Mac compiles it (mac-fallback)"
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    echo "mac_fallback=swift-canary" >> "$GITHUB_OUTPUT"
+    echo "canary_targets=$(sed -n 's/^swift_canary_targets=//p' "$CI_TOOLS/canary-tiers.txt")" >> "$GITHUB_OUTPUT"
+  fi
+}
+case "$word" in
+  pass) echo "the build fleet compiled and linked the app at $head (Debug): every target the change reaches compiles" ;;
+  superseded) echo "a newer head of this pull request replaced $head; its own run reads its compile" ;;
+  *) fallback ;;
+esac
 '''
 
 [step.mac-fast-tier]
@@ -1409,6 +1472,11 @@ python3 -I scripts/ci/mac_tiers.py has fast_tier > "$CI_TOOLS/fast-tiers.txt" ||
 selected=()
 # A pure app FFI re-pin runs only the handler coverage suite (cmux_next_route.py pure_ffi_repin).
 if grep -qx 'ffi_repin=true' "$CI_TOOLS/fast-tiers.txt"; then selected=(--only "app handler coverage"); fi
+# Otherwise only the suites (and the package builds) the change reaches run; the post-merge batch runs every suite
+# (cmux-next-fast-tier-batch.yml). `vars.CI_FAST_TIER_PR_SCOPE` set to `0` runs them all here again.
+if [ ${#selected[@]} -eq 0 ] && [ "${CI_FAST_TIER_PR_SCOPE:-1}" != 0 ] && [ -n "${CI_PATHS_FILE:-}" ]; then
+  selected=(--changed-files "$CI_PATHS_FILE")
+fi
 python3 -I scripts/cmux-next/fast-tier.py --root "${CMUX_MAC_ROOT:-$PWD}" --kind swift ${selected[@]+"${selected[@]}"} \
   --receipt "${RUNNER_TEMP:-$CI_TOOLS}/cmux-next-fast-tier.json"
 '''
