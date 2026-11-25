@@ -56,6 +56,11 @@ pub struct SubOpts {
     /// Follows the chat's transcript rows (`_acpmux/rows` `follow`): each live record's row
     /// changes go out as `_acpmux/rows_patch` (`rows/serve.rs`).
     pub rows: Option<Arc<crate::rows::Following>>,
+    /// Attached with `omitTimeBreakdown: true` (the phone, which draws no breakdown): the chat's
+    /// `_acpmux/session_changed` rows to this connection leave `timeBreakdown` out too, as the
+    /// attach reply does (`requests/time_breakdown_gate.rs`). A full row of a long chat is mostly
+    /// that field (32 KiB of 36 KiB at 3,000 records, the time-away bench).
+    pub omit_time_breakdown: bool,
     /// The client draws nothing of the chat while it is `hidden` (`_acpmux/attach`
     /// `quietHidden`, the app's pane): its agent's `session/update` stream is left out until a
     /// view shows it, which then says how much in one `_acpmux/lagged` (`view.rs`).
@@ -66,6 +71,11 @@ pub struct SubOpts {
     /// as `afterSeq`, since the turn ends and status records that still went out moved the client's
     /// own cursor past the chunks it never got (`view.rs`).
     pub left_from: u64,
+}
+
+/// Whether `conn` attached `session_id` asking for no `timeBreakdown` (`SubOpts`).
+fn omits_time_breakdown(conn: &Conn, session_id: &str) -> bool {
+    conn.subs.lock_or_recover().get(session_id).is_some_and(|o| o.omit_time_breakdown)
 }
 
 /// Which of one chat's `_acpmux/message` records a connection has heard, so each reaches it once.
@@ -2125,13 +2135,7 @@ async fn serve_connection_from(
         ephemeral: StdMutex::new(Some(Vec::new())),
         ended: tokio::sync::watch::Sender::new(false),
         preparation_cancels: StdMutex::new(HashMap::new()),
-        // A peer daemon's link carries all its clients' reads, which it caps one by one
-        // (`media_forward.rs`).
-        media: if auth.peer_daemon() {
-            crate::hub::media_handles::Handles::for_peer_link()
-        } else {
-            crate::hub::media_handles::Handles::default()
-        },
+        media: crate::hub::media_handles::Handles::default(),
         remote_media: media_forward::RemoteMedia::default(),
         client_requests: Default::default(),
         in_flight: in_flight::InFlight::counted(hub.requests_in_flight.clone()),
@@ -2279,8 +2283,9 @@ async fn serve_connection_from(
                                 "retryable": true,
                             }));
                         // In the lane of its method's answer: a busy refusal of a cheap read (the
-                        // pane's liveness probe) proves the daemon alive only if it arrives.
-                        let reply_to = outbound::is_cheap_read(&m).then_some(m.as_str());
+                        // pane's liveness probe) proves the daemon alive only if it arrives, and
+                        // a tool call's refusal is its answer.
+                        let reply_to = outbound::reads_ahead(&m).then_some(m.as_str());
                         conn.send_replying(&Message::err(id, error), reply_to);
                         continue;
                     }
@@ -2358,6 +2363,9 @@ async fn serve_connection_from(
                         conn.send_replying(&dual_requests::reply(id, answer), Some(&m));
                         return;
                     }
+                    // One span per request, with the caller's end-to-end trace id
+                    // (`params._meta.traceId`), for the Perfetto trace (`perf_trace.rs`).
+                    let rpc_span = crate::perf_trace::request_span(&m, params.as_ref());
                     let route = || {
                         chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null), sender_token)
                     };
@@ -2369,6 +2377,7 @@ async fn serve_connection_from(
                         hub.request_hold(stage, &m, &id).await;
                         list_reply::scope(id.clone(), &m, claim, route).await
                     };
+                    let serve = tracing::Instrument::instrument(serve, rpc_span);
                     // A cancel of its copy on another connection stops it too (`dual_requests.rs`).
                     let also = first.as_mut().and_then(dual_requests::First::take_stop);
                     let served = crate::request_cancel::until_either(cancel, also, serve).await;
@@ -2664,7 +2673,9 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             let full = attached || conn.watch_tools.load(Ordering::SeqCst);
             let mut session =
                 if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) };
-            if conn.omit_time_breakdown.load(Ordering::SeqCst) {
+            if conn.omit_time_breakdown.load(Ordering::SeqCst)
+                || (attached && omits_time_breakdown(conn, &ev.session_id))
+            {
                 requests::without_time_breakdown(&mut session);
             }
             let notice = json!({"sessionId": ev.session_id, "kind": ev.record.kind, "recordKind": ev.record.kind, "seq": s.meta().last_seq, "listSeq": ev.list_seq});
@@ -2903,7 +2914,9 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         let full = attached || conn.watch_tools.load(Ordering::SeqCst);
         // A full row is mostly its time breakdown (93 of 96 KB on a 2,000-turn chat), sent again
         // on every record of a running turn; a client that draws none shares a row without it.
-        let lean = full && conn.omit_time_breakdown.load(Ordering::SeqCst);
+        let lean = full
+            && (conn.omit_time_breakdown.load(Ordering::SeqCst)
+                || (attached && omits_time_breakdown(conn, &ev.session_id)));
         let [list_row, full_row, lean_row] = &ev.row.cells;
         let row = if lean {
             lean_row
@@ -2970,6 +2983,7 @@ fn mux_meta(params: &Value) -> Option<&Value> {
 mod agent_login;
 mod agent_messages;
 mod app_reply;
+mod auto_gate;
 #[cfg(test)]
 #[path = "cancel_classes_tests.rs"]
 mod cancel_classes_tests;
@@ -3032,6 +3046,7 @@ mod media_forward;
 mod mesh_control_send;
 pub mod mesh_relay;
 pub(super) mod mesh_send;
+mod send_check;
 mod stream_cursor;
 #[cfg(test)]
 #[path = "stream_cursor_tests.rs"]
@@ -3229,3 +3244,6 @@ mod chat_window_activity_tests;
 #[cfg(test)]
 #[path = "fanout_interest_tests.rs"]
 mod fanout_interest_tests;
+#[cfg(test)]
+#[path = "omit_time_breakdown_rows_tests.rs"]
+mod omit_time_breakdown_rows_tests;

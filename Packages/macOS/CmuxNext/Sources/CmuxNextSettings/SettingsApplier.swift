@@ -36,6 +36,10 @@ public final class SettingsApplier {
         }
 
         if design.showModifierHoldHints != snapshot.showModifierHoldHints { design.showModifierHoldHints = snapshot.showModifierHoldHints }
+        let qwertyPositions = snapshot.keyboardStyle.shortcutLayout == .qwertyPositions
+        if registry.matchesQwertyPositions != qwertyPositions {
+            registry.matchesQwertyPositions = qwertyPositions
+        }
         if design.customDensities != snapshot.customDensities { design.customDensities = snapshot.customDensities }
         let density = snapshot.selectedDensity
         if design.densityTokens != density { design.densityTokens = density }
@@ -78,6 +82,7 @@ public final class SettingsApplier {
         if design.colorTransition != snapshot.colorTransition.transition { design.colorTransition = snapshot.colorTransition.transition }
         if design.inactiveWindowDim != snapshot.inactiveWindowDim { design.inactiveWindowDim = snapshot.inactiveWindowDim }
         if design.wallpaperTint != snapshot.wallpaperTint { design.wallpaperTint = snapshot.wallpaperTint }
+        if design.wallpaperLighting != snapshot.wallpaperLighting { design.wallpaperLighting = snapshot.wallpaperLighting }
         if design.liveWallpaperFrameRate != snapshot.liveWallpaperFrameRate {
             design.liveWallpaperFrameRate = snapshot.liveWallpaperFrameRate
         }
@@ -123,6 +128,8 @@ public final class SettingsApplier {
         if design.sidebarDrawnMenus != drawnMenus { design.sidebarDrawnMenus = drawnMenus }
         if design.liquidGlass != snapshot.liquidGlass { design.liquidGlass = snapshot.liquidGlass }
         if design.fontSmoothing != snapshot.fontSmoothing { design.fontSmoothing = snapshot.fontSmoothing }
+        let appFont = AppFontSetting().value(in: snapshot.root)
+        if design.appFont != appFont { design.appFont = appFont }
         // `experiments.*`: every switch that is on, by name (CmuxConfigSnapshot+Experiments.swift), for
         // every page's theme and the native menus.
         let experiments = snapshot.experimentSwitches.filter(\.value)
