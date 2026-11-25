@@ -33,9 +33,10 @@ public final class AgentChatsModel {
     /// A refusal to show (an alert).
     public var failure: String?
     /// The connection to the Mac dropped or went quiet (``ConnectionInterrupted``): the list keeps
-    /// its rows (or its loading state), says it is reconnecting, and asks again on its own. Past
-    /// ``ConnectionPatience/giveUpAfter`` an empty list says what to do; a list with rows keeps
-    /// them, says they are from earlier (``stale``), and keeps asking.
+    /// its rows (or its loading state) and asks again on its own, saying nothing: no chip over
+    /// the rows (Leo, 2026-11-24: "let's just keep optimistically connecting and reinforcing the
+    /// connection"). Past ``ConnectionPatience/giveUpAfter`` an empty list says what to do; a list
+    /// with rows keeps them (``stale``) and keeps asking.
     public private(set) var reconnecting = false
     /// The rows shown are the last ones read: the Mac stayed unreachable past the bound.
     public private(set) var stale = false
@@ -316,39 +317,12 @@ struct AgentChatsScreen: View {
         }
     }
 
-    /// A dropped or quiet link (``AgentChatsModel/reconnecting``, already past the quiet gate):
-    /// a chip floating over the top of the list, never a row in it (Leo, 2026-11-21: "these
-    /// messages should not be pushing up the text ... a symbol or short thing, not a sentence.
-    /// stop layout shifting").
-    private var linkChip: some View {
-        Group {
-            if model.reconnecting {
-                Group {
-                    // Still redialing: a symbol, not "Reconnecting" (Leo, 2026-11-23: "i dont
-                    // wanna see reconnecting to the Mac in a toast, i want it to just connect").
-                    // The model held it past the quiet gate, so the chip shows at once.
-                    if model.stale {
-                        ConnectionChip(ListStatusRow.State.stale.chip, downSince: nil)
-                            .placeholderBound("agentChats.connection.chip", .milliseconds(0))
-                    } else {
-                        ConnectionChip.SymbolOnly(ListStatusRow.State.reconnecting.chip, downSince: nil)
-                            .placeholderBound("agentChats.connection.chip", .milliseconds(0))
-                    }
-                }
-                .padding(.top, 8)
-                    .accessibilityIdentifier("agentChats.reconnecting")
-                    .transition(.opacity)
-            }
-        }
-        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: model.reconnecting)
-    }
 
     private var list: some View {
         let rows = model.visible
         return List {
             // The kept rows show while the Mac's newest page loads, with no word that they do;
-            // a dropped link is a chip over the list (``linkChip``), so no row is inserted above
-            // them and nothing shifts.
+            // a dropped link draws nothing over them (it redials on its own), so nothing shifts.
             ForEach(rows) { chat in
                 row(chat)
             }
@@ -371,7 +345,6 @@ struct AgentChatsScreen: View {
             }
         }
         .listStyle(.insetGrouped)
-        .overlay(alignment: .top) { linkChip }
         .overlay {
             if rows.isEmpty, model.nextCursor == nil {
                 emptyState
@@ -451,13 +424,6 @@ struct AgentChatRow: View {
                     .font(.body)
                     .foregroundStyle(theme.colors.label.color)
                     .lineLimit(1)
-                // Where the chat stands and its next action (the Mac's acpmux rolling summary).
-                if let line = chat.summaryLine {
-                    Text(line)
-                        .font(.footnote)
-                        .foregroundStyle(theme.colors.label.color.opacity(0.8))
-                        .lineLimit(2)
-                }
                 // No blank line under the title when there is nothing to say (no status, no folder).
                 if chat.isActive || !subtitle.isEmpty {
                     HStack(spacing: 6) {

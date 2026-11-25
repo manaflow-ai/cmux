@@ -128,6 +128,8 @@ mod key_broker;
 mod notification_banners;
 pub(crate) use completion::refuse_in_help_reader;
 #[cfg(unix)]
+mod autocloud;
+#[cfg(unix)]
 mod community;
 #[cfg(unix)]
 mod customize;
@@ -1069,6 +1071,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| inference_gateway_admin::run_route_if_requested(args))
         .or_else(|| cloud_preflight::run_if_requested(args))
         .or_else(|| hub::run_if_requested(args))
+        .or_else(|| autocloud::run_if_requested(args))
         .or_else(|| mcp_servers::run_if_requested(args))
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))

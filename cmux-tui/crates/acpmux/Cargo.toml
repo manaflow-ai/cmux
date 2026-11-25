@@ -99,6 +99,8 @@ chrono.workspace = true
 chrono-tz.workspace = true
 cmux-server = { path = "../cmux-server" }
 cmux-json.workspace = true
+# Deadlines on silence since the last progress, not a wall clock (peer frame writes, mesh reads).
+cmux-deadline = { workspace = true, features = ["tokio"] }
 cmux-netwatch.workspace = true
 # The settings file's path and JSONC reader (src/user_settings.rs), the settings owner's.
 cmux-config.workspace = true
@@ -136,6 +138,8 @@ cmux-agent-customize.workspace = true
 cmux-file-lock.workspace = true
 # Session Info's per-chat usage stats, invalidated by chat and transcript tag (`hub/usage_view.rs`).
 cmux-tag-cache.workspace = true
+# One deadline per wait (daemon/watchdog.rs: a hello waits until systemd's own limit).
+cmux-deadline.workspace = true
 cmux-supervise-core.workspace = true
 cmux-git.workspace = true
 # The trusted session-flag hook a Codex start at a repository head gets (src/codex_repo_gate.rs).

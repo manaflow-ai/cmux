@@ -95,6 +95,7 @@ public struct SSHProcessRunner {
         }
         let exit = ExitLatch()
         process.terminationHandler = { exit.finish($0.terminationStatus) }
+        OpenDescriptors.noteBudgetSoon()  // every child launch: a leak shows in the log as it passes the bound
         try process.run()
         // Stdin goes on the feed's own queue, never this task: even a few KiB can wait in `write`
         // (a child that never reads, the kernel's pipe memory used up), and that wait would hold

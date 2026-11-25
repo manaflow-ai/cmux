@@ -10,8 +10,8 @@ public enum TerminalCardContent: Equatable, Sendable {
     /// The Mac's screen as text, fetched for a tab not opened in this launch.
     case screenText
     /// A frame saved in an earlier launch, for a tab not opened in this
-    /// launch, until the Mac's screen arrives: drawn dimmed, never as the
-    /// current screen (VERIFY-round8 Claim 8: old Codex output shown while
+    /// launch, until the Mac's screen arrives: drawn at full strength (never
+    /// greyed, Leo 2026-11-24), but not counted as the current screen (VERIFY-round8 Claim 8: old Codex output shown while
     /// the Mac had moved on).
     case savedFrame
     /// The static labeled placeholder.
@@ -32,6 +32,11 @@ public enum TerminalCardContent: Equatable, Sendable {
         if let screenText, screenText.contains(where: { !$0.isWhitespace }) { return .screenText }
         return hasSnapshot ? .savedFrame : .placeholder
     }
+
+    /// How strongly the card's picture is drawn: always full. A last-known frame is not greyed
+    /// while the Mac's screen is on its way (Leo, 2026-11-24: "all the connecting... indicators
+    /// and the graying out of workspaces, nah let's not do that").
+    public var drawnOpacity: Double { 1 }
 
     /// Whether the card stands for the terminal's screen now.
     public var isCurrent: Bool {
