@@ -331,8 +331,8 @@ jobs:
     name: CmuxMobileLinkFFI.xcframework (build fleet)
     needs: runner
     if: ${{ !cancelled() && needs.runner.result == 'success' && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && (vars.CI_IOS_FFI_FLEET || '1') != '0' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
-    # The literal fallback never schedules: the job's if: skips outside manaflow-ai and when the variable is unset.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_EVAL_STEP_GATEWAY || 'ubuntu-24.04' }}
+    # The job's if: skips outside manaflow-ai and when CI_EVAL_STEP_GATEWAY is unset; the label is its value (glaeda-gateway-xcode-26.6).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     timeout-minutes: 40  # the client waits up to 600 s queued plus 1500 s running
     permissions:
       contents: read
