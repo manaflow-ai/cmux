@@ -281,6 +281,47 @@ fn unpushed_commits_survive_the_swap() {
     );
 }
 
+/// Git can read the loose directory before the rename and packed-refs after it (or
+/// vice versa). Fetch alone creates only loose refs, so that mixed view used to be empty
+/// when the sender had run gc. Exercise those views without relying on thread timing.
+#[test]
+fn prepared_git_preserves_refs_across_both_lookup_orders() {
+    let repo = repo(3, 64);
+    let projected = repo.mac.join(".git");
+    let expected = sh(&repo.mac, &["for-each-ref", "--format=%(objectname) %(refname)"]);
+    let old_packed = std::fs::read(projected.join("packed-refs")).unwrap();
+    assert!(!projected.join("refs/heads/main").exists());
+    for carry in [false, true] {
+        let state = tempfile::tempdir().unwrap();
+        let local = state.path().join(LOCAL_DIR);
+        if carry {
+            let base = std::fs::read_to_string(projected.join(CARRY_BASE)).unwrap();
+            prepare_carry(&projected, &local, &projected.join(CARRY_PACK), base.trim()).unwrap();
+        } else {
+            let (_, url) = seed_remote(&projected).unwrap();
+            prepare(&projected, &local, &url).unwrap();
+        }
+        let mut refs = git(&local);
+        refs.args(["for-each-ref", "--format=%(objectname) %(refname)"]);
+        assert_eq!(text(refs).unwrap(), expected);
+        // Old loose directory (empty), new packed file.
+        let loose = local.join("refs");
+        let saved = local.join("saved-refs");
+        std::fs::rename(&loose, &saved).unwrap();
+        std::fs::create_dir(&loose).unwrap();
+        let mut refs = git(&local);
+        refs.args(["for-each-ref", "--format=%(objectname) %(refname)"]);
+        assert_eq!(text(refs).unwrap(), expected, "old loose/new packed, carry={carry}");
+        std::fs::remove_dir(&loose).unwrap();
+        std::fs::rename(saved, loose).unwrap();
+        // Old packed file, new loose refs. Both must still name the same tips.
+        std::fs::write(local.join("packed-refs"), &old_packed).unwrap();
+        let mut refs = git(&local);
+        refs.args(["for-each-ref", "--format=%(objectname) %(refname)"]);
+        assert_eq!(text(refs).unwrap(), expected, "old packed/new loose, carry={carry}");
+    }
+}
+
 #[test]
 fn a_git_reading_through_the_swap_sees_one_repository() {
     let repo = repo(12, 2048);
@@ -320,8 +361,9 @@ fn a_git_reading_through_the_swap_sees_one_repository() {
     swap(&p.overlay, &p.forget(), &projected, &local, &ready).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(300));
     stop.store(true, Ordering::Relaxed);
-    for reader in readers {
-        assert!(reader.join().unwrap() >= 3);
+    let results: Vec<_> = readers.into_iter().map(std::thread::JoinHandle::join).collect();
+    for result in results {
+        assert!(result.unwrap() >= 3);
     }
     assert!(std::fs::symlink_metadata(&projected).unwrap().file_type().is_symlink());
     // The reader from before still answers for every object, old and unpushed.

@@ -384,25 +384,6 @@ fn copy_mac_state(projected: &Path, local: &Path, seed_url: Option<&str>) -> any
     }
     fetch.arg(projected).arg("+refs/*:refs/*");
     output(fetch)?;
-    // upload-pack does not advertise a clone's remote-tracking refs (for example
-    // refs/remotes/origin/main), so the wildcard fetch above cannot copy them. Mirror the
-    // projected ref namespace explicitly after the object transfer. The objects are already
-    // reachable from the fetched heads in the normal case; update-ref also makes the state
-    // visible atomically to readers of the machine repository.
-    let mut mac_refs = git(projected);
-    mac_refs.args(["for-each-ref", "--format=%(objectname) %(refname)"]);
-    let mac_refs = text(mac_refs)?
-        .lines()
-        .filter_map(|line| {
-            let (object, name) = line.split_once(' ')?;
-            valid_object_name(object).then(|| format!("update {name} {object}"))
-        })
-        .collect::<Vec<_>>();
-    if !mac_refs.is_empty() {
-        let mut update = git(local);
-        update.args(["update-ref", "--stdin"]);
-        with_stdin(update, &mac_refs)?;
-    }
     // An index can name staged blobs that no ref reaches. Fetch those object IDs from the
     // projected repository explicitly; the carry pack stays blobless while staged work still
     // survives the swap without consulting the configured remote.
@@ -438,6 +419,14 @@ fn copy_mac_state(projected: &Path, local: &Path, seed_url: Option<&str>) -> any
         update.args(["update-ref", "--stdin"]);
         with_stdin(update, &deletes)?;
     }
+    // A reader may have cached the projected loose-ref directory before the swap and
+    // open packed-refs after it. The sender can keep all its refs packed (git gc), whereas
+    // fetch wrote ours loose. Keep both representations so either lookup order crosses the
+    // swap without losing refs. Do not prune the loose refs: a reader can also have cached
+    // the old packed-refs before it reads the new loose-ref tree.
+    let mut pack_refs = git(local);
+    pack_refs.args(["pack-refs", "--all", "--no-prune"]);
+    output(pack_refs)?;
     let config = std::fs::read_to_string(projected.join("config")).unwrap_or_default();
     let lead = if config.is_empty() || config.ends_with('\n') { "" } else { "\n" };
     let ours = match seed_url {
