@@ -57,7 +57,7 @@ use roam::{Control, Session};
 #[path = "wireguard_paths.rs"]
 mod paths;
 pub use paths::{app_backgrounded, set_app_backgrounded};
-pub use roam::{network_changed, rehome, resume_session, roam_timeline, route_destinations};
+pub use roam::{network_changed, portmap_use, rehome, resume_session, roam_timeline, route_destinations};
 #[doc(hidden)]
 pub use roam::{
     relay_held, roam_session, session_endpoints, simulate_blackout, simulate_network_loss,
@@ -2918,6 +2918,9 @@ impl Dialer for WireGuardDialer {
             if trickle {
                 tunnel.session.gather_after_answer(port, options.timeline.clone());
             }
+            // The router's mapping of this socket's port (a Mac with a mapper),
+            // offered when it comes; the link never waits for it.
+            tunnel.session.map_port(port);
             let stream =
                 listener.accept().await.ok_or_else(|| DialError::Transport("tunnel closed".into()))?;
             // The phone's second connection is the input lane.
