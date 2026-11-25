@@ -11,31 +11,25 @@ import XCTest
 ///       --arg test --arg ui=PaneStacksUITests --arg video --artifact artifacts/ios-sim/evidence.zip
 final class PaneStacksUITests: XCTestCase {
     override func setUp() {
-        continueAfterFailure = false
+        // Every state is a screenshot: one wrong count must not cost the rest.
+        continueAfterFailure = true
         XCUIDevice.shared.orientation = .portrait
-    }
-
-    override func tearDown() {
-        XCUIDevice.shared.appearance = .light
     }
 
     @MainActor
     func testA_LightOpenFoldAndReverse() {
-        XCUIDevice.shared.appearance = .light
-        runDrawing(prefix: "light")
+        runDrawing(prefix: "light", dark: false)
     }
 
     @MainActor
     func testB_DarkOpenFoldAndReverse() {
-        XCUIDevice.shared.appearance = .dark
-        runDrawing(prefix: "dark")
+        runDrawing(prefix: "dark", dark: true)
     }
 
     /// One pane of three: the grid's lone card, encased; opening it reflows into two columns.
     @MainActor
     func testC_LoneStack() {
-        XCUIDevice.shared.appearance = .light
-        let app = launch("pane-stacks-lone")
+        let app = launch("pane-stacks-lone", dark: false)
         defer { app.terminate() }
         XCTAssertTrue(app.staticTexts["3 Tabs"].firstMatch.waitForExistence(timeout: 60), "the 3-tab grid\n\(app.debugDescription)")
         pause(2.0)
@@ -54,8 +48,7 @@ final class PaneStacksUITests: XCTestCase {
     /// the chevrons and encasements riding the cards.
     @MainActor
     func testD_ManyTabsScroll() {
-        XCUIDevice.shared.appearance = .dark
-        let app = launch("pane-stacks-many")
+        let app = launch("pane-stacks-many", dark: true)
         defer { app.terminate() }
         XCTAssertTrue(app.staticTexts["19 Tabs"].firstMatch.waitForExistence(timeout: 60), "the 19-tab grid\n\(app.debugDescription)")
         pause(2.0)
@@ -83,8 +76,8 @@ final class PaneStacksUITests: XCTestCase {
     // MARK: The drawing
 
     @MainActor
-    private func runDrawing(prefix p: String) {
-        let app = launch("pane-stacks")
+    private func runDrawing(prefix p: String, dark: Bool) {
+        let app = launch("pane-stacks", dark: dark)
         defer { app.terminate() }
         XCTAssertTrue(app.staticTexts["7 Tabs"].firstMatch.waitForExistence(timeout: 60), "the 7-tab grid\n\(app.debugDescription)")
         pause(2.0)
@@ -156,10 +149,11 @@ final class PaneStacksUITests: XCTestCase {
     // MARK: Helpers
 
     @MainActor
-    private func launch(_ demo: String) -> XCUIApplication {
+    private func launch(_ demo: String, dark: Bool) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
-        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore", "-cmux-mobile-demo", demo]
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore", "-cmux-mobile-demo", demo,
+                                "-AppleInterfaceStyle", dark ? "Dark" : "Light"]
         app.launch()
         return app
     }
