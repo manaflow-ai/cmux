@@ -791,9 +791,9 @@ impl Peer {
     ) -> Result<Opened, DialError> {
         let mut restarted = false;
         loop {
-            // A first connect with nothing read: the tunnel logs in while the read does, so the
-            // read costs no time of its own. A later one (a redial, a restarted remote that may
-            // not listen yet) opens its tunnel after the read, as one with kept tokens has none.
+            // A first connect with nothing read: the tunnel logs in first and the read rides its
+            // master (`peer_ssh_master.rs`). A later one (a redial, a restarted remote that may not
+            // listen yet) opens its tunnel after the read, as one with kept tokens has none.
             let reading = tokio::time::Instant::now();
             let mut early = if ssh_tokens.is_none()
                 && self.read_tokens.get().is_none()
@@ -805,7 +805,7 @@ impl Peer {
             };
             let read = match ssh_tokens.take() {
                 Some(tokens) => Ok(tokens),
-                None => self.connect_tokens().await,
+                None => self.connect_tokens_after(early.is_some()).await,
             };
             let ((token, peer_token), kept) = match read {
                 Ok(tokens) => tokens,
@@ -894,7 +894,7 @@ impl Peer {
                 }
             }
             let reason = errors.finish().await;
-            self.note_ssh_failure(reason);
+            self.note_ssh_failure_over_master(reason, error.fail).await;
             // ssh's own failure class says more than the upgrade's error over its tunnel.
             let fail = ssh_errors::dial_fail(reason).or(error.fail);
             return Err(DialError::new(fail, ssh_errors::describe(error.text, reason)));
