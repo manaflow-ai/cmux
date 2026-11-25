@@ -177,7 +177,11 @@ pub fn worst_cases() -> Vec<WorstCase> {
 /// A duration as `6 s` or `0.5 s`.
 fn s(d: Duration) -> String {
     let ms = d.as_millis();
-    if ms % 1000 == 0 { format!("{} s", ms / 1000) } else { format!("{} s", ms as f64 / 1000.0) }
+    if ms.is_multiple_of(1000) {
+        format!("{} s", ms / 1000)
+    } else {
+        format!("{} s", ms as f64 / 1000.0)
+    }
 }
 
 /// The two tables as Markdown, as `docs/peer-liveness.md` holds them between its markers.
