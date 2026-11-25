@@ -403,7 +403,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not Now"
+            "value": "Not now"
           }
         },
         "ja": {
@@ -414,120 +414,120 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "ليس الآن"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ne sada"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ikke nu"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Nicht jetzt"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ahora no"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Plus tard"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Non ora"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "មិនមែនឥឡូវ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "나중에"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ikke nå"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Nie teraz"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Agora Não"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Не сейчас"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "ไว้ทีหลัง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Şimdi Değil"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Не зараз"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Để sau"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "以后再说"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "稍後再說"
           }
         }
       },
-      "comment": "Browser-data import offer: closes it for good on this channel."
+      "comment": "Browser-data import offer: dismisses the card for 30 days, including after relaunch."
     },
     "browserImportOffer.cookies.title": {
       "comment": "Cookie import banner in browser tabs: title. It brings the person's signed-in sessions (cookies) over, not passwords. %@ is the detected browser, for example Google Chrome.",
@@ -661,134 +661,134 @@
         }
       }
     },
-    "browserImportOffer.dontShowAgain": {
-      "comment": "Cookie import banner in browser tabs: the quiet link that stops the banner for good (Settings turns it back on).",
+    "browserImportOffer.neverForBrowser": {
+      "comment": "Browser-data import offer: permanent dismissal button naming the offered browser. %@ is the browser name, for example Chrome.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Don't Show Again"
+            "value": "Never for %@"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عدم الإظهار مرة أخرى"
+            "value": "أبدًا لـ %@"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ne prikazuj ponovo"
+            "value": "Nikad za %@"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis ikke igen"
+            "value": "Aldrig for %@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nicht mehr anzeigen"
+            "value": "Nie für %@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No volver a mostrar"
+            "value": "Nunca para %@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ne plus afficher"
+            "value": "Jamais pour %@"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Non mostrare più"
+            "value": "Mai per %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "今後表示しない"
+            "value": "%@ では今後表示しない"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កុំបង្ហាញម្ដងទៀត"
+            "value": "កុំបង្ហាញសម្រាប់ %@ ទៀត"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다시 표시하지 않음"
+            "value": "%@에 대해 다시 표시하지 않음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ikke vis igjen"
+            "value": "Aldri for %@"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie pokazuj ponownie"
+            "value": "Nigdy dla %@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não mostrar novamente"
+            "value": "Nunca para %@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Больше не показывать"
+            "value": "Никогда для %@"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่ต้องแสดงอีก"
+            "value": "ไม่ต้องแสดงสำหรับ %@ อีก"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bir Daha Gösterme"
+            "value": "%@ için asla"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Більше не показувати"
+            "value": "Ніколи для %@"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không hiển thị lại"
+            "value": "Không bao giờ với %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "不再显示"
+            "value": "不再为 %@ 提示"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "不再顯示"
+            "value": "不再為 %@ 提示"
           }
         }
       }

@@ -615,6 +615,43 @@ pub fn answer_mailbox(
     });
 }
 
+/// Whether this Mac takes relay-held sends (RFD 0142 R8; `CMUX_MOBILE_RELAY_HOLD=1`, off by default).
+fn relay_hold() -> bool {
+    std::env::var("CMUX_MOBILE_RELAY_HOLD").is_ok_and(|v| v == "1")
+}
+
+/// Relay-held sends on answered session `session_id` (RFD 0142 R8): each `held_item` the relay drains to this
+/// Mac's socket goes through the mailbox like a mailbox frame (its spent ids apply an id once, whichever
+/// route carried it), and every settled one is acked over the relay. Ends with the session.
+pub fn drain_relay_held(session_id: &str, mailbox: Arc<crate::mailbox::Mailbox>) {
+    let Some(ports) = cmux_mobile_link::dial::wireguard::relay_hold_port(session_id, false) else { return };
+    let session = session_id.to_owned();
+    tokio::spawn(cmux_mobile_link::hold_route::drain_held(ports, move |items| {
+        let (mailbox, session) = (Arc::clone(&mailbox), session.clone());
+        async move {
+            let items: Vec<_> = items
+                .into_iter()
+                .map(|item| cmux_mobile_link::signaling::MailboxItem {
+                    id: item.id,
+                    from: item.from,
+                    sealed: item.sealed,
+                    at: None,
+                    seq: None,
+                })
+                .collect();
+            let count = items.len();
+            let handled = mailbox.handle(items, crate::mailbox::now()).await;
+            tracing::info!(
+                session_id = session,
+                held = count,
+                settled = handled.results.len(),
+                "relay-held items"
+            );
+            handled.results.into_iter().map(|result| result.id).collect()
+        }
+    }));
+}
+
 /// Answer every admitted dial on `signaling` until it closes; returns the
 /// close reason.
 pub async fn serve_signaling(signaling: SignalingClient, context: AnswerContext) -> String {
@@ -769,6 +806,9 @@ async fn answer_session(
             return;
         }
     };
+    if let Some(mailbox) = context.mailbox.clone().filter(|_| relay_hold()) {
+        drain_relay_held(&session_id, mailbox);
+    }
     if connected.resumed {
         // A new carrier under a link this phone already has: its channels
         // and services run on, served where it was first answered.
