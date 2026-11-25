@@ -65,6 +65,9 @@ pub struct FakeOptions {
     /// The relay-held send queue (RFD 0142 R8; the Worker's `LINK_RELAY_HOLD=on`): `hold` frames are kept,
     /// in memory, per session, as link-relay.ts keeps them. Off: answered `hold_refused` `off`.
     pub relay_hold: bool,
+    /// The relay keeps no tail (the Worker's `LINK_RELAY_TAIL=off`; RFD 0142 R3): a rejoin gets only live
+    /// frames. Default (false): tail replay on, as production ([`crate::relay_tail`]).
+    pub relay_tail_off: bool,
 }
 
 /// One relay-held item (link-relay.ts / relay-hold.ts `HeldItem`).
@@ -114,6 +117,12 @@ struct State {
     /// Each device's relay joins, in order: device → when.
     relay_joined: Vec<(String, std::time::Instant)>,
     relay_frames: u64,
+    /// Tail replay (RFD 0142 R3): sessionId → its tail ([`crate::relay_tail::RelayTail`], link-relay.ts `tail`).
+    tails: HashMap<String, crate::relay_tail::RelayTail>,
+    /// Frames sent again on a join from a tail.
+    relay_replayed: u64,
+    /// Devices whose relay socket's network died ([`FakeSignaling::blackhole_relay`]).
+    relay_blackholed: std::collections::HashSet<String>,
     relay_cache: relay_cache::FakeRelayCache,
     /// The relay-held queue: sessionId → items, oldest first.
     held: HashMap<String, Vec<FakeHeld>>,
@@ -200,6 +209,18 @@ impl FakeSignaling {
     /// Relay frames forwarded so far.
     pub fn relay_frames(&self) -> u64 {
         self.state.lock().unwrap_or_else(PoisonError::into_inner).relay_frames
+    }
+
+    /// Frames the relay sent again from its tail on a join (RFD 0142 R3).
+    pub fn relay_replayed(&self) -> u64 {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).relay_replayed
+    }
+
+    /// `device`'s relay socket's network dies without a word (a phone that left Wi-Fi): what the relay sends
+    /// into it is lost and what the device sends never arrives, until its next join. The relay cannot tell a
+    /// dead TCP connection from a quiet one, so it keeps sending, and keeping the tail.
+    pub fn blackhole_relay(&self, device: &str) {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).relay_blackholed.insert(device.to_owned());
     }
 
     /// Close every relay socket of `device` (a proxy that resets it).
@@ -550,8 +571,14 @@ async fn serve_relay(
     let Some(peer) = peer else { return };
     let Ok(device_bytes) = uuid::Uuid::parse_str(&device).map(|id| *id.as_bytes()) else { return };
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Message>();
-    let peer_out = {
+    let (peer_out, replay) = {
         let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+        // A new join is a socket on a working network.
+        state.relay_blackholed.remove(&device);
+        // link-relay.ts `replayTail`: this device's last second, taken out of the tail.
+        let replay =
+            state.tails.get_mut(&session).map(|tail| tail.take(&device, unix_ms())).unwrap_or_default();
+        state.relay_replayed += replay.len() as u64;
         state.relay_joins += 1;
         state.relay_joined.push((device.clone(), std::time::Instant::now()));
         let sockets = state.relays.entry(session.clone()).or_default();
@@ -561,12 +588,18 @@ async fn serve_relay(
                 reason: "replaced".into(),
             })));
         }
-        sockets.get(&peer).cloned()
+        (sockets.get(&peer).cloned(), replay)
     };
     let _ =
         out_tx.send(Message::Text(json!({"type":"joined","peer": peer_out.is_some()}).to_string().into()));
     if let Some(peer_out) = &peer_out {
         let _ = peer_out.send(Message::Text(json!({"type":"peer","online": true}).to_string().into()));
+    }
+    if !replay.is_empty() {
+        tracing::debug!(%session, to = %device, frames = replay.len(), "fake relay replays the tail");
+    }
+    for frame in replay {
+        let _ = out_tx.send(Message::Binary(frame));
     }
     if options.relay_hold {
         // Everything held for this device, oldest first, again on every join (at least once).
@@ -596,9 +629,28 @@ async fn serve_relay(
         }
         let _ = sink.close().await;
     });
-    let peer_socket = |state: &Arc<Mutex<State>>| {
+    // Where a frame from this device goes: `None` when this device's network is dead (it never arrives),
+    // else the peer's socket if it has one, the frame kept in the tail toward the peer either way (link-relay.ts
+    // `keep`), and the socket withheld when the peer's network is dead (sent into it and lost).
+    let tail_on = !options.relay_tail_off;
+    let route = |state: &Arc<Mutex<State>>,
+                 frame: &::bytes::Bytes|
+     -> Option<Option<mpsc::UnboundedSender<Message>>> {
+        let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.relay_blackholed.contains(&device) {
+            return None;
+        }
+        if tail_on {
+            state.tails.entry(session.clone()).or_default().keep(&peer, frame.clone(), unix_ms());
+        }
+        if state.relay_blackholed.contains(&peer) {
+            return Some(None);
+        }
+        Some(state.relays.get(&session).and_then(|sockets| sockets.get(&peer).cloned()))
+    };
+    let peer_joined = |state: &Arc<Mutex<State>>| {
         let state = state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.relays.get(&session).and_then(|sockets| sockets.get(&peer).cloned())
+        state.relays.get(&session).is_some_and(|sockets| sockets.contains_key(&peer))
     };
     while let Some(Ok(message)) = source.next().await {
         match message {
@@ -610,13 +662,17 @@ async fn serve_relay(
                 }
                 frame.peer = PeerId(device_bytes);
                 let Ok(encoded) = frame.encode() else { continue };
-                match peer_socket(&state) {
-                    Some(target) => {
+                let encoded = ::bytes::Bytes::from(encoded);
+                match route(&state, &encoded) {
+                    None => {}
+                    Some(Some(target)) => {
                         tracing::trace!(%session, from = %device, to = %peer, "fake relay forwards a frame");
                         state.lock().unwrap_or_else(PoisonError::into_inner).relay_frames += 1;
-                        let _ = target.send(Message::Binary(encoded.into()));
+                        let _ = target.send(Message::Binary(encoded));
                     }
-                    None => {
+                    // Sent into a socket whose network died: lost there, kept in the tail.
+                    Some(None) if peer_joined(&state) => {}
+                    Some(None) => {
                         tracing::debug!(%session, from = %device, to = %peer, "fake relay: the peer has not joined");
                         let _ = out_tx
                             .send(Message::Text(json!({"type":"peer","online": false}).to_string().into()));
@@ -624,7 +680,10 @@ async fn serve_relay(
                 }
             }
             Message::Text(text) if text.as_str() == "ping" => {
-                let _ = out_tx.send(Message::Text("pong".into()));
+                // A dead network carries no ping and no pong.
+                if !state.lock().unwrap_or_else(PoisonError::into_inner).relay_blackholed.contains(&device) {
+                    let _ = out_tx.send(Message::Text("pong".into()));
+                }
             }
             Message::Text(text) => {
                 fake_hold_text(&state, &session, &device, &peer, &out_tx, options.relay_hold, text.as_str());

@@ -56,6 +56,10 @@ fn spawn_mac(
                 };
                 slot.lock().unwrap().push(connected.path.clone());
                 while let Some(mut incoming) = connected.link.accept().await {
+                    if incoming.service == "stream" {
+                        tokio::spawn(stream_to(incoming.channel));
+                        continue;
+                    }
                     tokio::spawn(async move {
                         while let Some(ChannelEvent::Data(bytes)) = incoming.channel.recv().await {
                             if incoming.channel.send(bytes).await.is_err() {
@@ -687,4 +691,134 @@ async fn met_on_the_relay_goes_direct(old_peer: bool, cell: &str) {
         up.elapsed().as_secs_f64() * 1000.0
     );
     connected.link.close("done");
+}
+
+/// The Mac's side of a `stream` channel: a sequence number in 512 bytes every
+/// 5 ms (100 KB/s, a busy terminal), until the channel ends.
+async fn stream_to(channel: cmux_mobile_link::Channel) {
+    let mut seq: u64 = 0;
+    let mut tick = tokio::time::interval(Duration::from_millis(5));
+    loop {
+        tick.tick().await;
+        let mut chunk = vec![0u8; 512];
+        chunk[..8].copy_from_slice(&seq.to_be_bytes());
+        if channel.send(Bytes::from(chunk)).await.is_err() {
+            return;
+        }
+        seq += 1;
+    }
+}
+
+/// What one relay socket swap did to a running Mac-to-phone stream.
+#[derive(Debug, Clone, Copy)]
+struct Swap {
+    /// The longest time the phone received nothing, around the swap.
+    stall: Duration,
+    /// From the phone's new join to the first stream byte after it.
+    first_byte_after_rejoin: Duration,
+    /// Frames the relay sent again on the join.
+    replayed: u64,
+}
+
+/// A link forced onto the relay, a stream running from the Mac, then the
+/// phone's relay socket swapped as on a roam: its network dies for `dark`
+/// (what the relay sends it is lost, the relay cannot tell), then a new join
+/// replaces the old socket. `fake` says whether the relay keeps a tail.
+async fn swap_under_stream(fake: FakeOptions, dark: Duration) -> Swap {
+    let mac_options = DialOptions { force_relay: true, ..options() };
+    let rig = rig(fake, mac_options, true).await;
+    let phone = DialOptions { force_relay: true, relay: relay(&rig.server, &rig.phone_id), ..options() };
+    let connected =
+        dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
+            .await
+            .expect("dial");
+    assert_eq!(*connected.path.borrow(), LinkPath::HttpsRelay);
+    let mut channel = connected.link.open("stream", serde_json::json!({})).await.unwrap();
+    let arrivals = std::sync::Arc::new(std::sync::Mutex::new(Vec::<std::time::Instant>::new()));
+    let sink = std::sync::Arc::clone(&arrivals);
+    let reader = tokio::spawn(async move {
+        while let Some(ChannelEvent::Data(_)) = channel.recv().await {
+            sink.lock().unwrap().push(std::time::Instant::now());
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    let joins_before = rig.server.relay_joins_of(&rig.phone_id).len();
+    let replayed_before = rig.server.relay_replayed();
+    let dark_at = std::time::Instant::now();
+    rig.server.blackhole_relay(&rig.phone_id);
+    tokio::time::sleep(dark).await;
+    rig.server.kick_relay(&rig.phone_id);
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    let joins = rig.server.relay_joins_of(&rig.phone_id);
+    assert!(joins.len() > joins_before, "the phone joined again");
+    let rejoined = joins[joins_before];
+    let arrivals = arrivals.lock().unwrap().clone();
+    reader.abort();
+    let window: Vec<_> =
+        arrivals.iter().copied().filter(|at| *at + Duration::from_millis(100) >= dark_at).collect();
+    let stall = window.windows(2).map(|w| w[1] - w[0]).max().unwrap_or_default();
+    let first_byte_after_rejoin = arrivals
+        .iter()
+        .find(|at| **at >= rejoined)
+        .map(|at| *at - rejoined)
+        .expect("the stream went on after the rejoin");
+    let replayed = rig.server.relay_replayed() - replayed_before;
+    connected.link.close("done");
+    Swap { stall, first_byte_after_rejoin, replayed }
+}
+
+/// RFD 0142 R3: the relay keeps its last second toward the phone, so what
+/// went into the phone's dead socket goes out again on its new join, and the
+/// stream goes on (WireGuard drops the copies that did arrive).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn tail_replay_sends_what_the_dead_socket_lost_on_the_new_join() {
+    let swap = swap_under_stream(FakeOptions::default(), Duration::from_millis(300)).await;
+    assert!(swap.replayed > 0, "the tail was sent again: {swap:?}");
+}
+
+/// RFD 0142 R3 off (`LINK_RELAY_TAIL=off`): the same swap replays nothing and
+/// the link still survives it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn with_the_tail_off_a_swap_replays_nothing_and_the_link_survives() {
+    let swap = swap_under_stream(
+        FakeOptions { relay_tail_off: true, ..FakeOptions::default() },
+        Duration::from_millis(300),
+    )
+    .await;
+    assert_eq!(swap.replayed, 0, "{swap:?}");
+}
+
+/// The before/after of tail replay (RFD 0142 R3): the stream's stall across
+/// a relay socket swap, tail off and on, `n` each. Run with
+/// `cargo test --features testing --test https_relay tail_replay_measure -- --ignored --nocapture`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "measurement: prints before/after numbers"]
+async fn tail_replay_measure() {
+    let n: usize = std::env::var("TAIL_REPLAY_N").ok().and_then(|v| v.parse().ok()).unwrap_or(7);
+    let dark = Duration::from_millis(
+        std::env::var("TAIL_REPLAY_DARK_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(300),
+    );
+    let ms = |d: Duration| d.as_secs_f64() * 1000.0;
+    for tail_on in [false, true] {
+        let mut runs = Vec::new();
+        for _ in 0..n {
+            let fake = FakeOptions { relay_tail_off: !tail_on, ..FakeOptions::default() };
+            runs.push(swap_under_stream(fake, dark).await);
+        }
+        let mut stalls: Vec<f64> = runs.iter().map(|r| ms(r.stall)).collect();
+        let mut firsts: Vec<f64> = runs.iter().map(|r| ms(r.first_byte_after_rejoin)).collect();
+        stalls.sort_by(f64::total_cmp);
+        firsts.sort_by(f64::total_cmp);
+        let p50 = |v: &[f64]| v[v.len() / 2];
+        eprintln!(
+            "tail replay {}: n={n} dark={}ms stall p50={:.0}ms max={:.0}ms | first byte after rejoin p50={:.0}ms max={:.0}ms | replayed frames {:?}",
+            if tail_on { "on " } else { "off" },
+            dark.as_millis(),
+            p50(&stalls),
+            stalls.last().unwrap(),
+            p50(&firsts),
+            firsts.last().unwrap(),
+            runs.iter().map(|r| r.replayed).collect::<Vec<_>>(),
+        );
+    }
 }
