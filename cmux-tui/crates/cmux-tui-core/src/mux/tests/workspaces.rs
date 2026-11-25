@@ -874,7 +874,9 @@ fn a_workspace_commit_prepared_before_another_lands_states_every_workspace() {
     let early = prepare(&moved, &base[30].key, "workspace-moved");
     for intent in [early, late] {
         registry
-            .commit_registry_intent(crate::workspace_registry::RegistryIntent::Workspace(intent))
+            .commit_registry_intent(crate::workspace_registry::RegistryIntent::Workspace(Box::new(
+                intent,
+            )))
             .unwrap();
     }
     drop(registry);

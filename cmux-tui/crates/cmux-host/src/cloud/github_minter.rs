@@ -58,6 +58,8 @@ pub enum Ask {
     AppsListener(Result<u16, String>, std::path::PathBuf),
     /// Start, check or stop a published version as the app user (`apps_spawn.rs`).
     AppsRun(Box<(Result<super::apps_spawn::AppsRun, String>, super::apps_spawn::RunPaths)>),
+    /// One MCP message to the platform's hosted MCP server as this machine (`mcp_call.rs`).
+    McpCall(Box<Result<super::mcp_call::McpCall, String>>),
     Handoff(Result<HandoffReport, String>),
 }
 
@@ -172,6 +174,7 @@ fn run<H: Http>(rx: &Receiver<Msg<H>>, stop: &Stop, now: fn() -> u64, log: fn(&s
                             answer_carrier(client.as_deref_mut(), ask, now())
                         }
                         Ask::AppsCall(ask) => answer_apps(client.as_deref_mut(), *ask, now()),
+                        Ask::McpCall(ask) => answer_mcp(client.as_deref_mut(), *ask, now()),
                         Ask::AppsListener(port, proc_root) => {
                             let peer = super::apps_call::peer_uid(&stream);
                             super::apps_call::listener_reply(&proc_root, port, peer)
@@ -286,6 +289,22 @@ pub fn answer_apps<H: Http>(
         return github::refusal("vm.unbound", "this machine is not bound to cmux Cloud yet");
     };
     client.apps_call(&call, now_wall_ms)
+}
+
+/// One hosted MCP message, sent off the agent poll loop like the apps routes.
+pub fn answer_mcp<H: Http>(
+    client: Option<&mut CloudClient<H>>,
+    ask: Result<super::mcp_call::McpCall, String>,
+    now_wall_ms: u64,
+) -> Value {
+    let call = match ask {
+        Ok(call) => call,
+        Err(why) => return github::refusal("request.invalid", &why),
+    };
+    let Some(client) = client else {
+        return github::refusal("vm.unbound", "this machine is not bound to cmux Cloud yet");
+    };
+    client.mcp_call(&call, now_wall_ms)
 }
 
 /// The reply for one hand-off report: a refusal before a bind or for a
